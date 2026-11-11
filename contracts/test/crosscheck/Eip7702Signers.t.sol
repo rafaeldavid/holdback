@@ -129,8 +129,8 @@ contract Eip7702SignersTest is SignerBase {
         assertEq(usdc.balanceOf(buyer) - buyerBefore, FEE);
     }
 
-    /// The seller, an EOA with self-key code attached after funding, posts its delivery and settles with the buyer
-    /// with plain signatures; the primary, an EOA with self-key code, decides with a plain signature.
+    /// The seller, an EOA with self-key code attached after funding, posts its delivery with a plain signature; the
+    /// primary, an EOA with self-key code, decides with a plain signature.
     function test_delegatedSellerAndPrimary_selfKeyCode_plainSignaturesKeepWorking() public {
         (H.Terms memory t, bytes32 id) = _funded();
         _delegate(SELLER_PK, address(selfKey));

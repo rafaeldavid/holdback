@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import {Vm} from "forge-std/Vm.sol";
+
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {SignerBase, SwitchWallet} from "./ContractSigners.sol";
@@ -39,7 +41,9 @@ contract Erc1271SettlementTest is SignerBase {
 
         uint256 walletBefore = usdc.balanceOf(address(w));
         uint256 sellerBefore = usdc.balanceOf(seller);
+        vm.recordLogs();
         rules.earlyAccept(t, m, d, "", k);
+        _assertLogged(HoldbackRules.KeyReleased.selector, id, address(w), "the key is released to the wallet");
         _is(id, HoldbackRules.Stage.Released);
         assertEq(usdc.balanceOf(seller) - sellerBefore, PRICE, "the seller is paid the price");
         assertEq(usdc.balanceOf(address(w)) - walletBefore, FEE, "the wallet gets the fee back");
@@ -69,7 +73,9 @@ contract Erc1271SettlementTest is SignerBase {
         assertEq(rules.deliveryHashOf(id), bytes32(0), "no delivery landed");
 
         uint256 sellerBefore = usdc.balanceOf(seller);
+        vm.recordLogs();
         rules.earlyAccept(t, m, d, sellerSig, k);
+        _assertLogged(HoldbackRules.KeyReleased.selector, id, address(w), "the key is released to the wallet");
         _is(id, HoldbackRules.Stage.Released);
         assertEq(rules.deliveryHashOf(id), hx.delivery(id, d));
         assertEq(usdc.balanceOf(seller) - sellerBefore, PRICE);
@@ -204,10 +210,24 @@ contract Erc1271SettlementTest is SignerBase {
 
         uint256 walletBefore = usdc.balanceOf(address(w));
         uint256 sellerBefore = usdc.balanceOf(seller);
+        vm.recordLogs();
         rules.decide(t, m, _noDelivery(), "");
+        _assertLogged(HoldbackRules.Decided.selector, id, address(w), "the wallet is the deciding adjudicator");
         _is(id, HoldbackRules.Stage.Released);
         assertEq(usdc.balanceOf(seller) - sellerBefore, PRICE);
         assertEq(usdc.balanceOf(address(w)) - walletBefore, FEE, "the wallet is paid the fee");
+    }
+
+    /// The rules contract emitted, in the recorded logs, an event `sig` for deal `id` whose second indexed topic is
+    /// `who`: the recipient of KeyReleased, the adjudicator of Decided.
+    function _assertLogged(bytes32 sig, bytes32 id, address who, string memory why) internal {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        uint256 found;
+        for (uint256 i; i < logs.length; i++) {
+            if (logs[i].emitter != address(rules) || logs[i].topics.length < 3 || logs[i].topics[0] != sig) continue;
+            if (logs[i].topics[1] == id && logs[i].topics[2] == bytes32(uint256(uint160(who)))) found++;
+        }
+        assertEq(found, 1, why);
     }
 
     /// The appeal adjudicator as a wallet rejects an escalated case: the price goes back to the buyer and the fee to

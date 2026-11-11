@@ -226,16 +226,18 @@ contract RelayFromContractTest is SignerBase {
     }
 
     /// A relayed call whose second step is refused reverts the first step with it: the delivery does not land on its
-    /// own when the decision after it carries another key's signature.
+    /// own when the decision after it names another attempt. The second step's refusal (InvalidMessage) differs from
+    /// any refusal the first step could give, so the revert shows which step was refused.
     function test_relay_refusedSecondStep_revertsTheFirst() public {
         (H.Terms memory t, bytes32 id) = _funded();
         bytes[] memory steps = new bytes[](2);
         steps[0] = _deliverCall(t, id);
-        H.Decision memory forged =
-            _signDecision(t, id, _decision(H.ROLE_PRIMARY, H.OUTCOME_ACCEPT), adjudicator, OTHER_PK);
-        steps[1] = abi.encodeCall(HoldbackRules.decide, (t, forged, _noDelivery(), bytes("")));
+        H.Decision memory other = _decision(H.ROLE_PRIMARY, H.OUTCOME_ACCEPT);
+        other.attempt = 2;
+        other = _signDecision(t, id, other, adjudicator, ADJ_PK);
+        steps[1] = abi.encodeCall(HoldbackRules.decide, (t, other, _noDelivery(), bytes("")));
         bytes32 before = _state(t, id, address(relay));
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
         relay.relayAll(address(rules), steps);
         assertEq(_state(t, id, address(relay)), before, "nothing landed");
         _is(id, HoldbackRules.Stage.Held);
