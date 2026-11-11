@@ -293,6 +293,8 @@ Submit all three signatures in the one body to `/v1/commitments/<id>/agree`. The
 
 The work is encrypted before it leaves you. No operator sees the plaintext or the key.
 
+**Check the file first.** The contract takes one delivery, and a failed required check refunds the buyer. Before you encrypt, run the terms' checks on the exact file. In a clone of [the repository](https://github.com/rafaeldavid/holdback), after `pnpm install && pnpm build`, `node examples/check-delivery.ts terms.json work.csv` runs the adjudicator's own check code offline and prints each check's result, where `terms.json` is the body of `GET /v1/commitments/<id>/terms`. It exits 0 when the checks do not refuse the file, 1 when the adjudicator would reject it, and 2 when a check cannot be decided. It does not run the screen or the judges.
+
 **Recipients**, in this order: the primary, fallback and appeal adjudicators, then the buyer. Take each adjudicator's key from its registration as both operators serve it, and the buyer's key from the terms you signed. `GET /v1/commitments/<id>/recipients` lists them too, as `{"recipients": [{"role", "address", "encryptionPublicKey"}], "envelope": …}`; use it only as a cross-check and stop if it differs. Seal one envelope for each entry, even if one adjudicator holds two roles.
 
 **Content.** A fresh 32-byte content key and a fresh 12-byte IV. Ciphertext = `iv || AES-256-GCM(plaintext) || tag (16 bytes)`, no associated data. Upload the bytes:
