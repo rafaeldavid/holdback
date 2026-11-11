@@ -84,7 +84,7 @@ Source: [T-211](../tasks/T-211-appeal-key-adjudicator.md), Handoff. The source c
 | G-2 | The calibration and red-team harness is not built, and the live registry was promoted without calibration | `docs/judgment-and-defenses.md`; `config/judges-live.yaml` header | open; T-301, Phase 3 |
 | G-3 | The formal model has no CPP reclaim by the buyer and no bond coverage, and its README's contract column reads TBD | review §5 and I-11; `formal/README.md` | open |
 | G-4 | The adversarial pass's 24 proof-of-concept tests are not in the repository | review §2 | open |
-| G-5 | A mutant that stores no delivery hash is caught by unit tests, but no invariant counts it | T-212 Handoff | open |
+| G-5 | A mutant that stores no delivery hash is caught by unit tests, but no invariant counts it | T-212 Handoff; `docs/tasks/T-336-invariant-liveness-counter.md` | fixed in T-336: the handler counts every landed delivery, and `invariant_deliveryHashStored` fails on the mutant (measured) |
 | G-6 | No external audit has run | `docs/tasks/T-206-contract-review.md`, Status | open; before mainnet |
 
 ## 7. Testnet-only facts
