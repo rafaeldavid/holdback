@@ -40,7 +40,7 @@ const funding = (block: number, primary: string) =>
 
 /** Scenario 4's deal 0xa46d7a…fea8 as recorded: its own transactions' logs, and wallet balances that took in another deal. */
 const FOUR: DealRecord = {
-  label: "the round's silent primary, the demo fallback and appeal adjudicators", id: `0x${'a4'.repeat(32)}`, relay: 'https://api.escrow.stream', notes: [],
+  label: "the round's silent primary, the demo fallback and appeal adjudicators", id: `0x${'a4'.repeat(32)}`, relay: 'https://api.crow.direct', notes: [],
   transactions: [
     funding(12_071_562, ADJ_1),
     tx(12_071_563, []),
@@ -57,7 +57,7 @@ const FOUR: DealRecord = {
 
 /** Scenario 5a's deal 0x3a279b…dfb2 as recorded: refunded by its default, while the seller's wallet took another deal's 25 tUSDC. */
 const FIVE_A: DealRecord = {
-  label: 'checks-only, a check that runs out of its work budget', id: `0x${'3a'.repeat(32)}`, relay: 'https://api.escrow.stream', notes: [],
+  label: 'checks-only, a check that runs out of its work budget', id: `0x${'3a'.repeat(32)}`, relay: 'https://api.crow.direct', notes: [],
   transactions: [funding(12_071_601, DEMO_PRIMARY), tx(12_071_602, []), tx(12_071_604, [bondEvent('BondReleased', DEMO_PRIMARY, '25000000')]), tx(12_071_610, [transfer(STORE, BUYER, '26000000')])],
   chain: { stage: 'Refunded', appeal: 'closed', attempt: 1, payment: { collected: true, capturable: '0', refundable: '0' }, block: 12_071_610 },
   balances: {

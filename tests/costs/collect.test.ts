@@ -232,7 +232,7 @@ describe('sources, on synthetic fixtures', () => {
 
   const sepoliaFetch = (balances: Record<string, string[]>, discovery = fixture('discovery.json')) =>
     fakeFetch(
-      (u) => (u === 'https://api.escrow.stream/' ? { body: discovery } : undefined),
+      (u) => (u === 'https://api.crow.direct/' ? { body: discovery } : undefined),
       (u, init) => {
         if (u !== 'https://ethereum-sepolia-rpc.publicnode.com') return undefined;
         const req = JSON.parse(String(init.body));
@@ -269,6 +269,11 @@ describe('sources, on synthetic fixtures', () => {
     const r = await runSource(sepolia, baseCtx({ fetch }));
     expect(r.status.ok).toBe(true);
     expect(r.status.note).toMatch(/no funding lane found/);
+  });
+
+  it("the budgets template names the same discovery document as the sepolia source's default (T-313)", () => {
+    const template = JSON.parse(readFileSync(resolve('config/costs.template.json'), 'utf8'));
+    expect(template.sepolia.discoveryUrl).toBe('https://api.crow.direct/');
   });
 
   it('a source without its credentials is "not configured", and a failing source leaves the others intact', async () => {
