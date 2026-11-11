@@ -6,7 +6,7 @@
 - **Depends on:** T-008 (the check library), T-317 (the audit-report terms and sample reports, used as the sample deal)
 - **Paths this task may touch:** `packages/judgment/src/intake.ts`, `packages/judgment/src/pipeline.ts`, `packages/judgment/src/preflight.ts`, `packages/judgment/src/preflight.test.ts`, `packages/judgment/src/index.ts`, `examples/check-delivery.ts`, `examples/check-delivery.test.ts`, `examples/package.json`, `examples/tsconfig.json`, `pnpm-lock.yaml` (the examples' workspace links only), `site/llms.txt`, `site/index.html` (only if the build regenerates it), this file. Never: `spec/schemas/`, `contracts/`, `packages/judgment/src/checks/`.
 - **Human gate:** no. The site deploy that publishes the `llms.txt` sentences waits for Rafa.
-- **Status:** review
+- **Status:** done (PR 278, merged 2026-11-11)
 - **Agent/session:** the T-316 and T-317 session, 2026-11-11, branch `t-316-seller-check-runner`
 
 ## Intent
