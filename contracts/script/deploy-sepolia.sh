@@ -209,19 +209,13 @@ creation_matches "$BEACON_ID" "$BEACON_TX"
 creation_matches "$RULES_ID" "$RULES_TX" 'constructor(address,address,address,uint64,address)' \
   "$ESCROW" "$C3009" "$CP2" "$EXPIRY_MARGIN" "$BEACON"
 
-# The deployment is wired as the review assumed.
-BONDS="$(call "$RULES" 'BONDS()(address)')"
-# HoldbackRules creates the bond vault in its constructor, its first CREATE, so the vault is at nonce 1 of the rules
-# contract: a lookalike rules contract could name any vault, but not this address.
-BONDS_DERIVED="$(cast compute-address "$RULES" --nonce 1)"
-[ "${BONDS_DERIVED##* }" = "$BONDS" ] || fail "bonds $BONDS is not the vault the rules contract created (${BONDS_DERIVED##* })"
+# The deployment is wired as the review assumed. Phase one has no bond vault (ADR-0031 §8).
 TOKEN_STORE_IMPL="$(call "$ESCROW" 'tokenStoreImplementation()(address)')"
 expect "rules ESCROW" "$ESCROW" call "$RULES" 'ESCROW()(address)'
 expect "rules ERC3009_COLLECTOR" "$C3009" call "$RULES" 'ERC3009_COLLECTOR()(address)'
 expect "rules PERMIT2_COLLECTOR" "$CP2" call "$RULES" 'PERMIT2_COLLECTOR()(address)'
 expect "rules BEACON" "$BEACON" call "$RULES" 'BEACON()(address)'
 expect "rules EXPIRY_MARGIN" "$EXPIRY_MARGIN" call "$RULES" 'EXPIRY_MARGIN()(uint64)'
-expect "bonds RULES" "$RULES" call "$BONDS" 'RULES()(address)'
 expect "ERC-3009 collector escrow" "$ESCROW" call "$C3009" 'authCaptureEscrow()(address)'
 expect "ERC-3009 collector multicall3" "$MULTICALL3" call "$C3009" 'multicall3()(address)'
 expect "Permit2 collector escrow" "$ESCROW" call "$CP2" 'authCaptureEscrow()(address)'
@@ -278,7 +272,7 @@ RECORD="$(jq -n \
   --arg cp2 "$CP2" --arg cp2Tx "$CP2_TX" --argjson cp2Block "$CP2_BLOCK" \
   --arg beacon "$BEACON" --arg beaconTx "$BEACON_TX" --argjson beaconBlock "$BEACON_BLOCK" \
   --arg rules "$RULES" --arg rulesTx "$RULES_TX" --argjson rulesBlock "$RULES_BLOCK" \
-  --arg bonds "$BONDS" --arg value1000 "$VALUE_1000" --arg beaconCodeHash "$BEACON_CODEHASH" \
+  --arg value1000 "$VALUE_1000" --arg beaconCodeHash "$BEACON_CODEHASH" \
   --arg permit2 "$PERMIT2" --arg permit2CodeHash "$PERMIT2_CODEHASH" \
   --arg multicall "$MULTICALL3" --arg multicallCodeHash "$MULTICALL3_CODEHASH" \
   --argjson expiryMarginSec "$EXPIRY_MARGIN" \
@@ -295,7 +289,6 @@ RECORD="$(jq -n \
     permit2: $permit2,
     multicall: $multicall,
     rules: $rules,
-    bonds: $bonds,
     beacon: $beacon,
     expiryMarginSec: $expiryMarginSec,
     token: $token,
@@ -315,8 +308,7 @@ RECORD="$(jq -n \
       Permit2PaymentCollector: {address: $cp2, tx: $cp2Tx, block: $cp2Block, args: [$escrow, $permit2, $multicall]},
       DrandQuicknetBeacon: {address: $beacon, tx: $beaconTx, block: $beaconBlock, args: []},
       HoldbackRules: {address: $rules, tx: $rulesTx, block: $rulesBlock,
-        args: [$escrow, $c3009, $cp2, ($expiryMarginSec | tostring), $beacon]},
-      HoldbackBonds: {address: $bonds, tx: $rulesTx, block: $rulesBlock, args: [], createdBy: "HoldbackRules constructor"}
+        args: [$escrow, $c3009, $cp2, ($expiryMarginSec | tostring), $beacon]}
     }
   }')"
 

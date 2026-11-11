@@ -11,7 +11,6 @@ import {IPermit2} from "permit2/interfaces/IPermit2.sol";
 import {DeployPermit2} from "permit2/../test/utils/DeployPermit2.sol";
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
-import {HoldbackBonds} from "../../src/HoldbackBonds.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {SimBeacon} from "../../script/SimBeacon.sol";
 
@@ -49,10 +48,6 @@ contract TypesHarness {
         return H.decisionHash(i, a, t, m);
     }
 
-    function appeal(bytes32 i, address a, address token, H.Appeal calldata p) external pure returns (bytes32) {
-        return H.appealHash(i, a, H.tokenIdHash(token), p);
-    }
-
     function mutual(bytes32 i, address token, H.Mutual calldata m) external pure returns (bytes32) {
         return H.mutualHash(i, H.tokenIdHash(token), m);
     }
@@ -63,7 +58,7 @@ contract TypesHarness {
 }
 
 /// Shared fixture: CPP v1.1.0 (vendored, unmodified), both collectors, Permit2, a mock USDC with ERC-3009, and
-/// HoldbackRules with its bond vault and the sim beacon (T-209: the drand verifier has its own suites). Local EVM only (chain id 31337); no RPC.
+/// HoldbackRules (phase one: no bond vault, ADR-0031 §8) and the sim beacon (T-209: the drand verifier has its own suites). Local EVM only (chain id 31337); no RPC.
 abstract contract Base is Test, DeployPermit2 {
     bytes32 internal constant RECEIVE_WITH_AUTHORIZATION_TYPEHASH =
         0xd099cc98ef71107a616c4f0f941f04c322d8e254fe26b3c6668db87aae413de8;
@@ -81,7 +76,6 @@ abstract contract Base is Test, DeployPermit2 {
     MockERC3009Token internal usdc;
     SimBeacon internal sim;
     HoldbackRules internal rules;
-    HoldbackBonds internal bonds;
     TypesHarness internal hx;
 
     uint256 internal constant BUYER_PK = 0xB0B;
@@ -99,7 +93,6 @@ abstract contract Base is Test, DeployPermit2 {
 
     uint256 internal constant PRICE = 26_000_000; // 26 tUSD, 6 decimals
     uint256 internal constant FEE = 500_000; // 0.50 tUSD adjudication fee
-    uint256 internal constant BOND = 1_000_000_000;
     bytes32 internal constant SEED = keccak256("primary seed");
     bytes32 internal constant SIM_SEED = keccak256("sim seed");
     string internal constant KEY_SCHEME = "x25519-xsalsa20poly1305";
@@ -117,7 +110,6 @@ abstract contract Base is Test, DeployPermit2 {
         usdc = new MockERC3009Token("Mock USDC", "mUSDC", 6);
         sim = new SimBeacon(SIM_SEED);
         rules = new HoldbackRules(escrow, address(collector3009), address(collectorPermit2), MARGIN, sim);
-        bonds = rules.BONDS();
         hx = new TypesHarness();
 
         buyer = vm.addr(BUYER_PK);
@@ -128,19 +120,15 @@ abstract contract Base is Test, DeployPermit2 {
         relayer = makeAddr("relayer");
         usdc.mint(buyer, 1_000_000_000);
         usdc.mint(seller, 1_000_000_000);
-        _bond(adjudicator, BOND);
-        _bond(fallbackAdj, BOND);
-        _bond(appealAdj, BOND);
     }
 
     // ------------------------------------------------------------ builders
 
-    function _bond(address a, uint256 amount) internal {
-        usdc.mint(a, amount);
-        vm.startPrank(a);
-        usdc.approve(address(bonds), amount);
-        bonds.deposit(address(usdc), amount);
-        vm.stopPrank();
+    /// The `bondReserved` an acceptance signs: 0 on a phase-one deployment, which refuses any other value (ADR-0031
+    /// §8, point 2). The side-by-side harness's pinned side overrides it with the price, which the deployed
+    /// contracts require.
+    function _bondReserved(H.Terms memory) internal view virtual returns (uint256) {
+        return 0;
     }
 
     function _terms() internal returns (H.Terms memory t) {
@@ -252,7 +240,7 @@ abstract contract Base is Test, DeployPermit2 {
     function _acceptance(H.Terms memory t, uint256 pk) internal view returns (H.Acceptance memory a) {
         a = H.Acceptance({
             seedCommitment: keccak256(abi.encodePacked(SEED)),
-            bondReserved: t.price,
+            bondReserved: _bondReserved(t),
             nonce: keccak256("acc"),
             expiresAt: t.timing.offerExpiresAt,
             signature: ""
