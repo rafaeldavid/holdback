@@ -7,7 +7,7 @@
 - **Roadmap:** N66 (Now, Rafa, 2026-11-11)
 - **Paths this task may touch:** `apps/adjudicator/`, `packages/judgment/src/`, `examples/check-delivery.ts`, `examples/check-delivery.test.ts`, new files under `fixtures/` (scenarios, terms, data), `docs/api.md` (only the lines on the reference check), `packages/testkit/src/judgment.ts` (the snap runner's reference loading only; added by the coordinator on 2026-11-11), this file. Never: `spec/schemas/`, `contracts/`, `packages/settlement/`, `apps/operator/`, `examples/seller-adapter.ts`, `examples/buyer-signer.ts`, `examples/audit-deal.ts` and their tests.
 - **Human gate:** no. The fix reaches the live adjudicators only with a deploy, which waits for Rafa.
-- **Status:** in progress
+- **Status:** done (PR 306)
 - **Agent/session:** the T-327 session, 2026-11-11, branch `t-327-adjudicator-reference-files`
 
 ## Intent
