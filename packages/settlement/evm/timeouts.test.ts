@@ -7,7 +7,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { wholeSecond, type Address, type Club, type EscrowState, type Timing } from '@holdback/core';
-import { encodeErrorResult, encodeFunctionData, maxUint256, type Hex } from 'viem';
+import { encodeErrorResult, encodeFunctionData, type Hex } from 'viem';
 import { foundry } from 'viem/chains';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Genesis } from '../sim/simchain.js';
@@ -15,7 +15,7 @@ import type { Submission, TimeoutKind } from '../src/interface.js';
 import type { LaneRow } from './chain.js';
 import { acceptanceView, agreeView, deliveryView, termsView } from './encode.js';
 import { EvmSettlement } from './evm-settlement.js';
-import { ensureBond, LiveChain, type DeploymentFile, type LaneStore } from './live.js';
+import { LiveChain, type DeploymentFile, type LaneStore } from './live.js';
 import { ChainSync, type Cursor } from './sync.js';
 import { evmCast, evmGenesis, EvmDeal, testActor, type TestActor } from './testing.js';
 import { nextOnChain, nextTimeout, OperatorTimeouts, type OperatorTimeoutsOptions, type TimeoutBudget } from './timeouts.js';
@@ -46,17 +46,13 @@ const book = (kind: string, extra: Record<string, unknown> = {}) => ({ kind, ter
 describe('the next timeout the operators send for a book (T-231)', () => {
   it('names the timeout that ends each open state, and when it falls due', () => {
     // An accepted offer expires at the earlier of its two deadlines; nothing is held, so it comes last.
-    expect(nextTimeout(book('AcceptedByAdjudicator'))).toEqual({ kind: 'expire_offer', at: at(TIMING.offerExpiresAt), rank: 2 });
-    expect(nextTimeout(book('Agreed', { terms: { timing: { ...TIMING, fundBy: '2026-11-06T10:10:00Z' } } }))).toEqual({ kind: 'expire_offer', at: at('2026-11-06T10:10:00Z'), rank: 2 });
+    expect(nextTimeout(book('AcceptedByAdjudicator'))).toEqual({ kind: 'expire_offer', at: at(TIMING.offerExpiresAt), rank: 1 });
+    expect(nextTimeout(book('Agreed', { terms: { timing: { ...TIMING, fundBy: '2026-11-06T10:10:00Z' } } }))).toEqual({ kind: 'expire_offer', at: at('2026-11-06T10:10:00Z'), rank: 1 });
     expect(nextTimeout(book('Held'))).toEqual({ kind: 'reclaim', at: at(TIMING.deliverBy), rank: 0 });
     // The takeover before fallbackBy is the fallback adjudicator's own turn (T-211); at fallbackBy the default needs it.
     expect(nextTimeout(book('Delivered'))).toEqual({ kind: 'fallback', at: at(TIMING.fallbackBy), rank: 0 });
     expect(nextTimeout(book('FallbackJudging'))).toEqual({ kind: 'default', at: at(TIMING.fallbackBy), rank: 0 });
     expect(nextTimeout(book('Escalated', { escalation: { appealDecideBy: '2026-11-06T11:30:00Z' } }))).toEqual({ kind: 'default', at: at('2026-11-06T11:30:00Z'), rank: 0 });
-    // An unused appeal window holds only the decider's bond; an open appeal holds the appellant's.
-    const via = (appeal: Record<string, unknown>) => ({ via: { kind: 'first_instance', appeal } });
-    expect(nextTimeout(book('Released', via({ kind: 'none', appealBy: '2026-11-06T11:05:00Z', appealDecideBy: '2026-11-06T11:15:00Z' })))).toEqual({ kind: 'appeal_expiry', at: at('2026-11-06T11:05:00Z'), rank: 1 });
-    expect(nextTimeout(book('Refunded', via({ kind: 'open', appealDecideBy: '2026-11-06T11:15:00Z' })))).toEqual({ kind: 'appeal_expiry', at: at('2026-11-06T11:15:00Z'), rank: 0 });
   });
 
   it('sends nothing for an offer no adjudicator accepted, nor for a deal that is over', () => {
@@ -64,20 +60,20 @@ describe('the next timeout the operators send for a book (T-231)', () => {
     expect(nextTimeout(book('Offered'))).toBeNull();
     for (const kind of ['Expired', 'Settled']) expect(nextTimeout(book(kind))).toBeNull();
     for (const via of [{ kind: 'reclaim' }, { kind: 'default_outcome' }, { kind: 'early_accept' }, { kind: 'escalation' }]) expect(nextTimeout(book('Refunded', { via }))).toBeNull();
-    for (const appeal of ['upheld', 'overturned', 'expired']) expect(nextTimeout(book('Released', { via: { kind: 'first_instance', appeal: { kind: appeal } } }))).toBeNull();
+    // A first decision is final at once on the phase-one contracts (ADR-0031 §8): no appeal expiry follows it.
+    for (const appeal of [{ kind: 'none', appealBy: '2026-11-06T11:05:00Z', appealDecideBy: '2026-11-06T11:15:00Z' }, { kind: 'open', appealDecideBy: '2026-11-06T11:15:00Z' }, { kind: 'upheld' }, { kind: 'overturned' }, { kind: 'expired' }]) {
+      for (const kind of ['Released', 'Refunded']) expect(nextTimeout(book(kind, { via: { kind: 'first_instance', appeal } }))).toBeNull();
+    }
   });
 
-  it('reads a deal behind the chain from dealOf: its stage, appeal state and t1', () => {
+  it('reads a deal behind the chain from dealOf: its stage and t1', () => {
     const t1 = Math.floor(at('2026-11-06T11:00:00Z') / 1000);
-    expect(nextOnChain({ stage: 'Held', appeal: 0, t1: 0 }, TIMING)).toEqual({ kind: 'reclaim', at: at(TIMING.deliverBy), rank: 0 });
-    expect(nextOnChain({ stage: 'Delivered', appeal: 0, t1: 0 }, TIMING)).toEqual({ kind: 'fallback', at: at(TIMING.fallbackBy), rank: 0 });
-    expect(nextOnChain({ stage: 'FallbackJudging', appeal: 0, t1 }, TIMING)).toEqual({ kind: 'default', at: at(TIMING.fallbackBy), rank: 0 });
-    expect(nextOnChain({ stage: 'Escalated', appeal: 0, t1 }, TIMING)).toEqual({ kind: 'default', at: (t1 + 600) * 1000, rank: 0 });
-    expect(nextOnChain({ stage: 'Released', appeal: 0, t1 }, TIMING)).toEqual({ kind: 'appeal_expiry', at: (t1 + 300) * 1000, rank: 1 });
-    expect(nextOnChain({ stage: 'Refunded', appeal: 1, t1 }, TIMING)).toEqual({ kind: 'appeal_expiry', at: (t1 + 900) * 1000, rank: 0 });
-    // Closed (5) after a reclaim, a default or an early accept; Expired (4), Upheld (2), Overturned (3).
-    for (const appeal of [2, 3, 4, 5]) expect(nextOnChain({ stage: 'Refunded', appeal, t1 }, TIMING)).toBeNull();
-    for (const stage of ['None', 'Settled', 'Expired']) expect(nextOnChain({ stage, appeal: 0, t1 }, TIMING)).toBeNull();
+    expect(nextOnChain({ stage: 'Held', t1: 0 }, TIMING)).toEqual({ kind: 'reclaim', at: at(TIMING.deliverBy), rank: 0 });
+    expect(nextOnChain({ stage: 'Delivered', t1: 0 }, TIMING)).toEqual({ kind: 'fallback', at: at(TIMING.fallbackBy), rank: 0 });
+    expect(nextOnChain({ stage: 'FallbackJudging', t1 }, TIMING)).toEqual({ kind: 'default', at: at(TIMING.fallbackBy), rank: 0 });
+    expect(nextOnChain({ stage: 'Escalated', t1 }, TIMING)).toEqual({ kind: 'default', at: (t1 + 600) * 1000, rank: 0 });
+    // Released and Refunded are final at once on the phase-one contracts (ADR-0031 §8).
+    for (const stage of ['None', 'Released', 'Refunded', 'Settled', 'Expired']) expect(nextOnChain({ stage, t1 }, TIMING)).toBeNull();
   });
 });
 
@@ -104,7 +100,6 @@ describe.skipIf(!ready)(`the operators send due timeouts on their own, on anvil 
       permit2Collector: d.permit2Collector,
       multicall: d.multicall,
       rules: d.rules,
-      bonds: d.bonds,
       beacon: d.beacon,
       expiryMarginSec: Number(anvil.expiryMargin),
     };
@@ -112,14 +107,11 @@ describe.skipIf(!ready)(`the operators send due timeouts on their own, on anvil 
     const restarting = new LiveChain({ deployment, rpcUrls: [anvil.rpcUrl], relayerKey: RESTART_RELAYER });
     const everyone = [...chain.lanes, ...restarting.lanes].map((l) => l.address).concat(Object.values(cast).map((a) => a.address), watcher.address);
     for (const a of everyone) await anvil.rpc('anvil_setBalance', [a, '0x56bc75e2d63100000']);
-    ({ genesis, club } = await evmGenesis({ cast, token: lc(d.token), chainId: anvil.chainId, rules: d.rules, start: wholeSecond(wall()), buyer: 0n, bond: 0n }));
+    ({ genesis, club } = await evmGenesis({ cast, token: lc(d.token), chainId: anvil.chainId, rules: d.rules, start: wholeSecond(wall()), buyer: 0n }));
     // The world's sim beacon is the contract's SimBeacon, deployed with the zero seed (world.ts).
     genesis = { ...genesis, simSeed: `0x${'00'.repeat(32)}` };
     await chain.mint(cast.buyer.address, 10n ** 12n);
     await chain.mint(cast.seller.address, 10n ** 10n);
-    for (const a of [cast.primary, cast.fallback, cast.appeal]) await ensureBond(chain, a.key, 500_000_000_000n, 10n ** 18n);
-    // The parties' one-time allowance to HoldbackBonds for appeal bonds.
-    for (const p of [cast.buyer, cast.seller]) await chain.send({ key: p.key, to: d.token, data: encodeFunctionData({ abi: chain.abis.token, functionName: 'approve', args: [d.bonds, maxUint256] }) });
   }, 180_000);
   afterAll(async () => {
     await anvil?.stop();
@@ -306,31 +298,18 @@ describe.skipIf(!ready)(`the operators send due timeouts on their own, on anvil 
     expect(await pass.run()).toMatchObject({ sent: [], reads: 0 });
   }, 120_000);
 
-  it('appeal expiry: an unused window closes and frees the decider\'s bond; an appeal nobody decides expires and the appellant gets its bond back', async () => {
+  it('no appeal expiry: a decided deal is final at once, and no pass sends anything for it once the old window would have passed (ADR-0031 §8)', async () => {
     const { s, pass } = await node();
-    const unused = await funded('t-231-appeal-none', s, { deliver: true });
-    await ok(s, await unused.decide('primary', 'accept'));
-    const appealed = await funded('t-231-appeal-open', s, { deliver: true });
-    await ok(s, await appealed.decide('primary', 'accept'));
-    const bond = 100_000_000n;
-    const buyerBefore = await s.tokenBalance(cast.buyer.address, true);
-    await ok(s, await appealed.appealBy('buyer', bond));
-    expect(await s.tokenBalance(cast.buyer.address, true)).toBe(buyerBefore - bond);
-    const primaryFree = await s.freeBond(cast.primary.address);
-    expect(sent(await pass.run())).toEqual([]);
-
-    // appealBy passed for both; only the unused window is due. The open appeal waits for appealDecideBy.
-    await jump(301);
-    expect(sent(await pass.run())).toEqual(['appeal_expiry']);
-    expect((await s.state(unused.id))!).toMatchObject({ escrowState: 'Released', appealState: 'expired' });
-    expect(await s.freeBond(cast.primary.address)).toBe(primaryFree + BigInt(unused.terms.price.amount));
-    expect((await s.state(appealed.id))!.appealState).toBe('open');
-
-    await jump(300);
-    expect(sent(await pass.run())).toEqual(['appeal_expiry']);
-    expect((await s.state(appealed.id))!).toMatchObject({ escrowState: 'Released', appealState: 'expired' });
-    expect(await s.tokenBalance(cast.buyer.address, true)).toBe(buyerBefore);
+    const decided = await funded('t-349-decided', s, { deliver: true });
+    await ok(s, await decided.decide('primary', 'accept'));
+    const view = (await s.state(decided.id))!;
+    expect(view).toMatchObject({ escrowState: 'Released', appealState: 'none' });
+    expect(view.finalAt).toBe(view.settledAt);
     expect(pass.nextAt()).toBeNull();
+    const before = await lanes();
+    await jump(decided.terms.timing.appealWindowSec + decided.terms.timing.appealDecideSec + 1);
+    expect(await pass.run()).toMatchObject({ sent: [], refused: [] });
+    expect(await lanes()).toBe(before);
   }, 120_000);
 
   it('the contract is the check: a reclaim the book thinks due but the chain refuses at the pinned block is not sent, nor tried every pass', async () => {
@@ -474,7 +453,7 @@ describe.skipIf(!ready)(`the operators send due timeouts on their own, on anvil 
     await direct(watcher, multicall, bundle);
     expect(await sync.pass()).toMatchObject({ behind: 1 });
     expect(s.escrowState(d.id)!.kind).toBe('AcceptedByAdjudicator');
-    expect(s.behindStage(d.id)).toEqual({ stage: 'Delivered', appeal: 0 });
+    expect(s.behindStage(d.id)).toEqual({ stage: 'Delivered' });
 
     const before = await lanes();
     const partyNonces = await parties();
@@ -488,7 +467,7 @@ describe.skipIf(!ready)(`the operators send due timeouts on their own, on anvil 
     const held = await s.heldFor(d.id);
     const buyer = await s.tokenBalance(cast.buyer.address, true);
     expect(sent(await pass.run())).toEqual(['fallback']);
-    expect(s.behindStage(d.id)).toEqual({ stage: 'FallbackJudging', appeal: 0 });
+    expect(s.behindStage(d.id)).toEqual({ stage: 'FallbackJudging' });
     expect(sent(await pass.run())).toEqual(['default']);
     expect((await s.stage(d.id)).stage).toBe('Refunded');
     expect((await s.state(d.id))!.escrowState).toBe('Refunded');
