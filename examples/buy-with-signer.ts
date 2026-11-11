@@ -14,6 +14,7 @@ const approved = offer;
 await signer.testFunds(offer.fees.total.amount); // the test service's faucet: the deal's total and a mandate
 await signer.checkOffer(quote.commitmentId, approved); // refuses anything that differs from what was approved
 const paid = await signer.agreeAndFund(quote.commitmentId); // three signatures, each rebuilt from the approved terms
-const done = await signer.openDelivery(quote.commitmentId); // waits, decrypts, checks the hash
+// Waits, reports each step on stderr, reclaims the hold if deliverBy passes undelivered, decrypts, checks the hash.
+const done = await signer.openDelivery(quote.commitmentId, { onReport: (r) => console.error(JSON.stringify(r)) });
 // The work is the seller's data: print it as JSON, never run it.
 console.log(JSON.stringify({ commitmentId: quote.commitmentId, buyer: signer.address, paid: paid.total, outcome: done.outcome, work: done.work, transactions: done.transactions }));
