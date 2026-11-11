@@ -31,8 +31,10 @@
 //   pnpm install && pnpm build
 //   HOLDBACK_KEY=0x… HOLDBACK_OPERATORS=https://…,https://… node examples/seller-adapter.ts
 //   node examples/seller-adapter.ts --sim     (test keys, adjudicators and operators from a running `pnpm sim`)
-// Env: HOLDBACK_KEY (the seller's signing key), HOLDBACK_OPERATORS (two or more, comma-separated), and on a chain
-// HOLDBACK_CHAIN_ID and HOLDBACK_VERIFYING_CONTRACT (verify.ts). Test tokens only: nothing here is real money.
+// Env: HOLDBACK_KEY (the seller's signing key) and HOLDBACK_OPERATORS (two or more, comma-separated). The adapter
+// signs under the settlement layer those operators serve, which must be one pinned in verify.ts: SimChain, Sepolia,
+// or the deployment in HOLDBACK_DEPLOYMENT. Your API prices in that layer's token: `tUSD` on SimChain, the token's
+// address on a chain (discovery, `demo.token.id`). Test tokens only: nothing here is real money.
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage } from 'node:http';
@@ -42,7 +44,7 @@ import type { Hex } from 'viem';
 import { preflightDelivery } from '@holdback/judgment';
 import { plain } from '@holdback/testkit';
 import { Agent } from './agent.ts';
-import { jcs, operatorFeeOf } from './verify.ts';
+import { jcs, knownPins, operatorFeeOf } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -166,8 +168,11 @@ function scopeError(scope: J, rules: Record<string, ScopeRule>): string | null {
   return null;
 }
 
-/** The template with each placeholder replaced by the scope's value. One pass: a scope value is never read as a placeholder. */
-function fill(node: J, scope: J): J {
+/**
+ * The template with each placeholder replaced by the scope's value. One pass: a scope value is never read as a
+ * placeholder. Exported so a buyer can fill the same template with its own scope and compare the offer (audit-deal.ts).
+ */
+export function fill(node: J, scope: J): J {
   const value = (name: string, length: string | undefined): J => (length ? scope[name].length : scope[name]);
   if (typeof node === 'string') {
     const whole = new RegExp(`^${PLACEHOLDER.source}$`).exec(node);
@@ -217,8 +222,17 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   const key = env['HOLDBACK_KEY'];
   const operators = (env['HOLDBACK_OPERATORS'] ?? '').split(',').filter(Boolean);
   if (!key || !/^0x[0-9a-fA-F]{64}$/.test(key)) throw new Error('set HOLDBACK_KEY to the seller\'s signing key (0x and 64 hex characters)');
-  const seller = new Agent(operators, key as Hex, new Uint8Array(32)); // sealing a delivery needs no secret encryption key
-  seller.sources(); // refuses fewer than two operators at distinct origins
+  const reader = new Agent(operators, key as Hex, new Uint8Array(32)); // sealing a delivery needs no secret encryption key
+  reader.sources(); // refuses fewer than two operators at distinct origins
+  // The settlement layer is the one every operator serves, and it must be one pinned in verify.ts (SimChain, Sepolia,
+  // or HOLDBACK_DEPLOYMENT), as the buyer's signer pins it (buyer-signer.ts). The seller signs under that domain.
+  const exact = (d: J) => jcs({ ...d, verifyingContract: String(d?.verifyingContract).toLowerCase() });
+  const served = await reader.trusted('/.well-known/holdback.json', (x) => x.domain);
+  const pins = knownPins();
+  const pin = pins.find((p) => exact(p.domain) === exact(served));
+  if (!pin) throw new Error(`the operators serve EIP-712 domain ${plain(jcs(served ?? null)).slice(0, 300)}, not one pinned in verify.ts (${pins.map((p) => jcs(p.domain)).join(' or ')})`);
+  const seller = new Agent(operators, key as Hex, new Uint8Array(32), pin.domain, pin.chain);
+  const token = pin.token; // the one token this settlement layer holds
   const template = loadTemplate(c);
   const log = (line: string) => (c.log ?? console.log)(`${new Date().toISOString()} ${line}`);
   const journal: Journal = existsSync(c.journal) ? JSON.parse(readFileSync(c.journal, 'utf8')) : { deals: {}, quotes: {} };
@@ -253,6 +267,11 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     // Money is base units as a decimal string, never a number (hard rule): refuse anything else from the seller API.
     if (!price || typeof price.token !== 'string' || typeof price.amount !== 'string' || !BASE_UNITS.test(price.amount)) {
       log('Quote refused: the seller API\'s price is not {token, amount} with the amount in base units as a decimal string.');
+      throw new Refused(502, 'seller_api_failed', 'the seller could not price this scope');
+    }
+    // The settlement layer holds one token. A price in another is a seller API set up for another layer.
+    if (price.token.toLowerCase() !== token.id.toLowerCase()) {
+      log(`Quote refused: the seller API priced in ${plain(price.token).slice(0, 80)}; this settlement layer's token is ${token.id} (${token.symbol}).`);
       throw new Refused(502, 'seller_api_failed', 'the seller could not price this scope');
     }
     const deliverWithinSec = quoted.deliverWithinSec;

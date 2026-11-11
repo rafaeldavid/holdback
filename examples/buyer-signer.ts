@@ -184,7 +184,9 @@ export class BuyerSigner {
       signal: AbortSignal.timeout(120_000),
     });
     const q = (await res.json().catch(() => null)) as J;
-    if (!res.ok || q === null) throw new Error(`the seller's quote route answered ${res.status}`);
+    // The seller's own words for a refusal, as printable text, at most 200 characters: untrusted, shown and never followed.
+    const why = typeof q?.detail === 'string' ? `: ${q.detail.replace(/[^\x20-\x7e]/g, '?').slice(0, 200)}` : '';
+    if (!res.ok || q === null) throw new Error(`the seller's quote route answered ${res.status}${why}`);
     const id = String(q.commitmentId).toLowerCase() as Hex;
     if (!ID.test(id) || !isMoney(q.price) || typeof q.expiresAt !== 'string') throw new Error("the seller's quote is not {commitmentId, price, fees, expiresAt}");
     const quote: Quote = { commitmentId: id, price: { token: q.price.token, amount: q.price.amount }, fees: q.fees ?? null, expiresAt: q.expiresAt };
