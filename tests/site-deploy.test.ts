@@ -107,6 +107,8 @@ describe('pnpm site:deploy', () => {
     const r = await run({ tryMjs: [ok('// the try.mjs from before\n'), ok(TRY)] });
     expect(r.code).toBe(0);
     expect(r.ran).toEqual([CLEAN, BUILD, CHECK, STATUS, UPLOAD]);
+    // The pre-flight ignores files changed inside a submodule: no deploy uploads from one.
+    expect(r.commands).toContain('git status --porcelain --untracked-files=no --ignore-submodules=dirty');
     expect(r.probes).toEqual([0, 0, 0, 5000, 5000, 5000].map((at, i) => ({ url: [SITE, `${SITE}llms.txt`, `${SITE}try.mjs`][i % 3], at })));
     expect(r.record).toBe(`**Site deploy 2026-11-11 09:05 UTC, commit \`016c28e\` on branch \`t-313-deploy-lib\`: pass.** crow-site \`${AFTER}\` (rollback target \`${BEFORE}\`).`);
     expect(r.err).toBe('');
