@@ -8,9 +8,12 @@
 //                 encryption key and the scope, nothing else, plus a bearer credential when the seller requires one
 //                 (Options.quoteCredentialEnv names the environment variable that holds it).
 //   testFunds     on the test service, asks the faucet for the deal's total and a mandate in the demo club.
-//   readOffer     reads the offer from both operators, for the buyer's agent to approve.
-//   checkOffer    refuses unless the price, the fees, the deliverable, the checks, the deadlines, the adjudicators and
-//                 the buyer's own address and encryption key equal what the buyer approved.
+//   readOffer     reads the offer from both operators, for the buyer's agent to approve. Given the seller's published
+//                 defaults, it lists what the offer changes from them: each check, window and requirement, old and
+//                 new (T-330). It records what it showed.
+//   checkOffer    reads the offer again and refuses unless it equals what readOffer showed, and unless the price, the
+//                 fees, the deliverable, the checks, the deadlines, the adjudicators and the buyer's own address and
+//                 encryption key equal what the buyer approved.
 //   agreeAndFund  signs the agreement, the funding and the operator fee, each rebuilt from the approved terms and
 //                 checked against what the operator prepared (verify.ts; site/llms.txt section 4).
 //   watch         follows the funded deal until the operators confirm its outcome, and tells the buyer's agent
@@ -56,18 +59,38 @@ export type Offer = {
   rubric: J;
   /** The terms' timing: offerExpiresAt, fundBy, deliverBy, judgeBy, fallbackBy, the appeal windows, maxSubmissions. */
   deadlines: J;
+  /** The same deadlines as windows in whole seconds, as a seller configures them (`Defaults.timing`). */
+  windows: Record<Window, number>;
   adjudicators: { primary: string; fallback: string; appeal: string };
+  /** With `defaults` given to readOffer: what this offer changes from the seller's published defaults (T-330). */
+  differences?: Difference[];
 };
 /**
- * What the buyer approved. `seller`, `rubric`, `fees.total` and `commitmentId` are optional: without `rubric` the
- * offer must have none, and without `seller` any seller whose signature recovers passes.
+ * What the buyer approved. `seller`, `rubric`, `fees.total`, `commitmentId` and `differences` are optional: without
+ * `rubric` the offer must have none, and without `seller` any seller whose signature recovers passes.
  */
 export type Approved = Pick<Offer, 'price' | 'deliverable' | 'checks' | 'deadlines' | 'adjudicators'> & {
   fees: { adjudication: Money; operator: Money; total?: Money };
   seller?: string;
   rubric?: J;
   commitmentId?: Hex;
+  differences?: Difference[];
 };
+export type Window = 'offerExpiresInSec' | 'fundWithinSec' | 'deliverWithinSec' | 'judgeWithinSec' | 'fallbackWithinSec' | 'appealWindowSec' | 'appealDecideSec';
+const WINDOWS: Window[] = ['offerExpiresInSec', 'fundWithinSec', 'deliverWithinSec', 'judgeWithinSec', 'fallbackWithinSec', 'appealWindowSec', 'appealDecideSec'];
+/**
+ * A seller's published defaults (GET /defaults on a seller adapter; the card's `pricing.defaults`): the terms it
+ * usually offers. `{{field}}` stands for a field of the scope this key sent, `{{field.length}}` for a list's size, and
+ * `\{{field}}` for the text `{{field}}`, as in the seller adapter's template. The seller's claim: it only sets what
+ * the signer compares the offer with, and the buyer's agent sees the whole offer either way.
+ */
+export type Defaults = { deliverable: J; checks: J[]; rubric?: J; timing: Partial<Record<Window, number>>; fee?: Money };
+/**
+ * One way an offer differs from the defaults: `field` is `deliverable.<key>`, `checks.<id>` (added, removed or
+ * changed), `checks` (the same checks in another order), `rubric`, `fees.adjudication` or `deadlines.<window>`.
+ * `old` is the default's value, `new` the offer's; null where there is none.
+ */
+export type Difference = { field: string; old: J; new: J };
 /** What agreeAndFund took from the buyer: the hold (price plus adjudication fee) and the operator fee. */
 export type Paid = { total: Money; hold: Money; operatorFee: Money; receipt: J | null };
 export type Delivery = {
@@ -139,6 +162,11 @@ type Saved = {
   quoteKey?: string;
   commitmentId?: Hex;
   quote?: Quote;
+  /** The scope and options quote sent: the defaults' placeholders are filled from this scope. */
+  scope?: J;
+  options?: J;
+  /** The offer readOffer last showed the buyer's agent, and the filled defaults it compared it with. */
+  shown?: { commitmentId: Hex; offer: Offer; defaults: Defaults | null };
   /** The terms checkOffer passed, and the offer the buyer approved. */
   checked?: { terms: J; offer: Offer };
   paid?: Paid;
@@ -189,6 +217,69 @@ const refuse = (why: string): never => {
 /** A value from the offer in an error message: canonical JSON, at most 200 characters. */
 const shown = (v: J) => jcs(lowerHex(v)).slice(0, 200);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const isRecord = (v: J): boolean => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+const PLACEHOLDER = /(\\?)\{\{([A-Za-z][A-Za-z0-9]*)(\.length)?\}\}/g;
+const WHOLE_PLACEHOLDER = /^\{\{([A-Za-z][A-Za-z0-9]*)(\.length)?\}\}$/;
+/** The defaults with each placeholder replaced by the scope's value, in one pass, as the seller adapter fills its template. */
+function fillWith(node: J, scope: J): J {
+  const value = (name: string, length: string | undefined): J => {
+    const v = isRecord(scope) && Object.hasOwn(scope, name) ? scope[name] : undefined;
+    if (v === undefined || (length && !Array.isArray(v))) throw new Error(`the defaults use {{${name}${length ?? ''}}}, which the scope this key sent does not hold`);
+    return length ? v.length : v;
+  };
+  if (typeof node === 'string') {
+    const whole = WHOLE_PLACEHOLDER.exec(node);
+    if (whole) return structuredClone(value(whole[1]!, whole[2]));
+    return node.replace(PLACEHOLDER, (m: string, escaped: string, name: string, length?: string) => {
+      if (escaped) return m.slice(1);
+      const v = value(name, length);
+      return Array.isArray(v) ? v.join(', ') : String(v);
+    });
+  }
+  if (Array.isArray(node)) return node.map((n) => fillWith(n, scope));
+  if (isRecord(node)) return Object.fromEntries(Object.entries(node).map(([k, v]) => [k, fillWith(v, scope)]));
+  return node;
+}
+
+/** The defaults as data, or an error naming what is malformed. Unknown fields (the seller's scope and option rules) are left out. */
+function defaultsOf(d: J): Defaults {
+  if (!isRecord(d) || !isRecord(d.deliverable) || !Array.isArray(d.checks) || !d.checks.every((c: J) => isRecord(c) && typeof c.id === 'string') || !isRecord(d.timing)) {
+    throw new Error('the defaults are not {deliverable, checks (each with an id), timing}');
+  }
+  for (const [k, v] of Object.entries(d.timing)) if (!(WINDOWS as string[]).includes(k) || !Number.isSafeInteger(v) || (v as number) < 0) throw new Error(`the defaults' timing.${k.slice(0, 40)} is not a window in whole seconds`);
+  if (d.rubric !== undefined && !isRecord(d.rubric)) throw new Error('the defaults\' rubric is not an object');
+  if (d.fee !== undefined && !isMoney(d.fee)) throw new Error('the defaults\' fee is not {token, amount} in base units');
+  return { deliverable: d.deliverable, checks: d.checks, timing: d.timing, ...(d.rubric === undefined ? {} : { rubric: d.rubric }), ...(d.fee === undefined ? {} : { fee: { token: d.fee.token, amount: d.fee.amount } }) };
+}
+
+/**
+ * What an offer changes from a seller's defaults (filled with the scope): each changed deliverable field, check,
+ * rubric, adjudication fee and window, old value and new. Shown to the buyer's agent so it can decide; the signer
+ * judges none of them (D28).
+ */
+export function differencesOf(defaults: Defaults, offer: Offer): Difference[] {
+  const out: Difference[] = [];
+  const add = (field: string, old: J, now: J) => {
+    if (!same(old ?? null, now ?? null)) out.push({ field, old: old ?? null, new: now ?? null });
+  };
+  for (const k of [...new Set([...Object.keys(defaults.deliverable), ...Object.keys(offer.deliverable ?? {})])]) add(`deliverable.${k}`, defaults.deliverable[k], offer.deliverable?.[k]);
+  const byId = (list: J[], id: string) => list.find((c) => c.id === id);
+  for (const c of defaults.checks) add(`checks.${c.id}`, c, byId(offer.checks, c.id));
+  for (const c of offer.checks) if (!byId(defaults.checks, c.id)) add(`checks.${c.id}`, null, c);
+  const ids = (list: J[]) => list.map((c) => c.id);
+  if (out.every((d) => !d.field.startsWith('checks.')) && !same(ids(defaults.checks), ids(offer.checks))) out.push({ field: 'checks', old: ids(defaults.checks), new: ids(offer.checks) });
+  add('rubric', defaults.rubric ?? EMPTY_RUBRIC, offer.rubric);
+  if (defaults.fee) add('fees.adjudication', defaults.fee, offer.fees.adjudication);
+  for (const w of WINDOWS) if (defaults.timing[w] !== undefined) add(`deadlines.${w}`, defaults.timing[w], offer.windows[w]);
+  return out;
+}
+const OFFER_FIELDS: Array<[string, (o: Offer) => J]> = [
+  ['commitmentId', (o) => o.commitmentId], ['seller', (o) => o.seller], ['price', (o) => o.price],
+  ['fees.adjudication', (o) => o.fees.adjudication], ['fees.operator', (o) => o.fees.operator], ['fees.total', (o) => o.fees.total],
+  ['deliverable', (o) => o.deliverable], ['checks', (o) => o.checks], ['rubric', (o) => o.rubric], ['deadlines', (o) => o.deadlines],
+  ['windows', (o) => o.windows], ['adjudicators', (o) => o.adjudicators], ['differences', (o) => o.differences ?? null],
+];
 const sha256 = async (b: Uint8Array) => `sha256:${Buffer.from(await crypto.subtle.digest('SHA-256', new Uint8Array(b))).toString('hex')}`;
 const defaultOperators = () => (process.env['HOLDBACK_OPERATORS'] || 'https://api.crow.direct,https://api2.crow.direct').split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean);
 
@@ -290,21 +381,25 @@ export class BuyerSigner {
 
   /**
    * Asks a seller's quote route for an offer to this key: POST `quoteUrl` with `{buyer, buyerEncryptionPublicKey,
-   * scope}`, answered by `{commitmentId, price, fees, expiresAt}`. The answer is the seller's claim; readOffer and
-   * checkOffer read the offer itself from the operators.
+   * scope, options?}`, answered by `{commitmentId, price, fees, expiresAt}`. `options` are the seller's own (its
+   * published defaults list them). The answer is the seller's claim; readOffer and checkOffer read the offer itself
+   * from the operators.
    */
-  async quote(quoteUrl: string, scope: unknown): Promise<Quote> {
+  async quote(quoteUrl: string, scope: unknown, options?: unknown): Promise<Quote> {
     if (this.#saved.commitmentId) throw new Error(`this key already serves ${this.#saved.commitmentId}: one key, one deal. Call makeKeys for another deal`);
     const name = this.#quoteCredentialEnv;
     const credential = name === undefined ? undefined : process.env[name];
     // The variable's name in the error, never its value.
     if (name !== undefined && !credential) throw new Error(`quoteCredentialEnv names ${name}, which is not set: set it to the seller's quote credential`);
     this.#saved.quoteKey ??= crypto.randomUUID();
+    this.#saved.scope = scope;
+    if (options === undefined) delete this.#saved.options;
+    else this.#saved.options = options;
     save(this.store, this.#saved);
     const res = await fetch(quoteUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'idempotency-key': this.#saved.quoteKey, ...(credential ? { authorization: `Bearer ${credential}` } : {}) },
-      body: JSON.stringify({ buyer: this.address, buyerEncryptionPublicKey: this.encryptionPublicKey, scope }),
+      body: JSON.stringify({ buyer: this.address, buyerEncryptionPublicKey: this.encryptionPublicKey, scope, ...(options === undefined ? {} : { options }) }),
       signal: AbortSignal.timeout(120_000),
     });
     const q = (await res.json().catch(() => null)) as J;
@@ -344,31 +439,64 @@ export class BuyerSigner {
     const schedule = await agent.operatorFeeSchedule();
     const operator = schedule ? operatorFeeOf(price, schedule) : 0n;
     const a = terms.adjudication;
+    // The deadlines as the windows the seller configured: the first three from createdAt, judge from deliverBy,
+    // fallback from judgeBy (apps/operator/src/terms.ts, completeTerms).
+    const t = terms.timing, at = (s: J) => Date.parse(String(s)) / 1000;
+    const windows: Record<Window, number> = {
+      offerExpiresInSec: at(t.offerExpiresAt) - at(terms.createdAt), fundWithinSec: at(t.fundBy) - at(terms.createdAt), deliverWithinSec: at(t.deliverBy) - at(terms.createdAt),
+      judgeWithinSec: at(t.judgeBy) - at(t.deliverBy), fallbackWithinSec: at(t.fallbackBy) - at(t.judgeBy), appealWindowSec: t.appealWindowSec, appealDecideSec: t.appealDecideSec,
+    };
     const offer: Offer = {
       commitmentId: id, seller: String(terms.seller).toLowerCase(), price,
       fees: { adjudication, operator: { token: price.token, amount: operator.toString() }, total: { token: price.token, amount: (BigInt(price.amount) + BigInt(adjudication.amount) + operator).toString() } },
-      deliverable: terms.deliverable, checks: terms.acceptance.deterministicChecks, rubric: terms.acceptance.rubric, deadlines: terms.timing,
+      deliverable: terms.deliverable, checks: terms.acceptance.deterministicChecks, rubric: terms.acceptance.rubric, deadlines: terms.timing, windows,
       adjudicators: { primary: a.adjudicator, fallback: a.fallbackAdjudicator, appeal: a.appealAdjudicator },
     };
     return { terms, offer };
   }
 
-  /** The offer as both operators serve it, for the buyer's agent to approve. Signs nothing. */
-  async readOffer(commitmentId: string): Promise<Offer> {
-    return (await this.#served(commitmentId.toLowerCase() as Hex)).offer;
+  /**
+   * The offer as both operators serve it, for the buyer's agent to approve. Signs nothing. With `defaults` (the
+   * seller's published defaults, or the URL that serves them) it adds `differences`: each check, window and
+   * requirement this offer changes, old value and new. The key file records what was shown; checkOffer refuses an
+   * offer that differs from it.
+   */
+  async readOffer(commitmentId: string, options: { defaults?: Defaults | string } = {}): Promise<Offer> {
+    const id = commitmentId.toLowerCase() as Hex;
+    let defaults: Defaults | null = null;
+    if (options.defaults !== undefined) {
+      let given: J = options.defaults;
+      if (typeof given === 'string') {
+        const res = await fetch(given, { signal: AbortSignal.timeout(15_000) });
+        if (!res.ok) throw new Error(`the seller's defaults at ${given.slice(0, 200)} answered ${res.status}`);
+        given = await res.json();
+      }
+      defaults = fillWith(defaultsOf(given), this.#saved.scope) as Defaults;
+    }
+    const { offer } = await this.#served(id);
+    const showing: Offer = defaults ? { ...offer, differences: differencesOf(defaults, offer) } : offer;
+    this.#saved.shown = { commitmentId: id, offer: showing, defaults };
+    save(this.store, this.#saved);
+    return showing;
   }
 
   /**
-   * Reads the offer from both operators and refuses (throws Refusal, naming the field) unless it equals what the buyer
-   * approved: the price, each fee, the deliverable, the checks, the rubric, the deadlines, the adjudicators, and this
-   * key's own address and encryption key as the buyer. Waits up to `timeoutMs` for the primary adjudicator to take
-   * the deal. Once it passes, agreeAndFund signs exactly these terms.
+   * Reads the offer from both operators and refuses (throws Refusal, naming the field) unless it equals the offer
+   * readOffer showed with this key, differences included (compared again with the same defaults), and what the buyer
+   * approved: the price, each fee, the deliverable, the checks, the rubric, the deadlines, the adjudicators, the
+   * differences when given, and this key's own address and encryption key as the buyer. Waits up to `timeoutMs` for
+   * the primary adjudicator to take the deal. Once it passes, agreeAndFund signs exactly these terms.
    */
   async checkOffer(commitmentId: string, approved: Approved, options: { timeoutMs?: number } = {}): Promise<Offer> {
     const id = commitmentId.toLowerCase() as Hex;
     if (!ID.test(id)) throw new Error('commitmentId is 0x and 64 hex characters');
+    const shownBefore = this.#saved.shown;
+    if (shownBefore?.commitmentId !== id) return refuse(`readOffer has not shown ${id} with this key: show the buyer's agent the offer first`);
     this.#bind(id);
-    const { terms, offer } = await this.#served(id);
+    const { terms, offer: read } = await this.#served(id);
+    // The offer read again from every operator, compared with what the buyer's agent was shown.
+    const offer: Offer = shownBefore.defaults ? { ...read, differences: differencesOf(shownBefore.defaults, read) } : read;
+    for (const [field, of] of OFFER_FIELDS) if (!same(of(offer), of(shownBefore.offer))) refuse(`${field} is ${shown(of(offer))}, not the shown ${shown(of(shownBefore.offer))}`);
     const want: Array<[string, J, J]> = [
       ['buyer', terms.buyer, this.address],
       ['buyerEncryptionPublicKey', terms.buyerEncryptionPublicKey, this.encryptionPublicKey],
@@ -383,6 +511,7 @@ export class BuyerSigner {
       ['adjudicators', offer.adjudicators, approved.adjudicators],
       ...(approved.seller ? [['seller', offer.seller, approved.seller] as [string, J, J]] : []),
       ...(approved.commitmentId ? [['commitmentId', id, approved.commitmentId] as [string, J, J]] : []),
+      ...(approved.differences ? [['differences', offer.differences ?? null, approved.differences] as [string, J, J]] : []),
     ];
     for (const [field, got, expected] of want) if (!same(got, expected)) refuse(`${field} is ${shown(got)}, not the approved ${shown(expected)}`);
     await this.#until(id, ['AcceptedByAdjudicator'], options.timeoutMs ?? 60_000);

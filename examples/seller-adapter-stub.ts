@@ -41,6 +41,9 @@ export interface StubSellerApi {
   api: { quote: string; start: string; result: string };
   /** Requests received, repeats included. */
   calls: { quote: number; start: number; result: number };
+  /** The bodies of the quote and start calls, in order: what the adapter told the seller's API. */
+  quotes: J[];
+  starts: J[];
   /** The jobs started: one for each distinct Idempotency-Key. */
   jobs(): Array<{ jobId: string; commitmentId: string }>;
   /** Completes every job now, whatever `pollsUntilComplete` says. */
@@ -89,6 +92,8 @@ async function json(req: IncomingMessage): Promise<J> {
 
 export async function startStubSellerApi(o: StubOptions = {}): Promise<StubSellerApi> {
   const calls = { quote: 0, start: 0, result: 0 };
+  const quotes: J[] = [];
+  const starts: J[] = [];
   const jobs = new Map<string, { jobId: string; commitmentId: string; scope: J; polls: number }>(); // by Idempotency-Key
   let completeAll = false;
 
@@ -98,7 +103,9 @@ export async function startStubSellerApi(o: StubOptions = {}): Promise<StubSelle
       const path = new URL(req.url ?? '/', 'http://stub').pathname;
       if (req.method === 'POST' && path === '/quote') {
         calls.quote++;
-        const { scope } = await json(req);
+        const asked = await json(req);
+        quotes.push(asked);
+        const { scope } = asked;
         const lines = BigInt(scope.lines);
         const quote = { quoteId: `q-${calls.quote}`, price: { token: o.token ?? 'tUSD', amount: (BASE + lines * PER_LINE).toString() }, deliverWithinSec: 86_400 * (1 + Math.ceil(Number(lines) / 1000)) };
         return send(200, { ...quote, ...o.quoteOverride });
@@ -107,7 +114,9 @@ export async function startStubSellerApi(o: StubOptions = {}): Promise<StubSelle
         calls.start++;
         const key = String(req.headers['idempotency-key'] ?? '');
         if (!key) return send(400, { detail: 'POST /jobs needs an Idempotency-Key' });
-        const { commitmentId, scope } = await json(req);
+        const started = await json(req);
+        starts.push(started);
+        const { commitmentId, scope } = started;
         if (!jobs.has(key)) jobs.set(key, { jobId: `job-${jobs.size + 1}`, commitmentId, scope, polls: 0 });
         return send(200, { jobId: jobs.get(key)!.jobId });
       }
@@ -131,6 +140,8 @@ export async function startStubSellerApi(o: StubOptions = {}): Promise<StubSelle
     url,
     api: { quote: `${url}/quote`, start: `${url}/jobs`, result: `${url}/jobs/{jobId}/result` },
     calls,
+    quotes,
+    starts,
     jobs: () => [...jobs.values()].map(({ jobId, commitmentId }) => ({ jobId, commitmentId })),
     completeAll: () => void (completeAll = true),
     close: () => new Promise<void>((resolve) => { server.closeAllConnections(); server.close(() => resolve()); }),

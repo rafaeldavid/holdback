@@ -1,10 +1,12 @@
 // Seller: sell a service that prices by quote through Crow, with no protocol code of your own (T-318).
 // You already run an HTTP API with a quote call, a start call and a result call. This adapter sits beside it:
 //
-//   1. Quote to offer.   A buyer POSTs {buyer, buyerEncryptionPublicKey, scope} to this adapter's /quote. The
-//                        adapter checks the scope, asks your API for a price, fills your deal template with the
-//                        scope, signs an offer that names the buyer, submits it, and answers
-//                        {commitmentId, price, fees, expiresAt}. The buyer reads the commitment by its ID.
+//   1. Quote to offer.   A buyer POSTs {buyer, buyerEncryptionPublicKey, scope, options?} to this adapter's /quote.
+//                        The adapter checks the scope and options, asks your API for a price, fills your deal template
+//                        with the scope, applies your terms rules (a window per size band, a check per option: T-330),
+//                        signs an offer that names the buyer, submits it, and answers {commitmentId, price, fees,
+//                        expiresAt}. The buyer reads the commitment by its ID, and compares it with your published
+//                        defaults (GET /defaults: the template and your windows).
 //   2. Hold to start.    The adapter follows the operators' event stream for `hold.funded`, and polls as well. It
 //                        starts the job only when every operator shows the commitment Held.
 //   3. Result to delivery. When your API returns the result, the adapter runs the adjudicator's first stage on
@@ -15,9 +17,9 @@
 // signs your offer and your delivery with it; it never holds a buyer's key, and the operators only relay.
 //
 // Your API, as the adapter calls it (seller-adapter-stub.ts is a working example):
-//   quote:  POST <quote>   {scope}                        -> {price: {token, amount}, quoteId?, deliverWithinSec?}
+//   quote:  POST <quote>   {scope, options?}              -> {price: {token, amount}, quoteId?, deliverWithinSec?}
 //           `amount` is base units as a decimal string ("2000000000" is 2,000.00 of a 6-decimal token).
-//   start:  POST <start>   {commitmentId, quoteId, scope} -> {jobId}, sent with `Idempotency-Key: <commitmentId>`.
+//   start:  POST <start>   {commitmentId, quoteId, scope, options?} -> {jobId}, with `Idempotency-Key: <commitmentId>`.
 //           The same key must return the same job: after a crash the adapter sends the start again.
 //   result: GET  <result>  ({jobId} in the address)       -> 202 while the job runs; 200 with the result's bytes.
 //
@@ -26,7 +28,7 @@
 // It listens on 127.0.0.1 and makes public-level offers. Every quote makes the adapter sign an offer, so in production
 // run it as seller-adapter-service.md says: behind an HTTPS proxy, with `quoteAuth` and `quoteRateLimit` set (T-324).
 // The deliverable is data: the adapter parses it only inside the check library, and runs nothing from it, from
-// the template or from the scope.
+// the template, from a rule, from the scope or from an option.
 //
 //   pnpm install && pnpm build
 //   HOLDBACK_KEY=0x… HOLDBACK_OPERATORS=https://…,https://… node examples/seller-adapter.ts
@@ -54,6 +56,34 @@ export type ScopeRule =
   | { type: 'string'; pattern: string }
   | { type: 'strings'; pattern: string; min: number; max: number } // distinct strings
   | { type: 'integer'; min: number; max: number };
+
+/** What one of a buyer's options may hold. An option is optional: a quote may leave it out. */
+export type OptionRule = ScopeRule | { type: 'boolean' };
+
+/**
+ * One condition of a terms rule, on `scope.<field>`, `scope.<field>.length` (a list's size) or `options.<field>`:
+ * the value equals `equals`, or is a whole number from `atLeast` to `atMost` (either may be left out). An option the
+ * quote leaves out meets no condition.
+ */
+export type Condition = { field: string; equals: string | number | boolean } | { field: string; atLeast?: number; atMost?: number };
+
+/**
+ * A rule that changes one offer's terms from your template and `timing` (T-330). It applies when every condition in
+ * `when` holds (an empty list: always). Rules apply in order, so a later one wins. All of it is data: nothing here runs.
+ */
+export interface TermsRule {
+  when: Condition[];
+  /** Refuse the quote with 400 and this text, after the fields the conditions name. No price is asked, no offer made. */
+  refuse?: string;
+  /** Windows in whole seconds that replace the configured ones, and your API's `deliverWithinSec`. */
+  timing?: Partial<SellerAdapterConfig['timing']>;
+  /** Checks to remove, by id. */
+  dropChecks?: string[];
+  /** Checks in the shapes of an offer's, with placeholders as in the template. One with an id already there replaces it; others are added at the end. */
+  checks?: J[];
+  /** Text added to the deliverable's description, after a space. Placeholders as in the template. */
+  describe?: string;
+}
 
 /** At most `requests` requests in each window of `windowSec` seconds. Any positive whole numbers: your choice. */
 export interface QuoteLimit {
@@ -87,8 +117,10 @@ export interface SellerAdapterConfig {
   /** Your API's three addresses. `result` holds `{jobId}` where the job's ID goes. */
   sellerApi: { quote: string; start: string; result: string };
   /**
-   * Your deal template: a JSON file with `deliverable`, `checks` and optionally `rubric`, in the shapes of an
-   * offer. `{{field}}` stands for a scope field, and `{{field.length}}` for the size of a list.
+   * Your deal template: a JSON file with `deliverable`, `checks` and optionally `rubric` and `fee` (the adjudication
+   * fee you offer; left out, the primary adjudicator's published minimum), in the shapes of an offer. `{{field}}`
+   * stands for a scope field, and `{{field.length}}` for the size of a list. `\{{field}}` is the text `{{field}}`.
+   * Buyers read it, with `timing`, `scope` and `options`, at GET /defaults: your published defaults.
    */
   template: string;
   /**
@@ -98,10 +130,14 @@ export interface SellerAdapterConfig {
   reportMapping?: string;
   /** The fields a scope must have, and no others. */
   scope: Record<string, ScopeRule>;
+  /** The options a buyer may add to a quote, `{"options": {…}}`, and no others. Your API gets them with the scope. */
+  options?: Record<string, OptionRule>;
+  /** How a quote's scope and options change its offer's terms: a window per size band, a check per option (T-330). */
+  termsRules?: TermsRule[];
   clubId: string;
   /** The three adjudicators you name in every offer; the buyer agrees to them by funding. */
   adjudicators: { primary: string; fallback: string; appeal: string };
-  /** Windows in whole seconds. Your API's `deliverWithinSec`, when a quote carries one, replaces this one. */
+  /** Windows in whole seconds. Your API's `deliverWithinSec`, when a quote carries one, replaces this one; a terms rule replaces both. */
   timing: { offerExpiresInSec: number; fundWithinSec: number; deliverWithinSec: number; judgeWithinSec: number; fallbackWithinSec: number; appealWindowSec: number; appealDecideSec: number };
   /** The journal file. Its directory must exist. */
   journal: string;
@@ -126,6 +162,17 @@ export const config: SellerAdapterConfig = {
     files: { type: 'strings', pattern: '^[A-Za-z0-9_./-]{1,200}$', min: 1, max: 50 },
     lines: { type: 'integer', min: 1, max: 10_000_000 },
   },
+  // A buyer may ask for proof-of-concept files with every finding, Low and Info included.
+  options: { proofPerFinding: { type: 'boolean' } },
+  termsRules: [
+    // 20,000 lines or more: 14 days to deliver.
+    { when: [{ field: 'scope.lines', atLeast: 20_000 }], timing: { deliverWithinSec: 1_209_600 } },
+    {
+      when: [{ field: 'options.proofPerFinding', equals: true }],
+      checks: [{ id: 'proof-all', type: 'json_schema', required: true, schema: { type: 'object', required: ['findings'], properties: { findings: { type: 'array', items: { type: 'object', required: ['pocFiles'] } } } } }],
+      describe: 'Every finding, whatever its severity, carries the proof-of-concept files that show it.',
+    },
+  ],
   clubId: 'sim-club',
   adjudicators: {
     primary: '0x0000000000000000000000000000000000000000', // yours; --sim reads the sim's three
@@ -150,6 +197,7 @@ export interface Deal {
   stage: Stage;
   terms: J;
   scope: J;
+  options?: J;
   quoteId?: string;
   jobId?: string;
   note?: string;
@@ -182,26 +230,33 @@ class Refused extends Error {
 }
 
 const BASE_UNITS = /^(0|[1-9][0-9]{0,77})$/;
-const PLACEHOLDER = /\{\{([A-Za-z][A-Za-z0-9]*)(\.length)?\}\}/g;
+/** `{{name}}` or `{{name.length}}`; with a backslash before it, `\{{name}}`, it is the text `{{name}}`. */
+const PLACEHOLDER = /(\\?)\{\{([A-Za-z][A-Za-z0-9]*)(\.length)?\}\}/g;
+const WHOLE_PLACEHOLDER = /^\{\{([A-Za-z][A-Za-z0-9]*)(\.length)?\}\}$/;
 const BEFORE_HOLD = ['Offered', 'AcceptedByAdjudicator', 'Agreed'];
 const MAX_BODY_BYTES = 65_536;
+const WINDOWS = ['offerExpiresInSec', 'fundWithinSec', 'deliverWithinSec', 'judgeWithinSec', 'fallbackWithinSec', 'appealWindowSec', 'appealDecideSec'] as const;
+const RULE_KEYS = ['when', 'refuse', 'timing', 'dropChecks', 'checks', 'describe'];
+const isRecord = (v: J): boolean => v !== null && typeof v === 'object' && !Array.isArray(v);
 
-/** Why a scope breaks the configured rules, or null when it keeps them. */
-function scopeError(scope: J, rules: Record<string, ScopeRule>): string | null {
-  if (scope === null || typeof scope !== 'object' || Array.isArray(scope)) return 'scope must be an object';
-  for (const k of Object.keys(scope)) if (!Object.hasOwn(rules, k)) return `scope has a field this seller does not take: ${plain(k).slice(0, 60)}`;
+/** Why one value breaks its rule, or null when it keeps it. `at` names the field, as `scope.lines`. */
+function valueError(at: string, v: J, rule: OptionRule): string | null {
+  if (rule.type === 'boolean') return typeof v === 'boolean' ? null : `${at} must be true or false`;
+  if (rule.type === 'integer') return typeof v === 'number' && Number.isSafeInteger(v) && v >= rule.min && v <= rule.max ? null : `${at} must be a whole number from ${rule.min} to ${rule.max}`;
+  if (rule.type === 'string') return typeof v === 'string' && new RegExp(rule.pattern).test(v) ? null : `${at} must be a string matching ${rule.pattern}`;
+  const re = new RegExp(rule.pattern);
+  const ok = Array.isArray(v) && v.length >= rule.min && v.length <= rule.max && v.every((s) => typeof s === 'string' && re.test(s)) && new Set(v).size === v.length;
+  return ok ? null : `${at} must be ${rule.min} to ${rule.max} distinct strings, each matching ${rule.pattern}`;
+}
+
+/** Why a scope (every field required) or the options (each one optional) break the configured rules, or null. */
+function fieldsError(what: 'scope' | 'options', given: J, rules: Record<string, OptionRule>): string | null {
+  if (!isRecord(given)) return `${what} must be an object`;
+  for (const k of Object.keys(given)) if (!Object.hasOwn(rules, k)) return `${what} has a field this seller does not take: ${plain(k).slice(0, 60)}`;
   for (const [k, rule] of Object.entries(rules)) {
-    const v = scope[k];
-    if (rule.type === 'integer') {
-      if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < rule.min || v > rule.max) return `scope.${k} must be a whole number from ${rule.min} to ${rule.max}`;
-    } else if (rule.type === 'string') {
-      if (typeof v !== 'string' || !new RegExp(rule.pattern).test(v)) return `scope.${k} must be a string matching ${rule.pattern}`;
-    } else {
-      const re = new RegExp(rule.pattern);
-      if (!Array.isArray(v) || v.length < rule.min || v.length > rule.max || !v.every((s) => typeof s === 'string' && re.test(s)) || new Set(v).size !== v.length) {
-        return `scope.${k} must be ${rule.min} to ${rule.max} distinct strings, each matching ${rule.pattern}`;
-      }
-    }
+    if (what === 'options' && given[k] === undefined) continue;
+    const wrong = valueError(`${what}.${k}`, given[k], rule);
+    if (wrong) return wrong;
   }
   return null;
 }
@@ -213,9 +268,10 @@ function scopeError(scope: J, rules: Record<string, ScopeRule>): string | null {
 export function fill(node: J, scope: J): J {
   const value = (name: string, length: string | undefined): J => (length ? scope[name].length : scope[name]);
   if (typeof node === 'string') {
-    const whole = new RegExp(`^${PLACEHOLDER.source}$`).exec(node);
+    const whole = WHOLE_PLACEHOLDER.exec(node);
     if (whole) return structuredClone(value(whole[1]!, whole[2])); // the value itself: a string, a number or a list
-    return node.replace(PLACEHOLDER, (_m, name: string, length?: string) => {
+    return node.replace(PLACEHOLDER, (m: string, escaped: string, name: string, length?: string) => {
+      if (escaped) return m.slice(1); // `\{{name}}` is the text `{{name}}`
       const v = value(name, length);
       return Array.isArray(v) ? v.join(', ') : String(v);
     });
@@ -225,16 +281,115 @@ export function fill(node: J, scope: J): J {
   return node;
 }
 
-function loadTemplate(c: SellerAdapterConfig): J {
-  const text = readFileSync(c.template, 'utf8');
-  const template = JSON.parse(text);
+/** Throws unless every placeholder in `node` names a scope field (and `.length` a list). `where` names the file or rule. */
+function checkPlaceholders(where: string, node: J, scope: Record<string, ScopeRule>): void {
+  if (typeof node === 'string') {
+    for (const [, escaped, name, length] of node.matchAll(PLACEHOLDER)) {
+      if (escaped) continue;
+      const rule = scope[name!];
+      if (!rule) throw new Error(`${where} uses {{${name}}}, which the scope rules do not define`);
+      if (length && rule.type !== 'strings') throw new Error(`${where} uses {{${name}.length}}, and ${name} is not a list`);
+    }
+  } else if (node && typeof node === 'object') {
+    for (const v of Object.values(node)) checkPlaceholders(where, v, scope);
+  }
+}
+
+function loadTemplate(c: SellerAdapterConfig, token: string): J {
+  const template = JSON.parse(readFileSync(c.template, 'utf8'));
   if (!template.deliverable || !Array.isArray(template.checks)) throw new Error(`${c.template} needs "deliverable" and "checks"`);
-  for (const [, name, length] of text.matchAll(PLACEHOLDER)) {
-    const rule = c.scope[name!];
-    if (!rule) throw new Error(`${c.template} uses {{${name}}}, which the scope rules do not define`);
-    if (length && rule.type !== 'strings') throw new Error(`${c.template} uses {{${name}.length}}, and ${name} is not a list`);
+  checkPlaceholders(c.template, template, c.scope);
+  const fee = template.fee;
+  if (fee !== undefined && !(isRecord(fee) && typeof fee.amount === 'string' && BASE_UNITS.test(fee.amount) && String(fee.token).toLowerCase() === token.toLowerCase())) {
+    throw new Error(`${c.template}: fee must be {token, amount} in this settlement layer's token, ${token}, with the amount in base units as a decimal string`);
   }
   return template;
+}
+
+/** Throws, naming the rule and the field, unless the option rules and terms rules are well formed (T-330). */
+function checkRules(c: SellerAdapterConfig): void {
+  const options = c.options ?? {};
+  if (!isRecord(options)) throw new Error('options must be an object of option rules');
+  for (const [k, rule] of Object.entries(options)) {
+    if (!/^[A-Za-z][A-Za-z0-9]*$/.test(k)) throw new Error(`options.${plain(k).slice(0, 60)}: an option's name is letters and digits, starting with a letter`);
+    if (!['boolean', 'string', 'strings', 'integer'].includes((rule as J)?.type)) throw new Error(`options.${k}.type must be boolean, string, strings or integer`);
+  }
+  const rules = c.termsRules ?? [];
+  if (!Array.isArray(rules)) throw new Error('termsRules must be a list');
+  const whole = (v: J) => Number.isSafeInteger(v) && v >= 0;
+  rules.forEach((r: J, i) => {
+    const at = `termsRules[${i}]`;
+    if (!isRecord(r)) throw new Error(`${at} must be an object`);
+    for (const k of Object.keys(r)) if (!RULE_KEYS.includes(k)) throw new Error(`${at} has a field rules do not take: ${plain(k).slice(0, 60)}`);
+    if (!Array.isArray(r.when)) throw new Error(`${at}.when must be a list of conditions`);
+    r.when.forEach((w: J, j: number) => {
+      const where = `${at}.when[${j}]`;
+      const m = /^(scope|options)\.([A-Za-z][A-Za-z0-9]*)(\.length)?$/.exec(String(w?.field));
+      if (!m) throw new Error(`${where}: field must be scope.<name>, scope.<name>.length or options.<name>`);
+      const rule = (m[1] === 'scope' ? c.scope : options)[m[2]!];
+      if (!rule) throw new Error(`${where}: ${m[1]}.${m[2]} is not a field of the ${m[1] === 'scope' ? 'scope' : 'option'} rules`);
+      if (m[3] && rule.type !== 'strings') throw new Error(`${where}: ${m[1]}.${m[2]} is not a list`);
+      const keys = Object.keys(w).filter((k) => k !== 'field');
+      const equals = keys.length === 1 && keys[0] === 'equals' && ['string', 'number', 'boolean'].includes(typeof w.equals);
+      const range = keys.length > 0 && keys.every((k) => (k === 'atLeast' || k === 'atMost') && Number.isSafeInteger(w[k]));
+      if (!equals && !range) throw new Error(`${where} needs equals (a string, number or boolean), or atLeast and atMost (whole numbers)`);
+    });
+    if (r.refuse !== undefined && typeof r.refuse !== 'string') throw new Error(`${at}.refuse must be text`);
+    if (r.describe !== undefined && typeof r.describe !== 'string') throw new Error(`${at}.describe must be text`);
+    if (r.timing !== undefined) {
+      if (!isRecord(r.timing)) throw new Error(`${at}.timing must be an object of windows`);
+      for (const [k, v] of Object.entries(r.timing)) {
+        if (!(WINDOWS as readonly string[]).includes(k)) throw new Error(`${at}.timing has a window the offer does not take: ${plain(k).slice(0, 60)}`);
+        if (!whole(v)) throw new Error(`${at}.timing.${k} must be a whole number of seconds, 0 or more`);
+      }
+    }
+    if (r.dropChecks !== undefined && !(Array.isArray(r.dropChecks) && r.dropChecks.every((d: J) => typeof d === 'string'))) throw new Error(`${at}.dropChecks must be a list of check ids`);
+    if (r.checks !== undefined) {
+      if (!Array.isArray(r.checks)) throw new Error(`${at}.checks must be a list of checks`);
+      r.checks.forEach((k: J, j: number) => {
+        if (!isRecord(k) || typeof k.id !== 'string' || typeof k.type !== 'string') throw new Error(`${at}.checks[${j}] needs a string id and type`);
+      });
+    }
+    checkPlaceholders(at, { checks: r.checks, describe: r.describe }, c.scope);
+  });
+}
+
+/** Whether a condition holds for this scope and these options. */
+function holds(w: J, scope: J, options: J): boolean {
+  const [, from, name, length] = /^(scope|options)\.([A-Za-z][A-Za-z0-9]*)(\.length)?$/.exec(w.field)!;
+  let v = (from === 'scope' ? scope : (options ?? {}))[name!];
+  if (v === undefined) return false;
+  if (length) v = v.length;
+  if ('equals' in w) return v === w.equals;
+  return typeof v === 'number' && (w.atLeast === undefined || v >= w.atLeast) && (w.atMost === undefined || v <= w.atMost);
+}
+
+/**
+ * The offer's deliverable, checks, rubric and windows for one quote: the template and `timing`, your API's window,
+ * then each rule whose conditions hold, in order. A refusing rule throws 400 naming its fields.
+ */
+function termsFor(c: SellerAdapterConfig, template: J, scope: J, options: J, deliverWithinSec: number | undefined): { deliverable: J; checks: J[]; rubric?: J; timing: SellerAdapterConfig['timing'] } {
+  const filled = fill(template, scope);
+  let checks: J[] = filled.checks;
+  const deliverable = { ...filled.deliverable };
+  const timing = { ...c.timing, ...(deliverWithinSec === undefined ? {} : { deliverWithinSec }) };
+  for (const r of c.termsRules ?? []) {
+    if (!r.when.every((w) => holds(w, scope, options))) continue;
+    if (r.refuse !== undefined) throw new Refused(400, 'invalid_request', `${r.when.map((w) => w.field).join(' and ')}: ${r.refuse}`);
+    Object.assign(timing, r.timing);
+    if (r.dropChecks) checks = checks.filter((k) => !r.dropChecks!.includes(k.id));
+    for (const k of fill(r.checks ?? [], scope)) {
+      const at = checks.findIndex((x) => x.id === k.id);
+      checks = at < 0 ? [...checks, k] : checks.map((x, i) => (i === at ? k : x));
+    }
+    if (r.describe) deliverable.description = `${deliverable.description} ${fill(r.describe, scope)}`;
+  }
+  return { deliverable, checks, ...(filled.rubric === undefined ? {} : { rubric: filled.rubric }), timing };
+}
+
+/** A refusing rule only reads the scope and options: run them before your API is asked, so a refused quote costs nothing. */
+function refusalFor(c: SellerAdapterConfig, scope: J, options: J): void {
+  for (const r of c.termsRules ?? []) if (r.refuse !== undefined && r.when.every((w) => holds(w, scope, options))) throw new Refused(400, 'invalid_request', `${r.when.map((w) => w.field).join(' and ')}: ${r.refuse}`);
 }
 
 async function readJson(req: IncomingMessage): Promise<J> {
@@ -340,7 +495,14 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   if (!pin) throw new Error(`the operators serve EIP-712 domain ${plain(jcs(served ?? null)).slice(0, 300)}, not one pinned in verify.ts (${pins.map((p) => jcs(p.domain)).join(' or ')})`);
   const seller = new Agent(operators, key as Hex, new Uint8Array(32), pin.domain, pin.chain);
   const token = pin.token; // the one token this settlement layer holds
-  const template = loadTemplate(c);
+  checkRules(c);
+  const template = loadTemplate(c, token.id);
+  // Your published defaults: what every buyer reads before it asks (GET /defaults). The buyer's signer compares each
+  // offer with them and shows its agent what differs (buyer-signer.ts). Placeholders stay as the template has them.
+  const defaults = JSON.stringify({
+    version: 1, deliverable: template.deliverable, checks: template.checks, ...(template.rubric === undefined ? {} : { rubric: template.rubric }),
+    timing: c.timing, ...(template.fee === undefined ? {} : { fee: template.fee }), scope: c.scope, options: c.options ?? {},
+  });
   const reportMapping = c.reportMapping === undefined ? undefined : loadReportMapping(c.reportMapping);
   const log = (line: string) => (c.log ?? console.log)(`${new Date().toISOString()} ${line}`);
   const journal: Journal = existsSync(c.journal) ? JSON.parse(readFileSync(c.journal, 'utf8')) : { deals: {}, quotes: {} };
@@ -363,10 +525,11 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   const post = (what: string, url: string, body: unknown, headers: Record<string, string> = {}) => api(what, url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
 
   // ---- 1. Quote to offer ----
-  async function offerFor(buyer: string, buyerEncryptionPublicKey: string, scope: J): Promise<J> {
+  async function offerFor(buyer: string, buyerEncryptionPublicKey: string, scope: J, options: J): Promise<J> {
+    refusalFor(c, scope, options); // the seller's own exclusions, before its API is asked
     let quoted: J;
     try {
-      quoted = await (await post('the quote', c.sellerApi.quote, { scope })).json();
+      quoted = await (await post('the quote', c.sellerApi.quote, { scope, ...(options === undefined ? {} : { options }) })).json();
     } catch (e) {
       log(`Quote failed: ${plain((e as Error).message)}.`);
       throw new Refused(502, 'seller_api_failed', 'the seller could not price this scope');
@@ -384,8 +547,8 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     }
     const deliverWithinSec = quoted.deliverWithinSec;
     if (deliverWithinSec !== undefined && (!Number.isSafeInteger(deliverWithinSec) || deliverWithinSec < 0)) throw new Refused(502, 'seller_api_failed', 'the seller could not price this scope');
-    const filled = fill(template, scope);
-    const panel = Array.isArray(filled.rubric?.criteria) && filled.rubric.criteria.length > 0;
+    const built = termsFor(c, template, scope, options, deliverWithinSec);
+    const panel = Array.isArray(built.rubric?.criteria) && built.rubric.criteria.length > 0;
     let offer;
     try {
       offer = await seller.offer({
@@ -395,17 +558,18 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
         buyer: { address: buyer, encryptionPublicKey: buyerEncryptionPublicKey },
         adjudicators: c.adjudicators,
         price: { token: price.token, amount: price.amount },
-        deliverable: filled.deliverable,
-        checks: filled.checks,
-        ...(panel ? { rubric: filled.rubric } : {}),
-        timing: { ...c.timing, ...(deliverWithinSec === undefined ? {} : { deliverWithinSec }) },
+        ...(template.fee === undefined ? {} : { fee: { token: template.fee.token, amount: template.fee.amount } }),
+        deliverable: built.deliverable,
+        checks: built.checks,
+        ...(panel ? { rubric: built.rubric } : {}),
+        timing: built.timing,
       });
     } catch (e) {
       log(`Offer failed: ${plain((e as Error).message)}.`);
       throw new Refused(502, 'offer_failed', 'the seller could not make this offer');
     }
     const { id, terms } = offer;
-    journal.deals[id] = { id, stage: 'offered', terms, scope, ...(typeof quoted.quoteId === 'string' ? { quoteId: quoted.quoteId } : {}) };
+    journal.deals[id] = { id, stage: 'offered', terms, scope, ...(options === undefined ? {} : { options }), ...(typeof quoted.quoteId === 'string' ? { quoteId: quoted.quoteId } : {}) };
     save();
     log(`${id} is offered to ${terms.buyer} for ${terms.price.amount} base units of ${plain(terms.price.token)}; the offer expires ${terms.timing.offerExpiresAt}.`);
     // What the buyer pays on top of the price: the adjudication fee, and the operators' fee when they publish one.
@@ -420,20 +584,20 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   const inFlight = new Map<string, { bodyHash: string; answer: Promise<J> }>();
   async function quote(req: IncomingMessage): Promise<J> {
     const body = await readJson(req);
-    const { buyer, buyerEncryptionPublicKey, scope } = body ?? {};
+    const { buyer, buyerEncryptionPublicKey, scope, options } = body ?? {};
     if (typeof buyer !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(buyer)) throw new Refused(400, 'invalid_request', 'buyer must be an address: 0x and 40 hex characters');
     if (typeof buyerEncryptionPublicKey !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(buyerEncryptionPublicKey)) throw new Refused(400, 'invalid_request', 'buyerEncryptionPublicKey must be an x25519 public key, base64url, 43 characters');
-    const wrong = scopeError(scope, c.scope);
+    const wrong = fieldsError('scope', scope, c.scope) ?? (options === undefined ? null : fieldsError('options', options, c.options ?? {}));
     if (wrong) throw new Refused(400, 'invalid_request', wrong);
     const idempotencyKey = req.headers['idempotency-key'];
-    if (idempotencyKey === undefined) return offerFor(buyer.toLowerCase(), buyerEncryptionPublicKey, scope);
+    if (idempotencyKey === undefined) return offerFor(buyer.toLowerCase(), buyerEncryptionPublicKey, scope, options);
     // The same key with the same body replays the answer; with another body it is a conflict.
     if (typeof idempotencyKey !== 'string' || !/^[\x21-\x7e]{1,200}$/.test(idempotencyKey)) throw new Refused(400, 'invalid_request', 'Idempotency-Key must be 1 to 200 printable characters');
-    const bodyHash = createHash('sha256').update(jcs({ buyer: buyer.toLowerCase(), buyerEncryptionPublicKey, scope })).digest('hex');
+    const bodyHash = createHash('sha256').update(jcs({ buyer: buyer.toLowerCase(), buyerEncryptionPublicKey, scope, ...(options === undefined ? {} : { options }) })).digest('hex');
     const seen = journal.quotes[idempotencyKey] ?? inFlight.get(idempotencyKey);
     if (seen && seen.bodyHash !== bodyHash) throw new Refused(409, 'idempotency_conflict', 'this Idempotency-Key was used with another request');
     if (seen) return seen.answer;
-    const answer = offerFor(buyer.toLowerCase(), buyerEncryptionPublicKey, scope);
+    const answer = offerFor(buyer.toLowerCase(), buyerEncryptionPublicKey, scope, options);
     inFlight.set(idempotencyKey, { bodyHash, answer });
     try {
       journal.quotes[idempotencyKey] = { bodyHash, answer: await answer };
@@ -456,7 +620,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
       record(deal, { stage: 'starting', note: 'every operator shows the hold funded' }); // recorded before the call, so a crash here repeats it under the same key
     }
     if (deal.stage === 'starting') {
-      const started = (await (await post('the start', c.sellerApi.start, { commitmentId: id, ...(deal.quoteId ? { quoteId: deal.quoteId } : {}), scope: deal.scope }, { 'idempotency-key': id })).json()) as J;
+      const started = (await (await post('the start', c.sellerApi.start, { commitmentId: id, ...(deal.quoteId ? { quoteId: deal.quoteId } : {}), scope: deal.scope, ...(deal.options === undefined ? {} : { options: deal.options }) }, { 'idempotency-key': id })).json()) as J;
       if (typeof started?.jobId !== 'string' || !/^[\x21-\x7e]{1,200}$/.test(started.jobId)) throw new Error('the seller API\'s start answer has no usable jobId');
       record(deal, { stage: 'started', jobId: started.jobId, note: `job ${started.jobId}` });
     }
@@ -564,7 +728,9 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   const server = createServer((req, res) => {
     const send = (status: number, body: unknown, headers: Record<string, string> = {}) => res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...headers }).end(JSON.stringify(body));
     const path = new URL(req.url ?? '/', 'http://adapter').pathname;
-    if (path !== '/quote') return void send(404, { type: 'not_found', detail: 'this adapter serves POST /quote' });
+    // The published defaults are public: no credential, and they make the adapter sign nothing.
+    if (path === '/defaults' && req.method === 'GET') return void res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'max-age=300' }).end(defaults);
+    if (path !== '/quote') return void send(404, { type: 'not_found', detail: 'this adapter serves POST /quote and GET /defaults' });
     if (req.method !== 'POST') return void send(405, { type: 'method_not_allowed', detail: 'this adapter serves POST /quote' });
     const refused = admit(req); // the rate limit and the credential, before the body is read
     if (refused) {
