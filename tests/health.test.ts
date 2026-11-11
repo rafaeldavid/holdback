@@ -54,8 +54,8 @@ describe('health: the counters', () => {
   it('reads the must-not-skip paths from the workflow, and lists gated test files outside them', () => {
     const workflow = '      - run: |\n          pnpm vitest run packages/settlement/evm packages/testkit/src/runner.test.ts --reporter=verbose | tee anvil-tests.log\n';
     expect(ciAnvilPaths(workflow)).toEqual(['packages/settlement/evm', 'packages/testkit/src/runner.test.ts']);
-    const wrapped = '          pnpm vitest run packages/settlement/evm \\\n            apps/demo-cloud/src/live.test.ts \\\n            --reporter=verbose | tee anvil-tests.log\n';
-    expect(ciAnvilPaths(wrapped)).toEqual(['packages/settlement/evm', 'apps/demo-cloud/src/live.test.ts']);
+    const matrix = '          - name: world\n            paths: >-\n              apps/demo-cloud/src/live.test.ts examples/e2e-adjudicator.test.ts\n      - run: pnpm vitest run $SUITE_PATHS --reporter=verbose | tee anvil-tests.log\n';
+    expect(ciAnvilPaths(matrix)).toEqual(['apps/demo-cloud/src/live.test.ts', 'examples/e2e-adjudicator.test.ts']);
     const tests = [
       file('packages/settlement/evm/sync.test.ts', 'describe.skipIf(!ready)("x", () => {});'),
       file('packages/testkit/src/runner.test.ts', 'describe.skipIf(!ready)("x", () => {});'),
