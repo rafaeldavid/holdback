@@ -136,53 +136,13 @@ export const strip = (md) => md.split('\n').filter((l) => !l.startsWith('%% ')).
 
 /**
  * The landing page follows Rafa's mock of 2026-11-10 (D56): the bird, the mark, the tagline, a headline that
- * alternates "Sell to" and "Buy from", the lede, early access, six features and the footer. The faded columns down
- * each side are an agent's calls to examples/agent.ts, the seller's on the left and the buyer's on the right, with
- * each call's result as a comment; below 1180 px wide they hide.
+ * alternates "Sell to" and "Buy from", the lede, early access, six features and the footer. The faint code
+ * streams down each side are the case study's code (examples/buy-dataset.ts): the buyer's on the left, the seller's
+ * on the right, each with its call results as comments. They type in deal order through four deals (release,
+ * refund, default, appeal), in the old page's streams (before PR 251; Rafa, 2026-11-11); below 1100 px wide each
+ * spans half the page, fainter, behind the content. Each feature's text is one line or two, never one word alone on
+ * the second: the grid has three columns from 740 px, two from 500 px, one below.
  */
-const SELLER_CODE = `// seller agent · sell to any agent
-const offer = await seller.offer({
-  template: 'checks-only', clubId, seller: seller.address,
-  buyer: { address, encryptionPublicKey },
-  adjudicators: { primary, fallback, appeal },
-  price: { token: TUSDC, amount: '25000000' },
-  deliverable: { kind: 'dataset',
-    description: 'customers.csv', format: 'text/csv' },
-  checks: [cols, rows, uniq],
-});
-// → Offered
-await seller.waitFor(offer.id, ['Held']);
-// → Held: the buyer's payment is locked
-await seller.deliver(offer.terms, csv);
-// → Delivered
-await seller.waitFor(offer.id, ['Released']);
-// → Released: price paid to seller
-
-// seller agent · arbitration on request
-const offer = await seller.offer({
-  ...request, template: 'default',
-  rubric: { criteria, passThreshold },
-});
-// → Offered`;
-const BUYER_CODE = `// buyer agent · buy from any agent
-await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);
-const held = await buyer.agreeAndFund(
-  offer.terms, 30_000_000n);
-// → Held
-const done = await buyer.waitFor(offer.id,
-  ['Released', 'Refunded']);
-// checks: cols ✓ rows ✓ uniq ✓ → accept
-// → Released: the content key is mine
-const work = await buyer.openDelivery(offer.id);
-// → customers.csv
-
-// buyer agent · a required check fails
-// checks: cols ✓ rows ✗ → reject
-// → Refunded: the price goes back to the buyer
-
-// what did the seller actually sign?
-await buyer.call('GET', '/v1/commitments/' + offer.id + '/terms');
-// → the terms, their ID and the seller's signature`;
 /** The page's description, og and twitter text (Rafa's mock). */
 export const DESCRIPTION = 'Verifiable settlement for AI commerce. Sell to any agent. Buy from any agent.';
 const FEATURES = [
@@ -233,31 +193,134 @@ const SCRIPT = `<script>
     h.addEventListener('mouseleave', start);
     start();
   }
-  // The code columns type out line by line in deal order: the seller's offer, the buyer's funding, the seller's
-  // arbitration offer, then the buyer's refund and record. They hold for 6 s and start again. A visitor who asks
-  // for reduced motion, or a page without the columns, keeps the full code as written.
-  var cols = [document.querySelector('.code.l'), document.querySelector('.code.r')];
-  if (!still && cols[0] && cols[1]) {
-    var blocks = cols.map(function (c) { return c.textContent.replace(/\\s+$/, '').split('\\n\\n').map(function (b) { return b.split('\\n'); }); });
-    var order = [];
-    for (var k = 0; k < Math.max(blocks[0].length, blocks[1].length); k++) {
-      if (blocks[0][k]) order.push({ col: cols[0], lines: blocks[0][k], gap: k > 0 });
-      if (blocks[1][k]) order.push({ col: cols[1], lines: blocks[1][k], gap: k > 0 });
-    }
-    var type = function () {
-      cols.forEach(function (c) { c.textContent = ''; });
-      var at = 400;
-      order.forEach(function (b) {
-        b.lines.forEach(function (line, n) {
-          at += 260;
-          setTimeout(function () { b.col.textContent += (b.gap && n === 0 ? '\\n' : '') + line + '\\n'; }, at);
-        });
-        at += 900;
-      });
-      setTimeout(type, at + 6000);
-    };
-    type();
+  // The case study's code (examples/buy-dataset.ts: a buyer agent buys a cleaned customers.csv for 25 tUSDC from a
+  // seller agent), typed faintly down the page: the buyer's code on the left, the seller's on the right, each
+  // with its call results as comments. New lines arrive at the bottom and push older ones up. Each line is
+  // [delay ms, 'b' | 's', text], the delay scaled by K; a new deal starts every 6200 ms \u00d7 K, about 13.6 s.
+  var hex = function (n) { var s = ''; while (s.length < n) s += Math.floor(Math.random() * 16).toString(16); return s; };
+  var K = 2.2; // one pace for both streams
+  var CALLS = function (i, id) {
+    var open = [
+      [0, 'b', "const me = { address: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey };"],
+      [80, 'b', "await mail(seller, me); // ask for an offer: customers.csv, at most 30 tUSDC"],
+      [0, 's', "const offer = await seller.offer({"],
+      [60, 's', "  template: 'checks-only', price: { token: TUSDC, amount: '25000000' },"],
+      [120, 's', "  deliverable: { kind: 'dataset', description: 'customers.csv', format: 'text/csv' },"],
+      [180, 's', "  checks: [cols, rows, uniq], buyer: me, adjudicators: { primary, fallback, appeal },"],
+      [240, 's', "}); // \\u2192 offer " + id + ": Offered"],
+      [300, 's', "await mail(buyer, offer.terms);"],
+      [320, 'b', "await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);"],
+      [420, 'b', "const held = await buyer.agreeAndFund(offer.terms, 30_000_000n);"],
+      [520, 'b', "// verify domain, price, nonces \\u00b7 sign Agree + FundingAuthorization"],
+      [600, 'b', "// \\u2192 Held, 26000000 base units (price + fee)"],
+      [620, 's', "await seller.waitFor(offer.id, ['Held']); // \\u2192 Held"],
+      [700, 's', "await seller.deliver(offer.terms, new TextEncoder().encode(csv));"],
+      [820, 's', "// AES-256-GCM \\u00b7 key sealed to 3 adjudicators + buyer \\u00b7 sign Delivery"],
+      [1100, 's', "// \\u2192 Delivered"]
+    ];
+    var tail = [
+      [ // release
+        [1500, 'b', "const done = await buyer.waitFor(offer.id, ['Released', 'Refunded']);"],
+        [1500, 's', "await seller.waitFor(offer.id, ['Released', 'Refunded']);"],
+        [2100, 'b', "// adjudicator: cols \\u2713 rows \\u2713 uniq \\u2713 \\u2192 accept"],
+        [2900, 'b', "// \\u2192 Released: the content key is mine"],
+        [2900, 's', "// \\u2192 Released: 25000000 tUSDC paid to me"],
+        [3300, 'b', "const work = await buyer.openDelivery(offer.id); // open envelope, check sha256"],
+        [3600, 'b', "// customer_id,email \\u00b7 1,ada@example.com \\u00b7 2,alan@\\u2026"],
+        [4300, 'b', "await balance(buyer); // \\u2192 9974000000"],
+        [4300, 's', "await balance(seller); // \\u2192 10025000000"]
+      ],
+      [ // refund
+        [1500, 'b', "const done = await buyer.waitFor(offer.id, ['Released', 'Refunded']);"],
+        [1500, 's', "await seller.waitFor(offer.id, ['Released', 'Refunded']);"],
+        [2100, 'b', "// adjudicator: cols \\u2713 rows \\u2717 (2 of 3) uniq \\u2713 \\u2192 reject"],
+        [2900, 'b', "// \\u2192 Refunded: 25000000 tUSDC back to me (the 1 tUSDC fee is spent)"],
+        [2900, 's', "// \\u2192 Refunded: unpaid, and the buyer never got the key"],
+        [4300, 'b', "await balance(buyer); // \\u2192 9999000000"]
+      ],
+      [ // default
+        [1500, 'b', "// judgeBy and fallbackBy pass with no decision from either adjudicator"],
+        [1500, 's', "// judgeBy and fallbackBy pass with no decision from either adjudicator"],
+        [2200, 'b', "await buyer.call('POST', '/v1/commitments/' + offer.id + '/triggers/default');"],
+        [2350, 'b', "// \\u2192 Defaulted"],
+        [2600, 's', "await seller.call('POST', '/v1/commitments/' + offer.id + '/triggers/apply-default');"],
+        [2900, 'b', "// \\u2192 refunded: 25000000 tUSDC back to me"],
+        [2900, 's', "// \\u2192 compensated from the adjudicators' bonds"]
+      ],
+      [ // appeal
+        [1500, 'b', "const done = await buyer.waitFor(offer.id, ['Released', 'Refunded']);"],
+        [2100, 'b', "// adjudicator \\u2192 accept: but the rows fail the terms"],
+        [2600, 's', "// \\u2192 Released: 25000000 tUSDC paid to me"],
+        [3300, 'b', "const p = await buyer.call('POST', '/v1/prepare/appeal', { commitmentId: offer.id, appellant: buyer.address });"],
+        [3450, 'b', "await buyer.signAndSubmit(p, { kind: 'appeal', terms: offer.terms, me: buyer.address, appealBondRateBps: 500 }); // bond 5% + fee"],
+        [3600, 'b', "// \\u2192 appealState: open"],
+        [3600, 's', "// appeal filed by the buyer \\u00b7 appealState: open"],
+        [4200, 'b', "// appeal adjudicator \\u2192 overturned"],
+        [4350, 'b', "// \\u2192 the bond pays me 25000000 tUSDC"],
+        [4350, 's', "// appeal overturned: the bond pays the buyer"]
+      ]
+    ][i];
+    // the agents asking the API about itself, spread over the four deals so every feature shows once
+    var c = "'/v1/commitments/' + offer.id + '";
+    var QA = [
+      [ // release
+        [4500, 'b', "// which adjudicators can we name, and what do they charge?"],
+        [4620, 'b', "await buyer.call('GET', '/v1/adjudicators'); // \\u2192 3 \\u00b7 fee.min 1 tUSDC \\u00b7 bonded"],
+        [4500, 's', "// does every operator serve the same record?"],
+        [4620, 's', "await seller.call('GET', " + c + "/events'); // \\u2192 same hashes on op-1 and op-2"],
+        [5200, 'b', "// what did the seller actually sign?"],
+        [5320, 'b', "await buyer.call('GET', " + c + "/terms'); // \\u2192 matches the mailed offer"],
+        [5200, 's', "// a fresh agent? the faucet funds it and admits it to the club"],
+        [5320, 's', "await fresh.call('POST', '/v1/faucet', { address }); // \\u2192 1000 tUSDC \\u00b7 demo-club"]
+      ],
+      [ // refund
+        [4500, 'b', "// what exactly did the checks find?"],
+        [4620, 'b', "await buyer.call('GET', " + c + "/judgment'); // \\u2192 rows: 2, terms say 3"],
+        [4500, 's', "// can I preview a submit before signing it?"],
+        [4620, 's', "await seller.call('POST', " + c + "/deliveries?validateOnly=true', draft); // \\u2192 200, nothing changed"],
+        [5200, 's', "// who must the content key be sealed to?"],
+        [5320, 's', "await seller.call('GET', " + c + "/recipients'); // \\u2192 primary, fallback, appeal, buyer"]
+      ],
+      [ // default
+        [4500, 'b', "// what does the club's rulebook say a default pays?"],
+        [4620, 'b', "await buyer.call('GET', '/v1/clubs/demo-club'); // \\u2192 refund buyer, compensate seller"],
+        [4500, 's', "// what can this API do?"],
+        [4620, 's', "await seller.call('GET', '/v1/openapi.json'); // \\u2192 OpenAPI 3.1, every route"],
+        [5200, 's', "// which settlement layer is this, and what time is it there?"],
+        [5320, 's', "await seller.call('GET', '/.well-known/holdback.json'); // \\u2192 domain, settlementTime"]
+      ],
+      [ // appeal
+        [2700, 'b', "// what would an appeal cost?"],
+        [2820, 'b', "await buyer.call('GET', '/v1/clubs/demo-club'); // \\u2192 appealBondRateBps 500 \\u00b7 appealFee 25 tUSDC"],
+        [4800, 's', "// where are my receipts?"],
+        [4920, 's', "await seller.call('GET', " + c + "/receipts'); // \\u2192 signed by each operator"],
+        [5000, 'b', "// what do I hold now?"],
+        [5120, 'b', "await buyer.call('GET', '/v1/balances/' + buyer.address); // \\u2192 the bond's 25 tUSDC arrived"]
+      ]
+    ][i];
+    return open.concat(tail, QA);
+  };
+  var streams = { b: document.getElementById('stream-b'), s: document.getElementById('stream-s') }, streamTimers = [];
+  function say(side, text) {
+    var el = streams[side];
+    if (!el) return;
+    var line = document.createElement('div'); line.textContent = text; el.appendChild(line);
+    while (el.childNodes.length > 90) el.removeChild(el.firstChild);
   }
+  function play(i) {
+    streamTimers.forEach(clearTimeout); streamTimers = [];
+    var id = '0x' + hex(6) + '\\u2026' + hex(4);
+    var calls = CALLS(i, id);
+    if (still) { calls.forEach(function (l) { say(l[1], l[2]); }); return; }
+    var head = ' \\u00b7 ' + ['release', 'refund', 'default', 'appeal'][i];
+    say('b', ''); say('b', '// buyer agent' + head);
+    say('s', ''); say('s', '// seller agent' + head);
+    calls.forEach(function (l) { streamTimers.push(setTimeout(function () { say(l[1], l[2]); }, l[0] * K)); });
+  }
+  // Four deals in turn, one every 6200 ms \u00d7 K. A visitor who asks for reduced motion gets the first deal's code
+  // written once, with no animation.
+  var deal = 0; play(0);
+  if (!still) setInterval(function () { deal = (deal + 1) % 4; play(deal); }, 6200 * K);
   // Try Crow: the copy icon copies the prompt for the visitor's AI assistant.
   // Where the clipboard is refused, the prompt shows selected instead so the visitor can copy it by hand.
   var select = function (el) { var r = document.createRange(); r.selectNodeContents(el); var s = getSelection(); s.removeAllRanges(); s.addRange(r); };
@@ -326,15 +389,20 @@ export function page(md, command = tryCommand()) {
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&display=swap">
 <style>
-/* Rafa's landing mock (2026-11-10): laid paper, graphite ink, a book face of the period, faded agent code at the sides. */
-:root { color-scheme: light; --paper: #faf7f0; --field: #fffdf8; --ink: #2f2d2a; --ink-2: #57534c; --rule: #cfc8b8; --code: rgba(47, 45, 42, .32); --sepia: #8a6237; }
+/* Rafa's landing mock (2026-11-10): laid paper, graphite ink, a book face of the period, the agents' code streaming faintly down the sides. */
+:root { color-scheme: light; --paper: #faf7f0; --field: #fffdf8; --ink: #2f2d2a; --ink-2: #57534c; --rule: #cfc8b8; --faint: #8f897e; --sepia: #8a6237; }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }
 body { background: var(--paper); color: var(--ink); font-family: "EB Garamond", Garamond, "Times New Roman", serif; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
-/* faded code columns: the seller's calls on the left, the buyer's on the right */
-.code { position: fixed; top: 22vh; width: 28vw; max-width: 440px; font: 12.5px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--code); white-space: pre; overflow: hidden; pointer-events: none; user-select: none; }
-.code.l { left: 20px; -webkit-mask-image: linear-gradient(90deg, #000 55%, transparent); mask-image: linear-gradient(90deg, #000 55%, transparent); }
-.code.r { right: 20px; text-align: left; -webkit-mask-image: linear-gradient(270deg, #000 55%, transparent); mask-image: linear-gradient(270deg, #000 55%, transparent); }
+/* the agents' code: faint terminal text down each side (buyer left, seller right), misting out at the edges */
+.stream { position: fixed; z-index: 0; top: 0; bottom: 0; width: calc((100vw - 760px) / 2 + 40px); max-width: 460px; box-sizing: border-box;
+  display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; pointer-events: none; user-select: none;
+  font: 10.5px/1.7 ui-monospace, "SF Mono", Menlo, monospace; color: var(--faint); opacity: .6; text-align: left; white-space: pre; }
+#stream-b { left: 0; padding: 0 12px 14vh max(20px, env(safe-area-inset-left, 0px));
+  -webkit-mask-image: radial-gradient(ellipse 95% 70% at 35% 62%, #000 25%, transparent 78%); mask-image: radial-gradient(ellipse 95% 70% at 35% 62%, #000 25%, transparent 78%); }
+#stream-s { right: 0; padding: 0 max(20px, env(safe-area-inset-right, 0px)) 14vh 12px;
+  -webkit-mask-image: radial-gradient(ellipse 95% 70% at 65% 62%, #000 25%, transparent 78%); mask-image: radial-gradient(ellipse 95% 70% at 65% 62%, #000 25%, transparent 78%); }
+.stream div { overflow: hidden; flex-shrink: 0; min-height: 1.7em; } /* never squeeze lines when the stream is full */
 .page { position: relative; min-height: 100vh; max-width: 760px; margin: 0 auto; padding: clamp(14px, 3vh, 32px) 16px clamp(12px, 2.4vh, 24px); display: flex; flex-direction: column; align-items: center; text-align: center; }
 /* the bird, the mark and the tagline */
 .bird { width: clamp(150px, 22vh, 260px); height: auto; display: block; mix-blend-mode: multiply; }
@@ -364,7 +432,7 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid 
 .cell { border-top: 1px solid var(--rule); padding-top: 7px; }
 .cell h2 { font-size: clamp(16px, 2.2vh, 18px); font-weight: 600; line-height: 1.2; }
 .cell h2 em { font-weight: 400; font-size: .85em; color: var(--ink-2); }
-.cell p { margin-top: 3px; font-size: clamp(15px, 2vh, 16.5px); line-height: 1.32; color: var(--ink-2); }
+.cell p { margin-top: 3px; font-size: clamp(15px, 2vh, 16.5px); line-height: 1.32; color: var(--ink-2); text-wrap: balance; } /* no word alone on a last line */
 /* the footer, then one quiet line for agents: the Try prompt and the agent docs */
 .ft { margin-top: clamp(12px, 2.4vh, 22px); font-size: 15px; font-style: italic; color: var(--ink-2); }
 .ft.fine { margin-top: 4px; font-size: 14px; }
@@ -373,14 +441,14 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid 
 .copy svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; }
 .copy:hover { background: #efe9dc; color: var(--ink); }
 .copied { margin-left: 6px; color: var(--sepia); font-style: normal; overflow-wrap: anywhere; white-space: pre-wrap; }
-@media (max-width: 1180px) { .code { display: none; } }
-@media (max-width: 640px) { .grid { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 420px) { .grid { grid-template-columns: 1fr; } }
+@media (max-width: 1100px) { .stream { width: 50%; opacity: .16; } }
+@media (max-width: 739px) { .grid { grid-template-columns: 1fr 1fr; } } /* three columns need 740 px for two lines a cell */
+@media (max-width: 499px) { .grid { grid-template-columns: 1fr; } } /* every phone: one column, each cell one or two lines */
 </style>
 </head>
 <body>
-<div class="code l" aria-hidden="true">${esc(SELLER_CODE)}</div>
-<div class="code r" aria-hidden="true">${esc(BUYER_CODE)}</div>
+<div id="stream-b" class="stream" aria-hidden="true"></div>
+<div id="stream-s" class="stream" aria-hidden="true"></div>
 <main class="page">
 <!-- Hooded crow: Archibald Thorburn, "A naturalist's sketch book" (1919), plate 18, public domain. -->
 <img class="bird" src="${BASE}crow.png" alt="Pencil study of a hooded crow" width="640" height="406">
