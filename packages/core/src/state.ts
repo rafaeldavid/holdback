@@ -153,7 +153,7 @@ type R<T = EscrowState> = Result<T, Problem>;
  * Which protocol a step is checked against (ADR-0031). `full` is the whole protocol, which SimChain runs: party
  * appeals and adjudicator bonds. `phase_one` is what the phase-one contracts settle (SC-7, D57): no party appeal and
  * no bond. On `phase_one` the primary's acceptance must reserve 0 and no free bond is read; the first decision of the
- * primary or the fallback is final at once (its appeal window opens and closes at the decision); and a party appeal,
+ * primary or the fallback is final at once (its appeal state is `expired` with no appeal from the decision on); and a party appeal,
  * an appeal decision or an appeal expiry is refused. A settlement layer passes the profile its contracts enforce.
  */
 export type SettlementProfile = 'full' | 'phase_one';
@@ -422,14 +422,18 @@ function firstInstance(
   if (m.outcome === 'escalate') {
     return ok({ ...s, kind: 'Escalated', escalation: { by: role, at, appealDecideBy: addSeconds(at, timing.appealDecideSec) } });
   }
-  // Phase one: final at the decision. The window is empty, so nothing can be filed (ADR-0031 §8, point 7).
-  const appealBy = profile === 'phase_one' ? at : addSeconds(at, timing.appealWindowSec);
+  // Phase one: final at the decision (ADR-0031 §8, point 7). The appeal state is closed with no appeal at once, so no
+  // reader schedules an appeal expiry; the API still reports appealState `none` (the settlement layer's view).
+  const appealBy = addSeconds(at, timing.appealWindowSec);
   const via: FirstInstance = {
     kind: 'first_instance',
     role,
     decision: m,
     delivery: s.delivery,
-    appeal: { kind: 'none', appealBy, appealDecideBy: profile === 'phase_one' ? at : addSeconds(appealBy, timing.appealDecideSec) },
+    appeal:
+      profile === 'phase_one'
+        ? { kind: 'expired', appeal: null }
+        : { kind: 'none', appealBy, appealDecideBy: addSeconds(appealBy, timing.appealDecideSec) },
   };
   return ok(m.outcome === 'accept' ? { ...base, kind: 'Released', via } : { ...base, kind: 'Refunded', via });
 }

@@ -158,11 +158,7 @@ Fill this in before review. Label each item measured, inferred or guessed.
 
 Measured: the anvil settlement leg fails 10 of 13 files and the world leg 6 of 7, all first at `packages/settlement/evm/world.ts:267` (`BONDS` not on the ABI); `abis.test.ts` fails with 54 against 47 ABI entries.
 
-**Open with T-349: red-team finding RT-3.** Core's phase-one decision writes appeal `{kind:'none', appealBy: at, appealDecideBy: at}`. `packages/settlement/evm/timeouts.ts:126` and the same check at `simchain-adapter.ts:230`, `_sim.ts:370`, `evm-settlement.ts:1658`, `:2579`, `:2626`, `:2677` and `demo-cloud/src/world.ts:503` would read that as an appeal expiry due now [inferred]. Two fixes:
-- (a) Those places become profile-aware.
-- (b) Core writes `{kind:'expired', appeal: null}` at a phase-one decision, and the operator's projection maps it to `appealState: none`.
-
-I proposed (b) to T-349 and change core only on its answer. The adapter's `dealOf` decoder at `evm-settlement.ts:2576-2577` still reads seven fields.
+**Red-team finding RT-3, settled with T-349: option (b).** Core's first phase-one decision wrote appeal `{kind:'none', appealBy: at, appealDecideBy: at}`. `packages/settlement/evm/timeouts.ts:126` and the same check at `simchain-adapter.ts:230`, `_sim.ts:370`, `evm-settlement.ts:1658`, `:2579`, `:2626`, `:2677` and `demo-cloud/src/world.ts:503` would read that as an appeal expiry due now. Core now writes `{kind:'expired', appeal: null}` at the decision instead. T-349's EVM view reports `appealState: none` and `finalAt` = `settledAt` for every closed deal, so the API serves what ADR-0031 §8 point 7 says. T-349 also drops the appeal-expiry timeout on EVM and no longer decodes `dealOf`'s appeal fields.
 
 **For the docs package (`docs/audit/`, not this task's paths):**
 - `state-model.md`: §9 describes the cut as built. Add that the word is now (stage, attempt, t1, seedTag), and that rows P06 to P12 are told apart by the closing reason, which the oracle takes from the handler until RF-4.
