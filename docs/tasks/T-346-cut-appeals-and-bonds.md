@@ -109,6 +109,20 @@ Fill this in before review. Label each item measured, inferred or guessed.
   - the size figures.
 
   Answered in the Handoff: the contract-signer tests are a second PR on this branch, and the bisect boundary is stated. The full report is `reports/scratch/t-346-review.md`.
+- **Red team** [measured, by the red team]: no Critical, High or Medium. To its three questions:
+  1. No funded deal gets stuck. Every open stage keeps an exit anyone can call once its deadline passes, and the latest capture lands before the escrow's expiry.
+  2. Neither held funds nor the buyer's key move outside the signed terms. A decision on a Refunded deal now reverts `WrongStage` before the key rule the cut removed would have been reached.
+  3. No state that §9.3 calls illegal is reachable [inferred from every write].
+
+  Its 14 tests are kept in `contracts/test/attack/PhaseOneRedTeam.t.sol`. `test_attack_*` and `test_neutrality_*` pass while the defence holds; `test_issue_*` pass while the weakness is present. Its findings:
+  - **RT-1, Low:** the word does not record who decided or why the deal closed. P06 against P10, and P11 against P12, can leave identical words. This is refactor RF-4's (package R7); the oracle reads the reason from the handler until then.
+  - **RT-2, Info:** an escalation's decision may carry any `appealGround`; only the first instance checks it. This is state-model §8.3 verdict 8, a behaviour change for R8.
+  - **RT-3, Low, off chain:** core's `phase_one` writes appeal `none` with `appealBy` = the decision's time, which other code reads as "an appeal expiry is due now". Raised with T-349 before it codes against it; see the Handoff.
+  - **RT-4, Info:** `Money.requirement`, `payout` and `split` have no caller in `src`. In the triage note.
+  - **RT-5, Info:** no deal goes through the operators on the cut contracts until T-349 lands. Do not redeploy before it.
+  - **RT-6, Info:** three `neutrality.*` fixtures run only on SimChain now; the red team's `test_neutrality_*` tests cover offline adjudicators at the contract level.
+
+  The full report is `reports/scratch/t-346-red-team.md`.
 
 ## Decisions
 
@@ -143,6 +157,12 @@ Fill this in before review. Label each item measured, inferred or guessed.
 - **The demo's appeal beat** and **`site/llms.txt`** change at the redeploy (ADR-0031 appendix).
 
 Measured: the anvil settlement leg fails 10 of 13 files and the world leg 6 of 7, all first at `packages/settlement/evm/world.ts:267` (`BONDS` not on the ABI); `abis.test.ts` fails with 54 against 47 ABI entries.
+
+**Open with T-349: red-team finding RT-3.** Core's phase-one decision writes appeal `{kind:'none', appealBy: at, appealDecideBy: at}`. `packages/settlement/evm/timeouts.ts:126` and the same check at `simchain-adapter.ts:230`, `_sim.ts:370`, `evm-settlement.ts:1658`, `:2579`, `:2626`, `:2677` and `demo-cloud/src/world.ts:503` would read that as an appeal expiry due now [inferred]. Two fixes:
+- (a) Those places become profile-aware.
+- (b) Core writes `{kind:'expired', appeal: null}` at a phase-one decision, and the operator's projection maps it to `appealState: none`.
+
+I proposed (b) to T-349 and change core only on its answer. The adapter's `dealOf` decoder at `evm-settlement.ts:2576-2577` still reads seven fields.
 
 **For the docs package (`docs/audit/`, not this task's paths):**
 - `state-model.md`: §9 describes the cut as built. Add that the word is now (stage, attempt, t1, seedTag), and that rows P06 to P12 are told apart by the closing reason, which the oracle takes from the handler until RF-4.
