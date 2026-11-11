@@ -1,6 +1,7 @@
 // What the demo world's anvil tests share (live.test.ts, registration.anvil.test.ts): the world served as two nodes
 // over HTTP, the deployment anvil's contracts make, fresh parties, and the outside adjudicator of T-221 with the deal
 // it is named primary in. Not a test file and not in the build: only tests import it.
+import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -317,4 +318,15 @@ export async function outsideDeal(
   await s.agent.deliver(offer.terms, new TextEncoder().encode(o.work));
   await untilBoth(b.agent, offer.id, ['Delivered'], 60_000);
   return { id: offer.id as Hex32, terms: offer.terms, offered: offer.state, buyer: b.agent, buyerKey: b.key, seller: s.agent };
+}
+
+/** Runs a script of the repository in its own process, as an agent would, and keeps its output. */
+export function runTry(env: Record<string, string>, script = 'examples/try.ts'): Promise<{ code: number | null; out: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [`${root}${script}`], { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    child.stdout.on('data', (d) => (out += String(d)));
+    child.stderr.on('data', (d) => (out += String(d)));
+    child.on('close', (code) => resolve({ code, out }));
+  });
 }

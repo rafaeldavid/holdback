@@ -16,8 +16,11 @@ export const SCHEMA_VERSION = 1;
 
 const SOURCE_DIRS = ['apps/', 'packages/', 'examples/', 'scripts/', 'site/', 'tools/'];
 const SOURCE_FILE = /\.(ts|mjs|js)$/;
-/** Tests, generated code and bundles are not counted: they are not what runs the demo, or nobody edits them. */
-const NOT_SOURCE = /\.test\.ts$|\.generated\.ts$|^site\/try\.mjs$|\/test\/|\/fixtures?\/|(^|\/)_[^/]+\.ts$|\.fixture\.ts$|^apps\/demo-cloud\/worker\/generated-files\.js$/;
+/**
+ * Tests, generated code and bundles are not counted: they are not what runs the demo, or nobody edits them. Nor is
+ * this script, whose patterns would count themselves.
+ */
+const NOT_SOURCE = /^scripts\/health\.mjs$|\.test\.ts$|\.generated\.ts$|^site\/try\.mjs$|\/test\/|\/fixtures?\/|(^|\/)_[^/]+\.ts$|\.fixture\.ts$|^apps\/demo-cloud\/worker\/generated-files\.js$/;
 /** A source file over this many lines counts as large. */
 export const LARGE_LINES = 800;
 
@@ -84,11 +87,12 @@ export function gatedOutsideCi(tests, ciPaths) {
     .filter((p) => !ciPaths.some((c) => p === c || p.startsWith(c.endsWith('/') ? c : `${c}/`)));
 }
 
-/** The paths after `vitest run` in the workflow's must-not-skip step; the command may span lines that end in a backslash. */
+/**
+ * The test paths the workflow names: every word in it that is a path under a source folder. The must-not-skip
+ * jobs list theirs in a matrix or after `vitest run`, and nothing else in the workflow is a bare path.
+ */
 export function ciAnvilPaths(workflow) {
-  const line = workflow.replace(/\\\n\s*/g, ' ').split('\n').find((l) => /vitest run .*--reporter=verbose/.test(l));
-  if (!line) return [];
-  return line.split('vitest run')[1].split('|')[0].split(/\s+/).filter((w) => w && !w.startsWith('-'));
+  return [...new Set(workflow.split(/\s+/).filter((w) => /^(?:apps|packages|examples|tests|tools)\/[\w./-]+$/.test(w)))];
 }
 
 const median = (xs) => {
