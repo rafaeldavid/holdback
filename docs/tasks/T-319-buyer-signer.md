@@ -6,7 +6,7 @@
 - **Depends on:** T-020 (`examples/agent.ts` and `examples/verify.ts`, the buyer steps this file reuses), T-314 (the faucet takes an `amount`). T-318 (a seller adapter) serves the quote route this file calls; the two merge in either order.
 - **Paths this task may touch:** `examples/buyer-signer.ts`, `examples/buyer-signer.test.ts`, `examples/buy-with-signer.ts`, `site/llms.txt` (one new section only), `site/index.html` (only as `node site/build.mjs` regenerates it), this file. Never: `examples/seller-adapter.ts` or a stub seller API (T-318's lane), `examples/agent.ts`, `examples/verify.ts`, `examples/try.ts`, `site/try.mjs`, `spec/schemas/`, `contracts/`, `apps/`, `packages/`.
 - **Human gate:** no. The site deploy that publishes the `llms.txt` section waits for Rafa.
-- **Status:** review
+- **Status:** done (PR 281, merged 2026-11-11)
 - **Agent/session:** the T-319 session, 2026-11-11, branch `t-319-buyer-signer`
 
 ## Intent
