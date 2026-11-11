@@ -25,7 +25,8 @@ export type DeploymentFile = {
   permit2?: string;
   multicall: string;
   rules: string;
-  bonds: string;
+  /** The bond vault of a deployment from before phase one; a phase-one record has none (ADR-0031 §8). */
+  bonds?: string;
   beacon: string;
   expiryMarginSec?: number;
   /** What the deploy script checked on chain, such as the beacon's code hash. */

@@ -228,11 +228,11 @@ describe('pnpm snap', () => {
     expect(r.text).toMatch(/T-206/);
   });
 
-  it('names every fixture kept on SimChain until Phase 4, each with a reason', () => {
+  it('names every fixture kept on SimChain (until Phase 4, or not in phase one), each with a reason', () => {
     expect(Object.keys(LOCAL_EXCLUSIONS).length).toBeGreaterThan(0);
     for (const [name, reason] of Object.entries(LOCAL_EXCLUSIONS)) {
       expect(existsSync(join(repo, 'fixtures/scenarios', `${name}.scenario.yaml`))).toBe(true);
-      expect(reason).toMatch(/Phase 4/);
+      expect(reason).toMatch(/Phase 4|not in phase one: .*\(SC-7, ADR-0031\)$/);
     }
   });
 

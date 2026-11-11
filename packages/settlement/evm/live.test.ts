@@ -30,7 +30,6 @@ const deployment: DeploymentFile = {
   permit2Collector: addr(3),
   multicall: addr(4),
   rules: RULES,
-  bonds: addr(5),
   beacon: addr(6),
   expiryMarginSec: 86_400,
 };
@@ -174,7 +173,6 @@ describe.skipIf(!ready)(`LiveChain's in-flight rows on anvil (T-219)${ready ? ''
       permit2Collector: d.permit2Collector,
       multicall: d.multicall,
       rules: d.rules,
-      bonds: d.bonds,
       beacon: d.beacon,
       expiryMarginSec: Number(anvil.expiryMargin),
     };

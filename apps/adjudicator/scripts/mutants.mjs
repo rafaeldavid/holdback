@@ -59,7 +59,9 @@ const MUTANTS = [
   ['keys', 'buyer key not validated before judging', A('service.ts'), '      buyerKey = decodePublicKey(commitment.buyerEncryptionPublicKey);', '      buyerKey = new Uint8Array(32);'],
   ['record', 'record hash covers the signature', A('service.ts'), '  delete body.signature;\n', ''],
   ['decision', 'role not in the decision nonce', A('service.ts'), '`holdback.decision-nonce.v1:${role}:${attempt}`', '`holdback.decision-nonce.v1:${attempt}`'],
-  ['acceptance', 'acceptance reserves no bond', A('service.ts'), '      bondReserved: c.price,', "      bondReserved: { ...c.price, amount: '0' } as typeof c.price,"],
+  ['acceptance', 'acceptance reserves no bond on SimChain', A('service.ts'), ' as TokenAmount) : c.price,', " as TokenAmount) : ({ ...c.price, amount: '0' } as typeof c.price),"],
+  ['acceptance', 'acceptance reserves the price on a chain (ADR-0031)', A('service.ts'), 'bondReserved: this.#cfg.settlement.phaseOne ? (', 'bondReserved: false ? ('],
+  ['consent', 'a chain fallback checks a bond that does not exist (ADR-0031, T-349 review)', A('service.ts'), '    if (this.#cfg.settlement.phaseOne) return null;\n    const cover', '    const cover'],
   ['consent', 'appeal windows not checked (T-211)', A('service.ts'), '      if (c.timing[field] > max) {', '      if (false) {'],
   ['consent', 'fee not checked', A('service.ts'), 'if (BigInt(fee.amount) < BigInt(min.amount)) return problem(', 'if (false) return problem('],
   ['consent', 'fee token not checked (T-211)', A('service.ts'), 'if (fee.token !== min.token) return problem(', 'if (false) return problem('],
@@ -89,14 +91,11 @@ const MUTANTS = [
   ['simchain adapter', 'offers not found in the event log', A('simchain-adapter.ts'), "if (e.type === 'commitment.offered') {", "if (e.type === 'commitment.agreed') {"],
   ['simchain adapter', 'acceptance submitted as a decision', A('simchain-adapter.ts'), "{ kind: 'adjudicator_accept', message }", "{ kind: 'decide', message: message as never }"],
   ['simchain adapter', "SimChain's takeover reservation not counted in the cover (T-211)", A('simchain-adapter.ts'), '    return (free > 0n ? free : 0n) + held;', '    return free > 0n ? free : 0n;'],
-  ['simchain adapter', 'SimChain counts only the reservation after the takeover (T-211, red team K5)', A('simchain-adapter.ts'), '      free = pooled;\n      held = chain.reservations', "      free = s?.kind === 'Delivered' ? pooled : 0n;\n      held = chain.reservations"],
+  ['simchain adapter', 'SimChain counts only the reservation after the takeover (T-211, red team K5)', A('simchain-adapter.ts'), '    return (free > 0n ? free : 0n) + held;', '    return held;'],
   ['simchain adapter', 'appeal expiries of another decider (T-211)', A('simchain-adapter.ts'), ' || lc(s.via.decision.adjudicator) !== lc(adjudicator)) return false;', ') return false;'],
   ['simchain adapter', 'appeal expiry before appealBy (T-211)', A('simchain-adapter.ts'), "(a.kind === 'none' && now >= Date.parse(a.appealBy))", "(a.kind === 'none')"],
   ['simchain adapter', 'open appeal expiry before appealDecideBy (T-211, review nit 1)', A('simchain-adapter.ts'), "(a.kind === 'open' && now >= Date.parse(a.appealDecideBy))", "(a.kind === 'open')"],
-  ['simchain adapter', "the contract's freeOf not read (T-211)", A('simchain-adapter.ts'), '      free = await chain.freeBond(a);', '      free = pooled;'],
   ['simchain adapter', 'a takeover past fallbackBy still due (T-211)', A('simchain-adapter.ts'), ' && now < Date.parse(c.timing.fallbackBy))', ')'],
-  ['simchain adapter', "the contract path ignores the primary's own reservation (T-211)", A('simchain-adapter.ts'), "s?.kind === 'Delivered' || s?.kind === 'FallbackJudging'\n          ? c.adjudication.adjudicator", "s?.kind === 'Delivered' || s?.kind === 'FallbackJudging'\n          ? null"],
-  ['simchain adapter', "the contract path ignores the first decider's reservation (T-211)", A('simchain-adapter.ts'), '            ? s.via.decision.adjudicator', '            ? null'],
 ];
 
 function runTests() {

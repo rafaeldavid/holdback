@@ -10,7 +10,6 @@ import {
   type Agree,
   type AdjudicatorAcceptance,
   type AnyCommitmentTerms,
-  type Appeal,
   type Decision,
   type Delivery,
   type EarlyAccept,
@@ -152,11 +151,6 @@ export function decisionView(m: Decision) {
     expiresAt: e.expiresAt,
     signature: m.signature,
   };
-}
-
-export function appealView(a: Appeal) {
-  const e = enc<{ filedAt: bigint }>({ ...a, type: 'Appeal' } as Parameters<typeof typedDataOf>[0]);
-  return { appellant: a.appellant === 'buyer' ? 0 : 1, groundsHash: str(a.grounds), bond: BigInt(a.bond.amount), filedAt: e.filedAt, signature: a.signature };
 }
 
 export function mutualView(m: MutualSettlement) {

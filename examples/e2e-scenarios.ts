@@ -21,7 +21,6 @@ import {
   TRANSLATION,
   appeal,
   appealBond,
-  bondFreedCheck,
   checksLine,
   cppCheck,
   expireAppeal,
@@ -32,6 +31,7 @@ import {
   paidCheck,
   requires,
   settledChecks,
+  simChainOnly,
   untilAppeal,
   type J,
   type Scenario,
@@ -119,7 +119,6 @@ const BUILT: Scenario[] = [
       if (round.chain) {
         const keys = logsOf(deal.record, 'KeyReleased').filter((l) => lc(l.args.recipient) === buyer);
         r.check('the key reaches the buyer on chain', keys.length === 1, `${keys.length} KeyReleased log(s) to the buyer`);
-        bondFreedCheck(r, deal);
       }
       if (round.o.homepage !== false) await homepage(r);
     },
@@ -156,7 +155,6 @@ const BUILT: Scenario[] = [
         r.check('the decision names the posted delivery (D44)', named === onChain && posted.every((p) => lc(p ?? '') === onChain), `decide names ${short(named)}; deliveryHashOf ${short(onChain)}; both operators' delivery.submitted ${posted.map((p) => short(p ?? 'none')).join(', ')}`);
         const toBuyer = logsOf(deal.record, 'KeyReleased').filter((l) => lc(l.args.recipient) === buyer);
         r.check('no KeyReleased log names the buyer', toBuyer.length === 0, `${toBuyer.length} log(s)`);
-        bondFreedCheck(r, deal);
       } else {
         r.check('the decision names the posted delivery (D44)', posted.every((p) => p !== null && p === posted[0]), `both operators record delivery ${short(posted[0] ?? 'none')}; SimChain refuses a decision naming another`, 'inferred');
       }
@@ -193,9 +191,6 @@ const BUILT: Scenario[] = [
           r.check(`${via}: dealOf reads Refunded`, deal.record.chain.stage === 'Refunded', deal.record.chain.stage);
           cppCheck(r, deal, `${via}: `);
           paidCheck(r, deal, `${via}: the price and the adjudication fee return to the buyer on chain`, buyer, BigInt(PRICE) + BigInt(deal.terms.adjudication.fee.amount));
-          const primary = lc(deal.terms.adjudication.adjudicator);
-          const freed = logsOf(deal.record, 'BondReleased').filter((l) => lc(l.args.adjudicator) === primary).reduce((s, l) => s + BigInt(l.args.amount), 0n);
-          r.check(`${via}: the primary's bond is freed`, freed === BigInt(PRICE), `BondReleased ${round.amount(freed)}`);
         }
         if (via === 'api' || round.t220) r.check(`${via}: both operators show Refunded and agree`, deal.record.operators?.agree === true && deal.record.operators.views.every((v) => v.escrowState === 'Refunded'), deal.record.operators?.views.map((v) => v.escrowState).join(' / ') ?? '');
         else deal.record.notes.push(`The operators show ${deal.record.operators?.views.map((v) => v.escrowState).join(' / ')} after the direct reclaim: they follow direct calls once T-218 is live (run with --t220); the money settled on chain.`);
@@ -228,6 +223,7 @@ const BUILT: Scenario[] = [
     title: 'Appeal upheld (API)',
     waitsFor: ['T-217'],
     async run(r) {
+      simChainOnly(r, 'a party appeal');
       await requires(r, ['T-217']);
       const { round } = r;
       const [buyer, seller] = [round.address('buyer'), round.address('seller')];
@@ -244,11 +240,6 @@ const BUILT: Scenario[] = [
         const deal = await openDeal(r, { label: shape.label, template: 'checks-only', deliverable: DATASET, checks: CHECKS, price: PRICE, timing: windows }, [buyer, seller, primary]);
         await fund(r, deal);
         const bond = await appealBond(r, deal);
-        if (round.chain) {
-          const tx = await round.chain.approveBonds(round.key(shape.appellant), bond);
-          deal.sent.push({ step: 'appeal bond approval', tx });
-          r.say(`${shape.appellant} approves HoldbackBonds for its ${round.amount(bond)} appeal bond: ${round.chain.link(tx.tx)} (${tx.gasUsed} gas)`);
-        }
         await deliver(r, deal, shape.work);
         r.step = 'outcome';
         const done = await until(r, deal.buyer, deal.id, ['Released', 'Refunded', 'Escalated'], 300_000);
@@ -262,20 +253,11 @@ const BUILT: Scenario[] = [
         await finish(r, deal);
         r.check(`${shape.appellant}: the appeal is upheld and the first outcome stands`, decided.appealState === 'upheld' && decided.escrowState === shape.outcome, `${decided.escrowState}, appeal ${decided.appealState}`);
         // The seller appeals a refund it was not paid for; the buyer appeals a release it paid price and fees for. An
-        // upheld appellant loses its bond, and the rulebook's appeal fee where the settlement layer charges one: SimChain
-        // does; on the contract the fee is Phase 4 and absent (recorded, not passed).
-        const appealFee = round.chain ? 0n : BigInt((await deal.buyer.club(round.demo.clubId)).rulebook.appealFee?.amount ?? '0');
-        if (round.chain) deal.record.notes.push('No appeal fee on chain: Phase 4 economics, recorded, not passed (T-216 non-goals).');
+        // upheld appellant loses its bond, and the rulebook's appeal fee (SimChain only, simChainOnly above).
+        const appealFee = BigInt((await deal.buyer.club(round.demo.clubId)).rulebook.appealFee?.amount ?? '0');
         const paidByBuyer = BigInt(PRICE) + BigInt(deal.terms.adjudication.fee.amount) + (deal.operatorFee ?? 0n);
         const expected = -(bond + appealFee + (shape.appellant === 'seller' ? 0n : paidByBuyer));
         r.check(`${shape.appellant}: the appellant loses its bond`, delta(deal.record, round.address(shape.appellant)) === expected, `${shape.appellant} ${round.amount(delta(deal.record, round.address(shape.appellant)))}, expected ${round.amount(expected)}`);
-        if (round.chain) {
-          const paid = logsOf(deal.record, 'AppealBondPaid');
-          r.check(`${shape.appellant}: the bond goes to the first adjudicator's bond`, paid.length === 1 && lc(paid[0]!.args.to) === primary && paid[0]!.args.toBond === true && BigInt(paid[0]!.args.amount) === bond, paid.map((p) => `${r.round.amount(p.args.amount)} to ${short(p.args.to)}${p.args.toBond ? ' (bond)' : ''}`).join('; ') || 'no AppealBondPaid log');
-          r.check(`${shape.appellant}: no bond is slashed`, logsOf(deal.record, 'BondSlashed').length === 0, `${logsOf(deal.record, 'BondSlashed').length} BondSlashed log(s)`);
-          const decide = deal.record.transactions.flatMap((t) => t.calls).filter((c) => c.fn === 'decide').at(-1);
-          r.check(`${shape.appellant}: the appeal decision carries a drand quicknet proof`, Number(decide?.args?.[1]?.beaconRound ?? 0) > 0, `beacon round ${decide?.args?.[1]?.beaconRound ?? 'none'}`);
-        }
         r.check(`${shape.appellant}: both operators agree`, deal.record.operators?.agree === true, deal.record.operators?.views.map((v) => `${v.escrowState} ${v.appealState}`).join(' / ') ?? '');
       }
     },
@@ -308,9 +290,6 @@ const BUILT: Scenario[] = [
       r.check('the buyer gets the rest of the price and the adjudication fee back', delta(deal.record, buyer) === -(share + (deal.operatorFee ?? 0n)), `buyer ${round.amount(delta(deal.record, buyer))}; the adjudication fee of ${round.amount(fee)} returns to the buyer`);
       settledChecks(r, deal, 'Settled');
       if (round.chain) {
-        const primary = lc(deal.terms.adjudication.adjudicator);
-        const freed = logsOf(deal.record, 'BondReleased').filter((l) => lc(l.args.adjudicator) === primary).reduce((s, l) => s + BigInt(l.args.amount), 0n);
-        r.check("the primary's bond is freed", freed === price, `BondReleased ${round.amount(freed)}`);
         r.check('no key is released (releaseKey false, nothing delivered)', logsOf(deal.record, 'KeyReleased').length === 0, `${logsOf(deal.record, 'KeyReleased').length} KeyReleased log(s)`);
       }
     },

@@ -52,10 +52,11 @@ contract PinnedSourceTest is Test {
     /// The copies share their contract names with `src/`. Forge writes the copies' artifacts elsewhere and keeps
     /// `src/`'s at the short paths that `NoAdmin.fuzz.t.sol` and the anvil suites read. This pins that: a
     /// short-path artifact compiled from a copy fails here. The sim beacon is a test fixture under `script/` since
-    /// T-334, so its short path must be that file.
+    /// T-334, so its short path must be that file. Since T-346 (SC-7) `src/` has no bond vault, so the short-path
+    /// `HoldbackBonds` artifact is the pinned copy's, as it must be: only `old/` still has the vault.
     function test_shortArtifactPathsAreTheSourceUnderTest() public view {
         string[3] memory names = ["HoldbackRules", "HoldbackBonds", "SimBeacon"];
-        string[3] memory dirs = ["src/", "src/", "script/"];
+        string[3] memory dirs = ["src/", "test/differential/old/", "script/"];
         for (uint256 i; i < 3; i++) {
             string memory json = vm.readFile(string.concat("out/", names[i], ".sol/", names[i], ".json"));
             string[] memory target = vm.parseJsonKeys(json, ".metadata.settings.compilationTarget");

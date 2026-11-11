@@ -1,20 +1,44 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 import {MockERC3009Token} from "commerce-payments-test/mocks/MockERC3009Token.sol";
 import {Vm} from "forge-std/Vm.sol";
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
-import {HoldbackBonds} from "../../src/HoldbackBonds.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "../unit/Base.sol";
 
+/// @notice The party appeal of the deployed contracts (commit 64be1f1), which phase one cuts (ADR-0031 §8, SC-7).
+///         Not part of the phase-one ABI: the handler calls it by selector so the side-by-side harness can drive
+///         the old side's removed entry points and see the new side refuse them (T-346).
+interface IDeployedAppeals {
+    struct Appeal {
+        uint8 appellant; // 0 = buyer, 1 = seller
+        bytes32 groundsHash;
+        uint256 bond;
+        uint64 filedAt;
+        bytes signature;
+    }
+
+    function fileAppeal(H.Terms calldata t, Appeal calldata a) external;
+    function expireAppeal(H.Terms calldata t) external;
+}
+
+/// @notice The bond vault of the deployed contracts (64be1f1's HoldbackBonds), which phase one cuts. The pinned side
+///         of the side-by-side harness funds it, and the harness reads it.
+interface IDeployedVault {
+    function deposit(address token, uint256 amount) external;
+    function bondOf(address adjudicator, address token) external view returns (uint256);
+    function encumberedOf(address adjudicator, address token) external view returns (uint256);
+    function freeOf(address adjudicator, address token) external view returns (uint256);
+    function appealBondOf(bytes32 id) external view returns (address appellant, uint96 amount);
+}
+
 /// @title RulesHandler
-/// @notice T-203: the stateful-fuzzing handler for HoldbackRules and HoldbackBonds. It reuses the unit fixture
-///         (`Base`: CPP v1.1.0, both collectors, Permit2, mock ERC-3009 tokens) and drives random interleavings of
-///         every external function and every TimeoutKind over a bounded world:
+/// @notice T-203: the stateful-fuzzing handler for HoldbackRules. It reuses the unit fixture (`Base`: CPP v1.1.0,
+///         both collectors, Permit2, mock ERC-3009 tokens) and drives random interleavings of every external function
+///         and every TimeoutKind over a bounded world:
 ///         - seven actors: buyer, seller, three adjudicators, an operator and an unrelated address. Every call is
 ///           sent from one of them, and every signature is made by one of their keys;
 ///         - at most MAX_DEALS commitments over two tokens, with fuzzed price, fee, adjudicator roles (an address may
@@ -24,15 +48,35 @@ import {Base} from "../unit/Base.sol";
 ///         variables that `test/invariant/RulesInvariants.t.sol` reads. A call the rules refuse, with no violation
 ///         recorded, re-reverts with `Refused()` so the campaign's metrics count it as a revert (no state is lost:
 ///         the refused call changed nothing).
+/// @dev T-346 (SC-7): phase one has no party appeal and no bond vault. The handler is written against the phase-one
+///      ABI, and the side-by-side harness drives the deployed contracts (`test/differential/Sides.sol`) through the
+///      same handler. Every choice an action makes (which deal, which key, which time) depends only on state both
+///      builds share, so the two sides receive the same calls. Where the builds' ABIs differ, a virtual hook reads
+///      the side's own form (`_dealOf`, `_deployedAppeal`, Base's `_bondReserved`), and the pinned side overrides it.
+///      The three removed actions (`fileAppeal`, `expireAppeal`, `decideAppeal`) stay for the harness only: on the
+///      phase-one contract they are always refused, so the invariant campaign does not target them.
 contract RulesHandler is Base {
     error Refused();
 
     uint256 internal constant OP_PK = 0x0BE7;
     uint256 internal constant N = 7;
-    // T-341 raised it from 8 (refinement plan, gate VG-2): more deals contend for bonds, timeouts and picks at once.
+    // T-341 raised it from 8 (refinement plan, gate VG-2): more deals contend for timeouts and picks at once.
     uint256 public constant MAX_DEALS = 16;
     uint256 internal constant I_OP = 5;
     uint256 internal constant I_OTHER = 6;
+
+    // T-346: how a deal closed, recorded by the action that closed it, for the state oracle's phase-one rows
+    // (`docs/audit/state-model.md` section 9.2). The word stores neither until refactor RF-4 adds the closing reason.
+    uint8 public constant R_OPEN = 0;
+    uint8 public constant R_DECIDED = 1;
+    uint8 public constant R_ACCEPTED_EARLY = 2;
+    uint8 public constant R_SETTLED = 3;
+    uint8 public constant R_RECLAIMED = 4;
+    uint8 public constant R_DEFAULTED = 5;
+    uint8 public constant D_NONE = 0;
+    uint8 public constant D_PRIMARY = 1;
+    uint8 public constant D_FALLBACK = 2;
+    uint8 public constant D_APPEAL = 3;
 
     MockERC3009Token public tusd2;
     address[N] internal _actor;
@@ -47,15 +91,17 @@ contract RulesHandler is Base {
     mapping(bytes32 => uint256) public closings; // open -> Released | Refunded | Settled transitions
     mapping(bytes32 => bool) public everClosed;
     mapping(bytes32 => bool) public cppReclaimed; // the buyer's own CPP reclaim after authorizationExpiry
+    mapping(bytes32 => uint8) public closedBy; // R_*: the action that closed the deal
+    mapping(bytes32 => uint8) public closedDecider; // D_*: the adjudicator whose decision closed it
     mapping(bytes32 => uint64) internal _deliverBy;
+    uint8 internal _closing; // the closing reason of the action in progress, read by `_track`
+    uint8 internal _decider;
     uint256 public reopened; // a closed commitment seen in an open stage again
     uint256 public unauthorisedSuccess; // a call carrying a signature from the wrong key succeeded
     uint256 public unexpectedMovement; // a call that must not move held money moved it
-    uint256 public strangerSuccess; // a direct call to CPP or the bond vault's rules-only functions succeeded
+    uint256 public strangerSuccess; // a direct call to CPP's operator functions on a Holdback hold succeeded
     uint256 public timeoutMismatch; // a timeout succeeded before its deadline, or was refused when due
-    uint256 public withdrawMismatch; // a bond withdrawal of free funds refused, or of encumbered funds allowed
     uint256 public keyWithoutPayment; // a KeyReleased on a deal that does not stand Released or Settled
-    uint256 public overturnMispaid; // an appeal paid other than its verdict requires, or filed by the favoured party (T-206 I-8, L-7)
     // T-336 (known issue G-5): the liveness counter. Every delivery that lands, whichever call carries it, is counted
     // with the hash of the delivery the handler posted, so an invariant can check the chain stores exactly that hash.
     uint256 public deliveries; // deliveries that landed on chain (a deal's attempt went from 0 to 1 in Held)
@@ -82,27 +128,39 @@ contract RulesHandler is Base {
         tusd2.mint(seller, 1_000_000_000);
         usdc.mint(_actor[I_OP], 100_000_000);
         tusd2.mint(_actor[I_OTHER], 100_000_000);
-        // The second token's bonds are small, so funding and takeovers contend for them.
-        for (uint256 i = 2; i <= 4; i++) {
-            tusd2.mint(_actor[i], 80_000_000);
-            vm.startPrank(_actor[i]);
-            tusd2.approve(address(bonds), 80_000_000);
-            bonds.deposit(address(tusd2), 80_000_000);
-            vm.stopPrank();
-        }
-        // Every actor approves the bond vault (appeal bonds and deposits).
-        for (uint256 i; i < N; i++) {
-            vm.startPrank(_actor[i]);
-            usdc.approve(address(bonds), type(uint256).max);
-            tusd2.approve(address(bonds), type(uint256).max);
-            vm.stopPrank();
-        }
+        _afterSetUp();
     }
+
+    /// The side's own world after the shared one: nothing on phase one. The pinned side funds the deployed
+    /// contracts' bond vault here (`Sides.sol`).
+    function _afterSetUp() internal virtual {}
+
+    // ------------------------------------------------------------ the side's own reads (T-346)
+
+    /// The deal's stored word in the phase-one shape. The pinned side decodes the deployed contracts' wider word.
+    function _dealOf(bytes32 id) internal view virtual returns (HoldbackRules.Deal memory) {
+        return rules.dealOf(id);
+    }
+
+    /// The deployed contracts' appeal fields of a deal: its appeal state, its bond flags and the appeal's filing
+    /// time. Phase one has none, so all three are zero here; the pinned side reads them.
+    function _deployedAppeal(bytes32) internal view virtual returns (uint8 appeal, uint8 flags, uint40 t2) {}
 
     // ------------------------------------------------------------ views for the invariants
 
-    function system() external view returns (HoldbackRules, HoldbackBonds, AuthCaptureEscrow) {
-        return (rules, bonds, escrow);
+    /// The rules contract, the address where the deployed contracts keep their bond vault, and the escrow. The
+    /// deployed rules contract creates its vault as its first CREATE, at nonce 1; on phase one nothing is there.
+    function system() external view returns (HoldbackRules, address, AuthCaptureEscrow) {
+        return (rules, vault(), escrow);
+    }
+
+    function vault() public view returns (address) {
+        return vm.computeCreateAddress(address(rules), 1);
+    }
+
+    /// The deal's stored word, in the phase-one shape, whichever side this is.
+    function word(bytes32 id) external view returns (HoldbackRules.Deal memory) {
+        return _dealOf(id);
     }
 
     function tokens() public view returns (address[2] memory) {
@@ -113,7 +171,8 @@ contract RulesHandler is Base {
         return _actor;
     }
 
-    /// Every address that can hold the tokens in this world. Conservation sums over exactly these.
+    /// Every address that can hold the tokens in this world. Conservation sums over exactly these. The vault's
+    /// address is listed on both sides, so the two sides list the same holders.
     function holders() external view returns (address[] memory h) {
         h = new address[](N + 9);
         for (uint256 i; i < N; i++) {
@@ -121,7 +180,7 @@ contract RulesHandler is Base {
         }
         h[N] = address(escrow);
         h[N + 1] = escrow.getTokenStore(address(rules));
-        h[N + 2] = address(bonds);
+        h[N + 2] = vault();
         h[N + 3] = address(rules);
         h[N + 4] = address(collector3009);
         h[N + 5] = address(collectorPermit2);
@@ -155,7 +214,7 @@ contract RulesHandler is Base {
     /// What the rules state says CPP must hold for commitment i: price + fee while open, else nothing.
     function heldMirror(uint256 i) public view returns (uint256) {
         bytes32 id = _ids[i];
-        if (!_isOpen(rules.dealOf(id).stage) || cppReclaimed[id]) return 0;
+        if (!_isOpen(_dealOf(id).stage) || cppReclaimed[id]) return 0;
         return _terms_[i].price + _terms_[i].fee;
     }
 
@@ -167,25 +226,6 @@ contract RulesHandler is Base {
     function openHolds(address token) external view returns (uint256 sum) {
         for (uint256 i; i < _ids.length; i++) {
             if (_terms_[i].token == token) sum += heldMirror(i);
-        }
-    }
-
-    /// What `adj` should have encumbered in `token`, from each commitment's reservation flags.
-    function encumberedMirror(address adj, address token) external view returns (uint256 sum) {
-        for (uint256 i; i < _ids.length; i++) {
-            H.Terms memory t = _terms_[i];
-            if (t.token != token) continue;
-            uint8 f = rules.dealOf(_ids[i]).flags;
-            if (f & 1 != 0 && t.adjudicator == adj) sum += t.price;
-            if (f & 2 != 0 && t.fallbackAdjudicator == adj) sum += t.price;
-        }
-    }
-
-    function appealBondsHeld(address token) external view returns (uint256 sum) {
-        for (uint256 i; i < _ids.length; i++) {
-            if (_terms_[i].token != token) continue;
-            (, uint96 amount) = bonds.appealBondOf(_ids[i]);
-            sum += amount;
         }
     }
 
@@ -214,7 +254,7 @@ contract RulesHandler is Base {
 
     function _violations() internal view returns (uint256) {
         return reopened + unauthorisedSuccess + unexpectedMovement + strangerSuccess + timeoutMismatch
-            + withdrawMismatch + keyWithoutPayment + overturnMispaid + deliveryHashLost + deliverRefused;
+            + keyWithoutPayment + deliveryHashLost + deliverRefused;
     }
 
     /// Re-reverts a refused call so the metrics count it, unless the refusal itself was a violation. In trace mode
@@ -260,24 +300,16 @@ contract RulesHandler is Base {
         return seed % _ids.length;
     }
 
-    /// Three times in four, the first commitment (from a random start) that `mask` matches; otherwise, or when
-    /// none matches, a random commitment, so refusals in every stage stay covered.
+    /// Three times in four, the first commitment (from a random start) whose stage `mask` matches; otherwise, or
+    /// when none matches, a random commitment, so refusals in every stage stay covered.
     function _pickFor(uint256 seed, uint256 mask) internal view returns (uint256) {
         uint256 i = _pick(seed >> 2);
         if (seed % 4 == 0) return i;
         for (uint256 k; k < _ids.length; k++) {
             uint256 j = (i + k) % _ids.length;
-            if (_matches(rules.dealOf(_ids[j]), mask)) return j;
+            if (mask & (1 << uint8(_dealOf(_ids[j]).stage)) != 0) return j;
         }
         return i;
-    }
-
-    /// Bits 0-8: the stage. A_NONE and A_OPEN: Released or Refunded with that appeal state.
-    function _matches(HoldbackRules.Deal memory d, uint256 mask) internal pure returns (bool) {
-        if (mask & (1 << uint8(d.stage)) != 0) return true;
-        if (d.stage != HoldbackRules.Stage.Released && d.stage != HoldbackRules.Stage.Refunded) return false;
-        if (d.appeal == HoldbackRules.AppealState.None) return mask & A_NONE != 0;
-        return d.appeal == HoldbackRules.AppealState.Open && mask & A_OPEN != 0;
     }
 
     uint256 internal constant M_NONE = 1 << 0;
@@ -285,9 +317,10 @@ contract RulesHandler is Base {
     uint256 internal constant M_DELIVERED = 1 << 2;
     uint256 internal constant M_FALLBACK = 1 << 3;
     uint256 internal constant M_ESCALATED = 1 << 4;
+    uint256 internal constant M_RELEASED = 1 << 5;
+    uint256 internal constant M_REFUNDED = 1 << 6;
     uint256 internal constant M_OPEN = M_HELD | M_DELIVERED | M_FALLBACK | M_ESCALATED;
-    uint256 internal constant A_NONE = 1 << 9; // decided, appeal window open
-    uint256 internal constant A_OPEN = 1 << 10; // decided, appeal filed
+    uint256 internal constant M_DECIDED = M_RELEASED | M_REFUNDED;
 
     function _authorised(string memory name, bool authorised) internal {
         if (!authorised) {
@@ -296,25 +329,41 @@ contract RulesHandler is Base {
         }
     }
 
+    /// The adjudicator whose turn a stage is: the primary in Held and Delivered, the fallback in FallbackJudging,
+    /// the appeal adjudicator in Escalated.
+    function _turn(HoldbackRules.Stage s) internal pure returns (uint8) {
+        if (s == HoldbackRules.Stage.FallbackJudging) return D_FALLBACK;
+        if (s == HoldbackRules.Stage.Escalated) return D_APPEAL;
+        return D_PRIMARY;
+    }
+
+    /// Names the closing reason (and the decider) of the action in progress, for `_track`.
+    function _closingAs(uint8 reason, uint8 decider) internal {
+        (_closing, _decider) = (reason, decider);
+    }
+
     function _track(bytes32 id, HoldbackRules.Stage before) internal {
-        HoldbackRules.Stage s = rules.dealOf(id).stage;
+        HoldbackRules.Deal memory d = _dealOf(id);
+        HoldbackRules.Stage s = d.stage;
         if (!_isClosed(before) && _isClosed(s)) {
             closings[id]++;
             everClosed[id] = true;
+            (closedBy[id], closedDecider[id]) = (_closing, _closing == R_DECIDED ? _decider : D_NONE);
         }
+        (_closing, _decider) = (R_OPEN, D_NONE);
         if (everClosed[id] && !_isClosed(s)) {
             reopened++;
             lastViolation = "a closed commitment reopened";
         }
         // A delivery lands only before deliverBy, whichever call carries it (T-206 M-2); reclaim and mutual
         // settlement leave the attempt at 0.
-        if (before == HoldbackRules.Stage.Held && rules.dealOf(id).attempt != 0 && block.timestamp >= _deliverBy[id]) {
+        if (before == HoldbackRules.Stage.Held && d.attempt != 0 && block.timestamp >= _deliverBy[id]) {
             timeoutMismatch++;
             lastViolation = "a delivery landed at or after deliverBy";
         }
         // T-336: a delivery landed (deliver, or a decision or early accept that carried it). Every handler path posts
         // the fixture's delivery, so its hash is known; the chain must store exactly it (ADR-0029).
-        if (before == HoldbackRules.Stage.Held && rules.dealOf(id).attempt != 0 && postedHash[id] == bytes32(0)) {
+        if (before == HoldbackRules.Stage.Held && d.attempt != 0 && postedHash[id] == bytes32(0)) {
             (H.Delivery memory dv,) = _delivery();
             postedHash[id] = hx.delivery(id, dv);
             deliveries++;
@@ -409,7 +458,7 @@ contract RulesHandler is Base {
         H.Acceptance memory acc = _acceptance(t, ak);
         H.Agree memory ag = _agree(t, bk);
         H.Funding memory f = _erc3009(t, fk);
-        HoldbackRules.Stage before = rules.dealOf(id).stage;
+        HoldbackRules.Stage before = _dealOf(id).stage;
         bool ok = _relay(_caller(callerSeed), abi.encodeCall(HoldbackRules.agreeAndFund, (t, ss, acc, ag, f)));
         if (ok) _authorised("agreeAndFund", sk == SELLER_PK && ak == good && bk == BUYER_PK && fk == BUYER_PK);
         _track(id, before);
@@ -424,7 +473,7 @@ contract RulesHandler is Base {
         (H.Delivery memory d,) = _delivery();
         uint256 k = _signer(signerSeed, SELLER_PK);
         bytes memory sig = _deliverySig(id, d, k);
-        HoldbackRules.Stage before = rules.dealOf(id).stage;
+        HoldbackRules.Stage before = _dealOf(id).stage;
         uint256 c0 = capturable(i);
         bool ok;
         vm.prank(_caller(callerSeed));
@@ -446,13 +495,14 @@ contract RulesHandler is Base {
     }
 
     /// Relays a decision from whichever adjudicator's turn the stage says it is (sometimes with the wrong role, an
-    /// expired message or another key). In Held it carries the delivery.
+    /// expired message or another key). In Held it carries the delivery. On a decided deal it relays the primary's
+    /// decision, which phase one refuses: a decision is final when written.
     function decide(uint256 dealSeed, uint256 callerSeed, uint256 signerSeed, uint256 outcomeSeed) external {
         uint256 v0 = _violations();
-        uint256 i = _pickFor(dealSeed, M_OPEN | A_OPEN);
+        uint256 i = _pickFor(dealSeed, M_OPEN);
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
-        HoldbackRules.Deal memory d = rules.dealOf(id);
+        HoldbackRules.Deal memory d = _dealOf(id);
         uint8 role = H.ROLE_PRIMARY;
         uint64 round;
         if (d.stage == HoldbackRules.Stage.FallbackJudging) {
@@ -461,9 +511,6 @@ contract RulesHandler is Base {
         } else if (d.stage == HoldbackRules.Stage.Escalated) {
             role = H.ROLE_APPEAL;
             round = rules.BEACON().roundAt(d.t1) + 1;
-        } else if (d.stage == HoldbackRules.Stage.Released || d.stage == HoldbackRules.Stage.Refunded) {
-            role = H.ROLE_APPEAL;
-            round = rules.BEACON().roundAt(d.t2) + 1;
         }
         uint8 outcome = uint8(outcomeSeed % 3);
         H.Decision memory m =
@@ -473,10 +520,6 @@ contract RulesHandler is Base {
         if ((outcomeSeed >> 16) % 16 == 15) m.expiresAt = uint64(block.timestamp);
         // Rarely a decision about another seller-signed body (ADR-0029); otherwise the posted or carried delivery.
         if ((outcomeSeed >> 24) % 16 == 15) m.deliveryHash = keccak256("another body");
-        // An appeal over a refund carries no key (T-206 H-2), except rarely, so the refusal stays exercised.
-        if (d.stage == HoldbackRules.Stage.Refunded && (outcomeSeed >> 20) % 16 != 15) {
-            (m.keyScheme, m.keyCiphertext) = ("", "");
-        }
         uint256 good = _rolePk[id][role];
         uint256 k = _signer(signerSeed, good);
         m = _signDecision(t, id, m, vm.addr(good), k);
@@ -490,6 +533,7 @@ contract RulesHandler is Base {
             dsig = _deliverySig(id, dv, sk);
         }
         _recordLogs();
+        _closingAs(R_DECIDED, _turn(d.stage));
         bool ok = _relayDecide(_caller(callerSeed), t, m, dv, dsig);
         if (ok) _authorised("decide", k == good && sk == SELLER_PK && m.deliveryHash == rules.deliveryHashOf(id));
         _keyOnlyWithPayment();
@@ -497,99 +541,40 @@ contract RulesHandler is Base {
         _end(ok, v0);
     }
 
-    /// Decides an open appeal with the right key and round, outcome and key presence independent, so the key rule
-    /// (T-206 H-2) is reached on every outcome; `decide` rarely builds this sequence.
+    /// Removed in phase one (SC-7), kept for the side-by-side harness: relays the appeal adjudicator's decision on
+    /// a decided deal, as the deployed contracts take it while a party appeal is open (round: the first after the
+    /// filing). Phase one refuses it with `WrongStage`. No time warp: the round comes from the old side's own
+    /// state, and a warp would make the two sides' clocks differ.
     function decideAppeal(uint256 dealSeed, uint256 callerSeed, uint256 outcomeSeed) external {
-        _decideAppeal(_violations(), _pickFor(dealSeed, A_OPEN), callerSeed, outcomeSeed);
-    }
-
-    /// T-341: files the appeal of the party the decision went against (its key, a bond from 0 to 5 tUSD) on a
-    /// decided deal whose window is open, then, three times in four, has the appeal adjudicator decide it as
-    /// `decideAppeal` does. The separate actions rarely line up, so without this the appeal rows of the state
-    /// model (L11 to L22, L27 to L30) were rarely reached. Left open, the appeal waits for `expireAppeal`.
-    function appealPath(uint256 dealSeed, uint256 callerSeed, uint256 outcomeSeed) external {
         uint256 v0 = _violations();
-        uint256 i = _pickFor(dealSeed, A_NONE);
+        uint256 i = _pickFor(dealSeed, M_DECIDED);
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
-        HoldbackRules.Stage before = rules.dealOf(id).stage;
-        uint8 who = before == HoldbackRules.Stage.Released ? 0 : 1;
-        H.Appeal memory a = H.Appeal({
-            appellant: who,
-            groundsHash: keccak256("fails the agreed checks"),
-            bond: _bound(outcomeSeed >> 8, 0, 5_000_000),
-            filedAt: uint64(block.timestamp),
-            signature: ""
-        });
-        a.signature = _sign(who == 0 ? BUYER_PK : SELLER_PK, hx.appeal(id, who == 0 ? buyer : seller, t.token, a));
-        uint256 c0 = capturable(i);
-        bool filed = _relay(_caller(callerSeed), abi.encodeCall(HoldbackRules.fileAppeal, (t, a)));
-        _noMove("appealPath", i, c0);
-        _track(id, before);
-        if (!filed || (outcomeSeed >> 4) % 4 == 3) {
-            _end(filed, v0);
-            return;
-        }
-        _decideAppeal(v0, i, callerSeed, outcomeSeed);
-    }
-
-    function _decideAppeal(uint256 v0, uint256 i, uint256 callerSeed, uint256 outcomeSeed) internal {
-        H.Terms memory t = _terms_[i];
-        bytes32 id = _ids[i];
-        HoldbackRules.Deal memory d = rules.dealOf(id);
-        uint64 round = rules.BEACON().roundAt(d.t2) + 1;
-        if (block.timestamp < round) vm.warp(round);
+        HoldbackRules.Stage before = _dealOf(id).stage;
+        (,, uint40 t2) = _deployedAppeal(id);
+        uint64 round = t2 == 0 ? 0 : rules.BEACON().roundAt(t2) + 1;
         H.Decision memory m = _beaconDecision(id, H.ROLE_APPEAL, uint8(outcomeSeed % 2), round);
         (m.keyScheme, m.keyCiphertext) = (outcomeSeed >> 1) % 2 == 0 ? (KEY_SCHEME, KEY_CT) : ("", "");
         uint256 pk = _rolePk[id][H.ROLE_APPEAL];
         m = _signDecision(t, id, m, vm.addr(pk), pk);
-        // The first decider's bond and the party the decision went against, before the appeal decision.
-        address first = d.flags & 8 != 0 ? t.fallbackAdjudicator : t.adjudicator;
-        address wronged = d.stage == HoldbackRules.Stage.Released ? buyer : seller;
-        uint256 bond0 = bonds.bondOf(first, t.token);
-        uint256 bal0 = IERC20(t.token).balanceOf(wronged);
-        (, uint96 appealBond) = bonds.appealBondOf(id);
+        uint256 c0 = capturable(i);
         _recordLogs();
         bool ok = _relayDecide(_caller(callerSeed), t, m, _noDelivery(), "");
-        if (ok) _overturnPaid(t, id, first, wronged, bond0, bal0, appealBond);
-        _keyOnlyWithPayment();
-        _track(id, d.stage);
+        _drainLogs();
+        _noMove("decideAppeal", i, c0);
+        _track(id, before);
         _end(ok, v0);
     }
 
-    /// An overturn pays the wronged party (the only party that may appeal, L-7) the price from the first decider's
-    /// bond and returns its appeal bond; an upheld appeal adds the forfeited appeal bond to that bond instead.
-    function _overturnPaid(
-        H.Terms memory t,
-        bytes32 id,
-        address first,
-        address wronged,
-        uint256 bond0,
-        uint256 bal0,
-        uint96 appealBond
-    ) internal {
-        bool overturned = rules.dealOf(id).appeal == HoldbackRules.AppealState.Overturned;
-        uint256 bond = bonds.bondOf(first, t.token);
-        uint256 bal = IERC20(t.token).balanceOf(wronged);
-        // Sums, not differences: a movement the wrong way must count as a violation, not underflow and discard the call.
-        bool paid = overturned
-            ? bond + t.price == bond0 && bal == bal0 + t.price + appealBond
-            : bond == bond0 + appealBond && bal == bal0;
-        if (!paid) {
-            overturnMispaid++;
-            lastViolation = "an appeal decision did not pay the wronged party from the first decider's bond";
-        }
-    }
-
     /// Drives a funded deal to the fallback (posting the delivery and triggering the takeover if needed) and has the
-    /// fallback decide with its key and the judgeBy round, any outcome, so the fallback's own reservation (T-206 M-3)
-    /// is exercised; the separate actions rarely line up inside the fallback's window.
+    /// fallback decide with its key and the judgeBy round, any outcome; the separate actions rarely line up inside
+    /// the fallback's window.
     function decideFallback(uint256 dealSeed, uint256 callerSeed, uint256 outcomeSeed) external {
         uint256 v0 = _violations();
         uint256 i = _pickFor(dealSeed, M_HELD | M_DELIVERED | M_FALLBACK);
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
-        HoldbackRules.Stage before = rules.dealOf(id).stage;
+        HoldbackRules.Stage before = _dealOf(id).stage;
         if (before == HoldbackRules.Stage.Held) {
             (H.Delivery memory dv,) = _delivery();
             try rules.deliver(t, dv, _deliverySig(id, dv, SELLER_PK)) {
@@ -598,9 +583,9 @@ contract RulesHandler is Base {
                 _note(false, e);
             }
             _track(id, before); // the delivery's own deadline check, before the warp below
-            before = rules.dealOf(id).stage;
+            before = _dealOf(id).stage;
         }
-        if (rules.dealOf(id).stage == HoldbackRules.Stage.Delivered) {
+        if (_dealOf(id).stage == HoldbackRules.Stage.Delivered) {
             if (block.timestamp < t.timing.judgeBy) vm.warp(t.timing.judgeBy);
             try rules.triggerFallback(t) {
                 _note(true, "");
@@ -612,6 +597,7 @@ contract RulesHandler is Base {
         uint256 pk = _rolePk[id][H.ROLE_FALLBACK];
         m = _signDecision(t, id, m, vm.addr(pk), pk);
         _recordLogs();
+        _closingAs(R_DECIDED, D_FALLBACK);
         bool ok = _relayDecide(_caller(callerSeed), t, m, _noDelivery(), "");
         _keyOnlyWithPayment();
         _track(id, before);
@@ -627,8 +613,8 @@ contract RulesHandler is Base {
         _note(ok, ret);
     }
 
-    /// Relays a decision from `caller`; in trace mode it notes the outcome (T-341). One helper for the three
-    /// decide paths keeps their stack shallow.
+    /// Relays a decision from `caller`; in trace mode it notes the outcome (T-341). One helper for the decide paths
+    /// keeps their stack shallow.
     function _relayDecide(
         address caller,
         H.Terms memory t,
@@ -651,7 +637,7 @@ contract RulesHandler is Base {
         Vm.Log[] memory logs = _drainLogs();
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].emitter != address(rules) || logs[i].topics[0] != HoldbackRules.KeyReleased.selector) continue;
-            HoldbackRules.Stage s = rules.dealOf(logs[i].topics[1]).stage;
+            HoldbackRules.Stage s = _dealOf(logs[i].topics[1]).stage;
             if (s != HoldbackRules.Stage.Released && s != HoldbackRules.Stage.Settled) {
                 keyWithoutPayment++;
                 lastViolation = "released the buyer's key on a deal that is not Released or Settled";
@@ -674,9 +660,10 @@ contract RulesHandler is Base {
         uint256 sk = _signer(signerSeed >> 8, SELLER_PK);
         m.signature = _sign(bk, hx.early(id, buyer, m));
         bytes memory dsig = _deliverySig(id, dv, sk);
-        HoldbackRules.Stage before = rules.dealOf(id).stage;
+        HoldbackRules.Stage before = _dealOf(id).stage;
         bool ok;
         _recordLogs();
+        _closingAs(R_ACCEPTED_EARLY, D_NONE);
         ok = _relay(_caller(callerSeed), abi.encodeCall(HoldbackRules.earlyAccept, (t, m, dv, dsig, kp)));
         if (ok) {
             // After `deliver` the carried signature is not read: the posted delivery was verified when it landed.
@@ -693,7 +680,7 @@ contract RulesHandler is Base {
         uint256 i = _pickFor(dealSeed, M_OPEN);
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
-        HoldbackRules.Stage before = rules.dealOf(id).stage;
+        HoldbackRules.Stage before = _dealOf(id).stage;
         H.Mutual memory m = _mutual(t, id, before, splitSeed);
         (H.Delivery memory dv, H.KeyProof memory kp) = _delivery();
         bytes32 h = hx.mutual(id, t.token, m);
@@ -705,6 +692,7 @@ contract RulesHandler is Base {
         if (m.releaseKey) none = kp;
         bool ok;
         _recordLogs();
+        _closingAs(R_SETTLED, D_NONE);
         ok = _relay(_caller(callerSeed), abi.encodeCall(HoldbackRules.mutualSettle, (t, m, dv, none)));
         if (ok) _authorised("mutualSettle", bk == BUYER_PK && sk == SELLER_PK);
         _keyOnlyWithPayment();
@@ -738,42 +726,44 @@ contract RulesHandler is Base {
         m.expiresAt = type(uint64).max;
     }
 
+    /// Removed in phase one (SC-7), kept for the side-by-side harness: files a party's signed appeal, with a bond of
+    /// 0 so no party's balance moves on the old side, through the deployed contracts' selector. Phase one has no
+    /// such function, so the call reverts with empty data.
     function fileAppeal(uint256 dealSeed, uint256 callerSeed, uint256 signerSeed, uint256 appealSeed) external {
         uint256 v0 = _violations();
-        uint256 i = _pickFor(dealSeed, A_NONE);
+        uint256 i = _pickFor(dealSeed, M_DECIDED);
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
         uint8 who = uint8(appealSeed & 1);
-        address appellant = who == 0 ? buyer : seller;
-        uint256 good = who == 0 ? BUYER_PK : SELLER_PK;
-        H.Appeal memory a = H.Appeal({
+        IDeployedAppeals.Appeal memory a = IDeployedAppeals.Appeal({
             appellant: who,
             groundsHash: keccak256("fails the agreed checks"),
-            bond: _bound(appealSeed >> 8, 0, 5_000_000),
+            bond: 0,
             filedAt: uint64(block.timestamp),
             signature: ""
         });
-        uint256 k = _signer(signerSeed, good);
-        a.signature = _sign(k, hx.appeal(id, appellant, t.token, a));
-        HoldbackRules.Stage before = rules.dealOf(id).stage;
+        a.signature = _sign(_signer(signerSeed, who == 0 ? BUYER_PK : SELLER_PK), _appealHash(id, t, a));
+        HoldbackRules.Stage before = _dealOf(id).stage;
         uint256 c0 = capturable(i);
-        bool ok;
-        vm.prank(_caller(callerSeed));
-        try rules.fileAppeal(t, a) {
-            ok = true;
-            _note(true, "");
-            _authorised("fileAppeal", k == good);
-            // T-206 L-7: only the party the decision went against may appeal (the buyer after Released).
-            if ((before == HoldbackRules.Stage.Released) != (who == 0)) {
-                overturnMispaid++;
-                lastViolation = "the party the decision favoured filed an appeal";
-            }
-        } catch (bytes memory e) {
-            _note(false, e);
-        }
+        bool ok = _relay(_caller(callerSeed), abi.encodeCall(IDeployedAppeals.fileAppeal, (t, a)));
         _noMove("fileAppeal", i, c0);
         _track(id, before);
         _end(ok, v0);
+    }
+
+    /// The deployed contracts' EIP-712 struct hash of an appeal (64be1f1's `HoldbackTypes.appealHash`).
+    function _appealHash(bytes32 id, H.Terms memory t, IDeployedAppeals.Appeal memory a)
+        internal
+        view
+        returns (bytes32)
+    {
+        bytes32 typeHash = keccak256(
+            "Appeal(bytes32 commitmentId,string appellant,address appellantAddress,string grounds,TokenAmount bond,uint64 filedAt)TokenAmount(string token,uint256 amount)"
+        );
+        address appellant = a.appellant == 0 ? buyer : seller;
+        bytes32 who = a.appellant == 0 ? keccak256("buyer") : keccak256("seller");
+        bytes32 bond = H.tokenAmountHash(H.tokenIdHash(t.token), a.bond);
+        return keccak256(abi.encode(typeHash, id, who, appellant, a.groundsHash, bond, a.filedAt));
     }
 
     // ------------------------------------------------------------ actions: timeouts (TimeoutKind), any caller
@@ -785,7 +775,7 @@ contract RulesHandler is Base {
         bytes32 id = _ids[i];
         uint256 first = t.timing.offerExpiresAt < t.timing.fundBy ? t.timing.offerExpiresAt : t.timing.fundBy;
         _warpNear(first, callerSeed);
-        HoldbackRules.Stage before = rules.dealOf(id).stage;
+        HoldbackRules.Stage before = _dealOf(id).stage;
         bool due = before == HoldbackRules.Stage.None
             && (block.timestamp >= t.timing.offerExpiresAt || block.timestamp >= t.timing.fundBy);
         uint256 c0 = capturable(i);
@@ -809,9 +799,10 @@ contract RulesHandler is Base {
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
         _warpNear(t.timing.deliverBy, callerSeed);
-        HoldbackRules.Stage before = rules.dealOf(id).stage;
+        HoldbackRules.Stage before = _dealOf(id).stage;
         bool due = before == HoldbackRules.Stage.Held && block.timestamp >= t.timing.deliverBy;
         bool ok;
+        _closingAs(R_RECLAIMED, D_NONE);
         vm.prank(_caller(callerSeed));
         try rules.reclaim(t) {
             ok = true;
@@ -830,7 +821,7 @@ contract RulesHandler is Base {
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
         _warpNear(t.timing.judgeBy, callerSeed);
-        HoldbackRules.Stage before = rules.dealOf(id).stage;
+        HoldbackRules.Stage before = _dealOf(id).stage;
         bool due = before == HoldbackRules.Stage.Delivered && block.timestamp >= t.timing.judgeBy;
         uint256 c0 = capturable(i);
         bool ok;
@@ -852,7 +843,7 @@ contract RulesHandler is Base {
         uint256 i = _pickFor(dealSeed, M_FALLBACK | M_ESCALATED);
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
-        HoldbackRules.Deal memory d = rules.dealOf(id);
+        HoldbackRules.Deal memory d = _dealOf(id);
         _warpNear(
             d.stage == HoldbackRules.Stage.Escalated
                 ? uint256(d.t1) + t.timing.appealDecideSec
@@ -862,6 +853,7 @@ contract RulesHandler is Base {
         bool due = (d.stage == HoldbackRules.Stage.FallbackJudging && block.timestamp >= t.timing.fallbackBy)
             || (d.stage == HoldbackRules.Stage.Escalated && block.timestamp >= uint256(d.t1) + t.timing.appealDecideSec);
         bool ok;
+        _closingAs(R_DEFAULTED, D_NONE);
         vm.prank(_caller(callerSeed));
         try rules.triggerDefault(t) {
             ok = true;
@@ -874,67 +866,34 @@ contract RulesHandler is Base {
         _end(ok, v0);
     }
 
+    /// Removed in phase one (SC-7), kept for the side-by-side harness: the deployed contracts' appeal expiry, through
+    /// their selector. Phase one has no such function, so the call reverts with empty data and is never due. The
+    /// warp target is drawn from shared state only (the decision's time and the terms), so both sides warp alike.
     function expireAppeal(uint256 dealSeed, uint256 callerSeed) external {
         uint256 v0 = _violations();
-        uint256 i = _pickFor(dealSeed, A_NONE | A_OPEN);
+        uint256 i = _pickFor(dealSeed, M_DECIDED);
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
-        HoldbackRules.Deal memory d = rules.dealOf(id);
+        HoldbackRules.Deal memory d = _dealOf(id);
         uint256 appealBy = uint256(d.t1) + t.timing.appealWindowSec;
-        _warpNear(
-            d.appeal == HoldbackRules.AppealState.Open ? appealBy + t.timing.appealDecideSec : appealBy, callerSeed
-        );
-        bool due = (d.stage == HoldbackRules.Stage.Released || d.stage == HoldbackRules.Stage.Refunded)
-            && (
-                (d.appeal == HoldbackRules.AppealState.None && block.timestamp >= appealBy)
-                    || (d.appeal == HoldbackRules.AppealState.Open && block.timestamp >= appealBy + t.timing.appealDecideSec)
-            );
+        _warpNear((callerSeed >> 16) & 1 == 0 ? appealBy : appealBy + t.timing.appealDecideSec, callerSeed);
+        (uint8 appeal,,) = _deployedAppeal(id);
+        // The deployed contracts' rule: AppealState None (0) is due from appealBy, Open (1) from appealBy plus the
+        // decision window. Phase one has no appeal state, so nothing is ever due there.
+        bool decided = d.stage == HoldbackRules.Stage.Released || d.stage == HoldbackRules.Stage.Refunded;
+        bool due = _hasDeployedAppeals() && decided
+            && ((appeal == 0 && block.timestamp >= appealBy) || (appeal == 1 && block.timestamp >= appealBy + t.timing.appealDecideSec));
         uint256 c0 = capturable(i);
-        bool ok;
-        vm.prank(_caller(callerSeed));
-        try rules.expireAppeal(t) {
-            ok = true;
-            _note(true, "");
-        } catch (bytes memory e) {
-            _note(false, e);
-        }
+        bool ok = _relay(_caller(callerSeed), abi.encodeCall(IDeployedAppeals.expireAppeal, (t)));
         _timeout("expireAppeal", due, ok);
         _noMove("expireAppeal", i, c0);
         _track(id, d.stage);
         _end(ok, v0);
     }
 
-    // ------------------------------------------------------------ actions: bonds
-
-    function bondDeposit(uint256 actorSeed, uint256 tokenSeed, uint256 amount) external {
-        address a = _actor[actorSeed % N];
-        address token = tokens()[tokenSeed & 1];
-        uint256 bal = MockERC3009Token(token).balanceOf(a);
-        amount = _bound(amount, 0, bal < 50_000_000 ? bal : 50_000_000);
-        vm.prank(a);
-        bonds.deposit(token, amount);
-    }
-
-    /// A withdrawal must succeed exactly when it is within the caller's unencumbered bond.
-    function bondWithdraw(uint256 actorSeed, uint256 tokenSeed, uint256 amount) external {
-        uint256 v0 = _violations();
-        address a = _actor[actorSeed % N];
-        address token = tokens()[tokenSeed & 1];
-        uint256 free = bonds.freeOf(a, token);
-        amount = _bound(amount, 0, free + 2);
-        bool ok;
-        vm.prank(a);
-        try bonds.withdraw(token, amount) {
-            ok = true;
-            _note(true, "");
-        } catch (bytes memory e) {
-            _note(false, e);
-        }
-        if (ok != (amount <= free)) {
-            withdrawMismatch++;
-            lastViolation = ok ? "withdraw: took encumbered bond" : "withdraw: refused free bond";
-        }
-        _end(ok, v0);
+    /// Whether this side's rules contract is the deployed one, with party appeals. Phase one: no.
+    function _hasDeployedAppeals() internal view virtual returns (bool) {
+        return false;
     }
 
     // ------------------------------------------------------------ actions: around the rules contract
@@ -948,40 +907,25 @@ contract RulesHandler is Base {
         cppReclaimed[_ids[i]] = true;
     }
 
-    /// Any actor calling CPP's operator functions on a Holdback hold (capture, void, refund) or the bond vault's
-    /// rules-only functions (encumber, release, takeAppealBond, payAppealBond, slash) must fail.
+    /// Any actor calling CPP's operator functions on a Holdback hold (capture, void, refund) must fail. Phase one
+    /// has no bond vault, so its rules-only functions are no longer a target (SC-7).
     function stranger(uint256 callerSeed, uint256 which, uint256 amount) external {
         uint256 v0 = _violations();
         address caller = _caller(callerSeed);
-        address adj = _actor[2 + (which >> 8) % 3];
-        address token = tokens()[(which >> 16) & 1];
-        bytes32 id;
-        bytes memory data;
-        address target = address(bonds);
         amount = _bound(amount, 0, 10_000_000);
-        uint256 w = which % 8;
-        if (w < 3) {
-            uint256 i = _pick(which >> 24);
-            id = _ids[i];
-            AuthCaptureEscrow.PaymentInfo memory pi = _pi(_terms_[i]);
-            target = address(escrow);
-            if (w == 0) data = abi.encodeCall(AuthCaptureEscrow.capture, (pi, amount, 0, address(0)));
-            else if (w == 1) data = abi.encodeCall(AuthCaptureEscrow.void, (pi));
-            else data = abi.encodeCall(AuthCaptureEscrow.refund, (pi, amount, address(collector3009), ""));
-        } else {
-            if (_ids.length > 0) id = _ids[(which >> 24) % _ids.length];
-            if (w == 3) data = abi.encodeCall(HoldbackBonds.encumber, (adj, token, amount));
-            else if (w == 4) data = abi.encodeCall(HoldbackBonds.release, (adj, token, amount));
-            else if (w == 5) data = abi.encodeCall(HoldbackBonds.takeAppealBond, (id, caller, token, amount));
-            else if (w == 6) data = abi.encodeCall(HoldbackBonds.payAppealBond, (id, token, caller));
-            else data = abi.encodeCall(HoldbackBonds.slash, (id, adj, token, amount, caller));
-        }
+        uint256 w = which % 3;
+        uint256 i = _pick(which >> 24);
+        AuthCaptureEscrow.PaymentInfo memory pi = _pi(_terms_[i]);
+        bytes memory data;
+        if (w == 0) data = abi.encodeCall(AuthCaptureEscrow.capture, (pi, amount, 0, address(0)));
+        else if (w == 1) data = abi.encodeCall(AuthCaptureEscrow.void, (pi));
+        else data = abi.encodeCall(AuthCaptureEscrow.refund, (pi, amount, address(collector3009), ""));
         vm.prank(caller);
-        (bool ok, bytes memory ret) = target.call(data);
+        (bool ok, bytes memory ret) = address(escrow).call(data);
         _note(ok, ret);
         if (ok) {
             strangerSuccess++;
-            lastViolation = "a stranger reached CPP's operator functions or the vault's rules-only functions";
+            lastViolation = "a stranger reached CPP's operator functions";
         }
         _end(ok, v0);
     }
@@ -997,7 +941,7 @@ contract RulesHandler is Base {
         } else {
             uint256 i = (seed >> 8) % _ids.length;
             H.Terms memory t = _terms_[i];
-            HoldbackRules.Deal memory d = rules.dealOf(_ids[i]);
+            HoldbackRules.Deal memory d = _dealOf(_ids[i]);
             uint256 w = t.timing.appealWindowSec;
             uint256 dec = t.timing.appealDecideSec;
             uint256[9] memory deadlines = [

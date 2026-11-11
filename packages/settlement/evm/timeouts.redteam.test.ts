@@ -9,7 +9,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { wholeSecond, type Address, type Club } from '@holdback/core';
-import { encodeFunctionData, maxUint256, type Hex } from 'viem';
+import { encodeFunctionData, type Hex } from 'viem';
 import { foundry } from 'viem/chains';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Genesis } from '../sim/simchain.js';
@@ -18,7 +18,7 @@ import type { LaneRow } from './chain.js';
 import { acceptanceView, agreeView, deliveryView, termsView } from './encode.js';
 import { revertData, revertName } from './errors.js';
 import { EvmSettlement } from './evm-settlement.js';
-import { ensureBond, LiveChain, type DeploymentFile, type LaneStore } from './live.js';
+import { LiveChain, type DeploymentFile, type LaneStore } from './live.js';
 import { ChainSync, type Cursor } from './sync.js';
 import { evmCast, evmGenesis, EvmDeal, testActor, type TestActor } from './testing.js';
 import { OperatorTimeouts, type OperatorTimeoutsOptions, type TimeoutBudget, type TimeoutReport } from './timeouts.js';
@@ -70,7 +70,6 @@ describe.skipIf(!ready)(`red team of the operators' own timeouts, on anvil stand
       permit2Collector: d.permit2Collector,
       multicall: d.multicall,
       rules: d.rules,
-      bonds: d.bonds,
       beacon: d.beacon,
       expiryMarginSec: Number(anvil.expiryMargin),
     };
@@ -78,13 +77,11 @@ describe.skipIf(!ready)(`red team of the operators' own timeouts, on anvil stand
     const restarting = new LiveChain({ deployment, rpcUrls: [anvil.rpcUrl], relayerKey: RESTART_RELAYER });
     const everyone = [...chain.lanes, ...restarting.lanes].map((l) => l.address).concat(Object.values(cast).map((a) => a.address), watcher.address);
     for (const a of everyone) await anvil.rpc('anvil_setBalance', [a, '0x56bc75e2d63100000']);
-    ({ genesis, club } = await evmGenesis({ cast, token: lc(d.token), chainId: anvil.chainId, rules: d.rules, start: wholeSecond(wall()), buyer: 0n, bond: 0n }));
+    ({ genesis, club } = await evmGenesis({ cast, token: lc(d.token), chainId: anvil.chainId, rules: d.rules, start: wholeSecond(wall()), buyer: 0n }));
     // The world's sim beacon is the contract's SimBeacon, deployed with the zero seed (world.ts).
     genesis = { ...genesis, simSeed: `0x${'00'.repeat(32)}` };
     await chain.mint(cast.buyer.address, 10n ** 12n);
     await chain.mint(cast.seller.address, 10n ** 10n);
-    for (const a of [cast.primary, cast.fallback, cast.appeal]) await ensureBond(chain, a.key, 500_000_000_000n, 10n ** 18n);
-    for (const p of [cast.buyer, cast.seller]) await chain.send({ key: p.key, to: d.token, data: encodeFunctionData({ abi: chain.abis.token, functionName: 'approve', args: [d.bonds, maxUint256] }) });
   }, 180_000);
   afterAll(async () => {
     await anvil?.stop();
@@ -223,7 +220,7 @@ describe.skipIf(!ready)(`red team of the operators' own timeouts, on anvil stand
     });
     await direct(watcher, multicall, bundle);
     expect(await sync.pass()).toMatchObject({ behind: 1 });
-    expect(s.behindStage(d.id)).toEqual({ stage: 'Delivered', appeal: 0 });
+    expect(s.behindStage(d.id)).toEqual({ stage: 'Delivered' });
     // What the world's persist does: the books are written; the sync's cursor stands before the takeover.
     const cursor = await head();
     const books = s.drain();
@@ -262,7 +259,7 @@ describe.skipIf(!ready)(`red team of the operators' own timeouts, on anvil stand
     // The recovery's read is `land`'s dealOf. Before T-232 it named no block, the lagging node answered it from the block
     // before the takeover, and the book kept Delivered. T-232 pins it at the takeover's receipt or later, so the book
     // shows the takeover; the pass must close the deal either way.
-    expect({ book: restarted.behindStage(d.id), chain: await restarted.stage(d.id) }).toEqual({ book: { stage: 'FallbackJudging', appeal: 0 }, chain: { stage: 'FallbackJudging', appeal: 0 } });
+    expect({ book: restarted.behindStage(d.id), chain: await restarted.stage(d.id) }).toEqual({ book: { stage: 'FallbackJudging' }, chain: { stage: 'FallbackJudging' } });
 
     // Half an hour of passes, each past any back-off, each followed by the world's persist (the applied rows go).
     const reports: TimeoutReport[] = [];
@@ -284,7 +281,7 @@ describe.skipIf(!ready)(`red team of the operators' own timeouts, on anvil stand
       deferred: [0, 0, 0, 0, 0, 0],
       stage: 'Refunded',
       // The default's own receipt read sets the book's stage right again.
-      book: { stage: 'Refunded', appeal: 5 },
+      book: { stage: 'Refunded' },
       alarmWithin5Min: false,
     });
   }, 240_000);

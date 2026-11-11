@@ -1,11 +1,12 @@
 // The round's own adjudicators (T-216, How the round runs; T-221 and ADR-0030): an adjudicator any agent could run,
-// registered through the public API, bonded from its own key, and run in the driver's process during a scenario. It
+// registered through the public API, and run in the driver's process during a scenario. It posts no bond: the phase-one
+// contracts hold none (ADR-0031 §8), and SimChain takes no deposit at run time. It
 // never judges. It is silent (it accepts the deals that name it primary, then never decides: a real offline
 // adjudicator) or scripted (it accepts, then decides the outcome the scenario gives it, a wrong one included, once
 // the deal is delivered). Like the rest of the driver it uses only agent.ts and verify.ts, so nothing here is beyond
 // an outside agent, and it prints addresses and links, never a key.
 //
-//   const primary = await RoundAdjudicator.ready(r, 'adjudicator-1', { bond: BigInt(PRICE) });
+//   const primary = await RoundAdjudicator.ready(r, 'adjudicator-1');
 //   const serving = await primary.serve(r, { decide: 'reject' }); // or 'silent'
 //   try {
 //     const deal = await openDeal(r, { ...spec, adjudicators: { primary: primary.address, fallback, appeal } }, parties);
@@ -121,13 +122,12 @@ export class RoundAdjudicator {
   }
 
   /**
-   * The round's adjudicator under `role`, registered through the API and, given `bond`, holding at least that much free
-   * bond in HoldbackBonds. Both are reused when already in place, so every run after the first sends nothing.
+   * The round's adjudicator under `role`, registered through the API. A registration already in place is reused, so
+   * every run after the first sends nothing.
    */
-  static async ready(r: Run, role: AdjudicatorRole, o: { bond?: bigint } = {}): Promise<RoundAdjudicator> {
+  static async ready(r: Run, role: AdjudicatorRole): Promise<RoundAdjudicator> {
     const a = new RoundAdjudicator(r, role);
     await a.register(r);
-    if (o.bond !== undefined) await a.bond(r, o.bond);
     return a;
   }
 
@@ -183,41 +183,6 @@ export class RoundAdjudicator {
     return lc(signer ?? '') === this.address;
   }
 
-  /**
-   * At least `amount` of free bond in HoldbackBonds, deposited from this key (HoldbackBonds bonds the sender): the
-   * shortfall alone, minted first when the key holds too few test tokens (tUSDC is open-mint), paid from its own
-   * Sepolia ETH. Reused when the free bond already covers it. Waits until both operators serve the bond, since a relay
-   * refuses terms whose fallback shows less free bond than the price (T-221).
-   */
-  async bond(r: Run, amount: bigint): Promise<'deposited' | 'reused'> {
-    const { round } = r;
-    const chain = round.chain;
-    if (!chain) throw new Error(`SimChain: the round's ${this.role} cannot bond at run time (T-221 left a run-time deposit out), so it can be an appeal adjudicator here but not a bonded primary or fallback; run this on anvil or Sepolia`);
-    // Never before the round's own last transaction: a node behind it would show the bond from before an earlier deposit.
-    const held = (await chain.holdings([this.address], await chain.fresh()))[this.address]!;
-    if (BigInt(held.free) >= amount) {
-      r.say(`${this.role} ${short(this.address)}: free bond ${round.amount(held.free)} covers ${round.amount(amount)}; reused`);
-      return 'reused';
-    }
-    const need = amount - BigInt(held.free);
-    const key = round.key(this.role);
-    if (BigInt(held.token) < need) {
-      const minted = await chain.mint(key, this.address, need - BigInt(held.token));
-      r.note(`${this.role} ${short(this.address)} minted ${round.amount(need - BigInt(held.token))} for its bond: ${chain.link(minted.tx)} (${minted.gasUsed} gas)`);
-    }
-    const [approved, deposited] = await chain.depositBond(key, need);
-    r.note(`${this.role} ${short(this.address)} bonded ${round.amount(need)} in HoldbackBonds from its own key: approve ${chain.link(approved!.tx)} (${approved!.gasUsed} gas), deposit ${chain.link(deposited!.tx)} (${deposited!.gasUsed} gas)`);
-    // Each node reads the bond through its own cache (about 12 s), so each must show it.
-    const free = (x: J) => (x?.pool?.junior ? BigInt(x.pool.junior.amount) + BigInt(x.pool.senior?.amount ?? '0') - BigInt(x.pool.reserved?.amount ?? '0') : -1n);
-    for (let tries = 0; ; tries++) {
-      const views = await Promise.all(this.agent.sources().map((api) => this.agent.call('GET', `/v1/adjudicators/${this.address}`, undefined, api).catch(() => null)));
-      if (views.every((v) => free(v) >= amount)) break;
-      if (tries === 60) throw new Error(`${this.role} ${this.address}: the operators do not serve its ${round.amount(amount)} bond 60 s after the deposit`);
-      await nap(1000);
-    }
-    return 'deposited';
-  }
-
   /** The seed it commits to at acceptance and reveals in its decision: from its own key and the commitment ID. */
   private seedOf(r: Run, id: Hex): Hex {
     return keccak256(concat([r.round.key(this.role), id, stringToHex('holdback/e2e/seed')]));
@@ -230,12 +195,15 @@ export class RoundAdjudicator {
     return terms;
   }
 
-  /** Accepts a deal as its primary: an AdjudicatorAcceptance it builds and signs itself, reserving the price from its bond. */
+  /**
+   * Accepts a deal as its primary: an AdjudicatorAcceptance it builds and signs itself. On a chain it reserves no bond,
+   * as the phase-one contracts require (ADR-0031 §8); on SimChain it reserves the price, as the full protocol does.
+   */
   async accept(r: Run, id: Hex, terms: J): Promise<void> {
     const a = terms.adjudication;
     const m = {
       type: 'AdjudicatorAcceptance', commitmentId: id, adjudicator: this.address, seedCommitment: keccak256(this.seedOf(r, id)), policyHash: a.policyHash, registryHash: a.registryHash,
-      fee: a.fee, bondReserved: terms.price, nonce: keccak256(concat([id, stringToHex('holdback/e2e/acceptance')])), expiresAt: terms.timing.offerExpiresAt,
+      fee: a.fee, bondReserved: r.round.chain ? { token: terms.price.token, amount: '0' } : terms.price, nonce: keccak256(concat([id, stringToHex('holdback/e2e/acceptance')])), expiresAt: terms.timing.offerExpiresAt,
     };
     const signature = await this.agent.account.signTypedData(adjudicatorTyped(m, this.agent.domain));
     await this.agent.call('POST', `/v1/commitments/${id}/acceptance`, { ...m, signature });

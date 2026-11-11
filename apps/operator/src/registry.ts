@@ -87,7 +87,8 @@ export interface Registry {
   /** ADR-0030: the registrations POST /v1/adjudicators stores and the reads serve. Absent: the route answers not_found. */
   registrations?: RegistrationStore;
   /**
-   * Any address's bond pool, read live from the settlement layer (on a chain, HoldbackBonds' bondOf and freeOf).
+   * Any address's bond pool, read live from the settlement layer: SimChain's ledger. A chain settlement holds no bond
+   * (ADR-0031 §8), so the operator reads none there and shows `observed.bond: "none"`.
    * `listing`: the read only shows a bond in GET /v1/adjudicators, so a node may refuse it (throw) past a read budget,
    * and the listing says `observed.bond: "unknown"`; prepare and the relays read without it (T-221 review).
    */

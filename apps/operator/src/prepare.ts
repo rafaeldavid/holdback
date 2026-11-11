@@ -77,8 +77,18 @@ export interface Prepared {
   notices?: string[];
 }
 
+/**
+ * ADR-0031 §8 (D57): the phase-one contracts take no party appeal, so this node prepares and relays none on them. The
+ * agent gets the reason and what it can still do, not a revert.
+ */
+export const PHASE_ONE_NO_APPEAL =
+  'this settlement runs the phase-one contracts, which have no party appeals and no bonds (ADR-0031, D57): the first decision by the primary or the fallback adjudicator is final on chain. ' +
+  'Nothing reopens it. The signed decision and its judgment record are your evidence (D26); before you sign your next deal, choose the three adjudicators and the default outcome you can rely on';
+
 /** What preparing needs from the operator's view of the settlement layer. Reads only. */
 export interface PrepareContext {
+  /** True on the phase-one contracts (ADR-0031 §8): no bonds and no party appeals. Absent: the full protocol (SimChain). */
+  phaseOne?: boolean;
   domain: HoldbackDomain;
   now(): Timestamp;
   club(id: string): Club | undefined;
@@ -474,7 +484,7 @@ export async function bondNotices(ctx: Pick<PrepareContext, 'bond'>, t: Pick<Any
     const bond = await ctx.bond(address);
     if (!bond) continue;
     if (bond === 'unreadable') {
-      out.push(`this operator could not read the bond of the ${role} adjudicator ${address}; no bond check was made. Read it from HoldbackBonds yourself`);
+      out.push(`this operator could not read the bond of the ${role} adjudicator ${address}; no bond check was made. Read it from the settlement layer yourself`);
       continue;
     }
     const free = role === 'primary' && o.primaryAccepted ? BigInt(t.price.amount) : freeBond(bond, t.price.token);
@@ -750,6 +760,7 @@ export function prepare(kind: string, ctx: PrepareContext, input: unknown): Prom
   if (!(PREPARE_KINDS as readonly string[]).includes(kind)) notFound(`nothing to prepare for ${kind}; kinds: ${PREPARE_KINDS.join(', ')}`);
   if (!isObj(input)) bad('the body must be a JSON object');
   const run = async () => {
+    if (kind === 'appeal' && ctx.phaseOne) throw new PrepareError({ type: 'invalid_state', detail: PHASE_ONE_NO_APPEAL });
     await stateGate(kind as PrepareKind, ctx, input as Record<string, unknown>);
     return PREPARERS[kind as PrepareKind](ctx, input as Record<string, unknown>);
   };

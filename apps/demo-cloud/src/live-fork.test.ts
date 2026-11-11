@@ -7,7 +7,7 @@ import { createServer as createNetServer, type AddressInfo } from 'node:net';
 import { privateKeyToAccount } from 'viem/accounts';
 import { createPublicClient, http, toHex, type Hex } from 'viem';
 import { wholeSecond } from '@holdback/core';
-import { ensureBond, GAS_CAP, LiveChain, type DeploymentFile } from '@holdback/settlement/live';
+import { GAS_CAP, LiveChain, type DeploymentFile } from '@holdback/settlement/live';
 import { anvilAvailable } from '@holdback/settlement/evm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CSV, ENV, Outsider, outsideDeal, RELAYER, root, runTry, serve, sleep, untilBoth, type J } from '../test/anvil.ts';
@@ -83,9 +83,9 @@ describe.skipIf(!forkReady)(`the public world on a Sepolia fork${forkReady ? '' 
     console.log(`Sepolia gas per transaction (eth_simulateV1): ${gas.map((c) => BigInt(c.gasUsed)).join(', ')}`);
   }, 600_000);
 
-  // T-221's fork smoke: an outside adjudicator registers through the API, bonds in the deployed HoldbackBonds from its
-  // own key, then accepts and decides one deal as primary under the demo's fallback and appeal adjudicators.
-  it('an outside adjudicator registers, bonds, accepts and decides one deal as primary on the deployed contracts (T-221)', async () => {
+  // T-221's fork smoke: an outside adjudicator registers through the API, then accepts (bondReserved 0: the phase-one
+  // contracts hold no bond, ADR-0031 §8) and decides one deal as primary under the demo's fallback and appeal adjudicators.
+  it('an outside adjudicator registers, accepts and decides one deal as primary on the deployed contracts (T-221)', async () => {
     const chain = new LiveChain({ deployment, rpcUrls: [rpc], relayerKey: RELAYER, pollMs: 300, rebroadcastMs: 20_000, mintBatchMs: 300 });
     await chain.verify();
     const world = await PublicWorld.open({ storage: new MemoryStorage(), env: ENV, live: { chain }, faucetPerClient: 100 });
@@ -97,7 +97,6 @@ describe.skipIf(!forkReady)(`the public world on a Sepolia fork${forkReady ? '' 
       const [, fallback, appeal] = d.demo.adjudicators.map((a: J) => a.address as string);
       const outsider = new Outsider(world, demo.urls, 't-221/fork-outsider', { trusted: [fallback, appeal] });
       expect((await outsider.register(wholeSecond(Date.now() - 60_000))).status).toBe(200);
-      await ensureBond(chain, outsider.account.privateKey, 100_000_000n, 100_000_000_000_000_000n);
       const deal = await outsideDeal(demo.urls, deployment, outsider, { work: CSV, timing: { judgeWithinSec: 120, fallbackWithinSec: 120, appealWindowSec: 60, appealDecideSec: 120 } });
       expect((await outsider.runOnce()).decided).toEqual([{ commitmentId: deal.id, role: 'primary', outcome: 'accept' }]);
       await untilBoth(deal.buyer, deal.id, ['Released'], 120_000);

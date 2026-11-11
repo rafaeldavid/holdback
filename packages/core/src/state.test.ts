@@ -903,3 +903,82 @@ describe('step never throws on parsed input', () => {
     expect(accepted).toBeGreaterThan(20);
   });
 });
+
+// T-346 (SC-7, ADR-0031 §8): the phase-one profile refuses what the phase-one contracts refuse. The full
+// protocol, above, is unchanged and stays the default.
+describe('phase_one profile', () => {
+  const phaseOne = (events: EscrowEvent[], from: EscrowState = offered()): EscrowState => {
+    let s = from;
+    for (const e of events) {
+      const r = step(s, fill(s, e), 'phase_one');
+      if (!r.ok) throw new Error(`phase-one step ${e.type} failed in ${s.kind}: ${r.error.type} ${r.error.detail}`);
+      s = r.value;
+    }
+    return s;
+  };
+  const zeroBond = { bondReserved: tusd('0') };
+  const toHeldP1 = [ev.accept(zeroBond, T.accept, tusd('0')), ev.agree(), ev.fund()];
+  const toDeliveredP1 = [...toHeldP1, ev.deliver()];
+
+  it('takes an acceptance that reserves 0 and reads no free bond', () => {
+    expect(phaseOne([ev.accept(zeroBond, T.accept, tusd('0'))]).kind).toBe('AcceptedByAdjudicator');
+  });
+
+  it.each([
+    ['the price', terms.price],
+    ['one base unit', tusd('1')],
+    ['0 in another token', { token: 'tEUR', amount: '0' as TokenAmount['amount'] }],
+  ])('refuses an acceptance that reserves %s', (_, bondReserved) => {
+    const r = step(offered(), ev.accept({ bondReserved }), 'phase_one');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.type).toBe('acceptance_mismatch');
+  });
+
+  it('keeps the full rule by default: an acceptance reserving 0 is below the price', () => {
+    const r = step(offered(), ev.accept(zeroBond));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.type).toBe('coverage_exceeded');
+  });
+
+  it.each([
+    ['primary accept', ev.decide('primary', 'accept', T.decide), 'Released'],
+    ['primary reject', ev.decide('primary', 'reject', T.decide), 'Refunded'],
+  ])('a %s is final at the decision: its appeal state is closed with no appeal', (_, decide, kind) => {
+    const s = phaseOne([...toDeliveredP1, decide]);
+    expect(s.kind).toBe(kind);
+    if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance') {
+      // Red team RT-3: not `none` with appealBy reached, which readers take for an appeal expiry due now.
+      expect(s.via.appeal).toEqual({ kind: 'expired', appeal: null });
+    } else {
+      throw new Error('not a first-instance decision');
+    }
+  });
+
+  it("the fallback's decision is final at the decision too", () => {
+    const s = phaseOne([...toDeliveredP1, ev.at('trigger_fallback', T.judgeBy), ev.decide('fallback', 'accept', T.fallbackDecide)]);
+    expect(s.kind).toBe('Released');
+    if (s.kind === 'Released' && s.via.kind === 'first_instance') {
+      expect(s.via.appeal).toEqual({ kind: 'expired', appeal: null });
+    }
+  });
+
+  it.each([
+    ['a party appeal', ev.fileAppeal(T.decide)],
+    ['an appeal expiry', ev.at('expire_appeal', T.appealBy)],
+    ['an appeal decision', ev.decide('appeal', 'reject', T.appealFiled)],
+  ])('refuses %s on a decided deal', (_, e) => {
+    const s = phaseOne([...toDeliveredP1, ev.decide('primary', 'accept', T.decide)]);
+    const r = step(s, fill(s, e), 'phase_one');
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.type).toBe('invalid_state');
+      expect(r.error.detail).toContain('phase one has no party appeal');
+    }
+  });
+
+  it('an escalation is still decided by the appeal adjudicator, finally', () => {
+    const s = phaseOne([...toDeliveredP1, ev.decide('primary', 'escalate', escalatedAt), ev.decide('appeal', 'accept', escalationDecideBy.replace('10:06', '10:02'))]);
+    expect(s.kind).toBe('Released');
+    if (s.kind === 'Released') expect(s.via.kind).toBe('escalation');
+  });
+});

@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {HoldbackBonds} from "../../src/HoldbackBonds.sol";
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
-/// T-335: the three custom errors in contracts/src that no test named before this task: `Unrepresentable`
-/// (HoldbackRules), `AppealBondTooLarge` and `AppealBondExists` (HoldbackBonds). D31: the contract refuses only what
-/// its encoding cannot represent, so each bound is tested on both sides where the other side can fund.
+/// T-335: the custom errors in contracts/src that no test named before that task. `AppealBondTooLarge` and
+/// `AppealBondExists` left with HoldbackBonds (T-346, ADR-0031 §8); `Unrepresentable` (HoldbackRules) remains. D31:
+/// the contract refuses only what its encoding cannot represent, so each bound is tested on both sides where the
+/// other side can fund.
 contract UntestedRevertsTest is Base {
     function _fundExpectingRevert(H.Terms memory t, bytes4 selector) internal {
         bytes memory s = _sellerSig(t, SELLER_PK);
@@ -51,46 +51,5 @@ contract UntestedRevertsTest is Base {
         H.Terms memory t = _terms();
         t.timing.fundBy = uint64(type(uint48).max) + 1;
         _fundExpectingRevert(t, HoldbackRules.Unrepresentable.selector);
-    }
-
-    // ------------------------------------------------------------ appeal bonds
-
-    function _decidedAccept() internal returns (H.Terms memory t, bytes32 id) {
-        (t, id) = _funded();
-        _deliver(t, id);
-        rules.decide(t, _primary(t, id, H.OUTCOME_ACCEPT), _noDelivery(), "");
-    }
-
-    /// An appeal bond above uint96 (the vault's AppealBond slot) is refused, and the appeal stays unfiled.
-    function test_refuses_appealBondAboveUint96() public {
-        (H.Terms memory t, bytes32 id) = _decidedAccept();
-        H.Appeal memory a = H.Appeal({
-            appellant: 0,
-            groundsHash: keccak256("g"),
-            bond: uint256(type(uint96).max) + 1,
-            filedAt: 0,
-            signature: ""
-        });
-        a.signature = _sign(BUYER_PK, hx.appeal(id, buyer, t.token, a));
-        vm.expectRevert(HoldbackBonds.AppealBondTooLarge.selector);
-        rules.fileAppeal(t, a);
-        assertEq(uint8(rules.dealOf(id).appeal), uint8(HoldbackRules.AppealState.None));
-    }
-
-    /// The vault holds one appeal bond per commitment. Through the rules contract `fileAppeal`'s WrongAppealState
-    /// check refuses a second appeal first, so this guard is defence in depth [inferred]; the test calls the vault as
-    /// RULES. A zero-amount bond still occupies the slot.
-    function test_refuses_secondAppealBondForOneCommitment() public {
-        bytes32 id = keccak256("one commitment");
-        vm.prank(buyer);
-        usdc.approve(address(bonds), type(uint256).max);
-        vm.prank(address(rules));
-        bonds.takeAppealBond(id, buyer, address(usdc), 0);
-        vm.prank(address(rules));
-        vm.expectRevert(HoldbackBonds.AppealBondExists.selector);
-        bonds.takeAppealBond(id, seller, address(usdc), 1_000);
-        (address who, uint96 amount) = bonds.appealBondOf(id);
-        assertEq(who, buyer);
-        assertEq(amount, 0);
     }
 }

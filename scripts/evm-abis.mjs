@@ -11,7 +11,6 @@ import { join } from 'node:path';
 const root = join(import.meta.dirname, '..');
 export const SOURCES = {
   rules: ['HoldbackRules.sol', 'HoldbackRules'],
-  bonds: ['HoldbackBonds.sol', 'HoldbackBonds'],
   token: ['TestUSDC.sol', 'TestUSDC'],
   escrow: ['AuthCaptureEscrow.sol', 'AuthCaptureEscrow'],
   multicall: ['LocalMulticall3.sol', 'LocalMulticall3'],

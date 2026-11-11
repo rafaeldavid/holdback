@@ -27,7 +27,6 @@ const STORE = '0x9467f22ec7623b17a1f1c34d2575eec90caaa162';
 const ADJ_1 = '0xc1f7c0171ef131ead8921d6266a015c62e08f2bc';
 const FALLBACK = '0x594a2253389936fc7b75d8857f5489cd83de68a2';
 const DEMO_PRIMARY = '0x71f8a3e163528c773fb358a718294a0b32697c9e';
-const BONDS = '0x83f3a2615a2be9a7dadca924ed9952ec85749ad1';
 
 const transfer = (from: string, to: string, amount: string) => ({ contract: 'token', event: 'Transfer', args: { from, to, amount } });
 const bondEvent = (event: string, adjudicator: string, amount: string) => ({ contract: 'bonds', event, args: { adjudicator, token: ASSET, amount } });
@@ -48,7 +47,7 @@ const FOUR: DealRecord = {
     tx(12_071_593, [bondEvent('BondReleased', ADJ_1, '25000000'), bondEvent('BondEncumbered', FALLBACK, '25000000'), transfer(STORE, FALLBACK, '1000000'), transfer(STORE, SELLER, '25000000')]),
     tx(12_071_599, [bondEvent('BondReleased', FALLBACK, '25000000')]),
   ],
-  chain: { stage: 'Released', appeal: 'expired', attempt: 1, payment: { collected: true, capturable: '0', refundable: '26000000' }, block: 12_071_599 },
+  chain: { stage: 'Released', attempt: 1, payment: { collected: true, capturable: '0', refundable: '26000000' }, block: 12_071_599 },
   balances: {
     before: { [BUYER]: holding('808810000'), [SELLER]: holding('1113750000'), [ADJ_1]: holding('1000000', '25000000'), [FALLBACK]: holding('0', '25000000000') },
     after: { [BUYER]: holding('747390000'), [SELLER]: holding('1138750000'), [ADJ_1]: holding('1000000', '25000000'), [FALLBACK]: holding('1000000', '25000000000') },
@@ -59,7 +58,7 @@ const FOUR: DealRecord = {
 const FIVE_A: DealRecord = {
   label: 'checks-only, a check that runs out of its work budget', id: `0x${'3a'.repeat(32)}`, relay: 'https://api.crow.direct', notes: [],
   transactions: [funding(12_071_601, DEMO_PRIMARY), tx(12_071_602, []), tx(12_071_604, [bondEvent('BondReleased', DEMO_PRIMARY, '25000000')]), tx(12_071_610, [transfer(STORE, BUYER, '26000000')])],
-  chain: { stage: 'Refunded', appeal: 'closed', attempt: 1, payment: { collected: true, capturable: '0', refundable: '0' }, block: 12_071_610 },
+  chain: { stage: 'Refunded', attempt: 1, payment: { collected: true, capturable: '0', refundable: '0' }, block: 12_071_610 },
   balances: {
     before: { [BUYER]: holding('747390000'), [SELLER]: holding('1138750000'), [DEMO_PRIMARY]: holding('26000000', '25002500000', '24977500000') },
     after: { [BUYER]: holding('742680000'), [SELLER]: holding('1163750000'), [DEMO_PRIMARY]: holding('28000000', '25002500000', '24977500000') },
@@ -82,22 +81,9 @@ describe('the money checks count only the deal itself (round 1, 2026-11-05)', ()
     expect(flowOf(FIVE_A, DEMO_PRIMARY)).toEqual({ token: '0', bond: '0', free: '0' });
   });
 
-  it('reads bonds from their events: a deposit, an encumbrance, a slash, and an appeal bond paid into the bond', () => {
-    const rec: DealRecord = {
-      ...FIVE_A,
-      transactions: [
-        tx(1, [{ contract: 'bonds', event: 'BondDeposited', args: { adjudicator: ADJ_1, token: ASSET, amount: '10000000' } }, bondEvent('BondEncumbered', ADJ_1, '25000000')]),
-        tx(2, [{ contract: 'bonds', event: 'AppealBondHeld', args: { commitmentId: `0x${'3a'.repeat(32)}`, appellant: SELLER, amount: '1250000' } }, transfer(SELLER, BONDS, '1250000')]),
-        tx(3, [
-          { contract: 'bonds', event: 'BondSlashed', args: { commitmentId: `0x${'3a'.repeat(32)}`, adjudicator: ADJ_1, to: BUYER, token: ASSET, amount: '25000000' } },
-          transfer(BONDS, BUYER, '25000000'),
-          { contract: 'bonds', event: 'AppealBondPaid', args: { commitmentId: `0x${'3a'.repeat(32)}`, to: ADJ_1, toBond: true, amount: '1250000' } },
-        ]),
-      ],
-    };
-    expect(flowOf(rec, ADJ_1)).toEqual({ token: '0', bond: '-13750000', free: '-13750000' });
-    expect(delta(rec, BUYER)).toBe(25_000_000n);
-    expect(delta(rec, SELLER)).toBe(-1_250_000n);
+  it('counts no bond on a chain: the phase-one contracts hold none (ADR-0031 §8), so a vault log from an older deployment moves nothing', () => {
+    expect(flowOf(FOUR, ADJ_1)).toEqual({ token: '0', bond: '0', free: '0' });
+    expect(flowOf(FOUR, FALLBACK)).toEqual({ token: '1000000', bond: '0', free: '0' });
   });
 
   it('on SimChain, with no chain to read, still compares the balances before and after', () => {

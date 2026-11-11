@@ -22,8 +22,6 @@ contract EarlyAcceptTest is Base {
         assertEq(usdc.balanceOf(seller), s0 + PRICE);
         assertEq(usdc.balanceOf(buyer), b0 + FEE, "no adjudicator judged: the fee returns");
         assertEq(_held(t), 0);
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), 0);
-        assertEq(uint8(rules.dealOf(id).appeal), uint8(HoldbackRules.AppealState.Closed));
     }
 
     function test_afterOnChainDelivery() public {
@@ -102,7 +100,6 @@ contract MutualSettleTest is Base {
         assertEq(usdc.balanceOf(buyer), b0 + 10_000_000 + FEE);
         assertEq(_held(t), 0);
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Settled));
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), 0);
     }
 
     function test_beforeDelivery_noKey() public {
@@ -146,95 +143,5 @@ contract MutualSettleTest is Base {
         rules.mutualSettle(t, m, _noDelivery(), none);
         vm.expectRevert(abi.encodeWithSelector(HoldbackRules.WrongStage.selector, HoldbackRules.Stage.Settled));
         rules.mutualSettle(t, m, _noDelivery(), none);
-    }
-}
-
-contract AppealTest is Base {
-    function _accepted() internal returns (H.Terms memory t, bytes32 id) {
-        (t, id) = _funded();
-        _deliver(t, id);
-        rules.decide(t, _primary(t, id, H.OUTCOME_ACCEPT), _noDelivery(), "");
-    }
-
-    function _appeal(H.Terms memory t, bytes32 id, uint256 pk) internal view returns (H.Appeal memory a) {
-        a = H.Appeal({
-            appellant: 0,
-            groundsHash: keccak256("fails check rows"),
-            bond: 1_300_000,
-            filedAt: uint64(block.timestamp),
-            signature: ""
-        });
-        a.signature = _sign(pk, hx.appeal(id, buyer, t.token, a));
-    }
-
-    function _filed() internal returns (H.Terms memory t, bytes32 id, uint64 openedAt) {
-        (t, id) = _accepted();
-        vm.prank(buyer);
-        usdc.approve(address(bonds), type(uint256).max);
-        rules.fileAppeal(t, _appeal(t, id, BUYER_PK));
-        openedAt = uint64(block.timestamp);
-    }
-
-    function test_file_holdsTheBond() public {
-        (, bytes32 id,) = _filed();
-        assertEq(uint8(rules.dealOf(id).appeal), uint8(HoldbackRules.AppealState.Open));
-        (address who, uint96 amount) = bonds.appealBondOf(id);
-        assertEq(who, buyer);
-        assertEq(amount, 1_300_000);
-    }
-
-    function test_file_refusesAnotherSigner() public {
-        (H.Terms memory t, bytes32 id) = _accepted();
-        H.Appeal memory a = _appeal(t, id, OTHER_PK);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
-        rules.fileAppeal(t, a);
-    }
-
-    function test_file_refusesAfterAppealBy() public {
-        (H.Terms memory t, bytes32 id) = _accepted();
-        H.Appeal memory a = _appeal(t, id, BUYER_PK);
-        vm.warp(block.timestamp + t.timing.appealWindowSec);
-        vm.expectRevert(HoldbackRules.DeadlinePassed.selector);
-        rules.fileAppeal(t, a);
-    }
-
-    function test_file_refusesASecondAppeal() public {
-        (H.Terms memory t, bytes32 id,) = _filed();
-        H.Appeal memory a = _appeal(t, id, BUYER_PK);
-        vm.expectRevert(abi.encodeWithSelector(HoldbackRules.WrongAppealState.selector, HoldbackRules.AppealState.Open));
-        rules.fileAppeal(t, a);
-    }
-
-    function test_upheld_bondGoesToTheFirstAdjudicatorsBond() public {
-        (H.Terms memory t, bytes32 id, uint64 openedAt) = _filed();
-        vm.warp(openedAt + 1); // the appeal round is the first one after openedAt: wait for it
-        H.Decision memory m = _beaconDecision(id, H.ROLE_APPEAL, H.OUTCOME_ACCEPT, openedAt + 1);
-        m = _signDecision(t, id, m, appealAdj, AP_PK);
-        rules.decide(t, m, _noDelivery(), "");
-        assertEq(uint8(rules.dealOf(id).appeal), uint8(HoldbackRules.AppealState.Upheld));
-        assertEq(bonds.bondOf(adjudicator, address(usdc)), BOND + 1_300_000);
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), 0);
-    }
-
-    /// The appeal bond comes back, and the primary's bond pays the price (T-206 I-8; OverturnPayout.t.sol).
-    function test_overturned_bondBackToAppellant() public {
-        (H.Terms memory t, bytes32 id, uint64 openedAt) = _filed();
-        uint256 b0 = usdc.balanceOf(buyer);
-        vm.warp(openedAt + 1); // the appeal round is the first one after openedAt: wait for it
-        H.Decision memory m = _beaconDecision(id, H.ROLE_APPEAL, H.OUTCOME_REJECT, openedAt + 1);
-        m = _signDecision(t, id, m, appealAdj, AP_PK);
-        rules.decide(t, m, _noDelivery(), "");
-        assertEq(uint8(rules.dealOf(id).appeal), uint8(HoldbackRules.AppealState.Overturned));
-        assertEq(usdc.balanceOf(buyer), b0 + 1_300_000 + PRICE);
-        assertEq(bonds.bondOf(adjudicator, address(usdc)), BOND - PRICE);
-    }
-
-    function test_appealDecision_refusesAnotherSigner() public {
-        (H.Terms memory t, bytes32 id, uint64 openedAt) = _filed();
-        vm.warp(openedAt + 1); // the appeal round is the first one after openedAt: wait for it
-        H.Decision memory m = _beaconDecision(id, H.ROLE_APPEAL, H.OUTCOME_ACCEPT, openedAt + 1);
-        m = _signDecision(t, id, m, appealAdj, ADJ_PK);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
-        rules.decide(t, m, _noDelivery(), "");
     }
 }

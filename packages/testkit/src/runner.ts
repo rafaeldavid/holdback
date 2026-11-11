@@ -60,13 +60,19 @@ function settlementRefusal(s: SettlementBackend): string | null {
 }
 
 /**
- * Fixtures that stay SimChain-only until Phase 4 economics are on chain (T-202 Decisions, question 4). A local run
- * prints this list; nothing else is skipped. Each reason names what the contract does not do yet.
+ * Fixtures that stay SimChain-only: until Phase 4 economics are on chain (T-202 Decisions, question 4), and, since
+ * T-346, because the phase-one contracts have no party appeal and no bond (SC-7, ADR-0031). SimChain keeps both as
+ * the full protocol's reference. A local run prints this list; nothing else is skipped. Each reason names what the
+ * contract does not do.
  */
 export const LOCAL_EXCLUSIONS: Readonly<Record<string, string>> = {
-  'neutrality.adjudicator-and-fallback-offline': 'Phase 4: seller compensation from the primary and fallback bonds on default (triggerDefault refunds the buyer only)',
-  'neutrality.appeal-adjudicator-offline-after-escalation': 'Phase 4: seller compensation from the appeal adjudicator’s bond on default',
-  'honest-seller-survives-judge-noise-on-appeal': 'Phase 4: the rulebook appeal fee is not collected on chain and the appeal bond rate is not checked',
+  'neutrality.adjudicator-and-fallback-offline': 'Phase 4: seller compensation from the primary and fallback bonds on default (triggerDefault refunds the buyer only); not in phase one: no bonds (SC-7, ADR-0031)',
+  'neutrality.appeal-adjudicator-offline-after-escalation': 'Phase 4: seller compensation from the appeal adjudicator’s bond on default; not in phase one: no bonds (SC-7, ADR-0031)',
+  'honest-seller-survives-judge-noise-on-appeal': 'Phase 4: the rulebook appeal fee is not collected on chain and the appeal bond rate is not checked; not in phase one: no party appeals (SC-7, ADR-0031)',
+  'neutrality.store-withholds-reference': 'not in phase one: the default pays the seller from the primary and fallback bonds on SimChain, and phase one has no bonds (SC-7, ADR-0031)',
+  'error.early-accept-wrong-key-envelope': 'not in phase one: a party appeal step, and phase one has no party appeals (SC-7, ADR-0031)',
+  'error.coverage-exceeded': 'not in phase one: the bond coverage refusal, and phase one has no bonds (SC-7, ADR-0031)',
+  'attack.adjudicator-self-dealing': 'not in phase one: the bond coverage refusal, and phase one has no bonds (SC-7, ADR-0031)',
 };
 
 /**

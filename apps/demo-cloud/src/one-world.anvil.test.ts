@@ -34,7 +34,7 @@ describe.skipIf(!ready)(`one world through the drand rulebook (anvil; T-220, D49
     const onError = (e: Error) => errors.push(e.message);
     const timing = { judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 60, appealDecideSec: 60 };
 
-    // Today's world: the rulebook names the sim beacon, as the deployed build's does. It bonds its adjudicators.
+    // Today's world: the rulebook names the sim beacon, as the deployed build's does. It posts no bond (ADR-0031 §8).
     const today = await PublicWorld.open({ storage, env: ENV, live: { chain: chainOf(), beacon: 'sim' }, faucetPerClient: 100, onError });
     const demo = await host(today);
     try {
@@ -67,25 +67,22 @@ describe.skipIf(!ready)(`one world through the drand rulebook (anvil; T-220, D49
       const req = { nonce: `0x${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('hex')}`, disclosure: 'public', ...request(s2.agent.address) };
       const stale = await s2.agent.sign(await s2.agent.call('POST', '/v1/prepare/offer', req), { kind: 'offer', request: req, registration: await s2.agent.registration(primary), rulebookHash: before.rulebookHash as Hex });
 
-      // The deploy: this build opens the same storage. Before it: the head, the funding lane's balance, the bonds.
+      // The deploy: this build opens the same storage. Before it: the head and the funding lane's balance.
       const chain = chainOf();
       const head = await chain.publicClient.getBlockNumber({ cacheTime: 0 });
       const funding = await chain.ethBalance(chain.funding);
-      expect((await storage.get<{ bonded: string[] }>('meta'))!.bonded).toHaveLength(3);
       const asked: number[] = [];
       const drand: RandomnessSource = { kind: 'drand-quicknet', clock: DRAND_QUICKNET, value: async (round) => (asked.push(round), null) };
       // On Sepolia this build names drand quicknet by default; anvil's chain id gets the sim beacon, so say it here.
       const next = await demo.deploy(() => PublicWorld.open({ storage, env: ENV, live: { chain, drand, beacon: 'drand-quicknet' }, faucetPerClient: 100, onError }));
       for (const end = Date.now() + 60_000; !next.ready() && Date.now() < end; ) await sleep(250);
       expect(next.ready()).toBe(true);
-      // The setup pass found the three bonds in place and sent nothing: no transaction since the deploy, the funding
-      // lane's balance unchanged, the bonds recorded as before.
+      // The setup pass sent nothing: no transaction since the deploy, and the funding lane's balance unchanged.
       await sleep(2500);
       let sent = 0;
       for (let n = head + 1n, end = await chain.publicClient.getBlockNumber({ cacheTime: 0 }); n <= end; n++) sent += (await chain.publicClient.getBlock({ blockNumber: n })).transactions.length;
       expect(sent).toBe(0);
       expect(await chain.ethBalance(chain.funding)).toBe(funding);
-      expect((await storage.get<{ bonded: string[] }>('meta'))!.bonded).toHaveLength(3);
 
       // The club names drand quicknet now; the adjudicators are the same three.
       const after = await s.agent.club('demo-club');

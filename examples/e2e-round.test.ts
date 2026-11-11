@@ -145,7 +145,7 @@ describe('e2e-round.ts', () => {
       await demo?.close();
     });
 
-    it('runs scenarios 1, 2, 3a (API and direct), 3d and 10a with every transaction read back from the chain, holds 6 for T-217, then re-reads their blocks', async () => {
+    it('runs scenarios 1, 2, 3a (API and direct), 3d and 10a with every transaction read back from the chain, holds 6 as not in phase one, then re-reads their blocks', async () => {
       const seed = generatePrivateKey();
       const out = mkdtempSync(join(tmpdir(), 'e2e-round-anvil-'));
       const env = { E2E_SEPOLIA_SEED: seed, HOLDBACK_OPERATORS: demo.urls.join(','), E2E_OUT: out, HOLDBACK_DEPLOYMENT: JSON.stringify(demo.deployment), SEPOLIA_RPC_URL: demo.rpcUrl };
@@ -158,7 +158,8 @@ describe('e2e-round.ts', () => {
       // operator's relay answers 500 and the driver closes the window directly (backlog); on Sepolia the run shows it.
       const known = ['a live panel judged', 'appeal-expiry relayed through the API'];
       for (const id of ['1', '2']) for (const c of byId[id].checks.filter((x: J) => !x.ok)) expect(known, `${id}: ${c.name}: ${c.detail}`).toContain(c.name);
-      expect(byId['6']).toMatchObject({ status: 'waits', waitsFor: ['T-217'] });
+      // 6 files a party appeal, which the phase-one contracts do not take: it runs on SimChain only (ADR-0031 §8).
+      expect(byId['6']).toMatchObject({ status: 'waits', waitsFor: ['ADR-0031'] });
       const steps = (id: string, deal = 0) => byId[id].deals[deal].transactions.map((t: J) => t.steps.join('+'));
       expect(steps('1')).toEqual(expect.arrayContaining([expect.stringContaining('hold.funded'), expect.stringContaining('delivery.submitted'), expect.stringContaining('judgment.decided')]));
       for (const t of byId['1'].deals[0].transactions) expect(Number(t.gasUsed)).toBeGreaterThan(21_000);

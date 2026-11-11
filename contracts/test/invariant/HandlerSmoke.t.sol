@@ -28,7 +28,7 @@ contract HandlerSmokeTest is Test {
     }
 
     function _stage() internal view returns (HoldbackRules.Stage) {
-        return rules.dealOf(h.dealId(0)).stage;
+        return h.word(h.dealId(0)).stage;
     }
 
     function _warpTo(uint256 t) internal {
@@ -41,25 +41,36 @@ contract HandlerSmokeTest is Test {
         assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Held));
     }
 
-    function test_offer_fund_deliver_decide_appeal_decide() public {
+    /// T-346 (SC-7): the first decision is final. A later decision, the appeal filing and the appeal expiry are
+    /// refused on the phase-one contract: the handler re-reverts each with `Refused()`.
+    function test_offer_fund_deliver_decide_isFinal() public {
         _funded();
         h.deliver(PICK, 5, 0);
         h.decide(PICK, 6, 0, H.OUTCOME_ACCEPT);
         assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Released));
+        assertEq(h.closings(h.dealId(0)), 1);
+        assertEq(h.closedBy(h.dealId(0)), h.R_DECIDED());
+        assertEq(h.closedDecider(h.dealId(0)), h.D_PRIMARY());
+        vm.expectRevert(RulesHandler.Refused.selector);
         h.fileAppeal(PICK, 1, 0, 0);
-        _warpTo(block.timestamp + 1); // T-209: the appeal round is the first one after the appeal; wait for it
+        _warpTo(block.timestamp + 1);
+        vm.expectRevert(RulesHandler.Refused.selector);
         h.decide(PICK, 6, 0, H.OUTCOME_REJECT);
-        assertEq(uint8(rules.dealOf(h.dealId(0)).appeal), uint8(HoldbackRules.AppealState.Overturned));
+        vm.expectRevert(RulesHandler.Refused.selector);
+        h.decideAppeal(PICK, 6, H.OUTCOME_REJECT);
+        H.Terms memory t = h.termsOf(0);
+        _warpTo(h.word(h.dealId(0)).t1 + t.timing.appealWindowSec);
+        vm.expectRevert(RulesHandler.Refused.selector);
+        h.expireAppeal(PICK, 6);
+        assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Released));
         assertEq(h.closings(h.dealId(0)), 1);
     }
 
-    function test_decide_carriesDelivery_thenAppealExpires() public {
+    function test_decide_carriesDelivery() public {
         _funded();
         h.decide(PICK, 0, 0, H.OUTCOME_REJECT);
         assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Refunded));
-        H.Terms memory t = h.termsOf(0);
-        _warpTo(rules.dealOf(h.dealId(0)).t1 + t.timing.appealWindowSec);
-        h.expireAppeal(PICK, 6);
+        assertEq(h.closedBy(h.dealId(0)), h.R_DECIDED());
     }
 
     function test_escalate_thenAppealAdjudicatorDecides() public {
@@ -128,9 +139,7 @@ contract HandlerSmokeTest is Test {
         assertTrue(h.cppReclaimed(h.dealId(0)));
     }
 
-    function test_bonds_and_warp() public {
-        h.bondDeposit(2, 0, 1_000);
-        h.bondWithdraw(2, 0, 1_000);
+    function test_warp() public {
         h.offer(OFFER);
         h.warp(1 << 8);
     }

@@ -52,7 +52,6 @@ export function deploymentOf(anvil: EvmWorld): DeploymentFile {
     permit2Collector: d.permit2Collector,
     multicall: d.multicall,
     rules: d.rules,
-    bonds: d.bonds,
     beacon: d.beacon,
     expiryMarginSec: Number(anvil.expiryMargin),
   };
@@ -149,14 +148,13 @@ export async function host(first: PublicWorld): Promise<{ urls: [string, string]
 
 /**
  * An outside adjudicator (T-221, ADR-0030), as an agent runs one: the reference adjudicator's code under its own key,
- * registered through POST /v1/adjudicators, bonded in HoldbackBonds from that key, and sending its acceptances,
- * decisions and triggers through the operators' HTTP API. It reads the deals from the world's settlement view, as it
- * would from an operator's reads, and its own bond live from the contract.
+ * registered through POST /v1/adjudicators, and sending its acceptances, decisions and triggers through the operators'
+ * HTTP API. It reads the deals from the world's settlement view, as it would from an operator's reads. The phase-one
+ * contracts hold no bond (ADR-0031 §8), so it posts none and accepts with bondReserved 0.
  */
 export class Outsider {
   readonly account: TestAccount;
   adj: TestAdjudicator;
-  private readonly bonds = new Map<string, { junior: bigint; senior: bigint; reserved: bigint }>();
 
   constructor(
     private readonly world: PublicWorld,
@@ -185,11 +183,9 @@ export class Outsider {
       const out = (await res.json()) as J;
       return res.ok ? { ok: true, state: out } : { ok: false, problem: out };
     };
-    const bonds = this.bonds;
     // The world's settlement view for reads; every write goes through the operator, as an outside agent's would.
     const reads = new Proxy(evm, {
       get(target, prop) {
-        if (prop === 'pool') return (a: Address) => bonds.get(lc(a)) ?? target.pool(a);
         if (prop === 'submit') {
           return (s: Submission, opts?: { idempotencyKey?: string }) => {
             const key = opts?.idempotencyKey ?? crypto.randomUUID();
@@ -250,12 +246,8 @@ export class Outsider {
     return { status: res.status, body: await res.json() };
   }
 
-  /** One pass, after reading its own bond from the contract (the reference service reads `pool` for offers). */
+  /** One pass of the reference adjudicator. */
   async runOnce() {
-    const evm = this.world.chain as EvmSettlement;
-    const held = await evm.bondOf(this.address);
-    const free = await evm.freeBond(this.address);
-    this.bonds.set(lc(this.address), { junior: held, senior: 0n, reserved: held - free });
     return this.adj.runOnce();
   }
 }

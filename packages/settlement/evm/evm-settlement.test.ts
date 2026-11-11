@@ -3,16 +3,16 @@
 // which `pnpm verify` would show (it runs forge build first; see scripts/verify.ts).
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { deliveryHash, parseEvent, wholeSecond, type Club, type Hex32, type Mandate, type SettlementEvent } from '@holdback/core';
+import { deliveryHash, parseEvent, signMessage, wholeSecond, type Club, type Hex32, type Mandate, type SettlementEvent, type TokenAmount, type UnsignedMessage } from '@holdback/core';
 import { encodeFunctionData, getAddress, hashTypedData, keccak256, stringToBytes, type Hex } from 'viem';
 import { sign } from 'viem/accounts';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { authorizationExpiry, type Genesis } from '../sim/simchain.js';
 import type { Submission } from '../src/interface.js';
 import { RelayRefused, type LaneRow } from './chain.js';
-import { EvmSettlement, type Book } from './evm-settlement.js';
+import { EvmSettlement, PHASE_ONE_NO_APPEAL, type Book } from './evm-settlement.js';
 import { measurePath, must, newSettlement, PATHS } from './gas.js';
-import { ensureBond, LiveChain, type DeploymentFile, type LaneStore } from './live.js';
+import { LiveChain, type DeploymentFile, type LaneStore } from './live.js';
 import { evmCast, evmGenesis, EvmDeal } from './testing.js';
 import { anvilAvailable, EvmWorld, EXPIRY_MARGIN } from './world.js';
 
@@ -46,7 +46,6 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     expect(chain.escrowState(id)?.kind).toBe('Released');
     expect((await chain.stage(id)).stage).toBe('Released');
     expect(await chain.tokenBalance(cast.seller.address)).toBe(2_000_000_000n);
-    expect(await chain.bondOf(cast.primary.address)).toBe(50_000_000_000n);
     expect(await chain.tokenBalance(cast.primary.address)).toBe(50_000_000n);
     const keys = await chain.keysFor(id, cast.buyer.address);
     expect(keys).toHaveLength(1);
@@ -309,28 +308,60 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     expect(await at.chain.tokenBalance(at.cast.buyer.address)).toBe(100_000_000_000n);
   }, 60_000);
 
-  it('an overturned accept pays the buyer the price from the primary’s bond, as SimChain reports it (T-206 I-8)', async () => {
+  // ADR-0031 §8 (D57): the phase-one contracts take no party appeal and hold no bond.
+  it('a first decision is final at once: finalAt is settledAt, appealState none, no appeal window, no bond', async () => {
     const { chain, cast, club } = await newSettlement(world);
-    const [b0, s0, p0] = [await chain.tokenBalance(cast.buyer.address), await chain.tokenBalance(cast.seller.address), await chain.bondOf(cast.primary.address)];
-    const id = await PATHS['party appeal (accept, buyer appeals, overturned)']!(chain, cast, club);
-    expect((await chain.stage(id)).appeal).toBe(3); // HoldbackRules.AppealState.Overturned
-    // The buyer paid price + fee, got its appeal bond back and the price from the bond: it is down only the fee.
-    expect(b0 - (await chain.tokenBalance(cast.buyer.address))).toBe(50_000_000n);
-    expect((await chain.tokenBalance(cast.seller.address)) - s0).toBe(2_000_000_000n);
-    expect(p0 - (await chain.bondOf(cast.primary.address))).toBe(2_000_000_000n);
-    const log = chain.log();
-    const decided = log.findIndex((e) => e.type === 'appeal.decided');
-    expect(log.slice(decided).map((e) => e.type)).toEqual(['appeal.decided', 'bond.slashed']);
-    const slashed = log[decided + 1]!;
-    expect(slashed.actor).toBe('anyone');
-    // SimChain's payload plus the transaction, which event.schema.json admits since v0.9 (ChainTx): the same one as
-    // the appeal.decided event before it.
-    const { tx, block, sender, gasUsed } = log[decided]!.payload as Record<string, unknown>;
-    expect(slashed.payload).toEqual({ adjudicator: cast.primary.address, junior: { token: expect.any(String), amount: '2000000000' }, senior: { token: expect.any(String), amount: '0' }, reason: 'overturn', tx, block, sender, gasUsed });
-    expect(tx).toMatch(/^0x[0-9a-f]{64}$/);
-    expect(eventSchemaErrors(log)).toEqual([]);
-    expect(await chain.replayCheck()).toMatchObject({ ok: true });
-  }, 120_000);
+    const id = await PATHS['reject (fee-only capture + void)']!(chain, cast, club);
+    const view = (await chain.state(id))!;
+    expect(view).toMatchObject({ escrowState: 'Refunded', appealState: 'none' });
+    expect(view.settledAt).toEqual(expect.any(String));
+    expect(view.finalAt).toBe(view.settledAt);
+    expect(Object.keys(view.deadlines)).not.toContain('appealBy');
+    expect(Object.keys(view.deadlines)).not.toContain('appealDecideBy');
+    expect(chain.finality(id)).toEqual({ settledAt: view.settledAt, finalAt: view.settledAt });
+    expect(chain.pool(cast.primary.address)).toEqual({ junior: 0n, senior: 0n, reserved: 0n });
+    expect((await chain.holdings([cast.buyer.address], [id])).appealHold).toBe(0n);
+  }, 60_000);
+
+  it('an appeal and an appeal expiry are refused before any transaction: invalid_state, naming phase one', async () => {
+    const { chain, cast, club } = await newSettlement(world);
+    const d = new EvmDeal(chain, cast, club, 'no-appeal');
+    for (const sub of [d.offer(), d.accept(), d.agreeAndFund()]) await must(chain, cast, sub);
+    await must(chain, cast, d.deliver());
+    await must(chain, cast, d.decide('primary', 'reject'));
+    const body = { commitmentId: d.id, appellant: 'seller' as const, appellantAddress: cast.seller.address, grounds: 'wrong-outcome' as const, bond: { token: chain.token, amount: '100000000' } as TokenAmount, filedAt: chain.now() };
+    const appeal: Submission = { kind: 'appeal', appeal: { ...body, signature: await signMessage(cast.seller.key, chain.domain, { ...body, type: 'Appeal' } as UnsignedMessage) } };
+    const [txs, block, events] = [chain.transactions().length, await world.publicClient.getBlockNumber(), chain.eventCount()];
+    for (const sub of [appeal, d.trigger('appeal_expiry')]) {
+      const r = await chain.submit(sub, { via: 'op-1', sender: cast.operator.key });
+      expect(r.ok ? 'ok' : r.problem.type).toBe('invalid_state');
+      expect(r.ok ? '' : r.problem.detail).toBe(PHASE_ONE_NO_APPEAL);
+      expect(r.ok ? '' : r.problem.detail).toMatch(/phase-one contracts, which have no party appeals/);
+    }
+    const viaTrigger = await chain.trigger(d.id, 'appeal_expiry', { via: 'op-1' });
+    expect(viaTrigger.ok ? 'ok' : `${viaTrigger.problem.type}: ${viaTrigger.problem.detail}`).toBe(`invalid_state: ${PHASE_ONE_NO_APPEAL}`);
+    // Nothing went out: no transaction, no block, no event.
+    expect(chain.transactions()).toHaveLength(txs);
+    expect(await world.publicClient.getBlockNumber()).toBe(block);
+    expect(chain.eventCount()).toBe(events);
+    expect(chain.escrowState(d.id)?.kind).toBe('Refunded');
+  }, 60_000);
+
+  it('an acceptance that reserves a bond is refused before any transaction: bondReserved must be 0', async () => {
+    const { chain, cast, club } = await newSettlement(world);
+    const d = new EvmDeal(chain, cast, club, 'bonded-acceptance');
+    await must(chain, cast, d.offer());
+    const a = await d.accept();
+    if (a.kind !== 'adjudicator_accept') throw new Error('unreachable');
+    const { signature: _old, ...unsigned } = a.message; // eslint-disable-line @typescript-eslint/no-unused-vars
+    const bonded = { ...unsigned, bondReserved: d.terms.price };
+    const message = { ...bonded, signature: await signMessage(cast.primary.key, chain.domain, bonded as UnsignedMessage) };
+    const r = await chain.submit({ kind: 'adjudicator_accept', message }, { via: 'op-1', sender: cast.operator.key });
+    expect(r.ok ? 'ok' : r.problem.type).toBe('invalid_terms');
+    expect(r.ok ? '' : r.problem.detail).toMatch(/bondReserved must be 0 \(ADR-0031 §8\)/);
+    expect(chain.escrowState(d.id)?.kind).toBe('Offered');
+    expect(chain.transactions()).toHaveLength(0);
+  }, 60_000);
 
   // Gas per deal (D4), one test per path so a slow path names itself. Each runs a warm-up deal and then the path.
   const SETTLES: Record<string, { calls: string[]; finalState: string }> = {
@@ -340,8 +371,6 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     'reclaim (nothing delivered)': { calls: ['agreeAndFund', 'reclaim'], finalState: 'Refunded' },
     'early accept (delivery carried)': { calls: ['agreeAndFund', 'earlyAccept'], finalState: 'Released' },
     'mutual settlement (70/30, before delivery)': { calls: ['agreeAndFund', 'mutualSettle'], finalState: 'Settled' },
-    'party appeal (reject, seller appeals, upheld)': { calls: ['agreeAndFund', 'decide', 'fileAppeal', 'decide'], finalState: 'Refunded' },
-    'party appeal (accept, buyer appeals, overturned)': { calls: ['agreeAndFund', 'decide', 'fileAppeal', 'decide'], finalState: 'Released' },
     'escalation, then the appeal adjudicator decides': { calls: ['agreeAndFund', 'decide', 'decide'], finalState: 'Released' },
     'fallback (primary silent, fallback accepts)': { calls: ['agreeAndFund', 'deliver', 'triggerFallback', 'decide'], finalState: 'Released' },
     'default (primary and fallback silent)': { calls: ['agreeAndFund', 'deliver', 'triggerFallback', 'triggerDefault'], finalState: 'Refunded' },
@@ -357,7 +386,8 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     const { chain, cast, club } = await newSettlement(world);
     for (const run of Object.values(PATHS)) await run(chain, cast, club);
     const types = new Set(chain.log().map((e) => e.type));
-    for (const t of ['fee.operator', 'commitment.settled', 'bond.slashed', 'delivery.submitted', 'judgment.decided']) expect(types, t).toContain(t);
+    for (const t of ['fee.operator', 'commitment.settled', 'delivery.submitted', 'judgment.decided']) expect(types, t).toContain(t);
+    for (const t of ['appeal.filed', 'appeal.decided', 'bond.slashed', 'bond.reserved']) expect(types, t).not.toContain(t);
     expect(eventSchemaErrors(chain.log())).toEqual([]);
   }, 300_000);
 
@@ -535,17 +565,15 @@ describe.skipIf(!ready)(`relayed transactions a restart left in flight (T-219; a
       permit2Collector: d.permit2Collector,
       multicall: d.multicall,
       rules: d.rules,
-      bonds: d.bonds,
       beacon: d.beacon,
       expiryMarginSec: Number(anvil.expiryMargin),
     };
     const setup = chainOf();
     for (const a of [...setup.lanes.map((l) => l.address), ...Object.values(cast).map((a) => a.address)]) await anvil.rpc('anvil_setBalance', [a, '0x56bc75e2d63100000']);
-    ({ genesis, club } = await evmGenesis({ cast, token: d.token.toLowerCase(), chainId: anvil.chainId, rules: d.rules, start: wholeSecond(Date.now()), buyer: 0n, bond: 0n }));
+    ({ genesis, club } = await evmGenesis({ cast, token: d.token.toLowerCase(), chainId: anvil.chainId, rules: d.rules, start: wholeSecond(Date.now()), buyer: 0n }));
     // The world's sim beacon is the contract's SimBeacon, deployed with the zero seed (world.ts).
     genesis = { ...genesis, simSeed: `0x${'00'.repeat(32)}` };
     await setup.mint(cast.buyer.address, 10n ** 12n);
-    for (const a of [cast.primary, cast.fallback, cast.appeal]) await ensureBond(setup, a.key, 50_000_000_000n, 10n ** 18n);
   }, 180_000);
   afterAll(async () => {
     await anvil?.rpc('evm_setIntervalMining', [1]).catch(() => undefined);

@@ -436,6 +436,11 @@ export class Operator {
   /** Public base URL (no trailing slash); startOperator sets it to the listening address when not given. */
   baseUrl: string;
 
+  /** Every chain settlement runs the phase-one contracts: no bonds and no party appeals (ADR-0031 §8). SimChain keeps both. */
+  private get phaseOne(): boolean {
+    return this.o.settlement.kind !== 'sim';
+  }
+
   /** Runs the startup guards: no Operator exists off a test chain or with a live Stripe key. */
   private readonly maxCiphertextBytes: number;
   constructor(private readonly o: OperatorOptions) {
@@ -758,6 +763,8 @@ export class Operator {
    * operators and direct submission take the same signed messages.
    */
   private async refuseUnpayableFallback(op: Operation): Promise<void> {
+    // ADR-0031 §8 point 6: the phase-one contracts hold no bond, so there is nothing to refuse for.
+    if (this.phaseOne) return;
     const terms = op.kind === 'offer' || op.kind === 'hold' ? op.commitment : op.kind === 'agree' ? await this.prepareContext().commitment(op.message.commitmentId) : undefined;
     if (!terms) return;
     const why = await fallbackBondRefusal(this.prepareContext(), terms);
@@ -794,7 +801,8 @@ export class Operator {
    * may be cold (review of PR 184).
    */
   private async liveBond(a: Address, o: { listing?: boolean } = {}): Promise<Bond | 'unreadable' | undefined> {
-    if (!this.o.registry.pool) return undefined;
+    // Phase one has no bond vault to read (ADR-0031 §8): no bond notice and no bond refusal.
+    if (!this.o.registry.pool || this.phaseOne) return undefined;
     try {
       return await this.o.registry.pool(a, o);
     } catch {
@@ -830,7 +838,8 @@ export class Operator {
         registeredAt: stored.registeredAt,
         lastUsedAt: this.lastUsed.get(lc(r.address)) ?? null,
         expired: !(Date.parse(this.settlementNow()) < Date.parse(r.registration.expiresAt)),
-        bond: !read ? 'unknown' : hasBond(bond) ? 'bonded' : 'none',
+        // ADR-0031 §8 point 6: the phase-one contracts hold no bond, so every adjudicator's reads none there.
+        bond: this.phaseOne ? 'none' : !read ? 'unknown' : hasBond(bond) ? 'bonded' : 'none',
         ...(defaultFor.length ? { defaultFor } : {}),
       },
     };
@@ -871,6 +880,8 @@ export class Operator {
     if (p.type !== 'invalid_state') return p.type === 'invalid_terms' ? { ...p, ...(fieldOf(p.detail) ? { field: fieldOf(p.detail)! } : {}) } : p;
     const s = await this.o.settlement.state(commitmentIdOf(op)).catch(() => null);
     if (!s) return p;
+    // ADR-0031 §8: a phase-one appeal is refused in every state, so no state to wait for is named (T-349 review).
+    if (this.phaseOne && (op.kind === 'appeal' || (op.kind === 'trigger' && op.timeout === 'appeal_expiry'))) return { ...p, state: s.escrowState };
     const needs = needsOf(op);
     return { ...p, state: s.escrowState, ...(needs && !needs.includes(s.escrowState) ? { needs } : {}) };
   }
@@ -1065,6 +1076,7 @@ export class Operator {
       return this.index.get(id)?.events ?? [];
     };
     return {
+      ...(this.phaseOne ? { phaseOne: true } : {}),
       domain: this.domain,
       now: () => reg.now?.() ?? (new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace('.000Z', 'Z') as Timestamp),
       club: (id) => reg.clubs.find((c) => c.id === id),
