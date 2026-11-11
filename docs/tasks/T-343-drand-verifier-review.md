@@ -5,7 +5,7 @@
 - **Depends on:** T-209 (the verifier), T-217 (the off-chain proof path), T-206 (the contract review, items I-12 and I-13). Rafa's scope decision SC-8 of 2026-11-11 keeps the on-chain beacon proof in phase one.
 - **Paths this task may touch:** `docs/reviews/2026-11-11-drand-verifier-review.md` (new); new files under `contracts/test/` only where a case is not covered, and never a test another package owns; this file. It changes nothing under `contracts/src/`.
 - **Human gate:** no. It deploys nothing and sends no transaction.
-- **Status:** review
+- **Status:** done (PR 334)
 - **Agent/session:** Claude Code session on branch `t-343-drand-verifier-review` (2026-11-11)
 
 ## Intent
@@ -35,16 +35,16 @@ Non-goals: any edit to `contracts/src/`; the off-chain check (`apps/adjudicator/
 
 ## Acceptance criteria
 
-- [ ] The review is at `docs/reviews/2026-11-11-drand-verifier-review.md`, written to `docs/writing.md`, with each claim labelled measured, documented, inferred or unverified.
-- [ ] Every constant is compared with its published value, byte for byte: the public key, the domain separation tag, the field modulus and the exponents derived from it, the negated G2 generator, the genesis time and the period, the round-number encoding.
-- [ ] Each of these cases has a test or worked reasoning: a wrong round; a signature on the curve and outside the prime-order subgroup; the identity point as the signature; a malformed length; a non-canonical field element; a valid signature from another drand chain.
-- [ ] The review names each check the contract leaves to a precompile, cites where EIP-2537 requires it, and names any check that neither performs.
-- [ ] The review states what a caller who controls the inputs can do: make a valid round revert, burn gas, or get a value for an invalid proof.
-- [ ] Gas: items I-12 and I-13 are re-measured with `forge test --gas-report`, with units.
-- [ ] The review lists what a testnet cannot show, as lines for the plan's mainnet gate.
-- [ ] New tests, if any, are new files under `contracts/test/`, and `forge test --root contracts` passes.
-- [ ] One `red-teamer` pass tries to forge an accepted proof or break a valid one, with the contract and the two specifications and without this review's conclusions.
-- [ ] The review says what the second-family read still needs.
+- [x] The review is at `docs/reviews/2026-11-11-drand-verifier-review.md`, written to `docs/writing.md`, with each claim labelled measured, documented, inferred or unverified.
+- [x] Every constant is compared with its published value, byte for byte: the public key, the domain separation tag, the field modulus and the exponents derived from it, the negated G2 generator, the genesis time and the period, the round-number encoding.
+- [x] Each of these cases has a test or worked reasoning: a wrong round; a signature on the curve and outside the prime-order subgroup; the identity point as the signature; a malformed length; a non-canonical field element; a valid signature from another drand chain.
+- [x] The review names each check the contract leaves to a precompile, cites where EIP-2537 requires it, and names any check that neither performs.
+- [x] The review states what a caller who controls the inputs can do: make a valid round revert, burn gas, or get a value for an invalid proof.
+- [x] Gas: items I-12 and I-13 are re-measured with `forge test --gas-report`, with units.
+- [x] The review lists what a testnet cannot show, as lines for the plan's mainnet gate.
+- [x] New tests, if any, are new files under `contracts/test/`, and `forge test --root contracts` passes.
+- [x] One `red-teamer` pass tries to forge an accepted proof or break a valid one, with the contract and the two specifications and without this review's conclusions.
+- [x] The review says what the second-family read still needs.
 
 ## Out of scope
 
@@ -89,7 +89,7 @@ Branch `t-343-drand-verifier-review`, 2026-11-11. Each claim is labelled measure
 
 ## Handoff
 
-**State:** review. The PR carries the task file, the review and the two test files.
+**State:** done. PR 334 merged on 2026-11-11 after all 15 CI checks passed [measured]. It carries the task file, the review and the two test files. Not done: the second-family read, and the fix of finding X-1, which belongs to the contract lane.
 
 **For the coordinator:**
 - **Finding X-1 (Medium) goes to the contract lane.** After an escalation or a party's appeal the panel's round is `roundAt(t) + 1`. drand publishes it 1 s after a mainnet block's timestamp and 3 s after a Sepolia block's. Whoever lands the step in a block built that late can know the seed first. The SC-7 cut removes the party-appeal half; the escalation keeps the rule. It is a stronger form of the plan's IS-7.
