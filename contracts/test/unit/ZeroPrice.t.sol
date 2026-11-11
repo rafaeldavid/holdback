@@ -140,13 +140,28 @@ contract ZeroPriceDealTest is Base {
         internal
         view
     {
+        _gained(b0, toBuyer, toSeller, toPrimary, toFb, toAp, 0);
+    }
+
+    /// The same, with `toOther` paid to an address outside the five (checked by the caller).
+    function _gained(
+        Bal memory b0,
+        uint256 toBuyer,
+        uint256 toSeller,
+        uint256 toPrimary,
+        uint256 toFb,
+        uint256 toAp,
+        uint256 toOther
+    ) internal view {
         Bal memory b1 = _bal();
         assertEq(b1.buyer - b0.buyer, toBuyer, "to the buyer");
         assertEq(b1.seller - b0.seller, toSeller, "to the seller");
         assertEq(b1.primary - b0.primary, toPrimary, "to the primary");
         assertEq(b1.fb - b0.fb, toFb, "to the fallback");
         assertEq(b1.ap - b0.ap, toAp, "to the appeal adjudicator");
-        assertEq(b0.store - b1.store, toBuyer + toSeller + toPrimary + toFb + toAp, "out of the token store");
+        assertEq(
+            b0.store - b1.store, toBuyer + toSeller + toPrimary + toFb + toAp + toOther, "out of the token store"
+        );
     }
 
     // ------------------------------------------------------------ events
@@ -364,16 +379,55 @@ contract ZeroPriceDealTest is Base {
         assertEq(bonds.bondOf(bare, address(usdc)), 0);
         H.Terms memory t = _zeroTerms();
         t.adjudicator = bare;
-        bytes32 id = rules.agreeAndFund(
-            t, _sellerSig(t, SELLER_PK), _acceptance(t, OTHER_PK), _agree(t, BUYER_PK), _erc3009(t, BUYER_PK)
+        bytes32 id = hx.id(t);
+        bytes memory sellerSig = _sellerSig(t, SELLER_PK);
+        H.Acceptance memory acc = _acceptance(t, OTHER_PK);
+        H.Agree memory ag = _agree(t, BUYER_PK);
+        H.Funding memory f = _erc3009(t, BUYER_PK);
+
+        _start();
+        rules.agreeAndFund(t, sellerSig, acc, ag, f);
+        Ev[] memory w = new Ev[](4);
+        w[0] = _encumbered(bare); // a reservation of 0 passes against a bond of 0
+        w[1] = _ev(
+            address(rules),
+            HoldbackRules.JobCreated.selector,
+            id,
+            _a(buyer),
+            _a(seller),
+            abi.encode(bare, uint256(_pi(t).authorizationExpiry))
         );
+        w[2] = _ev(address(rules), HoldbackRules.JobFunded.selector, id, _a(buyer), abi.encode(FEE));
+        w[3] = _ev(
+            address(escrow),
+            AuthCaptureEscrow.PaymentAuthorized.selector,
+            _ph(t),
+            abi.encode(_pi(t), FEE, address(collector3009))
+        );
+        _check(w);
+        _word(id, HoldbackRules.Stage.Held, 0, HoldbackRules.AppealState.None, 1, 0); // L03
+
         _deliver(t, id);
         H.Decision memory m = _signDecision(t, id, _decision(H.ROLE_PRIMARY, H.OUTCOME_ACCEPT), bare, OTHER_PK);
+        Bal memory b0 = _bal();
+        _start();
         rules.decide(t, m, _noDelivery(), "");
+        w = new Ev[](7);
+        w[0] = _decided(id, bare, H.ROLE_PRIMARY, H.OUTCOME_ACCEPT, SEED);
+        w[1] = _captured(t, FEE, FEE, bare);
+        w[2] = _storeCreated();
+        w[3] = _completed(id, bare, RECORD);
+        w[4] = _released(id, 0);
+        w[5] = _key(id, rules.KEY_DECISION(), KEY_CT);
+        w[6] = _feePaid(id, bare, FEE);
+        _check(w);
+
         assertEq(usdc.balanceOf(bare), FEE, "the unbonded primary took the fee");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
+        _gained(b0, 0, 0, 0, 0, 0, FEE); // the fee left the store for `bare`, none of the five parties
+        _word(id, HoldbackRules.Stage.Released, 1, HoldbackRules.AppealState.None, 1, block.timestamp); // L07
         assertEq(bonds.encumberedOf(bare, address(usdc)), 0);
         _escrowHolds(t, 0, FEE);
+        _bondsUntouched();
     }
 
     // ------------------------------------------------------------ the primary decides (L07, L08)
@@ -671,7 +725,135 @@ contract ZeroPriceDealTest is Base {
         _bondsUntouched();
     }
 
+    /// The same after `deliver`: the call carries the posted delivery, so no `JobSubmitted`.
+    function test_earlyAccept_afterDelivery_feeBackToBuyer_zeroToSeller() public {
+        (H.Terms memory t, bytes32 id) = _fundedZero();
+        (H.Delivery memory dv, H.KeyProof memory k) = _deliver(t, id);
+        H.EarlyAccept memory m = _early(t, id, BUYER_PK);
+        bytes memory dsig = _deliverySig(id, dv, SELLER_PK);
+        Bal memory b0 = _bal();
+
+        _start();
+        rules.earlyAccept(t, m, dv, dsig, k);
+        Ev[] memory w = new Ev[](7);
+        w[0] = _bondReleased(adjudicator);
+        w[1] = _voided(t, FEE);
+        w[2] = _storeCreated();
+        w[3] = _completed(id, buyer, bytes32(0));
+        w[4] = _released(id, 0);
+        w[5] = _refunded(id, FEE);
+        w[6] = _key(id, rules.KEY_EARLY_ACCEPT(), ENVELOPE);
+        _check(w);
+
+        _gained(b0, FEE, 0, 0, 0, 0);
+        _word(id, HoldbackRules.Stage.Released, 1, HoldbackRules.AppealState.Closed, 0, 0); // L33
+        _escrowHolds(t, 0, 0);
+        _bondsUntouched();
+    }
+
+    // ------------------------------------------------------------ the fallback escalates (L06, then L31)
+
+    /// The fallback escalates: no money moves and nothing is reserved for it; the primary's reservation of 0 is
+    /// released. The appeal adjudicator then takes the fee with an accept.
+    function test_escalation_byTheFallback_thenAccepted_feeToAppealAdjudicator() public {
+        (H.Terms memory t, bytes32 id) = _fundedZero();
+        _toFallback(t, id);
+        H.Decision memory e = _fallbackDecision(t, id, H.OUTCOME_ESCALATE);
+        Bal memory b0 = _bal();
+
+        _start();
+        rules.decide(t, e, _noDelivery(), "");
+        // `_toFallback` warped to judgeBy. A fixed value, because via-IR may re-read block.timestamp after a warp.
+        uint256 at = t.timing.judgeBy;
+        Ev[] memory w = new Ev[](2);
+        w[0] = _decided(id, fallbackAdj, H.ROLE_FALLBACK, H.OUTCOME_ESCALATE, e.seed);
+        w[1] = _bondReleased(adjudicator);
+        _check(w);
+        _gained(b0, 0, 0, 0, 0, 0);
+        _word(id, HoldbackRules.Stage.Escalated, 1, HoldbackRules.AppealState.None, 0, at); // L06
+        _escrowHolds(t, FEE, 0);
+
+        H.Decision memory m = _appealDecision(t, id, at, H.OUTCOME_ACCEPT);
+        _start();
+        rules.decide(t, m, _noDelivery(), "");
+        w = new Ev[](7);
+        w[0] = _decided(id, appealAdj, H.ROLE_APPEAL, H.OUTCOME_ACCEPT, m.seed);
+        w[1] = _captured(t, FEE, FEE, appealAdj);
+        w[2] = _storeCreated();
+        w[3] = _completed(id, appealAdj, RECORD);
+        w[4] = _released(id, 0);
+        w[5] = _key(id, rules.KEY_DECISION(), KEY_CT);
+        w[6] = _feePaid(id, appealAdj, FEE);
+        _check(w);
+
+        _gained(b0, 0, 0, 0, 0, FEE);
+        _word(id, HoldbackRules.Stage.Released, 1, HoldbackRules.AppealState.Closed, 0, at); // L31
+        _escrowHolds(t, 0, FEE);
+        _bondsUntouched();
+    }
+
+    // ------------------------------------------------------------ the buyer's own reclaim on the escrow (5.2)
+
+    /// From the escrow's expiry the buyer takes the fee back on the escrow directly; the deal's word stays L05.
+    /// `triggerDefault` then closes the deal, releases the reservation of 0, and skips the void and the `Refunded`
+    /// event because nothing is held (`R:605-608`).
+    function test_default_afterTheBuyersOwnEscrowReclaim_closesWithoutRefundEvent() public {
+        (H.Terms memory t, bytes32 id) = _fundedZero();
+        _toFallback(t, id);
+        AuthCaptureEscrow.PaymentInfo memory pi = _pi(t);
+        vm.warp(pi.authorizationExpiry);
+        Bal memory b0 = _bal();
+
+        _start();
+        vm.prank(buyer);
+        escrow.reclaim(pi);
+        Ev[] memory w = new Ev[](2);
+        w[0] = _ev(address(escrow), AuthCaptureEscrow.PaymentReclaimed.selector, _ph(t), abi.encode(FEE));
+        w[1] = _storeCreated();
+        _check(w);
+        _gained(b0, FEE, 0, 0, 0, 0);
+        _word(id, HoldbackRules.Stage.FallbackJudging, 1, HoldbackRules.AppealState.None, 1, t.timing.judgeBy); // L05
+        _escrowHolds(t, 0, 0);
+
+        _start();
+        rules.triggerDefault(t);
+        w = new Ev[](2);
+        w[0] = _defaulted(id, HoldbackRules.Stage.FallbackJudging);
+        w[1] = _bondReleased(adjudicator);
+        _check(w);
+
+        _gained(b0, FEE, 0, 0, 0, 0); // nothing more moved
+        _word(id, HoldbackRules.Stage.Refunded, 1, HoldbackRules.AppealState.Closed, 0, t.timing.judgeBy); // L32
+        _escrowHolds(t, 0, 0);
+        _bondsUntouched();
+    }
+
     // ------------------------------------------------------------ mutual settlement (L35, L36, L37)
+
+    /// During the fallback's turn the primary's reservation of 0 is released; the fallback's fee share is 0 bps.
+    function test_mutual_duringFallback_feeBackToBuyer() public {
+        (H.Terms memory t, bytes32 id) = _fundedZero();
+        _toFallback(t, id);
+        H.Mutual memory m = _mutualMsg(t, id, new H.Payout[](0), false, _postedHash(id));
+        H.KeyProof memory none;
+        Bal memory b0 = _bal();
+
+        _start();
+        rules.mutualSettle(t, m, _noDelivery(), none);
+        Ev[] memory w = new Ev[](5);
+        w[0] = _bondReleased(adjudicator);
+        w[1] = _voided(t, FEE);
+        w[2] = _storeCreated();
+        w[3] = _refunded(id, FEE);
+        w[4] = _settled(id, false);
+        _check(w);
+
+        _gained(b0, FEE, 0, 0, 0, 0);
+        _word(id, HoldbackRules.Stage.Settled, 1, HoldbackRules.AppealState.Closed, 0, t.timing.judgeBy); // L37
+        _escrowHolds(t, 0, 0);
+        _bondsUntouched();
+    }
+
 
     /// The payouts must sum to the price, 0, and each must be above 0: only an empty list settles.
     function test_mutual_beforeDelivery_emptyPayouts_feeBackToBuyer() public {
@@ -751,6 +933,16 @@ contract ZeroPriceDealTest is Base {
         H.Payout[] memory one = new H.Payout[](1);
         one[0] = H.Payout(seller, 1);
         H.Mutual memory m = _mutualMsg(t, id, one, false, bytes32(0));
+        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        rules.mutualSettle(t, m, _noDelivery(), none);
+
+        one[0] = H.Payout(buyer, 1);
+        m = _mutualMsg(t, id, one, false, bytes32(0));
+        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        rules.mutualSettle(t, m, _noDelivery(), none);
+
+        one[0] = H.Payout(address(0x9999), 1); // a third party
+        m = _mutualMsg(t, id, one, false, bytes32(0));
         vm.expectRevert(HoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, m, _noDelivery(), none);
 
