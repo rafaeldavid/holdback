@@ -411,7 +411,10 @@ export class Adjudicator {
    * leaves the deal to the fallback and then its default outcome.
    */
   async #referenceProblem(c: DecisionTask['commitment']): Promise<Problem | null> {
-    const { unavailable } = await loadReferences(c.acceptance.deterministicChecks, (uri) => this.#cfg.settlement.ciphertext(uri));
+    // Sealed terms carry no `acceptance` this service can read (it cannot open them yet, T-207), so it sees no
+    // reference by design: the check applies to the terms it can read, and a sealed offer goes on as before.
+    if (isSealed(c)) return null;
+    const { unavailable } = await loadReferences(c.acceptance?.deterministicChecks ?? [], (uri) => this.#cfg.settlement.ciphertext(uri));
     if (!unavailable.length) return null;
     return problem('adjudicator_unavailable', `${this.#cfg.name} serves a deal only when its store holds every reference the terms name, and the reference ${describeUnavailable(unavailable)}: upload it with POST /v1/ciphertext to the store this adjudicator reads, then offer again`);
   }

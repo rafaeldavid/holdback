@@ -71,6 +71,38 @@ All runs on 2026-11-11, on branch `t-327-adjudicator-reference-files`, merged wi
 - **Red team (measured).** One `red-teamer` pass on the whole diff found 1 High, 2 Medium and 4 Low. Its proof test (`reports/scratch/t327-redteam.test.ts` in the worktree) passed 7 of 7 before the fix. After the fix, its H1 cases and M1 fail, so those findings no longer hold, and its Low proofs still pass. What held: no fetch of an arbitrary URL, the reference never reaches a model or runs, a party cannot force a pass, and hostile bytes fail the check without crashing the service.
 - **Not run.** The full `pnpm verify`, and gitleaks (not installed here). CI runs both gates.
 
+### Review fixes (PR 312, roadmap N77)
+
+An independent review of PR 306 found 1 High, 3 Medium and 2 Low. Rafa decided on 2026-11-11 to fix them. Branch `t-327-review-fixes`, from `origin/main` at `d774a1e`.
+
+- **Reproduced first (measured).** Commit `2482478` holds the failing tests alone.
+  - `apps/adjudicator/src/reference.test.ts`: 4 of 13 failed.
+    - Finding 1: the primary accepted an offer whose reference its store did not return, and accepted one whose store returned other bytes. `declines()` returned null for both roles.
+    - Finding 2: at judgeBy the fallback triggered a takeover it could not run.
+  - `packages/judgment/src/references.test.ts`: 3 of 8 failed (finding 3).
+    - The loader read a second reference after the first was missing.
+    - It accepted a reference above the store ceiling.
+    - The check parsed a 10 MiB reference, in 833 ms, instead of failing on its size.
+  - Findings 4 and 5 are text and need no test. The reviewer's reading holds for both (measured by reading).
+- **After the fix (measured).**
+  - `reference.test.ts`: 13 of 13. `references.test.ts`: 8 of 8.
+  - `pnpm exec vitest run packages/judgment apps/adjudicator examples/check-delivery.test.ts packages/testkit`: 868 passed, 6 skipped.
+  - `pnpm snap`: 38 of 38. No existing snapshot changed. One is new: `neutrality.store-withholds-reference`. Both adjudicators are refused with "the store did not return it", nothing is judged or published, and the default outcome ends the deal Refunded.
+  - `pnpm typecheck` and `pnpm lint` exit 0.
+- **What changed.**
+  1. `#referenceProblem` loads the references through the shared loader. The adjudicator declines an offer as primary (`#accept`, `declines('primary')`) and a fallback or appeal turn (`#runnable`) when its store does not return a reference, returns other bytes, or returns more than the cap.
+  2. A service test and `neutrality.store-withholds-reference` cover a reference lost after acceptance: no decision, the fallback declines, and the default outcome applies at fallbackBy.
+  3. `loadReferences` stops at the first unusable reference and caps a reference at `REFERENCE_MAX_BYTES`. The cap equals `MAX_CIPHERTEXT_BYTES` (10,485,788 bytes), the ceiling of `POST /v1/ciphertext`. The check library fails a larger reference closed with the same number, before it hashes or parses it, so the preflight agrees.
+  4. `docs/api.md` gains a "Reference files" paragraph:
+     - upload before the offer, to the store the adjudicators read;
+     - adjudicators decline a deal whose reference their store lacks;
+     - the cap;
+     - a reference is the one plaintext file in a ciphertext store, by the party's choice (D35), and is readable without authentication, so no personal data belongs in it;
+     - a pass proves the rows are present, not who produced them.
+  5. The comments in `preflight.ts` and `reference.test.ts` describe the current rule.
+- **The cap is the store ceiling, not `MAX_PLAINTEXT_BYTES`.** The brief named both "above `MAX_PLAINTEXT_BYTES`" and "refuses nothing the store would have taken". The store takes up to 28 bytes more than `MAX_PLAINTEXT_BYTES`, so the cap follows the store.
+- **Found, not fixed (inferred, not run).** An unstored delivery ciphertext has the same exposure as finding 1, and the seller alone can use it. Operators do not check that a delivery's ciphertext is stored before relaying it. An adjudicator that cannot read it never decides, so the deal reaches its default outcome, which on SimChain pays the seller from the bonds. `runOnce` also aborts its whole pass on such a task. Both rows are in `reports/scratch/t-327-triage.md`.
+
 ## Decisions
 
 1. **One loader, three callers.** `loadReferences` in `packages/judgment/src/references.ts` is called by the adjudicator service, the snap runner (`packages/testkit/src/judgment.ts`) and, through `referenceLookups`, the seller's command. The preflight takes bytes, because a seller has files, not a store.
