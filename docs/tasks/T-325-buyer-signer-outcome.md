@@ -6,7 +6,7 @@
 - **Depends on:** T-319 (`examples/buyer-signer.ts`).
 - **Paths this task may touch:** `examples/buyer-signer.ts`, `examples/buyer-signer.test.ts`, `examples/buyer-signer-outcome.test.ts` (new), `examples/buy-with-signer.ts`, `vitest.config.ts` (one cost line for the new test file), `site/llms.txt` (the buyer signer's section only), `site/index.html` (only as `node site/build.mjs` regenerates it), this file. Never: `packages/`, `apps/`, `spec/schemas/`, `contracts/`, `examples/seller-adapter.ts` and its stub, template and test (T-323, T-324), `examples/audit-deal.ts` (T-326), `examples/agent.ts`, `examples/verify.ts`.
 - **Human gate:** no. The site deploy that publishes the `llms.txt` edit waits for Rafa.
-- **Status:** in progress
+- **Status:** done (PR 307, merged 2026-11-11)
 - **Agent/session:** the T-325 session, 2026-11-11, branch `t-325-buyer-signer-outcome`
 - **Roadmap row:** N62
 
