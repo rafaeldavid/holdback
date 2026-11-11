@@ -5,8 +5,8 @@ This recipe runs `examples/seller-adapter.ts` in production on one Linux machine
 ## The pieces
 
 - **The adapter** listens on `127.0.0.1:8791`, plain HTTP. Only processes on the same machine reach it.
-- **Caddy** (`seller-adapter.Caddyfile`) serves `https://<your name>/quote`, gets and renews the certificate, and forwards to the adapter. It appends the client's address to `X-Forwarded-For`.
-- **systemd** (`seller-adapter.service`) starts the adapter at boot, restarts it 5 s after any exit, and stops it with SIGTERM.
+- **Caddy** (`seller-adapter.Caddyfile`) serves `https://<your name>/quote`, gets and renews the certificate, and forwards to the adapter.
+- **systemd** (`seller-adapter.service`) starts the adapter at boot with one configuration file, `/etc/crow-seller/seller-adapter.json`, restarts it 5 s after any exit, and stops it with SIGTERM.
 
 **Why a TLS proxy, not TLS in the adapter.** A proxy gets and renews the certificate on its own, so the adapter never reads a private key file and needs no restart when the certificate changes. TLS in the adapter would need certificate paths in the configuration, a renewal job and a reload. The adapter stays a loopback HTTP service, which is what its tests run.
 
@@ -22,15 +22,20 @@ This recipe runs `examples/seller-adapter.ts` in production on one Linux machine
    useradd --system --no-create-home crow-seller
    ```
 
-2. **Configure.** Edit the configuration block of `/opt/holdback/examples/seller-adapter.ts` (T-318): your API's three addresses, the template, the scope rules, the adjudicators and the windows. For production add:
+2. **Configure.** Write `/etc/crow-seller/seller-adapter.json` (T-331); you edit no source file. Only `sellerApi` is required. Every other field has a default (`config` in `seller-adapter.ts`), and the club and the three adjudicators default to the ones the operators' discovery document names. Paths in the file, such as `template` and `reportMapping`, are read beside it. For production:
 
-   ```ts
-   trustProxy: true, // the client is the last X-Forwarded-For entry; safe because only Caddy reaches 127.0.0.1:8791
-   quoteAuth: { kind: 'bearer', env: 'HOLDBACK_QUOTE_CREDENTIALS' },
-   quoteRateLimit: { perClient: { requests: 10, windowSec: 60 }, overall: { requests: 100, windowSec: 60 } },
+   ```json
+   {
+     "sellerApi": { "quote": "http://127.0.0.1:8790/quote", "start": "http://127.0.0.1:8790/jobs", "result": "http://127.0.0.1:8790/jobs/{jobId}/result" },
+     "quoteAuth": { "kind": "bearer", "env": "HOLDBACK_QUOTE_CREDENTIALS" },
+     "quoteRateLimit": { "overall": { "requests": 100, "windowSec": 60 } },
+     "journal": "/var/lib/crow-seller/seller-adapter.journal.json"
+   }
    ```
 
-   The values are yours: any positive whole numbers. `perClient` counts each client address before the credential is checked, so guessed credentials count against the guesser. `overall` counts the requests that passed both, which caps how many offers the adapter signs. Past either limit the route answers 429 with `Retry-After` in seconds. Leave `quoteAuth` out to keep the route open.
+   The values are yours: any positive whole numbers. `overall` counts the requests that passed the credential, which caps how many offers the adapter signs. Past it the route answers 429 with `Retry-After` in seconds. Leave `quoteAuth` out to keep the route open. The adapter refuses a field it does not take, naming it, and the four options removed in T-331 (`stream`, `host`, `trustProxy`, `quoteRateLimit.perClient`), saying what to do instead. A limit per client address belongs in Caddy, which sees the address. `examples/seller-adapter.config.json` is a smaller example that points at the stub API.
+
+   **The mandate.** Every offer needs a mandate in the club. On the test service, the adapter takes one from the faucet at start and renews it before it ends (each lasts 30 days; `mandate.renewBeforeSec`, default one day). Elsewhere your club's principal gives you one, and a start without one stops and says so.
 
 3. **Secrets.** Write `/etc/crow-seller/environment`, owned by root with mode 0600:
 
@@ -51,7 +56,7 @@ This recipe runs `examples/seller-adapter.ts` in production on one Linux machine
    journalctl -u seller-adapter -f
    ```
 
-   The adapter's second log line says what the quote route takes: the credential's variable name (never its value) and the rate limits.
+   The adapter's first log lines say which club and adjudicators its offers name and where they came from, when the mandate ends, and what the quote route takes: the credential's variable name (never its value) and the rate limit.
 
 5. **Publish.** Your card's quoted item names `https://<your name>/quote` (`site/llms.txt`, "Sell a priced API service").
 
@@ -68,4 +73,4 @@ Run one adapter per journal. On SIGTERM it stops taking quotes and finishes the 
 
 ## Checks
 
-`pnpm exec vitest run examples/seller-adapter.test.ts` runs the adapter on the in-process chain, including a quote over HTTPS through a TLS proxy, the credential, the rate limits and a restart with three open deals.
+`pnpm exec vitest run examples/seller-adapter.test.ts` runs the adapter on the in-process chain, including a start from one configuration file, the mandate taken and renewed on the test service, a quote over HTTPS through a TLS proxy, the credential, the rate limit and a restart with three open deals.

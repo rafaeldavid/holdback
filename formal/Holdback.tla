@@ -26,6 +26,16 @@
 (* Phase 4 economics (coverage gate, backers, compensation size) are out   *)
 (* of scope.                                                               *)
 (*                                                                          *)
+(* CPP (T-337): escrow[c] is Commerce Payments' hold. From its            *)
+(* authorizationExpiry (fallbackBy + appealDecideSec + EXPIRY_MARGIN) no    *)
+(* capture succeeds, a void still does, and the buyer alone may reclaim    *)
+(* the hold on CPP directly, outside the rules contract. The rules        *)
+(* contract's timeouts then close the deal and move no money.              *)
+(*                                                                          *)
+(* Bonds (T-337): bond[a] is HoldbackBonds.bondOf (posted), enc[a] is      *)
+(* encumberedOf, and flags[c] names the adjudicators whose bond is         *)
+(* encumbered for commitment c (Deal.flags F_PRIMARY, F_FALLBACK).         *)
+(*                                                                          *)
 (* Bug selects a deliberately broken variant for formal/broken/ ("none" is *)
 (* the model of state.ts).                                                 *)
 (***************************************************************************)
@@ -45,7 +55,8 @@ Parties == {"buyer", "seller"}
 Adjs == {"primary", "fallback", "appeal"}
 Named == Parties \cup Adjs \cup {"operator", "beacon"}
 
-Bugs == {"none", "mint", "second_capture", "operator_authors", "early_reclaim", "key_separate", "buyer_only_timeout"}
+Bugs == {"none", "mint", "second_capture", "operator_authors", "early_reclaim", "key_separate", "buyer_only_timeout",
+         "keep_bond_after_cpp", "double_refund", "late_judge_by", "capture_after_expiry", "slash_keeps_enc"}
 ASSUME Halted \in Named \cup {"none"}
 ASSUME Bug \in Bugs
 
@@ -70,10 +81,16 @@ VARIABLES
   moves,      \* steps that debited escrow[c]
   up,         \* the Halted actor has not crashed yet
   wallet, escrow, fees, bond, apBond, apFee,  \* accounts
+  cppExp,     \* CPP's authorizationExpiry has passed (tracked while the commitment is funded)
+  cppRec,     \* the buyer reclaimed the hold on CPP directly
+  enc,        \* HoldbackBonds.encumberedOf per adjudicator (bond is bondOf)
+  flags,      \* the adjudicators whose bond is encumbered for this commitment (Deal.flags)
   act         \* history: the last step's name, signers and commitment
 
 money == <<wallet, escrow, fees, bond, apBond, apFee>>
-vars == <<esc, via, ap, appellant, clk, escClk, apClk, key, moves, up, money, act>>
+cppv == <<cppExp, cppRec>>
+bondv == <<enc, flags>>
+vars == <<esc, via, ap, appellant, clk, escClk, apClk, key, moves, up, money, cppv, bondv, act>>
 
 RECURSIVE SumOver(_, _)
 SumOver(f, S) == IF S = {} THEN 0 ELSE LET x == CHOOSE x \in S : TRUE IN f[x] + SumOver(f, S \ {x})
@@ -100,6 +117,33 @@ Relays == {"direct"} \cup (IF Can("operator") THEN {"operator"} ELSE {})
 
 Act(name, signers, c) == act' = [name |-> name, signers |-> signers, c |-> c]
 
+\* The deciding adjudicator's deadline has not passed (judgeBy, fallbackBy, the escalation's appealDecideBy).
+OnTime(c) == CASE esc[c] = "Delivered" -> clk[c] < 4
+               [] esc[c] = "FallbackJudging" -> clk[c] < 5
+               [] esc[c] = "Escalated" -> escClk[c] < 1
+               [] OTHER -> FALSE
+
+\* HoldbackBonds.freeOf: posted minus encumbered.
+Free(a) == bond[a] - enc[a]
+
+\* HoldbackRules._releaseBonds(t, d.flags) with d.flags cleared: Price back to free for each flagged adjudicator.
+\* An overturn's slash (HoldbackBonds.slash) shrinks the encumbrance by the same Price, so it uses this too.
+ReleaseAll(c) ==
+  /\ enc' = [a \in Adjs |-> IF a \in flags[c] THEN enc[a] - Price ELSE enc[a]]
+  /\ flags' = [flags EXCEPT ![c] = {}]
+
+\* HoldbackRules._refundAll: what the void returns. After the buyer's CPP reclaim nothing is held, and the
+\* contract skips the void (the M-1 fix). The double_refund bug pays the buyer again.
+Refunds(c) == IF cppRec[c] /\ Bug # "double_refund" THEN 0 ELSE Price + Fee
+
+RefundEscrow(c) ==
+  /\ escrow' = [escrow EXCEPT ![c] = @ - Refunds(c)]
+  /\ moves' = [moves EXCEPT ![c] = @ + (IF Refunds(c) > 0 THEN 1 ELSE 0)]
+
+\* _refundAll releases the deal's bonds whether or not the buyer reclaimed on CPP. The keep_bond_after_cpp bug
+\* forgets them after a CPP reclaim (the shape of T-206 M-1 before its fix: the deal closes, the bond stays locked).
+CloseBonds(c) == IF Bug = "keep_bond_after_cpp" /\ cppRec[c] THEN UNCHANGED bondv ELSE ReleaseAll(c)
+
 Init ==
   /\ esc = [c \in C |-> "None"]
   /\ via = [c \in C |-> "na"]
@@ -117,7 +161,11 @@ Init ==
   /\ bond = [a \in Adjs |-> N * Price]
   /\ apBond = [c \in C |-> 0]
   /\ apFee = [c \in C |-> 0]
-  /\ act = [name |-> "init", signers |-> {}, c |-> CHOOSE c \in C : TRUE]
+  /\ cppExp = [c \in C |-> FALSE]
+  /\ cppRec = [c \in C |-> FALSE]
+  /\ enc = [a \in Adjs |-> 0]
+  /\ flags = [c \in C |-> {}]
+  /\ act =[name |-> "init", signers |-> {}, c |-> CHOOSE c \in C : TRUE]
 
 -----------------------------------------------------------------------------
 (* Signed messages *)
@@ -128,7 +176,7 @@ Offer(c) ==
   /\ esc[c] = "None"
   /\ esc' = [esc EXCEPT ![c] = "Offered"]
   /\ Act("offer", {"seller"}, c)
-  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, moves, up, money>>
+  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, moves, up, money, cppv, bondv>>
 
 \* adjudicator_accept: the primary accepts (seed commitment, bond reserved) before offerExpiresAt.
 AdjAccept(c) ==
@@ -136,7 +184,7 @@ AdjAccept(c) ==
   /\ esc[c] = "Offered" /\ clk[c] < 1
   /\ esc' = [esc EXCEPT ![c] = "AcceptedByAdjudicator"]
   /\ Act("adjudicator_accept", {"primary"}, c)
-  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, moves, up, money>>
+  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, moves, up, money, cppv, bondv>>
 
 \* agree: the buyer signs the same terms hash before offerExpiresAt.
 Agree(c) ==
@@ -144,17 +192,21 @@ Agree(c) ==
   /\ esc[c] = "AcceptedByAdjudicator" /\ clk[c] < 1
   /\ esc' = [esc EXCEPT ![c] = "Agreed"]
   /\ Act("agree", {"buyer"}, c)
-  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, moves, up, money>>
+  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, moves, up, money, cppv, bondv>>
 
 \* fund: the buyer's funding authorization, before fundBy. Posting buyer -> escrow (price + fee).
+\* The contract encumbers the primary's bond for the price here (agreeAndFund); uncovered, funding reverts.
 Fund(c) ==
   /\ Can("buyer") /\ \E r \in Relays : TRUE
   /\ esc[c] = "Agreed" /\ clk[c] < 2
+  /\ Free("primary") >= Price
   /\ esc' = [esc EXCEPT ![c] = "Held"]
   /\ wallet' = [wallet EXCEPT !["buyer"] = @ - (Price + Fee)]
   /\ escrow' = [escrow EXCEPT ![c] = @ + (Price + Fee)]
+  /\ enc' = [enc EXCEPT !["primary"] = @ + Price]
+  /\ flags' = [flags EXCEPT ![c] = {"primary"}]
   /\ Act("fund", {"buyer"}, c)
-  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, moves, up, fees, bond, apBond, apFee>>
+  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, moves, up, fees, bond, apBond, apFee, cppv>>
 
 \* deliver: the seller's delivery (attempt 1), before deliverBy.
 Deliver(c) ==
@@ -162,7 +214,7 @@ Deliver(c) ==
   /\ esc[c] = "Held" /\ clk[c] < 3
   /\ esc' = [esc EXCEPT ![c] = "Delivered"]
   /\ Act("deliver", {"seller"}, c)
-  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, moves, up, money>>
+  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, moves, up, money, cppv, bondv>>
 
 \* Release or refund of the escrow in one step; on accept the buyer's key moves in the same step
 \* (ADR-0012, architecture.md Two-sided hold step 4), except under the key_separate bug.
@@ -175,18 +227,29 @@ Settle(c, payee, adj, releaseKey) ==
   /\ key' = [key EXCEPT ![c] = @ \/ (releaseKey /\ Bug # "key_separate")]
 
 \* A first-instance decision (state.ts firstInstance): accept, reject or escalate.
+\* Escalate moves no money and releases every bond held for the deal (ADR-0016 §1). Accept and reject capture
+\* on CPP, so they need the authorization unexpired. The primary's bond stays encumbered until the appeal
+\* closes; a fallback decision releases the primary's and encumbers the fallback's, which needs it covered.
 FirstInstance(c, role, o) ==
   /\ IF o = "escalate"
        THEN /\ esc' = [esc EXCEPT ![c] = "Escalated"]
             /\ escClk' = [escClk EXCEPT ![c] = 0]
+            /\ ReleaseAll(c)
             /\ UNCHANGED <<via, ap, apClk, key, moves, money>>
-       ELSE /\ esc' = [esc EXCEPT ![c] = IF o = "accept" THEN "Released" ELSE "Refunded"]
+       ELSE /\ ~cppExp[c]
+            /\ esc' = [esc EXCEPT ![c] = IF o = "accept" THEN "Released" ELSE "Refunded"]
             /\ via' = [via EXCEPT ![c] = role]
             /\ ap' = [ap EXCEPT ![c] = "none"]
             /\ apClk' = [apClk EXCEPT ![c] = 0]
             /\ Settle(c, IF o = "accept" THEN "seller" ELSE "buyer", role, o = "accept")
+            /\ IF role = "primary"
+                 THEN UNCHANGED bondv
+                 ELSE /\ Free("fallback") >= Price
+                      /\ enc' = [a \in Adjs |-> IF a = "fallback" THEN enc[a] + Price
+                                                ELSE IF a \in flags[c] THEN enc[a] - Price ELSE enc[a]]
+                      /\ flags' = [flags EXCEPT ![c] = {"fallback"}]
             /\ UNCHANGED <<escClk, bond, apBond, apFee>>
-  /\ UNCHANGED <<appellant, clk, up>>
+  /\ UNCHANGED <<appellant, clk, up, cppv>>
 
 \* decide by the primary in Delivered, before judgeBy. Its seed is its own commit-reveal: no beacon.
 \* Under second_capture it may also decide again after the commitment settled.
@@ -210,22 +273,25 @@ DecideEscalated(c, o) ==
   /\ Can("appeal") /\ Can("beacon")
   /\ esc[c] = "Escalated" /\ escClk[c] < 1
   /\ o \in {"accept", "reject"}
+  /\ ~cppExp[c]
   /\ esc' = [esc EXCEPT ![c] = IF o = "accept" THEN "Released" ELSE "Refunded"]
   /\ via' = [via EXCEPT ![c] = "escalation"]
   /\ Settle(c, IF o = "accept" THEN "seller" ELSE "buyer", "appeal", o = "accept")
+  /\ ReleaseAll(c)
   /\ Act("decide", {"appeal"}, c)
-  /\ UNCHANGED <<ap, appellant, clk, escClk, apClk, up, bond, apBond, apFee>>
+  /\ UNCHANGED <<ap, appellant, clk, escClk, apClk, up, bond, apBond, apFee, cppv>>
 
 \* Escrow effect of early acceptance: escrow -> seller (price); escrow -> buyer (fee); key released.
 EarlyAcceptEffect(c) ==
-  /\ esc[c] = "Delivered"
+  /\ esc[c] = "Delivered" /\ (~cppExp[c] \/ Bug = "capture_after_expiry")
   /\ esc' = [esc EXCEPT ![c] = "Released"]
   /\ via' = [via EXCEPT ![c] = "early"]
   /\ escrow' = [escrow EXCEPT ![c] = @ - (Price + Fee)]
   /\ wallet' = [wallet EXCEPT !["seller"] = @ + Price, !["buyer"] = @ + Fee]
   /\ moves' = [moves EXCEPT ![c] = @ + 1]
   /\ key' = [key EXCEPT ![c] = TRUE]
-  /\ UNCHANGED <<ap, appellant, clk, escClk, apClk, up, fees, bond, apBond, apFee>>
+  /\ ReleaseAll(c)
+  /\ UNCHANGED <<ap, appellant, clk, escClk, apClk, up, fees, bond, apBond, apFee, cppv>>
 
 \* early_accept: the buyer's signature, in Delivered (no deadline beyond the message's own expiry).
 EarlyAccept(c) ==
@@ -245,13 +311,15 @@ ReleaseKeyLate(c) ==
   /\ esc[c] = "Released" /\ ~key[c]
   /\ key' = [key EXCEPT ![c] = TRUE]
   /\ Act("release_key", {}, c)
-  /\ UNCHANGED <<esc, via, ap, appellant, clk, escClk, apClk, moves, up, money>>
+  /\ UNCHANGED <<esc, via, ap, appellant, clk, escClk, apClk, moves, up, money, cppv, bondv>>
 
 \* mutual_settle (ADR-0019, D23): both parties sign any split of the price; the fee returns to the buyer;
-\* releaseKey only after a delivery.
+\* releaseKey only after a delivery. A seller share is a CPP capture (authorization unexpired); an all-buyer
+\* split is a void only, which works after the expiry while anything is still held.
 MutualSettle(c, s, releaseKey) ==
   /\ Can("buyer") /\ Can("seller") /\ \E r \in Relays : TRUE
   /\ esc[c] \in Settleable
+  /\ IF s > 0 THEN ~cppExp[c] ELSE ~cppRec[c]
   /\ releaseKey => esc[c] # "Held"
   /\ esc' = [esc EXCEPT ![c] = "Settled"]
   /\ via' = [via EXCEPT ![c] = "mutual"]
@@ -259,8 +327,9 @@ MutualSettle(c, s, releaseKey) ==
   /\ wallet' = [wallet EXCEPT !["seller"] = @ + s, !["buyer"] = @ + (Price - s) + Fee]
   /\ moves' = [moves EXCEPT ![c] = @ + 1]
   /\ key' = [key EXCEPT ![c] = releaseKey]
+  /\ ReleaseAll(c)
   /\ Act("mutual_settle", Parties, c)
-  /\ UNCHANGED <<ap, appellant, clk, escClk, apClk, up, fees, bond, apBond, apFee>>
+  /\ UNCHANGED <<ap, appellant, clk, escClk, apClk, up, fees, bond, apBond, apFee, cppv>>
 
 \* file_appeal: the party a first-instance decision went against appeals it before appealBy, paying bond
 \* and fee (appellant -> appealbond:{id}, appellant -> appealfee:{id}). Only that party (T-206 L-7, D43).
@@ -275,7 +344,7 @@ FileAppeal(c, p) ==
   /\ apBond' = [apBond EXCEPT ![c] = @ + ApBond]
   /\ apFee' = [apFee EXCEPT ![c] = @ + ApFee]
   /\ Act("file_appeal", {p}, c)
-  /\ UNCHANGED <<esc, via, clk, escClk, apClk, key, moves, up, escrow, fees, bond>>
+  /\ UNCHANGED <<esc, via, clk, escClk, apClk, key, moves, up, escrow, fees, bond, cppv, bondv>>
 
 \* decide on an open appeal (state.ts stepAppeal), before its appealDecideBy; needs the beacon round
 \* after the filing. Upheld: appealbond -> bond of the first-instance adjudicator. Overturned: that
@@ -299,8 +368,13 @@ DecideAppeal(c, o) ==
   /\ apBond' = [apBond EXCEPT ![c] = 0]
   /\ apFee' = [apFee EXCEPT ![c] = 0]
   /\ fees' = [fees EXCEPT !["appeal"] = @ + ApFee]
+  \* Upheld: _releaseBonds. Overturned: HoldbackBonds.slash shrinks bondOf and encumberedOf by the price.
+  \* The slash_keeps_enc bug shrinks bondOf only and leaves the encumbrance behind.
+  /\ IF Bug = "slash_keeps_enc" /\ o # (IF esc[c] = "Released" THEN "accept" ELSE "reject")
+       THEN /\ flags' = [flags EXCEPT ![c] = {}] /\ UNCHANGED enc
+       ELSE ReleaseAll(c)
   /\ Act("decide_appeal", {"appeal"}, c)
-  /\ UNCHANGED <<esc, via, appellant, clk, escClk, apClk, key, moves, up, escrow>>
+  /\ UNCHANGED <<esc, via, appellant, clk, escClk, apClk, key, moves, up, escrow, cppv>>
 
 -----------------------------------------------------------------------------
 (* Permissionless timeouts: anyone may trigger them (TimeoutKind in settlement/src/interface.ts). *)
@@ -312,19 +386,20 @@ Expire(c) ==
      \/ esc[c] = "Agreed" /\ clk[c] >= 2
   /\ esc' = [esc EXCEPT ![c] = "Expired"]
   /\ Act("expire", TrigSigners, c)
-  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, moves, up, money>>
+  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, moves, up, money, cppv, bondv>>
 
-\* reclaim: Held after deliverBy; escrow -> buyer (price + fee). The early_reclaim bug fires it at fundBy.
+\* reclaim: Held after deliverBy; escrow -> buyer (price + fee), or nothing after a CPP reclaim, and the
+\* primary's bond released either way. The early_reclaim bug fires it at fundBy.
 Reclaim(c) ==
   /\ Trig
   /\ esc[c] = "Held" /\ clk[c] >= (IF Bug = "early_reclaim" THEN 2 ELSE 3)
   /\ esc' = [esc EXCEPT ![c] = "Refunded"]
   /\ via' = [via EXCEPT ![c] = "reclaim"]
-  /\ escrow' = [escrow EXCEPT ![c] = @ - (Price + Fee)]
-  /\ wallet' = [wallet EXCEPT !["buyer"] = @ + (Price + Fee)]
-  /\ moves' = [moves EXCEPT ![c] = @ + 1]
+  /\ RefundEscrow(c)
+  /\ wallet' = [wallet EXCEPT !["buyer"] = @ + Refunds(c)]
+  /\ CloseBonds(c)
   /\ Act("reclaim", TrigSigners, c)
-  /\ UNCHANGED <<ap, appellant, clk, escClk, apClk, key, up, fees, bond, apBond, apFee>>
+  /\ UNCHANGED <<ap, appellant, clk, escClk, apClk, key, up, fees, bond, apBond, apFee, cppv>>
 
 \* fallback: Delivered after judgeBy.
 TriggerFallback(c) ==
@@ -332,7 +407,7 @@ TriggerFallback(c) ==
   /\ esc[c] = "Delivered" /\ clk[c] >= 4
   /\ esc' = [esc EXCEPT ![c] = "FallbackJudging"]
   /\ Act("trigger_fallback", TrigSigners, c)
-  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, moves, up, money>>
+  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, moves, up, money, cppv, bondv>>
 
 \* default: FallbackJudging after fallbackBy, or Escalated after its appealDecideBy.
 TriggerDefault(c) ==
@@ -341,23 +416,25 @@ TriggerDefault(c) ==
      \/ esc[c] = "Escalated" /\ escClk[c] >= 1 /\ via' = [via EXCEPT ![c] = "default_esc"]
   /\ esc' = [esc EXCEPT ![c] = "Defaulted"]
   /\ Act("trigger_default", TrigSigners, c)
-  /\ UNCHANGED <<ap, appellant, clk, escClk, apClk, key, moves, up, money>>
+  /\ UNCHANGED <<ap, appellant, clk, escClk, apClk, key, moves, up, money, cppv, bondv>>
 
-\* apply_default: Defaulted -> Refunded. escrow -> buyer (price + fee); the liable bonds compensate the
-\* seller: primary and fallback after FallbackJudging, appeal after Escalated. The mint bug skips the debit.
+\* apply_default: Defaulted -> Refunded. escrow -> buyer (price + fee), or nothing after a CPP reclaim; the
+\* deal's bonds are released. The liable bonds compensate the seller (state.ts; the contract pays no
+\* compensation yet, I-8): primary and fallback after FallbackJudging, appeal after Escalated. The mint bug
+\* skips the debit.
 ApplyDefault(c) ==
   /\ Trig
   /\ esc[c] = "Defaulted"
   /\ LET liable == IF via[c] = "default_fb" THEN {"primary", "fallback"} ELSE {"appeal"}
      IN /\ bond' = IF Bug = "mint" THEN bond
                    ELSE [a \in Adjs |-> IF a \in liable THEN bond[a] - Comp ELSE bond[a]]
-        /\ wallet' = [wallet EXCEPT !["buyer"] = @ + (Price + Fee),
+        /\ wallet' = [wallet EXCEPT !["buyer"] = @ + Refunds(c),
                                     !["seller"] = @ + Comp * Cardinality(liable)]
   /\ esc' = [esc EXCEPT ![c] = "Refunded"]
-  /\ escrow' = [escrow EXCEPT ![c] = @ - (Price + Fee)]
-  /\ moves' = [moves EXCEPT ![c] = @ + 1]
+  /\ RefundEscrow(c)
+  /\ CloseBonds(c)
   /\ Act("apply_default", TrigSigners, c)
-  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, up, fees, apBond, apFee>>
+  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, up, fees, apBond, apFee, cppv>>
 
 \* appeal_expiry: none after appealBy (nothing moves); open after appealDecideBy (bond and fee returned).
 ExpireAppeal(c) ==
@@ -369,8 +446,9 @@ ExpireAppeal(c) ==
         /\ apBond' = [apBond EXCEPT ![c] = 0]
         /\ apFee' = [apFee EXCEPT ![c] = 0]
   /\ ap' = [ap EXCEPT ![c] = "expired"]
+  /\ ReleaseAll(c)
   /\ Act("expire_appeal", TrigSigners, c)
-  /\ UNCHANGED <<esc, via, appellant, clk, escClk, apClk, key, moves, up, escrow, fees, bond>>
+  /\ UNCHANGED <<esc, via, appellant, clk, escClk, apClk, key, moves, up, escrow, fees, bond, cppv>>
 
 -----------------------------------------------------------------------------
 (* Environment: time and the halting actor. *)
@@ -387,26 +465,56 @@ TickAbs(c) ==
   /\ clk[c] < Horizon(esc[c])
   /\ clk' = [clk EXCEPT ![c] = @ + 1]
   /\ Act("tick", {}, c)
-  /\ UNCHANGED <<esc, via, ap, appellant, escClk, apClk, key, moves, up, money>>
+  /\ UNCHANGED <<esc, via, ap, appellant, escClk, apClk, key, moves, up, money, cppv, bondv>>
 
 TickEsc(c) ==
   /\ esc[c] = "Escalated" /\ escClk[c] < 1
   /\ escClk' = [escClk EXCEPT ![c] = 1]
   /\ Act("tick", {}, c)
-  /\ UNCHANGED <<esc, via, ap, appellant, clk, apClk, key, moves, up, money>>
+  /\ UNCHANGED <<esc, via, ap, appellant, clk, apClk, key, moves, up, money, cppv, bondv>>
 
 TickAppeal(c) ==
   /\ \/ ap[c] = "none" /\ apClk[c] < 1
      \/ ap[c] = "open" /\ apClk[c] < 2
   /\ apClk' = [apClk EXCEPT ![c] = @ + 1]
   /\ Act("tick", {}, c)
-  /\ UNCHANGED <<esc, via, ap, appellant, clk, escClk, key, moves, up, money>>
+  /\ UNCHANGED <<esc, via, ap, appellant, clk, escClk, key, moves, up, money, cppv, bondv>>
+
+\* CPP's authorizationExpiry passes. It is fallbackBy + appealDecideSec + EXPIRY_MARGIN
+\* (HoldbackRules._paymentInfo), so with ordered deadlines it comes after every deadline a capture could
+\* still meet: deliverBy in Held, judgeBy and fallbackBy in Delivered and FallbackJudging (the clock jumps to
+\* fallbackBy), the escalation's appealDecideBy in Escalated. The contract does not check that order (D31).
+\* Under late_judge_by (L-6) a judgeBy after the expiry lets it pass while the primary is still on time.
+\* Only funded commitments track it: after the payout nothing is held. Not fair: time may never get there.
+ExpiryDue(c) ==
+  \/ esc[c] = "Held" /\ clk[c] >= 3
+  \/ esc[c] \in Funded \ {"Held"} /\ ~OnTime(c)
+  \/ Bug = "late_judge_by" /\ esc[c] = "Delivered"
+
+TickExpiry(c) ==
+  /\ esc[c] \in Funded /\ ~cppExp[c] /\ ExpiryDue(c)
+  /\ cppExp' = [cppExp EXCEPT ![c] = TRUE]
+  /\ clk' = IF OnTime(c) THEN clk ELSE [clk EXCEPT ![c] = 5]
+  /\ Act("tick", {}, c)
+  /\ UNCHANGED <<esc, via, ap, appellant, escClk, apClk, key, moves, up, money, cppRec, bondv>>
+
+\* The buyer's reclaim on CPP (AuthCaptureEscrow.reclaim, payer only, from authorizationExpiry), outside the
+\* rules contract: the whole hold goes back to the buyer. The deal's stage is untouched; its timeouts close it.
+CppReclaim(c) ==
+  /\ Can("buyer")
+  /\ esc[c] \in Funded /\ cppExp[c] /\ ~cppRec[c]
+  /\ cppRec' = [cppRec EXCEPT ![c] = TRUE]
+  /\ escrow' = [escrow EXCEPT ![c] = @ - (Price + Fee)]
+  /\ wallet' = [wallet EXCEPT !["buyer"] = @ + (Price + Fee)]
+  /\ moves' = [moves EXCEPT ![c] = @ + 1]
+  /\ Act("cpp_reclaim", {"buyer"}, c)
+  /\ UNCHANGED <<esc, via, ap, appellant, clk, escClk, apClk, key, up, fees, bond, apBond, apFee, cppExp, bondv>>
 
 Crash ==
   /\ Halted # "none" /\ up
   /\ up' = FALSE
   /\ Act("crash", {}, CHOOSE c \in C : TRUE)
-  /\ UNCHANGED <<esc, via, ap, appellant, clk, escClk, apClk, key, moves, money>>
+  /\ UNCHANGED <<esc, via, ap, appellant, clk, escClk, apClk, key, moves, money, cppv, bondv>>
 
 Outcomes == {"accept", "reject", "escalate"}
 
@@ -420,6 +528,7 @@ Next ==
        \/ \E p \in Parties : FileAppeal(c, p)
        \/ Expire(c) \/ Reclaim(c) \/ TriggerFallback(c) \/ TriggerDefault(c) \/ ApplyDefault(c) \/ ExpireAppeal(c)
        \/ TickAbs(c) \/ TickEsc(c) \/ TickAppeal(c)
+       \/ TickExpiry(c) \/ CppReclaim(c)
 
 \* Weak fairness only on the "anyone" triggers, the clock and the halting actor's crash.
 \* No named actor (parties, adjudicators, operator, beacon) is ever required to act.
@@ -444,6 +553,8 @@ TypeOK ==
   /\ key \in [C -> BOOLEAN] /\ moves \in [C -> Nat] /\ up \in BOOLEAN
   /\ wallet \in [Parties -> Int] /\ escrow \in [C -> Int] /\ fees \in [Adjs -> Int]
   /\ bond \in [Adjs -> Int] /\ apBond \in [C -> Int] /\ apFee \in [C -> Int]
+  /\ cppExp \in [C -> BOOLEAN] /\ cppRec \in [C -> BOOLEAN]
+  /\ enc \in [Adjs -> Int] /\ flags \in [C -> SUBSET {"primary", "fallback"}]
 
 \* No posting creates or destroys a unit.
 Conservation == Total = InitialTotal
@@ -456,8 +567,30 @@ NonNegative ==
 \* Each escrow is paid out at most once.
 SettleOnce == \A c \in C : moves[c] <= 1
 
-\* The escrow holds price + fee exactly while funded and undecided, and nothing otherwise.
-EscrowMatchesState == \A c \in C : escrow[c] = IF esc[c] \in Funded THEN Price + Fee ELSE 0
+\* The escrow holds price + fee exactly while funded and undecided, and nothing otherwise. After the buyer's
+\* CPP reclaim (T-337) it holds nothing although the stage is still funded, until a timeout closes the deal.
+EscrowMatchesState == \A c \in C : escrow[c] = IF esc[c] \in Funded /\ ~cppRec[c] THEN Price + Fee ELSE 0
+
+\* CPP's expiry comes only after every deadline a capture could still meet (EXPIRY_MARGIN's purpose).
+\* Fails under late_judge_by: L-6, open.
+ExpiryAfterCaptures ==
+  \A c \in C : cppExp[c] => ~OnTime(c) /\ (esc[c] = "Held" => clk[c] >= 3)
+
+\* HoldbackBonds (T-337): no adjudicator's encumbrance exceeds its posted bond (withdraw and encumber keep
+\* freeOf >= 0) ...
+BondCovered == \A a \in Adjs : 0 <= enc[a] /\ enc[a] <= bond[a]
+
+\* ... the encumbrance is exactly the price for each open deal that flags the adjudicator. The appeal
+\* adjudicator is never flagged, so never encumbered: it decides with no bond on chain (L-5, open) ...
+EncMatchesDeals == \A a \in Adjs : enc[a] = Price * Cardinality({c \in C : a \in flags[c]})
+
+\* ... and a closed deal holds no bond: an encumbrance lasts only while the deal is funded, or while its
+\* first-instance decision can still be appealed, and then only the decider's.
+BondsReleasedAtClose ==
+  \A c \in C :
+    /\ flags[c] # {} => \/ esc[c] \in Funded
+                        \/ esc[c] \in {"Released", "Refunded"} /\ ap[c] \in {"none", "open"}
+    /\ (esc[c] \in {"Released", "Refunded"} /\ flags[c] # {}) => flags[c] = {via[c]}
 
 \* The buyer has the key only with a release (or a settlement that chose to release it), and always
 \* has it once released.
@@ -475,11 +608,6 @@ Turn(c) == CASE esc[c] = "Delivered" -> "primary"
              [] esc[c] = "Escalated" -> "appeal"
              [] OTHER -> "nobody"
 
-OnTime(c) == CASE esc[c] = "Delivered" -> clk[c] < 4
-               [] esc[c] = "FallbackJudging" -> clk[c] < 5
-               [] esc[c] = "Escalated" -> escClk[c] < 1
-               [] OTHER -> FALSE
-
 EscrowDebitOK(c) ==
   /\ act'.c = c
   /\ \/ /\ act'.name = "decide" /\ act'.signers = {Turn(c)} /\ OnTime(c)
@@ -488,6 +616,7 @@ EscrowDebitOK(c) ==
      \/ act'.name = "mutual_settle" /\ act'.signers = Parties /\ esc[c] \in Settleable
      \/ act'.name = "reclaim" /\ esc[c] = "Held" /\ clk[c] >= 3
      \/ act'.name = "apply_default" /\ esc[c] = "Defaulted"
+     \/ act'.name = "cpp_reclaim" /\ act'.signers = {"buyer"} /\ esc[c] \in Funded /\ cppExp[c]
 
 AppealDecidedOK(c) ==
   act'.name = "decide_appeal" /\ act'.signers = {"appeal"} /\ ap[c] = "open" /\ apClk[c] < 2 /\ Can("beacon")
@@ -520,6 +649,14 @@ AtomicKey ==
        /\ (esc[c] # "Released" /\ esc'[c] = "Released") => key'[c]
        /\ key[c] => key'[c]]_vars
 
+\* CPP refuses every capture from authorizationExpiry (T-337): after it, whatever leaves the escrow goes to the
+\* buyer in full, and no fee is paid.
+NoCaptureAfterExpiry ==
+  [][\A c \in C :
+       (cppExp[c] /\ Decreased(escrow, c))
+         => /\ fees' = fees
+            /\ wallet'["buyer"] - wallet["buyer"] = escrow[c] - escrow'[c]]_vars
+
 -----------------------------------------------------------------------------
 (* Liveness *)
 
@@ -531,5 +668,9 @@ FundedFinal == \A c \in C : (esc[c] = "Held") ~> (esc[c] \in MoneyDone /\ ap[c] 
 
 \* Every offer ends: expired, or funded and then paid out.
 OfferEnds == \A c \in C : (esc[c] = "Offered") ~> (esc[c] \in MoneyDone \cup {"Expired"})
+
+\* Every bond encumbered for a funded commitment is released or paid out in the end (T-337): no bond is
+\* stranded, whether or not the buyer reclaimed on CPP.
+BondsFreed == \A c \in C : (esc[c] = "Held") ~> (esc[c] \in MoneyDone /\ flags[c] = {})
 
 =============================================================================

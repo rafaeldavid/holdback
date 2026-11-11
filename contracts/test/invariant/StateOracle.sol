@@ -9,7 +9,8 @@ import {RulesHandler} from "../handlers/RulesHandler.sol";
 /// @title StateOracle (T-341, refinement gate VG-2)
 /// @notice The legal states of one deal, from the state model: `docs/audit/state-model.md` (task T-340, refinement
 ///         package R2), section 2 ("The legal rows", rows L01 to L37, and "Bounds on the times") and section 5.1
-///         (what the escrow holds per row), as of T-340's commit 3761f9c (pull request 330). Each row below carries
+///         (what the escrow holds per row), as merged on main by pull request 330 (T-340's commit 3761f9c, merge
+///         ec86a22). Each row below carries
 ///         the table's row ID; change the two together. `RulesInvariants.invariant_legalDealStates` checks every
 ///         deal against it after every step of the invariant campaign.
 /// @dev A deal is legal when, together:
