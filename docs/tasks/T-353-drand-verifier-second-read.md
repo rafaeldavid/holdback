@@ -5,7 +5,7 @@
 - **Depends on:** T-343 (the first review, `docs/reviews/2026-11-11-drand-verifier-review.md`)
 - **Paths this task may touch:** `docs/reviews/2026-11-11-drand-verifier-second-read.md`, a new test file under `contracts/test/` if a claim needs one, this task file, scratch in `reports/scratch/t-353/`
 - **Human gate:** yes. The one outside call is to the DeepSeek API, which Rafa named on 2026-11-11 ("Second-model family review should be from the API key for Deepseek"); the key must be in the environment of the run
-- **Status:** review
+- **Status:** done
 - **Agent/session:** T-353 sub-session, change kind 10 (research), 2026-11-11
 
 ## Intent
@@ -60,6 +60,7 @@ Non-goals: any change to `contracts/src/` or to an existing test; a fix for any 
 
 ## Handoff
 
+- Merged: PR 348 on 2026-11-11, after all 6 CI jobs passed (gitleaks, typecheck/lint/spec/snap, test 1 to 4) [measured].
 - Done: the read, the checks and the report, `docs/reviews/2026-11-11-drand-verifier-second-read.md`. The verifier needs no change, and the first review's verdict stands.
 - New and real: no defect. One Info correction to the first review's gas figures, §7 and R-5. The square-root MODEXP costs 8,064 gas under EIP-2565, not 8,170, because clients count the leading 32 bytes of the exponent. So the Fusaka increase is about 57,904 gas, not 58,438 [measured on forge's EVM; mainnet clients unverified]. Whoever corrects ADR-0018's gas figure (the first review's §11, item 5) can take this with it.
 - Not done: the model gave no answer to question 6, the execution-client question or the `beaconRoundFor` comparison, because its output looped at the cap. The first review's gate lines G-1 and G-2 still cover the clients and mainnet's fork rules.
