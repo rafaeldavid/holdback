@@ -9,7 +9,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 ///         Strings and nested bodies the contract does not enforce arrive as their EIP-712 encodings (keccak256 of
 ///         the string, or the nested struct hash), so the contract recomputes the same struct hashes from 32-byte
 ///         words. The commitment ID is the domain-free struct hash of CommitmentTerms (ADR-0016).
-/// @dev Token identifiers on EVM settlement are the token's lowercase 0x-hex address (ADR-0025, Proposed): the
+/// @dev Token identifiers on EVM settlement are the token's lowercase 0x-hex address (ADR-0025): the
 ///      contract hashes `LibString.toHexString(token)` wherever the struct has a TokenAmount or settlement token.
 library HoldbackTypes {
     // Calldata shapes
@@ -70,7 +70,7 @@ library HoldbackTypes {
         bytes signature;
     }
 
-    /// @notice The buyer's funding: a CPP collector signature (ADR-0025, Proposed).
+    /// @notice The buyer's funding: a CPP collector signature (ADR-0025).
     struct Funding {
         uint8 method; // 0 = ERC-3009 ReceiveWithAuthorization, 1 = Permit2 PermitTransferFrom
         bytes signature;
@@ -238,7 +238,7 @@ library HoldbackTypes {
 
     // Struct hashes
 
-    /// @notice keccak256 of the token identifier string: the lowercase 0x-hex address (ADR-0025, Proposed).
+    /// @notice keccak256 of the token identifier string: the lowercase 0x-hex address (ADR-0025).
     function tokenIdHash(address token) internal pure returns (bytes32) {
         return keccak256(bytes(LibString.toHexString(token)));
     }

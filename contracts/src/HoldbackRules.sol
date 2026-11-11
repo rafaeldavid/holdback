@@ -545,7 +545,7 @@ contract HoldbackRules is EIP712 {
 
     /// @notice default and apply_default in one call: the fallback missed fallbackBy, or the
     ///         appeal adjudicator missed appealDecideBy after an escalation; price + fee back to the buyer. Seller
-    ///         compensation from bonds is Phase 4.
+    ///         compensation from bonds is not built (known issue I-8).
     function triggerDefault(H.Terms calldata t) external {
         bytes32 id = H.commitmentId(t);
         Deal storage d = _deals[id];
