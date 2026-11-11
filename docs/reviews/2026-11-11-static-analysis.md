@@ -1,6 +1,6 @@
 # Static analysis at HEAD, and the planted-failure check of CI (T-339)
 
-**State:** Slither 0.11.6 finds no defect in `contracts/src/` at `1430f77`. It reports 78 results: 1 high, 17 medium, 40 low and 20 informational. Each high and medium result is already known or dismissed with a reason below [measured: the counts; inferred: the triage, from reading the code]. Aderyn did not run: it is not installed, and installing it waits on Rafa's OK. A planted failing forge test failed CI's `contracts (forge test)` job and the required `check` job (section 7) [measured].
+**State:** Slither 0.11.6 finds no defect in `contracts/src/` at `1430f77`. It reports 78 results: 1 high, 17 medium, 40 low and 20 informational. Each high and medium result is already known or dismissed with a reason below [measured: the counts; inferred: the triage, from reading the code]. Aderyn 0.6.8 also finds no defect: 2 high and 9 low detectors at HEAD, all known or dismissed (section 6; Rafa approved the install on 2026-11-11). A planted failing forge test failed CI's `contracts (forge test)` job and the required `check` job (section 7) [measured].
 
 ## 1. What ran
 
@@ -11,7 +11,7 @@
 | Compiler | solc 0.8.28, `via_ir = true`, optimizer 200 runs, EVM `prague` (`contracts/foundry.toml`); forge 1.0.0-stable [measured] |
 | Command | `slither /Users/rafa/Documents/escrow/.worktrees/t-339-static-analysis/contracts --filter-paths "lib/\|test/\|script/" --json reports/scratch/t-339-slither.json`, the same filter as at `baac930` |
 | Raw output | `reports/scratch/t-339-slither.txt` (409 lines) and `reports/scratch/t-339-slither.json`, not committed |
-| Aderyn | not run (section 4) |
+| Aderyn | 0.6.8 (Homebrew, `cyfrin/tap`), 88 detectors, at `8bd8eb1` (`origin/main` later on 2026-11-11; `contracts/src/` identical to `1430f77`), at `baac930` and at `b88f9e5` (`contracts-audit-ready` after T-334). Section 6 [measured] |
 
 ## 2. Counts
 
@@ -64,29 +64,36 @@ One `timestamp` and one `naming-convention` result sit in the simulated beacon, 
 | Same | `arbitrary-send-erc20`, 8 of 9 `incorrect-equality`, all 6 `uninitialized-local`, the I-2 `unused-return` | Lines moved by the fixes since `baac930` (S-1 was at `:100`, S-17 at `:464`) |
 | Same count | Every low and informational detector: 40 low and 20 info at both commits | Locations shifted with the same fixes |
 
-## 6. What waits
+## 6. Aderyn
 
-**Aderyn waits on Rafa.** It is not installed on this machine, and installing it is a download. The `baac930` run used Aderyn 0.6.8. To run it the same way, Rafa would install it with one of these [guessed: the install channels, from Cyfrin's published options; not tried here]:
+**State:** Aderyn 0.6.8 finds no defect in `contracts/src/` at HEAD. It reports 2 high detectors (10 instances) and 9 low detectors (32 instances) over 6 files and 1,123 nSLOC. Each is known or dismissed below [measured: the counts; inferred: the triage, from reading the code]. Rafa approved the install on 2026-11-11; it came from Cyfrin's Homebrew tap (`brew tap cyfrin/tap`, then `brew install cyfrin/tap/aderyn`), the same version as the `baac930` run.
 
-```
-brew install cyfrin/tap/aderyn
-```
+Command, the same as at `baac930`: `aderyn <worktree>/contracts --src src --output reports/scratch/t-339-aderyn-main.md --skip-update-check`. Raw reports, not committed: `reports/scratch/t-339-aderyn-main.md`, `t-339-aderyn-baac930.md` and `t-339-aderyn-integration.md`.
 
-or `npm install -g @cyfrin/aderyn`. Then, with the submodules in place:
-
-```
-aderyn /Users/rafa/Documents/escrow/.worktrees/t-339-static-analysis/contracts --src src --output /Users/rafa/Documents/escrow/reports/scratch/t-339-aderyn.md
-```
-
-Its results then need the same triage: the `baac930` run's three highs (the type-hash `abi.encodePacked`, the vault reentrancy, the beacon cast) and low L-8 were all dismissed in the contract review, §4.
-
-**Rows for `docs/audit/known-issues.md`** (the coordinator adds them; this task does not edit that file):
-
-| ID | Gap | Recorded in | Status |
+| Run | High (instances) | Low (instances) | Files, nSLOC |
 | --- | --- | --- | --- |
-| G-7 | Aderyn has not run since `baac930`; Slither ran at `1430f77` with every result answered | `docs/reviews/2026-11-11-static-analysis.md` | open; waits on Rafa's OK to install Aderyn |
+| `baac930`, re-run today | 3 (11) | 8 | 6, — |
+| `8bd8eb1`, `main` (this triage) | 2 (10) | 9 (32) | 6, 1,123 |
+| `b88f9e5`, `contracts-audit-ready` after T-334 | 1 (9) | 7 | 5, 1,096 |
 
-No Slither result needs a row of its own: S-17 is already I-2, and the rest are dismissed.
+[measured]
+
+| # | Detector | Where, at `8bd8eb1` | Answer | Reason |
+| --- | --- | --- | --- | --- |
+| A-1 | H-1 `abi.encodePacked()` hash collision ×9 | `HoldbackTypes.sol:173-229` | dismissed, as at `baac930` | Each concatenates compile-time type strings into an EIP-712 type hash; no input is chosen by a caller |
+| A-2 | H-2 unsafe cast ×1 | `SimBeacon.sol:28` | dismissed, as at `baac930` | `uint64(t)` truncates only for `t >= 2^64`; callers pass `uint64` deadlines or `block.timestamp`. Gone on `contracts-audit-ready`, where C2 moved `SimBeacon` out of `src/` |
+| A-3 | L-6 unchecked return ×2 | `HoldbackRules.sol:230` (`deliver`), `:245` (`decide`'s carried delivery) | dismissed; **new since `baac930`** | `_acceptDelivery` stores the delivery hash itself (`:628`); only `decide` at `:401` needs the returned value. The return came with `bb4571b` (T-212, ADR-0029) |
+| A-4 | L-9 unused state variable ×1 | `DrandQuicknetBeacon.sol:65`, `PAIRING_GAS` | dismissed, as at `baac930` (its L-8) | Used at `:84`. False positive |
+| A-5 | L-1 internal function used once ×4; L-2 large numeric literal ×2; L-3 literal instead of constant ×10 | `HoldbackTypes.sol:250-355, 433`; `DrandQuicknetBeacon.sol:65-152` | dismissed | Style. The literals are BLS12-381 and precompile constants that must match the published values; C7 may name the rest |
+| A-6 | L-4 PUSH0 opcode ×6; L-7 unspecific pragma ×5 | every file's `pragma solidity ^0.8.28` | known: clean item 5 | Both gone on `contracts-audit-ready`, where C2 pins the pragma exactly [measured] |
+| A-7 | L-5 loop contains `require`/`revert` ×1 | `HoldbackRules.sol:464`, `_payOut` | dismissed | The same loop as Slither's `calls-loop`: both parties sign the payout list, and a revert undoes only that settlement |
+| A-8 | L-8 public function not used internally ×1 | `DrandQuicknetBeacon.sol:74`, `roundAt` | dismissed | Off-chain verifiers call it; `public` is kept on purpose |
+
+**Diff from `baac930`** [measured, both runs today with 0.6.8]: gone, H-2 "state change after external call" (the `tryEncumber` path that `f685f09`, T-206 M-3, removed, as with Slither's `reentrancy-no-eth`). New, L-6 unchecked return (A-3). Every other detector is the same.
+
+**On `contracts-audit-ready`** [measured]: only H-1 (dismissed) and 7 low detectors remain. The cast, PUSH0 and pragma results are gone. Nothing new appears, so nothing goes to the contract lane.
+
+No Aderyn or Slither result needs a row of its own in `docs/audit/known-issues.md`: S-17 is already I-2, A-6 is clean item 5, and the rest are dismissed. Row G-7 is closed by this section.
 
 ## 7. The planted-failure check of CI (T-241)
 
