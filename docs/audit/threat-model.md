@@ -86,7 +86,7 @@ Each row names what an attacker tries, the line that refuses it and the test tha
 
 | Class | What the attacker tries | Refused at | Test |
 | --- | --- | --- | --- |
-| A forged or replayed signature | Reuse a signature on another deal, role, chain or contract | The EIP-712 domain (`R:666-668`); every struct hash binds the commitment ID (`T:296-420`); the step leaves the row it needs | `unit/Vectors.t.sol`; `invariant_noMovementWithoutAuthority` |
+| A forged or replayed signature | Reuse a signature on another deal, role, chain or contract | The EIP-712 domain (`R:666-668`); every struct hash binds the commitment ID (`T:296-420`); the step leaves the row it needs | `unit/Vectors.t.sol`, `crosscheck/Erc1271Replay.t.sol`, `crosscheck/TokenAndDomain.t.sol`; `invariant_noMovementWithoutAuthority` |
 | A relayer changes a message | Alter a field, or reorder steps | Every field is signed (`R:660-664`); each step checks the stage | `unit/Decide.t.sol`, `unit/Settle.t.sol` |
 | Moving a hold outside the terms | Capture or void without a decision, an early accept, a settlement or a due timeout | `state-model.md` section 3; only the rules contract operates the escrow (`R:174`) | `invariant_conservation`, `invariant_escrowMatchesState` |
 | Settling twice | Release and refund one hold | Every settlement leaves the funded rows before its first escrow call | `invariant_settleOnce` |
@@ -97,7 +97,7 @@ Each row names what an attacker tries, the line that refuses it and the test tha
 | A bond stranded after the buyer's own reclaim | Leave a reservation when the escrow is empty | `R:605-608` | `unit/AfterCppReclaim.t.sol` |
 | A bond locked without consent (leaves with SC-7) | Name an adjudicator in sham terms | `R:207`, `R:215`, `R:327` | `unit/BondConsent.t.sol` |
 | A seed the decider chooses | Pick a fallback or escalation seed through a free field | `R:275-276`, `R:290-297` | `unit/AppealAttempt.t.sol`, `unit/DrandDecide.t.sol` |
-| A forged beacon round | Prove a round with a bad signature | `DrandQuicknetBeacon.sol:79-87`, `:121-140` | `unit/DrandBeacon.t.sol` |
+| A forged beacon round | Prove a round with a bad signature | `DrandQuicknetBeacon.sol:79-87`, `:121-140` | `unit/DrandBeacon.t.sol`, `crosscheck/DrandEncodings.t.sol`, `crosscheck/DrandAllRounds.t.sol` |
 | An admin path | Upgrade, pause, destroy or drain | None exists (`R:18`, `B:11`) | `fuzz/NoAdmin.fuzz.t.sol`; `invariant_noAdminPath` |
 
 `invariant_escrowMatchesState` holds only while no deal passes the escrow's expiry with its hold reclaimed; TA-1 is the state it does not cover [inferred from the invariant's name and `state-model.md` 5.2].
