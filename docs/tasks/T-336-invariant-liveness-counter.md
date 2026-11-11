@@ -5,7 +5,7 @@
 - **Depends on:** T-203 (the invariant suite), T-212 (ADR-0029: every decision names the posted delivery)
 - **Paths this task may touch:** `contracts/test/handlers/RulesHandler.sol`, `contracts/test/invariant/`, `docs/audit/known-issues.md` (row G-5 only), `docs/tasks/T-336-invariant-liveness-counter.md`
 - **Human gate:** no
-- **Status:** review
+- **Status:** done (PR #325 merged 2026-11-11; one review, PASS: a fresh campaign fails `invariant_deliveryHashStored` on the mutant; T-341 builds on the counter)
 - **Agent/session:** implementer, pilot plan package C1b ("Invariants")
 
 ## Intent

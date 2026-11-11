@@ -5,7 +5,7 @@
 - **Depends on:** T-334 (contract clean, in parallel), T-336 (adds one invariant in parallel), T-340 (writes the threat model, in parallel)
 - **Paths this task may touch:** `docs/audit/invariants.md`, `docs/audit/events.md` (new); `docs/audit/known-issues.md` (section 8, and the rows section 8 settles, except G-3, G-4, G-5, section 2's "Recorded in" cells and section 3, which other packages edit); `docs/audit/scope.md` (links to the audit pages); this task file
 - **Human gate:** no
-- **Status:** review
+- **Status:** done (PR #324 merged 2026-11-11; invariant row 11 names `invariant_deliveryHashStored`, and `contracts/README.md` counts were refreshed to 26 unit files, 10 cross-check files, 11 invariants and 293 tests. The gas snapshot was not refreshed: it goes stale again when C2 changes `contracts/src`, and C9 owns it)
 - **Agent/session:** implementer, pilot plan package C1d (change kind 2, process docs and records)
 
 ## Intent

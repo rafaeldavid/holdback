@@ -5,7 +5,7 @@
 - **Depends on:** T-204 (the model), T-206 (the contract review, §5 and I-11)
 - **Paths this task may touch:** `formal/`, this task file, and row G-3 of `docs/audit/known-issues.md`
 - **Human gate:** no
-- **Status:** review
+- **Status:** done (PR #331 merged 2026-11-11; one review, two Lows fixed on the branch: G-3 reads "fixed in part", and Handoff item 7 adds the `deliverBy`-after-expiry case for R4)
 - **Agent/session:** implementer, pilot plan package C1c (change kind 7)
 
 ## Intent

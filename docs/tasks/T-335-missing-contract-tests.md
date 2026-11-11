@@ -5,7 +5,7 @@
 - **Depends on:** T-206 (the contract review and its adversarial pass), T-322 (the defenses already ported)
 - **Paths this task may touch:** new files under `contracts/test/unit/` and `contracts/test/crosscheck/` (not `contracts/test/unit/Base.sol`); in `docs/audit/known-issues.md` only row G-4, the "Recorded in" cells of section 2 rows these tests cover, and new rows in section 3; this task file
 - **Human gate:** no
-- **Status:** review
+- **Status:** done (PR #328 merged 2026-11-11; one review, three Lows in the coordinator's triage note, none blocking; CI ran 293 tests in 46 suites, 0 failed, 0 skipped, run 43085901114)
 - **Agent/session:** implementer, pilot plan package C1a (change kind 7, smart contracts)
 
 ## Intent
