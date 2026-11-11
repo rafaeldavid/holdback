@@ -5,7 +5,7 @@
 - **Depends on:** T-222 (the test seller and the `crow-test-agents` Worker), merged.
 - **Paths this task may touch:** `apps/test-agents/`; `site/llms.txt` (the new seller section only), `site/check.mjs` (a matching check, if needed), `site/index.html` (only as the build regenerates it); `docs/operations.md` (a deploy command for the test buyer only); this file.
 - **Human gate:** yes for the last criterion only: the deploy and the first seller-started deal on Sepolia wait for Rafa.
-- **Status:** in progress
+- **Status:** merged, waits for the deploy
 - **Agent/session:** t-239-standing-test-buyer
 - **Change kind:** 4 (API and operator code): the package's tests, no review, a target of 150k tokens.
 
@@ -48,6 +48,7 @@ Fill this in before review. Label each item measured, inferred or guessed.
 - Commands run and results (measured, 2026-11-11, in the worktree):
   - `pnpm exec vitest run apps/test-agents`: 6 files, 66 tests passed. `buyer.test.ts` has 11 of them: the card; Released; Refunded; the buyer's own reclaim after `deliverBy`, with the price and the adjudication fee back; refusals naming `accepts.maxPrice`, `accepts.checks.requiredAtLeast`, `accepts.windows.maxDeliverWithinSec`, `accepts.windows.maxJudgingSec` and `buyer`; declarative check types only; the per-seller cap (429 `limits.perSellerPerHour`); one operator offline; a lost funding answer replayed after a restart with the same key and body, one `hold.funded`; the outside seller's script end to end; the mainnet refusal. `worker.test.ts` adds the buyer's route and its `buyer:` storage prefix.
   - `pnpm typecheck`: pass. `pnpm exec eslint apps/test-agents site/check.mjs`: no findings.
+  - CI on PR 309 at `8b4842f`: all 15 checks pass, CodeQL included. Its one alert, a substring check on the buyer's URL in `site/check.mjs`, was fixed in code by matching whole sentences.
   - `node site/build.mjs`, then `node site/check.mjs`: PASS, with the new check 9 (the section states `buyer-rules.ts`'s caps, windows and limits). `site/try.mjs` and `site/index.html` did not change.
 - Snapshot diffs: none (no scenario fixtures change).
 - Metrics: none yet. The Sepolia deal waits for the deploy (Handoff).
