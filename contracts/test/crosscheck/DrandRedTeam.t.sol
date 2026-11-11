@@ -14,11 +14,11 @@ contract BeaconHarness is DrandQuicknetBeacon {
     }
 }
 
-/// The attacker's contract for the "wrong round" finding. It lands a step that fixes an appeal round (a party's
-/// appeal, or the primary's escalation) only when the seed that round will give suits its caller. The caller proves
-/// it already holds the round's signature: `beaconValue` reverts for anything drand did not publish. So the call
-/// succeeds only in a block that was put together after drand published the round the contract treats as
-/// "strictly after" that block.
+/// The attacker's contract for the "wrong round" finding. It lands a step that fixes an escalation round (the
+/// primary's escalation; the party appeal it also gated left with `fileAppeal`, T-346) only when the seed that round
+/// will give suits its caller. The caller proves it already holds the round's signature: `beaconValue` reverts for
+/// anything drand did not publish. So the call succeeds only in a block that was put together after drand published
+/// the round the contract treats as "strictly after" that block.
 contract SeedGatedFiler {
     error SeedDoesNotSuit(bytes32 seed);
 
@@ -30,20 +30,6 @@ contract SeedGatedFiler {
         IHoldbackBeacon beacon = rules.BEACON();
         uint64 round = beacon.roundAt(block.timestamp) + 1; // the round HoldbackRules.decide will demand
         return H.panelSeed(id, H.ROLE_APPEAL, attempt, beacon.beaconValue(round, nextRoundSignature));
-    }
-
-    function fileIfSeedSuits(
-        HoldbackRules rules,
-        H.Terms calldata t,
-        H.Appeal calldata a,
-        bytes32 id,
-        bytes calldata nextRoundSignature,
-        uint256 modulus,
-        uint256 wanted
-    ) external returns (bytes32 seed) {
-        seed = _seed(rules, id, 1, nextRoundSignature);
-        if (uint256(seed) % modulus != wanted) revert SeedDoesNotSuit(seed);
-        rules.fileAppeal(t, a);
     }
 
     function escalateIfSeedSuits(
@@ -300,21 +286,6 @@ contract DrandRedTeamTest is Base {
         vm.warp(t.timing.judgeBy);
         rules.triggerFallback(t);
         assertEq(drand.roundAt(t.timing.judgeBy), FALLBACK_ROUND);
-    }
-
-    function _appeal(bytes32 id, H.Terms memory t, uint8 who, uint256 pk, uint256 bond)
-        internal
-        view
-        returns (H.Appeal memory a)
-    {
-        a = H.Appeal({
-            appellant: who,
-            groundsHash: keccak256("grounds"),
-            bond: bond,
-            filedAt: uint64(block.timestamp),
-            signature: ""
-        });
-        a.signature = _sign(pk, hx.appeal(id, who == 0 ? t.buyer : t.seller, t.token, a));
     }
 
     function _timeOf(uint256 round) internal pure returns (uint256) {
@@ -653,46 +624,8 @@ contract DrandRedTeamTest is Base {
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
     }
 
-    /// Issue: a party grinds the appeal panel. The losing party files its appeal through a contract that first
-    /// checks, in the same transaction, the seed the appeal panel will get, and files only when it suits. The seed
-    /// test here is `seed mod 18` (ADR-0018 counts 18 panels for a registry of 6 and a panel of 3). A filing that
-    /// does not suit reverts and leaves the appeal unfiled, so the party tries again in a later block, with a later
-    /// round, until the appeal window closes. Expected if the defense held: whoever lands `file_appeal` cannot
-    /// know the seed. Result: it can, in any block put together after drand published the next round.
-    function test_issue_wrongRound_appellantFilesOnlyWhenTheAppealSeedSuitsIt() public {
-        (H.Terms memory t, bytes32 id) = _funded();
-        _deliver(t, id);
-        rules.decide(t, _primary(t, id, H.OUTCOME_ACCEPT), _noDelivery(), "");
-        vm.prank(buyer);
-        usdc.approve(address(bonds), type(uint256).max);
-        H.Appeal memory a = _appeal(id, t, 0, BUYER_PK, 1_300_000);
-
-        bytes32 seed = hx.panelSeed(id, H.ROLE_APPEAL, 1, sha256(APPEAL_SIG));
-        uint256 suits = uint256(seed) % 18;
-
-        // A seed the buyer does not want: nothing is filed, and the buyer keeps its one appeal.
-        vm.expectRevert(abi.encodeWithSelector(SeedGatedFiler.SeedDoesNotSuit.selector, seed));
-        filer.fileIfSeedSuits(rules, t, a, id, APPEAL_SIG, 18, (suits + 1) % 18);
-        assertEq(uint8(rules.dealOf(id).appeal), uint8(HoldbackRules.AppealState.None));
-        // A signature drand did not publish for the next round: the gate cannot be fooled either way.
-        vm.expectRevert(INVALID);
-        filer.fileIfSeedSuits(rules, t, a, id, FALLBACK_SIG, 18, suits);
-
-        // The seed the buyer wants: filed, and the appeal round is now fixed to it.
-        assertEq(filer.fileIfSeedSuits(rules, t, a, id, APPEAL_SIG, 18, suits), seed);
-        assertEq(uint8(rules.dealOf(id).appeal), uint8(HoldbackRules.AppealState.Open));
-        assertEq(rules.dealOf(id).t2, 1_790_000_000);
-
-        // The appeal adjudicator has no choice left: only that round, that value and that seed settle.
-        vm.warp(block.timestamp + 1 hours);
-        H.Decision memory m = _drandDecision(id, H.ROLE_APPEAL, H.OUTCOME_REJECT, APPEAL_ROUND, APPEAL_SIG);
-        assertEq(m.seed, seed);
-        m = _signDecision(t, id, m, appealAdj, AP_PK);
-        rules.decide(t, m, _noDelivery(), "");
-        assertEq(uint8(rules.dealOf(id).appeal), uint8(HoldbackRules.AppealState.Overturned));
-    }
-
-    /// Issue: the same gate on an escalation. Whoever relays the primary's signed escalation (anyone may) lands it
+    /// Issue: a gate on the escalation (the party-appeal variant of this finding left with `fileAppeal`, T-346,
+    /// ADR-0031 §8). Whoever relays the primary's signed escalation (anyone may) lands it
     /// only in a block whose next round gives the appeal panel it wants.
     function test_issue_wrongRound_relayerLandsTheEscalationOnlyWhenTheAppealSeedSuitsIt() public {
         (H.Terms memory t, bytes32 id) = _funded();

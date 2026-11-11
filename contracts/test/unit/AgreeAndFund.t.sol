@@ -2,7 +2,6 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
-import {HoldbackBonds} from "../../src/HoldbackBonds.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -113,18 +112,6 @@ contract AgreeAndFundTest is Base {
         H.Funding memory f = _erc3009(t, BUYER_PK);
         bytes memory s = _sellerSig(t, SELLER_PK);
         vm.expectRevert(HoldbackRules.InvalidMessage.selector);
-        rules.agreeAndFund(t, s, a, g, f);
-    }
-
-    function test_refuses_primaryWithoutFreeBond() public {
-        H.Terms memory t = _terms();
-        t.price = BOND + 1;
-        usdc.mint(buyer, BOND * 2);
-        bytes memory s = _sellerSig(t, SELLER_PK);
-        H.Acceptance memory a = _acceptance(t, ADJ_PK);
-        H.Agree memory g = _agree(t, BUYER_PK);
-        H.Funding memory f = _erc3009(t, BUYER_PK);
-        vm.expectRevert(abi.encodeWithSelector(HoldbackBonds.InsufficientFreeBond.selector, BOND, BOND + 1));
         rules.agreeAndFund(t, s, a, g, f);
     }
 

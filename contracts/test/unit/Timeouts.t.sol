@@ -2,9 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
-import {HoldbackBonds} from "../../src/HoldbackBonds.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -99,41 +97,6 @@ contract TimeoutsTest is Base {
         rules.triggerDefault(t);
     }
 
-    function test_appealExpiry_releasesTheDecidersBond() public {
-        (H.Terms memory t, bytes32 id) = _funded();
-        _deliver(t, id);
-        rules.decide(t, _primary(t, id, H.OUTCOME_ACCEPT), _noDelivery(), "");
-        vm.expectRevert(HoldbackRules.TooEarly.selector);
-        rules.expireAppeal(t);
-        vm.warp(block.timestamp + t.timing.appealWindowSec);
-        vm.prank(anyone);
-        rules.expireAppeal(t);
-        assertEq(uint8(rules.dealOf(id).appeal), uint8(HoldbackRules.AppealState.Expired));
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), 0);
-        vm.expectRevert(
-            abi.encodeWithSelector(HoldbackRules.WrongAppealState.selector, HoldbackRules.AppealState.Expired)
-        );
-        rules.expireAppeal(t);
-    }
-
-    function test_appealExpiry_openAppealUndecided_returnsTheBond() public {
-        (H.Terms memory t, bytes32 id) = _funded();
-        _deliver(t, id);
-        rules.decide(t, _primary(t, id, H.OUTCOME_ACCEPT), _noDelivery(), "");
-        vm.prank(buyer);
-        usdc.approve(address(bonds), type(uint256).max);
-        H.Appeal memory a = H.Appeal({appellant: 0, groundsHash: keccak256("g"), bond: 1_000, filedAt: 0, signature: ""});
-        a.signature = _sign(BUYER_PK, hx.appeal(id, buyer, t.token, a));
-        rules.fileAppeal(t, a);
-        uint256 b0 = usdc.balanceOf(buyer);
-        vm.warp(block.timestamp + t.timing.appealWindowSec);
-        vm.expectRevert(HoldbackRules.TooEarly.selector);
-        rules.expireAppeal(t);
-        vm.warp(block.timestamp + t.timing.appealDecideSec);
-        rules.expireAppeal(t);
-        assertEq(usdc.balanceOf(buyer), b0 + 1_000);
-    }
-
     function test_buyerReclaimOnCppAfterExpiry_needsNoOperator() public {
         (H.Terms memory t,) = _funded();
         vm.warp(t.timing.fallbackBy + t.timing.appealDecideSec + MARGIN);
@@ -142,49 +105,5 @@ contract TimeoutsTest is Base {
         vm.prank(buyer);
         escrow.reclaim(pi);
         assertEq(usdc.balanceOf(buyer), b0 + PRICE + FEE);
-    }
-}
-
-contract BondsTest is Base {
-    function test_withdraw_onlyWhatIsFree() public {
-        (H.Terms memory t,) = _funded();
-        vm.startPrank(adjudicator);
-        vm.expectRevert(abi.encodeWithSelector(HoldbackBonds.InsufficientFreeBond.selector, BOND - PRICE, BOND));
-        bonds.withdraw(t.token, BOND);
-        bonds.withdraw(t.token, BOND - PRICE);
-        vm.stopPrank();
-        assertEq(usdc.balanceOf(adjudicator), BOND - PRICE);
-    }
-
-    function test_withdraw_afterSettlementReleasesTheBond() public {
-        (H.Terms memory t,) = _funded();
-        vm.warp(t.timing.deliverBy);
-        rules.reclaim(t);
-        vm.prank(adjudicator);
-        bonds.withdraw(t.token, BOND);
-        assertEq(usdc.balanceOf(adjudicator), BOND);
-    }
-
-    function test_onlyRulesEncumbers() public {
-        vm.expectRevert(HoldbackBonds.NotRules.selector);
-        bonds.encumber(adjudicator, address(usdc), 1);
-        vm.expectRevert(HoldbackBonds.NotRules.selector);
-        bonds.release(adjudicator, address(usdc), 0);
-        vm.expectRevert(HoldbackBonds.NotRules.selector);
-        bonds.takeAppealBond(bytes32(0), buyer, address(usdc), 0);
-        vm.expectRevert(HoldbackBonds.NotRules.selector);
-        bonds.payAppealBond(bytes32(0), address(usdc), adjudicator);
-    }
-
-    function test_deposit_creditsTheCaller() public {
-        usdc.mint(address(this), 5);
-        usdc.approve(address(bonds), 5);
-        bonds.deposit(address(usdc), 5);
-        assertEq(bonds.bondOf(address(this), address(usdc)), 5);
-    }
-
-    function test_deposit_refusesWithoutTheTokens() public {
-        vm.expectRevert(SafeTransferLib.TransferFromFailed.selector);
-        bonds.deposit(address(usdc), 5);
     }
 }

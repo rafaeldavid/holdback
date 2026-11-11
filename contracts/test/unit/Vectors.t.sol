@@ -187,19 +187,8 @@ contract VectorsTest is Test {
         assertEq(_digest(hx.mutual(ID, TOKEN, m)), 0x902fedd1cc7ae1ea7efbe1987a3d6b9277744d414aa4d67523a157c5858a724e);
     }
 
-    function test_appeal_matchesCore() public view {
-        H.Appeal memory a = H.Appeal({
-            appellant: 1,
-            groundsHash: 0x17b2d5b4ef96b2fe1ccb415d09ba4f8d4057069e13a564b241b65fb7599c7bd0,
-            bond: 100_000_000,
-            filedAt: 1_793_463_780,
-            signature: ""
-        });
-        assertEq(
-            _digest(hx.appeal(ID, 0x9Ff412388F11e58327E71F841705dbC739c8CC46, TOKEN, a)),
-            0x52e6969b9d47150bcd17190e43ccc3b93a40feb6208f3aea4d4c89a149ccd235
-        );
-    }
+    // The Appeal vector left with the contract's appealHash (T-346, ADR-0031 §8): phase one hashes no Appeal.
+    // packages/core and spec/ keep theirs, digest 0x52e6969b9d47150bcd17190e43ccc3b93a40feb6208f3aea4d4c89a149ccd235.
 
     function test_panelSeed_matchesCore() public view {
         assertEq(

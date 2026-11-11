@@ -18,20 +18,6 @@ contract AppealAttemptTest is Base {
         vm.warp(round);
     }
 
-    function _partyAppeal() internal returns (H.Terms memory t, bytes32 id, uint64 round) {
-        (t, id) = _funded();
-        _deliver(t, id);
-        rules.decide(t, _primary(t, id, H.OUTCOME_ACCEPT), _noDelivery(), "");
-        vm.prank(buyer);
-        usdc.approve(address(bonds), type(uint256).max);
-        H.Appeal memory a =
-            H.Appeal({appellant: 0, groundsHash: keccak256("g"), bond: 1_000, filedAt: 0, signature: ""});
-        a.signature = _sign(BUYER_PK, hx.appeal(id, buyer, t.token, a));
-        rules.fileAppeal(t, a);
-        round = uint64(rules.dealOf(id).t2) + 1; // the first round after the filing
-        vm.warp(round);
-    }
-
     /// A decision whose seed is the valid panel seed for `attempt`, signed by the role's adjudicator.
     function _beaconAttempt(H.Terms memory t, bytes32 id, uint8 role, uint64 round, uint8 attempt)
         internal
@@ -47,13 +33,6 @@ contract AppealAttemptTest is Base {
 
     function test_afterEscalation_refusesASeedFromAnotherAttempt() public {
         (H.Terms memory t, bytes32 id, uint64 round) = _escalated();
-        H.Decision memory m = _beaconAttempt(t, id, H.ROLE_APPEAL, round, 2);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
-        rules.decide(t, m, _noDelivery(), "");
-    }
-
-    function test_afterPartyAppeal_refusesASeedFromAnotherAttempt() public {
-        (H.Terms memory t, bytes32 id, uint64 round) = _partyAppeal();
         H.Decision memory m = _beaconAttempt(t, id, H.ROLE_APPEAL, round, 2);
         vm.expectRevert(HoldbackRules.InvalidMessage.selector);
         rules.decide(t, m, _noDelivery(), "");
@@ -94,11 +73,5 @@ contract AppealAttemptTest is Base {
         (H.Terms memory t, bytes32 id, uint64 round) = _escalated();
         rules.decide(t, _beaconAttempt(t, id, H.ROLE_APPEAL, round, 1), _noDelivery(), "");
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
-    }
-
-    function test_afterPartyAppeal_decidesWithTheDeliveryAttempt() public {
-        (H.Terms memory t, bytes32 id, uint64 round) = _partyAppeal();
-        rules.decide(t, _beaconAttempt(t, id, H.ROLE_APPEAL, round, 1), _noDelivery(), "");
-        assertEq(uint8(rules.dealOf(id).appeal), uint8(HoldbackRules.AppealState.Overturned));
     }
 }
