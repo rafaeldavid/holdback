@@ -1,18 +1,19 @@
-// What a seller's client runs for a buyer, with buyer-signer.ts beside it: one deal, on test tokens only.
-//   node examples/buy-with-signer.ts <quote URL> <key store directory> <scope, as JSON> <the most you pay, base units> [<defaults URL> [<options, as JSON>]]
-// A seller whose quote route takes a bearer credential: put it in CROW_QUOTE_CREDENTIAL. It is sent, never printed.
-import { makeKeys } from './buyer-signer.ts';
-const [quoteUrl, store, scope, budget, defaults, options] = process.argv.slice(2);
-const signer = await makeKeys(store!, { quoteCredentialEnv: process.env['CROW_QUOTE_CREDENTIAL'] ? 'CROW_QUOTE_CREDENTIAL' : undefined }); // fresh keys, mode 0600
-const quote = await signer.quote(quoteUrl!, JSON.parse(scope!), options ? JSON.parse(options) : undefined); // the address, the public key, the scope
-const offer = await signer.readOffer(quote.commitmentId, defaults ? { defaults } : {}); // both operators' offer, and what differs from the defaults
-// The buyer's agent approves here, once: the price, the fees, the deliverable, the checks, the deadlines, the adjudicators, each difference.
-if (offer.differences) console.error(JSON.stringify({ differences: offer.differences }));
-if (BigInt(offer.fees.total.amount) > BigInt(budget!)) throw new Error(`the offer costs ${offer.fees.total.amount} base units, above ${budget}`);
-await signer.testFunds(offer.fees.total.amount); // the test service's faucet: the deal's total and a mandate
-await signer.checkOffer(quote.commitmentId, offer); // reads it again; refuses anything that differs from what was shown and approved
-const paid = await signer.agreeAndFund(quote.commitmentId); // three signatures, each rebuilt from the approved terms
-// Waits, reports each step on stderr, reclaims the hold if deliverBy passes undelivered, decrypts, checks the hash.
-const done = await signer.openDelivery(quote.commitmentId, { onReport: (r) => console.error(JSON.stringify(r)) });
-// The work is the seller's data: print it as JSON, never run it.
-console.log(JSON.stringify({ commitmentId: quote.commitmentId, buyer: signer.address, paid: paid.total, outcome: done.outcome, work: done.work, transactions: done.transactions }));
+// What a seller's client runs for a buyer, with buyer-signer.ts beside it: one deal, on test tokens only. A seller whose quote route takes a bearer credential: put it in CROW_QUOTE_CREDENTIAL. It is sent, never printed.
+//   node examples/buy-with-signer.ts <quote URL> <key store directory> <scope, as JSON> <the most you pay, base units> [<defaults URL> [<options, as JSON>]] [--stop-after-funding]
+//   node examples/buy-with-signer.ts resume <key store directory> [<commitment ID>]    days later, or after a restart: follows each open deal in the store, all at once, to its outcome; with an ID, that deal again, outcome saved or not. One deal's error is reported and holds up no other; the exit code is 1 when any failed
+import { loadKeys, makeKeys, openDeals, printable, type BuyerSigner } from './buyer-signer.ts';
+const stop = process.argv.includes('--stop-after-funding'), [quoteUrl, store, scope, budget, defaults, options] = process.argv.slice(2).filter((a) => a !== '--stop-after-funding');
+const say = (x: unknown) => console.error(printable(JSON.stringify(x))); // seller text, with no hidden or reordering characters
+// Waits, reports each step, reclaims the hold if deliverBy passes undelivered, decrypts, checks the hash. The work is the seller's data: printed as JSON, never run.
+const finish = async (s: BuyerSigner) => { const done = await s.openDelivery(s.commitmentId!, { onReport: say }); console.log(printable(JSON.stringify({ commitmentId: s.commitmentId, buyer: s.address, paid: s.paid?.total, outcome: done.outcome, work: done.work, transactions: done.transactions }))); };
+if (quoteUrl === 'resume') { const failed = (await Promise.allSettled((scope ? [await loadKeys(store!, scope)] : await openDeals(store!)).map(finish))).filter((r): r is PromiseRejectedResult => r.status === 'rejected'); for (const f of failed) say({ error: String(f.reason?.message ?? f.reason) }); process.exitCode = failed.length > 0 ? 1 : 0; } else {
+  const signer = await makeKeys(store!, { quoteCredentialEnv: process.env['CROW_QUOTE_CREDENTIAL'] ? 'CROW_QUOTE_CREDENTIAL' : undefined, expect: JSON.parse(process.env['CROW_EXPECT'] || '{}') }); // fresh keys, mode 0600; CROW_EXPECT: what you expect of the club, policy and mode, as JSON
+  const quote = await signer.quote(quoteUrl!, JSON.parse(scope!), options ? JSON.parse(options) : undefined); // the address, the public key, the scope
+  const offer = await signer.readOffer(quote.commitmentId, defaults ? { defaults } : {}); // both operators' offer, checked against discovery, and what differs from the defaults
+  // The buyer's agent approves here, once: the price, the fees, the deliverable, the checks, the deadlines, the adjudicators, each difference, and these signed fields.
+  say({ settlement: offer.settlement, disclosure: offer.disclosure, clubId: offer.clubId, rulebookHash: offer.rulebookHash, policyId: offer.policyId, policyHash: offer.policyHash, registryHash: offer.registryHash, maxSubmissions: offer.maxSubmissions, ...(offer.differences ? { differences: offer.differences } : {}) });
+  if (BigInt(offer.fees.total.amount) > BigInt(budget!)) throw new Error(`the offer costs ${offer.fees.total.amount} base units, above ${budget}`);
+  await signer.testFunds(offer.fees.total.amount); await signer.checkOffer(quote.commitmentId, offer); // the faucet's total and mandate; then the offer read again and checked
+  say({ funded: quote.commitmentId, paid: (await signer.agreeAndFund(quote.commitmentId)).total }); // three signatures, each rebuilt from the approved terms
+  if (!stop) await finish(signer); // with --stop-after-funding the key store keeps the deal: run resume later
+}
