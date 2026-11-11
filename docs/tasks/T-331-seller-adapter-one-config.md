@@ -6,7 +6,7 @@
 - **Depends on:** T-318 (the adapter), T-323 (the report mapping), T-324 (the service recipe), T-329 (redelivery, PR 317), T-330 (terms per quote, PR 316); all merged
 - **Paths this task may touch:** `examples/seller-adapter.ts`, `examples/seller-adapter.test.ts`, `examples/seller-adapter-terms.test.ts`, `examples/seller-adapter-stub.ts`, `examples/seller-adapter.template.json`, a new `examples/seller-adapter.config.json`, `examples/seller-adapter-service.md`, `examples/seller-adapter.service`, `examples/seller-adapter.Caddyfile`, `examples/seal.ts`, this file. Never: `site/llms.txt` (a later package places the doc lines in the Handoff below), `examples/buyer-signer.ts` and its tests (T-332), `examples/audit-deal.ts`, `packages/`, `apps/`, `spec/schemas/`, `contracts/`.
 - **Human gate:** no. Nothing here deploys or runs live.
-- **Status:** review (PR 319)
+- **Status:** done (PR 319, merged 2026-11-11 at `66b785a`, all CI jobs passed)
 - **Agent/session:** the T-331 session, 2026-11-11, branch `t-331-seller-adapter-one-config`
 
 ## Intent
