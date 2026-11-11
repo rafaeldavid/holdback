@@ -353,7 +353,7 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     await must(chain, cast, d.offer());
     const a = await d.accept();
     if (a.kind !== 'adjudicator_accept') throw new Error('unreachable');
-    const { signature: _old, ...unsigned } = a.message;
+    const { signature: _old, ...unsigned } = a.message; // eslint-disable-line @typescript-eslint/no-unused-vars
     const bonded = { ...unsigned, bondReserved: d.terms.price };
     const message = { ...bonded, signature: await signMessage(cast.primary.key, chain.domain, bonded as UnsignedMessage) };
     const r = await chain.submit({ kind: 'adjudicator_accept', message }, { via: 'op-1', sender: cast.operator.key });

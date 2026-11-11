@@ -624,7 +624,7 @@ export class EvmSettlement implements Settlement {
    * An adjudicator's pool as SimChain shapes it. The phase-one contracts hold no bond (ADR-0031 §8), so every pool is
    * empty: nothing backs a decision, and nothing is reserved.
    */
-  pool(_adjudicator: Address): { junior: bigint; senior: bigint; reserved: bigint } {
+  pool(_adjudicator: Address): { junior: bigint; senior: bigint; reserved: bigint } { // eslint-disable-line @typescript-eslint/no-unused-vars
     return { junior: 0n, senior: 0n, reserved: 0n };
   }
 
@@ -632,7 +632,7 @@ export class EvmSettlement implements Settlement {
    * Token balance per address and what CPP holds for this operator. `appealHold` is SimChain's appeal-bond account,
    * always 0 here: the phase-one contracts take no appeal and hold no appeal bond (ADR-0031 §8).
    */
-  async holdings(addresses: readonly Address[], _ids: readonly Hex32[]): Promise<{ parties: Record<string, bigint>; escrow: bigint; appealHold: bigint }> {
+  async holdings(addresses: readonly Address[], _ids: readonly Hex32[]): Promise<{ parties: Record<string, bigint>; escrow: bigint; appealHold: bigint }> { // eslint-disable-line @typescript-eslint/no-unused-vars
     const { escrow, rules } = this.world.deployment;
     const parties: Record<string, bigint> = {};
     for (const a of addresses) parties[lc(a)] = await this.tokenBalance(a);
@@ -872,7 +872,8 @@ export class EvmSettlement implements Settlement {
   }
 
   private stepped(state: EscrowState, e: EscrowEvent): EscrowState {
-    const r = step(state, e);
+    // ADR-0031 §8: every chain runs the phase-one contracts, so core steps their profile.
+    const r = step(state, e, 'phase_one');
     return r.ok ? r.value : refuse(r.error.type, r.error.detail);
   }
 
@@ -946,7 +947,7 @@ export class EvmSettlement implements Settlement {
         if (BigInt(m.bondReserved.amount) !== 0n) {
           refuse('invalid_terms', `the acceptance reserves a bond of ${m.bondReserved.amount}; this settlement runs the phase-one contracts, which hold no bonds, so bondReserved must be 0 (ADR-0031 §8). Ask the adjudicator to sign its acceptance again with bondReserved 0`);
         }
-        const next = this.stepped(book.state, { type: 'adjudicator_accept', at, message: m });
+        const next = this.stepped(book.state, { type: 'adjudicator_accept', at, message: m, unencumberedBond: this.amount(0n) });
         if (dryRun) return m.commitmentId;
         this.useNonce(book, `${lc(m.adjudicator)}:${m.nonce}`, false);
         book.state = next;
@@ -1027,7 +1028,7 @@ export class EvmSettlement implements Settlement {
         return m.commitmentId;
       }
       case 'trigger':
-        return this.timeout(s.commitmentId, s.timeout, options, dryRun, at);
+        return this.timeout(s.commitmentId, s.timeout, options, dryRun);
     }
   }
 
@@ -1279,7 +1280,7 @@ export class EvmSettlement implements Settlement {
     }
   }
 
-  private async timeout(id: Hex32, timeout: TimeoutKind, options: Relay, dryRun: boolean, at: Timestamp): Promise<Hex32> {
+  private async timeout(id: Hex32, timeout: TimeoutKind, options: Relay, dryRun: boolean): Promise<Hex32> {
     const book = this.bookOf(id);
     // T-231: the operators send due timeouts on their own, so a party's trigger can arrive after the timeout ran. It
     // answers the state that timeout left and sends nothing, as `apply_default` does. A deal behind the chain logs no
@@ -1325,7 +1326,7 @@ export class EvmSettlement implements Settlement {
   private mirrored(state: EscrowState, events: readonly EscrowEvent[], fn: string): EscrowState {
     let next = state;
     for (const e of events) {
-      const r = step(next, e);
+      const r = step(next, e, 'phase_one');
       if (!r.ok) throw new Error(`EVM/core divergence: the contract accepts ${fn} but core refuses ${e.type} in ${next.kind}: ${r.error.type}: ${r.error.detail}`);
       next = r.value;
     }
@@ -2122,7 +2123,7 @@ export class EvmSettlement implements Settlement {
         const wide: Scope = { roles: ['buyer', 'seller'], maxPerCommitment: terms.price, maxDaily: { token: terms.price.token, amount: UINT256_MAX } as TokenAmount, expiresAt: '9999-12-31T23:59:59Z' };
         const zero = this.amount(0n);
         const steps = (at: Timestamp): EscrowEvent[] => [
-          ...(s.kind === 'Offered' ? [{ type: 'adjudicator_accept' as const, at, message: acceptance }] : []),
+          ...(s.kind === 'Offered' ? [{ type: 'adjudicator_accept' as const, at, message: acceptance, unencumberedBond: this.amount(0n) }] : []),
           ...(s.kind !== 'Agreed' ? [{ type: 'agree' as const, at, message: agree, buyerScope: wide, spentToday: zero, memberAdmitted: true }] : []),
           { type: 'fund', at, message: funding, buyerScope: wide, balance: this.amount(BigInt(funding.value)), gasBuffer: zero },
         ];
