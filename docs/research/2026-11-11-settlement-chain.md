@@ -18,13 +18,14 @@
 - **Time:** 12 s slots; three money steps take 36 s at least and took 45 s on Sepolia. Settling in seconds is out of reach there (section 4.1).
 - **Fee:** about USD 0.21 a deal at 0.23 gwei on 2026-11-11, about USD 2.40 at the month's sampled peak, and about three times the gas after the next fork (section 4.2).
 - **The verifier:** the precompiles are live since 2025-05-07, and the beacon's code returns a real round's value on mainnet under the Fusaka fork, at 219,232 gas a transaction [measured]. Sepolia runs a later fork, so its gas figure differs (sections 5 and 10).
-- **The escrow:** no deployment was found on mainnet. Crow deploys its own copy of the audited source (section 7).
+- **The escrow:** no deployment was found on mainnet. One transaction from any account would put Coinbase's exact code at the same address as on Base, so Crow needs no build of its own (section 7).
+- **The mempool:** a pending accept shows the buyer its key before the payment lands, and a stranger can wrap a copied step so the operators lose sight of a deal (found by the red team; ADR-0034 section 3.6).
 - **USDC and contract signers:** native USDC with ERC-3009; EIP-7702 and the ERC-4337 EntryPoints are there (sections 6 and 8).
 - **Neutrality:** no sequencer, five node clients, and a censor's delay counted in slots (section 9).
 
 ### 1.2 The L2 step: Base leads, Arbitrum One is the runner-up
 
-- **Base** is as fast as any candidate (a block every 200 ms), is the only chain with the audited escrow already deployed, and has the lowest measured fee with its data fee included. Its testnet runs its mainnet's rules today.
+- **Base** is as fast as any candidate (a block every 200 ms), is the only chain where the audited escrow is deployed and in use, and has the lowest measured fee with its data fee included. Its testnet runs its mainnet's rules today. The escrow lead is narrow: the same code can be created at the same address elsewhere (section 7).
 - **Its costs:** one sequencer that can hold a step for up to 12 hours, two halts in June 2026, upgrades with no delay, one node client, and block times that ran about two hours behind real time after a halt (section 9).
 - **Arbitrum One** is the runner-up: as fast, with the verifier passing since 2026-01-08 and a delay on upgrades that are not emergencies. It has no escrow deployment, a 24-hour forced-inclusion delay, and a sequencer that sets block times within wide bounds.
 - **OP Mainnet** is third: the same shape as Base at 2 s a block, with no escrow deployment.
@@ -248,8 +249,16 @@ No candidate needs an alternative today.
 **What that saves.**
 
 - **Deploys:** two contracts (the beacon and the rules contract) in place of four. Under ADR-0031 the Permit2 collector goes anyway.
-- **Bytecode trust:** the escrow that holds the money is the one Coinbase deployed and verified, at an address other operators already use, not a build of Crow's. On any other chain Crow deploys its own copy. To claim the same bytecode there, Crow would have to build with Coinbase's profile and compare the code hash with Base's; whether Coinbase's CREATE2 deployer lets anyone reproduce the address on another chain is unverified.
+- **Bytecode trust:** the escrow that holds the money is the one Coinbase deployed and verified, at an address other operators already use, not a build of Crow's.
 - **Audit scope:** none of Crow's own. An audit of Crow's contracts covers the rules contract and the beacon on any chain, and treats the escrow as an audited dependency. The saving is in what the deploy must prove, not in what the auditor reads.
+
+**The same code can be created at the same address on other chains** [measured by the red team and again by this run, read-only, 2026-11-11].
+
+- Coinbase created the 1.1.0 escrow on Base through the deterministic deployer at `0x4e59b44847b379578588920ca78fbf26c0b4956c`: the creation transaction `0x9d3ce23c…dc84a` is addressed to it, and the first 32 bytes of its input, the salt, are zero.
+- That deployer has code on Ethereum mainnet (69 bytes). An `eth_call` to it on `ethereum-rpc.publicnode.com` with the same input returns `0xf96815976523e00e65be8f34ca5e64b4f41eb19c`. `eth_estimateGas` for the same call reads 2,632,491 gas, about USD 1.26 at 0.23 gwei.
+- The red team got the same address from Arbitrum One and Monad, found the deployer's code on OP Mainnet too, and found that the collector was created the same way, with the escrow and Multicall3 as arguments.
+- So on Ethereum mainnet, and on the other candidates, one transaction for each contract from any account gives the same code at the same address. That the runtime code equals Base's is inferred: the escrow's one immutable is the address of its own first CREATE, which is the same wherever the escrow's address is. A deploy checks it with one `eth_getCode` on each chain.
+- **What this changes:** Crow does not need its own build of the escrow on Ethereum mainnet. Base's lead is the deployment's history and use by others, not its code.
 
 ## 8. Contract signers and account abstraction
 
@@ -277,8 +286,13 @@ The neutrality test (ADR-0001): no single party can stop a valid commitment from
 
 - **It cannot move the held funds.** Every step needs a party's or an adjudicator's signature, and the contract checks it.
 - **It cannot stop a step for good.** The rules contract's entry points never read `msg.sender` [measured: `grep` of `HoldbackRules.sol`; the bond vault does read it, and phase one cuts bonds], so any account can carry any signed step. A deposit from Ethereum arrives as an ordinary call, so it can carry one too. This is not rehearsed (section 12).
-- **It can delay a step by up to 12 hours** on Base and OP Mainnet, 24 hours on Arbitrum One. A delay changes an outcome when it outlasts a deadline: a seller's delivery held past `deliverBy` lets the buyer reclaim; a decision held past `judgeBy` hands the case to the fallback.
-- **So a deal is neutral on a one-sequencer chain only if each of its windows is longer than the forced-inclusion delay plus the time to send the forced transaction.** `docs/neutrality.md` already says so (residual 2: "size deadlines to leave time for it"). The windows bound the worst case; they do not slow the common one. A deal with a 24-hour delivery window still settles in seconds when both sides act.
+- **It can leave a step out,** and the party then forces it through Ethereum. A delay changes an outcome when it outlasts a deadline: a seller's delivery held past `deliverBy` lets the buyer reclaim; a decision held past `judgeBy` hands the case to the fallback.
+- **Two clocks decide what a forced step costs on Base and OP Mainnet** [inferred by the red team from the derivation specification, which says a block's time "never precedes its L1 origin timestamp, and is never more than `max_sequencer_drift` ahead of it", 1,800 s; not rehearsed].
+  - The forced step runs in a block whose time lies between its Ethereum block's time and 1,800 s later. It meets a deadline if it reaches Ethereum about half an hour before it.
+  - The 12 hours (24 on Arbitrum One) is how long the step's result can stay unknown, in real time.
+  - The same rule lets a sequencer stamp blocks up to 1,800 s ahead, so deadlines can pass early. Whether Base's Denim upgrade removed that freedom is unverified.
+- **So a deal is neutral on a one-sequencer chain only if each of its windows leaves time for a forced step.** `docs/neutrality.md` already says so (residual 2: "size deadlines to leave time for it"). The windows bound the worst case; they do not slow the common one. A deal with a 24-hour delivery window still settles in seconds when both sides act.
+- **A first confirmation is the sequencer's word.** Base's docs put the batch on Ethereum after about 2 minutes; the configured maximum is 1,800 Ethereum blocks, 6 hours [documented: docs.base.org, read by the red team].
 - **Ethereum has no such actor.** A proposer or a builder can leave a transaction out of its own block; the next proposer can include it.
 
 **The chain's operators as a new control point.** On Base, the upgrade multisig can change the chain's contracts on Ethereum with no delay. Native USDC is issued on Base itself, so the bridge's contracts do not hold it. What the upgrade keys and the node software's maintainers could do to balances on the chain itself was not analysed here [unverified].
@@ -339,7 +353,7 @@ None of these was done here. A line marked "transaction" needs a deploy or a tra
 1. **Gas per step under the fork mainnet runs on the day,** on a mainnet fork (read-only): the three money steps, a fallback decision with the proof, and each refusal. Sepolia's figures do not carry (section 10).
 2. **The verifier's full vector set through each of mainnet's five execution clients** (read-only; the review's gate line G-1). This run checked one valid proof on one node.
 3. **Funding with real USDC's interface on a mainnet fork** (read-only), by a plain key and by a contract wallet: the demo's token is Crow's own, and Circle's token has roles and a proxy the test token lacks.
-4. **The escrow Crow deploys.** Build the vendored source with the settings the audit read, record the code hash, and compare the creation code after the deploy (transaction). Whether a build with Coinbase's settings reproduces Base's code hash is a read-only check.
+4. **The escrow on mainnet.** After Coinbase's two creation transactions are replayed (transaction), the code at both addresses equals the code on Base (read-only).
 5. **The refusals mined once on Sepolia** (transaction; the review's gate line G-4): status 0 and the predicted gas.
 6. **One fallback decision and one escalation decision on the Sepolia deployment that carries ADR-0032's rule** (transaction; its gate line BR-10), and the two header measurements it asks for (read-only; BR-3 and BR-6).
 7. **A deal's time on mainnet's rules.** Sepolia's 45 s is the closest figure there is; mainnet proposers build later in the slot than Sepolia's (ADR-0032 section 8). It is first measured by the test itself.
@@ -379,5 +393,5 @@ All fetched or called on 2026-11-11. Pages are undated unless a date is given.
 
 - **Not run:** any deal on any chain but the local EVM. Every figure for Base, Arbitrum One, OP Mainnet and Monad beyond block time, price and the verifier's answer is documented or inferred.
 - **One node per chain.** The read-only calls say what one public endpoint answered at one moment.
-- **Subagent summaries.** The published facts came through `web-fetch` subagents. Where a subagent read a page as a summary and not verbatim, it said so, and this note marks the fact unverified or cites the page with that caveat. A `reviewer` checks ten facts against their sources before this merges.
+- **Subagent summaries.** The published facts came through `web-fetch` subagents. Where a subagent read a page as a summary and not verbatim, it said so, and this note marks the fact unverified or cites the page with that caveat. A `reviewer` checked ten facts against their sources on 2026-11-11: nine confirmed, and one wrong and corrected (the fallback deal's gas). A `red-teamer` attacked the record the same day. ADR-0034 section 13 holds both results.
 - **Not read:** the audit reports' PDFs; Circle's contract source beyond the files named; the node software of any chain; the Base, Arbitrum and OP contracts on Ethereum.
