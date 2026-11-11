@@ -21,8 +21,12 @@ type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 export interface StubOptions {
   port?: number;
-  /** `ok`: a report the sample deal's checks accept. `missing-file`: it leaves out the last file in scope. */
-  report?: 'ok' | 'missing-file';
+  /**
+   * `ok`: a report the sample deal's checks accept. `missing-file`: it leaves out the last file in scope.
+   * `own-shape`: the `ok` report in a seller's own shape (fixtures/data/audit-report/seller-shape-a.report.json),
+   * which the adapter delivers only after a mapping converts it (T-323).
+   */
+  report?: 'ok' | 'missing-file' | 'own-shape';
   /** How many times the result answers 202 before the job is complete. Default 1. */
   pollsUntilComplete?: number;
   /** The token the stub prices in: the settlement layer's token ID. Default `tUSD`, SimChain's; on a chain, the token's address. */
@@ -47,9 +51,23 @@ export interface StubSellerApi {
 const BASE = 500_000_000n; // 500.00 tUSD
 const PER_LINE = 500_000n; // 0.50 tUSD
 const SAMPLE = new URL('../fixtures/data/audit-report/report.json', import.meta.url);
+const OWN_SHAPE = new URL('../fixtures/data/audit-report/seller-shape-a.report.json', import.meta.url);
+
+/** The seller's own shape of the same report, rewritten for a job's scope in the same way. */
+function ownShapeFor(scope: { commit: string; files: string[] }): Uint8Array {
+  const own = JSON.parse(readFileSync(OWN_SHAPE, 'utf8'));
+  const from: string[] = own.audit.inScope.map((f: J) => f.path);
+  const to = (file: string) => scope.files[Math.min(Math.max(from.indexOf(file), 0), scope.files.length - 1)];
+  own.audit.revision.sha = scope.commit;
+  own.audit.overview = `The review covered ${scope.files.length} files at the commit above and reports ${own.issues.length} findings.`;
+  own.audit.inScope = scope.files.map((path) => ({ path }));
+  for (const issue of own.issues) for (const place of issue.affected) place.path = to(place.path);
+  return new TextEncoder().encode(`${JSON.stringify(own, null, 2)}\n`);
+}
 
 /** The sample report rewritten for a job's scope: its commit, its files, and each finding's locations moved to files in scope. */
-function reportFor(scope: { commit: string; files: string[] }, kind: 'ok' | 'missing-file'): Uint8Array {
+function reportFor(scope: { commit: string; files: string[] }, kind: 'ok' | 'missing-file' | 'own-shape'): Uint8Array {
+  if (kind === 'own-shape') return ownShapeFor(scope);
   const sample = JSON.parse(readFileSync(SAMPLE, 'utf8'));
   const from: string[] = sample.filesReviewed;
   const to = (file: string) => scope.files[Math.min(Math.max(from.indexOf(file), 0), scope.files.length - 1)];
