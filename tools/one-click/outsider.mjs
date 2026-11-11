@@ -123,11 +123,21 @@ if (typeof orig === 'function') {
 const KEEP = ['HOME', 'SHELL', 'USER', 'LOGNAME', 'TMPDIR', 'LANG', 'LC_ALL', 'TERM', '__CF_USER_TEXT_ENCODING', 'NVM_DIR', 'NVM_BIN', 'NVM_INC', 'HOMEBREW_PREFIX', 'HOMEBREW_CELLAR', 'HOMEBREW_REPOSITORY', 'COMMAND_MODE'];
 const env = {};
 for (const k of KEEP) if (process.env[k] !== undefined) env[k] = process.env[k];
+// Claude Code drops NODE_OPTIONS from its commands' environment (measured in run s1), so a `node` wrapper on PATH
+// loads the fetch probe instead.
+writeFileSync(join(binDir, 'node'), `#!/bin/sh\nexec ${q1(process.execPath)} --import=${q1(preload)} "$@"\n`);
+chmodSync(join(binDir, 'node'), 0o755);
 env.PATH = `${binDir}:${process.env.PATH}`;
-env.NODE_OPTIONS = `--import=${preload}`;
-env.CLAUDE_AGENT_SDK_CLIENT_APP = 'crow-outsider-harness/0.1';
+env.CLAUDE_AGENT_SDK_CLIENT_APP = 'crow-outsider-harness/0.2';
 const workdir = mkdtempSync(join(tmpdir(), 'crow-outsider-'));
-const workdirs = [workdir, realpathSync(workdir)];
+// A fresh machine's own temporary folder and npm cache, both writable, instead of this session's.
+const agentTmp = join(probeDir, 'tmp');
+mkdirSync(join(agentTmp, 'npm-cache'), { recursive: true });
+env.TMPDIR = agentTmp;
+env.npm_config_cache = join(agentTmp, 'npm-cache');
+// Inside the sandbox all traffic goes through its proxy; Node's fetch uses it only with this flag (run s1).
+if (args.sandbox) env.NODE_USE_ENV_PROXY = '1';
+const workdirs = [workdir, realpathSync(workdir), agentTmp, realpathSync(agentTmp)];
 
 // --- --sandbox: Claude Code's OS sandbox around every Bash command. Writes only in the agent's folder and the
 // probes' folder; no reads of this user's own folders; network only to Crow, npm and Sepolia hosts. Bash is not
@@ -140,7 +150,7 @@ const sandbox = args.sandbox
       autoAllowBashIfSandboxed: false,
       allowUnsandboxedCommands: false,
       filesystem: {
-        allowWrite: [...workdirs, probeDir, realpathSync(probeDir)],
+        allowWrite: [...new Set([...workdirs, probeDir, realpathSync(probeDir)])],
         denyRead: [join(HOME, 'Documents'), join(HOME, 'Desktop'), join(HOME, 'Downloads'), join(HOME, '.ssh'), join(HOME, '.aws'), join(HOME, '.config'), join(HOME, '.claude'), join(HOME, 'Library/Keychains'), join(HOME, 'Library/Application Support'), join(HOME, 'crow-costs-private'), join(HOME, 'crow-costs'), join(HOME, 'crow-data')],
       },
       network: {
@@ -202,6 +212,7 @@ const texts = [];
 const effortSeen = new Set();
 let init = null;
 let lastResult = null;
+const resultMsgs = [];
 let results = 0;
 let replies = 0;
 let backgroundStarted = 0;
@@ -322,6 +333,7 @@ try {
     } else if (msg.type === 'result') {
       results += 1;
       lastResult = msg;
+      resultMsgs.push(msg);
       note(`turn ended (${msg.subtype}), cost so far USD ${msg.total_cost_usd}`);
       if (msg.is_error) book.errors.push(`result ${String(msg.subtype).slice(0, 60)}`);
       if (finished || msg.is_error) break;
@@ -355,13 +367,26 @@ try {
 }
 const wallMs = at();
 
-// --- Tokens: one entry per API message, the last usage seen for its id.
-const tokens = { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, messages: usageById.size };
-for (const u of usageById.values()) {
-  tokens.input += u.input_tokens ?? 0;
-  tokens.output += u.output_tokens ?? 0;
-  tokens.cacheCreation += u.cache_creation_input_tokens ?? 0;
-  tokens.cacheRead += u.cache_read_input_tokens ?? 0;
+// --- Tokens: from the result messages' modelUsage, every model summed (the streamed assistant messages carry only
+// partial output counts, measured in run s1). Each result reports its own turn.
+const tokens = { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, messages: usageById.size, byModel: {}, perResult: [] };
+for (const r of resultMsgs) {
+  const turn = {};
+  for (const [model, u] of Object.entries(r.modelUsage ?? {})) {
+    const m = (tokens.byModel[model] ??= { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 });
+    m.input += u.inputTokens ?? 0;
+    m.output += u.outputTokens ?? 0;
+    m.cacheCreation += u.cacheCreationInputTokens ?? 0;
+    m.cacheRead += u.cacheReadInputTokens ?? 0;
+    turn[model] = { input: u.inputTokens, output: u.outputTokens, cacheCreation: u.cacheCreationInputTokens, cacheRead: u.cacheReadInputTokens };
+  }
+  tokens.perResult.push(turn);
+}
+for (const m of Object.values(tokens.byModel)) {
+  tokens.input += m.input;
+  tokens.output += m.output;
+  tokens.cacheCreation += m.cacheCreation;
+  tokens.cacheRead += m.cacheRead;
 }
 tokens.total = tokens.input + tokens.output + tokens.cacheCreation + tokens.cacheRead;
 
