@@ -541,6 +541,36 @@ No Critical, High or Medium finding. None moves money outside what the parties s
 
 Confirmed and unchanged from the plan, with no new severity: IS-1 (reservations exist only as flag bits; class I08 and invariant 1), IS-3 (L06, L32 and L37 each have more than one cause), IS-4 (section 7), IS-5 (section 6.3), IS-6 (section 5.2), IS-11 (section 5.3).
 
+## 12. A deal with price 0
+
+**A deal with price 0 and a fee above 0 settles correctly in every outcome, and its word matches section 2's rows.** The maintainer decided on 2026-11-11 that the contract keeps a price of 0 (SC-5 does not refuse it: other terms, or a future oracle state, can carry the deal's value). [`ZeroPrice.t.sol`](../../contracts/test/unit/ZeroPrice.t.sol) (T-345) takes such a deal, `P = 0`, `F = 500,000` base units, through every outcome. Each test checks the escrow's record and token store, every party's balance, the word against its row, and the full ordered list of events from the rules contract, the escrow and the vault. All 21 tests pass on `main` and on the lane `contracts-audit-ready` at `b88f9e5` [measured].
+
+| Outcome | Row | Fee goes to | Seller gets | Buyer gets back | Test |
+| --- | --- | --- | --- | --- | --- |
+| Funding | L03 | (held) | – | – | `test_fund_holdsTheFeeOnly` |
+| The primary accepts | L07 | the primary, `F` | 0 | 0 | `test_release_primaryAccepts_feeToPrimary_zeroToSeller` |
+| The primary rejects | L08 | the primary, `F` | 0 | 0 | `test_refund_primaryRejects_feeToPrimary_zeroToBuyer` |
+| The fallback accepts | L09 | the fallback, `F` | 0 | 0 | `test_release_fallbackAccepts_feeToFallback_zeroToSeller` |
+| The fallback rejects | L10 | the fallback, `F` | 0 | 0 | `test_refund_fallbackRejects_feeToFallback_zeroToBuyer` |
+| An escalation accepted | L31 | the appeal adjudicator, `F` | 0 | 0 | `test_escalation_accepted_feeToAppealAdjudicator_zeroToSeller`; escalated by the fallback: `test_escalation_byTheFallback_thenAccepted_feeToAppealAdjudicator` |
+| An escalation rejected | L32 | the appeal adjudicator, `F` | 0 | 0 | `test_escalation_rejected_feeToAppealAdjudicator_zeroToBuyer` |
+| Default, the fallback silent | L32 | nobody | 0 | `F` | `test_default_fallbackMissesFallbackBy_feeBackToBuyer` |
+| Default, an escalation undecided | L32 | nobody | 0 | `F` | `test_default_escalationUndecided_feeBackToBuyer` |
+| Default after the buyer's own reclaim on the escrow (5.2) | L32 | nobody | 0 | `F`, by the escrow's reclaim; the default moves nothing and emits no `Refunded` | `test_default_afterTheBuyersOwnEscrowReclaim_closesWithoutRefundEvent` |
+| Early accept | L33 | nobody | 0 | `F` | from Held: `test_earlyAccept_carryingTheDelivery_feeBackToBuyer_zeroToSeller`; after `deliver`: `test_earlyAccept_afterDelivery_feeBackToBuyer_zeroToSeller` |
+| Reclaim | L34 | nobody | 0 | `F` | `test_reclaim_afterMissedDeliverBy_feeBackToBuyer` |
+| Mutual settlement | L35, L36, L37 | nobody | 0 | `F` | `test_mutual_beforeDelivery_emptyPayouts_feeBackToBuyer`, `test_mutual_afterDelivery_releasesTheKey_feeBackToBuyer`, `test_mutual_duringFallback_feeBackToBuyer`, `test_mutual_duringEscalation_feeBackToBuyer` |
+
+What the tests showed that sections 2 to 11 do not say [measured by the tests]:
+
+- **A decision takes the whole hold as a fee.** An accept or a reject is one capture of `F` with fee `F` to the decider (`R:351`, `R:356`), and the escrow sends nothing to the seller (`E:471`). A reject makes no void, because nothing is left (`R:357`). Section 5.1 holds with `P = 0`: refundable is `F` after a decision and 0 after every other exit.
+- **Events report zero amounts.** Every accept emits `PaymentReleased(seller, 0)` (`R:353`, `R:415`), and every reject emits `Refunded(buyer, 0)` (`R:359`). `JobFunded` reports the hold, `F`, not the price (`R:217`). An indexer must not read these events as payments.
+- **The vault reserves and releases 0.** Funding emits `BondEncumbered(primary, 0)`, the fallback's decision `BondEncumbered(fallback, 0)`, and each release `BondReleased(·, 0)`. The check `bondReserved ≥ P` (`R:205`) always passes. A primary with no bond deposited agrees, decides and collects the fee (`test_fund_anUnbondedPrimaryServesAndCollectsTheFee`). These leave with SC-7.
+- **A settlement can pay nobody but the buyer.** The payouts must sum to 0 (`R:477`) and each must be above 0 (`R:466`), so only an empty list settles, and the fee goes back to the buyer (`test_mutual_refusesAnyPayout`).
+- **Section 9 is out of date on this point.** Sections 9.1, 9.5 (the SC-5 row, "`H > 0` becomes `P > 0`") and Appendix A still list a zero price among SC-5's refusals. The maintainer's decision supersedes them: with SC-5, `H > 0` stays the funding condition.
+
+**Price 0 with fee 0 cannot be funded today.** The hold `H` is 0, and the escrow refuses to authorize 0 with `ZeroAmount()` (`E:179`) whichever collector funds it. The revert undoes the whole call: the word stays L01, the escrow records nothing, and no token moves. The offer can only expire (L02). Core has no such check, so it would fund these terms [inferred: no zero check in `packages/core/src/state.ts`; not tested here]. After SC-6 removes `expireOffer`, such terms leave no trace on chain. Whether they should be supported is the maintainer's question (`test_zeroPriceZeroFee_cannotFund_escrowRefusesZeroAmount`).
+
 ## Appendix A. What phase one cuts
 
 Each cut is deliberate. The full protocol keeps these features; SimChain stays its reference.
