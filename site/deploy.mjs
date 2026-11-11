@@ -2,7 +2,8 @@
 // (T-313), so a site deploy is one command with a rollback. Deploys wait for Rafa.
 //   1. pre-flight (scripts/deploy-lib.mjs): refuse, with exit code 2, a checkout whose tracked files differ from its
 //      commit, or one that lacks origin/main's commits after a fresh fetch;
-//   2. build the site with the two crow.direct operators into reports/site-out;
+//   2. empty reports/site-out, then build the site with the two crow.direct operators into it: wrangler uploads the
+//      whole folder, so a file left from an older build would be published under this commit's name;
 //   3. run site/check.mjs. When the build or the check fails, nothing is uploaded;
 //   4. read crow-site's live version: its rollback target. When wrangler cannot say, nothing is uploaded;
 //   5. upload with `wrangler deploy`;
@@ -14,7 +15,7 @@
 // the repository). The run takes its shell, network and clock as arguments, so a test runs every path with stand-ins
 // (tests/site-deploy.test.ts).
 import { createHash } from 'node:crypto';
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync, realpathSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { checkout, liveVersion, recordLine, rollback, sh } from '../scripts/deploy-lib.mjs';
 import { SITE_URL, TRY_URL, trySha256 } from './build.mjs';
@@ -54,16 +55,17 @@ export function siteProblem({ home, llms, tryMjs }, built) {
  *   args: string[],
  *   sh: (cmd: string, args: string[], o?: { show?: boolean, env?: Record<string, string>, timeoutMs?: number }) => Promise<{ code: number | null, stdout: string, out: string }>,
  *   probe: (url: string, timeoutMs: number) => Promise<Answer>,
+ *   clean: () => void,
  *   built: () => { llms: Buffer, trySha256: string },
  *   sleep: (ms: number) => Promise<void>,
  *   now: () => number,
  *   log: (line: string) => void,
  *   error: (line: string) => void,
- * }} effects `args` are the command line's, and any one refuses the deploy; `built` reads what the build made, after
+ * }} effects `args` are the command line's, and any one refuses the deploy; `clean` empties the output folder; `built` reads what the build made, after
  *   the build and the check.
  * @returns {Promise<number>} the exit code: 0 on a pass, 1 on a failure, 2 on a refusal before the build.
  */
-export async function deploy({ args, sh, probe, built, sleep, now, log, error }) {
+export async function deploy({ args, sh, probe, clean, built, sleep, now, log, error }) {
   if (args.length > 0) {
     error(`Refused: ${COMMAND} takes no arguments (got ${args.join(' ')}), and it deploys for real.`);
     return 2;
@@ -80,6 +82,7 @@ export async function deploy({ args, sh, probe, built, sleep, now, log, error })
   let before = null, version = null, uploaded = false, failure = null, rolledBack;
 
   try {
+    clean();
     if ((await sh(process.execPath, ['site/build.mjs', '--op1', OPERATORS[0], '--op2', OPERATORS[1], '--out', OUT])).code !== 0) fail('the build failed, so nothing was uploaded');
     if ((await sh(process.execPath, ['site/check.mjs'])).code !== 0) fail('site/check.mjs failed, so nothing was uploaded');
     const expected = built();
@@ -133,6 +136,7 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
       args: process.argv.slice(2),
       sh,
       probe,
+      clean: () => rmSync(new URL(`../${OUT}`, import.meta.url), { recursive: true, force: true }),
       built: () => ({ llms: readFileSync(new URL(`../${OUT}/llms.txt`, import.meta.url)), trySha256: trySha256() }),
       sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
       now: Date.now,
