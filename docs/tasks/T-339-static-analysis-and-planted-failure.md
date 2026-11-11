@@ -5,7 +5,7 @@
 - **Depends on:** the contract review at `baac930` (`docs/reviews/2026-11-03-contract-review.md` §4); T-241 (its open part: a planted failing contract test fails the run)
 - **Paths this task may touch:** `docs/reviews/2026-11-11-static-analysis.md` (new), this task file. Outside the PR: one throwaway branch `t-339-planted-failure` with `contracts/test/unit/PlantedFailure.t.sol`, opened as a draft PR, then closed and deleted.
 - **Human gate:** no for the report and the planted-failure run. Installing Aderyn is a download, so it waits on Rafa.
-- **Status:** in progress
+- **Status:** review
 - **Agent/session:** implementer, pilot plan package C1e
 
 ## Intent
@@ -27,10 +27,10 @@ Non-goals:
 
 ## Acceptance criteria
 
-- [ ] Slither runs over the worktree's `contracts/` at HEAD with `--filter-paths "lib/|test/|script/"`; the raw output is saved in `reports/scratch/t-339-slither.txt`.
-- [ ] `docs/reviews/2026-11-11-static-analysis.md` gives the tool version, the command, the commit, the counts by severity, a triage of every high and medium result (defect, known with ID, or dismissed with reason), the low and informational results by detector, the diff from `baac930`, and what waits (Aderyn, with the install command).
-- [ ] A draft PR with one failing forge test runs CI; the `contracts (forge test)` job and the required `check` job fail; the run ID, the jobs and the failing line are recorded as measured.
-- [ ] The draft PR is closed, its remote and local branch deleted, and its extra worktree removed.
+- [x] Slither runs over the worktree's `contracts/` at HEAD with `--filter-paths "lib/|test/|script/"`; the raw output is saved in `reports/scratch/t-339-slither.txt`.
+- [x] `docs/reviews/2026-11-11-static-analysis.md` gives the tool version, the command, the commit, the counts by severity, a triage of every high and medium result (defect, known with ID, or dismissed with reason), the low and informational results by detector, the diff from `baac930`, and what waits (Aderyn, with the install command).
+- [x] A draft PR with one failing forge test runs CI; the `contracts (forge test)` job and the required `check` job fail; the run ID, the jobs and the failing line are recorded as measured.
+- [x] The draft PR is closed, its remote and local branch deleted, and its extra worktree removed.
 
 ## Out of scope
 
@@ -42,9 +42,25 @@ Non-goals:
 Fill this in before review. Label each item measured, inferred or guessed.
 
 - Commands run and results:
-- Snapshot diffs:
-- Metrics:
+  - `slither <worktree>/contracts --filter-paths "lib/|test/|script/" --json reports/scratch/t-339-slither.json`, Slither 0.11.6 at `1430f77`: 78 results, 1 high, 17 medium, 40 low, 20 informational, over 24 contracts with 102 detectors [measured]. Raw output in `reports/scratch/t-339-slither.txt` (409 lines) [measured].
+  - Triage: no defect. The high (`arbitrary-send-erc20`, `HoldbackBonds.sol:101`) is dismissed: the `from` is the appellant whose signature `fileAppeal` checks. Of the 17 mediums, 1 is known as I-2 and 16 are dismissed with the code that shows it (report §3) [inferred from reading the code].
+  - Diff from `baac930` (77 results): `reentrancy-no-eth` is gone (removed by `f685f09`, T-206 M-3); one new `incorrect-equality` at `HoldbackRules.sol:283` (`f2b28c1`) and one new `unused-return` at `:606` (`99dc47e`); the low and informational counts are unchanged [measured].
+  - Planted failure: draft PR #322, CI run `43078620034`. `contracts (forge test)` failed with `[FAIL: T-339 planted failure: CI must fail on this] test_plantedFailure() (gas: 3513)` and `248 tests passed, 1 failed, 0 skipped (249 total tests)`; the required `check` failed on `contracts=failure`; every other job passed [measured]. PR #322 is closed unmerged and its branches and worktree are gone [measured].
+  - Local checks: none for kind 2 (`docs/team.md`, Change recipes); CI is the gate.
+  - `git diff --stat origin/main -- contracts/src` prints nothing [measured].
+- Snapshot diffs: none.
+- Metrics: the CI run took about 11 minutes from push to the `check` result; `contracts (forge test)` took 3 min 37 s [measured].
 
 ## Decisions
 
+- Slither ran with the `baac930` filter (`--filter-paths "lib/|test/|script/"`) so the two runs compare one to one; the JSON output gave the counts by detector.
+- A result that cannot do harm at its location is "dismissed" with the code that shows it, not "accepted": no result is a risk the project chose to carry. S-17 is "known: I-2", since I-2 already records that dead branch.
+- The report proposes one known-issues row (G-7, Aderyn not run at HEAD) for the coordinator, and no row per Slither result.
+- The planted test asserts `false` with a message naming T-339, so the failing line in the log names its task.
+
 ## Handoff
+
+- Done: the Slither run, the triage, the diff from `baac930`, and the planted-failure run (report §7).
+- Not done: Aderyn. It waits on Rafa's OK to install; the report's §6 gives the install and run commands. After it runs, add its results to the report's tables and triage its highs.
+- For the coordinator: add row G-7 to `docs/audit/known-issues.md` §6 (text in the report's §6).
+- For T-334's lane: no defect. When `contracts-audit-ready` lands, S-17 should disappear with the dead fee-share branch, and a re-run should show 16 medium [inferred].
