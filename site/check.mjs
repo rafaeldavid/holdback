@@ -50,9 +50,10 @@ expect((md.match(/\{\{[^}]*\}\}/g) ?? []).every((p) => ['{{OP1}}', '{{OP2}}', '{
 // path does not count (CodeQL js/incomplete-url-substring-sanitization).
 const mdLinks = (md.match(/https:\/\/[^\s<)]+[^\s<).,;:]/g) ?? []).filter((u) => URL.canParse(u)).map((u) => new URL(u));
 expect(mdLinks.some((u) => u.host === 'github.com' && u.pathname === '/rafaeldavid/holdback'), 'llms.txt links the public repo (optional reading)');
-// The landing page (Rafa's mock, D56): the bird, the mark, the tagline, the headline, the lede, early access, the
-// six features, the footer, then one quiet line with the Try prompt and the agent docs.
-expect(!/\{\{/.test(html) && /<img class="bird" src="\/crow\.png"[^>]*>\s*<div class="mark">[^<]+<\/div>\s*<p class="tag">[^<]+<\/p>\s*<h1>\s*<span class="sr">[^<]+<\/span>[\s\S]*?<\/h1>\s*<p class="lede">[^<]+<\/p>\s*<form class="signup" id="join-form"[\s\S]*?<\/form>\s*<section class="grid"[^>]*>(\s*<div class="cell">[\s\S]*?<\/div>){6}\s*<\/section>\s*<p class="ft">[^<]+<\/p>\s*<p class="ft fine">[\s\S]*?<a href="\/llms\.txt">[^<]+<\/a><\/p>[\s\S]*<\/main>/.test(html), 'index.html must be the bird, the mark, the tagline, the headline, the lede, early access, six features, the footer and the agent docs link');
+// The landing page (Rafa's mock, D56, in the layout of 2026-11-11): the brand (the bird, the mark, the tagline), the
+// claim (the headline, the lede, early access), the six value props, each with a study and a dot, then the footer:
+// one quiet line with the Try prompt and the agent docs.
+expect(!/\{\{/.test(html) && /<header class="brand">[\s\S]*?<img class="bird" src="\/crow\.png"[^>]*>\s*<div class="mark">[^<]+<\/div>\s*<p class="tag">[^<]+<\/p>\s*<\/header>\s*<section class="claim">\s*<h1>\s*<span class="sr">[^<]+<\/span>[\s\S]*?<\/h1>\s*<p class="lede">[^<]+<\/p>\s*<form class="signup" id="join-form"[\s\S]*?<\/form>\s*<\/section>\s*<section class="props"[^>]*>\s*<div class="stage">(\s*<div class="prop[^>]*><svg class="study"[\s\S]*?<\/svg><h2>[\s\S]*?<\/h2><p>[^<]+<\/p><\/div>){6}\s*<\/div>\s*<div class="dots"[^>]*>(<button type="button" aria-label="[^"]+"[^>]*><\/button>){6}<\/div>\s*<\/section>\s*<footer class="foot">\s*<p>[^<]+<\/p>\s*<p>[\s\S]*?<a href="\/llms\.txt">[^<]+<\/a><\/p>[\s\S]*<\/footer>\s*<\/main>/.test(html), 'index.html must be the brand, the claim with early access, six value props each with a study and a dot, the footer and the agent docs link');
 expect(!/%%|CONFIRM/.test(html) && !/^%% /m.test(strip(md)), 'an editor note reached index.html');
 expect(!/127\.0\.0\.1|localhost/.test(md + html), 'a local address is in the site');
 const sample = { op1: 'https://op1.example.workers.dev', op2: 'https://op2.example.workers.dev' };
