@@ -6,7 +6,7 @@
 - **Depends on:** T-317 (the template, PR 273), T-316 (the seller's check runner, PR 278), T-318 (the seller adapter and its stub, PR 284)
 - **Paths this task may touch:** `fixtures/terms/audit-report.yaml`, `fixtures/terms/audit-report-rubric.yaml`, `fixtures/data/audit-report/`, `fixtures/scenarios/audit-report-*`, `fixtures/recordings/audit-report-rubric-accepted/`, `fixtures/README.md` (the terms table), `spec/examples/commitment.audit-report.example.json`, `examples/seller-adapter.template.json`, `examples/seller-adapter-stub.ts`, `examples/seller-adapter.test.ts` and `examples/check-delivery.test.ts` (only where they read the template), `packages/judgment/src/preflight.test.ts` (only its edits of the sample report), `site/llms.txt`, `site/index.html` (only if the build regenerates it), `tests/audit-report-template.test.ts`, this file. Never: `spec/schemas/`, `packages/judgment/src/checks/`.
 - **Human gate:** no. The site deploy that publishes the changed `llms.txt` section waits for Rafa.
-- **Status:** review
+- **Status:** done (PR 287, merged 2026-11-11)
 - **Agent/session:** the T-320 and T-321 session, 2026-11-11, branch `t-320-audit-template-fit`
 
 ## Intent
