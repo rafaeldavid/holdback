@@ -45,17 +45,17 @@ Rafa asked on 2026-11-11 for the audit-report template (T-317) to accept reports
 
 ## Acceptance criteria
 
-- [ ] `fixtures/terms/audit-report.yaml` loads through the testkit, and every check passes `validateCheck`.
-- [ ] A finding with two locations passes. A location with a file only passes. A finding with no location fails `report`. A location whose file is outside the scope fails `scope`, whichever location it is.
-- [ ] A Medium finding without proof-of-concept files fails `proof` and only `proof`. With the threshold moved to High the same report passes. With the `proof` check removed a Critical finding without proof passes.
-- [ ] A finding without `impact` passes. A report with `summary` and `reportDate` passes, and so does one without them. A finding with `status` open, fixed or acknowledged passes; another status fails `report`.
-- [ ] A report with no findings passes all five checks. The agreed files in another order pass. A missing file fails `coverage` and only `coverage`.
-- [ ] `pnpm snap` passes: `audit-report-accepted` and `audit-report-reordered` end Released, `audit-report-missing-file` ends Refunded, and the new `audit-report-rubric-accepted` runs the panel and ends Released.
-- [ ] `spec/examples/commitment.audit-report.example.json` passes `pnpm validate:spec`, and its `id` is the commitment ID of its body.
-- [ ] `examples/seller-adapter.template.json`, filled with the sample scope, equals the terms file's acceptance block; the stub's report passes the checks (the adapter's own tests).
-- [ ] `site/llms.txt`, "Writing checks for a report", shows the locations recipe and the proof term; each recipe is a check the interpreter accepts (test). `node site/build.mjs && node site/check.mjs` passes.
-- [ ] `spec/schemas/` is unchanged.
-- [ ] No name of a customer, design partner or audit firm appears in the change.
+- [x] `fixtures/terms/audit-report.yaml` loads through the testkit, and every check passes `validateCheck`.
+- [x] A finding with two locations passes. A location with a file only passes. A finding with no location fails `report`. A location whose file is outside the scope fails `scope`, whichever location it is.
+- [x] A Medium finding without proof-of-concept files fails `proof` and only `proof`. With the threshold moved to High the same report passes. With the `proof` check removed a Critical finding without proof passes.
+- [x] A finding without `impact` passes. A report with `summary` and `reportDate` passes, and so does one without them. A finding with `status` open, fixed or acknowledged passes; another status fails `report`.
+- [x] A report with no findings passes all five checks. The agreed files in another order pass. A missing file fails `coverage` and only `coverage`.
+- [x] `pnpm snap` passes: `audit-report-accepted` and `audit-report-reordered` end Released, `audit-report-missing-file` ends Refunded, and the new `audit-report-rubric-accepted` runs the panel and ends Released.
+- [x] `spec/examples/commitment.audit-report.example.json` passes `pnpm validate:spec`, and its `id` is the commitment ID of its body.
+- [x] `examples/seller-adapter.template.json`, filled with the sample scope, equals the terms file's acceptance block; the stub's report passes the checks (the adapter's own tests).
+- [x] `site/llms.txt`, "Writing checks for a report", shows the locations recipe and the proof term; each recipe is a check the interpreter accepts (test). `node site/build.mjs && node site/check.mjs` passes.
+- [x] `spec/schemas/` is unchanged.
+- [x] No name of a customer, design partner or audit firm appears in the change.
 
 ## Out of scope
 
