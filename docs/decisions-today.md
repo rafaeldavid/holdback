@@ -1026,7 +1026,7 @@ The full text is kept privately (`docs/private-materials.md`).
 
 - **The chain of the test is Ethereum mainnet, by Rafa's decision** of 2026-11-11: "Assume Ethereum Mainnet first, we will deploy on L2 after we figure out it works on the primary industry standard" (D59). Nothing there blocks the test:
   - no single party can delay a deal: any block proposer can include a step;
-  - one deal's three transactions cost about USD 0.21 at the base fee of 2026-11-11, 0.23 gwei, against the earlier estimate of about USD 18.70 [measured: 448,160 gas on the local EVM, the price by read-only call]. At 1% of the price for gas, the smallest deal that makes sense is about USD 20 today and about USD 240 at the month's sampled peak;
+  - one deal's three transactions cost about USD 0.21 at the base fee of 2026-11-11, 0.23 gwei, against the earlier estimate of about USD 18.68 (`docs/plan.md`, at 2026-11-05's prices, on Sepolia's gas) [measured: 448,160 gas on the local EVM, the price by read-only call]. At 1% of the price for gas, the smallest deal that makes sense is about USD 20 today and about USD 240 at the month's sampled peak;
   - the EIP-2537 precompiles are live on mainnet since 2025-05-07, and the drand verifier's code returns a real round's value there under the Fusaka fork, at 219,232 gas a transaction [measured by read-only call];
   - native USDC has ERC-3009, and contract signers work.
 - **What it costs.**
@@ -1034,7 +1034,7 @@ The full text is kept privately (`docs/private-materials.md`).
   - Crow deploys its own copy of the escrow: no deployment was found on Ethereum mainnet [measured at the two published addresses].
   - Sepolia has run the next fork since 2026-10-06 and mainnet has no date for it, so Sepolia's gas and slot timing do not carry.
 - **For the later L2 step, Base is recommended and Arbitrum One is the runner-up.** The choice stays Rafa's.
-  - It makes a block every 200 ms since 2026-11-05 [measured].
+  - It makes a block every 200 ms since 2026-11-05 [documented and measured].
   - Its fee is about USD 0.006 a deal [measured].
   - It alone has the audited escrow deployed: `AuthCaptureEscrow` version 1.1.0 at `0xf96815976523E00e65Be8f34cA5e64b4f41EB19c`, whose verified source equals the vendored file byte for byte [measured]. The address in the vendored README, `0xBdEA…0cff`, is version 1.0.0 and must not be used.
   - Its costs: one sequencer that can delay a step by up to 12 hours, two halts in June 2026, upgrades with no delay, one node client, and block times that lagged real time by about two hours after a halt.

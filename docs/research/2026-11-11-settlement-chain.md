@@ -29,12 +29,12 @@
 - **Arbitrum One** is the runner-up: as fast, with the verifier passing since 2026-01-08 and a delay on upgrades that are not emergencies. It has no escrow deployment, a 24-hour forced-inclusion delay, and a sequencer that sets block times within wide bounds.
 - **OP Mainnet** is third: the same shape as Base at 2 s a block, with no escrow deployment.
 - **Monad is not an L2 and is the one to look at again:** no sequencer and finality in 600 ms, with its validator count, client count and incident record unverified.
-- **What a move to Base changes:** the escrow becomes an existing deployment, the beacon's margin is derived anew, the operators' log sync and confirmation stages change, and the sequencer becomes a named control point (sections 7, 9 and 11; ADR-0034 section 9.3).
+- **What a move to Base changes:** the escrow becomes an existing deployment, the beacon's margin is derived anew, the operators' log sync and confirmation stages change, and the sequencer becomes a named control point (sections 7, 9 and 11; ADR-0034 section 9.4).
 
 ### 1.3 The five findings behind both halves
 
 1. **The verifier works on every serious candidate** [measured]. The deployed beacon's code, run by read-only call with a state override, returns drand round 1000's value on Ethereum, Base, Base Sepolia, Arbitrum One, OP Mainnet, Unichain, Monad, Linea and Arc. It refuses on Polygon PoS and Avalanche C-Chain (section 5).
-2. **Fees no longer separate Ethereum from the rest at today's prices.** One deal's three transactions cost about USD 0.21 on Ethereum and about USD 0.006 on Base on 2026-11-11 [measured gas and prices; section 4]. The earlier figure of about USD 18.70 a deal on Ethereum does not hold at today's base fee of 0.23 gwei. Ethereum's fee is the volatile one.
+2. **Fees no longer separate Ethereum from the rest at today's prices.** One deal's three transactions cost about USD 0.21 on Ethereum and about USD 0.006 on Base on 2026-11-11 [measured gas and prices; section 4]. The earlier figure, about USD 18.68 a deal on Ethereum "at 2026-11-05's prices" (`docs/plan.md`, Phase 2's exit criteria), rested on two inputs that both differ: Sepolia's gas of 1,261,428 gas a deal, which is 2.8 times the gas under mainnet's rules, and a gas price near 7 gwei [inferred by arithmetic; that price was not reproduced here]. Ethereum's fee is the volatile one.
 3. **Ethereum cannot settle in seconds, and no scheduled fork changes that.** A slot is 12 s [documented], so three money steps take 36 s or more of chain time; Sepolia measured 45 s for a direct deal. Base makes a block every 200 ms since 2026-11-05 [documented and measured], Arbitrum One every 250 ms, Monad every 300 ms.
 4. **Base is the one chain where the audited escrow is already deployed** [measured]. The `AuthCaptureEscrow` at `0xf96815976523E00e65Be8f34cA5e64b4f41EB19c` on Base is version 1.1.0, and its verified source equals the vendored file byte for byte. The address in the vendored README, `0xBdEA…0cff`, is version 1.0.0, which has the older fee interface (section 7).
 5. **Every fast chain but Monad has one sequencer.** On Base, Arbitrum One and OP Mainnet a single operator orders transactions. A user can force a transaction through Ethereum, within 12 hours on Base and OP Mainnet and 24 hours on Arbitrum One [documented]. Base halted twice in June 2026, for 116 and 20 minutes [documented]. Monad has no sequencer and finalizes in 600 ms, and too much about it is unverified today (section 9).
@@ -117,9 +117,9 @@ The judgment itself is not chain time. A panel of models answers in seconds to m
 | `decide(accept)` after an on-chain delivery | 130,631 gas |
 | **Three steps, as the demo runs them** | **448,160 gas** |
 | `decide(accept)` that carries the delivery (two steps in all) | 163,783 gas; the deal is 397,777 gas |
-| A fallback `decide` with the drand proof | 328,630 gas; the deal is 562,648 gas |
+| A fallback `decide` with the drand proof | 328,630 gas. The deal has four transactions and is 698,528 gas: `agreeAndFund` 234,018 gas, `deliver` 83,535 gas, `triggerFallback` 52,345 gas and the decision |
 
-Fusaka's rules, which Ethereum mainnet and Base both run, price MODEXP higher than Prague's (EIP-7883). That touches only the drand proof: one `beaconValue` transaction is estimated at **219,232 gas** on Ethereum mainnet and on Base, the same figure on both, and 219,980 gas on Arbitrum One [measured: `eth_estimateGas` with a state override, 2026-11-11]. The verifier review derived about 58,438 gas more per proof under Fusaka than under Prague.
+Fusaka's rules, which Ethereum mainnet and Base both run, price MODEXP higher than Prague's (EIP-7883). That touches only the drand proof: one `beaconValue` transaction is estimated at **219,232 gas** on Ethereum mainnet and on Base, the same figure on both, and 219,980 gas on Arbitrum One [measured: `eth_estimateGas` with a state override, 2026-11-11]. Arbitrum One's figure moves with the price of Ethereum data: the reviewer's call half an hour later read 220,897 gas. The verifier review derived about 58,438 gas more per proof under Fusaka than under Prague.
 
 **Prices on 2026-11-11, about 20:59 UTC** [measured, read-only RPC]:
 
@@ -131,7 +131,7 @@ Fusaka's rules, which Ethereum mainnet and Base both run, price MODEXP higher th
 | OP Mainnet | `eth_gasPrice` 0.001 gwei | about USD 0.001, plus a data fee not measured |
 | Monad | `eth_gasPrice` 102 gwei of MON; MON at USD 0.0168 | about USD 0.001. Monad charges the gas limit, not the gas used [documented] |
 
-ETH was USD 2,079.59 and MON USD 0.0168 (Coinbase spot price API, 2026-11-11 20:59 UTC) [measured].
+ETH was USD 2,079.59 and MON USD 0.0168 (Coinbase spot price API, 2026-11-11 20:59 UTC) [measured]. The Ethereum figure errs high: block 26,394,228's base fee sat above the 90th percentile of its window. At that window's median, 0.152 gwei, the deal costs about USD 0.14.
 
 **Ethereum's fee is the volatile one.** `eth_feeHistory` over five windows of 1,024 blocks, about 3.4 hours each, between 2026-10-12 and 2026-11-11 [measured: publicnode and dRPC]:
 
@@ -203,7 +203,7 @@ No candidate needs an alternative today.
 | Base Sepolia (Circle's test USDC) | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
 | Ethereum Sepolia (Circle's test USDC) | `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` |
 
-**ERC-3009.** FiatToken added `transferWithAuthorization` in version 2.0.0 (2020-07-30) and `receiveWithAuthorization` in 2.1.0 (2021-02-17). Version 2.2 (2023-11-09) added "ERC-1271 signature validation support to EIP-2612 and EIP-3009 functions", and its functions take the signature as `bytes` [documented: circlefin/stablecoin-evm, `CHANGELOG.md` and `FiatTokenV2_2.sol`]. On Base the token answers `version()` with "2" and exposes `RECEIVE_WITH_AUTHORIZATION_TYPEHASH` [measured]. That the Base token runs 2.2's `bytes` overload was not called [unverified; it is a test for the building task, as ADR-0031 section 3 already says]. The Commerce Payments ERC-3009 collector calls `receiveWithAuthorization` with the signature as bytes.
+**ERC-3009.** FiatToken added `transferWithAuthorization` in version 2.0.0 (2020-07-30) and `receiveWithAuthorization` in 2.1.0 (2021-02-17). Version 2.2 (2023-11-09) added "ERC-1271 signature validation support to EIP-2612 and EIP-3009 functions", and its functions take the signature as `bytes` [documented: circlefin/stablecoin-evm, `CHANGELOG.md` and `FiatTokenV2_2.sol`]. On Ethereum mainnet and on Base the token answers `version()` with "2", and on Base it exposes `RECEIVE_WITH_AUTHORIZATION_TYPEHASH` [measured]. That the Base token runs 2.2's `bytes` overload was not called [unverified; it is a test for the building task, as ADR-0031 section 3 already says]. The Commerce Payments ERC-3009 collector calls `receiveWithAuthorization` with the signature as bytes.
 
 **Who can freeze it.** Token-issuer risk is out of scope as a finding (Rafa, 2026-11-03); these are the facts.
 
@@ -270,13 +270,13 @@ The neutrality test (ADR-0001): no single party can stop a valid commitment from
 | The path around a censor | The next proposer. Inclusion lists (EIP-7805) are a Draft, placed after Glamsterdam [documented] | A deposit to `OptimismPortal` on Ethereum (`0x49048044D57e1C92A77f79988d21Fa8fAF74E97e`), included within the sequencing window of 3,600 Ethereum blocks, "about 12 hours"; "typically within 3 minutes" when the sequencer cooperates [documented] | The delayed inbox: 24 hours at most, less under the delay buffer [documented] | A deposit to `OptimismPortal`: 12 hours at most [documented] | The next leader |
 | Stage (ETHBEAT, formerly L2BEAT) | n/a | Stage 1 | Stage 1 | Stage 1 | n/a |
 | Who can upgrade the chain's contracts | n/a; a fork needs the clients and the validators | A 2-of-2 of Coinbase's 3-of-6 and a Security Council's 8-of-11. "There is no delay on upgrades." Exit window: "None" [documented: ETHBEAT, docs.base.org] | The Security Council with no delay; other upgrades after "17d 8h" [documented: ETHBEAT; the page gives two figures for the exit window] | Security Council plus Foundation, "no delay". Exit window: "None" [documented: ETHBEAT] | A hard fork by the validators |
-| Halts in 2026 | Not looked up | 2026-06-25, about 116 minutes, and 2026-06-26, 20 minutes: a block-building bug sealed a block the validators rejected [documented: base.org post-mortem, 2026-06-27] | Not looked up | Not looked up | Unverified: `status.monad.xyz` did not resolve |
+| Halts in 2026 | Not looked up | 2026-06-25, "~116 minutes" by the post-mortem's own total, though its start and end times, 15:47 and 17:51 UTC, are 124 minutes apart; and 2026-06-26, 20 minutes. A block-building bug sealed a block the validators rejected [documented: base.org post-mortem, 2026-06-27] | Not looked up | Not looked up | Unverified: `status.monad.xyz` did not resolve |
 | Node software | Five execution clients | One (base-reth-node) | Not looked up | Not looked up | Unverified; in-protocol slashing "is not currently implemented" [documented] |
 
 **What a sequencer can and cannot do to a Crow deal** [inferred from the contract and the documented rules]:
 
 - **It cannot move the held funds.** Every step needs a party's or an adjudicator's signature, and the contract checks it.
-- **It cannot stop a step for good.** Crow's entry points never read `msg.sender`, so any account can carry any signed step. A deposit from Ethereum arrives as an ordinary call, so it can carry one too. This is not rehearsed (section 12).
+- **It cannot stop a step for good.** The rules contract's entry points never read `msg.sender` [measured: `grep` of `HoldbackRules.sol`; the bond vault does read it, and phase one cuts bonds], so any account can carry any signed step. A deposit from Ethereum arrives as an ordinary call, so it can carry one too. This is not rehearsed (section 12).
 - **It can delay a step by up to 12 hours** on Base and OP Mainnet, 24 hours on Arbitrum One. A delay changes an outcome when it outlasts a deadline: a seller's delivery held past `deliverBy` lets the buyer reclaim; a decision held past `judgeBy` hands the case to the fallback.
 - **So a deal is neutral on a one-sequencer chain only if each of its windows is longer than the forced-inclusion delay plus the time to send the forced transaction.** `docs/neutrality.md` already says so (residual 2: "size deadlines to leave time for it"). The windows bound the worst case; they do not slow the common one. A deal with a 24-hour delivery window still settles in seconds when both sides act.
 - **Ethereum has no such actor.** A proposer or a builder can leave a transaction out of its own block; the next proposer can include it.
@@ -287,7 +287,7 @@ The neutrality test (ADR-0001): no single party can stop a valid commitment from
 
 - **Ethereum.** A block carries its slot's timestamp. Mainnet's timestamps sit 1 s before a drand round and Sepolia's 3 s before one (the verifier review, gate line G-9). A missed slot does not shift later timestamps.
 - **Base.** `block.timestamp` stays in whole seconds, and five blocks share each second [measured: blocks 56,201,869 to 56,201,880, with a `timestampMs` field]. The latest block's timestamp equalled this machine's clock to the second [measured]. Since Denim, a block's time follows "from the Denim activation schedule and absolute L2 block number", and "wall-clock time controls when the sequencer starts a build, not the timestamp assigned to that block" [documented].
-- **After a halt, Base's timestamps lag real time.** Blocks 47,806,604 to 47,806,609 carry timestamps from 15:49:15 to 15:49:25 UTC on 2026-06-25, two seconds apart, with one transaction each [measured]. The post-mortem puts the halt from 15:47 UTC to 17:51 UTC. So the chain produced those blocks after 17:51 UTC with timestamps about two hours old [inferred]. How long the catch-up took, and whether Denim changed the rule, is unverified.
+- **After a halt, Base's timestamps lag real time.** Blocks 47,806,604 to 47,806,609 carry timestamps from 15:49:15 to 15:49:25 UTC on 2026-06-25, two seconds apart, with one transaction each [measured]. The post-mortem names the rejected block, 47,806,543, which sits 61 blocks before them, and puts the halt from 15:47 UTC to 17:51 UTC. So the chain produced those blocks after 17:51 UTC with timestamps about two hours old [inferred]. How long the catch-up took, and whether Denim changed the rule, is unverified.
 - **Why it matters.** The round that seeds an escalation's panel is fixed from the block's time (ADR-0018; finding X-1 of the verifier review). drand runs on real time. While a chain's timestamps lag by more than the margin, the round is already public when the block is built, and any sender can read it before it lands the escalation. A fixed margin of seconds does not cover a lag of hours.
 - **Arbitrum One** lets its sequencer set a timestamp from 24 hours behind to 1 hour ahead of real time [documented]. **OP Mainnet** bounds the timestamp against the Ethereum origin block with a drift of 1,800 s [documented].
 - **ADR-0032 already names this.** Its rule adds a margin fixed at deploy, 29 s on Ethereum. Its residual 3 says the margin keeps the seed "from everyone else and not from the sequencer", and that every sender knows the round while a chain's block times lag. Its gate line BR-7 asks for the margin and the lag of any chain other than Ethereum before a deploy there. The measurement above is the first input to BR-7 for Base.
@@ -299,14 +299,14 @@ The neutrality test (ADR-0001): no single party can stop a valid commitment from
 | --- | --- | --- |
 | Ethereum Sepolia and mainnet | **Sepolia runs Glamsterdam since 2026-10-06; mainnet runs Fusaka (since 2025-12-03).** The Hoodi testnet's fork was postponed (2026-10-22) and "a new activation date has not been set"; on 2026-11-06 the developers decided "to delay the hardfork process". Mainnet has no date | eips.ethereum.org EIP-7773 and EIP-7607; blog.ethereum.org |
 | | Gas: a deal's three transactions take 448,160 gas under Prague's rules and about 1.26 to 1.64 million gas on Sepolia. A Sepolia gas figure is not a mainnet figure | Section 4.2; the verifier review, G-2 |
-| | Gas limit: 200,000,000 gas a block on Sepolia, 60,000,000 gas on mainnet | Measured, latest block of each |
+| | Gas limit: 200,000,000 gas a block on Sepolia (block 12,114,272; it moves a little from block to block), 60,000,000 gas on mainnet (block 26,394,228) | Measured, 2026-11-11 about 21:00 UTC |
 | | Block time against drand: 3 s before a round on Sepolia, 1 s on mainnet | The verifier review, G-9 |
 | | Clients: the review checked two Sepolia nodes; mainnet's five clients are unchecked | The verifier review, G-1 |
 | Base Sepolia and Base | **The same rules today.** Denim reached Base Sepolia on 2026-10-21 and Base on 2026-11-05: "200ms native blocks are live on both networks". The testnet ran 15 days ahead | docs.base.org |
 | | Gas limit: 120,000,000 gas a block on Base Sepolia, 40,000,000 gas on Base. The minimum base fee is 0.005 gwei on both | Measured; docs.base.org |
 | | The escrow and its collector sit at the same addresses on both | Measured |
 | | USDC on Base Sepolia is Circle's test token, with Circle's roles and a faucet a person drives. It is not Crow's open-mint test token | Circle's address page; ADR-0028 item 6 |
-| | Base ships upgrades often: Azul (2026-05-28), Beryl (2026-06-25), Cobalt (2026-09-30), Denim (2026-11-05), each one to five weeks after Base Sepolia | docs.base.org |
+| | Base ships upgrades often: Azul (2026-05-28), Beryl (2026-06-25), Cobalt (2026-09-30), Denim (2026-11-05), each one to six weeks after Base Sepolia | docs.base.org |
 | Arbitrum Sepolia and One | The testnet ran about seven weeks ahead on ArbOS 61 (2026-06-29 against a scheduled 2026-08-20) | docs.arbitrum.io |
 | OP Sepolia and Mainnet | About three weeks ahead on Karst (2026-06-17 against 2026-07-08) | docs.optimism.io |
 | Monad testnet and mainnet | Three weeks ahead on the `MONAD_TEN` upgrade (2026-08-12 against 2026-09-02) | docs.monad.xyz |
@@ -327,7 +327,7 @@ What an operator can rely on [inferred]:
 
 - **On every chain an operator needs a keyed provider, with a public endpoint as the fallback.** ADR-0028 already builds that shape for Sepolia.
 - **The log sync changes on a fast chain.** The operators read the rules contract's logs in chunks of at most 50,000 blocks (ADR-0028 item 11). That is about 7 days of Ethereum and about 2.8 hours of Base, which makes 432,000 blocks a day. The cursor arithmetic holds; the chunk size and the provider's `eth_getLogs` limits need a new look.
-- **`block.number` is no clock on Base.** Since Denim it "advances 10x faster in wall-clock time" [documented]. Crow's contracts use timestamps only [measured: `grep` of `contracts/src`], so nothing breaks.
+- **`block.number` is no clock on Base.** Since Denim it "advances ten times faster in wall-clock time" [documented]. Crow's contracts use timestamps only [measured: `grep` of `contracts/src`], so nothing breaks.
 - **"A write answers at inclusion"** (ADR-0028 item 4) means a 200 ms block from the one sequencer on Base. Base's own stages are that block, the batch on Ethereum after about 2 minutes, and Ethereum finality after about 20 minutes.
 
 ## 12. What must be measured before each step

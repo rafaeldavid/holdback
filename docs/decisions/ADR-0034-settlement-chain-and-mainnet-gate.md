@@ -3,7 +3,7 @@
 - **Status:** Proposed, 2026-11-11. **It does not decide which chain comes first: Rafa decided that** (section 2). It records what his decision requires and costs, writes the gate, and recommends an L2 for the later step. Rafa may overrule any line. **Nothing here deploys anything, and hard rule 1 stands until Rafa changes it** (section 6).
 - **Date:** 2026-11-11
 - **Raised by:** T-351. D4 says of the target chain "revisit on evidence", and ADR-0031 says the on-chain beacon proof "comes back with the choice of chain".
-- **Research:** `docs/research/2026-11-11-settlement-chain.md` (the note). Every number below comes from it; it holds each source and date in full.
+- **Research:** `docs/research/2026-11-11-settlement-chain.md` (the note). The chains' facts and prices below come from it; it holds each source and date in full. Figures from this repository's own files (ADR-0032's 29 s, 37 s and 43 s; the review's gas figures; the guards' chain IDs) are cited where they appear.
 - **Builds on:** ADR-0001 (neutrality), ADR-0002 (the hold), ADR-0003 (the escrow base), ADR-0004 (chain-agnostic EVM, target Ethereum mainnet), ADR-0018 (the beacon), ADR-0028 (the demo on Sepolia), ADR-0031 (the phase-one contract scope), ADR-0032 (the beacon rounds and their margin); D4, D31, D41, D42, D57, D58, D59.
 - **Amends:** nothing. It confirms ADR-0004's target and lists the gate that ADR-0004 and `docs/operations.md` name without listing.
 - **Changes (when built, by later tasks, each behind the gate):** a deploy script for Ethereum mainnet, the chain-ID guard, a deployment record, the operators' chain configuration. **No signed type and no file in `spec/schemas/` changes.** This ADR itself changes no code and no deployment record.
@@ -17,7 +17,7 @@ Labels: **measured** (a command or a read-only call in T-351's run on 2026-11-11
 **Nothing on Ethereum mainnet blocks the test** (section 3):
 
 - **The drand verifier works there today.** The EIP-2537 precompiles are live since the Pectra fork of 2025-05-07, and the deployed beacon's code returns a real round's value on mainnet under the Fusaka fork it runs now [measured].
-- **One deal's three transactions cost about USD 0.21** at the base fee of 2026-11-11, 0.23 gwei [measured]. The earlier estimate was about USD 18.70.
+- **One deal's three transactions cost about USD 0.21** at the base fee of 2026-11-11, 0.23 gwei [measured]. The earlier estimate was about USD 18.68 (`docs/plan.md`, at 2026-11-05's prices); section 3.2 says why the two differ.
 - **Native USDC has ERC-3009,** and contract signers work.
 - **No single party can delay a deal.** Any block proposer can include a step.
 
@@ -78,7 +78,9 @@ So the order is set: Ethereum mainnet (chain ID 1) for the mainnet test, an L2 a
 | --- | --- | --- | --- |
 | Three steps: `agreeAndFund` 233,994 gas, `deliver` 83,535 gas, `decide` 130,631 gas | 448,160 gas | **about USD 0.21** | about USD 2.40 |
 | Two steps: the decision carries the delivery | 397,777 gas | about USD 0.19 | about USD 2.13 |
-| A fallback decision with the drand proof | 562,648 gas under Prague's rules; about 58,000 gas more under mainnet's [inferred from the verifier review] | about USD 0.30 | about USD 3.30 |
+| A deal the fallback decides, with the drand proof: four transactions (`agreeAndFund`, `deliver`, `triggerFallback`, `decide`) | 698,528 gas under Prague's rules; about 58,000 gas more under mainnet's [inferred from the verifier review] | about USD 0.36 | about USD 4.05 |
+
+**Against the earlier estimate.** `docs/plan.md` records about USD 18.68 a deal on Ethereum mainnet "at 2026-11-05's prices". Both of its inputs differ from today's. Its gas was Sepolia's, 1,261,428 gas for a median deal, 2.8 times the gas under mainnet's rules. Its gas price works out near 7 gwei, which was not reproduced here: the highest base fee sampled in the last 30 days is 2.57 gwei [inferred by arithmetic]. Today's USD 0.21 itself errs high: its block's base fee sat above the 90th percentile of its window, and at the window's median, 0.152 gwei, the deal costs about USD 0.14.
 
 **The fee moves.** Over five windows of 1,024 blocks between 2026-10-12 and 2026-11-11 the median base fee ran from 0.13 to 0.23 gwei and the maximum reached 2.57 gwei [measured: `eth_feeHistory`]. Five windows are a sample, not the month. The next fork raises the gas of a deal about threefold: Sepolia, which runs it, takes about 1.26 to 1.64 million gas for the same three transactions [measured by earlier tasks]. At today's price that is about USD 0.60 to USD 0.80 a deal [inferred].
 
@@ -102,7 +104,7 @@ A deal under about USD 5 pays more than 4% of its price in gas today. That is a 
 | Its gas on mainnet | **219,232 gas** for one `beaconValue` transaction | Measured: `eth_estimateGas` with the same override |
 | Its gas on Sepolia | 213,185 gas | The verifier review, section 7, 2026-11-11 |
 | Why they differ | Sepolia has run the Glamsterdam fork since 2026-10-06. Mainnet has no date: the Hoodi testnet's fork was postponed on 2026-10-22, and on 2026-11-06 the developers decided "to delay the hardfork process" | Documented: EIP-7773's activation table; blog.ethereum.org |
-| The pairing's fixed cap | Two pairs cost 102,900 gas against the contract's cap of 250,000 gas. No EIP scheduled for the next fork was found to reprice `0x0b`, `0x0f` or `0x10`; the last part of EIP-8037 was read as a summary only | The verifier review, section 7; the note, section 5 |
+| The pairing's fixed cap | Two pairs cost 102,900 gas against the contract's cap of 250,000 gas. No EIP scheduled for the next fork was found to reprice `0x0b`, `0x0f` or `0x10`; the last part of EIP-8037 was read as a summary only | The verifier review, section 7 |
 
 **What this run did not show:** agreement between mainnet's five execution clients. It called one node. That is the review's gate line G-1, and MG-16 below.
 
@@ -146,7 +148,7 @@ Against the neutrality test (ADR-0001): no single party can stop a valid commitm
 
 ## 4. What it changes in the contracts
 
-No source line depends on the chain. The contracts target the EVM with no chain-specific opcode (ADR-0004), use no `block.number` [measured], and give the sender no role. What changes is what the deploy passes in and what it must prove.
+No source line depends on the chain. The contracts target the EVM with no chain-specific opcode (ADR-0004) and use no `block.number`, and the rules contract never reads `msg.sender` [measured: `grep` of `contracts/src`]. What changes is what the deploy passes in and what it must prove.
 
 | | On Ethereum mainnet |
 | --- | --- |
@@ -185,7 +187,7 @@ The wording he might use is an open point for later (section 8).
 
 ## 7. The mainnet gate
 
-Each line is a condition that must hold before any deploy to Ethereum mainnet, with who checks it and how. **Inputs:** the thirteen conditions of the pilot plan (kept privately, `docs/private-materials.md`; "plan 1" to "plan 13" below), the drand verifier review's lines G-1 to G-10, and ADR-0032's lines BR-1 to BR-10. The last column is this ADR's recommendation for a capped test: **yes**, **reduced** (a smaller form is enough, named in the line), **Rafa's call**, or **n/a**. Which conditions the capped test needs is his to decide later (section 8).
+Each line is a condition that must hold before any deploy to Ethereum mainnet, with who checks it and how. **Inputs:** the thirteen conditions of the pilot plan (kept privately, `docs/private-materials.md`; "plan 1" to "plan 13" below), the drand verifier review's lines G-1 to G-10, and ADR-0032's lines BR-1 to BR-10. Every G line and every BR line appears in the "From" column of a row: G-1 to G-10 in MG-6, MG-16 to MG-21, MG-29 and MG-33; BR-1 to BR-10 in MG-6, MG-8, MG-20 and MG-34. Their reasoning stays in the review and in ADR-0032. The last column is this ADR's recommendation for a capped test: **yes**, **reduced** (a smaller form is enough, named in the line), **Rafa's call**, or **n/a**. Which conditions the capped test needs is his to decide later (section 8).
 
 Roles: **Rafa**; **the builder** (the session that builds the change); **a reviewer** and **a red team** (the `reviewer` and `red-teamer` subagents, with the project's context and without the builder's conclusions); **the auditor** (the external audit firm); **the deployer** (the session that prepares the deploy for Rafa to run or approve).
 
@@ -269,6 +271,7 @@ None of these waits on Rafa now. On 2026-11-11, told of the cap, the conditions 
 | O-5 | **Legal advice** (MG-32) | Take advice before real money moves between two different legal persons | A test in which one person funds both sides moves nobody else's money |
 | O-6 | **The L2 that follows** | Base; Arbitrum One as the runner-up (section 9) | Section 9 |
 | O-7 | **A Base Sepolia deployment, to measure the L2 step** | After the testnet work is aligned to the new contract set, and beside the audit if there is room. It is a testnet deploy: hard rule 1 allows it and Rafa's go-ahead gates it | Three facts about Base are inferred and only a deployment measures them (section 10) |
+| O-8 | **Whether the beacon's margin covers two slots** (ADR-0032 section 4: 29 s, with one slot and three slots as its alternatives) | Open, and Rafa's. This ADR takes ADR-0032's 29 s as the value the gate checks (MG-8, MG-20) and adds no view of its own. BR-6's measurement on mainnet is the evidence for it | The margin is an immutable of the deployed contract, so it must be settled before the commit is frozen for the audit |
 
 ## 9. The L2 step: Base is recommended, Arbitrum One is the runner-up
 
@@ -278,7 +281,7 @@ The comparison is the note's second half (its sections 3 to 11). This is its con
 
 | | Base | Arbitrum One | OP Mainnet |
 | --- | --- | --- | --- |
-| Block time | 200 ms since 2026-11-05 [measured] | 250 ms [documented] | 2 s [documented] |
+| Block time | 200 ms since 2026-11-05 [documented and measured] | 250 ms [documented] | 2 s [documented] |
 | Three money steps, chain time | Under 1 s [inferred] | Under 1 s [inferred] | 6 s [inferred] |
 | Fee for one deal, 2026-11-11 | About USD 0.006, data fee included [measured] | About USD 0.02 plus a data fee [measured price] | About USD 0.001 plus a data fee [measured price] |
 | The drand verifier's code | Passes; the precompiles since 2025-05-09 [measured, documented] | Passes; the precompiles since 2026-01-08 [measured, documented] | Passes; since 2025-05-09 [measured, documented] |
@@ -308,7 +311,19 @@ The comparison is the note's second half (its sections 3 to 11). This is its con
 
 **Not an L2, and worth a second look then: Monad.** It is the only chain examined with both no sequencer and finality in under a second (600 ms) [documented], and the verifier's code passes there [measured]. Unverified today: its active validator count, its number of node clients and its incident record; its docs say slashing "is not currently implemented". If those check out, it answers the neutrality cost that every L2 carries.
 
-### 9.3 What would have to change to move to Base
+### 9.3 How a different weighting changes the answer
+
+The recommendation follows from the note's ranking criteria (its section 2). Rafa could weigh them differently:
+
+| If the heaviest criterion is | The L2 step goes to | Why |
+| --- | --- | --- |
+| Seconds, with the least to deploy and prove | **Base** (the recommendation) | 200 ms blocks and the audited escrow in place |
+| A window to leave before a chain upgrade takes effect | **Arbitrum One** | About 17 days on upgrades that are not emergencies; Base and OP Mainnet have none |
+| The shortest forced-inclusion delay | **Base or OP Mainnet** | 12 hours against Arbitrum One's 24 |
+| No single sequencer at all | **Monad, once its open facts are checked;** it is not an L2 | Section 9.2 |
+| The fewest changes to the operators | **OP Mainnet** | 2 s blocks sit closest to what the relayers and the log sync do today; it gives up seconds (6 s a deal) |
+
+### 9.4 What would have to change to move to Base
 
 **In the contracts:** no source line. At deploy:
 
