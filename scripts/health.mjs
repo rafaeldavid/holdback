@@ -79,16 +79,16 @@ export const largeFiles = (files) =>
  */
 export function gatedOutsideCi(tests, ciPaths) {
   return tests
-    .filter((t) => /\b(?:describe|it|test)\.(?:skipIf|runIf)\(/.test(t.text))
+    .filter((t) => /^\s*(?:describe|it|test)\.(?:skipIf|runIf)\(/m.test(t.text))
     .map((t) => t.path)
     .filter((p) => !ciPaths.some((c) => p === c || p.startsWith(c.endsWith('/') ? c : `${c}/`)));
 }
 
-/** The paths after `vitest run` in the workflow's must-not-skip step. */
+/** The paths after `vitest run` in the workflow's must-not-skip step; the command may span lines that end in a backslash. */
 export function ciAnvilPaths(workflow) {
-  const line = workflow.split('\n').find((l) => /vitest run .*--reporter=verbose/.test(l));
+  const line = workflow.replace(/\\\n\s*/g, ' ').split('\n').find((l) => /vitest run .*--reporter=verbose/.test(l));
   if (!line) return [];
-  return line.split('vitest run')[1].split(/\s+/).filter((w) => w && !w.startsWith('-') && w !== '|' && w !== 'tee' && !w.endsWith('.log'));
+  return line.split('vitest run')[1].split('|')[0].split(/\s+/).filter((w) => w && !w.startsWith('-'));
 }
 
 const median = (xs) => {
