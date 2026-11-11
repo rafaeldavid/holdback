@@ -109,6 +109,22 @@ Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wra
 
 After the deploy, a smoke deal ended Released in 44 s, and the test seller sold once each way (T-222 Evidence) [measured]. To roll back: holdback-op1 `5d369b0e`, holdback-op2 `1f169857` and crow-site `cb0adcb5` (`npx wrangler@4 rollback <version> --name <worker>`); `npx wrangler@4 delete --name crow-test-agents` removes the seller.
 
+### T-314 to T-317: the faucet's stated amount, the ciphertext cap, the seller's check runner and the audit-report template (deployed 2026-11-11)
+
+**Deploy 2026-11-11 07:54 UTC, commit `a42dc45` on branch `docs-deploy-2026-11-11`: pass.** holdback-op1 `80b683f0-9023-4506-91e9-97c10f22809f` (rollback target `f71bfaef-31ce-4535-bde7-15628384b55a`), holdback-op2 `2bfc0d0f-f9e6-4363-bdb3-baa90e3ebe54` (rollback target `60a7253a-a8a0-42c0-a0cc-ae43c8405fce`). Smoke deal `0xe47c874564d8c10ff56709629d8254fc832cf1cd6f1d113cddb753cbcc81b0a7` Released in 44 s.
+
+**Site deploy 2026-11-11 07:56 UTC, commit `a42dc45` on branch `docs-deploy-2026-11-11`: pass.** crow-site `2d11374e-c999-4012-8d24-68f482363f37` (rollback target `4ceb5f29-6705-42ed-b9bd-3265a2f8d8de`).
+
+Both operators and the site run main's tip `a42dc45`, on Rafa's go-ahead ("deploy when ready", 2026-11-11). The deploy shipped PRs 273, 274, 276 and 278 with `pnpm demo-cloud:deploy`, then `pnpm site:deploy`. No world, contract or domain changed. holdback-op2 no longer carries the variable `OPERATOR_URLS`, as PR 262 merged it (T-313).
+
+The deploy ran from a clean worktree at `a42dc45`, which is why the lines name the branch `docs-deploy-2026-11-11`. The main checkout refused in pre-flight (exit code 2, nothing uploaded): its submodule `contracts/lib/commerce-payments` has a changed file in the nested `lib/spend-permissions`. Clean that submodule before the next deploy from the main checkout.
+
+Checks on the live service after the deploy (measured):
+
+- Discovery on both nodes states `limits.maxCiphertextBytes` 1048576 (1 MiB) and `demo.faucet.maxGrant` 1000000000000 base units (1,000,000 tUSDC).
+- `POST /v1/faucet` with `"amount": "2005710000"` for a fresh address answered 200 with a balance of 2005710000 base units (2,005.71 tUSDC).
+- `https://crow.direct/llms.txt` has the section "Writing checks for a report".
+
 ### T-312: crow.direct, the new landing page and escrow.stream forwarding (deployed 2026-11-10)
 
 **Live since 2026-11-10, 10:33 UTC.** Rafa gave the go-ahead ("deploy when ready"). The coordinator shipped `b6b3980` from main in PR 253's order: the crow.direct domains first (`wrangler triggers deploy`, no new code), then crow-early-access, then the operators, the test seller and the site back to back. Versions and rollback targets (measured):
