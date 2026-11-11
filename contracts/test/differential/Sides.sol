@@ -7,7 +7,7 @@ import {Permit2PaymentCollector} from "commerce-payments/collectors/Permit2Payme
 import {MockERC3009Token} from "commerce-payments-test/mocks/MockERC3009Token.sol";
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
-import {SimBeacon} from "../../src/SimBeacon.sol";
+import {SimBeacon} from "../../script/SimBeacon.sol";
 import {TypesHarness} from "../unit/Base.sol";
 import {RulesHandler} from "../handlers/RulesHandler.sol";
 
