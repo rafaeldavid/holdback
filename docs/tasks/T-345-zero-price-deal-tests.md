@@ -5,7 +5,7 @@
 - **Depends on:** T-340 (the state model and threat model, on main)
 - **Paths this task may touch:** one new file under `contracts/test/unit/` (`ZeroPrice.t.sol`); one new section each in `docs/audit/state-model.md` and `docs/audit/threat-model.md`; this file
 - **Human gate:** no
-- **Status:** review
+- **Status:** done
 - **Agent/session:** Claude Opus 5.5, a sub-session of the contract refinement coordinator; package R5b of the contract refinement plan (kept privately)
 
 ## Intent
@@ -47,6 +47,7 @@ Fill this in before review. Label each item measured, inferred or guessed.
 - Outcomes covered (`contracts/test/unit/ZeroPrice.t.sol`), with `P = 0` and `F = 500,000` base units: funding (L03); the primary accepts (L07) and rejects (L08); the fallback accepts (L09) and rejects (L10); reclaim (L34); the default after the fallback's silence, after an undecided escalation, and after the buyer's own reclaim on the escrow (L32); an escalation by the primary accepted (L31) and rejected (L32); an escalation by the fallback, then accepted; early accept from Held and after `deliver` (L33); a settlement before delivery (L35), after delivery with the key (L36), during the fallback's turn and during an escalation (L37); the payout refusal; an unbonded primary; price 0 with fee 0 [measured: each test passes].
 - Findings: none. No test showed money moving outside the signed terms [measured].
 - Review: one `reviewer` subagent, asked whether these tests could pass while a zero-price deal moves money wrongly. Its mutations on a scratch copy were caught: a fee paid to the seller, a skipped void, a bond reserved by the fallback [measured by the reviewer]. It found four unreached paths (a settlement during the fallback's turn, the fallback escalating, early accept after `deliver`, the default after the buyer's own reclaim on the escrow), one test with partial checks and one thin refusal case. All six are fixed in the third commit.
+- CI on holdback PR 340: 15 of 15 checks passed, `contracts (forge test)` among them; merged as `5a90dc5` [measured].
 - Snapshot diffs: none (no fixtures change).
 - Metrics: none.
 
