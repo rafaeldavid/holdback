@@ -29,6 +29,7 @@ const COST: Record<string, number> = {
   'tools/sim/check.test.ts': 10, // estimated by the PR 55 review, not yet measured in CI
   'examples/verify.test.ts': 20,
   'examples/early-accept.test.ts': 20, // T-024, measured locally at about 2 s; not yet measured in CI
+  'examples/seller-adapter.test.ts': 40, // T-318, measured locally at about 4 s; not yet measured in CI
   'examples/try.test.ts': 80, // T-037, measured locally at about 8 s (two deals in child processes); not yet measured in CI
   'apps/test-agents/src/seller.test.ts': 80, // T-222, measured locally at about 8 s; not yet measured in CI
   'apps/test-agents/src/try.test.ts': 115, // T-222, measured locally at about 11.5 s (seven runs in child processes); not yet measured in CI
