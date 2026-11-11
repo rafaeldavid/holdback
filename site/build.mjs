@@ -149,12 +149,13 @@ export const strip = (md) => md.split('\n').filter((l) => !l.startsWith('%% ')).
  */
 /** The page's description, og and twitter text (Rafa's mock). */
 export const DESCRIPTION = 'Verifiable settlement for AI commerce. Sell to any agent. Buy from any agent.';
+/** The value props: a name, one line, and an optional note set after the name. */
 const FEATURES = [
   ['Verifiable Settlement', 'Payment waits in a non-custodial vault until the work passes.'],
   ['Made for Machines', 'One API. Every response reports its token cost, so agents can budget.'],
   ['High Speed, Low Cost', 'Settles when checks pass. No invoices, no marketplace cut.'],
   ['Frontier AI Arbitration', 'On request, a panel of models from rival labs rules against the terms.'],
-  ['Your Existing Rails <em>· soon</em>', 'Fund by card or your current payment provider.'],
+  ['Your Existing Rails', 'Fund by card or your current payment provider.', 'soon'],
   ['Private Contract Terms', 'Only hashes of your terms are recorded. The work stays yours.'],
 ];
 if (STUDIES.length !== FEATURES.length) throw new Error('site/vignettes.mjs must draw one study for each value prop');
@@ -182,9 +183,9 @@ const footer = (command) => `<footer class="foot">
 // The value props: all six are in the page, one shows at a time, and six dots choose one.
 const PROPS = `<section class="props" id="props" aria-roledescription="carousel" aria-label="What Crow does">
 <div class="stage">
-${FEATURES.map(([h, p], i) => `<div class="prop${i ? '' : ' on'}" role="group" aria-roledescription="slide" aria-label="${i + 1} of ${FEATURES.length}">${STUDIES[i].svg}<h2>${h}</h2><p>${p}</p></div>`).join('\n')}
+${FEATURES.map(([h, p, note], i) => `<div class="prop${i ? '' : ' on'}" role="group" aria-roledescription="slide" aria-label="${i + 1} of ${FEATURES.length}">${STUDIES[i].svg}<h2>${esc(h)}${note ? ` <em>· ${esc(note)}</em>` : ''}</h2><p>${esc(p)}</p></div>`).join('\n')}
 </div>
-<div class="dots" role="group" aria-label="Choose one">${FEATURES.map(([h], i) => `<button type="button" aria-label="${esc(h.replace(/<[^>]+>/g, '').replace(' · ', ', '))}"${i ? '' : ' aria-current="true"'}></button>`).join('')}</div>
+<div class="dots" role="group" aria-label="Choose one">${FEATURES.map(([h, , note], i) => `<button type="button" aria-label="${esc(note ? `${h}, ${note}` : h)}"${i ? '' : ' aria-current="true"'}></button>`).join('')}</div>
 </section>`;
 // Early access: sign-ups go to the crow-early-access Worker (apps/early-access), which keeps only the address, the
 // time and the page.
