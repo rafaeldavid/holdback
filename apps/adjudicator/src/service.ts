@@ -41,7 +41,7 @@ import {
   type TokenAmount,
 } from '@holdback/core';
 import { ContentKey, decodePublicKey, encodePublicKey, encryptionKeyPairFromSecretKey, open as openContent, unwrapKey, wrapKey, wrapKeyForRecipients } from '@holdback/core/crypto';
-import { intake, loadReferences, panelPlan, runPipeline, signedOutcome, type IntakeError, type JudgeProvider, type JudgmentDraft, type LoadedRegistry } from '@holdback/judgment';
+import { describeUnavailable, intake, loadReferences, panelPlan, runPipeline, signedOutcome, type IntakeError, type JudgeProvider, type JudgmentDraft, type LoadedRegistry } from '@holdback/judgment';
 import { concat, keccak256, stringToBytes, toBytes, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { quicknetValue } from './drand.js';
@@ -563,9 +563,15 @@ export class Adjudicator {
       const minFamilies = appeal ? Math.max(policy.minFamilies, Math.min(policy.minFamiliesAppeal, familiesAvailable)) : policy.minFamilies;
       const plan = panelPlan({ registry: this.#cfg.registry, seed, commitmentId: id, size, minFamilies, criteria: commitment.acceptance.rubric.criteria });
       if (!plan.ok) return err(problem('invalid_terms', `panel: ${plan.error}`));
-      // T-327: reference files come from the same content store as the delivery, by the hash the terms commit to;
-      // one it cannot read is left out, and its check fails closed. Read once: the judged record is cached.
-      const references = await loadReferences(commitment.acceptance.deterministicChecks, (uri) => this.#cfg.settlement.ciphertext(uri));
+      // T-327: reference files come from the same content store as the delivery, by the hash the terms commit to.
+      // One the store does not return, or returns with other bytes, is the store's fault, like a ciphertext that
+      // does not match its delivery: refused before any judge is called, with no record, and retried; the
+      // fallback and then the default outcome follow if it never comes (red team H1). Read once: the record is cached.
+      const loaded = await loadReferences(commitment.acceptance.deterministicChecks, (uri) => this.#cfg.settlement.ciphertext(uri));
+      if (loaded.unavailable.length) {
+        return err(problem('adjudicator_unavailable', `reference files unavailable from this adjudicator's store: ${describeUnavailable(loaded.unavailable)}; not judged, retrying (no record)`));
+      }
+      const references = loaded.references;
       const run = await runPipeline({
         intake: intaken.value,
         acceptance: commitment.acceptance,

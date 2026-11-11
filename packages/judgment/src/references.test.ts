@@ -33,16 +33,24 @@ describe('referenceLookups', () => {
 });
 
 describe('loadReferences', () => {
-  it('keys the bytes by the committed hash and leaves out what the reader cannot return', async () => {
+  it('keys the bytes by the committed hash and reports what the reader cannot return or returns wrong', async () => {
     const other = `sha256:${'2'.repeat(64)}`;
+    const wrong = `sha256:${'3'.repeat(64)}`;
     const asked: string[] = [];
-    const refs = await loadReferences([ref('a', `mem://ciphertext/${H}`), ref('b', `mem://ciphertext/${other}`, other)], async (uri) => {
-      asked.push(uri);
-      if (uri.endsWith(H)) return bytes;
-      throw new Error('not in the store');
-    });
-    expect(asked).toEqual([`mem://ciphertext/${H}`, `mem://ciphertext/${other}`]);
-    expect([...refs.keys()]).toEqual([H]);
-    expect(refs.get(H)).toEqual(bytes);
+    const { references, unavailable } = await loadReferences(
+      [ref('a', `mem://ciphertext/${H}`), ref('b', `mem://ciphertext/${other}`, other), ref('c', `mem://ciphertext/${wrong}`, wrong)],
+      async (uri) => {
+        asked.push(uri);
+        if (uri.endsWith(H) || uri.endsWith(wrong)) return bytes;
+        throw new Error('not in the store');
+      },
+    );
+    expect(asked).toEqual([`mem://ciphertext/${H}`, `mem://ciphertext/${other}`, `mem://ciphertext/${wrong}`]);
+    expect([...references.keys()]).toEqual([H]);
+    expect(references.get(H)).toEqual(bytes);
+    expect(unavailable).toEqual([
+      { sha256: other, uri: `mem://ciphertext/${other}`, reason: 'not_returned' },
+      { sha256: wrong, uri: `mem://ciphertext/${wrong}`, reason: 'hash_mismatch' },
+    ]);
   });
 });

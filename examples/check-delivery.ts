@@ -9,10 +9,9 @@
 // refuse the file.
 //
 // A `reference_row_match_min` check compares the file with a reference file the terms name by URI and hash.
-// The adjudicator loads that reference from its content store by the committed hash (T-327); give this
-// command the same bytes with `--reference <file>` (download them from the URI in the terms). A reference
-// you do not give fails its check here with "reference not available", as on an adjudicator whose store
-// does not hold it.
+// The adjudicator loads that reference from its content store by the committed hash, and does not judge
+// until it has it (T-327). Give this command the same bytes with `--reference <file>` (download them from
+// the URI in the terms). Without them the result is not known, and the command exits 2.
 //
 //   pnpm install && pnpm build
 //   node examples/check-delivery.ts <terms.json> <file> [--reference <file>]... [--mime <type>] [--json]
@@ -21,7 +20,8 @@
 // It needs `acceptance` and `deliverable.format`. `--mime` is the format you will declare in the delivery
 // (default: the agreed format). `--reference` may be given once per reference file.
 // Exit code: 0 when the checks accept the file or pass it to the judges, 1 when the adjudicator would
-// reject it, 2 when a check cannot be decided (the deal would escalate) or the command cannot run.
+// reject it, 2 when a check cannot be decided (the deal would escalate), a reference file is missing, or the
+// command cannot run.
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
@@ -46,7 +46,7 @@ export interface CheckDeliveryResult {
   mime: string;
   /** What to print: the result first, then the file, then one line per check. */
   lines: string[];
-  /** 0: accept or panel. 1: reject. 2: escalate. */
+  /** 0: accept or panel. 1: reject. 2: escalate, or a reference file is missing. */
   exitCode: 0 | 1 | 2;
 }
 
@@ -137,19 +137,24 @@ export function checkDelivery(options: CheckDeliveryOptions): CheckDeliveryResul
   const open = new Set(preflight.inconclusive);
   const unloadable = refChecks.filter((c) => !loadable.has(committed(c))).map((c) => c.id);
   const missing = refChecks.filter((c) => loadable.has(committed(c)) && !references.has(committed(c))).map((c) => c.id);
+  // A reference the adjudicator's store does not return is not judged (it retries), so without the file the
+  // result is not known: the command says so and exits 2 instead of predicting a reject.
+  const unknown = !preflight.refused && missing.length > 0;
   const notes = preflight.refused
     ? []
     : [
         ...(unloadable.length
-          ? [`Note: the URI of the reference ${unloadable.length === 1 ? 'check' : 'checks'} ${list(unloadable)} does not end in ${unloadable.length === 1 ? 'its' : 'their'} committed hash, so the adjudicator never loads ${unloadable.length === 1 ? 'it' : 'them'} and the ${unloadable.length === 1 ? 'check fails' : 'checks fail'} for every file.`]
+          ? [`Note: the URI of the reference ${unloadable.length === 1 ? 'check' : 'checks'} ${list(unloadable)} does not end in ${unloadable.length === 1 ? 'its' : 'their'} committed hash, so the adjudicator never loads it and the ${unloadable.length === 1 ? 'check fails' : 'checks fail'} for every file.`]
           : []),
-        ...(missing.length
-          ? [`Note: no reference file given for ${list(missing)}. The adjudicator loads it from its content store by the committed hash; download it from the URI in the terms and pass it with --reference <file>.`]
+        ...(references.size
+          ? ['Note: the adjudicator reads each reference from its own content store by the committed hash, and does not judge until it gets those bytes. Check that the stores of the adjudicators the terms name hold the file (POST /v1/ciphertext stores it under its hash).']
           : []),
       ];
   // Every string that can come from the file or the terms is printed as one plain line (docs/team.md, output surfaces).
   const lines = [
-    headline(preflight, acceptance.rubric.criteria.length === 0),
+    unknown
+      ? `Result: not known. The terms name a reference file for ${list(missing)}, and the adjudicator judges only once it has that file; download it from the URI in the terms and pass it with --reference <file>.`
+      : headline(preflight, acceptance.rubric.criteria.length === 0),
     `File: ${plain(options.file)}, ${count(preflight.bytes)} bytes, ${preflight.plaintextSha256}, checked as ${plain(mime)} (agreed: ${plain(format)}).`,
     ...(preflight.deterministic.length ? ['Checks:'] : []),
     ...preflight.deterministic.map((o) => {
@@ -159,7 +164,7 @@ export function checkDelivery(options: CheckDeliveryOptions): CheckDeliveryResul
     ...notes,
     'This result holds for these exact bytes: the hash above is the plaintextSha256 your delivery will carry.',
   ];
-  return { preflight, mime, lines, exitCode: preflight.result === 'reject' ? 1 : preflight.result === 'escalate' ? 2 : 0 };
+  return { preflight, mime, lines, exitCode: unknown ? 2 : preflight.result === 'reject' ? 1 : preflight.result === 'escalate' ? 2 : 0 };
 }
 
 function parseArgs(argv: readonly string[]): CheckDeliveryOptions & { json: boolean } {

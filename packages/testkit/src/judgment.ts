@@ -10,6 +10,7 @@ import { canonicalKeccak, err, ok, problem, type AdjudicatorPolicy, type Address
 import { sha256 } from '@holdback/core/crypto';
 import {
   APPEAL_PROMPT_TEMPLATE_HASH,
+  describeUnavailable,
   intake,
   loadReferences,
   panelPlan,
@@ -228,8 +229,10 @@ export async function runJudgment(input: RunJudgmentInput, judges: JudgeProvider
     },
   };
   // As the adjudicator service: each reference by the hash the terms commit to, through the shared loader; one the
-  // store does not hold is left out, and its check fails closed.
-  const references = await loadReferences(terms.acceptance.deterministicChecks, readReference);
+  // store does not return refuses the turn before any judge is called, and nothing is decided.
+  const loaded = await loadReferences(terms.acceptance.deterministicChecks, readReference);
+  if (loaded.unavailable.length) return err(problem('adjudicator_unavailable', `reference files unavailable from the runner's store: ${describeUnavailable(loaded.unavailable)}`));
+  const references = loaded.references;
   const run = await runPipeline({
     intake: intaken.value,
     acceptance: terms.acceptance,

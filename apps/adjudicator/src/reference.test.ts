@@ -113,40 +113,41 @@ describe('a required reference_row_match_min check on the adjudicator service (T
     expect(s.state(id).kind).toBe('Refunded');
   });
 
-  it('a reference the store does not hold fails the check closed: Refunded, never a pass', async () => {
-    const { s, id, ref } = await deal({ csv: demoCsv(), stored: false });
+  // Red team H1: a reference the store withholds or corrupts is the store's fault, like a ciphertext that does not
+  // match its delivery. It is never judged: no record, no decision, no judge called; the turn is retried, and once
+  // the store returns the committed bytes the deal settles by the terms. So no store decides a deal by one read.
+  it('a reference the store does not return is not judged, and the retry settles once the store has it', async () => {
+    const { s, a, id, record, referenceBytes } = await deal({ csv: demoCsv(), stored: false });
+    expect(record).toBeUndefined();
+    expect(a.calls).toHaveLength(0);
+    expect(s.state(id).kind).toBe('Delivered');
+    const report = await a.adj.runOnce();
+    expect(report.refused[0]?.problem.detail).toMatch(/reference files unavailable from this adjudicator's store: sha256:[0-9a-f]{64} \(the store did not return it\); not judged, retrying/);
+    s.store(referenceBytes);
+    await a.adj.runOnce();
+    expect(s.state(id).kind).toBe('Released');
+  });
+
+  it('a store that hands back other bytes under the committed hash is not judged, then settles once it is right', async () => {
+    const { s, a, id, record, referenceBytes } = await deal({ csv: demoCsv(), stored: false });
+    const uri = `mem://ciphertext/${sha256(referenceBytes)}`;
+    s.blobs.set(uri, encode(REFERENCE_CSV.replace('customer0@', 'someone@')));
+    const report = await a.adj.runOnce();
+    expect(record).toBeUndefined();
+    expect(report.refused[0]?.problem.detail).toContain('(the store returned other bytes)');
+    expect(s.records.size).toBe(0);
+    expect(s.state(id).kind).toBe('Delivered');
+    s.blobs.set(uri, referenceBytes);
+    await a.adj.runOnce();
+    expect(s.state(id).kind).toBe('Released');
+  });
+
+  it('terms that commit to a hash no URI ends in fail the check closed, the same on every adjudicator', async () => {
+    // The URI names the stored bytes, the committed hash is another: the hash is never looked up, so the check
+    // fails with "reference not available" whatever any store holds. A party sees this in the terms before signing.
+    const { s, id, ref } = await deal({ csv: demoCsv(), reference: { sha256: `sha256:${'0'.repeat(64)}` } });
     expect(ref).toEqual({ checkId: 'ref', required: true, passed: false, detail: 'reference not available' });
     expect(s.state(id).kind).toBe('Refunded');
-  });
-
-  it('stored bytes that do not hash to the committed sha256 fail the check closed', async () => {
-    // The terms commit to another hash, while the URI names the stored bytes: the adjudicator looks up only the
-    // committed hash, so it finds nothing, and the bytes at the URI never reach the check.
-    const { s, id, ref } = await deal({ csv: demoCsv(), reference: { sha256: `sha256:${'0'.repeat(64)}` } });
-    expect(ref?.passed).toBe(false);
-    expect(s.state(id).kind).toBe('Refunded');
-  });
-
-  it('a store that hands back other bytes under the committed hash fails the check closed', async () => {
-    const s0 = await deal({ csv: demoCsv(), checksOnly: true });
-    // A second deal over a tampered store: the same URI now holds other bytes.
-    const s = new TestSettlement();
-    const a = bench(A, 'bench-a', s);
-    bench(B, 'bench-b', s);
-    bench(C, 'bench-c', s);
-    const check = s0.acceptance.deterministicChecks.find((c) => c.id === 'ref') as Extract<JudgmentCheck, { type: 'reference_row_match_min' }>;
-    s.blobs.set(check.reference.uri, encode(REFERENCE_CSV.replace('customer0@', 'someone@')));
-    const c = makeCommitment({ primary: A.address, fallback: B.address, appeal: C.address, policyHash: policyHashOf(a.adj.policy), registryHash: reg.hash, buyer: BUYER, seller: SELLER, acceptance: s0.acceptance });
-    s.offer(c);
-    await a.adj.runOnce();
-    s.fund(c.id);
-    s.at('2026-11-01T09:59:00Z');
-    await s.deliver(c.id, demoCsv(), [A, B, C, BUYER].map((p) => ({ recipient: p.address, publicKey: p.enc.publicKey })));
-    s.at('2026-11-01T10:00:30Z');
-    await a.adj.runOnce();
-    const ref = [...s.records.values()][0]!.deterministic.find((d) => d.checkId === 'ref');
-    expect(ref).toEqual({ checkId: 'ref', required: true, passed: false, detail: 'reference bytes do not match the committed hash' });
-    expect(s.state(c.id).kind).toBe('Refunded');
   });
 
   it('a reference URI that does not end in the committed hash is never looked up', async () => {

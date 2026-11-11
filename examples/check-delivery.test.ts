@@ -73,11 +73,13 @@ async function adjudicate(termsPath: string, filePath: string, store: ReadonlyMa
     open: async (ct) => ct,
   });
   if (!intaken.ok) throw new Error(intaken.error.detail);
-  const references = await loadReferences(acceptance.deterministicChecks, async (uri) => {
+  const { references, unavailable } = await loadReferences(acceptance.deterministicChecks, async (uri) => {
     const bytes = store.get(uri);
     if (!bytes) throw new Error(`no blob ${uri}`);
     return bytes;
   });
+  // The service refuses to judge then (no decision, retried), so there is nothing to compare with.
+  if (unavailable.length) return { deterministic: null, decision: 'not judged' as const, panelRan: false, plaintextSha256: sha256(plaintext) };
   const run = await runPipeline({
     intake: intaken.value,
     acceptance,
@@ -205,21 +207,21 @@ describe('examples/check-delivery.ts: refusals, limits and other inputs', () => 
       expect(mine.result).toBe(theirs.decision);
     });
 
-    it('prints the match and no note when the reference is given', async () => {
+    it('prints the match, and a note that the adjudicators\' stores must hold the file', async () => {
       const r = await cli([terms, matching, '--reference', refFile]);
       expect(r.code).toBe(0);
       expect(r.out).toContain('  pass  ref (required): reference match 1/1');
-      expect(r.out).not.toContain('Note:');
+      expect(r.out).toContain('Check that the stores of the adjudicators the terms name hold the file');
     });
 
-    it('without the reference, fails the check as an adjudicator whose store lacks it, and says how to give it', async () => {
+    // An adjudicator whose store lacks the reference does not judge (red team H1), so the command predicts nothing.
+    it('without the reference, says the result is not known and exits 2, as the adjudicator does not judge', async () => {
       const theirs = await adjudicate(terms, matching);
-      expect(theirs.decision).toBe('reject');
+      expect(theirs.decision).toBe('not judged');
       const r = await cli([terms, matching]);
-      expect(r.code).toBe(1);
-      expect(r.out).toContain('  FAIL  ref (required): reference not available');
-      expect(r.out).toContain('Note: no reference file given for ref. The adjudicator loads it from its content store by the committed hash; download it from the URI in the terms and pass it with --reference <file>.');
-      expect(JSON.parse((await cli([terms, matching, '--json'])).out).deterministic).toEqual(theirs.deterministic);
+      expect(r.code).toBe(2);
+      expect(r.out.split('\n')[0]).toBe('Result: not known. The terms name a reference file for ref, and the adjudicator judges only once it has that file; download it from the URI in the terms and pass it with --reference <file>.');
+      expect((await cli([terms, matching, '--json'])).code).toBe(2);
     });
 
     it('refuses, exit 2, a reference file that hashes to no reference check in the terms', async () => {
