@@ -6,7 +6,7 @@
 - **Depends on:** T-318 (the seller adapter, PR 284), T-323 (the report converter, PR 304), T-324 (the adapter as a service, PR 305)
 - **Paths this task may touch:** `examples/seller-adapter.ts` (the result-to-delivery path, the journal's stages, the configuration fields this task adds, and one route for the seller's "ready" signal), `examples/seller-adapter-stub.ts`, `examples/seller-adapter.test.ts`, `vitest.config.ts` (the cost line of a new test file only), `site/llms.txt` (the seller section only), this file. Never: `packages/`, `apps/`, `spec/schemas/`, `contracts/`, `examples/buyer-signer.ts`, the adapter's quote route and the offer's terms (T-330 writes those).
 - **Human gate:** no. A site deploy that publishes an `llms.txt` change waits for Rafa.
-- **Status:** in progress
+- **Status:** done (PR 317, merged 2026-11-11 as `88cb642`)
 - **Agent/session:** the T-329 session, 2026-11-11, branch `t-329-refused-report-redelivery`
 - **Roadmap:** N60
 
@@ -45,12 +45,12 @@ Rafa asked on 2026-11-11 for the seller gaps left after the first audit deal on 
 
 ## Acceptance criteria
 
-- [ ] When the check run refuses a report, the adapter names the failed check and why in an `ALERT` log line and in a POST to the seller's callback address; a failing callback never blocks the deal loop (test).
-- [ ] The adapter holds the delivery and marks the deal as waiting for a fixed report, across a restart (test).
-- [ ] It delivers a fixed report before `deliverBy`: on the seller's refetch schedule, or when the seller posts "ready"; it runs the check run on the new bytes and delivers once they pass (tests: one for each way).
-- [ ] It never delivers twice and never delivers a report its check run refuses; after `deliverBy` it stops and says so (test).
-- [ ] Tests cover: refused, then fixed and `Released`; refused and never fixed (no delivery, the deal still `Held`); a restart while waiting; a callback address that fails.
-- [ ] `pnpm typecheck`, `pnpm lint` and all the examples' tests pass.
+- [x] When the check run refuses a report, the adapter names the failed check and why in an `ALERT` log line and in a POST to the seller's callback address; a failing callback never blocks the deal loop (test).
+- [x] The adapter holds the delivery and marks the deal as waiting for a fixed report, across a restart (test).
+- [x] It delivers a fixed report before `deliverBy`: on the seller's refetch schedule, or when the seller posts "ready"; it runs the check run on the new bytes and delivers once they pass (tests: one for each way).
+- [x] It never delivers twice and never delivers a report its check run refuses; after `deliverBy` it stops and says so (test).
+- [x] Tests cover: refused, then fixed and `Released`; refused and never fixed (no delivery, the deal still `Held`); a restart while waiting; a callback address that fails.
+- [x] `pnpm typecheck`, `pnpm lint` and all the examples' tests pass.
 
 ## Out of scope
 
@@ -74,7 +74,7 @@ All runs on 2026-11-11, on branch `t-329-refused-report-redelivery`, cut from `o
 - **Types and lint (measured).** `pnpm typecheck` exits 0. `pnpm lint` prints nothing.
 - **Site (measured).** `node site/build.mjs && node site/check.mjs`: "site check PASS". The build left `site/index.html` and `site/try.mjs` unchanged.
 - **T-330 (measured).** `git merge-tree` of this branch with `origin/t-330-terms-per-quote` merges with no conflict.
-- **CI's first run (measured).** On PR 317, `test (1/4)` failed one test: `examples/audit-deal.test.ts` "refused: … the hold comes back after the delivery deadline" expected `sellerStage` `refused` and got `closed`. That run moves the clock past `deliverBy` and then read the adapter's stage, which this task now closes at `deliverBy`; whether a poll ran first decided the answer, so the test passed locally. `examples/audit-deal.ts` now records the stage when the adapter decides (3 lines). `pnpm exec vitest run examples/audit-deal.test.ts`: 13 tests passed.
+- **CI (measured).** The second run on PR 317 passed every job, `check` included. The first run failed one job, `test (1/4)`, on one test: `examples/audit-deal.test.ts` "refused: … the hold comes back after the delivery deadline" expected `sellerStage` `refused` and got `closed`. That run moves the clock past `deliverBy` and then read the adapter's stage, which this task now closes at `deliverBy`; whether a poll ran first decided the answer, so the test passed locally. `examples/audit-deal.ts` now records the stage when the adapter decides (3 lines). `pnpm exec vitest run examples/audit-deal.test.ts`: 13 tests passed.
 - **Not shown by a test (inferred).** On SimChain the state leaves `Held` as soon as a delivery lands, so no test shows a restart in `delivering` while the state still reads `Held` and the event is already there. The code reads `delivery.submitted` in that stage whatever the state.
 - **Not run.** The full `pnpm verify` (the recipe keeps it for deploys), `pnpm snap` (no scenario or judgment code changed) and gitleaks, which is not installed on this machine. CI runs them.
 
