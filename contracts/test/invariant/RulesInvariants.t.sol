@@ -168,6 +168,26 @@ contract RulesInvariants is Test {
         assertEq(h.keyWithoutPayment(), 0, h.lastViolation());
     }
 
+    /// Every landed delivery stays named on chain (ADR-0029, T-336): a deal the handler delivered stores exactly the
+    /// posted delivery's hash, and a deal it did not deliver stores none; a delivery attempt is set on chain exactly
+    /// when the handler counted a delivery for that deal; and an authorised `deliver` before deliverBy always lands.
+    /// Without the stored hash every later decision and early accept reverts, so settlement stalls (known issue G-5).
+    /// forge-config: default.invariant.runs = 256
+    /// forge-config: default.invariant.depth = 100
+    function invariant_deliveryHashStored() public view {
+        uint256 delivered;
+        for (uint256 i; i < h.dealCount(); i++) {
+            bytes32 id = h.dealId(i);
+            bytes32 posted = h.postedHash(id);
+            assertEq(rules.deliveryHashOf(id), posted, "the stored delivery hash != the posted delivery's");
+            assertEq(rules.dealOf(id).attempt != 0, posted != bytes32(0), "a delivery attempt the handler did not count");
+            if (posted != bytes32(0)) delivered++;
+        }
+        assertEq(h.deliveries(), delivered, "the delivery counter != the delivered deals");
+        assertEq(h.deliveryHashLost(), 0, h.lastViolation());
+        assertEq(h.deliverRefused(), 0, h.lastViolation());
+    }
+
     /// Nothing has an admin path: the deployed code never changes (no selfdestruct, no upgrade) and the rules
     /// contract never holds tokens or ether.
     /// forge-config: default.invariant.runs = 256
