@@ -5,7 +5,7 @@
 - **Depends on:** T-222 (the test seller and the `crow-test-agents` Worker), merged.
 - **Paths this task may touch:** `apps/test-agents/`; `site/llms.txt` (the new seller section only), `site/check.mjs` (a matching check, if needed), `site/index.html` (only as the build regenerates it); `docs/operations.md` (a deploy command for the test buyer only); this file.
 - **Human gate:** yes for the last criterion only: the deploy and the first seller-started deal on Sepolia wait for Rafa.
-- **Status:** merged, waits for the deploy
+- **Status:** done (deployed 2026-11-11; the first seller-started deal ended Released on Sepolia)
 - **Agent/session:** t-239-standing-test-buyer
 - **Change kind:** 4 (API and operator code): the package's tests, no review, a target of 150k tokens.
 
@@ -24,16 +24,16 @@ Inputs: a commitment ID from a seller. Outputs: a signed agree-and-fund, a recla
 
 ## Acceptance criteria
 
-- [ ] An outside seller's offer that names the test buyer and fits its published rules is agreed and funded with test tUSDC, with no manual step on Crow's side.
-- [ ] A delivery that passes the offer's checks ends Released; one that fails ends Refunded; a seller that never delivers leaves the buyer to reclaim after `deliverBy`, and the test buyer sends that reclaim itself.
-- [ ] The buyer publishes what it accepts (token, largest price, required deadlines and checks) at `<base>/agent.json` and on its page, as the seller publishes its catalog, and it answers a refusal with the rule the offer broke.
-- [ ] It signs its own EIP-712 messages with its own key from the Worker's environment; the operators only relay; it still works when one operator is offline.
-- [ ] Its limits (largest price, deals per seller per window) are its own published choices (D31). It refuses to start on a mainnet chain ID.
-- [ ] It accepts only declarative checks and runs nothing from an offer.
-- [ ] Every mutating call carries an `Idempotency-Key`; a restart never agrees or funds the same offer twice.
-- [ ] Tests cover the three outcomes on the in-process chain; the package's tests, `pnpm typecheck` and `pnpm lint` pass.
-- [ ] `site/llms.txt` gains "Sell to Crow's test buyer"; `node site/build.mjs` and `node site/check.mjs` pass.
-- [ ] (Rafa) A seller-started deal ends Released on Sepolia after the deploy.
+- [x] An outside seller's offer that names the test buyer and fits its published rules is agreed and funded with test tUSDC, with no manual step on Crow's side.
+- [x] A delivery that passes the offer's checks ends Released; one that fails ends Refunded; a seller that never delivers leaves the buyer to reclaim after `deliverBy`, and the test buyer sends that reclaim itself.
+- [x] The buyer publishes what it accepts (token, largest price, required deadlines and checks) at `<base>/agent.json` and on its page, as the seller publishes its catalog, and it answers a refusal with the rule the offer broke.
+- [x] It signs its own EIP-712 messages with its own key from the Worker's environment; the operators only relay; it still works when one operator is offline.
+- [x] Its limits (largest price, deals per seller per window) are its own published choices (D31). It refuses to start on a mainnet chain ID.
+- [x] It accepts only declarative checks and runs nothing from an offer.
+- [x] Every mutating call carries an `Idempotency-Key`; a restart never agrees or funds the same offer twice.
+- [x] Tests cover the three outcomes on the in-process chain; the package's tests, `pnpm typecheck` and `pnpm lint` pass.
+- [x] `site/llms.txt` gains "Sell to Crow's test buyer"; `node site/build.mjs` and `node site/check.mjs` pass.
+- [x] (Rafa) A seller-started deal ends Released on Sepolia after the deploy (Evidence).
 
 ## Out of scope
 
@@ -50,8 +50,12 @@ Fill this in before review. Label each item measured, inferred or guessed.
   - `pnpm typecheck`: pass. `pnpm exec eslint apps/test-agents site/check.mjs`: no findings.
   - CI on PR 309 at `8b4842f`: all 15 checks pass, CodeQL included. Its one alert, a substring check on the buyer's URL in `site/check.mjs`, was fixed in code by matching whole sentences.
   - `node site/build.mjs`, then `node site/check.mjs`: PASS, with the new check 9 (the section states `buyer-rules.ts`'s caps, windows and limits). `site/try.mjs` and `site/index.html` did not change.
+- The deploy (measured, Rafa ran it). **Test seller deploy 2026-11-11 15:16 UTC, commit `7103cdf`: pass.** crow-test-agents serves `830eb7e1-9c6d-4892-a153-97b87bf17faa` with the route `crow.direct/agents/test-buyer*` and `BUYER_URL` set; the rollback target is `545afdd8-1e1c-40ff-aa35-2eea83d9ec0e`. `wrangler deployments status` shows the new version at 100%. `https://crow.direct/agents/test-buyer/health` reads `operational` for the buyer `0xd0a29422c5515a0ee31586a379a649803821dc29`, and `agent.json` serves the `crow-buyer` card. In the first minutes after the upload, 3 reads got the seller's 404 instead; 8 of 8 reads after that reached the buyer (inferred: edge locations still running the old version).
+- The first seller-started deal on Sepolia (measured, 2026-11-11, Rafa's go-ahead: "Yes, run the deal"). `node apps/test-agents/scripts/sell-to-test-buyer.mjs` exited 0. A fresh seller, `0xa3bfb3cf687efa509d89539f3a47687fc4bbba6c`, offered 3 rows of `customer_id,email` for 25 tUSDC as commitment `0xd298b3da40a61685ff5903284131607582b9b05dc41a14fa78401facf25c687a`. The test buyer took the offer, agreed and funded; the seller delivered 3 rows that passed every check; the deal ended `released`. Transactions:
+  - funded: https://sepolia.etherscan.io/tx/0x7645bde77304ecfb175835bcaa4a65b965bb8fbeebf1993f13376d9eec699b71
+  - delivered: https://sepolia.etherscan.io/tx/0xaaf4d5ff51bb18aebcf7cd53b512313027456fc65435675355463342555741ed
+  - decided: https://sepolia.etherscan.io/tx/0xfeb97694db5d2b78b0080f201cc67e6fa12f3d7f4eca273f369dc9835791be49
 - Snapshot diffs: none (no scenario fixtures change).
-- Metrics: none yet. The Sepolia deal waits for the deploy (Handoff).
 
 ## Decisions
 
@@ -65,10 +69,6 @@ Fill this in before review. Label each item measured, inferred or guessed.
 
 Done: the buyer, its rules, its Worker route, the tests, the llms.txt section and its site check, the deploy steps in `docs/operations.md`, and `scripts/sell-to-test-buyer.mjs` for the first live deal.
 
-Not done (Rafa's gate): the deploy and the first seller-started deal on Sepolia. From `/Users/rafa/Documents/escrow` at main, after this PR merges:
+Also done, on 2026-11-11: the deploy (`7103cdf`, crow-test-agents `830eb7e1`) and the first seller-started deal, Released on Sepolia (Evidence).
 
-1. `node /Users/rafa/Documents/escrow/apps/test-agents/scripts/deploy.mjs`
-2. `curl -s https://crow.direct/agents/test-buyer/health`
-3. `node /Users/rafa/Documents/escrow/apps/test-agents/scripts/sell-to-test-buyer.mjs`
-
-No secret to set and no key to fund: the buyer uses `TEST_AGENTS_SEED`, and the faucet funds both the buyer and the script's fresh seller key. Record the transactions here.
+Open: lower-priority finds are in `reports/scratch/t-239-triage.md`. The first: the deploy script checks only the seller's health, so a deploy that breaks only the buyer still passes. To see a refund on Sepolia, run `node /Users/rafa/Documents/escrow/apps/test-agents/scripts/sell-to-test-buyer.mjs --outcome refund`.
