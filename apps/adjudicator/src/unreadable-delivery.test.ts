@@ -152,6 +152,27 @@ describe('a delivery whose ciphertext no store returns (T-347)', () => {
     expect(s.decisions(bad.id)).toEqual([]);
   });
 
+  it('a throw after the panel ran (a relay that fails) costs only that deal, and the retry asks no judge again', async () => {
+    const { s, a, bad, good, delivery, bytes } = await twoDeals(EXAMPLE.acceptance);
+    s.blobs.set(delivery.ciphertext.uri, bytes);
+    const inner = s.submit.bind(s);
+    let down = true;
+    s.submit = async (m) => {
+      if (down && m.type === 'Decision' && m.commitmentId === bad.id) {
+        down = false;
+        throw new Error('relay unreachable');
+      }
+      return inner(m);
+    };
+    const first = await a.adj.runOnce();
+    expect(first.refused).toEqual([{ commitmentId: bad.id, problem: { type: 'adjudicator_unavailable', detail: expect.stringMatching(/the primary turn failed \(relay unreachable\); retrying on the next pass/) } }]);
+    expect(s.state(good.id).kind).toBe('Released');
+    const asked = a.calls.length;
+    const second = await a.adj.runOnce();
+    expect(second.decided).toEqual([{ commitmentId: bad.id, role: 'primary', outcome: 'accept' }]);
+    expect(a.calls).toHaveLength(asked);
+  });
+
   it('a store that returns other bytes under the URI is not judged either (the existing rule), and the pass goes on', async () => {
     const { s, a, bad, good, delivery, bytes } = await twoDeals();
     s.blobs.set(delivery.ciphertext.uri, bytes.map((x, i) => (i === 40 ? x ^ 1 : x)));
