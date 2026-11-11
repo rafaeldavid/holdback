@@ -28,8 +28,9 @@ export interface PreflightInput {
   /**
    * Reference files by committed sha256, for `reference_row_match_min` checks: the bytes the adjudicator's
    * content store holds under the hash the terms commit to (`loadReferences`, T-327). Given the same bytes, the
-   * result matches the adjudicator's. A reference left out fails its check with "reference not available", as
-   * it does on an adjudicator whose store does not hold it.
+   * result matches the adjudicator's. A reference left out fails its check here with "reference not available";
+   * an adjudicator whose store does not return it declines the deal or does not judge it (T-327 review), so the
+   * preflight's result for a deal with a missing reference is no prediction (examples/check-delivery.ts says so).
    */
   references?: ReadonlyMap<string, Uint8Array>;
 }

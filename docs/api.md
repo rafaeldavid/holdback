@@ -179,10 +179,18 @@ Deterministic checks run first and are declarative (no code). Each has an `id`, 
 | `regex_match_rate_min` | `{"id": "emails", "type": "regex_match_rate_min", "required": false, "column": "email", "pattern": "^[^@\\s]+@[^@\\s]+$", "minBps": 9700}` | At least `minBps` of rows match `pattern` |
 | `iso8601_date_column` | `{"id": "dates", "type": "iso8601_date_column", "required": true, "column": "signup_date"}` | Every value in `column` is an ISO 8601 date |
 | `json_schema` | `{"id": "shape", "type": "json_schema", "required": true, "schema": {"type": "object"}}` | A JSON deliverable validates against `schema` |
-| `reference_row_match_min` | `{"id": "ref", "type": "reference_row_match_min", "required": true, "reference": {"uri": "…", "sha256": "sha256:…"}, "keyColumn": "id", "minBps": 9500}` | At least `minBps` of the reference rows appear in the deliverable with the same values, matched on `keyColumn`. Upload the reference with `POST /v1/ciphertext` and name the returned `uri` and `id` as `reference.uri` and `reference.sha256`: the adjudicator reads it from its content store by that hash, and a hash no `uri` ends in is never loaded, so its check fails. An adjudicator whose store does not return the bytes does not judge yet; it retries, and the fallback and the default outcome follow if they never come. The store keeps the reference in the clear and serves it to anyone who has the hash, and a seller can copy its rows into the delivery: the check proves the rows are present, not that the seller produced them |
+| `reference_row_match_min` | `{"id": "ref", "type": "reference_row_match_min", "required": true, "reference": {"uri": "…", "sha256": "sha256:…"}, "keyColumn": "id", "minBps": 9500}` | At least `minBps` of the reference rows appear in the deliverable with the same values, matched on `keyColumn`. The reference must be in the adjudicators' store before the offer is accepted: see "Reference files" below |
 | `hidden_characters_max` | `{"id": "hidden", "type": "hidden_characters_max", "required": true, "max": {"tag": 0, "bidi": 0, "total": 0}}` | Invisible characters per class stay within `max` (ADR-0021) |
 
 Patterns are full matches (`^` and `$` are implied by the engine and allowed), in a safe subset with no backreferences or lookarounds, at most 200 characters. An empty or null cell counts as a non-match in `regex_match_rate_min`.
+
+**Reference files** (`reference_row_match_min`).
+- **Upload first.** Upload the reference with `POST /v1/ciphertext`, then name the returned `uri` and `id` as `reference.uri` and `reference.sha256`. Do this before the offer, on the store the adjudicators the terms name read.
+- **Adjudicators check the store first.** An adjudicator reads the reference from its content store by that hash. It accepts an offer as primary, or takes over as fallback, only when its store returns every reference the terms name. Otherwise it declines the deal.
+- **Wrong or late bytes.** A hash that no `uri` ends in is never loaded, so its check fails. If the store loses the bytes after acceptance, the adjudicator does not judge and retries. The fallback and then the default outcome follow if the bytes never come back.
+- **Size.** A reference is at most 10,485,760 bytes, the most any content store keeps; a node may publish a lower `limits.maxCiphertextBytes`. An adjudicator declines a deal with a larger reference, and the seller's preflight fails its check.
+- **Privacy.** The store is for ciphertext, and a reference is the one plaintext file it keeps. Publishing it is the party's choice (D35). Anyone who has the hash can read it, with no authentication. So never put personal data, or anything you would not publish, in a reference.
+- **What a pass proves.** A seller can copy the reference rows into its delivery. A pass shows the rows are present, not that the seller produced them.
 
 #### Writing checks that resist a seller doing the minimum
 

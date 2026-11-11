@@ -1,8 +1,10 @@
 // T-327: a deal whose terms name a reference file and make reference_row_match_min required. The adjudicator
-// loads the reference from its content store by the hash the terms commit to, never from another source, and
-// a reference it cannot read fails the check closed.
+// loads the reference from its content store by the hash the terms commit to, never from another source. It
+// serves a deal only when its store returns every reference, and does not judge a turn whose reference the store
+// withholds or corrupts (it retries; the fallback and the default outcome follow). Terms whose URI does not end in
+// the committed hash fail the check closed, the same on every adjudicator.
 import { readFileSync } from 'node:fs';
-import type { Commitment, Judgment } from '@holdback/core';
+import { step, type Commitment, type Judgment } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import { fakeProvider, loadRegistry, preflightDelivery, type JudgeRequest, type JudgmentCheck, type RegistryDoc } from '@holdback/judgment';
 import { keccak256 } from 'viem';
@@ -62,20 +64,26 @@ interface Opts {
   csv: string;
   /** The reference the terms name; `uri` and `sha256` default to where the store keeps REFERENCE_CSV. */
   reference?: Partial<{ uri: string; sha256: `sha256:${string}` }>;
-  /** Whether the reference's bytes are in the adjudicator's store (default true). */
-  stored?: boolean;
+  /** After acceptance, the store withholds the reference, or hands back other bytes under its hash (default: neither). */
+  withhold?: 'missing' | 'other-bytes';
   /** Checks-only (empty rubric), so stage 1 alone decides; default false: the example's rubric and a panel. */
   checksOnly?: boolean;
 }
 
-async function deal(o: Opts) {
+/** An offer whose reference the store holds (`stored`, default true), and the primary's first pass over it. */
+async function offer(o: { reference?: Opts['reference']; stored?: boolean } = {}) {
   const s = new TestSettlement();
   const a = bench(A, 'bench-a', s);
-  bench(B, 'bench-b', s);
+  const b = bench(B, 'bench-b', s);
   bench(C, 'bench-c', s);
   const bytes = encode(REFERENCE_CSV);
   const where = o.stored === false ? { uri: `mem://ciphertext/${sha256(bytes)}`, sha256: sha256(bytes) } : s.store(bytes);
   const check: JudgmentCheck = { id: 'ref', type: 'reference_row_match_min', required: true, reference: { ...where, ...o.reference }, keyColumn: 'customer_id', minBps: 9500 };
+  return { s, a, b, bytes, uri: where.uri, check };
+}
+
+async function deal(o: Opts) {
+  const { s, a, b, bytes, uri, check } = await offer(o.reference ? { reference: o.reference } : {});
   const acceptance: Commitment['acceptance'] = {
     deterministicChecks: [...EXAMPLE.acceptance.deterministicChecks, check],
     rubric: o.checksOnly ? { criteria: [], passThreshold: 0 } : EXAMPLE.acceptance.rubric,
@@ -84,12 +92,14 @@ async function deal(o: Opts) {
   s.offer(c);
   await a.adj.runOnce();
   s.fund(c.id);
+  if (o.withhold === 'missing') s.blobs.delete(uri);
+  if (o.withhold === 'other-bytes') s.blobs.set(uri, encode(REFERENCE_CSV.replace('customer0@', 'someone@')));
   s.at('2026-11-01T09:59:00Z');
   await s.deliver(c.id, o.csv, [A, B, C, BUYER].map((p) => ({ recipient: p.address, publicKey: p.enc.publicKey })));
   s.at('2026-11-01T10:00:30Z');
   await a.adj.runOnce();
   const record = [...s.records.values()][0] as Judgment | undefined;
-  return { s, a, c, id: c.id, record, ref: record?.deterministic.find((d) => d.checkId === 'ref'), referenceBytes: bytes, acceptance };
+  return { s, a, b, c, id: c.id, uri, record, ref: record?.deterministic.find((d) => d.checkId === 'ref'), referenceBytes: bytes, acceptance };
 }
 
 describe('a required reference_row_match_min check on the adjudicator service (T-327)', () => {
@@ -117,7 +127,7 @@ describe('a required reference_row_match_min check on the adjudicator service (T
   // match its delivery. It is never judged: no record, no decision, no judge called; the turn is retried, and once
   // the store returns the committed bytes the deal settles by the terms. So no store decides a deal by one read.
   it('a reference the store does not return is not judged, and the retry settles once the store has it', async () => {
-    const { s, a, id, record, referenceBytes } = await deal({ csv: demoCsv(), stored: false });
+    const { s, a, id, record, referenceBytes } = await deal({ csv: demoCsv(), withhold: 'missing' });
     expect(record).toBeUndefined();
     expect(a.calls).toHaveLength(0);
     expect(s.state(id).kind).toBe('Delivered');
@@ -129,9 +139,7 @@ describe('a required reference_row_match_min check on the adjudicator service (T
   });
 
   it('a store that hands back other bytes under the committed hash is not judged, then settles once it is right', async () => {
-    const { s, a, id, record, referenceBytes } = await deal({ csv: demoCsv(), stored: false });
-    const uri = `mem://ciphertext/${sha256(referenceBytes)}`;
-    s.blobs.set(uri, encode(REFERENCE_CSV.replace('customer0@', 'someone@')));
+    const { s, a, id, record, referenceBytes, uri } = await deal({ csv: demoCsv(), withhold: 'other-bytes' });
     const report = await a.adj.runOnce();
     expect(record).toBeUndefined();
     expect(report.refused[0]?.problem.detail).toContain('(the store returned other bytes)');
@@ -173,6 +181,70 @@ describe('a required reference_row_match_min check on the adjudicator service (T
     const ref = [...s.records.values()][0]!.deterministic.find((d) => d.checkId === 'ref');
     expect(ref).toEqual({ checkId: 'ref', required: true, passed: false, detail: 'reference not available' });
     expect(s.state(c.id).kind).toBe('Refunded');
+  });
+});
+
+// T-327 review, finding 1 (High): an adjudicator that accepted a deal whose reference its store never held would
+// refuse every turn, so a buyer and seller acting together could send the deal to its default outcome and take
+// the bonds. An adjudicator agrees to serve a deal only when its store returns every reference the terms name.
+describe('an adjudicator serves a deal only when its store holds the references (T-327 review)', () => {
+  const acceptanceWith = (check: JudgmentCheck) => ({ deterministicChecks: [check], rubric: { criteria: [], passThreshold: 0 } }) as unknown as Commitment['acceptance'];
+
+  it('the primary declines an offer whose reference its store does not return, and accepts it once the store has it', async () => {
+    const { s, a, bytes, check } = await offer({ stored: false });
+    const c = makeCommitment({ primary: A.address, fallback: B.address, appeal: C.address, policyHash: policyHashOf(a.adj.policy), registryHash: reg.hash, buyer: BUYER, seller: SELLER, acceptance: acceptanceWith(check) });
+    s.offer(c);
+    const report = await a.adj.runOnce();
+    expect(report.accepted).toEqual([]);
+    expect(report.declined).toEqual([{ commitmentId: c.id, reason: expect.stringMatching(/reference .*not return/) }]);
+    expect(s.state(c.id).kind).toBe('Offered');
+    s.store(bytes);
+    expect((await a.adj.runOnce()).accepted).toEqual([c.id]);
+  });
+
+  it('the primary declines an offer whose store hands back other bytes under the committed hash', async () => {
+    const { s, a, uri, check } = await offer();
+    s.blobs.set(uri, encode(REFERENCE_CSV.replace('customer0@', 'someone@')));
+    const c = makeCommitment({ primary: A.address, fallback: B.address, appeal: C.address, policyHash: policyHashOf(a.adj.policy), registryHash: reg.hash, buyer: BUYER, seller: SELLER, acceptance: acceptanceWith(check) });
+    s.offer(c);
+    const report = await a.adj.runOnce();
+    expect(report.declined).toEqual([{ commitmentId: c.id, reason: expect.stringContaining('the store returned other bytes') }]);
+  });
+
+  it('declines() answers the same for every role before any deal exists', async () => {
+    const { a, b, check } = await offer({ stored: false });
+    const c = makeCommitment({ primary: A.address, fallback: B.address, appeal: C.address, policyHash: policyHashOf(a.adj.policy), registryHash: reg.hash, buyer: BUYER, seller: SELLER, acceptance: acceptanceWith(check) });
+    expect((await a.adj.declines(c, 'primary'))?.detail).toMatch(/reference/);
+    expect((await b.adj.declines(c, 'fallback'))?.detail).toMatch(/reference/);
+  });
+
+  // Finding 2 (Medium): the store withholds the reference after acceptance. Nobody judges, the fallback does not take
+  // a turn it cannot run, and the deal reaches its default outcome at fallbackBy: the path the terms already set.
+  it('a reference withheld after acceptance: no decision, the fallback declines the takeover, and the default outcome applies', async () => {
+    const { s, a, b, c, id } = await deal({ csv: demoCsv(), withhold: 'missing' });
+    expect(s.records.size).toBe(0);
+    expect(s.decisions(id)).toEqual([]);
+    s.at(c.timing.judgeBy);
+    const report = await b.adj.runOnce();
+    expect(report.triggered).toEqual([]);
+    expect(report.refused).toEqual([{ commitmentId: id, problem: { type: 'adjudicator_unavailable', detail: expect.stringMatching(/reference/) } }]);
+    // Anyone may trigger the takeover; the fallback still does not judge without the reference, and publishes nothing.
+    expect((await s.triggerFallback(id)).ok).toBe(true);
+    const turn = await b.adj.runOnce();
+    expect(turn.decided).toEqual([]);
+    expect(turn.refused.map((r) => r.problem.detail)).toEqual([expect.stringMatching(/reference files unavailable/)]);
+    expect(b.calls).toHaveLength(0);
+    expect(a.calls).toHaveLength(0);
+    expect(s.records.size).toBe(0);
+    s.at(c.timing.fallbackBy);
+    const kept = s.cases.get(id)!;
+    for (const e of [{ type: 'trigger_default' as const, at: s.now() }, { type: 'apply_default_outcome' as const, at: s.now() }]) {
+      const r = step(kept.state, e);
+      if (!r.ok) throw new Error(r.error.detail);
+      kept.state = r.value;
+    }
+    expect(s.state(id)).toMatchObject({ via: { kind: 'default_outcome' } });
+    expect(s.decisions(id)).toEqual([]);
   });
 });
 
