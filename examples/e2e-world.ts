@@ -4,9 +4,7 @@
 // it: e2e-round.test.ts, e2e-adjudicator.test.ts and the scenario groups' tests.
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
 import { createRequire } from 'node:module';
-import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { MemoryStorage, PublicWorld } from '@holdback/demo-cloud';
@@ -14,6 +12,7 @@ import { toHex } from 'viem';
 import { mnemonicToAccount } from 'viem/accounts';
 import { expect } from 'vitest';
 import { ROLES, roundEncryptionKey, roundKey } from './e2e-keys.ts';
+import { serveTwoOrigins } from './two-origins.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 const here = (f: string) => fileURLToPath(new URL(f, import.meta.url));
@@ -30,39 +29,7 @@ export type Served = { urls: [string, string]; requests: string[]; close(): Prom
  * The world as two nodes: http://127.0.0.1:<port> is node 0, http://localhost:<port> node 1 (as try.test.ts), with its
  * passes every `tickMs`. `requests` lists every write as "METHOD /path", for tests that count what a step sent.
  */
-export async function serve(world: PublicWorld, tickMs: number): Promise<Served> {
-  const requests: string[] = [];
-  const server: Server = createServer(async (req, res) => {
-    const host = req.headers.host ?? '';
-    const chunks: Buffer[] = [];
-    for await (const c of req) chunks.push(c as Buffer);
-    const body = ['GET', 'HEAD'].includes(req.method ?? 'GET') ? undefined : Buffer.concat(chunks);
-    if (body) requests.push(`${req.method} ${req.url}`);
-    const headers = Object.fromEntries(Object.entries(req.headers).filter(([, v]) => typeof v === 'string')) as Record<string, string>;
-    const r = await world.fetch(new Request(`http://${host}${req.url}`, { method: req.method ?? 'GET', headers, ...(body ? { body } : {}) }), { node: host.startsWith('localhost') ? 1 : 0, origin: `http://${host}`, client: req.socket.remoteAddress ?? 'unknown' });
-    res.writeHead(r.status, Object.fromEntries([...r.headers].filter(([k]) => k !== 'content-length')));
-    res.end(Buffer.from(await r.arrayBuffer()));
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const port = (server.address() as AddressInfo).port;
-  let ticking = true;
-  const loop = (async () => {
-    while (ticking) {
-      await world.work();
-      await new Promise((r) => setTimeout(r, tickMs));
-    }
-  })();
-  return {
-    urls: [`http://127.0.0.1:${port}`, `http://localhost:${port}`],
-    requests,
-    close: async () => {
-      ticking = false;
-      await loop;
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-      server.closeAllConnections();
-    },
-  };
-}
+export const serve = (world: PublicWorld, tickMs: number): Promise<Served> => serveTwoOrigins(world, { tickMs });
 
 /** The demo's world on SimChain, served as two nodes. */
 export async function simWorld(): Promise<Served> {
