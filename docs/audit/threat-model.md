@@ -57,6 +57,8 @@ A token that charges a fee on transfer cannot fund: the escrow checks the exact 
 
 A token that calls back into the contracts during a transfer finds the deal's word already written: every call to the escrow, and every vault call that moves tokens, comes after the state write [measured: `R:211-218`, `R:321-333`, `R:341-342`, `R:373-378`, `R:407-413`, `R:450-454`, `R:514-516`, `R:587-590`, `R:598-609`]. The vault's `release` and `encumber` can come before the write (`R:317`, `R:326-327`, `R:337`, `R:370`); they change totals and call no other contract (`B:74-84`). The escrow also guards itself against reentry (`E:241`, `E:269`, `E:304`). The rules contract has no reentrancy guard of its own.
 
+A nested call needs no hostile token. The ERC-3009 collector unwraps an ERC-6492 funding signature and makes the call it names, through Multicall3 (`collectors/ERC6492SignatureHandler.sol:52-58`). The wrapper is not signed, so whoever relays `agreeAndFund` chooses that call. It runs after the deal's word says Held (`R:211`) and before the tokens arrive (`E:250-255`). It can take only the steps anyone could take in the next transaction: a nested capture or void fails at the escrow's guard, and a step that calls no escrow (a delivery, an escalation, `triggerFallback`) lands on a legal row [measured by the red-team check; the handler's lines read here].
+
 ## 4. Assumptions
 
 Each assumption names what the contracts rely on, where, and what happens if it fails.

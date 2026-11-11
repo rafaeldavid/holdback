@@ -6,6 +6,7 @@ This page lists every state a deal can be in on chain, across the rules contract
 
 - **The deal's stored word has 37 legal combinations** (rows L01 to L37, section 2) [measured: each row cites the line that writes it].
 - **16 classes of combination are illegal** (I01 to I16, section 4). Each is unreachable, with the line that makes it so [inferred from reading every write to the word; no test ran]. One state is reachable that the word does not show: a funded deal whose escrow the buyer has already emptied (section 5.2). The code handles it; the word does not record it.
+- **An independent red-team check found no break.** One subagent read the contracts without this page's reasoning. It reached no word that the predicate rejects and no state outside the 37 rows, and it checked every `R:`, `B:` and `E:` citation of sections 1 to 6 [measured by that check; it ran no test]. It corrected seven details, all now in the text.
 - **Three findings,** all Low or Info (section 11). No finding moves money outside the signed terms.
 - **Phase one cuts 21 of the 37 rows.** The maintainer accepted scope cut SC-7 (no party appeals, no bonds) on 2026-11-11; it removes the 20 rows L11 to L30 and the vault. Scope cut SC-6 removes L02. Section 9 specifies the phase-one machine that remains: 17 states, because a closing reason splits one deployed row in two. Appendix A lists what phase one cuts. This page decides no cut.
 
@@ -122,14 +123,16 @@ legal(d, dh) :=
 
 Every entry point of the rules contract is permissionless: the contract never reads `msg.sender`, and it checks a signature for every step that is not a timeout [measured: no `msg.sender` in `HoldbackRules.sol`]. "Signs" names the key whose signature the call must carry.
 
+**The common guards of `decide`,** which every decision passes: the message has not expired (`R:243`); it names the turn's role, the stored attempt and the posted delivery, and an outcome the role may give (`R:275-280`); it carries a key only with an accept, and never on a deal that stands Refunded (`R:283-285`); `now` is before the turn's deadline (`R:286`); the seed is valid for the role (`R:287-297`); the adjudicator whose turn it is signed it (`R:298-301`).
+
 | Entry point | From | To | Guards | Signs |
 | --- | --- | --- | --- | --- |
 | `agreeAndFund` (`R:193-219`) | L01 | L03 | stage None (`R:202`); `now < offerExpiresAt` and `now < fundBy` (`R:203`); both message expiries (`R:204`); `bondReserved ≥ P`, method 0 or 1 (`R:205`); `H`, the escrow expiry and `fundBy` fit their widths (`R:170`); the primary's free bond `≥ P` (`B:75-76`); `H > 0` (`E:179`); `fundBy ≤` the escrow expiry (`E:494`); the escrow's token store receives exactly `H` (`E:424`) | the seller (terms, `R:206`), the primary (acceptance, `R:207`), the buyer (Agree, `R:208`, and the collector signature, `R:218`) |
 | `deliver` (`R:226-232`) | L03 | L04 | stage Held (`R:229`); `now < deliverBy` (`R:623`); attempt is 1 (`R:624`) | the seller (`R:626`) |
-| `decide`, primary (`R:238-307`) | L03 carrying a delivery (under `deliver`'s guards, `R:244-248`), or L04 | accept: L07. reject: L08. escalate: L06 | message expiry (`R:243`); role, attempt, posted delivery hash, outcome (`R:275-280`); a key only with an accept (`R:283-285`), and required on an accept (`R:350`); `now < judgeBy` (`R:257`, `R:286`); the seed's hash matches `seedTag` on 144 bits (`R:289`); no appeal ground (`R:313`) | the primary (`R:301`) |
-| `decide`, fallback | L05 | accept: L09. reject: L10. escalate: L06 | the same common guards; `now < fallbackBy` (`R:260`); the beacon round is `roundAt(judgeBy)`, its value is proven and the seed follows from it (`R:261`, `R:290-297`); on accept or reject the fallback's free bond `≥ P` (`R:327`, `B:75-76`) | the fallback (`R:301`) |
-| `decide`, escalation | L06 | accept: L31. reject: L32 | the common guards; outcome is accept or reject (`R:277`); `now < t1 + D` (`R:264`); the round is `roundAt(t1) + 1` (`R:265`) | the appeal adjudicator (`R:301`) |
-| `decide`, party appeal | L11 to L14 | upheld: L15 to L18. overturned: L19 to L22 | the common guards; `now < t1 + W + D` (`R:268`); the round is `roundAt(t2) + 1` (`R:269`); no key when the deal stands Refunded (`R:283`) | the appeal adjudicator (`R:301`) |
+| `decide`, primary (`R:238-307`) | L03 carrying a delivery (under `deliver`'s guards, `R:244-248`), or L04 | accept: L07. reject: L08. escalate: L06 | the common guards, with deadline `judgeBy` (`R:257`); the seed's hash matches `seedTag` on 144 bits (`R:289`); no appeal ground (`R:313`); a key is required on an accept (`R:350`) | the primary (`R:301`) |
+| `decide`, fallback | L05 | accept: L09. reject: L10. escalate: L06 | the common guards, with deadline `fallbackBy` (`R:260`); the beacon round is `roundAt(judgeBy)`, its value is proven and the seed follows from it (`R:261`, `R:290-297`); no appeal ground (`R:313`); a key is required on an accept (`R:350`); on accept or reject the fallback's free bond `≥ P` (`R:327`, `B:75-76`) | the fallback (`R:301`) |
+| `decide`, escalation | L06 | accept: L31. reject: L32 | the common guards, with deadline `t1 + D` (`R:264`); the outcome is accept or reject (`R:277`); the round is `roundAt(t1) + 1` (`R:265`); a key is required on an accept (`R:350`). The appeal ground is not checked | the appeal adjudicator (`R:301`) |
+| `decide`, party appeal | L11 to L14 | upheld: L15 to L18. overturned: L19 to L22 | the common guards, with deadline `t1 + W + D` (`R:268`); the outcome is accept or reject (`R:277`); the round is `roundAt(t2) + 1` (`R:269`). A key is optional, and released only on an accept of a Released deal (`R:283`, `R:379`). The appeal ground is not checked | the appeal adjudicator (`R:301`) |
 | `earlyAccept` (`R:388-418`) | L03 carrying a delivery (`now < deliverBy`, `R:401`, `R:623`), or L04 | L33 | stage (`R:398`); message expiry (`R:399`); the message names the posted delivery and its attempt (`R:403`); the buyer's envelope is in the delivery's key list (`R:404`, `R:632-637`). No deadline of its own | the buyer (`R:400`); the seller's delivery signature when carried (`R:626`) |
 | `mutualSettle` (`R:425-457`) | L03, L04, L05, L06 | L35 (from L03), L36 (from L04), L37 (from L05 or L06) | stage (`R:431`); message expiry (`R:434`); a settlement without a delivery only in Held, with no key (`R:435`); outside Held it names the posted delivery (`R:439`); with a key, the carried delivery hashes to the named one and holds the buyer's envelope (`R:444-447`); each payout is above zero (`R:466`) and they sum to `P` (`R:477`). No deadline of its own | the buyer and the seller (`R:442-443`) |
 | `fileAppeal` (`R:503-518`) | L07 to L10 | L11 to L14 | stage (`R:506`); appeal None (`R:507`); `now < t1 + W` (`R:508`); the appellant is the party the decision went against (`R:511`); `B < 2^96` (`B:97`); no appeal bond held for this ID (`B:98`) | the appellant (`R:513`) |
@@ -148,7 +151,10 @@ Two calls outside the rules contract change what a deal holds without changing i
 
 **Terminal rows:** L02 and L15 to L37. No entry point accepts them: every entry point checks the stage first, and for Released or Refunded also the appeal state (`R:266`, `R:507`, `R:579-585`).
 
-**Every non-terminal row has an exit anyone can take once its deadline passes:** L03 by `reclaim`, L04 by `triggerFallback`, L05 and L06 by `triggerDefault`, L07 to L14 by `expireAppeal`. Each of these moves tokens to the buyer or an appellant, except `triggerFallback`; section 5.3 states what that rests on.
+**Every funded, non-terminal row has an exit anyone can take once its deadline passes:** L03 by `reclaim`, L04 by `triggerFallback`, L05 and L06 by `triggerDefault`, L07 to L14 by `expireAppeal`. Two limits apply:
+
+- **Three exits push tokens.** `reclaim` and `triggerDefault` return the hold to the buyer, unless the buyer already took it from the escrow (`R:605-609`). `expireAppeal` returns an appeal bond above zero to the appellant when the appeal is open (`R:590`, `B:109`). Section 5.3 states what these rest on. `triggerFallback`, and `expireAppeal` with no appeal filed, move nothing.
+- **The contract puts no upper bound on `appealWindowSec`** (64 bits, `T:23`; it is not part of the escrow's expiry, `R:169`). With a window longer than any block time, `appealBy` never comes, the exit from L07 to L10 never becomes due, and the first decider's reservation never frees. The adjudicator signed those terms ([`threat-model.md`](threat-model.md), TA-10). This limit leaves with SC-7.
 
 ## 4. Illegal combinations
 
@@ -171,7 +177,7 @@ Each class is a set of combinations the storage can hold and no entry point writ
 | I13 | `t1 = 0` in FallbackJudging, in Escalated, or after a first decision; `t1 ≠ 0` in Held or Delivered | `R:549`, `R:320`, `R:331` write block time; nothing writes `t1` before them | Appeal and escalation deadlines would be measured from zero and be over at once |
 | I14 | Released with appeal Closed and `attempt = 0`; Refunded with appeal Closed and `attempt = 1`, `t1 = 0`, or `attempt = 0`, `t1 ≠ 0`; Settled with `attempt = 0` and `t1 ≠ 0` | Early accept and an escalation decision both need a posted delivery (`R:401-403`, `R:276`). `t1` is first written at `triggerFallback` or an escalation, and both need a delivery (`R:546`, `R:255-258`); a reclaim and a settlement from Held find `t1` at zero | A release with no delivery, or a fallback turn with none |
 | I15 | `appealBondOf[id].appellant ≠ 0` while appeal ≠ Open, or zero while Open | `takeAppealBond` runs only in `fileAppeal` (`R:516`); `payAppealBond` runs in both ways out of Open (`R:376`, `R:590`) and deletes the entry (`B:108`) | An appeal bond stranded in the vault, or a second filing refused |
-| I16 | The escrow's `capturableAmount` is neither `H` nor 0; it is `H` in a terminal row; it is 0 in L03 to L06 before the escrow's expiry | The rules contract is the escrow's only operator (`R:174`, `E:241`, `E:270`, `E:304`). It authorizes `H` once (`R:218`) and every settlement path leaves `capturableAmount` at 0 in the call that leaves the funded rows (section 5.1). The buyer's own reclaim needs the expiry (`E:325`) | Money left in the escrow after a deal closed, or a hold gone before its deadline |
+| I16 | The escrow's `capturableAmount` is neither `H` nor 0; it is `H` in a terminal row; it is 0 in L03 to L06 before the escrow's expiry | The rules contract is the escrow's only operator (`R:174`, `E:241`, `E:270`, `E:304`). It authorizes `H` once (`R:218`) and every settlement path leaves `capturableAmount` at 0 in the call that leaves the funded rows (section 5.1). The buyer's own reclaim needs the expiry (`E:325`). A call nested inside the funding call cannot void or capture: the escrow's reentry guard refuses it (`E:269`, `E:304`) | Money left in the escrow after a deal closed, or a hold gone before its deadline |
 
 No class is reachable [inferred]. One reachable state has no row of its own, because the word does not record it: section 5.2.
 
@@ -221,7 +227,7 @@ With deadlines in order (`deliverBy ≤ judgeBy ≤ fallbackBy`), every timeout 
 
 ### 5.3 Aggregate invariants
 
-For every adjudicator `a` and token `k` [inferred; `invariant` tests exist for the first, T-341 extends them]:
+These hold between transactions, for every adjudicator `a` and token `k` [inferred; `invariant` tests exist for the first, T-341 extends them]. Inside one transaction two of them have a gap: the escrow records the hold before it collects the tokens (`E:250-255`), and an overturn writes the word before it pays from the bond (`R:373-378`). A call nested in either gap sees invariant 4 or invariant 1 broken; the red-team check found no use for either gap.
 
 1. `encumberedOf[a][k]` equals the sum of `P` over the deals in token `k` whose primary is `a` and whose flags have bit 1, plus the sum of `P` over the deals whose fallback is `a` and whose flags have bit 2. The reservation and each release use the same adjudicator, token and amount, all bound by the deal's ID (`R:215`, `R:327`, `R:656-657`, `B:89`).
 2. `bondOf[a][k] ≥ encumberedOf[a][k]`: `withdraw` takes only the free part (`B:63-65`), and `slash` lowers both by the same amount (`B:89-90`).
@@ -266,7 +272,7 @@ Each step that needs a deadline to be open is paired with the timeout that needs
 | `appealBy` | `fileAppeal` (`R:508`) | `expireAppeal` with no appeal (`R:580`) |
 | `appealDecideBy` | the appeal decision (`R:268`, `R:286`) | `expireAppeal` with an open appeal (`R:582`) |
 
-Three steps have no deadline of their own and can race a timeout: `earlyAccept` in L04 after `judgeBy`, `mutualSettle` in any funded row, and `triggerFallback` when it comes late. The first one applied wins, because each leaves the row the other needs. A capture reverts from `escrowExpiry` (`E:277`), so from then on no path pays the seller.
+Three steps have no deadline of their own and can race a timeout: `earlyAccept` in L04 after `judgeBy`, `mutualSettle` in any funded row, and `triggerFallback` when it comes late. The first one applied wins, because each leaves the row the other needs. A capture reverts from `escrowExpiry` (`E:277`), so from then on no path pays the seller out of the hold. An overturned reject still pays the seller the price from the first decider's bond (`R:378`), which can come later when the appeal window is long.
 
 ### 6.3 What the contract does not check
 
@@ -280,7 +286,8 @@ Terms out of order leave a party without its turn; none moves money outside the 
 | `judgeBy ≤ deliverBy` | The primary has no window after a late delivery; the fallback takes over |
 | `fallbackBy ≤ judgeBy` | The fallback has no window; `triggerDefault` is due at `triggerFallback` |
 | `D = 0` | No escalation can be decided (`now < t1` never holds); the case defaults at once |
-| `judgeBy` or `deliverBy` after `escrowExpiry` | An on-time decision cannot capture (known issue L-6). After the buyer's own reclaim, the deal's word stays open and the primary's bond stays reserved until that deadline |
+| `D` no longer than the wait for the next beacon round and the next block | The same in practice. The escalation's round is `roundAt(t1) + 1` (`R:265`), which the beacon publishes after `t1`: up to 3 s later on drand quicknet (`DrandQuicknetBeacon.sol:75`), and the decision then needs a block before `t1 + D`. On the local sim beacon the round is usable from `t1 + 1` (`SimBeacon.sol:33`), so `D = 1`, the schema's minimum, is undecidable. A party appeal filed late with a short `D` has the same limit (`R:268-269`). Finding F-2 |
+| `judgeBy` or `deliverBy` after `escrowExpiry` | An on-time accept, or a reject with a fee above zero, cannot capture (known issue L-6). A reject with no fee still settles while the hold is intact, because a void has no expiry check (`E:304-316`). After the buyer's own reclaim, the deal's word stays open and the primary's bond stays reserved until that deadline |
 | `judgeBy` before the funding time | The fallback's beacon round is public before anyone signs (known issue L-8) |
 
 ## 7. The effective outcome
@@ -529,7 +536,7 @@ No Critical, High or Medium finding. None moves money outside what the parties s
 
 **F-1 · Low · The contract takes a settlement that core, ADR-0019 and the formal model refuse.** In Held, `mutualSettle` accepts a settlement with `hasDelivery = true`: it checks the named hash against nothing unless a key is released, and with `releaseKey` it releases the buyer's envelope from a delivery that was never posted (`R:435-447`). Core refuses both (`packages/core/src/state.ts:516-518`), and the formal model has `releaseKey => esc # "Held"`. The contract's behaviour is deliberate: `contracts/test/unit/LateCarriedDelivery.t.sol:84` tests a settlement for late work. Impact: both parties signed, so the money is theirs to move; the deal ends in L35 with a `KeyReleased` event and no posted delivery, and an operator that mirrors the chain through core refuses the step (residual 13, case 4). Next action: the scope record (T-342) decides. The plan proposes that the contract refuse it (SC-5b); the other choice is to change core, ADR-0019 and the formal model to the contract's rule.
 
-**F-2 · Info · A zero appeal-decision window is accepted and makes an escalation undecidable.** With `appealDecideSec = 0` the escalation decision needs `now < t1`, which never holds (`R:264`, `R:286`), so every escalated case defaults at once. The schema requires at least 1 second; the contract does not check. Impact: none beyond the terms the parties signed. Next action: the plan has added it to scope cut SC-5; the package that lands SC-5 refuses it at funding.
+**F-2 · Low · A short appeal-decision window makes an escalation undecidable, and the schema's minimum of 1 second does not prevent it.** With `appealDecideSec = 0` the escalation decision needs `now < t1`, which never holds (`R:264`, `R:286`). With a window above zero the decision still needs the beacon round after `t1` and then a block before `t1 + D` (`R:265`, `R:286`): on drand quicknet that is up to 3 s plus one block, about 12 s on Sepolia [inferred; the red-team check raised this]. Any `D` below that makes every escalated case default, and the buyer is refunded although an adjudicator escalated. The contract checks neither. Impact: none beyond the terms the parties signed; an adjudicator that escalates under such terms cannot know its escalation is void. Next action: the plan has added `D = 0` to scope cut SC-5. The scope record decides whether the contract refuses more than zero; under D31 a minimum above zero is the operators' advisory warning, not a refusal.
 
 **F-3 · Info · The plan's count of unenforced signed fields was low.** The plan said nine and listed ten; section 8.3 lists eighteen, among them the beacon fields of a primary's decision and the acceptance's `bondReserved` above the price. Impact: the NatSpec and the agent docs would under-state what is signed for the record. Next action: the scope record and the NatSpec package use section 8.3; the plan already points to it.
 
@@ -552,6 +559,7 @@ What a cut costs: a wrong final decision has no remedy on chain in phase one. Th
 
 ## Where this page did not look
 
-- **Not run:** no test, no `forge build`, no model check. Every "unreachable" is from reading each write to the word.
+- **Not run:** no test, no `forge build`, no model check. Every "unreachable" is from reading each write to the word, twice: by this page's author and by the red-team check.
+- **Not checked by the red team:** sections 7 to 11, beyond the `T:` lines of the register.
 - **Not read in full:** the two collectors, `TokenStore.sol`, Solady's signature library beyond the plan's note that a zero signer fails, and the test handler.
 - **Assumed:** a token that moves exactly the amount asked and lets every transfer through; block time between 1 and 2^40 − 1; no delivery or seed that hashes to zero.
