@@ -8,8 +8,7 @@ import {Base} from "../unit/Base.sol";
 /// @title PostingsFuzzTest
 /// @notice T-203: each postings-table row that moves held money, for random price and fee (and random mutual
 ///         splits), pays every party exactly its share and leaves nothing in the hold (docs/architecture.md,
-///         ADR-0022). The primary's guaranteed-mode bond requirement is the ceiling of 100% of the price, and it is
-///         released in full when the commitment closes.
+///         ADR-0022). Phase one encumbers no bond (T-346, ADR-0031 §8), so the hold is the only balance a deal keeps.
 contract PostingsFuzzTest is Base {
     address internal constant THIRD = address(0x7777);
 
@@ -30,16 +29,10 @@ contract PostingsFuzzTest is Base {
         t.fee = bound(fee, 0, 100_000_000);
         id = _fund(t);
         assertEq(_held(t), t.price + t.fee, "hold != price + fee");
-        assertEq(
-            bonds.encumberedOf(adjudicator, address(usdc)),
-            Money.requirement(t.price, Money.ALL_BPS),
-            "guaranteed requirement is not ceil(100% of price)"
-        );
     }
 
     function _closed(H.Terms memory t) internal view {
         assertEq(_held(t), 0, "hold not empty");
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), 0, "bond still encumbered");
     }
 
     function testFuzz_release(uint256 price, uint256 fee) public {
@@ -51,7 +44,6 @@ contract PostingsFuzzTest is Base {
         assertEq(s1.seller - s0.seller, t.price);
         assertEq(s1.adj - s0.adj, t.fee);
         assertEq(s1.buyer, s0.buyer);
-        // The decider's bond stays encumbered until the appeal window closes.
         assertEq(_held(t), 0);
     }
 
@@ -99,7 +91,6 @@ contract PostingsFuzzTest is Base {
         rules.triggerDefault(t);
         assertEq(_snap().buyer - s0.buyer, t.price + t.fee);
         _closed(t);
-        assertEq(bonds.encumberedOf(fallbackAdj, address(usdc)), 0);
     }
 
     /// A random three-way split of the price; the fee share is 0 bps, so the whole fee is the buyer's remainder.

@@ -182,20 +182,6 @@ contract DeliveryBindingTest is Base {
         vm.warp(round);
     }
 
-    function _partyAppeal() internal returns (H.Terms memory t, bytes32 id, uint64 round) {
-        (t, id) = _funded();
-        _deliver(t, id);
-        rules.decide(t, _primary(t, id, H.OUTCOME_ACCEPT), _noDelivery(), "");
-        vm.prank(buyer);
-        usdc.approve(address(bonds), type(uint256).max);
-        H.Appeal memory a =
-            H.Appeal({appellant: 0, groundsHash: keccak256("g"), bond: 1_000, filedAt: 0, signature: ""});
-        a.signature = _sign(BUYER_PK, hx.appeal(id, buyer, t.token, a));
-        rules.fileAppeal(t, a);
-        round = uint64(rules.dealOf(id).t2) + 1;
-        vm.warp(round);
-    }
-
     /// A beacon-seeded decision for `role`, naming `dh` (zero: the posted delivery).
     function _beaconNaming(H.Terms memory t, bytes32 id, uint8 role, uint64 round, bytes32 dh)
         internal
@@ -227,16 +213,6 @@ contract DeliveryBindingTest is Base {
         rules.decide(t, wrong, _noDelivery(), "");
         rules.decide(t, _beaconNaming(t, id, H.ROLE_APPEAL, round, 0), _noDelivery(), "");
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
-    }
-
-    /// The appeal adjudicator judges the body the first instance judged.
-    function test_everyRoleNamesThePostedDelivery_partyAppeal() public {
-        (H.Terms memory t, bytes32 id, uint64 round) = _partyAppeal();
-        H.Decision memory wrong = _beaconNaming(t, id, H.ROLE_APPEAL, round, _otherHash(id));
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
-        rules.decide(t, wrong, _noDelivery(), "");
-        rules.decide(t, _beaconNaming(t, id, H.ROLE_APPEAL, round, 0), _noDelivery(), "");
-        assertEq(uint8(rules.dealOf(id).appeal), uint8(HoldbackRules.AppealState.Overturned));
     }
 
     function test_everyRoleNamesThePostedDelivery_primary() public {

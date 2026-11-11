@@ -27,10 +27,6 @@ contract DrandDecideTest is Base {
         super.setUp();
         drand = new DrandQuicknetBeacon();
         rules = new HoldbackRules(escrow, address(collector3009), address(collectorPermit2), MARGIN, drand);
-        bonds = rules.BONDS();
-        _bond(adjudicator, BOND);
-        _bond(fallbackAdj, BOND);
-        _bond(appealAdj, BOND);
     }
 
     function _drandDecision(bytes32 id, uint8 role, uint8 outcome, uint64 round, bytes memory sig)

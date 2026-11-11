@@ -55,8 +55,6 @@ contract DecideTest is Base {
         assertEq(usdc.balanceOf(adjudicator), FEE);
         assertEq(_held(t), 0);
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
-        // The decider's bond stays encumbered until the appeal window closes.
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), PRICE);
     }
 
     function test_reject_feeOnlyCaptureThenVoid() public {
@@ -164,8 +162,29 @@ contract DecideTest is Base {
         m = _signDecision(t, id, m, fallbackAdj, FB_PK);
         rules.decide(t, m, _noDelivery(), "");
         assertEq(usdc.balanceOf(fallbackAdj), FEE, "the fee goes to the adjudicator whose decision settles");
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), 0, "the silent primary's reservation is released");
-        assertEq(bonds.encumberedOf(fallbackAdj, address(usdc)), PRICE);
+    }
+
+    /// Moved from BondConsent.t.sol (T-346): an escalation by the fallback moves no money and hands the case to the
+    /// appeal adjudicator.
+    function test_fallback_mayEscalate() public {
+        (H.Terms memory t, bytes32 id) = _toFallback();
+        H.Decision memory m = _beaconDecision(id, H.ROLE_FALLBACK, H.OUTCOME_ESCALATE, t.timing.judgeBy);
+        rules.decide(t, _signDecision(t, id, m, fallbackAdj, FB_PK), _noDelivery(), "");
+        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Escalated));
+    }
+
+    /// Moved from BondConsent.t.sol (T-346): one address named as primary and fallback decides as the fallback after
+    /// the takeover, with the beacon seed, and the deal settles.
+    function test_fallback_sameAddressAsPrimary_decides() public {
+        H.Terms memory t = _terms();
+        t.fallbackAdjudicator = adjudicator;
+        bytes32 id = _fund(t);
+        _deliver(t, id);
+        vm.warp(t.timing.judgeBy);
+        rules.triggerFallback(t);
+        H.Decision memory m = _beaconDecision(id, H.ROLE_FALLBACK, H.OUTCOME_REJECT, t.timing.judgeBy);
+        rules.decide(t, _signDecision(t, id, m, adjudicator, ADJ_PK), _noDelivery(), "");
+        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
     }
 
     function test_fallback_refusesAChosenSeed() public {
@@ -203,16 +222,23 @@ contract DecideTest is Base {
         (H.Terms memory t, bytes32 id, uint64 at) = _escalated();
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Escalated));
         assertEq(_held(t), PRICE + FEE);
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), 0);
-        assertEq(bonds.encumberedOf(appealAdj, address(usdc)), 0, "the appeal adjudicator signed nothing");
         vm.warp(at + 1); // the appeal round is the first one after the escalation: wait for it
         H.Decision memory m = _beaconDecision(id, H.ROLE_APPEAL, H.OUTCOME_REJECT, at + 1);
         m = _signDecision(t, id, m, appealAdj, AP_PK);
         rules.decide(t, m, _noDelivery(), "");
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
-        assertEq(uint8(rules.dealOf(id).appeal), uint8(HoldbackRules.AppealState.Closed));
         assertEq(usdc.balanceOf(appealAdj), FEE);
-        assertEq(bonds.encumberedOf(appealAdj, address(usdc)), 0);
+    }
+
+    /// Moved from Settle.t.sol's AppealTest (T-346): the appeal adjudicator's decision on an escalated case, signed by
+    /// another key, is refused.
+    function test_escalated_refusesAnotherSigner() public {
+        (H.Terms memory t, bytes32 id, uint64 at) = _escalated();
+        vm.warp(at + 1); // the appeal round is the first one after the escalation: wait for it
+        H.Decision memory m = _beaconDecision(id, H.ROLE_APPEAL, H.OUTCOME_ACCEPT, at + 1);
+        m = _signDecision(t, id, m, appealAdj, ADJ_PK);
+        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        rules.decide(t, m, _noDelivery(), "");
     }
 
     function test_escalated_appealAdjudicatorCannotEscalate() public {

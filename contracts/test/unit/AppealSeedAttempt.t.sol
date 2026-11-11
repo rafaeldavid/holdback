@@ -9,7 +9,8 @@ import {Base} from "./Base.sol";
 /// Finding H-1 (litmus 3, ADR-0018: no field the decider controls may change the seed). `panelSeed` hashes the
 /// Decision's `attempt`; at baac930 only `_firstInstance` compared it with the delivered attempt, so the appeal
 /// adjudicator could pick among 256 valid seeds for one beacon round. Fixed in PR #120: `decide` compares the attempt
-/// for every role. The three attacks are regressions now; the fallback control kept its name.
+/// for every role. The attacks are regressions now; the fallback control kept its name. The party-appeal attack left
+/// with `fileAppeal` (T-346, ADR-0031 §8): the two that remain run after an escalation.
 contract AppealSeedAttemptTest is Base {
     function _appealWithAttempt(bytes32 id, uint8 outcome, uint64 round, uint8 attempt)
         internal
@@ -73,32 +74,6 @@ contract AppealSeedAttemptTest is Base {
             if (a == 1) continue;
             assertTrue(hx.panelSeed(id0, H.ROLE_APPEAL, uint8(a), v) != honest, "each attempt is another seed");
         }
-    }
-
-    /// H-1, fixed in PR #120. Was test_attack_party_appeal_attempt_changes_seed: the same gap on a party appeal, with
-    /// attempt 200. Now refused; the appeal stays open.
-    function test_regression_party_appeal_attempt_changes_seed() public {
-        (H.Terms memory t, bytes32 id) = _funded();
-        _deliver(t, id);
-        rules.decide(t, _primary(t, id, H.OUTCOME_ACCEPT), _noDelivery(), "");
-        vm.prank(buyer);
-        usdc.approve(address(bonds), type(uint256).max);
-        H.Appeal memory a = H.Appeal({
-            appellant: 0,
-            groundsHash: keccak256("fails check rows"),
-            bond: 1_300_000,
-            filedAt: uint64(block.timestamp),
-            signature: ""
-        });
-        a.signature = _sign(BUYER_PK, hx.appeal(id, buyer, t.token, a));
-        rules.fileAppeal(t, a);
-        uint64 opened = uint64(block.timestamp);
-        vm.warp(opened + 1);
-        H.Decision memory m = _appealWithAttempt(id, H.OUTCOME_REJECT, opened + 1, 200);
-        m = _signDecision(t, id, m, appealAdj, AP_PK);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
-        rules.decide(t, m, _noDelivery(), "");
-        assertEq(uint8(rules.dealOf(id).appeal), uint8(HoldbackRules.AppealState.Open));
     }
 
     /// Control, unchanged since baac930: the fallback role is bound to the delivery attempt.
