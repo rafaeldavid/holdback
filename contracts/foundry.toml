@@ -14,13 +14,8 @@ via_ir = true
 # Local chain only (anvil, chain id 31337). No RPC endpoints are configured on purpose.
 chain_id = 31337
 gas_reports = ["AuthCaptureEscrow", "HoldbackRules"]
-# NoAdmin.fuzz.t.sol reads the compiled ABI to check the selector allowlist. T-341: PinnedSource.t.sol reads the
-# pinned old contracts to check their bytes against commit 64be1f1.
-fs_permissions = [
-    { access = "read", path = "./out" },
-    { access = "read", path = "../fixtures/beacon" },
-    { access = "read", path = "./test/differential" },
-]
+# NoAdmin.fuzz.t.sol reads the compiled ABI to check the selector allowlist.
+fs_permissions = [{ access = "read", path = "./out" }, { access = "read", path = "../fixtures/beacon" }]
 
 [fmt]
 line_length = 120

@@ -46,6 +46,7 @@ library StateOracle {
         uint120 capturable; // the escrow's paymentState
         uint120 refundable;
         bool buyerReclaimed; // the buyer reclaimed on the escrow directly (section 5.2)
+        uint144 seedTag; // the tag a funded deal must store: the low 144 bits of the primary's seed commitment
     }
 
     /// What the oracle reads about deal i of handler `x`: the rules contract, the vault, the escrow, and the
@@ -58,11 +59,12 @@ library StateOracle {
         (s.appellant,) = b.appealBondOf(id);
         (, s.capturable, s.refundable) = x.holdOf(i);
         s.buyerReclaimed = x.cppReclaimed(id);
+        s.seedTag = x.seedTag();
     }
 
-    /// Checks deal i of handler `x`.
+    /// Checks deal i of handler `x` against the deployed machine's table (sections 2 and 5.1).
     function checkDeal(RulesHandler x, uint256 i) internal view returns (string memory) {
-        return check(read(x, i), x.termsOf(i));
+        return check(read(x, i), x.termsOf(i), rows());
     }
 
     function _r(
@@ -77,7 +79,9 @@ library StateOracle {
         return Row(id, s, attempt, a, flags, t1, t2);
     }
 
-    /// Section 2's table, row for row.
+    /// Section 2's table, row for row: the deployed machine, which the old side of the side-by-side harness runs.
+    /// The table is a parameter of `check`: when the scope cuts land on `contracts-audit-ready`, the new side's
+    /// table is section 9's phase-one machine (its rows and its closing reason), added beside this one.
     function rows() internal pure returns (Row[] memory r) {
         HoldbackRules.Stage rel = HoldbackRules.Stage.Released;
         HoldbackRules.Stage ref = HoldbackRules.Stage.Refunded;
@@ -132,22 +136,33 @@ library StateOracle {
             && (d.t1 != 0) == (r.t1 == SET) && (d.t2 != 0) == (r.t2 == SET) && (dh != bytes32(0)) == (r.attempt == 1);
     }
 
-    /// The row the word matches, or "" for none (rows are disjoint: at most one matches).
-    function rowOf(HoldbackRules.Deal memory d, bytes32 dh) internal pure returns (string memory) {
-        Row[] memory r = rows();
-        for (uint256 i; i < r.length; i++) {
-            if (matches(r[i], d, dh)) return r[i].id;
+    /// The row of `table` the word matches, or "" for none (rows are disjoint: at most one matches).
+    function rowOf(HoldbackRules.Deal memory d, bytes32 dh, Row[] memory table) internal pure returns (string memory) {
+        for (uint256 i; i < table.length; i++) {
+            if (matches(table[i], d, dh)) return table[i].id;
         }
         return "";
     }
 
-    /// Returns "" when the deal's state is legal, otherwise why it is not, with the word.
-    function check(State memory s, H.Terms memory t) internal pure returns (string memory) {
+    function rowOf(HoldbackRules.Deal memory d, bytes32 dh) internal pure returns (string memory) {
+        return rowOf(d, dh, rows());
+    }
+
+    /// The deployed table's row number (1 for L01 to 37 for L37), or 0 for none.
+    function rowNumber(HoldbackRules.Deal memory d, bytes32 dh) internal pure returns (uint256) {
+        bytes memory row = bytes(rowOf(d, dh));
+        return row.length == 0 ? 0 : _num(string(row));
+    }
+
+    /// Returns "" when the deal's state is legal in `table`, otherwise why it is not, with the word.
+    function check(State memory s, H.Terms memory t, Row[] memory table) internal pure returns (string memory) {
         HoldbackRules.Deal memory d = s.d;
-        bytes memory row = bytes(rowOf(d, s.deliveryHash));
+        bytes memory row = bytes(rowOf(d, s.deliveryHash, table));
         if (row.length == 0) return string.concat("no legal row (section 2): ", describe(s));
         bool unfunded = d.stage == HoldbackRules.Stage.None || d.stage == HoldbackRules.Stage.Expired;
-        if (unfunded != (d.seedTag == 0)) return string.concat(string(row), ": the seed tag is wrong for the row");
+        if (d.seedTag != (unfunded ? 0 : s.seedTag)) {
+            return string.concat(string(row), ": the seed tag is not the primary's seed commitment");
+        }
 
         string memory times = _times(string(row), d, t);
         if (bytes(times).length != 0) return times;

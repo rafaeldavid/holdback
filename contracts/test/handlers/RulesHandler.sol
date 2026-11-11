@@ -29,7 +29,8 @@ contract RulesHandler is Base {
 
     uint256 internal constant OP_PK = 0x0BE7;
     uint256 internal constant N = 7;
-    uint256 public constant MAX_DEALS = 8;
+    // T-341 raised it from 8 (refinement plan, gate VG-2): more deals contend for bonds, timeouts and picks at once.
+    uint256 public constant MAX_DEALS = 16;
     uint256 internal constant I_OP = 5;
     uint256 internal constant I_OTHER = 6;
 
@@ -186,6 +187,12 @@ contract RulesHandler is Base {
             (, uint96 amount) = bonds.appealBondOf(_ids[i]);
             sum += amount;
         }
+    }
+
+    /// The seed tag every funded deal stores: the low 144 bits of the primary's seed commitment, which every
+    /// acceptance this handler signs carries (`Base._acceptance`). The state oracle checks it (T-341).
+    function seedTag() external pure returns (uint144) {
+        return uint144(uint256(keccak256(abi.encodePacked(SEED))));
     }
 
     /// CPP's whole payment state for commitment i (T-341: the side-by-side harness compares it).
@@ -353,6 +360,9 @@ contract RulesHandler is Base {
         H.Terms memory t = _terms();
         t.token = seed & 1 == 0 ? address(usdc) : address(tusd2);
         t.price = _bound((seed >> 8) & 0xffffffff, 1, 60_000_000);
+        // T-341: one offer in eight has price 0, which phase one keeps legal (Rafa, 2026-11-11: a deal may carry no
+        // token value). With a fee above 0 it funds; with fee 0 the escrow refuses to hold nothing, on both sides.
+        if (uint256(keccak256(abi.encode("zero price", seed))) % 8 == 0) t.price = 0;
         t.fee = _bound((seed >> 40) & 0xffffffff, 0, 5_000_000);
         uint256[3] memory r;
         for (uint256 k; k < 3; k++) {
@@ -490,8 +500,40 @@ contract RulesHandler is Base {
     /// Decides an open appeal with the right key and round, outcome and key presence independent, so the key rule
     /// (T-206 H-2) is reached on every outcome; `decide` rarely builds this sequence.
     function decideAppeal(uint256 dealSeed, uint256 callerSeed, uint256 outcomeSeed) external {
+        _decideAppeal(_violations(), _pickFor(dealSeed, A_OPEN), callerSeed, outcomeSeed);
+    }
+
+    /// T-341: files the appeal of the party the decision went against (its key, a bond from 0 to 5 tUSD) on a
+    /// decided deal whose window is open, then, three times in four, has the appeal adjudicator decide it as
+    /// `decideAppeal` does. The separate actions rarely line up, so without this the appeal rows of the state
+    /// model (L11 to L22, L27 to L30) were rarely reached. Left open, the appeal waits for `expireAppeal`.
+    function appealPath(uint256 dealSeed, uint256 callerSeed, uint256 outcomeSeed) external {
         uint256 v0 = _violations();
-        uint256 i = _pickFor(dealSeed, A_OPEN);
+        uint256 i = _pickFor(dealSeed, A_NONE);
+        H.Terms memory t = _terms_[i];
+        bytes32 id = _ids[i];
+        HoldbackRules.Stage before = rules.dealOf(id).stage;
+        uint8 who = before == HoldbackRules.Stage.Released ? 0 : 1;
+        H.Appeal memory a = H.Appeal({
+            appellant: who,
+            groundsHash: keccak256("fails the agreed checks"),
+            bond: _bound(outcomeSeed >> 8, 0, 5_000_000),
+            filedAt: uint64(block.timestamp),
+            signature: ""
+        });
+        a.signature = _sign(who == 0 ? BUYER_PK : SELLER_PK, hx.appeal(id, who == 0 ? buyer : seller, t.token, a));
+        uint256 c0 = capturable(i);
+        bool filed = _relay(_caller(callerSeed), abi.encodeCall(HoldbackRules.fileAppeal, (t, a)));
+        _noMove("appealPath", i, c0);
+        _track(id, before);
+        if (!filed || (outcomeSeed >> 4) % 4 == 3) {
+            _end(filed, v0);
+            return;
+        }
+        _decideAppeal(v0, i, callerSeed, outcomeSeed);
+    }
+
+    function _decideAppeal(uint256 v0, uint256 i, uint256 callerSeed, uint256 outcomeSeed) internal {
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
         HoldbackRules.Deal memory d = rules.dealOf(id);

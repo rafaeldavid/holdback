@@ -12,6 +12,8 @@ enum Field {
     Bonds, // the vault: bond, encumbered and free per actor and token; the appeal bond and appellant per deal
     Stages, // every deal's ID and stage
     Words, // every deal's stored word (`dealOf`, raw) and stored delivery hash
+    Surface, // the rules contract's views and immutables, raw: the EIP-712 domain, a fixed digest, every address,
+    // the margin and the constants. A signing domain the parties' clients would not recognise shows here
     Clock // block.timestamp
 
 }
@@ -29,15 +31,26 @@ struct Obs {
     bytes bonds;
     bytes stages;
     bytes words;
+    bytes surface;
     uint256 clock;
 }
 
 library Fields {
-    uint256 internal constant COUNT = 9;
+    uint256 internal constant COUNT = 10;
 
     function name(Field f) internal pure returns (string memory) {
-        string[9] memory n =
-            [string("call"), "calls", "events", "balances", "holds", "bonds", "stages", "words", "clock"];
+        string[10] memory n = [
+            string("call"),
+            "calls",
+            "events",
+            "balances",
+            "holds",
+            "bonds",
+            "stages",
+            "words",
+            "surface",
+            "clock"
+        ];
         return n[uint8(f)];
     }
 
@@ -50,6 +63,7 @@ library Fields {
         if (f == Field.Bonds) return keccak256(o.bonds);
         if (f == Field.Stages) return keccak256(o.stages);
         if (f == Field.Words) return keccak256(o.words);
+        if (f == Field.Surface) return keccak256(o.surface);
         return keccak256(abi.encode(o.clock));
     }
 }
