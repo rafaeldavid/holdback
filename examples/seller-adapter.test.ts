@@ -1,6 +1,6 @@
 // The seller adapter (T-318) against the stub seller API, on SimChain: a quote becomes a signed offer, a
 // funded hold starts one job, and a result is delivered only after the seller's own preflight passes.
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer as createHttpsServer, request as httpsRequest } from 'node:https';
@@ -10,14 +10,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { verifyTypedData, type Hex } from 'viem';
+import { generatePrivateKey } from 'viem/accounts';
+import { MemoryStorage, PublicWorld } from '@holdback/demo-cloud';
 import { startSimWorld, type SimWorld } from '@holdback/operator';
 import { loadTermsFile } from '@holdback/testkit';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Agent } from './agent.ts';
-import { config as shipped, startSellerAdapter, type RunningAdapter, type SellerAdapterConfig } from './seller-adapter.ts';
+import { config as shipped, loadConfig, startSellerAdapter, type RunningAdapter, type SellerAdapterConfig } from './seller-adapter.ts';
 import { startStubSellerApi, type StubSellerApi, type StubOptions } from './seller-adapter-stub.ts';
 import { serveTwoOrigins } from './two-origins.ts';
-import { typedOf } from './verify.ts';
+import { knownPins, typedOf } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 const here = (f: string) => fileURLToPath(new URL(f, import.meta.url));
@@ -203,6 +205,161 @@ describe('seller adapter: the settlement layer', () => {
   });
 });
 
+/** Two operators that serve only a discovery document: enough for the adapter to stop before it signs anything. */
+async function discoveryOnly(doc: J) {
+  const fake = { fetch: async () => new Response(JSON.stringify(doc), { headers: { 'content-type': 'application/json' } }), work: async () => {} };
+  return serveTwoOrigins(fake as unknown as Parameters<typeof serveTwoOrigins>[0]);
+}
+/** Runs a node script as a child process. Never spawnSync: the worlds these scripts call run in this process. */
+const runNode = (args: string[], env: Record<string, string | undefined>) =>
+  new Promise<{ code: number | null; out: string; err: string }>((resolve) => {
+    const child = spawn(process.execPath, args, { env: { ...process.env, ...env } });
+    let out = '';
+    let err = '';
+    child.stdout.on('data', (d: Buffer) => (out += d.toString()));
+    child.stderr.on('data', (d: Buffer) => (err += d.toString()));
+    child.on('exit', (code) => resolve({ code, out, err }));
+  });
+const mandatesOf = async (op: string, address: string): Promise<J[]> => {
+  const res = await fetch(`${op}/v1/agents/${address}`);
+  return res.status === 404 ? [] : ((await res.json()) as J).mandates;
+};
+
+describe('seller adapter: one configuration file (T-331)', () => {
+  it('starts from a file that names only the seller API, with the club and adjudicators from discovery', async () => {
+    stub = await startStubSellerApi({ port: 0, pollsUntilComplete: 0 });
+    const dir = mkdtempSync(join(tmpdir(), 't331-'));
+    const file = join(dir, 'seller.json');
+    writeFileSync(file, JSON.stringify({ port: 0, sellerApi: stub.api }));
+    const child = spawn(process.execPath, [here('./seller-adapter.ts'), file], { cwd: dir, env: { ...process.env, HOLDBACK_KEY: acct('seller-1').privateKey, HOLDBACK_OPERATORS: world.info.operators.join(',') } });
+    let out = '';
+    let err = '';
+    child.stdout.on('data', (d: Buffer) => (out += d.toString()));
+    child.stderr.on('data', (d: Buffer) => (err += d.toString()));
+    const exited = new Promise<number | null>((r) => child.on('exit', r));
+    try {
+      await until('the adapter to listen', () => /serves POST (http:\/\/\S+)\/quote/.test(out) || child.exitCode !== null);
+      const url = /serves POST (http:\/\/\S+)\/quote/.exec(out)?.[1];
+      expect(url, err).toBeDefined();
+      const buyer = agent('buyer-1');
+      const q = await post(`${url}/quote`, { buyer: buyer.address, buyerEncryptionPublicKey: buyer.encryptionPublicKey, scope: SCOPE });
+      expect(q.status, JSON.stringify(q.body)).toBe(200);
+      const terms = await termsOf(buyer, q.body.commitmentId);
+      const [primary, fallback, appeal] = world.info.adjudicators.map((a) => a.address.toLowerCase());
+      expect(terms.clubId).toBe(world.info.clubId);
+      expect([terms.adjudication.adjudicator, terms.adjudication.fallbackAdjudicator, terms.adjudication.appealAdjudicator].map((a: string) => a.toLowerCase())).toEqual([primary, fallback, appeal]);
+      expect(out).toMatch(/club sim-club and its adjudicators from discovery/);
+      // The journal lands in the working directory, as before.
+      expect(Object.keys(JSON.parse(readFileSync(join(dir, 'seller-adapter.journal.json'), 'utf8')).deals)).toEqual([q.body.commitmentId]);
+    } finally {
+      child.kill('SIGTERM');
+    }
+    expect(await exited).toBe(0);
+    expect(out + err).not.toContain(acct('seller-1').privateKey.slice(2));
+  }, 30_000);
+
+  it('stops with the usage when no file is named, and names a file it cannot read', () => {
+    const run = (...args: string[]) => spawnSync(process.execPath, [here('./seller-adapter.ts'), ...args], { encoding: 'utf8', env: { ...process.env, HOLDBACK_KEY: '', HOLDBACK_OPERATORS: '' } });
+    const none = run();
+    expect(none.status).toBe(2);
+    expect(none.stderr).toMatch(/usage: node examples\/seller-adapter\.ts <config\.json> \[--sim\]/);
+    const missing = run(join(tmpdir(), 't331-missing.json'));
+    expect(missing.status).toBe(2);
+    expect(missing.stderr).toMatch(/cannot read .*t331-missing\.json/);
+  });
+
+  it('reads paths beside the file, defaults the rest, and refuses an unknown field or a removed option, naming it', () => {
+    const dir = mkdtempSync(join(tmpdir(), 't331-'));
+    const write = (body: J) => {
+      const f = join(dir, `c-${Math.random().toString(36).slice(2)}.json`);
+      writeFileSync(f, JSON.stringify(body));
+      return f;
+    };
+    const api = { quote: 'http://127.0.0.1:1/quote', start: 'http://127.0.0.1:1/jobs', result: 'http://127.0.0.1:1/jobs/{jobId}/result' };
+    // Only the seller API: every other field is the shipped default, with no club and no adjudicators named.
+    const plain = loadConfig(write({ sellerApi: api }));
+    expect(plain).toEqual({ ...shipped, sellerApi: api });
+    expect(plain.clubId).toBeUndefined();
+    expect(plain.adjudicators).toBeUndefined();
+    // A template and a mapping are read beside the file; the journal stays where the adapter runs; windows merge.
+    const own = loadConfig(write({ sellerApi: api, template: 'terms.json', reportMapping: 'map.json', scope: { commit: { type: 'string', pattern: '^[0-9a-f]{40}$' } }, timing: { deliverWithinSec: 60 }, journal: 'j.json' }));
+    expect(own.template).toBe(join(dir, 'terms.json'));
+    expect(own.reportMapping).toBe(join(dir, 'map.json'));
+    expect(own.journal).toBe('j.json');
+    expect(own.timing).toEqual({ ...shipped.timing, deliverWithinSec: 60 });
+    expect(own.options).toBeUndefined(); // the shipped options and rules go with the shipped template only
+    expect(own.termsRules).toBeUndefined();
+    // Refused, naming the field.
+    expect(() => loadConfig(write({}))).toThrow(/sellerApi is required: your API's quote, start and result addresses/);
+    expect(() => loadConfig(write({ sellerApi: api, template: 'terms.json' }))).toThrow(/scope is required with your own template/);
+    expect(() => loadConfig(write({ sellerApi: api, colour: 'blue' }))).toThrow(/has a field the adapter does not take: colour/);
+    expect(() => loadConfig(write({ sellerApi: api, timing: { deliverWithinDays: 7 } }))).toThrow(/timing has a window the offer does not take: deliverWithinDays/);
+    expect(() => loadConfig(write({ sellerApi: { ...api, result: 7 } }))).toThrow(/sellerApi\.result must be an http or https address/);
+    expect(() => loadConfig(write({ sellerApi: { ...api, quote: 'file:///etc/passwd' } }))).toThrow(/sellerApi\.quote must be an http or https address/);
+    for (const [field, body] of [['stream', { stream: false }], ['host', { host: '0.0.0.0' }], ['trustProxy', { trustProxy: true }], ['quoteRateLimit.perClient', { quoteRateLimit: { perClient: { requests: 1, windowSec: 1 } } }]] as const) {
+      expect(() => loadConfig(write({ sellerApi: api, ...body }))).toThrow(new RegExp(`^.*: ${field.replace('.', '\\.')} was removed \\(T-331\\)`));
+    }
+    const broken = write({});
+    writeFileSync(broken, '{"sellerApi": ');
+    expect(() => loadConfig(broken)).toThrow(/is not JSON/);
+    // The shipped example: the stub's API, the defaults, and an overall limit.
+    const example = loadConfig(here('./seller-adapter.config.json'));
+    expect(example).toMatchObject({ port: shipped.port, sellerApi: shipped.sellerApi, template: shipped.template, quoteRateLimit: { overall: { requests: 100, windowSec: 60 } } });
+  });
+
+  it('stops on a zero-address adjudicator, and when neither the file nor discovery names a club', async () => {
+    await expect(adapter({ adjudicators: { primary: `0x${'0'.repeat(40)}`, fallback: acct('seller-1').address, appeal: acct('seller-1').address } })).rejects.toThrow(/^adjudicators\.primary is the zero address/);
+    const served = await discoveryOnly({ domain: knownPins()[0]!.domain });
+    stub = await startStubSellerApi({ port: 0 });
+    try {
+      const start = startSellerAdapter({ ...shipped, port: 0, sellerApi: stub.api, journal: join(mkdtempSync(join(tmpdir(), 't331-')), 'journal.json'), log: () => {} }, { HOLDBACK_KEY: acct('seller-1').privateKey, HOLDBACK_OPERATORS: served.urls.join(',') });
+      await expect(start).rejects.toThrow(/^name clubId in the configuration: these operators' discovery names no demo club/);
+    } finally {
+      await served.close();
+    }
+  });
+
+  it('stops when the seller holds no mandate in the club, and says why', async () => {
+    const fresh = generatePrivateKey(); // no genesis mandate; the SimChain faucet grants tokens only
+    const start = (over: Partial<SellerAdapterConfig>) =>
+      startSellerAdapter({ ...shipped, port: 0, sellerApi: { quote: 'http://127.0.0.1:1/q', start: 'http://127.0.0.1:1/s', result: 'http://127.0.0.1:1/{jobId}' }, journal: join(mkdtempSync(join(tmpdir(), 't331-')), 'journal.json'), log: () => {}, ...over }, { HOLDBACK_KEY: fresh, HOLDBACK_OPERATORS: world.info.operators.join(',') });
+    await expect(start({})).rejects.toThrow(/holds no mandate in club sim-club, and the faucet granted none/);
+    await expect(start({ mandate: { fromFaucet: false } })).rejects.toThrow(/holds no mandate in club sim-club: ask the club's principal for one/);
+  });
+
+  it('on the test service, takes its mandate from the faucet and renews it when the clock moves 30 days', async () => {
+    let aheadMs = 0;
+    const own = await PublicWorld.open({ storage: new MemoryStorage(), env: {}, now: () => Date.now() + aheadMs, telemetryLog: () => {} });
+    const served = await serveTwoOrigins(own, { tickMs: 100 });
+    const discovery = (await (await fetch(`${served.urls[0]}/.well-known/holdback.json`)).json()) as J;
+    stub = await startStubSellerApi({ port: 0, token: discovery.demo.token.id });
+    const key = generatePrivateKey();
+    const seller = new Agent(served.urls, key, new Uint8Array(32));
+    const buyer = new Agent(served.urls, generatePrivateKey(), new Uint8Array(32).fill(7));
+    const lines: string[] = [];
+    let running: RunningAdapter | undefined;
+    try {
+      expect(await mandatesOf(served.urls[0]!, seller.address)).toEqual([]);
+      running = await startSellerAdapter({ ...shipped, port: 0, sellerApi: stub.api, journal: join(mkdtempSync(join(tmpdir(), 't331-')), 'journal.json'), pollMs: 50, log: (l) => lines.push(l) }, { HOLDBACK_KEY: key, HOLDBACK_OPERATORS: served.urls.join(',') });
+      const [first] = await mandatesOf(served.urls[0]!, seller.address);
+      expect(first?.clubId).toBe(discovery.demo.clubId);
+      expect(lines.join('\n')).toMatch(/took a mandate in club \S+ from the test service's faucet, until /);
+      const ask1 = await quoteFor(running, buyer);
+      expect(ask1.status, JSON.stringify(ask1.body)).toBe(200);
+
+      aheadMs += 30 * 86_400_000 + 2 * 3_600_000; // past the mandate's 30 days and the faucet's hour
+      const ask2 = await quoteFor(running, buyer);
+      expect(ask2.status, JSON.stringify(ask2.body)).toBe(200);
+      const [renewed] = await mandatesOf(served.urls[0]!, seller.address);
+      expect(Date.parse(renewed!.scope.expiresAt)).toBeGreaterThan(Date.parse(first!.scope.expiresAt));
+      expect(lines.join('\n')).toMatch(/renewed its mandate in club \S+ from the test service's faucet, until /);
+    } finally {
+      await running?.close();
+      await served.close();
+    }
+  }, 30_000);
+});
+
 describe('seller adapter: on operators that charge a fee', () => {
   it('quotes the operator fee and the total, and the deal settles with the fee paid', async () => {
     const shared = world;
@@ -246,22 +403,13 @@ describe('seller adapter: funded hold to delivery', () => {
     expect((await buyer.call('GET', `/v1/balances/${acct('seller-1').address}`)).amount).toMatch(/^[0-9]+$/);
   }, 30_000);
 
-  it('learns of the hold from the event stream alone', async () => {
-    const { running } = await adapter({ pollMs: 3_600_000 }, { pollsUntilComplete: 0 });
-    const buyer = agent('buyer-2');
-    const { body: q } = await quoteFor(running, buyer);
-    await until('the adapter to follow the stream', () => running.following());
-    await fund(buyer, q.commitmentId);
-    expect((await buyer.waitFor(q.commitmentId, ['Released', 'Refunded'])).escrowState).toBe('Released');
-  }, 30_000);
-
-  it('learns of the hold from polling alone', async () => {
-    const { running } = await adapter({ stream: false });
+  it('learns of the hold from polling: the event stream follower is gone (T-331)', async () => {
+    const { running } = await adapter();
     const buyer = agent('buyer-2');
     const { body: q } = await quoteFor(running, buyer);
     await fund(buyer, q.commitmentId);
     expect((await buyer.waitFor(q.commitmentId, ['Released', 'Refunded'])).escrowState).toBe('Released');
-    expect(running.following()).toBe(false);
+    expect('following' in running).toBe(false);
   }, 30_000);
 
   it('does not deliver a report that fails preflight, and logs the failed check', async () => {
@@ -448,51 +596,45 @@ describe('seller adapter as a service: authentication on the quote route', () =>
 });
 
 describe('seller adapter as a service: a rate limit on the quote route', () => {
-  it('answers 429 with Retry-After past the seller\'s limits, per client and overall, and makes no offer for a refused request', async () => {
-    // Behind a proxy (trustProxy), the client is the last X-Forwarded-For entry.
-    const { running } = await service({ trustProxy: true, quoteRateLimit: { perClient: { requests: 2, windowSec: 3600 }, overall: { requests: 3, windowSec: 3600 } } });
+  it('answers 429 with Retry-After past the seller\'s limit, and makes no offer for a refused request', async () => {
+    const { running } = await service({ quoteRateLimit: { overall: { requests: 2, windowSec: 3600 } } });
     const buyer = agent('buyer-1');
-    const from = (ip: string) => ({ 'x-forwarded-for': `203.0.113.250, ${ip}` });
-    expect((await ask(running, buyer, from('10.0.0.1'))).status).toBe(200);
-    expect((await ask(running, buyer, from('10.0.0.1'), 'everything')).status).toBe(400); // a refused scope counts too
-    const perClient = await ask(running, buyer, from('10.0.0.1'));
-    expect(perClient.status).toBe(429);
-    expect(perClient.body.type).toBe('rate_limited');
-    const wait = Number(perClient.headers.get('retry-after'));
+    expect((await ask(running, buyer)).status).toBe(200);
+    expect((await ask(running, buyer, {}, 'everything')).status).toBe(400); // a refused scope counts too
+    const limited = await ask(running, buyer);
+    expect(limited.status).toBe(429);
+    expect(limited.body.type).toBe('rate_limited');
+    const wait = Number(limited.headers.get('retry-after'));
     expect(Number.isSafeInteger(wait) && wait >= 1 && wait <= 3600, String(wait)).toBe(true);
-    expect((await ask(running, buyer, from('10.0.0.2'))).status).toBe(200); // another client, its own count
-    const overall = await ask(running, buyer, from('10.0.0.3')); // a new client, but 3 requests passed overall
-    expect(overall.status).toBe(429);
-    expect(overall.body.type).toBe('rate_limited');
-    expect(stub!.calls.quote).toBe(2);
-    expect(running.deals()).toHaveLength(2);
+    expect(stub!.calls.quote).toBe(1);
+    expect(running.deals()).toHaveLength(1);
   }, 30_000);
 
-  it('opens again when the window passes, and ignores X-Forwarded-For without trustProxy', async () => {
-    const { running } = await service({ quoteRateLimit: { perClient: { requests: 1, windowSec: 1 } } });
+  it('opens again when the window passes, and X-Forwarded-For makes no new client', async () => {
+    const { running } = await service({ quoteRateLimit: { overall: { requests: 1, windowSec: 1 } } });
     const buyer = agent('buyer-1');
     expect((await ask(running, buyer, { 'x-forwarded-for': '10.0.0.1' })).status).toBe(200);
-    expect((await ask(running, buyer, { 'x-forwarded-for': '10.0.0.2' })).status).toBe(429); // the same socket, so the same client
+    expect((await ask(running, buyer, { 'x-forwarded-for': '10.0.0.2' })).status).toBe(429);
     await new Promise((r) => setTimeout(r, 1100));
     expect((await ask(running, buyer)).status).toBe(200);
   }, 30_000);
 
   it('refuses to start on a limit that is not a positive whole number', async () => {
     for (const limit of [{ requests: 0, windowSec: 60 }, { requests: 5, windowSec: 0 }, { requests: 1.5, windowSec: 60 }]) {
-      await expect(service({ quoteRateLimit: { perClient: limit } })).rejects.toThrow(/quoteRateLimit\.perClient/);
+      await expect(service({ quoteRateLimit: { overall: limit } })).rejects.toThrow(/quoteRateLimit\.overall/);
     }
   });
 });
 
 describe('seller adapter as a service: HTTPS behind a TLS proxy', () => {
-  it('answers a quote over HTTPS through a TLS proxy, rate-limited by the client the proxy forwards', async () => {
+  it('answers a quote over HTTPS through a TLS proxy, and a forged X-Forwarded-For does not escape the limit', async () => {
     // A self-signed certificate for 127.0.0.1, made for this run only, with `openssl` (on the CI runners; the test
     // fails without it rather than skip). The recipe's proxy is Caddy; this one plays it.
     const dir = mkdtempSync(join(tmpdir(), 't324-tls-'));
     const made = spawnSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-days', '1', '-subj', '/CN=127.0.0.1', '-addext', 'subjectAltName=IP:127.0.0.1', '-keyout', join(dir, 'tls.pem'), '-out', join(dir, 'cert.pem')]);
     expect(made.status, String(made.stderr)).toBe(0);
     const cert = readFileSync(join(dir, 'cert.pem'));
-    const { running } = await service({ trustProxy: true, quoteRateLimit: { perClient: { requests: 1, windowSec: 3600 } } });
+    const { running } = await service({ quoteRateLimit: { overall: { requests: 1, windowSec: 3600 } } });
     const upstream = new URL(running.url);
     // Like Caddy's reverse_proxy: it terminates TLS and appends the client's address to X-Forwarded-For.
     const proxy = createHttpsServer({ cert, key: readFileSync(join(dir, 'tls.pem')) }, (req, res) => {
@@ -521,19 +663,18 @@ describe('seller adapter as a service: HTTPS behind a TLS proxy', () => {
       const first = await httpsQuote();
       expect(first.status, JSON.stringify(first.body)).toBe(200);
       expect(first.body.commitmentId).toMatch(/^0x[0-9a-f]{64}$/);
-      // A forged X-Forwarded-For does not make a new client: the proxy appends the real one, and that one counts.
+      // The limit counts every request, so a forged X-Forwarded-For does not make a new client.
       expect((await httpsQuote({ 'x-forwarded-for': '10.9.9.9' })).status).toBe(429);
     } finally {
       await new Promise<void>((r) => proxy.close(() => r()));
     }
   }, 30_000);
 
-  it('the recipe proxies HTTPS to the address the shipped configuration listens on, and restarts the adapter', () => {
+  it('the recipe proxies HTTPS to the address the shipped configuration listens on, and starts the adapter from one file', () => {
     const caddy = readFileSync(here('./seller-adapter.Caddyfile'), 'utf8');
-    expect(caddy).toContain(`reverse_proxy ${shipped.host ?? '127.0.0.1'}:${shipped.port}`);
-    expect(shipped.host ?? '127.0.0.1').toBe('127.0.0.1'); // only a proxy on this machine reaches the adapter
+    expect(caddy).toContain(`reverse_proxy 127.0.0.1:${shipped.port}`); // the adapter listens on 127.0.0.1 only
     const unit = readFileSync(here('./seller-adapter.service'), 'utf8');
-    expect(unit).toMatch(/^ExecStart=\S*node \S*examples\/seller-adapter\.ts$/m);
+    expect(unit).toMatch(/^ExecStart=\S*node \S*examples\/seller-adapter\.ts \/etc\/crow-seller\/seller-adapter\.json$/m);
     expect(unit).toMatch(/^Restart=always$/m);
     expect(unit).toMatch(/^KillSignal=SIGTERM$/m);
   });
@@ -832,5 +973,72 @@ describe('seller adapter: a refused report waits for the fixed one (T-329)', () 
     await expect(service({ alerts: { callback: 'http://127.0.0.1:9/a', timeoutMs: 0 } })).rejects.toThrow(/alerts\.timeoutMs/);
     for (const refetchEverySec of [-1, 1.5]) await expect(service({ redelivery: { refetchEverySec } })).rejects.toThrow(/redelivery\.refetchEverySec/);
     await expect(service({ redelivery: { readyAuth: { kind: 'bearer', env: 'READY_CREDENTIALS' } } })).rejects.toThrow(/^set READY_CREDENTIALS to one or more ready credentials, comma-separated$/);
+    // A misspelt field inside a block is refused, not dropped for the default (T-331 review).
+    await expect(service({ redelivery: { refetchEverySecs: 600 } as J })).rejects.toThrow(/^redelivery has a field the adapter does not take: refetchEverySecs$/);
+    await expect(service({ mandate: { renewBefore: 60 } as J })).rejects.toThrow(/^mandate has a field the adapter does not take: renewBefore$/);
+    await expect(service({ alerts: { callbak: 'http://127.0.0.1:9/a' } as J })).rejects.toThrow(/^alerts has a field the adapter does not take: callbak$/);
+  });
+
+  it('a refused deal that is not due reads no state at each poll (T-329 triage row 2)', async () => {
+    const { running } = await service({ redelivery: {} }, {}, { report: 'missing-file', pollsUntilComplete: 0 });
+    const buyer = agent('seller-2'); // buyer-1 has spent its test funds in this world; any member may buy
+    const { body: q } = await quoteFor(running, buyer);
+    const id = q.commitmentId as Hex;
+    await fund(buyer, id);
+    await until('the adapter to refuse the result', () => stageOf(running, id) === 'refused');
+    // Count the adapter's reads of this commitment's state over about 20 polls of 50 ms.
+    const send = globalThis.fetch;
+    let reads = 0;
+    globalThis.fetch = (input, init) => {
+      if (new URL(input instanceof Request ? input.url : String(input)).pathname === `/v1/commitments/${id}`) reads++;
+      return send(input, init);
+    };
+    try {
+      await new Promise((r) => setTimeout(r, 1000));
+    } finally {
+      globalThis.fetch = send;
+    }
+    expect(reads).toBe(0);
+    expect(stageOf(running, id)).toBe('refused');
+  }, 30_000);
+
+  it('with no redelivery set, the note names the manual path, and seal.ts delivers the fixed file once', async () => {
+    const { running, settings, env } = await service({ redelivery: {} }, {}, { report: 'missing-file', pollsUntilComplete: 0 });
+    const buyer = agent('buyer-2');
+    const { body: q } = await quoteFor(running, buyer);
+    const id = q.commitmentId as Hex;
+    await fund(buyer, id);
+    await until('the adapter to refuse the result', () => stageOf(running, id) === 'refused');
+    const note = running.deals().find((d) => d.id === id)!.note!;
+    expect(note).toContain(`node examples/check-delivery.ts <terms.json> <file>, then node examples/seal.ts ${settings.journal} <file> ${id}`);
+
+    const fixed = join(mkdtempSync(join(tmpdir(), 't331-')), 'fixed.json');
+    writeFileSync(fixed, JSON.stringify(GOOD_REPORT));
+    const sealed = await runNode([here('./seal.ts'), settings.journal, fixed, id], env);
+    expect(sealed.code, sealed.err).toBe(0);
+    expect(JSON.parse(sealed.out).escrowState).toMatch(/^(Delivered|Judging|Released)$/);
+    expect((await buyer.waitFor(id, ['Released', 'Refunded'])).escrowState).toBe('Released');
+    // A restart reads every open deal's state: the adapter records the delivery and makes no second one.
+    await running.close();
+    const again = await startSellerAdapter(settings, env);
+    adapters.push(again);
+    await until('the journal to record the delivery', () => stageOf(again, id) === 'delivered');
+    expect(await events(buyer, id, 'delivery.submitted')).toHaveLength(1);
+  }, 30_000);
+});
+
+describe('seal.ts', () => {
+  it('signs under the domain the operators serve, and refuses one that is not pinned, naming it', async () => {
+    const foreign = { name: 'Holdback', version: '0.7', chainId: 99_999, verifyingContract: `0x${'12'.repeat(20)}` };
+    const served = await discoveryOnly({ domain: foreign });
+    try {
+      const terms = join(mkdtempSync(join(tmpdir(), 't331-')), 'terms.json');
+      writeFileSync(terms, '{}');
+      const run = await runNode([here('./seal.ts'), terms, terms], { HOLDBACK_KEY: acct('seller-1').privateKey, HOLDBACK_OPERATORS: served.urls.join(',') });
+      expect(run.code).toBe(2);
+      expect(run.err).toMatch(/the operators serve EIP-712 domain \{"chainId":99999,.*\}, not one pinned in verify\.ts/);
+    } finally {
+      await served.close();
+    }
   });
 });

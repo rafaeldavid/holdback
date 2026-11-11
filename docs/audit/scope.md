@@ -12,6 +12,47 @@ Labels on this page:
 
 Not run while writing this page: `forge test` and `deploy-sepolia.sh --check`. Each claim that depends on one says so. Two `git` commands ran on 2026-11-11, on main at `016c28e`, and are cited where used.
 
+## The phase-one scope
+
+**The rest of this page describes the contracts deployed today, at `64be1f1`. The next deployment, phase one, is smaller on purpose.** [ADR-0031](../decisions/ADR-0031-phase-one-contract-scope.md) (Proposed, 2026-11-11) records what it cuts and why; Rafa decided the largest cut the same day (D57) and answered its open points after it merged (D58). Phase one is the deployment an external audit reads. Until the contracts are frozen, this section states the intended scope; the tables below change at the freeze, with the new line counts and addresses.
+
+**What the phase-one contracts do.** One token per deployment. The buyer funds a hold with one ERC-3009 signature. The seller delivers. The primary adjudicator decides, or the fallback does when the primary is late; either may escalate to the appeal adjudicator. The buyer may accept early, both parties may settle between themselves, and anyone may trigger a timeout. The first decision is final.
+
+| In scope for phase one | Purpose |
+| --- | --- |
+| `HoldbackRules.sol` | The rules contract. Eight state-changing entry points: `agreeAndFund`, `deliver`, `decide`, `earlyAccept`, `mutualSettle`, `reclaim`, `triggerFallback`, `triggerDefault` |
+| `HoldbackTypes.sol` | The settlement view, the EIP-712 struct hashes and the rate math |
+| `IHoldbackBeacon.sol`, `DrandQuicknetBeacon.sol`, `SimBeacon.sol` | The beacon that fixes the panel seed of a fallback's decision and of an escalation's. The on-chain proof of a drand round stays for now (Rafa, 2026-11-11; ADR-0031, SC-8), and the question comes back with the choice of chain |
+| Relied on, not in scope | Commerce Payments' `AuthCaptureEscrow` and `ERC3009PaymentCollector`, Multicall3, Solady |
+
+**Cut on purpose** (each with what leaves, what stays and what a party loses in ADR-0031):
+
+1. **Party appeals and bonds** (decided by Rafa, D57). `HoldbackBonds.sol` leaves, with `fileAppeal`, `expireAppeal` and the appeal state. A wrong first decision has no remedy on chain; the loss is bounded by one deal's price and fee.
+2. **Any token per deal.** A deployment serves one token, fixed at deploy.
+3. **Permit2 funding.** ERC-3009 only.
+4. **Payouts to third addresses** in a mutual settlement (decided by Rafa, D58). It pays the buyer and the seller only, and the `Paid` event leaves with the feature. The feature is planned to return after the freeze, through a receivable address in the terms that both parties can change.
+5. **Terms that settlement does not process:** deadlines that are not strictly ordered `offerExpiresAt < fundBy < deliverBy < judgeBy < fallbackBy`; `maxSubmissions` other than 1; an escalation decision window (`appealDecideSec`) of 0.
+6. **The on-chain record of an unfunded offer's expiry** (decided by Rafa, D58): `expireOffer` and the `Expired` stage. The operators mark an unfunded offer expired by their own clock and send no transaction.
+
+**Kept on purpose** (Rafa, 2026-11-11):
+
+- signatures from contracts (ERC-1271) in every role, so a multisig can be a party or an adjudicator;
+- the on-chain proof of the randomness beacon;
+- a price of zero (D58). A deal with price 0 and a fee above 0 funds and settles through every outcome. A deal with price 0 and fee 0 cannot be funded, because the escrow refuses to hold nothing (`AuthCaptureEscrow.sol:179`). That is a stated phase-one limit: a deal must hold at least one base unit, as price or as fee;
+- the settlement for late work: in `Held`, a settlement both parties sign may name a delivery that was never posted and release its key in the same transaction as the payment (ADR-0031, SC-5b). It is the one path where a key leaves with no posted delivery. Core refuses it today and changes to allow it.
+
+**Added on purpose** (Rafa, 2026-11-11; D58): **a payout address for the seller and a payment address for the buyer, each apart from the address that signs.** Today the escrow pays the address that signs the terms and the delivery (`HoldbackRules.sol:176`, `:206`), and refunds its payer, the buyer's signing address (`:175`). In phase one the signed terms name both addresses. The seller's payout address is where it is paid. The buyer's payment address funds the hold and receives every refund, because the escrow returns held funds only to the address that paid (`AuthCaptureEscrow.sol:304-316`, `:323-340`). Each may equal the signing address. A refund to any other address is not in phase one. This adds fields to the signed terms, so its own ADR and a schema version follow (ADR-0031, section 11). The design is not written yet.
+
+**Assumptions that are new with phase one:**
+
+- **The deployment's token** is a plain ERC-20 with ERC-3009: no fee on transfer, no rebasing, no transfer hook. The contract cannot check this. Whoever deploys names the token and has no authority afterwards; the parties accept it by signing under that deployment's EIP-712 domain.
+- **The deployer's one-time choices are the trust anchor:** the token, the escrow, the collector, the beacon and the expiry margin. At the freeze this page lists every immutable with its address and code hash.
+- **The first decision by the primary or the fallback adjudicator is final,** and so is the appeal adjudicator's decision after an escalation. No adjudicator posts a bond. A party must trust all three adjudicators it names, because the other party can steer which one decides. The parties' protection is their choice of the three adjudicators, the fallback, the default outcome, and the signed record (ADR-0031, "Litmus tests").
+- **Two signed fields mean less than they say.** The acceptance's `bondReserved` must be 0. The terms' `appealWindowSec` is signed and not read.
+- **No cut changes a signed type or a file in `spec/schemas/`.** The types describe the full protocol, which SimChain runs; a phase-one deployment accepts a subset. The one change to a signed type is the pair of addresses above.
+
+Unchanged: no owner, pause, freeze, blacklist or upgrade proxy, and no real money.
+
 ## In scope
 
 Line counts are a count of lines in this checkout [measured]. `contracts/src`, `foundry.toml`, `remappings.txt` and `script/TestUSDC.sol` equal `64be1f1`: `git diff --quiet 64be1f1 HEAD` over those four paths exits 0 [measured]; `--check` (below) also compares `lib`. Addresses are from [`contracts/deployments/sepolia.json`](../../contracts/deployments/sepolia.json) [measured].
@@ -113,6 +154,14 @@ Every review below was run by AI model sessions. T-206 names an external audit a
 
 ## Where to start reading
 
+The audit pages, in reading order:
+1. this page: what is in scope, the deployed commit and the trust assumptions;
+2. [`threat-model.md`](threat-model.md) (added by T-340): the actors, assets, trust boundaries and attack classes;
+3. [`invariants.md`](invariants.md): the properties the code is checked against, keyed to the ten `invariant_*` tests, the state machine and the formal model;
+4. [`known-issues.md`](known-issues.md): what is open, accepted or fixed, and how the sources' disagreements were settled;
+5. [`events.md`](events.md): every event the contracts emit, who reads it and what it reveals.
+
+Then the sources behind them:
 1. [`docs/neutrality.md`](../neutrality.md): the property the contracts must keep, and who can do what.
 2. [`docs/architecture.md`](../architecture.md): the state machine and the settlement interface.
 3. [`contracts/src/HoldbackRules.sol`](../../contracts/src/HoldbackRules.sol): the entry points, then `HoldbackTypes.sol` and `HoldbackBonds.sol`.

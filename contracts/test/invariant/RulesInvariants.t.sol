@@ -9,6 +9,7 @@ import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
 import {HoldbackBonds} from "../../src/HoldbackBonds.sol";
 import {RulesHandler} from "../handlers/RulesHandler.sol";
+import {StateOracle} from "./StateOracle.sol";
 
 /// @title RulesInvariants
 /// @notice T-203: the invariants SimChain property-tests, proved by stateful fuzzing against HoldbackRules,
@@ -33,7 +34,7 @@ contract RulesInvariants is Test {
         }
         codehash = [address(rules).codehash, address(bonds).codehash, address(escrow).codehash, tk[0].codehash];
 
-        bytes4[] memory s = new bytes4[](19);
+        bytes4[] memory s = new bytes4[](20);
         s[0] = RulesHandler.offer.selector;
         s[1] = RulesHandler.agreeAndFund.selector;
         s[2] = RulesHandler.deliver.selector;
@@ -53,6 +54,7 @@ contract RulesInvariants is Test {
         s[16] = RulesHandler.warp.selector;
         s[17] = RulesHandler.decideAppeal.selector;
         s[18] = RulesHandler.decideFallback.selector;
+        s[19] = RulesHandler.appealPath.selector; // T-341: reaches the appeal rows of the state model
         targetContract(address(h));
         targetSelector(StdInvariant.FuzzSelector({addr: address(h), selectors: s}));
     }
@@ -166,6 +168,38 @@ contract RulesInvariants is Test {
     /// forge-config: default.invariant.depth = 100
     function invariant_keyOnlyWithPayment() public view {
         assertEq(h.keyWithoutPayment(), 0, h.lastViolation());
+    }
+
+    /// Every landed delivery stays named on chain (ADR-0029, T-336): a deal the handler delivered stores exactly the
+    /// posted delivery's hash, and a deal it did not deliver stores none; a delivery attempt is set on chain exactly
+    /// when the handler counted a delivery for that deal; and an authorised `deliver` before deliverBy always lands.
+    /// Without the stored hash every later decision and early accept reverts, so settlement stalls (known issue G-5).
+    /// forge-config: default.invariant.runs = 256
+    /// forge-config: default.invariant.depth = 100
+    function invariant_deliveryHashStored() public view {
+        uint256 delivered;
+        for (uint256 i; i < h.dealCount(); i++) {
+            bytes32 id = h.dealId(i);
+            bytes32 posted = h.postedHash(id);
+            assertEq(rules.deliveryHashOf(id), posted, "the stored delivery hash != the posted delivery's");
+            assertEq(rules.dealOf(id).attempt != 0, posted != bytes32(0), "a delivery attempt the handler did not count");
+            if (posted != bytes32(0)) delivered++;
+        }
+        assertEq(h.deliveries(), delivered, "the delivery counter != the delivered deals");
+        assertEq(h.deliveryHashLost(), 0, h.lastViolation());
+        assertEq(h.deliverRefused(), 0, h.lastViolation());
+    }
+
+    /// The state oracle (T-341, refinement gate VG-2): after every step every deal is in a legal state of
+    /// `docs/audit/state-model.md` (`StateOracle`): its stored word and delivery hash match one row of the table,
+    /// its times keep the row's bounds, the vault holds an appeal bond exactly while an appeal is open, and the
+    /// escrow holds the row's amounts.
+    /// forge-config: default.invariant.runs = 256
+    /// forge-config: default.invariant.depth = 100
+    function invariant_legalDealStates() public view {
+        for (uint256 i; i < h.dealCount(); i++) {
+            assertEq(StateOracle.checkDeal(h, i), "", "illegal deal state");
+        }
     }
 
     /// Nothing has an admin path: the deployed code never changes (no selfdestruct, no upgrade) and the rules
