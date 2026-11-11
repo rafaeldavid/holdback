@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "description": "Shape B: a flat report. Each vulnerability names one main file with its lines as text, lists other files apart, and carries at most one proof.",
+  "report": {
+    "commit": { "$path": "commit_hash" },
+    "reportDate": { "$path": "date", "$optional": true },
+    "summary": { "$path": "executive_summary", "$optional": true },
+    "filesReviewed": { "$path": "files" },
+    "findings": {
+      "$each": "vulnerabilities",
+      "$default": [],
+      "$item": {
+        "id": { "$path": "number" },
+        "severity": {
+          "$path": "level",
+          "$map": { "CRITICAL": "Critical", "HIGH": "High", "MEDIUM": "Medium", "LOW": "Low", "INFORMATIONAL": "Info" }
+        },
+        "status": {
+          "$path": "resolution",
+          "$optional": true,
+          "$map": { "Open": "open", "Resolved": "fixed", "Acknowledged": "acknowledged" }
+        },
+        "title": { "$path": "headline" },
+        "locations": {
+          "$concat": [
+            [
+              {
+                "file": { "$path": "file" },
+                "lines": {
+                  "$when": "line_start",
+                  "$value": {
+                    "start": { "$path": "line_start", "$as": "integer" },
+                    "end": { "$path": "line_end", "$as": "integer" }
+                  }
+                },
+                "excerpt": { "$path": "code", "$optional": true }
+              }
+            ],
+            { "$each": "other_files", "$optional": true, "$item": { "file": { "$path": "." } } }
+          ]
+        },
+        "rootCause": { "$path": "description" },
+        "impact": { "$path": "exploit_scenario", "$optional": true },
+        "recommendedFix": { "$path": "recommendation" },
+        "pocFiles": {
+          "$when": "proof",
+          "$value": [{ "path": { "$path": "proof.filename" }, "content": { "$path": "proof.source" } }]
+        }
+      }
+    }
+  }
+}
