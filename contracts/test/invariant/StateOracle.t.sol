@@ -215,6 +215,37 @@ contract StateOracleTest is Test {
         _plantFails(slot, p04, "P04: t1 before judgeBy");
     }
 
+    /// An escalated word whose terms put fallbackBy before judgeBy (D31 allows any order until SC-5): the primary
+    /// may escalate in [fallbackBy, judgeBy), which is legal; an escalation at or after both deadlines is not.
+    function _escalated(uint40 t1, uint64 judgeBy, uint64 fallbackBy)
+        internal
+        view
+        returns (StateOracle.State memory s, H.Terms memory t)
+    {
+        t = h.termsOf(0);
+        t.timing.judgeBy = judgeBy;
+        t.timing.fallbackBy = fallbackBy;
+        s.d = HoldbackRules.Deal({stage: HoldbackRules.Stage.Escalated, attempt: 1, t1: t1, seedTag: h.seedTag()});
+        s.deliveryHash = keccak256("a delivery");
+        s.seedTag = h.seedTag();
+        s.capturable = uint120(t.price + t.fee);
+    }
+
+    function test_escalationBound_isTheLaterDeadline() public {
+        h.offer(OFFER);
+        // fallbackBy 1000 < judgeBy 2000: a primary escalation at 1500 is legal.
+        (StateOracle.State memory s, H.Terms memory t) = _escalated(1500, 2000, 1000);
+        assertEq(StateOracle.check(s, t, StateOracle.rows()), "");
+        // At 2000, after both deadlines, it is not.
+        (s, t) = _escalated(2000, 2000, 1000);
+        assertEq(StateOracle.check(s, t, StateOracle.rows()), "P05: escalated at or after both judgeBy and fallbackBy");
+        // The usual order: at fallbackBy it is not legal either.
+        (s, t) = _escalated(3000, 2000, 3000);
+        assertEq(StateOracle.check(s, t, StateOracle.rows()), "P05: escalated at or after both judgeBy and fallbackBy");
+        (s, t) = _escalated(2999, 2000, 3000);
+        assertEq(StateOracle.check(s, t, StateOracle.rows()), "");
+    }
+
     // ------------------------------------------------------------ planted: the "stores no delivery hash" mutant
 
     function test_planted_noDeliveryHashFailsTheLivenessInvariant() public {

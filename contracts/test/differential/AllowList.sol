@@ -18,9 +18,9 @@ import {Field, Obs} from "./Observation.sol";
 ///        step's other fields, then stops comparing the seed and reports "diverged by <change> at step <n>".
 ///        `test_sideBySide_reachesEveryRow` fails when more than a quarter of its seeds diverge, so an entry cannot
 ///        quietly switch the gate off.
-///      Every entry below tests that the new side has the phase-one shape (no vault, the four-field word, the
-///      removed selectors refused), so none can allow a difference between two builds of the deployed contracts,
-///      such as the planted mutant against the old side.
+///      One gate stands before every entry: the old side has a vault and the new side has none. So no entry can
+///      allow a difference between two builds of the deployed contracts, such as the planted mutant against the old
+///      side. Each entry then tests its own exact difference.
 ///
 ///      T-346, SC-7 (ADR-0031 §8, D57): no party appeal and no bond. Exactly these differences, and no other:
 ///      1. Bonds: the new side has no vault, so it reports none (the old side reports its totals and appeal bonds).
@@ -57,7 +57,10 @@ library AllowList {
         returns (Verdict memory v)
     {
         step;
-        if (f == Field.Bonds && n.bonds.length == 0 && o.bonds.length != 0) return Verdict("SC-7: no vault", false);
+        // Every entry applies only between the deployed contracts (a vault is there) and a phase-one side (none is),
+        // so no entry can allow a difference between two builds of the deployed contracts, such as the planted mutant.
+        if (n.bonds.length != 0 || o.bonds.length == 0) return v;
+        if (f == Field.Bonds) return Verdict("SC-7: no vault", false);
         if (f == Field.Surface && _surfaceApartFromCut(o.surface, n.surface)) {
             return Verdict("SC-7: BONDS and KEY_APPEAL gone", false);
         }
