@@ -415,7 +415,7 @@ h1 { margin-top: clamp(16px, 3.4vh, 32px); font-size: clamp(26px, 4.4vh, 40px); 
 .verb .v.on { opacity: 1; transform: none; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { .verb .v { transition: none; } }
-.lede { margin-top: clamp(8px, 1.6vh, 14px); font-size: clamp(17px, 2.4vh, 21px); line-height: 1.4; color: var(--ink); max-width: 620px; }
+.lede { margin-top: clamp(8px, 1.6vh, 14px); font-size: clamp(17px, 2.4vh, 21px); line-height: 1.4; color: var(--ink); max-width: 620px; text-wrap: balance; } /* no word alone on a last line */
 /* early access: an email box and a button */
 .signup { margin-top: clamp(14px, 2.6vh, 24px); display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
 .signup input[type=email] { font: inherit; font-size: 17px; color: var(--ink); background: var(--field); border: 1px solid var(--rule); border-radius: 999px; padding: 9px 16px; width: min(310px, 80vw); min-height: 42px; }

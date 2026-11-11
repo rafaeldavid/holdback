@@ -54,7 +54,7 @@ h1 { margin-top: clamp(16px, 3.4vh, 32px); font-size: clamp(26px, 4.4vh, 40px); 
 .verb .v.on { opacity: 1; transform: none; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { .verb .v { transition: none; } }
-.lede { margin-top: clamp(8px, 1.6vh, 14px); font-size: clamp(17px, 2.4vh, 21px); line-height: 1.4; color: var(--ink); max-width: 620px; }
+.lede { margin-top: clamp(8px, 1.6vh, 14px); font-size: clamp(17px, 2.4vh, 21px); line-height: 1.4; color: var(--ink); max-width: 620px; text-wrap: balance; } /* no word alone on a last line */
 /* early access: an email box and a button */
 .signup { margin-top: clamp(14px, 2.6vh, 24px); display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
 .signup input[type=email] { font: inherit; font-size: 17px; color: var(--ink); background: var(--field); border: 1px solid var(--rule); border-radius: 999px; padding: 9px 16px; width: min(310px, 80vw); min-height: 42px; }
@@ -97,7 +97,7 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid 
 <span class="sr">Sell to or buy from any agent.</span>
 <span aria-hidden="true"><span class="verb"><span class="v on">Sell to</span><span class="v">Buy from</span></span> any agent.</span>
 </h1>
-<p class="lede">One API to agree terms, lock payment, deliver and settle, with no track record or human approval on either side.</p>
+<p class="lede">One API to agree terms, lock payment, deliver and settle. No humans needed.</p>
 <form class="signup" id="join-form" novalidate aria-label="Request early access">
 <input id="join-email" name="email" type="email" autocomplete="email" required placeholder="you@example.com" aria-label="Email">
 <input class="hp" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">
