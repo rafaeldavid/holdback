@@ -45,10 +45,29 @@ Inputs: a commitment ID from a seller. Outputs: a signed agree-and-fund, a recla
 
 Fill this in before review. Label each item measured, inferred or guessed.
 
-- Commands run and results:
+- Commands run and results (measured, 2026-11-11, in the worktree):
+  - `pnpm exec vitest run apps/test-agents`: 6 files, 66 tests passed. `buyer.test.ts` has 11 of them: the card; Released; Refunded; the buyer's own reclaim after `deliverBy`, with the price and the adjudication fee back; refusals naming `accepts.maxPrice`, `accepts.checks.requiredAtLeast`, `accepts.windows.maxDeliverWithinSec`, `accepts.windows.maxJudgingSec` and `buyer`; declarative check types only; the per-seller cap (429 `limits.perSellerPerHour`); one operator offline; a lost funding answer replayed after a restart with the same key and body, one `hold.funded`; the outside seller's script end to end; the mainnet refusal. `worker.test.ts` adds the buyer's route and its `buyer:` storage prefix.
+  - `pnpm typecheck`: pass. `pnpm exec eslint apps/test-agents site/check.mjs`: no findings.
+  - `node site/build.mjs`, then `node site/check.mjs`: PASS, with the new check 9 (the section states `buyer-rules.ts`'s caps, windows and limits). `site/try.mjs` and `site/index.html` did not change.
 - Snapshot diffs: none (no scenario fixtures change).
-- Metrics:
+- Metrics: none yet. The Sepolia deal waits for the deploy (Handoff).
 
 ## Decisions
 
+- **One Worker, one secret.** The buyer runs in crow-test-agents beside the seller, on its own route, with its storage under the key prefix `buyer:`. Its key derives from `TEST_AGENTS_SEED` under the label `buyer/standing`, so it needs no new secret. It funds itself from the faucet, which mints 1,000 tUSDC a grant on Sepolia; with a 50 tUSDC price cap, a grant covers at least 16 deals (arithmetic).
+- **The seller posts the ID.** A seller offers on Crow naming the buyer, as section 5 already describes, and posts `{"commitmentId"}` to the buyer. The buyer answers at once: 202 taken, or 422 with `rule`, the field of `accepts` the offer broke. A refused offer leaves nothing in storage.
+- **The rules** (`buyer-rules.ts`, D31: the buyer's choices): a checks-only deal with public terms in tUSDC, in the demo club, with the demo's three adjudicators. The price is at most 50 tUSDC and the adjudication fee at most 5 tUSDC. It takes 1 to 10 checks, at least 1 of them required, of the 8 types in the commitment schema. The work is due at most 86,400 s after the offer, and each judging window is at most 3,600 s. Limits: 3 deals per seller an hour and 10 a day, 50 a day in all, 10 open.
+- **One operator offline.** The buyer reads from every operator that answers, requires those that answer to agree, and relays through the first that takes the message. With one operator left, the cross-check is gone, but `verify.ts` still rebuilds each message from the buyer's own intent before it signs.
+- **Test networks only.** It refuses to start on any chain other than 31337, 11155111 or 84532.
+
 ## Handoff
+
+Done: the buyer, its rules, its Worker route, the tests, the llms.txt section and its site check, the deploy steps in `docs/operations.md`, and `scripts/sell-to-test-buyer.mjs` for the first live deal.
+
+Not done (Rafa's gate): the deploy and the first seller-started deal on Sepolia. From `/Users/rafa/Documents/escrow` at main, after this PR merges:
+
+1. `node /Users/rafa/Documents/escrow/apps/test-agents/scripts/deploy.mjs`
+2. `curl -s https://crow.direct/agents/test-buyer/health`
+3. `node /Users/rafa/Documents/escrow/apps/test-agents/scripts/sell-to-test-buyer.mjs`
+
+No secret to set and no key to fund: the buyer uses `TEST_AGENTS_SEED`, and the faucet funds both the buyer and the script's fresh seller key. Record the transactions here.

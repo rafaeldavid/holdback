@@ -18,6 +18,8 @@
 //    show the command (One-Click Escrow, D51). The clipboard fallback keeps the command's spaces (pre-wrap).
 // 8. Crow's test seller (D47): the one command buys from it, and "Try it" states its catalog, limits and windows as
 //    apps/test-agents/src/catalog.ts runs them.
+// 9. Crow's test buyer (T-239): "Sell to Crow's test buyer" states its card, caps, windows and limits as
+//    apps/test-agents/src/buyer-rules.ts runs them.
 import { existsSync, readFileSync } from 'node:fs';
 import { BASE, filled, page, pins, problemPages, SITE_URL, strip, TEST_SELLER_URL, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
 
@@ -172,8 +174,22 @@ expect(testSeller.includes(`expires ${TIMING.offerExpiresInSec / 60} minutes aft
 expect(PRICE_UNITS === '25000000' && testSeller.includes('for 25 tUSDC') && CHECKS.map((c) => c.id).join() === 'cols,rows,uniq' && testSeller.includes('`cols`, `rows` (exactly 3) and `uniq`'), "llms.txt states another catalog for the test seller than apps/test-agents/src/catalog.ts");
 expect(tryIt.includes('`--outcome refund`') && testSeller.includes('"test": {"outcome": "refund"}'), 'llms.txt does not say how to ask the test seller for a refund');
 
+// 9. Crow's test buyer (T-239): "Sell to Crow's test buyer" states its card, price caps, windows and limits as
+//    apps/test-agents/src/buyer-rules.ts runs them.
+const TEST_BUYER_URL = 'https://crow.direct/agents/test-buyer';
+const rules = await import(here('../apps/test-agents/src/buyer-rules.ts'));
+const start = md.indexOf("## Sell to Crow's test buyer");
+const testBuyer = start < 0 ? '' : md.slice(start, md.indexOf('\n## ', start + 3));
+const tusdc = (u) => `${Number(BigInt(u) / 1_000_000n)} tUSDC`;
+const bl = rules.BUYER_LIMITS, w = rules.WINDOWS, cr = rules.CHECKS_RULE;
+expect(testBuyer.includes(TEST_BUYER_URL) && testBuyer.includes(`${TEST_BUYER_URL}/agent.json`) && testBuyer.includes('`crow-buyer`'), `llms.txt has no "Sell to Crow's test buyer" section describing ${TEST_BUYER_URL} and its card`);
+expect(testBuyer.includes(`A price of at most ${tusdc(rules.MAX_PRICE_UNITS)} and an adjudication fee of at most ${tusdc(rules.MAX_ADJUDICATION_FEE_UNITS)}`), 'llms.txt states other price caps for the test buyer than apps/test-agents/src/buyer-rules.ts');
+expect(testBuyer.includes(`${cr.min} to ${cr.max} deterministic checks`) && testBuyer.includes(`at least ${cr.requiredAtLeast} of them \`"required": true\``), 'llms.txt states other check rules for the test buyer than apps/test-agents/src/buyer-rules.ts');
+expect(testBuyer.includes(`at most ${w.maxDeliverWithinSec.toLocaleString('en-US')} s (a day) after the offer`) && testBuyer.includes(`at most ${w.maxJudgingSec.toLocaleString('en-US')} s`) && testBuyer.includes(`at least ${w.minFundingLeftSec} s left to agree and fund`), 'llms.txt states other windows for the test buyer than apps/test-agents/src/buyer-rules.ts');
+expect(testBuyer.includes(`${bl.perSellerPerHour} deals per seller address an hour and ${bl.perSellerPerDay} a day; ${bl.perDay} a day in all; ${bl.open} in progress at once`), 'llms.txt states other limits for the test buyer than apps/test-agents/src/buyer-rules.ts');
+
 if (failures.length) {
   for (const f of failures) console.error(`FAIL ${f}`);
   process.exit(1);
 }
-console.log(`site check PASS: one source, placeholders in place, links resolve under ${BASE}, content agrees with docs/api.md and examples/verify.ts, try.mjs current and its command in llms.txt, the test seller as apps/test-agents runs it`);
+console.log(`site check PASS: one source, placeholders in place, links resolve under ${BASE}, content agrees with docs/api.md and examples/verify.ts, try.mjs current and its command in llms.txt, the test seller and the test buyer as apps/test-agents runs them`);
