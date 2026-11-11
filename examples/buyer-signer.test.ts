@@ -14,7 +14,7 @@ import nacl from 'tweetnacl';
 import { generatePrivateKey } from 'viem/accounts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Agent } from './agent.ts';
-import { loadKeys, makeKeys } from './buyer-signer.ts';
+import { differencesOf, loadKeys, makeKeys, printable } from './buyer-signer.ts';
 import { serveTwoOrigins, type TwoOrigins } from './two-origins.ts';
 import { jcsHash, operatorFeeOf, Refusal } from './verify.ts';
 
@@ -112,26 +112,39 @@ afterAll(async () => {
 const balance = async (address: string) => ((await (await fetch(`${demo.urls[1]}/v1/balances/${address}`)).json()) as { amount: string }).amount;
 
 describe('buyer-signer.ts', () => {
-  it('a 20-line script imports the file and buys a deal end to end', async () => {
+  it('a 20-line script imports the file, funds a deal and stops, and a later run resumes it from the key store', async () => {
     const script = here('./buy-with-signer.ts');
     expect(readFileSync(script, 'utf8').trimEnd().split('\n').length).toBeLessThanOrEqual(20);
     const dir = store();
-    const r = await new Promise<{ code: number | null; out: string; err: string }>((resolve) => {
-      const child = spawn(process.execPath, [script, seller.quoteUrl, dir, JSON.stringify('3 rows of customer_id,email'), TOTAL], { env: { ...process.env, HOLDBACK_OPERATORS: demo.urls.join(',') } });
+    const node = (args: string[]) => new Promise<{ code: number | null; out: string; err: string }>((resolve) => {
+      const child = spawn(process.execPath, [script, ...args], { env: { ...process.env, HOLDBACK_OPERATORS: demo.urls.join(',') } });
       let out = '', err = '';
       child.stdout.on('data', (d: Buffer) => (out += d.toString()));
       child.stderr.on('data', (d: Buffer) => (err += d.toString()));
       child.on('exit', (code) => resolve({ code, out, err }));
     });
+    // T-332: the first run stops once the hold is funded; the process ends with the deal open.
+    const funding = await node([seller.quoteUrl, dir, JSON.stringify('3 rows of customer_id,email'), TOTAL, '--stop-after-funding']);
+    expect(funding.code, funding.err).toBe(0);
+    expect(funding.out).toBe('');
+    const [approvalLine, fundedLine] = funding.err.trimEnd().split('\n');
+    // At the approval the script shows the seven signed fields of T-332 and maxSubmissions, before it funds anything.
+    const approval = JSON.parse(approvalLine!) as J;
+    expect(Object.keys(approval)).toEqual(['settlement', 'disclosure', 'clubId', 'rulebookHash', 'policyId', 'policyHash', 'registryHash', 'maxSubmissions']);
+    expect(approval).toMatchObject({ settlement: { mode: 'guaranteed_on_decision' }, disclosure: { level: 'public' }, clubId: expect.any(String), policyId: expect.any(String), maxSubmissions: 1 });
+    const funded = JSON.parse(fundedLine!) as { funded: string; paid: J };
+    expect(funded.paid).toEqual({ token: 'tUSD', amount: TOTAL });
+    // A second process with only the key store follows the deal to its outcome and opens the work.
+    const r = await node(['resume', dir]);
     expect(r.code, r.err).toBe(0);
     const done = JSON.parse(r.out) as { commitmentId: string; buyer: string; paid: { token: string; amount: string }; outcome: string; work: string };
+    expect(done.commitmentId).toBe(funded.funded);
     expect(done.outcome).toBe('Released');
     expect(done.work).toBe(CSV);
     expect(done.paid).toEqual({ token: 'tUSD', amount: TOTAL });
-    // At the approval the script shows the seven signed fields of T-332, before it funds anything.
-    const approval = JSON.parse(r.err.split('\n')[0]!) as J;
-    expect(Object.keys(approval)).toEqual(['settlement', 'disclosure', 'clubId', 'rulebookHash', 'policyId', 'policyHash', 'registryHash']);
-    expect(approval).toMatchObject({ settlement: { mode: 'guaranteed_on_decision' }, disclosure: { level: 'public' }, clubId: expect.any(String), policyId: expect.any(String) });
+    // A third run finds no open deal and prints nothing.
+    expect(await node(['resume', dir])).toMatchObject({ code: 0, out: '' });
+    r.err = funding.err + r.err;
     for (const url of demo.urls) expect(((await (await fetch(`${url}/v1/commitments/${done.commitmentId}`)).json()) as { escrowState: string }).escrowState).toBe('Released');
     // The faucet gave the deal's total and the deal took all of it; the seller has the price.
     expect(await balance(done.buyer)).toBe('0');
@@ -219,15 +232,34 @@ describe('buyer-signer.ts', () => {
       ['policyId', (o: J) => ({ ...o, policyId: 'another-policy' })],
       ['policyHash', (o: J) => ({ ...o, policyHash: other })],
       ['registryHash', (o: J) => ({ ...o, registryHash: other })],
+      ['maxSubmissions', (o: J) => ({ ...o, maxSubmissions: 3 })],
     ])('checkOffer refuses an approval that changes %s, naming it', async (field, change) => {
       const e = await signer.checkOffer(offer.commitmentId, change(offer)).then(() => null, (x: unknown) => x);
       expect(e).toBeInstanceOf(Refusal);
       expect((e as Error).message).toMatch(new RegExp(`^refusing to sign: ${field.replace('.', '\\.')} is .*, not the approved `));
     });
 
+    it('the difference list shows the adjudicators and maxSubmissions the defaults name, addresses ignoring case', () => {
+      const base = { deliverable: offer.deliverable, checks: offer.checks, timing: {} };
+      expect(differencesOf({ ...base, adjudicators: { primary: offer.adjudicators.primary.toUpperCase().replace('0X', '0x'), appeal: offer.adjudicators.appeal }, maxSubmissions: offer.maxSubmissions }, offer)).toEqual([]);
+      expect(differencesOf({ ...base, adjudicators: { primary: offer.adjudicators.fallback }, maxSubmissions: 2 }, offer)).toEqual([
+        { field: 'deadlines.maxSubmissions', old: 2, new: offer.maxSubmissions },
+        { field: 'adjudicators.primary', old: offer.adjudicators.fallback.toLowerCase(), new: offer.adjudicators.primary.toLowerCase() },
+      ]);
+    });
+
     it('the approved offer itself passes', async () => {
       expect(await signer.checkOffer(offer.commitmentId, offer)).toEqual(offer);
     }, 60_000);
+  });
+
+  it('printable escapes control, bidirectional and invisible characters, and the JSON parses to the same value', () => {
+    // Built from code points, so this source holds none of the characters it tests: U+202E, U+202C, U+200B, U+0007, a tag character.
+    const hidden = (...n: number[]) => String.fromCodePoint(...n);
+    const value = { note: `pay ${hidden(0x202e)}evil${hidden(0x202c)} now${hidden(0x200b, 0x7, 0xe0041)}`, fine: `caf${hidden(0xe9)}, 25 tUSD` };
+    const text = printable(JSON.stringify(value));
+    expect(text).toBe(`{"note":"pay \\u202eevil\\u202c now\\u200b\\u0007\\udb40\\udc41","fine":"caf${hidden(0xe9)}, 25 tUSD"}`);
+    expect(JSON.parse(text)).toEqual(value);
   });
 
   // T-332: each of the seven is checked against what the buyer's configuration expects, before the offer is shown.

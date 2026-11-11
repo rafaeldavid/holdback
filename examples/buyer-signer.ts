@@ -64,6 +64,8 @@ export type Offer = {
   deadlines: J;
   /** The same deadlines as windows in whole seconds, as a seller configures them (`Defaults.timing`). */
   windows: Record<Window, number>;
+  /** How many deliveries the seller may make (`deadlines.maxSubmissions`), shown on its own (T-332). */
+  maxSubmissions: number;
   adjudicators: { primary: string; fallback: string; appeal: string };
   /**
    * How settlement pays out on a decision (`guaranteed_on_decision`, `settle_after_window` or `optimistic`). Checked
@@ -83,8 +85,8 @@ export type Offer = {
   /** With `defaults` given to readOffer: what this offer changes from the seller's published defaults (T-330). */
   differences?: Difference[];
 };
-/** The seven signed fields T-332 shows, as `Offer` paths: refusals name them so. */
-type Signed = 'settlement' | 'disclosure' | 'clubId' | 'rulebookHash' | 'policyId' | 'policyHash' | 'registryHash';
+/** The seven signed fields T-332 shows, and maxSubmissions on its own: an approval may name each. */
+type Signed = 'settlement' | 'disclosure' | 'clubId' | 'rulebookHash' | 'policyId' | 'policyHash' | 'registryHash' | 'maxSubmissions';
 /**
  * What the buyer approved. `seller`, `rubric`, `fees.total`, `commitmentId`, `differences` and the seven fields of
  * T-332 are optional: without `rubric` the offer must have none, and without `seller` any seller whose signature
@@ -123,13 +125,19 @@ const WINDOWS: Window[] = ['offerExpiresInSec', 'fundWithinSec', 'deliverWithinS
  * `\{{field}}` for the text `{{field}}`, as in the seller adapter's template. The seller's claim: it only sets what
  * the signer compares the offer with, and the buyer's agent sees the whole offer either way.
  */
-export type Defaults = { deliverable: J; checks: J[]; rubric?: J; timing: Partial<Record<Window, number>>; fee?: Money };
+export type Defaults = {
+  deliverable: J; checks: J[]; rubric?: J; timing: Partial<Record<Window, number>>; fee?: Money;
+  /** The adjudicators the seller usually names, by role; compared by address, ignoring case (T-332). */
+  adjudicators?: Partial<Offer['adjudicators']>;
+  /** How many deliveries the seller usually allows (T-332). */
+  maxSubmissions?: number;
+};
 /**
  * One way an offer differs from the defaults: `field` is `deliverable.<key>`, `checks.<id>` (added, removed or
  * changed; a list when several checks share the id), `checks` (checks in another order), `rubric`,
- * `fees.adjudication` or `deadlines.<window>`. `old` is the default's value, `new` the offer's; null where there is
- * none. Only what the defaults publish is compared: the price, the adjudicators and the rest of the offer are shown
- * whole, not as differences.
+ * `fees.adjudication`, `deadlines.<window>`, `deadlines.maxSubmissions` or `adjudicators.<role>`. `old` is the
+ * default's value, `new` the offer's; null where there is none. Only what the defaults publish is compared: the
+ * price and the rest of the offer are shown whole, not as differences.
  */
 export type Difference = { field: string; old: J; new: J };
 /** What agreeAndFund took from the buyer: the hold (price plus adjudication fee) and the operator fee. */
@@ -257,8 +265,31 @@ const same = (a: J, b: J) => jcs(lowerHex(a)) === jcs(lowerHex(b));
 const refuse = (why: string): never => {
   throw new Refusal(`refusing to sign: ${why}`);
 };
-/** A value from the offer in an error message: canonical JSON, at most 200 characters. */
-const shown = (v: J) => jcs(lowerHex(v)).slice(0, 200);
+/**
+ * Code points a terminal hides or uses to reorder text: C0 and C1 controls, the soft hyphen, the Arabic letter mark,
+ * the Hangul fillers, the Mongolian vowel separator, zero-width and directional marks, the line and paragraph
+ * separators, the bidirectional embeddings, overrides and isolates, the word joiner and invisible operators, the
+ * variation selectors, the byte order mark, the interlinear annotation marks and the tag characters. Written as
+ * numbers, so this source holds none of them.
+ */
+const HIDDEN: Array<[number, number]> = [
+  [0x0000, 0x001f], [0x007f, 0x009f], [0x00ad, 0x00ad], [0x061c, 0x061c], [0x115f, 0x1160], [0x180e, 0x180e], [0x200b, 0x200f],
+  [0x2028, 0x202e], [0x2060, 0x206f], [0x3164, 0x3164], [0xfe00, 0xfe0f], [0xfeff, 0xfeff], [0xfff9, 0xfffb], [0xe0000, 0xe007f],
+];
+/**
+ * JSON text with every control, bidirectional and invisible format character escaped as `\uXXXX`: it parses to the
+ * same value, and a terminal shows no hidden or reordered seller text. JSON's own syntax is ASCII, so only
+ * characters inside strings change.
+ */
+export const printable = (json: string): string =>
+  [...json].map((c) => {
+    const n = c.codePointAt(0)!;
+    if (!HIDDEN.some(([a, b]) => n >= a && n <= b)) return c;
+    // Each UTF-16 unit, so a tag character above U+FFFF escapes as its surrogate pair.
+    return [...Array(c.length).keys()].map((i) => `\\u${c.charCodeAt(i).toString(16).padStart(4, '0')}`).join('');
+  }).join('');
+/** A value from the offer in an error message: canonical JSON, printable, at most 200 characters. */
+const shown = (v: J) => printable(jcs(lowerHex(v))).slice(0, 200);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const isRecord = (v: J): boolean => v !== null && typeof v === 'object' && !Array.isArray(v);
 
@@ -293,7 +324,13 @@ function defaultsOf(d: J): Defaults {
   for (const [k, v] of Object.entries(d.timing)) if (!(WINDOWS as string[]).includes(k) || !Number.isSafeInteger(v) || (v as number) < 0) throw new Error(`the defaults' timing.${k.slice(0, 40)} is not a window in whole seconds`);
   if (d.rubric !== undefined && !isRecord(d.rubric)) throw new Error('the defaults\' rubric is not an object');
   if (d.fee !== undefined && !isMoney(d.fee)) throw new Error('the defaults\' fee is not {token, amount} in base units');
-  return { deliverable: d.deliverable, checks: d.checks, timing: d.timing, ...(d.rubric === undefined ? {} : { rubric: d.rubric }), ...(d.fee === undefined ? {} : { fee: { token: d.fee.token, amount: d.fee.amount } }) };
+  const roles = ['primary', 'fallback', 'appeal'];
+  if (d.adjudicators !== undefined && (!isRecord(d.adjudicators) || !Object.entries(d.adjudicators).every(([k, v]) => roles.includes(k) && typeof v === 'string'))) throw new Error('the defaults\' adjudicators are not {primary?, fallback?, appeal?} addresses');
+  if (d.maxSubmissions !== undefined && (!Number.isSafeInteger(d.maxSubmissions) || d.maxSubmissions < 0)) throw new Error('the defaults\' maxSubmissions is not a whole number');
+  return {
+    deliverable: d.deliverable, checks: d.checks, timing: d.timing, ...(d.rubric === undefined ? {} : { rubric: d.rubric }), ...(d.fee === undefined ? {} : { fee: { token: d.fee.token, amount: d.fee.amount } }),
+    ...(d.adjudicators === undefined ? {} : { adjudicators: { ...d.adjudicators } }), ...(d.maxSubmissions === undefined ? {} : { maxSubmissions: d.maxSubmissions }),
+  };
 }
 
 /**
@@ -319,19 +356,25 @@ export function differencesOf(defaults: Defaults, offer: Offer): Difference[] {
   add('rubric', defaults.rubric ?? EMPTY_RUBRIC, offer.rubric);
   if (defaults.fee) add('fees.adjudication', defaults.fee, offer.fees.adjudication);
   for (const w of WINDOWS) if (defaults.timing[w] !== undefined) add(`deadlines.${w}`, defaults.timing[w], offer.windows[w]);
+  if (defaults.maxSubmissions !== undefined) add('deadlines.maxSubmissions', defaults.maxSubmissions, offer.maxSubmissions);
+  // Addresses ignore case; the offer's are lowercase already.
+  for (const role of ['primary', 'fallback', 'appeal'] as const) {
+    const d = defaults.adjudicators?.[role];
+    if (d !== undefined) add(`adjudicators.${role}`, d.toLowerCase(), String(offer.adjudicators[role]).toLowerCase());
+  }
   return out;
 }
 const OFFER_FIELDS: Array<[string, (o: Offer) => J]> = [
   ['commitmentId', (o) => o.commitmentId], ['seller', (o) => o.seller], ['price', (o) => o.price],
   ['fees.adjudication', (o) => o.fees.adjudication], ['fees.operator', (o) => o.fees.operator], ['fees.total', (o) => o.fees.total],
   ['deliverable', (o) => o.deliverable], ['checks', (o) => o.checks], ['rubric', (o) => o.rubric], ['deadlines', (o) => o.deadlines],
-  ['windows', (o) => o.windows], ['adjudicators', (o) => o.adjudicators],
+  ['windows', (o) => o.windows], ['maxSubmissions', (o) => o.maxSubmissions], ['adjudicators', (o) => o.adjudicators],
   ['settlement.mode', (o) => o.settlement?.mode], ['disclosure.level', (o) => o.disclosure?.level], ['clubId', (o) => o.clubId], ['rulebookHash', (o) => o.rulebookHash],
   ['policyId', (o) => o.policyId], ['policyHash', (o) => o.policyHash], ['registryHash', (o) => o.registryHash],
   ['differences', (o) => o.differences ?? null],
 ];
-/** The seven of T-332, as OFFER_FIELDS names them. An Approved holds each under the name's first part. */
-const SIGNED_FIELDS = OFFER_FIELDS.filter(([f]) => ['settlement.mode', 'disclosure.level', 'clubId', 'rulebookHash', 'policyId', 'policyHash', 'registryHash'].includes(f));
+/** The seven of T-332 and maxSubmissions, as OFFER_FIELDS names them. An Approved holds each under the name's first part. */
+const SIGNED_FIELDS = OFFER_FIELDS.filter(([f]) => ['settlement.mode', 'disclosure.level', 'clubId', 'rulebookHash', 'policyId', 'policyHash', 'registryHash', 'maxSubmissions'].includes(f));
 const sha256 = async (b: Uint8Array) => `sha256:${Buffer.from(await crypto.subtle.digest('SHA-256', new Uint8Array(b))).toString('hex')}`;
 const defaultOperators = () => (process.env['HOLDBACK_OPERATORS'] || 'https://api.crow.direct,https://api2.crow.direct').split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean);
 
@@ -357,6 +400,15 @@ export class BuyerSigner {
   readonly #expect: Expect;
   readonly #saved: Saved;
   #connected: Promise<{ agent: Agent; pin: Pin }> | undefined;
+
+  /** The deal this key serves, once quote or checkOffer bound it. */
+  get commitmentId(): Hex | undefined {
+    return this.#saved.commitmentId;
+  }
+  /** What agreeAndFund took, once it funded the hold: what a resumed client reports. */
+  get paid(): Paid | undefined {
+    return this.#saved.paid;
+  }
 
   /** Use makeKeys, loadKeys or openDeals. */
   constructor(store: string, saved: unknown, options: Options = {}) {
@@ -503,7 +555,7 @@ export class BuyerSigner {
     const offer: Offer = {
       commitmentId: id, seller: String(terms.seller).toLowerCase(), price,
       fees: { adjudication, operator: { token: price.token, amount: operator.toString() }, total: { token: price.token, amount: (BigInt(price.amount) + BigInt(adjudication.amount) + operator).toString() } },
-      deliverable: terms.deliverable, checks: terms.acceptance.deterministicChecks, rubric: terms.acceptance.rubric, deadlines: terms.timing, windows,
+      deliverable: terms.deliverable, checks: terms.acceptance.deterministicChecks, rubric: terms.acceptance.rubric, deadlines: terms.timing, windows, maxSubmissions: t.maxSubmissions,
       adjudicators: { primary: a.adjudicator, fallback: a.fallbackAdjudicator, appeal: a.appealAdjudicator },
       settlement: { mode: terms.settlement?.mode }, disclosure: { level: terms.disclosure?.level }, clubId: terms.clubId, rulebookHash: terms.rulebookHash,
       policyId: a.policyId, policyHash: a.policyHash, registryHash: a.registryHash,
