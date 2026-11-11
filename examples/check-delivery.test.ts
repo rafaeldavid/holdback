@@ -7,7 +7,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { intake, runPipeline, type JudgmentAcceptance, type PanelSeat, type Preflight } from '@holdback/judgment';
+import { intake, loadReferences, runPipeline, type JudgmentAcceptance, type PanelSeat, type Preflight } from '@holdback/judgment';
 import { describe, expect, it } from 'vitest';
 import { checkDelivery } from './check-delivery.ts';
 
@@ -46,8 +46,12 @@ const SEATS: PanelSeat[] = [
 const sha256 = (bytes: Uint8Array) => `sha256:${createHash('sha256').update(bytes).digest('hex')}` as const;
 const ADJUDICATOR = '0x5d10fecab9242e66cb134b77309a3566ed75e3dd';
 
-/** The adjudicator's path on the same terms and file: intake on the delivery (the bytes stand in for their own ciphertext, as in the scenario runner), then the pipeline. */
-async function adjudicate(termsPath: string, filePath: string) {
+/**
+ * The adjudicator's path on the same terms and file: intake on the delivery (the bytes stand in for their own
+ * ciphertext, as in the scenario runner), the references loaded from `store` as the service loads them, then the
+ * pipeline.
+ */
+async function adjudicate(termsPath: string, filePath: string, store: ReadonlyMap<string, Uint8Array> = new Map()) {
   const terms = JSON.parse(readFileSync(termsPath, 'utf8'));
   const acceptance: JudgmentAcceptance = terms.acceptance;
   const plaintext = new Uint8Array(readFileSync(filePath));
@@ -69,9 +73,17 @@ async function adjudicate(termsPath: string, filePath: string) {
     open: async (ct) => ct,
   });
   if (!intaken.ok) throw new Error(intaken.error.detail);
+  const { references, unavailable } = await loadReferences(acceptance.deterministicChecks, async (uri) => {
+    const bytes = store.get(uri);
+    if (!bytes) throw new Error(`no blob ${uri}`);
+    return bytes;
+  });
+  // The service refuses to judge then (no decision, retried), so there is nothing to compare with.
+  if (unavailable.length) return { deterministic: null, decision: 'not judged' as const, panelRan: false, plaintextSha256: sha256(plaintext) };
   const run = await runPipeline({
     intake: intaken.value,
     acceptance,
+    references,
     deliverable: { description: terms.deliverable.description, format: terms.deliverable.format },
     policy: { minValid: 2, minFamilies: 2, rationaleMaxChars: 600, acceptSupermajority: { numerator: 2, denominator: 3 }, rejectSupermajority: { numerator: 2, denominator: 3 } },
     seats: SEATS,
@@ -170,22 +182,64 @@ describe('examples/check-delivery.ts: refusals, limits and other inputs', () => 
     expect(r.out).toContain('  FAIL  emails (optional): match 0/1 below 10000 bps');
   });
 
-  // The adjudicator service passes no reference files to the pipeline, so the command loads none either: it
-  // must not report a pass the service cannot give (the T-316 review's blocking finding).
-  it('fails a reference check as the adjudicator does, with no reference files, and takes no option that adds them', async () => {
+  // T-327: the adjudicator loads a reference from its content store by the committed hash, so the command takes
+  // the same bytes with --reference and reports what the adjudicator reports for them.
+  describe('reference files (T-327)', () => {
     const reference = new TextEncoder().encode('customer_id,name\n1,Ada\n');
-    const terms = csvTerms([{ id: 'ref', type: 'reference_row_match_min', required: true, reference: { uri: 'file:///ref.csv', sha256: sha256(reference) }, keyColumn: 'customer_id', minBps: 10000 }]);
-    const file = tmp('with-ref.csv', 'customer_id,name\n1,Ada\n2,Grace\n');
-    const theirs = await adjudicate(terms, file);
-    expect(theirs.decision).toBe('reject');
-    const r = await cli([terms, file]);
-    expect(r.code).toBe(1);
-    expect(r.out).toContain('  FAIL  ref (required): reference not available');
-    expect(r.out).toContain('Note: the adjudicator service loads no reference files today, so the reference check ref fails for every file.');
-    expect(JSON.parse((await cli([terms, file, '--json'])).out).deterministic).toEqual(theirs.deterministic);
-    const flag = await cli([terms, file, '--reference', tmp('ref.csv', reference)]);
-    expect(flag.code).toBe(2);
-    expect(flag.err).toContain('unknown option --reference');
+    const uri = `https://op.example/v1/ciphertext/${sha256(reference)}`;
+    const store = new Map([[uri, reference]]);
+    const refCheck = (over: Record<string, unknown> = {}) => ({ id: 'ref', type: 'reference_row_match_min', required: true, reference: { uri, sha256: sha256(reference) }, keyColumn: 'customer_id', minBps: 10000, ...over });
+    const terms = csvTerms([refCheck()]);
+    const matching = tmp('ref-match.csv', 'customer_id,name\n1,Ada\n2,Grace\n');
+    const other = tmp('ref-other.csv', 'customer_id,name\n1,Adele\n2,Grace\n');
+    const refFile = tmp('ref.csv', reference);
+
+    it.each([
+      ['a matching file', matching, 'accept', 0],
+      ['a file that does not match', other, 'reject', 1],
+    ] as const)('with the reference given, reports for %s what the adjudicator decides: %s, exit %i', async (_name, file, decision, code) => {
+      const theirs = await adjudicate(terms, file, store);
+      expect(theirs.decision).toBe(decision);
+      const r = await cli([terms, file, '--reference', refFile, '--json']);
+      expect(r.code).toBe(code);
+      const mine: Preflight = JSON.parse(r.out);
+      expect(mine.deterministic).toEqual(theirs.deterministic);
+      expect(mine.result).toBe(theirs.decision);
+    });
+
+    it('prints the match, and a note that the adjudicators\' stores must hold the file', async () => {
+      const r = await cli([terms, matching, '--reference', refFile]);
+      expect(r.code).toBe(0);
+      expect(r.out).toContain('  pass  ref (required): reference match 1/1');
+      expect(r.out).toContain('Check that the stores of the adjudicators the terms name hold the file');
+    });
+
+    // An adjudicator whose store lacks the reference does not judge (red team H1), so the command predicts nothing.
+    it('without the reference, says the result is not known and exits 2, as the adjudicator does not judge', async () => {
+      const theirs = await adjudicate(terms, matching);
+      expect(theirs.decision).toBe('not judged');
+      const r = await cli([terms, matching]);
+      expect(r.code).toBe(2);
+      expect(r.out.split('\n')[0]).toBe('Result: not known. The terms name a reference file for ref, and the adjudicator judges only once it has that file; download it from the URI in the terms and pass it with --reference <file>.');
+      expect((await cli([terms, matching, '--json'])).code).toBe(2);
+    });
+
+    it('refuses, exit 2, a reference file that hashes to no reference check in the terms', async () => {
+      const r = await cli([terms, matching, '--reference', matching]);
+      expect(r.code).toBe(2);
+      expect(r.err).toContain('which no reference check in the terms commits to');
+    });
+
+    it('fails a check whose URI does not end in its hash even with the file, as the adjudicator never loads it', async () => {
+      const elsewhere = csvTerms([refCheck({ reference: { uri: 'https://buyer.example/ref.csv', sha256: sha256(reference) } })]);
+      const theirs = await adjudicate(elsewhere, matching, new Map([['https://buyer.example/ref.csv', reference]]));
+      expect(theirs.decision).toBe('reject');
+      const r = await cli([elsewhere, matching, '--reference', refFile]);
+      expect(r.code).toBe(1);
+      expect(r.out).toContain('  FAIL  ref (required): reference not available');
+      expect(r.out).toContain('does not end in its committed hash, so the adjudicator never loads it');
+      expect(JSON.parse((await cli([elsewhere, matching, '--reference', refFile, '--json'])).out).deterministic).toEqual(theirs.deterministic);
+    });
   });
 
   it('prints text from the file as one plain line: no terminal escapes, no line breaks', async () => {
@@ -226,10 +280,10 @@ describe('examples/check-delivery.ts: refusals, limits and other inputs', () => 
     expect(r.preflight.deterministic.filter((o) => !o.passed).map((o) => o.checkId)).toEqual(['coverage']);
   });
 
-  it('imports only two Node file modules and the workspace packages: no network, no child process, no eval', () => {
+  it('imports only Node file and hash modules and the workspace packages: no network, no child process, no eval', () => {
     const source = readFileSync(here('./check-delivery.ts'), 'utf8');
     const imports = [...source.matchAll(/^import .* from '([^']+)';$/gm)].map((m) => m[1]).sort();
-    expect(imports).toEqual(['@holdback/judgment', '@holdback/testkit', 'node:fs', 'node:url']);
+    expect(imports).toEqual(['@holdback/judgment', '@holdback/testkit', 'node:crypto', 'node:fs', 'node:url']);
     expect(source).not.toMatch(/\bfetch\(|\beval\(|new Function|import\(|child_process|node:http|node:net|node:vm/);
   });
 });

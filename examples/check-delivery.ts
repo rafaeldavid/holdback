@@ -8,21 +8,24 @@
 // It does not run the screen or the judges, so on a rubric deal it tells you only that the checks do not
 // refuse the file.
 //
-// It loads no reference files, because the adjudicator service loads none today (apps/adjudicator/src/
-// service.ts passes no `references` to the pipeline). A `reference_row_match_min` check therefore fails
-// here as it fails there, with "reference not available", for every file.
+// A `reference_row_match_min` check compares the file with a reference file the terms name by URI and hash.
+// The adjudicator loads that reference from its content store by the committed hash, and does not judge
+// until it has it (T-327). Give this command the same bytes with `--reference <file>` (download them from
+// the URI in the terms). Without them the result is not known, and the command exits 2.
 //
 //   pnpm install && pnpm build
-//   node examples/check-delivery.ts <terms.json> <file> [--mime <type>] [--json]
+//   node examples/check-delivery.ts <terms.json> <file> [--reference <file>]... [--mime <type>] [--json]
 //
 // <terms.json> is the commitment as you signed it: `GET /v1/commitments/<id>/terms`, or your own offer body.
 // It needs `acceptance` and `deliverable.format`. `--mime` is the format you will declare in the delivery
-// (default: the agreed format).
+// (default: the agreed format). `--reference` may be given once per reference file.
 // Exit code: 0 when the checks accept the file or pass it to the judges, 1 when the adjudicator would
-// reject it, 2 when a check cannot be decided (the deal would escalate) or the command cannot run.
+// reject it, 2 when a check cannot be decided (the deal would escalate), a reference file is missing, or the
+// command cannot run.
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { preflightDelivery, type JudgmentAcceptance, type Preflight, type PreflightInput } from '@holdback/judgment';
+import { createHash } from 'node:crypto';
+import { preflightDelivery, referenceLookups, type JudgmentAcceptance, type JudgmentCheck, type Preflight, type PreflightInput } from '@holdback/judgment';
 import { plain, safeJson } from '@holdback/testkit';
 
 type Mime = PreflightInput['mime'];
@@ -34,6 +37,8 @@ export interface CheckDeliveryOptions {
   file: string;
   /** The format the delivery will declare. Defaults to the agreed `deliverable.format`. */
   mime?: string;
+  /** Paths of reference files, each the bytes a reference check commits to by hash. */
+  references?: string[];
 }
 
 export interface CheckDeliveryResult {
@@ -41,14 +46,14 @@ export interface CheckDeliveryResult {
   mime: string;
   /** What to print: the result first, then the file, then one line per check. */
   lines: string[];
-  /** 0: accept or panel. 1: reject. 2: escalate. */
+  /** 0: accept or panel. 1: reject. 2: escalate, or a reference file is missing. */
   exitCode: 0 | 1 | 2;
 }
 
 /** The command cannot run: a missing file, terms without checks, an unknown option. */
 export class UsageError extends Error {}
 
-const USAGE = 'usage: node examples/check-delivery.ts <terms.json> <file> [--mime <type>] [--json]';
+const USAGE = 'usage: node examples/check-delivery.ts <terms.json> <file> [--reference <file>]... [--mime <type>] [--json]';
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 function bytesOf(path: string): Uint8Array {
@@ -83,6 +88,12 @@ function readTerms(path: string): { acceptance: JudgmentAcceptance; format: stri
 }
 
 const list = (ids: readonly string[]) => ids.map(plain).join(', ');
+/** The id a content store keeps bytes under, and the form the terms commit a reference to. */
+const sha256 = (bytes: Uint8Array) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+type ReferenceCheck = Extract<JudgmentCheck, { type: 'reference_row_match_min' }>;
+const isReferenceCheck = (c: JudgmentCheck): c is ReferenceCheck => c.type === 'reference_row_match_min';
+/** The committed hash, or '' for a hostile check without one (the library fails it). */
+const committed = (c: ReferenceCheck): string => (typeof c.reference?.sha256 === 'string' ? c.reference.sha256 : '');
 const count = (n: number) => n.toLocaleString('en-US');
 
 function headline(p: Preflight, rubricEmpty: boolean): string {
@@ -109,44 +120,73 @@ export function checkDelivery(options: CheckDeliveryOptions): CheckDeliveryResul
   const { acceptance, format } = readTerms(options.terms);
   const plaintext = bytesOf(options.file);
   const mime = options.mime ?? format;
+  // The references the adjudicator loads: those whose URI ends in their committed hash (referenceLookups). The
+  // command passes a file only under one of those hashes, so it reports what the adjudicator can report.
+  const refChecks = acceptance.deterministicChecks.filter(isReferenceCheck);
+  const loadable = new Set<string>(referenceLookups(acceptance.deterministicChecks).map((l) => l.sha256));
+  const references = new Map<string, Uint8Array>();
+  for (const path of options.references ?? []) {
+    const bytes = bytesOf(path);
+    const hash = sha256(bytes);
+    if (!refChecks.some((c) => committed(c) === hash)) throw new UsageError(`the reference file ${plain(path)} hashes to ${hash}, which no reference check in the terms commits to`);
+    if (loadable.has(hash)) references.set(hash, bytes);
+  }
   // The library refuses a format outside its allowlist, so an unknown string is safe to pass as the MIME.
-  // No references are passed: the adjudicator service passes none (see the note at the top of this file).
-  const preflight = preflightDelivery({ plaintext, mime: mime as Mime, format: format as Mime, acceptance });
+  const preflight = preflightDelivery({ plaintext, mime: mime as Mime, format: format as Mime, acceptance, references });
 
   const open = new Set(preflight.inconclusive);
-  const referenceChecks = acceptance.deterministicChecks.filter((c) => c.type === 'reference_row_match_min').map((c) => c.id);
+  const unloadable = refChecks.filter((c) => !loadable.has(committed(c))).map((c) => c.id);
+  const missing = refChecks.filter((c) => loadable.has(committed(c)) && !references.has(committed(c))).map((c) => c.id);
+  // A reference the adjudicator's store does not return is not judged (it retries), so without the file the
+  // result is not known: the command says so and exits 2 instead of predicting a reject.
+  const unknown = !preflight.refused && missing.length > 0;
+  const notes = preflight.refused
+    ? []
+    : [
+        ...(unloadable.length
+          ? [`Note: the URI of the reference ${unloadable.length === 1 ? 'check' : 'checks'} ${list(unloadable)} does not end in ${unloadable.length === 1 ? 'its' : 'their'} committed hash, so the adjudicator never loads it and the ${unloadable.length === 1 ? 'check fails' : 'checks fail'} for every file.`]
+          : []),
+        ...(references.size
+          ? ['Note: the adjudicator reads each reference from its own content store by the committed hash, and does not judge until it gets those bytes. Check that the stores of the adjudicators the terms name hold the file (POST /v1/ciphertext stores it under its hash).']
+          : []),
+      ];
   // Every string that can come from the file or the terms is printed as one plain line (docs/team.md, output surfaces).
   const lines = [
-    headline(preflight, acceptance.rubric.criteria.length === 0),
+    unknown
+      ? `Result: not known. The terms name a reference file for ${list(missing)}, and the adjudicator judges only once it has that file; download it from the URI in the terms and pass it with --reference <file>.`
+      : headline(preflight, acceptance.rubric.criteria.length === 0),
     `File: ${plain(options.file)}, ${count(preflight.bytes)} bytes, ${preflight.plaintextSha256}, checked as ${plain(mime)} (agreed: ${plain(format)}).`,
     ...(preflight.deterministic.length ? ['Checks:'] : []),
     ...preflight.deterministic.map((o) => {
       const state = open.has(o.checkId) ? 'OPEN' : o.passed ? 'pass' : 'FAIL';
       return `  ${state}  ${plain(o.checkId)} (${o.required ? 'required' : 'optional'})${o.detail === undefined ? '' : `: ${plain(o.detail)}`}`;
     }),
-    ...(referenceChecks.length && !preflight.refused
-      ? [`Note: the adjudicator service loads no reference files today, so the reference ${referenceChecks.length === 1 ? 'check' : 'checks'} ${list(referenceChecks)} ${referenceChecks.length === 1 ? 'fails' : 'fail'} for every file.`]
-      : []),
+    ...notes,
     'This result holds for these exact bytes: the hash above is the plaintextSha256 your delivery will carry.',
   ];
-  return { preflight, mime, lines, exitCode: preflight.result === 'reject' ? 1 : preflight.result === 'escalate' ? 2 : 0 };
+  return { preflight, mime, lines, exitCode: unknown ? 2 : preflight.result === 'reject' ? 1 : preflight.result === 'escalate' ? 2 : 0 };
 }
 
 function parseArgs(argv: readonly string[]): CheckDeliveryOptions & { json: boolean } {
   const positional: string[] = [];
   let mime: string | undefined;
   let json = false;
+  const references: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === '--json') json = true;
-    else if (a === '--mime') {
+    else if (a === '--reference') {
+      const path = argv[++i];
+      if (path === undefined) throw new UsageError('--reference needs a file');
+      references.push(path);
+    } else if (a === '--mime') {
       mime = argv[++i];
       if (mime === undefined) throw new UsageError('--mime needs a value');
     } else if (a.startsWith('--')) throw new UsageError(`unknown option ${plain(a)}`);
     else positional.push(a);
   }
   if (positional.length !== 2) throw new UsageError('give the terms file and the file to deliver');
-  return { terms: positional[0]!, file: positional[1]!, json, ...(mime === undefined ? {} : { mime }) };
+  return { terms: positional[0]!, file: positional[1]!, json, references, ...(mime === undefined ? {} : { mime }) };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

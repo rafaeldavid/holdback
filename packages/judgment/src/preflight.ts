@@ -26,10 +26,10 @@ export interface PreflightInput {
   /** The commitment's `deliverable.format`. When given, another delivered format is refused, as at intake. */
   format?: MimeType;
   /**
-   * Reference files by committed sha256, for `reference_row_match_min` checks. Pass them only when the
-   * adjudicator that will judge the deal loads them: the result matches an adjudicator given the same files.
-   * The adjudicator service (apps/adjudicator) passes none today, so such a check fails there with
-   * "reference not available".
+   * Reference files by committed sha256, for `reference_row_match_min` checks: the bytes the adjudicator's
+   * content store holds under the hash the terms commit to (`loadReferences`, T-327). Given the same bytes, the
+   * result matches the adjudicator's. A reference left out fails its check with "reference not available", as
+   * it does on an adjudicator whose store does not hold it.
    */
   references?: ReadonlyMap<string, Uint8Array>;
 }

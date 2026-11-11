@@ -10,7 +10,9 @@ import { canonicalKeccak, err, ok, problem, type AdjudicatorPolicy, type Address
 import { sha256 } from '@holdback/core/crypto';
 import {
   APPEAL_PROMPT_TEMPLATE_HASH,
+  describeUnavailable,
   intake,
+  loadReferences,
   panelPlan,
   PROMPT_TEMPLATE_HASH,
   requestInputHash,
@@ -21,8 +23,36 @@ import {
   type LoadedRegistry,
   type PanelSeat,
 } from '@holdback/judgment';
+import { readdirSync, readFileSync } from 'node:fs';
 import { keccak256 } from 'viem';
 import type { CapturedFrom, JudgeProvider, JudgeRequest } from './recorded.js';
+
+/**
+ * The runner's content store for reference files (T-327): the files in fixtures/data/reference/, each kept under
+ * its SHA-256 as an operator's store keeps an upload (POST /v1/ciphertext). It reads only that directory and
+ * answers by the hash at the end of the URI, never by the rest of it, as the adjudicator's stores do.
+ */
+const REFERENCE_DIR = new URL('../../../fixtures/data/reference/', import.meta.url);
+let referenceStore: Map<string, Uint8Array> | undefined;
+async function readReference(uri: string): Promise<Uint8Array> {
+  if (!referenceStore) {
+    referenceStore = new Map();
+    let names: string[] = [];
+    try {
+      names = readdirSync(REFERENCE_DIR);
+    } catch {
+      // No reference files in this checkout: every lookup misses.
+    }
+    for (const name of names) {
+      const bytes = new Uint8Array(readFileSync(new URL(name, REFERENCE_DIR)));
+      referenceStore.set(sha256(bytes), bytes);
+    }
+  }
+  const id = /(sha256:[0-9a-f]{64})$/.exec(uri)?.[1];
+  const bytes = id ? referenceStore.get(id) : undefined;
+  if (!bytes) throw new Error(`no reference ${uri.slice(0, 120)} in the runner's store`);
+  return bytes;
+}
 
 export type Role = 'primary' | 'fallback' | 'appeal';
 
@@ -198,9 +228,15 @@ export async function runJudgment(input: RunJudgmentInput, judges: JudgeProvider
       }
     },
   };
+  // As the adjudicator service: each reference by the hash the terms commit to, through the shared loader; one the
+  // store does not return refuses the turn before any judge is called, and nothing is decided.
+  const loaded = await loadReferences(terms.acceptance.deterministicChecks, readReference);
+  if (loaded.unavailable.length) return err(problem('adjudicator_unavailable', `reference files unavailable from the runner's store: ${describeUnavailable(loaded.unavailable)}`));
+  const references = loaded.references;
   const run = await runPipeline({
     intake: intaken.value,
     acceptance: terms.acceptance,
+    references,
     deliverable: { description: terms.deliverable.description, format: terms.deliverable.format },
     policy: {
       minValid: appeal ? policy.minValidAppeal : policy.minValid,
