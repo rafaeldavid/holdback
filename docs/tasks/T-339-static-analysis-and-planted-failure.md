@@ -5,7 +5,7 @@
 - **Depends on:** the contract review at `baac930` (`docs/reviews/2026-11-03-contract-review.md` §4); T-241 (its open part: a planted failing contract test fails the run)
 - **Paths this task may touch:** `docs/reviews/2026-11-11-static-analysis.md` (new), this task file. Outside the PR: one throwaway branch `t-339-planted-failure` with `contracts/test/unit/PlantedFailure.t.sol`, opened as a draft PR, then closed and deleted.
 - **Human gate:** no for the report and the planted-failure run. Installing Aderyn is a download, so it waits on Rafa.
-- **Status:** review
+- **Status:** done (PR #323 merged 2026-11-11; known issue G-7 records that Aderyn waits on Rafa's OK to install)
 - **Agent/session:** implementer, pilot plan package C1e
 
 ## Intent
