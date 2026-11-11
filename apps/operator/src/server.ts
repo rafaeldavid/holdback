@@ -476,9 +476,11 @@ export class Operator {
   private sync(): Promise<void> {
     const next = this.syncing.then(async () => {
       for await (const e of this.o.settlement.events(this.head + 1)) {
-        this.head = e.seq;
         if (USES.has(e.type) && e.actor && e.actor !== 'anyone') this.lastUsed.set(lc(e.actor), e.at);
-        if (!e.commitmentId) continue;
+        if (!e.commitmentId) {
+          this.head = e.seq;
+          continue;
+        }
         let entry = this.index.get(e.commitmentId);
         if (e.type === 'commitment.offered') {
           const t = e.payload['terms'] as AnyCommitmentTerms;
@@ -487,6 +489,8 @@ export class Operator {
           this.index.set(e.commitmentId, entry);
         }
         entry?.events.push(e);
+        // Last, so a throw above leaves the event for the next call to index.
+        this.head = e.seq;
       }
     });
     // A failed read fails its own caller only (T-313): the next call reads on from `head + 1`, so it loses no event.

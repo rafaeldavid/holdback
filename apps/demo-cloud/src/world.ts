@@ -1043,6 +1043,8 @@ export class PublicWorld {
 
   /** One adjudicator pass (the Durable Object alarm): accept or decline offers, trigger fallbacks, decide; on a chain, then send due timeouts. */
   async work(): Promise<void> {
+    // A broken world takes no new work: the stored write failure, before an adjudicator acts or a transaction goes out.
+    if (this.failed) await this.persisting;
     this.telemetry.invoked();
     this.tick();
     if (this.live) {
@@ -1134,6 +1136,8 @@ export class PublicWorld {
   }
 
   async fetch(request: Request, via: Via): Promise<Response> {
+    // A broken world takes no new work: the stored write failure, before a handler runs or relays.
+    if (this.failed) await this.persisting;
     this.telemetry.invoked();
     this.tick();
     const op = this.operators[via.node]!;

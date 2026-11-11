@@ -819,6 +819,12 @@ describe('a failed storage write (T-313)', () => {
     expect(first.world.broken).toBe(true);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toMatch(/storage write failed.*storage put failed \(test\)/);
+    // A broken world takes no new work: a grant fails before the faucet runs, and a pass before the adjudicators do.
+    const digest = first.world.digest();
+    const grant = new Request('http://127.0.0.1/v1/faucet', { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'late' }, body: JSON.stringify({ address: freshAgent(first.urls).address }) });
+    await expect(first.world.fetch(grant, { node: 0, origin: 'http://127.0.0.1', client: 'test' })).rejects.toThrow('storage put failed (test)');
+    await expect(first.world.work()).rejects.toThrow('storage put failed (test)');
+    expect(first.world.digest()).toBe(digest);
     await first.close();
     running.splice(running.indexOf(first), 1);
 

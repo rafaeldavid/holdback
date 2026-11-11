@@ -344,4 +344,33 @@ describe('reads', () => {
     expect(page.status).toBe(200);
     expect((await json<{ items: Array<{ seq: number }> }>(page)).items.map((e) => e.seq)).toEqual([...mine].reverse());
   });
+
+  it('a throw while indexing one event leaves it for the next read, which indexes it once (T-313)', async () => {
+    await held();
+    await w.chain.submit(await w.deal.deliver());
+    const events = w.chain.events.bind(w.chain);
+    let failures = 1;
+    // The first event this node has not indexed cannot be read, once: the index loop throws in its body.
+    w.chain.events = async function* (fromSeq?: number) {
+      for await (const e of events(fromSeq)) {
+        if (failures === 0) yield e;
+        else {
+          yield Object.defineProperty({ ...e }, 'commitmentId', {
+            enumerable: true,
+            get: () => {
+              if (failures === 0) return e.commitmentId;
+              failures--;
+              throw new Error('the event could not be indexed (test)');
+            },
+          });
+        }
+      }
+    };
+    const mine = w.chain.log().filter((e) => e.commitmentId === w.deal.id).map((e) => e.seq);
+    expect((await get(`/v1/commitments/${w.deal.id}/events?limit=200`)).status).toBe(500);
+    expect(failures).toBe(0);
+    const page = await get(`/v1/commitments/${w.deal.id}/events?limit=200`);
+    expect(page.status).toBe(200);
+    expect((await json<{ items: Array<{ seq: number }> }>(page)).items.map((e) => e.seq)).toEqual([...mine].reverse());
+  });
 });
