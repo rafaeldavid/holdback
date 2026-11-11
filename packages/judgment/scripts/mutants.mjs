@@ -28,7 +28,7 @@ const MUTANTS = [
   ["injection screen", "CSV formula prefix not signalled", "screen.ts", "if (input.mime === 'text/csv' && FORMULA_CELL.test(text))", "if (false)"],
   ["injection screen", "party terms not screened", "pipeline.ts", "const termSignals = screenTerms(termsTexts(acceptance, input.deliverable.description));", "const termSignals: ReturnType<typeof screenTerms> = [];"],
   ["injection screen", "aggregation ignores the screen flag", "aggregate.ts", "if (input.screenFlagged) return", "if (false) return"],
-  ["injection screen", "aggregation ignores injectionSuspected", "aggregate.ts", "if (parsed.some((v) => v.verdict.injectionSuspected))", "if (false)"],
+  ["injection screen", "aggregation ignores injectionSuspected", "aggregate.ts", "const injection = parsed.some((v) => v.verdict.injectionSuspected);", "const injection = false;"],
   ["injection screen", "canary echo not detected", "verdict.ts", "if (echoesCanary(raw, jsonOk ? json : undefined, opts.canary)) return", "if (false) return"],
   ["injection screen", "canary split across fields not detected", "verdict.ts", "  if (squash(texts.join('')).includes(c)) return true;\n", ""],
   ["injection screen", "normalized text keeps hidden characters", "normalize.ts", "return { text: stripped.normalize('NFKC')", "return { text: raw.normalize('NFKC')"],
