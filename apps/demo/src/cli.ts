@@ -15,7 +15,7 @@ import { renderHtml } from './transcript/render-html.js';
 import { renderJson } from './transcript/render-json.js';
 import { renderClosingMarkdown, renderMarkdown } from './transcript/render-md.js';
 import type { BeatTranscript, EventSource } from './transcript/types.js';
-import { plain } from './transcript/untrusted.js';
+import { plain } from '@holdback/testkit';
 
 export interface Args {
   live: boolean;
