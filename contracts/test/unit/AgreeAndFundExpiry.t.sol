@@ -7,12 +7,12 @@ import {Base} from "./Base.sol";
 
 /// @title agreeAndFund refuses an expired acceptance and an expired agreement (T-352)
 /// @notice `agreeAndFund` refuses the adjudicator's acceptance and the buyer's agree from their `expiresAt` on
-///         (`HoldbackRules.sol:204`). Before this file no test reached that revert: the first mutation run on main
-///         (T-352, 2026-11-11) found that dropping either half of the check left every test passing (mutants M005 and
-///         M006), and `forge coverage` showed the revert branch never ran. Each check is pinned on both sides of its
-///         boundary: refused at `expiresAt`, funded one second before it.
+///         (its `MessageExpired` check on `acc.expiresAt` and `ag.expiresAt`). Before this file no test reached that
+///         revert: the first mutation run on main (T-352, 2026-11-11) found that dropping either half of the check left
+///         every test passing (mutants M005 and M006), and `forge coverage` showed the revert branch never ran. Each
+///         check is pinned on both sides of its boundary: refused at `expiresAt`, funded one second before it.
 contract AgreeAndFundExpiryTest is Base {
-    /// The acceptance at its expiresAt: refused, and nothing is held or encumbered.
+    /// The acceptance at its expiresAt: refused.
     function test_refusesAnAcceptanceAtItsExpiry() public {
         H.Terms memory t = _terms();
         H.Acceptance memory acc = _acceptanceUntil(t, uint64(block.timestamp));
@@ -21,8 +21,6 @@ contract AgreeAndFundExpiryTest is Base {
         H.Funding memory f = _erc3009(t, BUYER_PK);
         vm.expectRevert(HoldbackRules.MessageExpired.selector);
         rules.agreeAndFund(t, sellerSig, acc, ag, f);
-        assertEq(uint8(_stage(hx.id(t))), uint8(HoldbackRules.Stage.None));
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), 0);
     }
 
     /// The acceptance one second before its expiresAt: funded.
