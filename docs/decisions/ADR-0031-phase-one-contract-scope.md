@@ -1,10 +1,10 @@
 # ADR-0031: The phase-one contract scope
 
-- **Status:** Proposed, 2026-11-11. Rafa decided most of its lines the same day. Before it first merged (D57): phase one ships without party appeals and bonds (SC-7), contract signers stay (SC-4 is refused), the on-chain beacon proof stays for now (SC-8 is not cut), the settlement for late work stays (SC-5b is not cut), and a cut feature's events leave with it. After it merged (D58): the unfunded offer's expiry moves off chain (SC-6), a zero price stays allowed, the two stricter rules are agreed, and third-party payouts are cut for phase one with a planned return (SC-3). SC-1 and SC-2 follow his stated direction and proceed unless he stops one. One point is open: a deal that holds nothing. Rafa may overrule any line.
+- **Status:** Proposed, 2026-11-11. Rafa decided most of its lines the same day. Before it first merged (D57): phase one ships without party appeals and bonds (SC-7), contract signers stay (SC-4 is refused), the on-chain beacon proof stays for now (SC-8 is not cut), the settlement for late work stays (SC-5b is not cut), and a cut feature's events leave with it. After it merged (D58): the unfunded offer's expiry moves off chain (SC-6), a zero price stays allowed, the two stricter rules are agreed, and third-party payouts are cut for phase one with a planned return (SC-3). He also added one thing to phase one: a payout address for the seller, apart from the address that signs (section 11), which needs its own ADR and a schema version. SC-1 and SC-2 follow his stated direction and proceed unless he stops one. Two points are open: a deal that holds nothing, and a separate refund address for the buyer. Rafa may overrule any line.
 - **Date:** 2026-11-11
 - **Raised by:** T-342, package R1 of the contract refinement plan (kept privately, `docs/private-materials.md`), from Rafa's standard for the contracts on 2026-11-11: "it's better to have a limited scope for an initial phase of the product than perfectly complete and universal design contracts that open up to risks."
 - **Builds on:** ADR-0001 (neutrality), ADR-0002 (the hold), ADR-0003 (the escrow base), ADR-0006 (defended judgment), ADR-0007 (bonded adjudicators), ADR-0016 (the acceptance and the state machine), ADR-0018 (the beacon), ADR-0019 (mutual settlement), ADR-0025 and ADR-0026 (funding), ADR-0029 (delivery binding), ADR-0030 (adjudicator registration); D23, D26, D28, D31, D32, D38, D42, D43, D54.
-- **Changes (when built, by later tasks):** `contracts/src/`, their tests and the deploy scripts; the off-chain mirrors in `packages/core`, `packages/settlement/evm`, `apps/operator` and `apps/adjudicator`; the list of SimChain-only fixtures in `packages/testkit/src/runner.ts`. **No signed type and no file in `spec/schemas/` changes.** This ADR itself changes no code.
+- **Changes (when built, by later tasks):** `contracts/src/`, their tests and the deploy scripts; the off-chain mirrors in `packages/core`, `packages/settlement/evm`, `apps/operator` and `apps/adjudicator`; the list of SimChain-only fixtures in `packages/testkit/src/runner.ts`. **No cut changes a signed type or a file in `spec/schemas/`.** One addition does, the seller's payout address (section 11), and it gets its own ADR and schema version. This ADR itself changes no code.
 - **Amends, for the phase-one contracts only:** ADR-0007 (bonds and the overturn payout), ADR-0016 §1 (funding gated on reserved bond) and §2 (the appeal state), ADR-0006 (tier 3, the party appeal), ADR-0019's D23 amendment (payouts to any address), D38 and D42 (any token per deal), D43 (the overturn payout on chain), ADR-0030 (the operators' refusal of an unbonded fallback). Each stays the full protocol's design, and SimChain keeps it.
 
 Labels: **measured** (read at the cited line by this task, or by the search this task ran, at commit `26d4670`, where `contracts/src` equals the deployed commit `64be1f1`: `git diff --quiet 64be1f1 HEAD -- contracts/src` exits 0), **documented** (stated in the cited doc), **inferred** (from reading, not from a run), **guessed**. Nothing was run. Line numbers are those of `26d4670`; the contract clean-up (T-334) moves them.
@@ -26,6 +26,8 @@ Labels: **measured** (read at the cited line by this task, or by the search this
 | SC-6 | No on-chain record of an unfunded offer's expiry | **Goes ahead, off chain** (Rafa, 2026-11-11). The operators send no transaction | decided |
 | SC-7 | No party appeals and no bonds | **Decided by Rafa, 2026-11-11** (D57) | decided |
 | SC-8 | No on-chain proof of the randomness beacon | **Not cut: the proof stays for now** (Rafa, 2026-11-11). Revisit with the choice of chain | decided |
+
+**One addition, decided in principle by Rafa:** the seller is paid at a payout address in the signed terms, apart from the address that signs (section 11). Unlike every cut, it changes a signed type, so its own ADR and a schema version follow.
 
 **The price of SC-7, stated plainly.** Litmus test 3 says "Appeals are backed by the adjudicator's bond". Phase one sets that line aside. A wrong first decision has no remedy on chain: the losing party loses at most the deal's price plus the fee, and its recourse is the signed record and the law (D26). The parties' protection moves to what they choose before they sign: the three adjudicators, the fallback and the default outcome.
 
@@ -88,7 +90,9 @@ Three state-changing entry points leave: `fileAppeal`, `expireAppeal` and `expir
 - **Signed types and schemas.** None changes. The schema lets `to` be any address, and the rulebook's `mutualSettlement.payoutsTo` is `parties` or `any` (`spec/schemas/club.schema.json:269-275`). A phase-one deployment behaves as `parties` whatever the rulebook says. A rulebook that says `any` then promises more than the contract does, so the demo club's rulebook moves to `parties` with the new demo world (D49).
 - **Events.** `Paid` loses its only emit site (`:474`) and leaves with the feature, under Rafa's rule that a cut feature's events go with it (section 10).
 - **What it amends.** D23 is deferred for the phase-one contracts, not dropped. The fifth outcome in `docs/neutrality.md` ("at any split, to any addresses both parties sign") reads "at any split between the buyer and the seller".
-- **How it comes back: a planned piece of work, not a wait for demand.** Funds reach a third address by agreement, through a receivable address in the terms. The seller's signing address stays its identity as the counterparty; the receivable address is where its money goes, and both parties can change it to any address by signing. That is Rafa's proposal, and it starts after the phase-one contracts are frozen. A receivable address in the terms is a new signed field, so it comes with its own ADR and a schema version.
+- **How it comes back: a planned piece of work, not a wait for demand, in two halves.** Rafa's proposal is a receivable address in the terms: the seller's signing address stays its identity as the counterparty, and the receivable address is where its money goes.
+  - **The first half is in phase one** (section 11): the terms name a payout address for the seller, fixed when the parties sign. A seller that must pay a third party names that party's address there.
+  - **The second half starts after the phase-one contracts are frozen:** both parties can change that address to any address by signing. It needs its own ADR.
 
 ### 5. SC-4: contract signers stay (refused by Rafa)
 
@@ -252,9 +256,27 @@ Rafa's rule is that events are never removed. Asked on 2026-11-11 "Where a cut r
 
 Each removal goes on the list of allowed differences of the side-by-side run that compares the old and the new contracts, and into the events inventory (`docs/audit/events.md`, T-338).
 
+### 11. One addition to phase one: the seller's payout address (decided in principle by Rafa)
+
+**Every other section of this ADR removes something. This one adds: the seller is paid at an address apart from the address that signs. It is decided in principle and not designed here. Its own ADR and a schema version follow.**
+
+Rafa, 2026-11-11: **"The contract Seller (as in agree-er) should not be the same address as the asset payout address. So that does need to get fixed in the contract architecture if it isn't already the case".**
+
+- **It is not the case today.** The escrow's receiver for every deal is `t.seller` (`HoldbackRules.sol:176`), and `t.seller` is the address whose signature the contract checks on the terms and on the delivery (`:206`, `:626`) [measured]. So a release, an early accept and the seller's share of a settlement all pay the signing address. No signed type carries a second address for the seller.
+- **What is decided.**
+  - The payout address and the signing address are separate fields in the signed terms. Both parties and the primary adjudicator sign terms that name it, so nobody changes it after signing.
+  - The contract does not refuse equal addresses. Asked "Must the seller's two addresses be different, or may they be the same?", Rafa answered: "They can be different, but can default to the same upon initial set-up if that is easiest for an agent. LIke when you input delivery address and then credit card address". The tooling may default the payout address to the signing address when a seller sets none.
+  - It is part of the phase-one contracts and of the commit that is frozen and audited.
+- **It changes a signed type, which no cut in this ADR does.** One new field in `CommitmentTerms`; the escrow's receiver becomes that address; every commitment ID moves. So it needs its own ADR, a schema version, a new EIP-712 domain version and new hash vectors (the hard rule on `spec/schemas/`). This ADR names it and points forward; it designs nothing.
+- **Still open within it,** for its own ADR and for Rafa: whether the buyer gets a separate address for refunds in phase one. Today the buyer's signing address funds the hold and receives every refund, because the escrow refunds its payer (`:175`).
+- **How it sits with the cut of third-party payouts (section 4).** It softens that cut at once: a seller that must send the funds to a third party names that party's address as its payout address when it signs the offer. What stays for later is changing that address after signing, by both parties' agreement.
+- **Litmus tests, at this level.** Neutrality: the address is in the terms every party signs, so no one party can redirect funds. The hold: funds still leave only on a decision, an early accept, a settlement both sign, or a timeout. The address's own ADR tests the design against all three.
+
 ## Signed types and schemas
 
 **No cut changes an EIP-712 type, the domain version (0.7) or a file in `spec/schemas/` (v0.10).** A phase-one deployment accepts a subset of what the types can say, and the redeploy changes the domain's `verifyingContract`, as every redeploy does.
+
+**One addition does change a signed type:** the seller's payout address (section 11) adds a field to `CommitmentTerms`. Its own ADR carries the schema version, the new domain version and the new hash vectors. The table below is about the cuts.
 
 | What the types and schemas still allow | What a phase-one deployment does |
 | --- | --- |
@@ -331,7 +353,9 @@ Nobody is paid from a bond in any row. The deployed contracts pay an overturned 
    And for protocol property 2, one added sentence: "Phase one has no bonds on chain (D57); the bonding returns with them."
 2. **A deal that holds nothing.** A deal with price 0 and fee 0 cannot be funded today: the escrow refuses to hold nothing (`AuthCaptureEscrow.sol:179`, `ZeroAmount`), while core funds it. Supporting it would add a second path through every money step. Recommended: state it as a phase-one limit, "a deal must hold at least one base unit, as price or as fee", in the state model, the agent docs and core.
 
-**Answered by Rafa on 2026-11-11, after this ADR first merged** (D58): SC-6 goes ahead off chain; a zero price stays allowed; `bondReserved` must be zero and the five deadlines are checked in strict order; SC-3 is cut for phase one with a planned return, and `Paid` leaves with it.
+3. **A separate refund address for the buyer in phase one?** The seller gets a payout address apart from its signing address (section 11). The same split for the buyer is one more field on chain, and off chain it changes who signs the funding. It is put to Rafa with the payout address's own ADR.
+
+**Answered by Rafa on 2026-11-11, after this ADR first merged** (D58): the seller's payout address is part of phase one, and it may equal the signing address; SC-6 goes ahead off chain; a zero price stays allowed; `bondReserved` must be zero and the five deadlines are checked in strict order; SC-3 is cut for phase one with a planned return, and `Paid` leaves with it.
 
 ## Red-team findings and answers
 

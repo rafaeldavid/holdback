@@ -41,13 +41,15 @@ Not run while writing this page: `forge test` and `deploy-sepolia.sh --check`. E
 - a price of zero (D58). A deal with price 0 and a fee above 0 funds and settles through every outcome. A deal with price 0 and fee 0 cannot be funded, because the escrow refuses to hold nothing (`AuthCaptureEscrow.sol:179`); whether to state that as a phase-one limit is open with Rafa (ADR-0031, "What waits on Rafa");
 - the settlement for late work: in `Held`, a settlement both parties sign may name a delivery that was never posted and release its key in the same transaction as the payment (ADR-0031, SC-5b). It is the one path where a key leaves with no posted delivery. Core refuses it today and changes to allow it.
 
+**Added on purpose** (Rafa, 2026-11-11; D58): **a payout address for the seller, apart from the address that signs.** Today the escrow pays the address that signs the terms and the delivery (`HoldbackRules.sol:176`, `:206`). In phase one the signed terms name a payout address, and the contract pays it wherever it pays the seller. The two addresses may be equal. This adds a field to the signed terms, so its own ADR and a schema version follow (ADR-0031, section 11). Whether the buyer gets a separate address for refunds is open.
+
 **Assumptions that are new with phase one:**
 
 - **The deployment's token** is a plain ERC-20 with ERC-3009: no fee on transfer, no rebasing, no transfer hook. The contract cannot check this. Whoever deploys names the token and has no authority afterwards; the parties accept it by signing under that deployment's EIP-712 domain.
 - **The deployer's one-time choices are the trust anchor:** the token, the escrow, the collector, the beacon and the expiry margin. At the freeze this page lists every immutable with its address and code hash.
 - **The first decision by the primary or the fallback adjudicator is final,** and so is the appeal adjudicator's decision after an escalation. No adjudicator posts a bond. A party must trust all three adjudicators it names, because the other party can steer which one decides. The parties' protection is their choice of the three adjudicators, the fallback, the default outcome, and the signed record (ADR-0031, "Litmus tests").
 - **Two signed fields mean less than they say.** The acceptance's `bondReserved` must be 0. The terms' `appealWindowSec` is signed and not read.
-- **No signed type and no file in `spec/schemas/` changes.** The types describe the full protocol, which SimChain runs; a phase-one deployment accepts a subset.
+- **No cut changes a signed type or a file in `spec/schemas/`.** The types describe the full protocol, which SimChain runs; a phase-one deployment accepts a subset. The one change to a signed type is the seller's payout address above.
 
 Unchanged: no owner, pause, freeze, blacklist or upgrade proxy, and no real money.
 

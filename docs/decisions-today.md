@@ -967,9 +967,9 @@ The full text is kept privately (`docs/private-materials.md`).
 | Cut both for phase one (chosen) | The first decision is final; eight open findings stop applying; one line of litmus test 3 is set aside |
 | Cut appeals, keep bonds | A bond with nothing to pay: on chain a bond moves only when an appeal overturns a decision |
 
-## D58. Rafa's answers to ADR-0031's open points: the offer's expiry off chain, a zero price allowed, the strict rules, third-party payouts cut with a planned return
+## D58. Rafa's answers to ADR-0031's open points: the offer's expiry off chain, a zero price allowed, the strict rules, third-party payouts cut with a planned return, and a payout address for the seller
 
-**Decided 2026-11-11 by Rafa,** in the coordinating session, after ADR-0031 first merged with its open points. ADR-0031 stays Proposed and now records each answer; Rafa may overrule any line. No signed type and no file in `spec/schemas/` changes.
+**Decided 2026-11-11 by Rafa,** in the coordinating session, after ADR-0031 first merged with its open points. ADR-0031 stays Proposed and now records each answer; Rafa may overrule any line. Items 1 to 4 change no signed type and no file in `spec/schemas/`. Item 5 does, and gets its own ADR and schema version.
 
 1. **An unfunded offer's expiry is not recorded on chain (SC-6).** Rafa: "I don't think we need to send that message because the expiry date will be hit anyways so it will simply show expired?" Then, on the explanation: "ok for question 1 I agree with your explanation and no ping from our side is necessary."
    - `expireOffer` and the `Expired` stage leave the phase-one contracts. The operators mark an unfunded offer expired by their own clock and send no transaction. `reclaim` still emits `JobExpired`.
@@ -984,7 +984,13 @@ The full text is kept privately (`docs/private-materials.md`).
    - A phase-one mutual settlement pays the buyer and the seller only. D23 is deferred, not dropped.
    - The `Paid` event leaves with the feature, under his rule that a cut feature's events go with it (D57).
    - The return is planned work that starts after the phase-one contracts are frozen: funds to a third address by agreement, through a receivable address in the terms that both parties can change. A new field in the terms needs its own ADR and a schema version.
-5. **Still open for Rafa: a deal that holds nothing.** A deal with price 0 and fee 0 cannot be funded today, because the escrow refuses to hold nothing (`AuthCaptureEscrow.sol:179`), while core funds it. The recommendation is a stated phase-one limit: a deal must hold at least one base unit, as price or as fee.
+5. **The seller is paid at a payout address apart from the address that signs, in phase one.** Rafa: "The contract Seller (as in agree-er) should not be the same address as the asset payout address. So that does need to get fixed in the contract architecture if it isn't already the case". It is not the case today: the escrow pays the address that signs the terms and the delivery (`HoldbackRules.sol:176`, `:206`).
+   - Decided in principle, not designed here. The payout address and the signing address are separate fields in the signed terms, and the address is part of the commit that is frozen and audited.
+   - The two may be equal. Asked "Must the seller's two addresses be different, or may they be the same?", Rafa: "They can be different, but can default to the same upon initial set-up if that is easiest for an agent. LIke when you input delivery address and then credit card address". The contract does not refuse equal addresses.
+   - It adds a field to `CommitmentTerms`, so every commitment ID moves. Its own ADR follows, with a schema version, a new EIP-712 domain version and new hash vectors.
+   - It softens item 4 at once: a seller that must pay a third party names that party's address as its payout address when it signs. Changing the address after signing, by both parties' agreement, is the part planned for after the freeze.
+   - Open within it: whether the buyer gets a separate address for refunds in phase one.
+6. **Still open for Rafa: a deal that holds nothing.** A deal with price 0 and fee 0 cannot be funded today, because the escrow refuses to hold nothing (`AuthCaptureEscrow.sol:179`), while core funds it. The recommendation is a stated phase-one limit: a deal must hold at least one base unit, as price or as fee.
 
-- **Litmus tests.** Neutrality: unchanged by items 1 to 3; item 4 narrows the fifth outcome of `docs/neutrality.md` to a split between the buyer and the seller, as ADR-0031 already recorded. The hold: unchanged; no answer moves funds differently from ADR-0031's record, and a zero price keeps the branches the contract has today. Defended judgment: untouched.
+- **Litmus tests.** Neutrality: unchanged by items 1 to 3; item 4 narrows the fifth outcome of `docs/neutrality.md` to a split between the buyer and the seller, as ADR-0031 already recorded; item 5 puts the payout address in the terms every party signs, so no one party can redirect funds. The hold: unchanged; no answer moves funds differently from ADR-0031's record, a zero price keeps the branches the contract has today, and item 5's own ADR tests its design. Defended judgment: untouched.
 - **Research pass:** the planning session's read of the fee-slot path and of the zero-price branches, and T-342's read behind ADR-0031.
