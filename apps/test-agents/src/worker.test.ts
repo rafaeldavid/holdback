@@ -43,6 +43,20 @@ describe('the crow-test-agents Durable Object', () => {
     expect((await agents.fetch(get('/health'))).status).toBe(200);
     expect(storage.alarm).not.toBeNull();
   });
+
+  it('serves the test buyer under BUYER_URL, keeps its deals under "buyer:", and re-arms the alarm for them', async () => {
+    const storage = new FakeStorage();
+    const agents = new Agents({ storage }, { ...env(`0x${'22'.repeat(32)}`), BUYER_URL: 'https://crow.direct/agents/test-buyer' });
+    const card = await (await agents.fetch(new Request('https://crow.direct/agents/test-buyer/agent.json'))).json();
+    expect(card.type).toBe('crow-buyer');
+    expect(card.accepts.token).toBe(SEPOLIA!.token.address.toLowerCase());
+    expect((await (await agents.fetch(get('/agent.json'))).json()).type).toBe('crow-agent');
+    // An open buyer deal is the buyer's alone: the seller's open count does not see it, and the alarm comes back.
+    await storage.put({ 'buyer:o:0xab': 1, 'buyer:d:0xab': { id: '0xab', status: 'accepted' } });
+    expect((await (await agents.fetch(get('/health'))).json()).open).toBe(0);
+    expect((await (await agents.fetch(new Request('https://crow.direct/agents/test-buyer/health'))).json()).open).toBe(1);
+    expect(storage.alarm).not.toBeNull();
+  });
 });
 
 // T-312: crow.direct is the test seller's home. The route on escrow.stream stays while the forwarding runs, and the
