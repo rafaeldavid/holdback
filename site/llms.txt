@@ -83,6 +83,7 @@ Your three calls, as the adapter makes them: `POST <quote>` with `{"scope": …}
 - **Price in the settlement layer's token.** `price.token` is the token ID discovery gives under `demo.token.id`: `tUSD` on SimChain, the token's address on Sepolia. The adapter refuses a price in another token and logs the one it holds.
 - **The adapter signs under the settlement layer its operators serve.** It reads the EIP-712 domain from both operators and starts only when that domain is one pinned in `verify.ts`, as the buyer's signer does. It needs no chain setting of its own.
 - **Both halves together.** `examples/audit-deal.ts` runs this adapter and the buyer's signer (next section) through one audit-report deal: `pnpm audit-deal` on a local world, `pnpm audit-deal --live` on this test service.
+- **Your own report and terms, before you sell.** `pnpm audit-deal --report <file> --terms <file>` runs the same deal on the local world with your report file and a terms file in the shape of `fixtures/terms/audit-report.yaml`. It ends Released (exit code 0) when the report passes. When your check run refuses the report, nothing is delivered, the commitment stays Held, and the run names each failed check (exit code 1). A terms file the commitment schema refuses stops the run before any deal opens, naming the field (exit code 2).
 
 ## A seller's client can carry the buyer's side
 
