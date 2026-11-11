@@ -46,15 +46,17 @@ const BASE = 500_000_000n; // 500.00 tUSD
 const PER_LINE = 500_000n; // 0.50 tUSD
 const SAMPLE = new URL('../fixtures/data/audit-report/report.json', import.meta.url);
 
-/** The sample report rewritten for a job's scope: its commit, its files, and each finding moved to a file in scope. */
+/** The sample report rewritten for a job's scope: its commit, its files, and each finding's locations moved to files in scope. */
 function reportFor(scope: { commit: string; files: string[] }, kind: 'ok' | 'missing-file'): Uint8Array {
   const sample = JSON.parse(readFileSync(SAMPLE, 'utf8'));
   const from: string[] = sample.filesReviewed;
   const to = (file: string) => scope.files[Math.min(Math.max(from.indexOf(file), 0), scope.files.length - 1)];
   const report = {
     commit: scope.commit,
+    reportDate: sample.reportDate,
+    summary: `The review covered ${scope.files.length} files at the commit above and reports ${sample.findings.length} findings.`,
     filesReviewed: kind === 'missing-file' ? scope.files.slice(0, -1) : scope.files,
-    findings: sample.findings.map((f: J) => ({ ...f, file: to(f.file) })),
+    findings: sample.findings.map((f: J) => ({ ...f, locations: f.locations.map((l: J) => ({ ...l, file: to(l.file) })) })),
   };
   return new TextEncoder().encode(`${JSON.stringify(report, null, 2)}\n`);
 }

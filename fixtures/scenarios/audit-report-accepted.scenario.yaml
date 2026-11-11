@@ -1,8 +1,8 @@
 # @settlement sim @judges recorded @mode guaranteed_on_decision @seed 317
 name: audit-report-accepted
 description: >-
-  The audit-report template (T-317), checks-only. Tidewater delivers a JSON findings report at the agreed
-  commit that lists the three files in scope. The four required checks pass, so Bench A accepts with no
+  The audit-report template (T-317, loosened by T-320), checks-only. Tidewater delivers a JSON findings report at the agreed
+  commit that lists the three files in scope. The five required checks pass, so Bench A accepts with no
   panel: Tidewater gets the 1,500 tUSD and Bench A earns the fee.
 club: fixtures/clubs/data-services-v1.yaml
 terms: fixtures/terms/audit-report.yaml
