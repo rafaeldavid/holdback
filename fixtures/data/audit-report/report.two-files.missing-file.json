@@ -1,0 +1,27 @@
+{
+  "commit": "3f0a9c2e8b7d6154a3c2b1e0f9d8c7b6a5948372",
+  "reportDate": "2026-11-11",
+  "summary": "The review lists one of the two files in scope, so the coverage check of fixtures/terms/audit-report-two-files.yaml refuses it.",
+  "filesReviewed": [
+    "contracts/Escrow.sol"
+  ],
+  "findings": [
+    {
+      "id": "F-01",
+      "severity": "Low",
+      "status": "acknowledged",
+      "title": "release() emits no event",
+      "locations": [
+        {
+          "file": "contracts/Escrow.sol",
+          "lines": {
+            "start": 71,
+            "end": 76
+          }
+        }
+      ],
+      "rootCause": "release() moves the held amount to the seller on line 74 and emits no event, so a release leaves no log entry.",
+      "recommendedFix": "Emit Released(id, seller, amount) from release()."
+    }
+  ]
+}
