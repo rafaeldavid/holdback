@@ -74,6 +74,7 @@ All runs on 2026-11-11, on branch `t-329-refused-report-redelivery`, cut from `o
 - **Types and lint (measured).** `pnpm typecheck` exits 0. `pnpm lint` prints nothing.
 - **Site (measured).** `node site/build.mjs && node site/check.mjs`: "site check PASS". The build left `site/index.html` and `site/try.mjs` unchanged.
 - **T-330 (measured).** `git merge-tree` of this branch with `origin/t-330-terms-per-quote` merges with no conflict.
+- **CI's first run (measured).** On PR 317, `test (1/4)` failed one test: `examples/audit-deal.test.ts` "refused: … the hold comes back after the delivery deadline" expected `sellerStage` `refused` and got `closed`. That run moves the clock past `deliverBy` and then read the adapter's stage, which this task now closes at `deliverBy`; whether a poll ran first decided the answer, so the test passed locally. `examples/audit-deal.ts` now records the stage when the adapter decides (3 lines). `pnpm exec vitest run examples/audit-deal.test.ts`: 13 tests passed.
 - **Not shown by a test (inferred).** On SimChain the state leaves `Held` as soon as a delivery lands, so no test shows a restart in `delivering` while the state still reads `Held` and the event is already there. The code reads `delivery.submitted` in that stage whatever the state.
 - **Not run.** The full `pnpm verify` (the recipe keeps it for deploys), `pnpm snap` (no scenario or judgment code changed) and gitleaks, which is not installed on this machine. CI runs them.
 
@@ -95,6 +96,8 @@ All runs on 2026-11-11, on branch `t-329-refused-report-redelivery`, cut from `o
 **Not done.**
 - The site deploy that publishes the `llms.txt` change waits for Rafa.
 - Four lower-priority finds are in `reports/scratch/t-329-triage.md` in the main checkout. They cover alert retry across a restart, reads at every poll while a deal waits, a rate limit on the ready route, and a chain whose events lag.
+
+**Outside the listed paths.** `examples/audit-deal.ts` (T-326, merged): `sellerStage` is now the adapter's stage when it decided, read before the clock moves, because a refused deal now ends `closed` at `deliverBy`. It is 3 lines, and no open task holds the file.
 
 **For T-330.** This task changed `examples/seller-adapter.ts` in these places: the header comment (step 3 and the result call), the `createHmac` import, the `alerts` and `redelivery` fields after `reportMapping`, a `redelivery` line in the shipped configuration after `pollMs`, the `Stage` type and the `Deal` fields, `bearerOk()`, `refusalSettings()` and `checkLine()` after `gate()`, one line after `gate(c, env)`, the `started` block of `advance()`, the new `alert()` and `refuse()`, the stage list in `pass()`, `readySignal()` and one route line before the `/quote` check, a startup log line, and `close()`. None is in the quote route or the offer's terms.
 
