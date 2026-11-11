@@ -1,0 +1,32 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 327
+name: reference-check-accepted
+description: >-
+  T-327. The terms require every one of the 40 customers Atlas already holds (a reference file in the operators'
+  content store, named by URI and SHA-256; the runner's store is fixtures/data/reference/) to appear in the delivery with the same email. Bench A reads the
+  reference from its store by the committed hash, the check matches 40 of 40, and with an empty rubric the checks
+  alone accept: Tidewater is paid and Bench A earns the fee.
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-reference.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.csv }
+  - advance_clock:      { seconds: 5 }
+  - judge:              { adjudicator: bench-a }
+  - settle:             { trigger: anyone }
+expect:
+  terminal: Released
