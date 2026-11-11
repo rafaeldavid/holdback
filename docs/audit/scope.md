@@ -34,12 +34,11 @@ Not run while writing this page: `forge test` and `deploy-sepolia.sh --check`. E
 5. **Terms that settlement does not process:** a zero price; deadlines that are not strictly ordered `offerExpiresAt < fundBy < deliverBy < judgeBy < fallbackBy`; `maxSubmissions` other than 1; an escalation decision window (`appealDecideSec`) of 0.
 6. **The on-chain record of an unfunded offer's expiry:** `expireOffer` and the `Expired` stage.
 
-**Open, waiting for Rafa:** a mutual settlement in `Held` that names a delivery or releases a key (ADR-0031, SC-5b). The contract takes it today on purpose, for late work, and core refuses it. The recommendation is to keep it and change core to match.
-
 **Kept on purpose** (Rafa, 2026-11-11):
 
 - signatures from contracts (ERC-1271) in every role, so a multisig can be a party or an adjudicator;
-- the on-chain proof of the randomness beacon.
+- the on-chain proof of the randomness beacon;
+- the settlement for late work: in `Held`, a settlement both parties sign may name a delivery that was never posted and release its key in the same transaction as the payment (ADR-0031, SC-5b). It is the one path where a key leaves with no posted delivery. Core refuses it today and changes to allow it.
 
 **Assumptions that are new with phase one:**
 
