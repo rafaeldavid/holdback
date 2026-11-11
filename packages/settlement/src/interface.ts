@@ -1,5 +1,6 @@
 // The settlement layer as the operator API and SDK see it (docs/architecture.md, Settlement interface).
-// SimChain implements it in process; EvmSettlement (evm/) implements it on a local chain with the same shape.
+// SimChain implements it in process; EvmSettlement (evm/) implements it with the same shape on anvil and, since
+// ADR-0028, on Sepolia.
 // Every state change arrives as a message a party or adjudicator signed, or as a permissionless trigger.
 // The settlement layer never authors a party's message.
 import type {
