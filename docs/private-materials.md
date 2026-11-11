@@ -13,6 +13,7 @@ The maintainers keep planning and business material in a private repository. Thi
 - **The team's process notes and budgets.** They are still in this repository today, in `docs/team.md`, `docs/update-flow.md` and `agent-ops/`. They are due to move. The table that pairs each hard rule with its check stays here.
 - **The cost model and operating costs.**
 - **Brand and messaging work.**
+- **The cost collector:** the scripts that read the maintainers' provider bills and usage, with their tests and templates. They are business tooling, not part of the product. The maintainers moved them on 2026-11-11. They stay in this repository's git history, under `scripts/costs/`, `tests/costs/` and `config/`.
 - **The founders' console:** its code, its deploy records and the notes on its metrics.
 - **The full text of documents shortened here.** On 2026-11-11 the maintainers shortened seven decisions and one passage in `docs/decisions-today.md`, and passages of `docs/operations.md`, `docs/PRD.md`, `docs/demo.md`, `README.md` and one task file, to their technical content. The private repository keeps each file as it read before.
 
