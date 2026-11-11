@@ -13,7 +13,10 @@
 //                 new (T-330). It records what it showed.
 //   checkOffer    reads the offer again and refuses unless it equals what readOffer showed, and unless the price, the
 //                 fees, the deliverable, the checks, the deadlines, the adjudicators and the buyer's own address and
-//                 encryption key equal what the buyer approved.
+//                 encryption key equal what the buyer approved. The settlement mode, the disclosure level, the club,
+//                 its rulebook hash and the primary adjudicator's policy and registry are shown too, and both
+//                 readOffer and checkOffer refuse them unless they equal what the buyer expects (Options.expect) and
+//                 what every operator publishes (T-332).
 //   agreeAndFund  signs the agreement, the funding and the operator fee, each rebuilt from the approved terms and
 //                 checked against what the operator prepared (verify.ts; site/llms.txt section 4).
 //   watch         follows the funded deal until the operators confirm its outcome, and tells the buyer's agent
@@ -62,19 +65,55 @@ export type Offer = {
   /** The same deadlines as windows in whole seconds, as a seller configures them (`Defaults.timing`). */
   windows: Record<Window, number>;
   adjudicators: { primary: string; fallback: string; appeal: string };
+  /**
+   * How settlement pays out on a decision (`guaranteed_on_decision`, `settle_after_window` or `optimistic`). Checked
+   * against `expect.settlementMode`, or else the modes every operator's discovery lists (T-332).
+   */
+  settlement: { mode: string };
+  /** Who may read the terms and records. Checked against `expect.disclosureLevel`, by default `public` (T-332). */
+  disclosure: { level: string };
+  /** The club whose rulebook governs the deal. Checked against `expect.clubId`, or else discovery's demo club (T-332). */
+  clubId: string;
+  /** The hash of that club's rulebook. Checked against the club every operator serves (T-332). */
+  rulebookHash: Hex;
+  /** The primary adjudicator's policy ID, policy hash and model registry hash. Checked against its registration as every operator serves it (T-332). */
+  policyId: string;
+  policyHash: Hex;
+  registryHash: Hex;
   /** With `defaults` given to readOffer: what this offer changes from the seller's published defaults (T-330). */
   differences?: Difference[];
 };
+/** The seven signed fields T-332 shows, as `Offer` paths: refusals name them so. */
+type Signed = 'settlement' | 'disclosure' | 'clubId' | 'rulebookHash' | 'policyId' | 'policyHash' | 'registryHash';
 /**
- * What the buyer approved. `seller`, `rubric`, `fees.total`, `commitmentId` and `differences` are optional: without
- * `rubric` the offer must have none, and without `seller` any seller whose signature recovers passes.
+ * What the buyer approved. `seller`, `rubric`, `fees.total`, `commitmentId`, `differences` and the seven fields of
+ * T-332 are optional: without `rubric` the offer must have none, and without `seller` any seller whose signature
+ * recovers passes. The seven are checked against `Options.expect` and the operators either way.
  */
-export type Approved = Pick<Offer, 'price' | 'deliverable' | 'checks' | 'deadlines' | 'adjudicators'> & {
+export type Approved = Pick<Offer, 'price' | 'deliverable' | 'checks' | 'deadlines' | 'adjudicators'> & Partial<Pick<Offer, Signed>> & {
   fees: { adjudication: Money; operator: Money; total?: Money };
   seller?: string;
   rubric?: J;
   commitmentId?: Hex;
   differences?: Difference[];
+};
+/**
+ * What the buyer expects of the seven signed fields T-332 shows. Each is the buyer's setting: the signer judges no
+ * value (D28) and adds no limit (D31). Without one, the signer compares with what every operator publishes.
+ */
+export type Expect = {
+  /** Without it: a mode every operator's discovery lists in `settlementModes`. */
+  settlementMode?: string;
+  /** Without it: `public`, the one level whose terms carry the deliverable and the checks in the clear for this file to show. */
+  disclosureLevel?: string;
+  /** Without it: the demo club every operator's discovery names (`demo.clubId`). With neither, the signer refuses. */
+  clubId?: string;
+  /** Compared as well as the club's hash every operator serves. */
+  rulebookHash?: string;
+  /** Each compared as well as the primary adjudicator's registration every operator serves. Hashes compare ignoring case. */
+  policyId?: string;
+  policyHash?: string;
+  registryHash?: string;
 };
 export type Window = 'offerExpiresInSec' | 'fundWithinSec' | 'deliverWithinSec' | 'judgeWithinSec' | 'fallbackWithinSec' | 'appealWindowSec' | 'appealDecideSec';
 const WINDOWS: Window[] = ['offerExpiresInSec', 'fundWithinSec', 'deliverWithinSec', 'judgeWithinSec', 'fallbackWithinSec', 'appealWindowSec', 'appealDecideSec'];
@@ -113,6 +152,8 @@ export type Options = {
    * returned or logged. Without it quote sends no credential.
    */
   quoteCredentialEnv?: string | undefined;
+  /** What the buyer expects of the seven signed fields (T-332). Not saved: give it again to loadKeys or openDeals. */
+  expect?: Expect | undefined;
 };
 /**
  * What watch tells the buyer's agent.
@@ -284,8 +325,13 @@ const OFFER_FIELDS: Array<[string, (o: Offer) => J]> = [
   ['commitmentId', (o) => o.commitmentId], ['seller', (o) => o.seller], ['price', (o) => o.price],
   ['fees.adjudication', (o) => o.fees.adjudication], ['fees.operator', (o) => o.fees.operator], ['fees.total', (o) => o.fees.total],
   ['deliverable', (o) => o.deliverable], ['checks', (o) => o.checks], ['rubric', (o) => o.rubric], ['deadlines', (o) => o.deadlines],
-  ['windows', (o) => o.windows], ['adjudicators', (o) => o.adjudicators], ['differences', (o) => o.differences ?? null],
+  ['windows', (o) => o.windows], ['adjudicators', (o) => o.adjudicators],
+  ['settlement.mode', (o) => o.settlement?.mode], ['disclosure.level', (o) => o.disclosure?.level], ['clubId', (o) => o.clubId], ['rulebookHash', (o) => o.rulebookHash],
+  ['policyId', (o) => o.policyId], ['policyHash', (o) => o.policyHash], ['registryHash', (o) => o.registryHash],
+  ['differences', (o) => o.differences ?? null],
 ];
+/** The seven of T-332, as OFFER_FIELDS names them. An Approved holds each under the name's first part. */
+const SIGNED_FIELDS = OFFER_FIELDS.filter(([f]) => ['settlement.mode', 'disclosure.level', 'clubId', 'rulebookHash', 'policyId', 'policyHash', 'registryHash'].includes(f));
 const sha256 = async (b: Uint8Array) => `sha256:${Buffer.from(await crypto.subtle.digest('SHA-256', new Uint8Array(b))).toString('hex')}`;
 const defaultOperators = () => (process.env['HOLDBACK_OPERATORS'] || 'https://api.crow.direct,https://api2.crow.direct').split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean);
 
@@ -308,6 +354,7 @@ export class BuyerSigner {
   readonly store: string;
   readonly #operators: string[];
   readonly #quoteCredentialEnv: string | undefined;
+  readonly #expect: Expect;
   readonly #saved: Saved;
   #connected: Promise<{ agent: Agent; pin: Pin }> | undefined;
 
@@ -318,6 +365,7 @@ export class BuyerSigner {
     this.#saved = s;
     this.#operators = options.operators ?? defaultOperators();
     this.#quoteCredentialEnv = options.quoteCredentialEnv;
+    this.#expect = { ...(options.expect ?? {}) };
     this.address = privateKeyToAccount(s.privateKey).address.toLowerCase();
     this.encryptionPublicKey = Buffer.from(nacl.box.keyPair.fromSecretKey(new Uint8Array(Buffer.from(s.encryptionSecretKey, 'base64url'))).publicKey).toString('base64url');
     if (s.version !== 1 || s.address !== this.address) throw new Error(`the key file for ${s.address} in ${store} is not one this file wrote`);
@@ -457,15 +505,60 @@ export class BuyerSigner {
       fees: { adjudication, operator: { token: price.token, amount: operator.toString() }, total: { token: price.token, amount: (BigInt(price.amount) + BigInt(adjudication.amount) + operator).toString() } },
       deliverable: terms.deliverable, checks: terms.acceptance.deterministicChecks, rubric: terms.acceptance.rubric, deadlines: terms.timing, windows,
       adjudicators: { primary: a.adjudicator, fallback: a.fallbackAdjudicator, appeal: a.appealAdjudicator },
+      settlement: { mode: terms.settlement?.mode }, disclosure: { level: terms.disclosure?.level }, clubId: terms.clubId, rulebookHash: terms.rulebookHash,
+      policyId: a.policyId, policyHash: a.policyHash, registryHash: a.registryHash,
     };
+    await this.#expected(agent, offer);
     return { terms, offer };
+  }
+
+  /**
+   * Refuses (naming the field) unless each of the seven signed fields of T-332 equals what the buyer expects
+   * (Options.expect) and what every operator publishes: the settlement modes and the demo club in discovery, the
+   * club's rulebook hash, and the primary adjudicator's policy and registry. Every read must answer the same on every
+   * operator (Agent.trusted), and the club and policy hashes are checked against the bodies they hash.
+   */
+  async #expected(agent: Agent, offer: Offer): Promise<void> {
+    const e = this.#expect;
+    const differs = (field: string, got: J, want: J, from: string) => {
+      if (!same(got ?? null, want ?? null)) refuse(`${field} is ${shown(got ?? null)}, not ${from}`);
+    };
+    const mine = (field: string, got: J, key: keyof Expect) => {
+      if (e[key] !== undefined) differs(field, got, e[key], `the expected ${shown(e[key])} (expect.${key})`);
+    };
+    const found = await agent.trusted('/.well-known/holdback.json', (x) => ({ modes: Array.isArray(x.settlementModes) ? x.settlementModes : [], clubId: typeof x.demo?.clubId === 'string' ? x.demo.clubId : null }));
+
+    const mode = offer.settlement.mode;
+    if (e.settlementMode !== undefined) mine('settlement.mode', mode, 'settlementMode');
+    else if (!found.modes.includes(mode)) refuse(`settlement.mode is ${shown(mode ?? null)}, not a mode every operator lists (${shown(found.modes)}): set expect.settlementMode to sign another`);
+    if (e.disclosureLevel !== undefined) mine('disclosure.level', offer.disclosure.level, 'disclosureLevel');
+    else differs('disclosure.level', offer.disclosure.level, 'public', '"public", the level this file reads: set expect.disclosureLevel to sign another');
+
+    if (e.clubId !== undefined) mine('clubId', offer.clubId, 'clubId');
+    else if (found.clubId === null) refuse(`clubId is ${shown(offer.clubId ?? null)}, and the operators name no demo club: set expect.clubId to the club you expect`);
+    else differs('clubId', offer.clubId, found.clubId, `the demo club every operator names (${shown(found.clubId)}): set expect.clubId to sign another`);
+    // The club is now the expected one: its rulebook as every operator serves it, hash checked against the body.
+    const { rulebookHash } = await agent.club(offer.clubId);
+    differs('rulebookHash', offer.rulebookHash, rulebookHash, `the hash every operator serves for club ${shown(offer.clubId)} (${shown(rulebookHash)})`);
+    mine('rulebookHash', offer.rulebookHash, 'rulebookHash');
+
+    // The primary adjudicator's registration as every operator serves it, its policy hash checked against the policy.
+    const reg = await agent.registration(offer.adjudicators.primary);
+    const theirs = (v: J) => `the primary adjudicator's as every operator serves it (${shown(v ?? null)})`;
+    differs('policyId', offer.policyId, reg.policy?.id, theirs(reg.policy?.id));
+    mine('policyId', offer.policyId, 'policyId');
+    differs('policyHash', offer.policyHash, reg.policyHash, theirs(reg.policyHash));
+    mine('policyHash', offer.policyHash, 'policyHash');
+    differs('registryHash', offer.registryHash, reg.registry?.hash, theirs(reg.registry?.hash));
+    mine('registryHash', offer.registryHash, 'registryHash');
   }
 
   /**
    * The offer as both operators serve it, for the buyer's agent to approve. Signs nothing. With `defaults` (the
    * seller's published defaults, or the URL that serves them) it adds `differences`: each check, window and
    * requirement this offer changes, old value and new. The key file records what was shown; checkOffer refuses an
-   * offer that differs from it.
+   * offer that differs from it. It refuses to show an offer whose settlement mode, disclosure level, club, rulebook
+   * hash or adjudicator policy differs from Options.expect or from what every operator publishes (T-332).
    */
   async readOffer(commitmentId: string, options: { defaults?: Defaults | string } = {}): Promise<Offer> {
     const id = commitmentId.toLowerCase() as Hex;
@@ -490,7 +583,8 @@ export class BuyerSigner {
    * Reads the offer from both operators and refuses (throws Refusal, naming the field) unless it equals the offer
    * readOffer showed with this key, differences included (compared again with the same defaults), and what the buyer
    * approved: the price, each fee, the deliverable, the checks, the rubric, the deadlines, the adjudicators, the
-   * differences when given, and this key's own address and encryption key as the buyer. Waits up to `timeoutMs` for
+   * differences when given, the seven signed fields of T-332 when given, and this key's own address and encryption key
+   * as the buyer. The seven are also checked against Options.expect and the operators, as readOffer does. Waits up to `timeoutMs` for
    * the primary adjudicator to take the deal. Once it passes, agreeAndFund signs exactly these terms.
    */
   async checkOffer(commitmentId: string, approved: Approved, options: { timeoutMs?: number } = {}): Promise<Offer> {
@@ -518,6 +612,8 @@ export class BuyerSigner {
       ...(approved.seller ? [['seller', offer.seller, approved.seller] as [string, J, J]] : []),
       ...(approved.commitmentId ? [['commitmentId', id, approved.commitmentId] as [string, J, J]] : []),
       ...(approved.differences ? [['differences', offer.differences ?? null, approved.differences] as [string, J, J]] : []),
+      // T-332: each of the seven the approval names. Each was checked against Options.expect and the operators above.
+      ...SIGNED_FIELDS.filter(([f]) => (approved as J)[f.split('.')[0]!] !== undefined).map(([f, of]) => [f, of(offer), of(approved as Offer)] as [string, J, J]),
     ];
     for (const [field, got, expected] of want) if (!same(got, expected)) refuse(`${field} is ${shown(got)}, not the approved ${shown(expected)}`);
     await this.#until(id, ['AcceptedByAdjudicator'], options.timeoutMs ?? 60_000);
