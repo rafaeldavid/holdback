@@ -17,6 +17,7 @@ import {
   canonicalKeccak,
   deliveryHash,
   holdbackDomain,
+  MAINNET_CHAIN_IDS,
   mulBps,
   offer,
   postedDeliveryHash,
@@ -85,8 +86,8 @@ export type JournalEntry =
   | { op: 'faucet'; address: Address; amount: string }
   | { op: 'admit'; mandate: Mandate };
 
-/** Mainnet chain IDs SimChain refuses to sign under (hard rule: no real money). */
-const MAINNETS = new Set([1, 10, 56, 137, 324, 8453, 42161, 43114, 59144, 534352]);
+/** Mainnet chain IDs SimChain refuses to sign under (hard rule: no real money): the one list in @holdback/core. */
+const MAINNETS: ReadonlySet<number> = new Set(MAINNET_CHAIN_IDS);
 const GENESIS_HASH: Hex32 = `0x${'00'.repeat(32)}`;
 const ALL_BPS = 10000n;
 const HALF_BPS = 5000n;

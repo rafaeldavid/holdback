@@ -1,6 +1,7 @@
 // Hard rule "no real money" (CLAUDE.md): an operator refuses to start with a Stripe key that is not a test key,
 // or off a test chain. Chain IDs are an allowlist, so a mainnet nobody listed fails closed. Keys are read by
 // prefix only and never printed.
+import { MAINNET_CHAIN_IDS as MAINNETS } from '@holdback/core';
 
 /** Local chains (Anvil/Hardhat, Ganache) and named testnets. */
 export const TEST_CHAIN_IDS: ReadonlySet<number> = new Set([
@@ -15,10 +16,10 @@ export const TEST_CHAIN_IDS: ReadonlySet<number> = new Set([
 ]);
 
 /**
- * A few major mainnets, refused even when named in the opt-in list. This is a backstop, not the guard: the
- * allowlist is, so a mainnet missing here (Gnosis, Celo, Blast...) still fails closed.
+ * The mainnets in @holdback/core's list, refused even when named in the opt-in list. This is a backstop, not the
+ * guard: the allowlist is, so a mainnet missing from that list still fails closed unless the opt-in names it.
  */
-export const MAINNET_CHAIN_IDS: ReadonlySet<number> = new Set([1, 10, 56, 137, 324, 8453, 42161, 43114, 59144, 534352]);
+export const MAINNET_CHAIN_IDS: ReadonlySet<number> = new Set(MAINNETS);
 
 /** Comma-separated chain IDs of further testnets an operator explicitly opts into. */
 export const ALLOW_ENV = 'HOLDBACK_ALLOW_TEST_CHAIN_IDS';
