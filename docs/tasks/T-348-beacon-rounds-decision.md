@@ -56,7 +56,7 @@ The output is one ADR with status Proposed and one D-number entry that points at
 - **Two round signatures for package R8's tests** [measured: both relays returned the same bytes for rounds 32,398,889 and 32,456,489].
 - **The red-team pass** [one `red-teamer` subagent, 2026-11-11]: no Critical or High; 1 Medium, 6 Low, 6 Info. Each is answered in the ADR's section 12. Its attack list is at `reports/scratch/t348-redteam/attack-list.md` in the main checkout (not in the repository).
 - **Not run:** no test, no `pnpm` or `forge` command. The change is docs only; CI is the gate.
-- **Tokens:** about 400k for this session and 490k for its five subagents [inferred from the subagents' usage lines], against a target of 200k. The red team used 270k of that.
+- **Tokens:** 490k for the four subagents [measured: their usage lines; the red team used 270k of it], and about 400k for this session itself [guessed], against a target of 200k.
 
 ## Decisions
 
