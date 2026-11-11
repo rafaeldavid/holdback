@@ -3,7 +3,7 @@
 - **Lane:** settlement (off-chain mirrors)
 - **Phase:** 2
 - **Depends on:** T-346 (the contract cut and core's mirror, branch `t-346-cut-appeals-and-bonds`); ADR-0031 section 8; D57
-- **Paths this task may touch:** `packages/settlement/evm/` (with `abis.json`); `apps/operator/`; `apps/adjudicator/` (the appeal role and the acceptance's `bondReserved` only); `apps/demo-cloud/`; `apps/test-agents/`; `examples/e2e-*`; the demo's scenario files; `scripts/evm-abis.mjs` (the `bonds` entry only, granted by the coordinator on 2026-11-11); SimChain-only list entries in `packages/testkit/src/runner.ts` that T-346 did not make; this task file. Never `contracts/`, `packages/core/src/` beyond what T-346 hands over, `site/`, `docs/api.md` or other docs, `spec/schemas/`
+- **Paths this task may touch:** `packages/settlement/evm/` (with `abis.json`); `apps/operator/`; `apps/adjudicator/` (the appeal role and the acceptance's `bondReserved` only); `apps/demo-cloud/`; `apps/test-agents/`; `examples/e2e-*`; the demo's scenario files; `scripts/evm-abis.mjs` (the `bonds` entry only), `packages/testkit/src/stub-settlement.ts` (the acceptance's `bondReserved` on the local backend only) and `tests/contract-stack.test.ts` (the deployed-contract list only), each granted by the coordinator on 2026-11-11; SimChain-only list entries in `packages/testkit/src/runner.ts` that T-346 did not make; this task file. Never `contracts/`, `packages/core/src/` beyond what T-346 hands over, `site/`, `docs/api.md` or other docs, `spec/schemas/`
 - **Human gate:** no for the branch. The freeze, the merge to `main` and every deploy are Rafa's
 - **Status:** in progress
 - **Agent/session:** implementer session, change kind 5 (settlement and judgment code): the packages' tests with anvil, one reviewer before it lands, a target of 250k tokens
@@ -55,6 +55,15 @@ Fill this in before review. Label each item measured, inferred or guessed.
 - Metrics:
 
 ## Decisions
+
+- **Phase one is told apart by the settlement's kind.** `Settlement.kind` is `sim` for SimChain and `local` or `testnet` for every EVM settlement, and every EVM settlement runs the phase-one contracts on this lane. So the operator (`server.ts`, `phaseOne`), the adjudicator's port (`SettlementAdapter.phaseOne`) and the EVM adapter decide from it. No shared interface changed, and SimChain keeps the full protocol.
+- **The EVM path refuses an appeal before core does.** `submit({ kind: 'appeal' })` and `trigger(id, 'appeal_expiry')` answer `invalid_state` with `PHASE_ONE_NO_APPEAL`, which names ADR-0031 and D57, says nothing reopens the decision, and says what the agent can do next. The operator's `POST /v1/prepare/appeal` answers the same before anyone signs. Core's `phase_one` profile (T-346) refuses them as well.
+- **An acceptance with `bondReserved` other than 0 is refused at `adjudicator_accept`**, before a buyer signs a funding the contract would revert.
+- **Core's state for a phase-one decision is `{kind:'expired', appeal: null}`** (T-346's option (b), chosen here after its red-team finding RT-3), so no generic reader schedules an appeal expiry. The EVM view still serves `appealState` `none` and `finalAt` = `settledAt` (ADR-0031 §8 point 7).
+- **`holdings` and `pool` keep their shapes with zeros** (no appeal hold, an empty pool), so the shared test kit and the adjudicator's reads need no change.
+- **The adjudicator keeps its consent rules** (trusted fallback and appeal adjudicators, the appeal-window limits) on phase one. They are its choice of which deals to run (D29). Their bond-based reasons are now stale on EVM; that is a follow-up, not part of this cut.
+- **The e2e anvil world relays through an estimate shim.** A phase-one escalation's `decide` runs below its EIP-7623 calldata floor, and anvil 1.0.0 cannot estimate it. This is the same stand-in `apps/demo-cloud/test/anvil.ts` already uses (T-217 Decision 11).
+- **`scripts/evm-abis.mjs` loses its `bonds` entry** (granted by the coordinator). The regenerated `abis.json` drops only the vault's ABI (24 entries), `BONDS`, `KEY_APPEAL`, `fileAppeal`, `expireAppeal`, `AppealFiled`, `AppealClosed` and `WrongAppealState`, and `dealOf` returns four fields [measured by a script].
 
 ## Handoff
 

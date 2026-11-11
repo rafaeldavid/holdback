@@ -729,7 +729,8 @@ export class StubSettlement {
       policyHash: this.tamperable('wrong_policy_hash', c.terms.adjudication.policyHash),
       registryHash: this.tamperable('wrong_registry_hash', c.terms.adjudication.registryHash),
       fee: c.terms.adjudication.fee,
-      bondReserved: c.terms.price,
+      // The phase-one contracts hold no bond and refuse any other value (ADR-0031 §8); SimChain keeps the price.
+      bondReserved: this.backend.kind === 'local' ? ({ ...c.terms.price, amount: '0' } as typeof c.terms.price) : c.terms.price,
       nonce: this.nonceFor(name, 'msg'),
       expiresAt: c.terms.timing.offerExpiresAt,
     } as const);

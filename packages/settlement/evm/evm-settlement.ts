@@ -427,9 +427,10 @@ export class EvmSettlement implements Settlement {
 
   /**
    * A settlement on a fresh copy of the anvil world (reverted to just after deployment): token balances minted and
-   * gas for every party and adjudicator. The phase-one contracts hold no bond (ADR-0031 §8), so the genesis bonds name
-   * the adjudicators and nothing is deposited. Setup is test-only (anvil impersonation) and never counts toward gas per
-   * deal.
+   * gas for every party and adjudicator. The phase-one contracts hold no bond (ADR-0031 §8), so each adjudicator's
+   * genesis bond is minted to it as a plain balance it keeps: the world holds the same money as SimChain's, and a
+   * scenario's conservation check compares like with like. Setup is test-only (anvil impersonation) and never counts
+   * toward gas per deal.
    */
   static async create(world: EvmWorld, genesis: Genesis, gasFor: readonly Address[] = []): Promise<EvmSettlement> {
     await world.fresh(genesis.simSeed);
@@ -494,6 +495,10 @@ export class EvmSettlement implements Settlement {
     };
     const mint = (to: Address, amount: bigint) => send(to, token, encodeFunctionData({ abi: world.abis.token, functionName: 'mint', args: [to, amount] }));
     for (const [a, v] of Object.entries(this.genesis.balances)) if (BigInt(v) > 0n) await mint(a as Address, BigInt(v));
+    for (const [a, b] of Object.entries(this.genesis.bonds)) {
+      const amount = BigInt(b.junior) + BigInt(b.senior);
+      if (amount > 0n) await mint(a as Address, amount);
+    }
   }
 
   // Clock and beacon
