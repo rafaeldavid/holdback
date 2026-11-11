@@ -8,7 +8,7 @@
   - PR A (the landing page): `site/build.mjs`, `site/check.mjs`, `site/llms.txt`, `site/index.html`, `README.md`, `tools/design-map/template.html`, `brand/README.md`, `brand/messaging.md`, `docs/decisions-today.md` (D56), this file;
   - PR B (the domain): `apps/site/`, `apps/early-access/`, `apps/test-agents/`, `apps/demo-cloud/` (wrangler files, the deploy script, tests), `apps/operator/src/` (the agent guide and problem-type URLs, tests), `site/` (build, check, llms.txt, index.html, try.mjs, visualdemo), `examples/try.ts` and `examples/try.test.ts` (the try command's default operators), `spec/openapi.json` and `spec/openapi/paths.json` (descriptions only, not `spec/schemas/`), `packages/core/src/trim.test.ts`, `tests/` (a new forwarding test, and the contract test's agent-guide URL), `tools/contract-stack/template.html`, `brand/sketch/card.mjs` (a comment), `README.md`, `SECURITY.md`, `docs/api.md`, `docs/quickstart.md`, `docs/operations.md`, `brand/README.md`, `brand/messaging.md`, this file.
 - **Human gate:** yes for every deploy, and for the Cloudflare account and the Crow Control Access application. Nothing here deploys.
-- **Status:** review
+- **Status:** done (PR 251 and PR 253 merged; deployed 2026-11-10 at 10:33 UTC)
 - **Agent/session:** T-312 implementer session, 2026-11-10, worktree `.worktrees/t-312`, branches `t-312-tagline` (PR A) and `t-312-crow-direct` (PR B, stacked on A)
 
 ## Intent
@@ -85,6 +85,23 @@ PR B (measured, 2026-11-10, worktree `.worktrees/t-312`):
 - `node site/build.mjs && node site/check.mjs`: site check PASS. `site/try.mjs` changed (its default operators are api.crow.direct and api2.crow.direct), and the try command in llms.txt pins its new SHA-256, `4dab4c08bea061e54f73eb54ec72ce4a43f65690fe41a6029a3aea0d3c31dd21`.
 - Not run: any deploy, the try command against crow.direct, and `pnpm verify` (the kind's local checks are the site check and the touched packages' tests; CI is the gate).
 
+The deploy (measured, 2026-11-10; the full record is in `docs/operations.md`, under T-312):
+- **Live since 10:33 UTC** on Rafa's go-ahead ("deploy when ready"), from `b6b3980`, in PR 253's order:
+  - holdback-op1 `f71bfaef`;
+  - holdback-op2 `60a7253a`;
+  - crow-test-agents `545afdd8`;
+  - crow-early-access `99c500b2`;
+  - crow-site `56af2ef3`.
+- **The first operator deploy failed its smoke deal and rolled back on its own** at 10:25 UTC. The second passed: its smoke deal was Released in 47 s.
+- **Every post-deploy check passed** between 10:33 and 10:34 UTC:
+  - the 301 and 308 forwarding from escrow.stream;
+  - the new page and its llms.txt on crow.direct;
+  - try.mjs hashing to `4dab4c08…1dd21`;
+  - both API nodes answering 200 on both domains;
+  - join.crow.direct allowing the crow.direct origin;
+  - a test deal against the crow.direct operators, Released in 48 s.
+- **Crow Control moved to control.crow.direct** on 2026-11-11, in the private repository.
+
 ## Decisions
 
 - 2026-11-10: **the page keeps the Try line.** The mock drops it, but `site/check.mjs` (section 7) and `examples/try.test.ts` require the homepage's copied prompt for One-Click Escrow (D51). It sits with the `/llms.txt` link in one quiet line under the footer, in the footer's italic.
@@ -97,10 +114,20 @@ PR B (measured, 2026-11-10, worktree `.worktrees/t-312`):
 - 2026-11-10 (PR B, after review): **the test seller accepts ciphertext URIs on both api hostnames** (`OPERATOR_ALIASES`, `storeUri` in `seller.ts`), so it works whichever hostname the operators advertise, and survives an operator rollback. The operators build URIs as before.
 - 2026-11-10 (PR B): **left on escrow.stream:** `site/visualdemo/` (a replay of the 2026-11-02 deal, a record), `examples/e2e-*` (round 1's driver), `scripts/metrics/`, `scripts/costs/` and their fixtures (they read the live API, which keeps both hostnames, and Crow Control runs them; switching them before the deploy would point them at hosts that do not answer yet), and history.
 - 2026-11-10: **D40 gets a pointer, not an edit.** Its heading and record stay as history; one line above them names D56.
+- 2026-11-11: **the typed code streams are back.** Rafa preferred the old animation ("the old animation stream on the website was way better"), and PR 266 restored it, which reverses that part of the "dropped from the live page" decision above. The three plate images were removed in PR 264.
 
 ## Handoff
 
-- **PR A:** in review. `CLAUDE.md`'s Map section still names "Programmatic Escrow and Arbitration" and escrow.stream, and its Start here section names control.escrow.stream, for Rafa to change (tier 3).
-- **PR B:** in review, stacked on PR A. Its body holds the deploy plan, with each Worker's rollback; every step waits for Rafa.
-- **For Rafa only:** confirm crow.direct is an active zone in the Cloudflare account that holds escrow.stream, before any deploy; after the move, add control.crow.direct to Crow Control's Access application and its Worker (private repository).
-- **Follow-ups, after the deploy:** point `scripts/metrics/`, `scripts/costs/`, `examples/e2e-round.ts` and `config/costs.template.json` at crow.direct; update `docs/demo.md`, `docs/costs.md`, `docs/update-flow.md`, `agent-ops/` and `.claude/` (out of this lane); decide when to drop the escrow.stream hostnames; remove `site/agent.png`, `bond.png` and `escrow.png` if nothing else needs them.
+**Done (2026-11-11).** Both PRs merged and deployed, and both items for Rafa are finished: the zone worked, and Crow Control serves control.crow.direct.
+
+**Follow-ups done:**
+- `examples/e2e-round.ts`, `config/costs.template.json`, `docs/demo.md` and `docs/costs.md` no longer name escrow.stream.
+- `scripts/costs/`, `docs/update-flow.md` and `agent-ops/` moved to the private repository (T-313).
+- The three plate images are gone (PR 264).
+
+**Follow-ups left, each outside this task:**
+- **Tier 3, for Rafa:** `CLAUDE.md` still names escrow.stream, control.escrow.stream and the old tagline "Programmatic Escrow and Arbitration". `.claude/settings.json` and `.claude/commands/map.md` name escrow.stream.
+- **`scripts/metrics/`:**
+  - its 7 schemas' `$id` values name escrow.stream. A `$id` is an identifier, not a live URL, so check what refers to it before changing it.
+  - One comment in `lib.mjs` records a past measurement on api.escrow.stream, and it stays as history.
+- **When to drop the escrow.stream hostnames** is still to decide. Until then the forwarding runs and the operators answer on both domains.
