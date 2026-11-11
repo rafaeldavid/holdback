@@ -4,19 +4,22 @@
 // same detail, and the same refusal when intake would refuse the file.
 //
 // It runs the adjudicator's own code (@holdback/judgment: intake's plaintext rules, then stage 1), offline.
-// It reads two local files (and any reference files) and nothing else: no network, and nothing in the file
-// or the terms is executed. It does not run the screen or the judges, so on a rubric deal it tells you only
-// that the checks do not refuse the file.
+// It reads two local files and nothing else: no network, and nothing in the file or the terms is executed.
+// It does not run the screen or the judges, so on a rubric deal it tells you only that the checks do not
+// refuse the file.
+//
+// It loads no reference files, because the adjudicator service loads none today (apps/adjudicator/src/
+// service.ts passes no `references` to the pipeline). A `reference_row_match_min` check therefore fails
+// here as it fails there, with "reference not available", for every file.
 //
 //   pnpm install && pnpm build
-//   node examples/check-delivery.ts <terms.json> <file> [--mime <type>] [--reference <file>]... [--json]
+//   node examples/check-delivery.ts <terms.json> <file> [--mime <type>] [--json]
 //
 // <terms.json> is the commitment as you signed it: `GET /v1/commitments/<id>/terms`, or your own offer body.
 // It needs `acceptance` and `deliverable.format`. `--mime` is the format you will declare in the delivery
-// (default: the agreed format). `--reference` adds a file a `reference_row_match_min` check names.
+// (default: the agreed format).
 // Exit code: 0 when the checks accept the file or pass it to the judges, 1 when the adjudicator would
 // reject it, 2 when a check cannot be decided (the deal would escalate) or the command cannot run.
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { preflightDelivery, type JudgmentAcceptance, type Preflight, type PreflightInput } from '@holdback/judgment';
@@ -31,8 +34,6 @@ export interface CheckDeliveryOptions {
   file: string;
   /** The format the delivery will declare. Defaults to the agreed `deliverable.format`. */
   mime?: string;
-  /** Paths of reference files, matched to checks by their SHA-256. */
-  references?: readonly string[];
 }
 
 export interface CheckDeliveryResult {
@@ -44,10 +45,10 @@ export interface CheckDeliveryResult {
   exitCode: 0 | 1 | 2;
 }
 
-/** The command cannot run: a missing file, terms without checks, an unknown flag. */
+/** The command cannot run: a missing file, terms without checks, an unknown option. */
 export class UsageError extends Error {}
 
-const USAGE = 'usage: node examples/check-delivery.ts <terms.json> <file> [--mime <type>] [--reference <file>]... [--json]';
+const USAGE = 'usage: node examples/check-delivery.ts <terms.json> <file> [--mime <type>] [--json]';
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 function bytesOf(path: string): Uint8Array {
@@ -69,9 +70,12 @@ function readTerms(path: string): { acceptance: JudgmentAcceptance; format: stri
   }
   const acceptance = isRecord(terms) ? terms['acceptance'] : undefined;
   const deliverable = isRecord(terms) ? terms['deliverable'] : undefined;
-  if (!isRecord(acceptance) || !Array.isArray(acceptance['deterministicChecks']) || !acceptance['deterministicChecks'].every(isRecord)) {
+  if (!isRecord(acceptance) || !Array.isArray(acceptance['deterministicChecks'])) {
     throw new UsageError(`${plain(path)} has no acceptance.deterministicChecks list: pass the commitment as you signed it`);
   }
+  // The commitment schema gives every check a string id, a type and a required flag; an operator refuses terms without them.
+  const malformed = acceptance['deterministicChecks'].findIndex((c) => !isRecord(c) || typeof c['id'] !== 'string' || typeof c['type'] !== 'string' || typeof c['required'] !== 'boolean');
+  if (malformed >= 0) throw new UsageError(`${plain(path)}: acceptance.deterministicChecks[${malformed}] needs a string id, a string type and a boolean required`);
   const rubric = acceptance['rubric'];
   if (!isRecord(rubric) || !Array.isArray(rubric['criteria'])) throw new UsageError(`${plain(path)} has no acceptance.rubric.criteria list: pass the commitment as you signed it`);
   if (!isRecord(deliverable) || typeof deliverable['format'] !== 'string') throw new UsageError(`${plain(path)} has no deliverable.format`);
@@ -105,15 +109,12 @@ export function checkDelivery(options: CheckDeliveryOptions): CheckDeliveryResul
   const { acceptance, format } = readTerms(options.terms);
   const plaintext = bytesOf(options.file);
   const mime = options.mime ?? format;
-  const references = new Map<string, Uint8Array>();
-  for (const path of options.references ?? []) {
-    const bytes = bytesOf(path);
-    references.set(`sha256:${createHash('sha256').update(bytes).digest('hex')}`, bytes);
-  }
   // The library refuses a format outside its allowlist, so an unknown string is safe to pass as the MIME.
-  const preflight = preflightDelivery({ plaintext, mime: mime as Mime, format: format as Mime, acceptance, references });
+  // No references are passed: the adjudicator service passes none (see the note at the top of this file).
+  const preflight = preflightDelivery({ plaintext, mime: mime as Mime, format: format as Mime, acceptance });
 
   const open = new Set(preflight.inconclusive);
+  const referenceChecks = acceptance.deterministicChecks.filter((c) => c.type === 'reference_row_match_min').map((c) => c.id);
   // Every string that can come from the file or the terms is printed as one plain line (docs/team.md, output surfaces).
   const lines = [
     headline(preflight, acceptance.rubric.criteria.length === 0),
@@ -123,6 +124,9 @@ export function checkDelivery(options: CheckDeliveryOptions): CheckDeliveryResul
       const state = open.has(o.checkId) ? 'OPEN' : o.passed ? 'pass' : 'FAIL';
       return `  ${state}  ${plain(o.checkId)} (${o.required ? 'required' : 'optional'})${o.detail === undefined ? '' : `: ${plain(o.detail)}`}`;
     }),
+    ...(referenceChecks.length && !preflight.refused
+      ? [`Note: the adjudicator service loads no reference files today, so the reference ${referenceChecks.length === 1 ? 'check' : 'checks'} ${list(referenceChecks)} ${referenceChecks.length === 1 ? 'fails' : 'fail'} for every file.`]
+      : []),
     'This result holds for these exact bytes: the hash above is the plaintextSha256 your delivery will carry.',
   ];
   return { preflight, mime, lines, exitCode: preflight.result === 'reject' ? 1 : preflight.result === 'escalate' ? 2 : 0 };
@@ -130,22 +134,19 @@ export function checkDelivery(options: CheckDeliveryOptions): CheckDeliveryResul
 
 function parseArgs(argv: readonly string[]): CheckDeliveryOptions & { json: boolean } {
   const positional: string[] = [];
-  const references: string[] = [];
   let mime: string | undefined;
   let json = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === '--json') json = true;
-    else if (a === '--mime' || a === '--reference') {
-      const value = argv[++i];
-      if (value === undefined) throw new UsageError(`${a} needs a value`);
-      if (a === '--mime') mime = value;
-      else references.push(value);
+    else if (a === '--mime') {
+      mime = argv[++i];
+      if (mime === undefined) throw new UsageError('--mime needs a value');
     } else if (a.startsWith('--')) throw new UsageError(`unknown option ${plain(a)}`);
     else positional.push(a);
   }
   if (positional.length !== 2) throw new UsageError('give the terms file and the file to deliver');
-  return { terms: positional[0]!, file: positional[1]!, references, json, ...(mime === undefined ? {} : { mime }) };
+  return { terms: positional[0]!, file: positional[1]!, json, ...(mime === undefined ? {} : { mime }) };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -155,8 +156,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.log(options.json ? safeJson({ file: options.file, mime: r.mime, ...r.preflight }) : r.lines.join('\n'));
     process.exitCode = r.exitCode;
   } catch (e) {
-    if (!(e instanceof UsageError)) throw e;
-    console.error(`check-delivery: ${e.message}\n${USAGE}`);
+    // Exit 1 means "the adjudicator would reject", so no failure of this command may exit 1.
+    console.error(e instanceof UsageError ? `check-delivery: ${e.message}\n${USAGE}` : `check-delivery: could not run (${plain(e instanceof Error ? e.name : 'error')}); this says nothing about the file`);
     process.exitCode = 2;
   }
 }

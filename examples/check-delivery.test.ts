@@ -140,7 +140,7 @@ describe('examples/check-delivery.ts on the audit-report sample deal', () => {
 });
 
 describe('examples/check-delivery.ts: refusals, limits and other inputs', () => {
-  const csvTerms = (checks: unknown[], format = 'text/csv') => tmp(`terms-${Math.random().toString(16).slice(2)}.json`, JSON.stringify({ deliverable: { format }, acceptance: { deterministicChecks: checks, rubric: { passThreshold: 0, criteria: [] } } }));
+  const csvTerms = (checks: unknown[], format = 'text/csv') => tmp(`terms-${Math.random().toString(16).slice(2)}.json`, JSON.stringify({ id: `0x${'11'.repeat(32)}`, deliverable: { description: 'A customer list.', format }, acceptance: { deterministicChecks: checks, rubric: { passThreshold: 0, criteria: [] } } }));
 
   it('refuses, as intake does, a file declared in another format than the terms agreed', async () => {
     const r = await cli([CHECKS_ONLY_TERMS, report('report.json'), '--mime', 'text/plain']);
@@ -170,14 +170,22 @@ describe('examples/check-delivery.ts: refusals, limits and other inputs', () => 
     expect(r.out).toContain('  FAIL  emails (optional): match 0/1 below 10000 bps');
   });
 
-  it('reads reference files for a reference check', async () => {
+  // The adjudicator service passes no reference files to the pipeline, so the command loads none either: it
+  // must not report a pass the service cannot give (the T-316 review's blocking finding).
+  it('fails a reference check as the adjudicator does, with no reference files, and takes no option that adds them', async () => {
     const reference = new TextEncoder().encode('customer_id,name\n1,Ada\n');
     const terms = csvTerms([{ id: 'ref', type: 'reference_row_match_min', required: true, reference: { uri: 'file:///ref.csv', sha256: sha256(reference) }, keyColumn: 'customer_id', minBps: 10000 }]);
     const file = tmp('with-ref.csv', 'customer_id,name\n1,Ada\n2,Grace\n');
-    expect((await cli([terms, file])).out).toContain('  FAIL  ref (required): reference not available');
-    const r = await cli([terms, file, '--reference', tmp('ref.csv', reference)]);
-    expect(r.code).toBe(0);
-    expect(r.out).toContain('  pass  ref (required): reference match 1/1');
+    const theirs = await adjudicate(terms, file);
+    expect(theirs.decision).toBe('reject');
+    const r = await cli([terms, file]);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('  FAIL  ref (required): reference not available');
+    expect(r.out).toContain('Note: the adjudicator service loads no reference files today, so the reference check ref fails for every file.');
+    expect(JSON.parse((await cli([terms, file, '--json'])).out).deterministic).toEqual(theirs.deterministic);
+    const flag = await cli([terms, file, '--reference', tmp('ref.csv', reference)]);
+    expect(flag.code).toBe(2);
+    expect(flag.err).toContain('unknown option --reference');
   });
 
   it('prints text from the file as one plain line: no terminal escapes, no line breaks', async () => {
@@ -202,6 +210,15 @@ describe('examples/check-delivery.ts: refusals, limits and other inputs', () => 
     expect(flag.code).toBe(2);
   });
 
+  it('exits 2, never 1, for a check the terms give no id, type or required flag', async () => {
+    for (const check of [{ type: 'unique_key', required: true, columns: ['a'] }, { id: 'x', required: true }, { id: 'x', type: 'unique_key' }, 'cols']) {
+      const r = await cli([csvTerms([check]), tmp('any.csv', 'a\n1\n')]);
+      expect(r.code).toBe(2);
+      expect(r.err).toContain('acceptance.deterministicChecks[0] needs a string id, a string type and a boolean required');
+      expect(r.out).toBe('');
+    }
+  });
+
   it('is importable: checkDelivery returns the preflight and the exit code', () => {
     const r = checkDelivery({ terms: CHECKS_ONLY_TERMS, file: report('report.missing-file.json') });
     expect(r.exitCode).toBe(1);
@@ -209,10 +226,10 @@ describe('examples/check-delivery.ts: refusals, limits and other inputs', () => 
     expect(r.preflight.deterministic.filter((o) => !o.passed).map((o) => o.checkId)).toEqual(['coverage']);
   });
 
-  it('imports only Node file and hash modules and the workspace packages: no network, no child process, no eval', () => {
+  it('imports only two Node file modules and the workspace packages: no network, no child process, no eval', () => {
     const source = readFileSync(here('./check-delivery.ts'), 'utf8');
     const imports = [...source.matchAll(/^import .* from '([^']+)';$/gm)].map((m) => m[1]).sort();
-    expect(imports).toEqual(['@holdback/judgment', '@holdback/testkit', 'node:crypto', 'node:fs', 'node:url']);
+    expect(imports).toEqual(['@holdback/judgment', '@holdback/testkit', 'node:fs', 'node:url']);
     expect(source).not.toMatch(/\bfetch\(|\beval\(|new Function|import\(|child_process|node:http|node:net|node:vm/);
   });
 });
