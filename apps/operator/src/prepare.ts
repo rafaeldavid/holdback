@@ -484,7 +484,7 @@ export async function bondNotices(ctx: Pick<PrepareContext, 'bond'>, t: Pick<Any
     const bond = await ctx.bond(address);
     if (!bond) continue;
     if (bond === 'unreadable') {
-      out.push(`this operator could not read the bond of the ${role} adjudicator ${address}; no bond check was made. Read it from HoldbackBonds yourself`);
+      out.push(`this operator could not read the bond of the ${role} adjudicator ${address}; no bond check was made. Read it from the settlement layer yourself`);
       continue;
     }
     const free = role === 'primary' && o.primaryAccepted ? BigInt(t.price.amount) : freeBond(bond, t.price.token);
