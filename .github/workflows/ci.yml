@@ -161,8 +161,9 @@ jobs:
       # Compiling takes about 131 s of this job (measured, run 42802205136). A pull request reuses the output when
       # every input is the same: the Solidity under contracts/, the compiler settings, the remappings and the
       # submodule's pinned commit. Push to main never restores it, so main always tests what it compiled itself,
-      # and only main's output is offered to pull requests that change no contract. The contracts job never uses it.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # and only main's output is offered to pull requests that change no contract. A pull request restores and
+      # never saves (the restore-only action), so only main writes an entry. The contracts job never uses it.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: github.event_name == 'pull_request'
         with:
           path: |
