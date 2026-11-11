@@ -56,7 +56,6 @@ const COST: Record<string, number> = {
   'apps/operator/src/operator.test.ts': 13,
   'apps/demo-cloud/src/worker.test.ts': 12,
   'packages/core/src/state.test.ts': 12,
-  'tests/costs/collect.test.ts': 11,
   'apps/adjudicator/src/drand.test.ts': 10,
   'packages/judgment/src/redteam.test.ts': 10,
   'apps/operator/src/fee.test.ts': 8,
