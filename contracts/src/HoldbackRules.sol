@@ -211,8 +211,9 @@ contract HoldbackRules is EIP712 {
         d.stage = Stage.Held;
         d.flags = F_PRIMARY;
         d.seedTag = uint144(uint256(acc.seedCommitment));
-        // Guaranteed mode: the primary's bond covers 100% of the price, rounded up (ADR-0007, ADR-0022 rule 1).
-        BONDS.encumber(t.adjudicator, t.token, Money.requirement(t.price, Money.ALL_BPS));
+        // Guaranteed mode: the primary's bond covers 100% of the price (ADR-0007). At 100% the requirement is the price
+        // itself, so ADR-0022 rule 1's rounding up has nothing to round.
+        BONDS.encumber(t.adjudicator, t.token, t.price);
         emit JobCreated(id, t.buyer, t.seller, t.adjudicator, pi.authorizationExpiry);
         emit JobFunded(id, t.buyer, pi.maxAmount);
         ESCROW.authorize(pi, pi.maxAmount, f.method == 0 ? ERC3009_COLLECTOR : PERMIT2_COLLECTOR, f.signature);
