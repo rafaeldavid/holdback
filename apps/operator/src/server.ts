@@ -474,7 +474,7 @@ export class Operator {
 
   /** Catches up with the settlement layer's event log. Serialized, so concurrent reads index once. */
   private sync(): Promise<void> {
-    this.syncing = this.syncing.then(async () => {
+    const next = this.syncing.then(async () => {
       for await (const e of this.o.settlement.events(this.head + 1)) {
         this.head = e.seq;
         if (USES.has(e.type) && e.actor && e.actor !== 'anyone') this.lastUsed.set(lc(e.actor), e.at);
@@ -489,7 +489,9 @@ export class Operator {
         entry?.events.push(e);
       }
     });
-    return this.syncing;
+    // A failed read fails its own caller only (T-313): the next call reads on from `head + 1`, so it loses no event.
+    this.syncing = next.catch(() => undefined);
+    return next;
   }
 
   // Receipts
