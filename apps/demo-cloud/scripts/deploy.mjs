@@ -1,18 +1,21 @@
 // `pnpm demo-cloud:deploy`: deploys the public demo's two operator Workers and checks them with one test deal
 // (T-234), so a deploy needs no hand checklist:
-//   1. build;
-//   2. read each Worker's live version: its rollback target;
-//   3. deploy holdback-op1 (it defines the World Durable Object), then holdback-op2; a refused upload stops here;
-//   4. wait until /v1/status answers 200 on both nodes;
-//   5. one examples/try.ts deal against both operators must end Released within 180 s;
-//   6. when a step after an upload fails, roll back each Worker whose live version changed, and exit 1;
-//   7. print one Markdown record line for docs/operations.md.
+//   1. pre-flight (T-313, preflight.mjs): refuse, with exit code 2, a checkout whose tracked files differ from its
+//      commit, or one that lacks origin/main's commits after a fresh fetch (it could drop the custom domains);
+//   2. build;
+//   3. read each Worker's live version: its rollback target;
+//   4. deploy holdback-op1 (it defines the World Durable Object), then holdback-op2; a refused upload stops here;
+//   5. wait until /v1/status answers 200 on both nodes;
+//   6. one examples/try.ts deal against both operators must end Released within 180 s;
+//   7. when a step after an upload fails, roll back each Worker whose live version changed, and exit 1;
+//   8. print one Markdown record line for docs/operations.md, with the commit and its branch.
 // Wrangler uses the Cloudflare login of whoever runs it (its own OAuth; nothing is read from the repository). Test
 // networks only: each wrangler file's SETTLEMENT picks SimChain (chain id 31337) or Ethereum Sepolia (11155111, D41),
 // and the startup guards refuse anything else at run time. A cutover deploys the Workers one at a time instead
 // (docs/operations.md, Settlement).
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { preflight } from './preflight.mjs';
 
 const NODES = ['https://api.crow.direct', 'https://api2.crow.direct'];
 const WORKERS = [
@@ -67,8 +70,25 @@ async function live(name) {
 const fail = (why) => {
   throw new Error(why);
 };
+/** One git command at the repository root, unshown: its exit code (null after a timeout) and what it printed. */
+const git = async (...args) => {
+  const r = await sh('git', args, { show: false, env: { GIT_TERMINAL_PROMPT: '0' }, timeoutMs: 120_000 });
+  return { code: r.code, out: r.out, stdout: r.stdout.trim() };
+};
+const branch = (await git('branch', '--show-current')).stdout;
+const refused = preflight({
+  branch,
+  status: await git('status', '--porcelain', '--untracked-files=no'),
+  fetch: await git('fetch', 'origin', 'main'),
+  ancestor: await git('merge-base', '--is-ancestor', 'origin/main', 'HEAD'),
+});
+if (refused) {
+  console.error(refused);
+  process.exit(2);
+}
+
 const startedAt = new Date();
-const commit = (await sh('git', ['rev-parse', 'HEAD'], { show: false })).stdout.trim();
+const commit = (await git('rev-parse', 'HEAD')).stdout;
 let uploaded = false, failure = null, smoke = null;
 
 try {
@@ -112,5 +132,5 @@ const versions = WORKERS.map((w) => {
 });
 const deal = smoke?.id ? ` Smoke deal \`${smoke.id}\` ${smoke.state} in ${smoke.seconds} s.` : '';
 const when = `${startedAt.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
-console.log(`\nThe record line for docs/operations.md:\n\n**Deploy ${when}, commit \`${commit.slice(0, 7)}\`: ${failure ? `FAIL, ${failure}` : 'pass'}.** ${versions.join(', ')}.${deal}\n`);
+console.log(`\nThe record line for docs/operations.md:\n\n**Deploy ${when}, commit \`${commit.slice(0, 7)}\` on ${branch ? `branch \`${branch}\`` : 'a detached HEAD'}: ${failure ? `FAIL, ${failure}` : 'pass'}.** ${versions.join(', ')}.${deal}\n`);
 process.exit(failure ? 1 : 0);
