@@ -40,7 +40,7 @@ Rafa listed this gap on 2026-11-11, after the first audit deal: the buyer signer
 
 - `site/llms.txt`, "Beyond the happy path": the operators send each timeout a minute or two after its deadline; anyone may send `POST /v1/commitments/<id>/triggers/reclaim` with `{}` once `deliverBy` has passed; too early is 409 `invalid_state`.
 - `spec/openapi/paths.json`, the triggers route: "Anyone may call a trigger once its deadline passed; no signature."
-- `apps/operator/src/server.ts`: errors are stored under their `Idempotency-Key` and replayed, so a refused trigger needs a fresh key for the next try.
+- `apps/operator/src/idempotency.ts`: an operator stores only answers below status 300 under their `Idempotency-Key`, so a 2xx replays and a refused trigger can be sent again under the same key. (Corrected in the review fixes: this line first said refusals replay.)
 - `examples/agent.ts` (`Agent.trusted`, `Agent.sources`), `examples/audit-deal.ts` (its own reclaim through the trigger route).
 - Hard rules in `CLAUDE.md`: signed messages, idempotency, secrets never printed; neutrality (an offline operator does not stop the deal).
 
@@ -76,13 +76,29 @@ All measured on 2026-11-11 on branch `t-325-buyer-signer-outcome`, in a worktree
 - `node site/build.mjs && node site/check.mjs`: site check PASS. `site/try.mjs` keeps its SHA-256 (`4dab4c08…`); `site/index.html` does not change.
 - Snapshot diffs: none. Metrics: none.
 - Not run: the full `pnpm verify` (Change recipes: only before a deploy). CI is the gate.
+
+### Review fixes (roadmap row N75, 2026-11-11)
+
+An independent review of PR 307 found 1 High, 1 Medium and 4 Low findings, all inferred from reading the code; T-324 added a seventh item. Rafa, 2026-11-11: "Yes, fix all three" (the day's High findings). Branch `t-325-review-fixes`, from `origin/main` at `d774a1e`. Each code finding got a failing test first, run on the unfixed signer (measured):
+
+1. **High: one operator's answer became the permanent outcome. Reproduced.** With operator B silent and operator A reporting a false `Refunded`, the unfixed `watch` returned `Refunded` while the deal was `Held`. The one-operator-offline test returned an outcome from one answer too. Fix: an outcome is final, and saved, only when `confirmations` operators (default: every configured operator, D31) report it and none reports another state. Until then `onReport` gets `unconfirmed` with `agreeing`, `answered` and `required`, `openDeals` keeps the deal, and the reclaim stays armed. Test: the lying operator is reported as `unconfirmed` (1 of 1 answering, 2 required); once B returns and `deliverBy` passes, the reclaim goes to B alone and the deal ends `Refunded` with 1 `settlement.reclaimed` event per operator. The offline test now ends `unconfirmed` by default and settles with `confirmations: 1`.
+2. **Medium: one operator could switch the reclaim off. Reproduced.** An operator that answered the reclaim 200 and relayed nothing left the deal `Held`, and the unfixed signer waited until the test's 60 s limit. Fix: while the deal stays `Held` `reclaimRetryMs` (default 120 s) after a 2xx, the next operator gets the reclaim under a fresh key, in the same run or after a restart. The reclaim goes to each operator that reports `Held`, so a disagreement no longer stops it. Tests: in one run (reclaims to A, then B), and across a restart with the answer saved and no outcome (A in run 1, B in run 2); 1 `settlement.reclaimed` event per operator in each.
+3. **Low: the fastest clock decided the missed deadline. Reproduced.** With A's clock 1 h ahead, the unfixed signer reported `deliverBy-passed` before the deadline. Fix: the slowest answering clock decides the report, the fastest the reclaim (which settlement refuses while early). Test: no report before the deadline; afterwards one report, on the slow clock, and the refund.
+4. **Low: `site/llms.txt` overstated.** Not code: the lines now say settlement refunds the hold once, however many operators get the reclaim, and describe the quorum and the watch file.
+5. **Low: the comment and this task's Context said refusals replay.** Confirmed by reading `apps/operator/src/idempotency.ts:37` (only answers below 300 are stored). The comment, Context and Decision 2 are corrected, and the signer no longer changes the key after a refusal.
+6. **Low: the watch state sat in the key file. Reproduced.** The unfixed signer rewrote the key file with a `watch` record. Fix: `<address>.watch.json` beside it; the test checks the key file is byte-for-byte unchanged across two runs, and the watch file holds no secret key.
+7. **From T-324: the quote credential.** `Options.quoteCredentialEnv` names an environment variable; `quote` sends `Authorization: Bearer <value>` and saves, returns and logs nothing of it. A named variable that is unset stops before any request, naming the variable only. `examples/buy-with-signer.ts` uses `CROW_QUOTE_CREDENTIAL` when it is set. Test: 401 without the credential, the named-but-unset error, a quote with it, and the credential in no file of the key store and not on the signer.
+
+After the fixes (measured): `examples/buyer-signer-outcome.test.ts` 9 pass and `examples/buyer-signer.test.ts` 7 pass, 16 tests in 15.2 s. `pnpm exec vitest run examples`: 22 files pass, 235 tests pass, 13 skip (the anvil and network suites) in 127 s. `pnpm typecheck` and `pnpm lint` pass. Site check PASS; `site/try.mjs` keeps its SHA-256.
+
+Not changed: `vitest.config.ts` still counts `examples/buyer-signer-outcome.test.ts` at 5 s; it now takes about 15 s locally. The new tests sit in `examples/buyer-signer-outcome.test.ts`, T-325's own test file, which the review's path list did not name. Inferred, not measured: on Sepolia the operators' own timeout pass may land the reclaim first; the signer then reads `Refunded` on every operator and sends nothing more.
 - Inferred, not measured: the reclaim works the same on Sepolia. The trigger route and the `settlement.reclaimed` event are the same on both settlement layers (`packages/settlement/evm/evm-settlement.ts`), and there the operators also send the reclaim themselves a minute or two after `deliverBy`; whichever lands first, the other answers 200 or 409 and nothing moves twice. No test here runs on a chain.
 
 ## Decisions
 
 1. **The reclaim carries no signature, because the protocol defines none.** The task asked for a reclaim signed with the buyer's key. The API's reclaim is a timeout trigger: anyone may send it once `deliverBy` has passed, with `{}` and no signature, and the settlement layer checks the deadline (`spec/openapi/paths.json`; `site/llms.txt`, "Your own trigger"). A signed reclaim would be a new message type, an API contract change through an ADR, outside this task's paths. So the signer sends the trigger from the buyer's machine, with an `Idempotency-Key`, and no operator authors anything: the deadline in the terms both parties signed is the authority. The direct path from the buyer's key to the contract (the escape hatch) needs ETH on the per-deal key and stays out (Handoff).
 
-2. **Errors replay, so a refused reclaim gets a fresh key; a lost answer keeps its key.** The operator stores a refusal (409 too early, say) under its `Idempotency-Key` and replays it. So after a definite refusal the next try, at the next operator, uses a new key. After a lost answer the outcome is unknown: the signer keeps the key, reads the deal again first, and reuses that key on the next try, so an operator that took the first request replays it.
+2. **One key per reclaim; a fresh one only after a 2xx that came to nothing.** An operator stores only answers below 300 (review fix 5), so a refusal is not replayed and the next operator gets the same key. After a lost answer the signer keeps the key, reads the deal again first, and starts the next try at the next operator. After a 2xx with the deal still `Held` past `reclaimRetryMs`, the next operator gets a fresh key, since the first replays its 2xx for the old one.
 3. **Acting on the operators that answer.** `watch` acts when every operator that answers reports the same state, and goes on with one. Before signing, `checkOffer` and `agreeAndFund` still need every operator to agree. The connection now accepts a domain every answering operator names, and it must still be a pinned one. The reclaim needs no trust in an operator: settlement checks the deadline.
 4. **Reports are at least once.** A report is recorded after `onReport` returns, so a run that stops inside it makes it again next time. The outcome is recorded before its report, so the next run returns it without reading the operators.
 5. **`openDelivery` no longer stops after 10 minutes.** It waits as long as the terms say (D31), as `watch` does; `timeoutMs` is the caller's.
@@ -101,8 +117,9 @@ All measured on 2026-11-11 on branch `t-325-buyer-signer-outcome`, in a worktree
 
 **Follow-ups** (also in `reports/scratch/t-325-triage.md`):
 
-4. Resend the reclaim under a fresh key when the deal stays `Held` for minutes after a 2xx answer.
-5. An option for two answering operators before a final report, for a buyer that wants it.
+4. Done in the review fixes: the next operator gets the reclaim, under a fresh key, when the deal stays `Held` after a 2xx (`reclaimRetryMs`).
+5. Done in the review fixes: `confirmations`, every configured operator by default.
+- Refresh the `vitest.config.ts` cost of `examples/buyer-signer-outcome.test.ts` (about 15 s now, counted at 5 s) at the next cost-table refresh.
 6. The Python signer and Delegation admission (roadmap row N38).
 
 **How to resume.** `pnpm install && pnpm build && pnpm exec vitest run examples/buyer-signer-outcome.test.ts examples/buyer-signer.test.ts`. The surface is the header comment of `examples/buyer-signer.ts`.

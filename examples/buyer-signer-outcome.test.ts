@@ -4,7 +4,9 @@
 //
 // The sim world sends no timeout of its own, and its clock moves only with the wall clock or world.advance, so every
 // reclaim here is the signer's. A wrapper around fetch counts the reclaim requests and can lose one answer.
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startSimWorld, type SimWorld } from '@holdback/operator';
@@ -54,12 +56,50 @@ afterAll(async () => {
   for (const dir of stores) rmSync(dir, { recursive: true, force: true });
 });
 
+/** How a proxy in front of one operator misbehaves (T-325 review). */
+type Misbehaviour = { silent?: boolean; lieState?: string; clockAheadSec?: number; swallowReclaim?: boolean };
+/**
+ * An operator as the signer sees it: a proxy in front of a real node that can drop every connection (silent), report
+ * another state for the deal (lieState), run its settlement clock ahead (clockAheadSec), or answer a reclaim 200 and
+ * relay nothing (swallowReclaim).
+ */
+async function proxy(target: string): Promise<{ url: string; misbehave: Misbehaviour; close(): Promise<void> }> {
+  const misbehave: Misbehaviour = {};
+  const server = createServer(async (req, res) => {
+    if (misbehave.silent) return void req.socket.destroy();
+    const chunks: Buffer[] = [];
+    for await (const c of req) chunks.push(c as Buffer);
+    const path = req.url ?? '/';
+    if (misbehave.swallowReclaim && req.method === 'POST' && path.endsWith('/triggers/reclaim')) return void res.writeHead(200, { 'content-type': 'application/json' }).end('{"escrowState":"Held"}');
+    const headers: Record<string, string> = {};
+    for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string' && !['host', 'content-length', 'connection'].includes(k)) headers[k] = v;
+    const up = await realFetch(`${target}${path}`, { method: req.method!, headers, ...(req.method === 'GET' ? {} : { body: Buffer.concat(chunks) }) });
+    let text = Buffer.from(await up.arrayBuffer()).toString();
+    if (up.ok && misbehave.lieState && req.method === 'GET' && /^\/v1\/commitments\/0x[0-9a-f]{64}$/.test(path)) text = JSON.stringify({ ...JSON.parse(text), escrowState: misbehave.lieState });
+    if (up.ok && misbehave.clockAheadSec && path === '/.well-known/holdback.json') {
+      const d = JSON.parse(text);
+      text = JSON.stringify({ ...d, settlementTime: new Date(Date.parse(d.settlementTime) + misbehave.clockAheadSec * 1000).toISOString().replace('.000Z', 'Z') });
+    }
+    res.writeHead(up.status, { 'content-type': up.headers.get('content-type') ?? 'application/json' }).end(text);
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return {
+    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    misbehave,
+    close: () => new Promise<void>((resolve) => {
+      server.close(() => resolve());
+      server.closeAllConnections();
+    }),
+  };
+}
+
 let deals = 0;
 /**
  * A deal this signer funded. The buyer is one of the world's funded accounts, written into a key store the way
  * makeKeys writes one, so it holds a mandate in the sim club. The seller delivers `work`, or nothing when it is null.
+ * The signer talks to `operators` (the world's own by default); the seller always to the world's.
  */
-async function funded(w: SimWorld, work: string | null): Promise<{ signer: BuyerSigner; store: string; id: Hex; terms: J; seller: Agent }> {
+async function funded(w: SimWorld, work: string | null, operators: string[] = [...w.info.operators]): Promise<{ signer: BuyerSigner; store: string; id: Hex; terms: J; seller: Agent }> {
   const account = async () => (await (await realFetch(`${w.url}/accounts`, { method: 'POST' })).json()) as J;
   const s = await account();
   const seller = new Agent([...w.info.operators], s.privateKey, Buffer.from(s.encryptionSecretKey, 'base64url'));
@@ -68,7 +108,7 @@ async function funded(w: SimWorld, work: string | null): Promise<{ signer: Buyer
   stores.push(store);
   const address = String(b.address).toLowerCase();
   writeFileSync(join(store, `${address}.json`), JSON.stringify({ version: 1, address, privateKey: b.privateKey, encryptionSecretKey: b.encryptionSecretKey, createdAt: new Date().toISOString() }), { mode: 0o600 });
-  const signer = await loadKeys(store, address, { operators: [...w.info.operators] });
+  const signer = await loadKeys(store, address, { operators });
   const a = w.info.adjudicators;
   const offer = await seller.offer({
     template: 'checks-only', clubId: w.info.clubId, seller: seller.address,
@@ -121,7 +161,7 @@ describe('buyer-signer.ts follows a funded deal to its outcome (T-325)', () => {
     expect(reclaims.length).toBe(sent + 1);
   }, 60_000);
 
-  it('with one of the two operators offline, a restarted signer still reclaims through the other', async () => {
+  it('with one of the two operators offline, a restarted signer still reclaims through the other, and settles the outcome only at the quorum the buyer sets', async () => {
     const own = await startSimWorld({ env: {}, onError: () => {} });
     try {
       const d = await funded(own, null);
@@ -132,9 +172,16 @@ describe('buyer-signer.ts follows a funded deal to its outcome (T-325)', () => {
       // A new process: only the key store and the commitment ID, and one operator answering.
       const [restarted] = await openDeals(d.store, { operators: [...own.info.operators] });
       expect(restarted!.address).toBe(d.signer.address);
-      const outcome = await restarted!.watch(d.id, { onReport: (r) => void reports.push(r), pollMs: POLL_MS });
+      // By default every configured operator must report the outcome: one answer is reported as unconfirmed.
+      const waited = await restarted!.watch(d.id, { onReport: (r) => void reports.push(r), pollMs: POLL_MS, timeoutMs: 3_000 }).then(() => null, (e: Error) => e.message);
+      expect(waited).toMatch(/still Refunded/);
+      expect(kinds(reports)).toEqual(['deliverBy-passed', 'unconfirmed']);
+      expect(reports[1]).toEqual({ kind: 'unconfirmed', commitmentId: d.id, state: 'Refunded', agreeing: 1, answered: 1, required: 2 });
+      expect(await openDeals(d.store, { operators: [...own.info.operators] })).toHaveLength(1);
+      // A buyer whose second operator is gone for good lowers the quorum to one.
+      const outcome = await restarted!.watch(d.id, { onReport: (r) => void reports.push(r), pollMs: POLL_MS, confirmations: 1 });
       expect(outcome).toMatchObject({ outcome: 'Refunded', reclaimed: true });
-      expect(kinds(reports)).toEqual(['deliverBy-passed', 'refunded']);
+      expect(kinds(reports)).toEqual(['deliverBy-passed', 'unconfirmed', 'refunded']);
       const mine = reclaims.slice(sent);
       expect(mine.map((r) => new URL(r.url).origin)).toEqual([new URL(own.info.operators[1]!).origin]);
       expect(await stateOn(own.info.operators[1]!, d.id)).toBe('Refunded');
@@ -203,5 +250,112 @@ describe('buyer-signer.ts follows a funded deal to its outcome (T-325)', () => {
     expect(reclaims.length).toBe(sent);
     // A refund after judgment returns the price; the adjudicator keeps its fee.
     expect(await balanceOn(world.info.operators[0]!, d.signer.address)).toBe((BigInt(START) - FEE).toString());
+  }, 60_000);
+});
+
+describe('buyer-signer.ts against operators that lie, stall or swallow the reclaim (T-325 review)', () => {
+  const two = async () => [await proxy(world.info.operators[0]!), await proxy(world.info.operators[1]!)] as const;
+
+  it('one operator silent and the other reporting a false refund: the deal stays open and the reclaim armed (finding 1)', async () => {
+    const [a, b] = await two();
+    try {
+      const d = await funded(world, null, [a.url, b.url]);
+      b.misbehave.silent = true;
+      a.misbehave.lieState = 'Refunded';
+      const first: Report[] = [];
+      const waited = await d.signer.watch(d.id, { onReport: (r) => void first.push(r), pollMs: POLL_MS, timeoutMs: 2_000 }).then(() => null, (e: Error) => e.message);
+      expect(waited).toMatch(/still Refunded/);
+      expect(first).toEqual([{ kind: 'unconfirmed', commitmentId: d.id, state: 'Refunded', agreeing: 1, answered: 1, required: 2 }]);
+      expect(await stateOn(world.info.operators[0]!, d.id)).toBe('Held'); // the truth
+      expect(await openDeals(d.store, { operators: [a.url, b.url] })).toHaveLength(1);
+
+      // The honest operator returns and the deadline passes: the signer reclaims through the operator that reports Held.
+      b.misbehave.silent = false;
+      world.advance(DELIVER_WITHIN_SEC + 1);
+      const sent = reclaims.length;
+      const second: Report[] = [];
+      const outcome = await d.signer.watch(d.id, { onReport: (r) => void second.push(r), pollMs: POLL_MS });
+      expect(outcome).toMatchObject({ outcome: 'Refunded', reclaimed: true });
+      expect(kinds(second)).toEqual(['unconfirmed', 'deliverBy-passed', 'refunded']);
+      expect(second[0]).toMatchObject({ agreeing: 1, answered: 2, required: 2 });
+      expect(reclaims.slice(sent).map((r) => new URL(r.url).origin)).toEqual([new URL(b.url).origin]);
+      for (const api of world.info.operators) expect(await reclaimEvents(api, d.id)).toBe(1);
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  }, 60_000);
+
+  it('an operator that answers the reclaim 2xx and relays nothing: the next operator gets it (finding 2)', async () => {
+    const [a, b] = await two();
+    try {
+      const d = await funded(world, null, [a.url, b.url]);
+      a.misbehave.swallowReclaim = true;
+      world.advance(DELIVER_WITHIN_SEC + 1);
+      const sent = reclaims.length;
+      const outcome = await d.signer.watch(d.id, { pollMs: POLL_MS, reclaimRetryMs: 500 });
+      expect(outcome).toMatchObject({ outcome: 'Refunded', reclaimed: true });
+      expect(reclaims.slice(sent).map((r) => new URL(r.url).origin)).toEqual([new URL(a.url).origin, new URL(b.url).origin]);
+      for (const api of world.info.operators) expect(await reclaimEvents(api, d.id)).toBe(1);
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  }, 60_000);
+
+  it('a restart after a reclaim was answered and nothing came of it tries the next operator; the watch state has its own file (findings 2 and 6)', async () => {
+    const [a, b] = await two();
+    try {
+      const d = await funded(world, null, [a.url, b.url]);
+      const keyFile = join(d.store, `${d.signer.address}.json`);
+      const keyBefore = readFileSync(keyFile, 'utf8');
+      a.misbehave.swallowReclaim = true;
+      world.advance(DELIVER_WITHIN_SEC + 1);
+      const sent = reclaims.length;
+      // Run 1: the first operator takes the reclaim and relays nothing; the run stops with the deal still Held.
+      const waited = await d.signer.watch(d.id, { pollMs: POLL_MS, timeoutMs: 1_500 }).then(() => null, (e: Error) => e.message);
+      expect(waited).toMatch(/still Held/);
+      expect(reclaims.slice(sent).map((r) => new URL(r.url).origin)).toEqual([new URL(a.url).origin]);
+      expect(readFileSync(keyFile, 'utf8')).toBe(keyBefore); // the key file is untouched
+      expect(readdirSync(d.store).sort()).toEqual([`${d.signer.address}.json`, `${d.signer.address}.watch.json`]);
+      const watched = JSON.parse(readFileSync(join(d.store, `${d.signer.address}.watch.json`), 'utf8')) as J;
+      expect(watched.reclaim.answeredBy).toBe(a.url);
+      expect(JSON.stringify(watched)).not.toContain(JSON.parse(keyBefore).privateKey.slice(2));
+
+      // Run 2, a new process: the deal is still Held after the answer, so the next operator gets the reclaim.
+      const outcome = await (await loadKeys(d.store, d.id, { operators: [a.url, b.url] })).watch(d.id, { pollMs: POLL_MS, reclaimRetryMs: 0 });
+      expect(outcome).toMatchObject({ outcome: 'Refunded', reclaimed: true });
+      expect(reclaims.slice(sent).map((r) => new URL(r.url).origin)).toEqual([new URL(a.url).origin, new URL(b.url).origin]);
+      for (const api of world.info.operators) expect(await reclaimEvents(api, d.id)).toBe(1);
+      expect(readFileSync(keyFile, 'utf8')).toBe(keyBefore);
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  }, 60_000);
+
+  it('one operator with a fast clock does not report the missed deadline early (finding 3)', async () => {
+    const [a, b] = await two();
+    try {
+      const d = await funded(world, null, [a.url, b.url]);
+      a.misbehave.clockAheadSec = 3600;
+      const reports: Report[] = [];
+      const watching = d.signer.watch(d.id, { onReport: (r) => void reports.push(r), pollMs: POLL_MS });
+      await new Promise((r) => setTimeout(r, 4 * POLL_MS));
+      expect(reports).toEqual([]);
+      expect(await stateOn(world.info.operators[0]!, d.id)).toBe('Held');
+      world.advance(DELIVER_WITHIN_SEC + 1);
+      const outcome = await watching;
+      expect(outcome).toMatchObject({ outcome: 'Refunded', reclaimed: true });
+      expect(kinds(reports)).toEqual(['deliverBy-passed', 'refunded']);
+      // The report names the slower clock, not the fast one.
+      const at = Date.parse((reports[0] as Extract<Report, { kind: 'deliverBy-passed' }>).settlementTime);
+      expect(at).toBeGreaterThan(Date.parse(d.terms.timing.deliverBy));
+      expect(at).toBeLessThan(Date.parse(d.terms.timing.deliverBy) + 600_000);
+      for (const api of world.info.operators) expect(await reclaimEvents(api, d.id)).toBe(1);
+    } finally {
+      await a.close();
+      await b.close();
+    }
   }, 60_000);
 });

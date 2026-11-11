@@ -5,17 +5,19 @@
 //   makeKeys      makes a signing key and an x25519 key for one deal and saves them in a directory the caller names
 //                 (file mode 0600). The keys never leave that machine: nothing here sends, returns or prints one.
 //   quote         asks the seller's quote route for an offer. The seller learns the buyer's address, its public
-//                 encryption key and the scope, nothing else.
+//                 encryption key and the scope, nothing else, plus a bearer credential when the seller requires one
+//                 (Options.quoteCredentialEnv names the environment variable that holds it).
 //   testFunds     on the test service, asks the faucet for the deal's total and a mandate in the demo club.
 //   readOffer     reads the offer from both operators, for the buyer's agent to approve.
 //   checkOffer    refuses unless the price, the fees, the deliverable, the checks, the deadlines, the adjudicators and
 //                 the buyer's own address and encryption key equal what the buyer approved.
 //   agreeAndFund  signs the agreement, the funding and the operator fee, each rebuilt from the approved terms and
 //                 checked against what the operator prepared (verify.ts; site/llms.txt section 4).
-//   watch         follows the funded deal to its outcome and tells the buyer's agent (onReport) when it is released,
-//                 refunded, or past deliverBy with nothing delivered. Then it sends the reclaim itself (T-325).
+//   watch         follows the funded deal until the operators confirm its outcome, and tells the buyer's agent
+//                 (onReport) when it is released, refunded, unconfirmed, or past deliverBy with nothing delivered.
+//                 Then it sends the reclaim itself (T-325). Its record is `<address>.watch.json` beside the key file.
 //   openDelivery  watches, then opens the buyer's envelope, checks the plaintext hash and returns the work.
-//   openDeals     after a restart: the funded deals in a key store with no outcome recorded yet.
+//   openDeals     after a restart: the funded deals in a key store with no confirmed outcome yet.
 //
 // The operator only relays: every state-changing message is signed here, by the buyer's key. The one exception is the
 // reclaim: the protocol's timeout trigger takes no signature, since the deadline both parties signed is its authority,
@@ -25,7 +27,7 @@
 //
 // The work a seller delivers is untrusted data. This file returns it; it never prints it, runs it or reads
 // instructions from it. Neither should the client around it.
-import { chmodSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import nacl from 'tweetnacl';
 import { recoverTypedDataAddress, type Hex } from 'viem';
@@ -78,28 +80,53 @@ export type Delivery = {
   /** One link per on-chain step; empty on SimChain. */
   transactions: Array<{ step: string; tx: string; url: string | null }>;
 };
-export type Options = { operators?: string[] };
+export type Options = {
+  operators?: string[];
+  /**
+   * The name of an environment variable that holds a bearer credential for the seller's quote route (a seller
+   * adapter with `quoteAuth`, T-324). quote sends it as `Authorization: Bearer <value>`; the value is never saved,
+   * returned or logged. Without it quote sends no credential.
+   */
+  quoteCredentialEnv?: string | undefined;
+};
 /**
- * What watch tells the buyer's agent. `deliverBy-passed`: the delivery deadline in the agreed terms passed with the
- * deal still Held, so the signer sends the reclaim next. `refunded` with `reclaimed`: the reclaim returned the hold
- * (price and adjudication fee); without it the adjudicator decided the refund. `finalAt` is when no appeal can follow.
+ * What watch tells the buyer's agent.
+ * - `deliverBy-passed`: the delivery deadline in the agreed terms passed, on the slowest clock of the operators that
+ *   answer, with the deal still Held. The signer sends the reclaim.
+ * - `released`, `refunded`: the quorum of operators (`confirmations`) reports the outcome. `reclaimed`: settlement
+ *   refunded the hold (price and adjudication fee) on the reclaim; without it the adjudicator decided the refund.
+ *   `finalAt` is when no appeal can follow.
+ * - `unconfirmed`: some operators report `state`, but fewer than the quorum agree. The deal stays open, the signer
+ *   keeps reading, and the reclaim stays armed. `agreeing` of the `answered` operators report it; `required` must.
  */
 export type Report =
   | { kind: 'deliverBy-passed'; commitmentId: Hex; deliverBy: string; settlementTime: string }
   | { kind: 'released'; commitmentId: Hex; finalAt: string | null }
-  | { kind: 'refunded'; commitmentId: Hex; reclaimed: boolean; finalAt: string | null };
+  | { kind: 'refunded'; commitmentId: Hex; reclaimed: boolean; finalAt: string | null }
+  | { kind: 'unconfirmed'; commitmentId: Hex; state: 'Released' | 'Refunded'; agreeing: number; answered: number; required: number };
 export type WatchOptions = {
   /**
    * Called once per report and awaited. A report is recorded only after it returns, so after a crash the next run
-   * makes it again: at least once. It throws to stop the watch.
+   * makes it again: at least once. An `unconfirmed` report is made once per run for each count. It throws to stop the watch.
    */
   onReport?: (report: Report) => void | Promise<void>;
   /** Stop waiting after this many ms. Default: none, the deal's own deadlines end it (D31). */
   timeoutMs?: number;
   /** The longest pause between two reads of the deal, in ms. Default 30,000: reads start at 400 ms apart and slow down. */
   pollMs?: number;
+  /**
+   * How many configured operators must report the same outcome, with none reporting another state, before it is
+   * final. Default: every configured operator. A buyer with one operator gone for good lowers it, and trusts the
+   * rest that much more (D31).
+   */
+  confirmations?: number;
+  /**
+   * How long a reclaim an operator answered 2xx may leave the deal Held before the next operator gets it, in ms.
+   * Default 120,000: on Sepolia a relayed reclaim lands within about a minute.
+   */
+  reclaimRetryMs?: number;
 };
-/** How the deal ended, as watch returns it and the key file keeps it. */
+/** How the deal ended, as watch returns it and the watch file keeps it. */
 export type Outcome = { commitmentId: Hex; outcome: 'Released' | 'Refunded'; reclaimed: boolean; finalAt: string | null };
 
 type Saved = {
@@ -115,18 +142,39 @@ type Saved = {
   /** The terms checkOffer passed, and the offer the buyer approved. */
   checked?: { terms: J; offer: Offer };
   paid?: Paid;
-  /** What watch has done for the deal, so a restart neither loses it nor sends the reclaim twice (T-325). */
-  watch?: {
-    /** The report kinds onReport has returned from. */
-    reported: Report['kind'][];
-    /**
-     * The reclaim request, saved before it is sent. `answeredBy` is the operator that answered it with 2xx. Without
-     * it the answer is unknown, and the next try reads the state first and reuses the same Idempotency-Key.
-     */
-    reclaim?: { idempotencyKey: string; tries: number; answeredBy?: string };
-    outcome?: Outcome;
-  };
 };
+
+/**
+ * What watch has done for one deal, in `<address>.watch.json` beside the key file, which watch never writes (T-325).
+ * A restart reads it, so the deal is not lost and no reclaim goes twice to an operator that took it.
+ */
+type Watched = {
+  version: 1;
+  commitmentId: Hex;
+  /** The report kinds onReport has returned from. `unconfirmed` is never recorded: each run reports it again. */
+  reported: Report['kind'][];
+  /**
+   * The reclaim request, saved before it is sent. `answeredBy` is the operator that answered it 2xx, at `answeredAt`
+   * (ms since 1970). Without it the answer is unknown, and the next try reads the state first and reuses the key.
+   * `from` is where in the configured operators the next try starts.
+   */
+  reclaim?: { idempotencyKey: string; from: number; answeredBy?: string; answeredAt?: number };
+  /** Saved only once the quorum of operators reports it. */
+  outcome?: Outcome;
+};
+const watchFile = (store: string, address: string) => join(store, `${address}.watch.json`);
+function readWatched(store: string, address: string, id: Hex): Watched {
+  const file = watchFile(store, address);
+  if (!existsSync(file)) return { version: 1, commitmentId: id, reported: [] };
+  const w = JSON.parse(readFileSync(file, 'utf8')) as Watched;
+  if (w.version !== 1 || w.commitmentId !== id) throw new Error(`${file} is not this file's record of ${id}`);
+  return w;
+}
+function saveWatched(store: string, address: string, w: Watched): void {
+  const file = watchFile(store, address);
+  writeFileSync(`${file}.tmp`, `${JSON.stringify(w, null, 2)}\n`, { mode: 0o600 });
+  renameSync(`${file}.tmp`, file);
+}
 
 const DEC = /^(0|[1-9][0-9]{0,77})$/;
 const ID = /^0x[0-9a-f]{64}$/;
@@ -162,15 +210,17 @@ export class BuyerSigner {
   /** The directory that holds the key file, `<address>.json`. */
   readonly store: string;
   readonly #operators: string[];
+  readonly #quoteCredentialEnv: string | undefined;
   readonly #saved: Saved;
   #connected: Promise<{ agent: Agent; pin: Pin }> | undefined;
 
-  /** Use makeKeys or loadKeys. */
-  constructor(store: string, saved: unknown, operators: string[]) {
+  /** Use makeKeys, loadKeys or openDeals. */
+  constructor(store: string, saved: unknown, options: Options = {}) {
     const s = saved as Saved;
     this.store = store;
     this.#saved = s;
-    this.#operators = operators;
+    this.#operators = options.operators ?? defaultOperators();
+    this.#quoteCredentialEnv = options.quoteCredentialEnv;
     this.address = privateKeyToAccount(s.privateKey).address.toLowerCase();
     this.encryptionPublicKey = Buffer.from(nacl.box.keyPair.fromSecretKey(new Uint8Array(Buffer.from(s.encryptionSecretKey, 'base64url'))).publicKey).toString('base64url');
     if (s.version !== 1 || s.address !== this.address) throw new Error(`the key file for ${s.address} in ${store} is not one this file wrote`);
@@ -245,11 +295,15 @@ export class BuyerSigner {
    */
   async quote(quoteUrl: string, scope: unknown): Promise<Quote> {
     if (this.#saved.commitmentId) throw new Error(`this key already serves ${this.#saved.commitmentId}: one key, one deal. Call makeKeys for another deal`);
+    const name = this.#quoteCredentialEnv;
+    const credential = name === undefined ? undefined : process.env[name];
+    // The variable's name in the error, never its value.
+    if (name !== undefined && !credential) throw new Error(`quoteCredentialEnv names ${name}, which is not set: set it to the seller's quote credential`);
     this.#saved.quoteKey ??= crypto.randomUUID();
     save(this.store, this.#saved);
     const res = await fetch(quoteUrl, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'idempotency-key': this.#saved.quoteKey },
+      headers: { 'content-type': 'application/json', 'idempotency-key': this.#saved.quoteKey, ...(credential ? { authorization: `Bearer ${credential}` } : {}) },
       body: JSON.stringify({ buyer: this.address, buyerEncryptionPublicKey: this.encryptionPublicKey, scope }),
       signal: AbortSignal.timeout(120_000),
     });
@@ -372,25 +426,37 @@ export class BuyerSigner {
   }
 
   /**
-   * Follows a deal this key funded until every answering operator reports Released or Refunded, and returns the
-   * outcome. On the way it tells the buyer's agent (onReport) when the deal is released, refunded, or past the agreed
-   * terms' deliverBy with nothing delivered. In that last case it sends the reclaim itself and reports the refund.
+   * Follows a deal this key funded until its outcome is confirmed, and returns it. On the way it tells the buyer's
+   * agent (onReport) when the deal is released, refunded, or past the agreed terms' deliverBy with nothing delivered,
+   * and when some operators report an outcome too few others confirm. Past deliverBy it sends the reclaim itself.
    *
-   * It reads every configured operator and goes on with those that answer, so one offline operator does not stop it.
-   * Every operator that answers must report the same state before the signer acts on it. It adds no deadline of its
-   * own (D31): without `timeoutMs` it waits as long as the terms say. The key file keeps what it has done, so a
-   * signer reopened after a restart (loadKeys or openDeals) picks the deal up and never sends a second reclaim.
+   * It reads every configured operator and goes on with those that answer. An outcome is final, and saved, only when
+   * `confirmations` operators (default: all configured) report it and none reports another state; until then the
+   * deal stays open and the reclaim stays armed, so one silent or lying operator cannot close it. The reclaim goes to
+   * each operator that reports Held, and to the next one when an operator takes it and the deal stays Held. It adds
+   * no deadline of its own (D31): without `timeoutMs` it waits as long as the terms say. The watch file keeps what it
+   * has done, so a signer reopened after a restart (loadKeys or openDeals) picks the deal up. Settlement refunds a
+   * hold once, however many operators get the reclaim.
    */
   async watch(commitmentId: string, options: WatchOptions = {}): Promise<Outcome> {
     const id = commitmentId.toLowerCase() as Hex;
     const s = this.#saved;
     if (s.commitmentId !== id || !s.paid || !s.checked) throw new Error(`this key funded no hold for ${id}: call agreeAndFund first`);
-    const w = (s.watch ??= { reported: [] });
+    const w = readWatched(this.store, this.address, id);
+    const keep = () => saveWatched(this.store, this.address, w);
+    const unconfirmed = new Set<string>(); // the unconfirmed reports this run made
     const report = async (r: Report) => {
+      if (r.kind === 'unconfirmed') {
+        const k = `${r.state}/${r.agreeing}/${r.answered}`;
+        if (unconfirmed.has(k)) return;
+        await options.onReport?.(r);
+        unconfirmed.add(k);
+        return;
+      }
       if (w.reported.includes(r.kind)) return;
       await options.onReport?.(r);
       w.reported.push(r.kind);
-      save(this.store, s);
+      keep();
     };
     const final = async (o: Outcome) => {
       await report(o.outcome === 'Released' ? { kind: 'released', commitmentId: id, finalAt: o.finalAt } : { kind: 'refunded', commitmentId: id, reclaimed: o.reclaimed, finalAt: o.finalAt });
@@ -400,73 +466,88 @@ export class BuyerSigner {
 
     const { agent } = await this.#connect();
     const sources = agent.sources();
-    const deliverBy = String(s.checked.terms.timing.deliverBy);
+    const required = options.confirmations ?? sources.length;
+    if (!Number.isSafeInteger(required) || required < 1 || required > sources.length) throw new Error(`confirmations is a whole number from 1 to the ${sources.length} configured operators`);
+    const deliverBy = Date.parse(String(s.checked.terms.timing.deliverBy));
     const maxPause = Math.max(1, options.pollMs ?? 30_000);
     const end = options.timeoutMs === undefined ? Infinity : Date.now() + options.timeoutMs;
     let pause = Math.min(400, maxPause);
     let seen = 'no answer';
     for (;;) {
       const views = await this.#answers(sources, `/v1/commitments/${id}`);
-      const states = [...new Set(views.map((v) => String(v.body?.escrowState)))];
+      const stateOf = (v: { body: J }) => String(v.body?.escrowState);
+      const states = [...new Set(views.map(stateOf))];
       seen = states.length ? states.join(' / ') : 'no answer';
-      let wake = Infinity; // ms until deliverBy, when the deal is Held before it
-      if (states.length === 1) {
-        const state = states[0]!;
-        if (state === 'Released' || state === 'Refunded') {
-          const events = await this.#answers(sources, `/v1/commitments/${id}/events?limit=200`);
+      let wake = Infinity; // ms until deliverBy on the fastest clock, while the deal is Held before it
+      let sent = false;
+      for (const state of ['Released', 'Refunded'] as const) {
+        const agreeing = views.filter((v) => stateOf(v) === state);
+        if (agreeing.length === 0) continue;
+        if (agreeing.length >= required && agreeing.length === views.length) {
+          const events = await this.#answers(agreeing.map((v) => v.api), `/v1/commitments/${id}/events?limit=200`);
           const reclaimed = events.length > 0 && events.every((a) => Array.isArray(a.body?.items) && a.body.items.some((e: J) => e.type === 'settlement.reclaimed'));
-          w.outcome = { commitmentId: id, outcome: state, reclaimed, finalAt: views[0]!.body.finalAt ?? null };
-          save(this.store, s);
+          w.outcome = { commitmentId: id, outcome: state, reclaimed, finalAt: agreeing[0]!.body.finalAt ?? null };
+          keep();
           return final(w.outcome);
         }
-        if (state === 'Held') {
-          const times = (await this.#answers(views.map((v) => v.api), '/.well-known/holdback.json')).map((a) => Date.parse(a.body?.settlementTime)).filter(Number.isFinite);
-          const now = times.length ? Math.max(...times) : NaN;
-          if (now > Date.parse(deliverBy)) {
-            await report({ kind: 'deliverBy-passed', commitmentId: id, deliverBy, settlementTime: new Date(now).toISOString() });
-            if (await this.#reclaim(id, views.map((v) => v.api))) {
-              pause = Math.min(400, maxPause);
-              continue; // read the outcome at once
-            }
-          } else if (Number.isFinite(now)) wake = Date.parse(deliverBy) - now + 1000;
+        await report({ kind: 'unconfirmed', commitmentId: id, state, agreeing: agreeing.length, answered: views.length, required });
+      }
+      const held = views.filter((v) => stateOf(v) === 'Held').map((v) => v.api);
+      if (held.length > 0) {
+        // Each answering operator's settlement clock: the slowest decides the report, the fastest the reclaim, which
+        // settlement refuses while it is early.
+        const times = (await this.#answers(views.map((v) => v.api), '/.well-known/holdback.json')).map((a) => Date.parse(a.body?.settlementTime)).filter(Number.isFinite);
+        if (times.length > 0) {
+          const slowest = Math.min(...times), fastest = Math.max(...times);
+          if (slowest > deliverBy) await report({ kind: 'deliverBy-passed', commitmentId: id, deliverBy: String(s.checked.terms.timing.deliverBy), settlementTime: new Date(slowest).toISOString() });
+          if (fastest > deliverBy) sent = await this.#reclaim(w, keep, id, sources, held, options.reclaimRetryMs ?? 120_000);
+          else wake = deliverBy - fastest + 1000;
         }
       }
-      if (Date.now() >= end) throw new Error(`${id} is still ${seen} after ${options.timeoutMs! / 1000} s, waiting for Released or Refunded`);
+      if (sent) {
+        pause = Math.min(400, maxPause);
+        continue; // read the outcome at once
+      }
+      if (Date.now() >= end) throw new Error(`${id} is still ${seen} after ${options.timeoutMs! / 1000} s, waiting for ${required} of ${sources.length} operators to report Released or Refunded`);
       await sleep(Math.max(0, Math.min(pause, wake, end - Date.now())));
       pause = Math.min(Math.ceil(pause * 1.5), maxPause);
     }
   }
 
   /**
-   * Sends the reclaim, `POST /v1/commitments/<id>/triggers/reclaim` with `{}`, to the first of `apis` that takes it.
-   * The request is saved before it is sent. True when an operator answered 2xx. A refusal is stored under its
-   * Idempotency-Key and replayed, so the next operator gets a fresh key. A lost answer keeps the key and returns
-   * false: the caller reads the state again before any other try, and a later try reuses that key.
+   * Sends the reclaim, `POST /v1/commitments/<id>/triggers/reclaim` with `{}`, to the first operator in `held` (the
+   * operators that report Held), in the configured order from `w.reclaim.from`, that answers 2xx. True when one did.
+   * The request is saved before it is sent. An operator stores only answers below 300 under the Idempotency-Key
+   * (apps/operator/src/idempotency.ts), so a refusal is not replayed and the next operator gets the same key. A lost
+   * answer keeps the key and returns false: the caller reads the state again first, and the next try starts at the
+   * next operator. When the deal is still Held `retryMs` after an operator took the reclaim, that operator may relay
+   * nothing: the next operator gets it, under a fresh key, since the first replays its 2xx for the old one.
    */
-  async #reclaim(id: Hex, apis: string[]): Promise<boolean> {
-    const s = this.#saved;
-    const w = s.watch!;
-    if (w.reclaim?.answeredBy) return false; // sent and taken; wait for the operators to report the refund
-    const r = (w.reclaim ??= { idempotencyKey: crypto.randomUUID(), tries: 0 });
-    save(this.store, s);
-    for (let i = 0; i < apis.length; i++) {
-      const api = apis[(r.tries + i) % apis.length]!;
+  async #reclaim(w: Watched, keep: () => void, id: Hex, sources: string[], held: string[], retryMs: number): Promise<boolean> {
+    const at = (api: string) => Math.max(0, sources.indexOf(api));
+    if (w.reclaim?.answeredBy) {
+      if (Date.now() - (w.reclaim.answeredAt ?? 0) < retryMs) return false; // taken: give it time to land
+      w.reclaim = { idempotencyKey: crypto.randomUUID(), from: at(w.reclaim.answeredBy) + 1 };
+    }
+    const r = (w.reclaim ??= { idempotencyKey: crypto.randomUUID(), from: 0 });
+    keep();
+    const order = sources.map((_, i) => sources[(r.from + i) % sources.length]!).filter((api) => held.includes(api));
+    for (const api of order) {
       let res: Response;
       try {
         res = await fetch(`${api}/v1/commitments/${id}/triggers/reclaim`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': r.idempotencyKey }, body: '{}', signal: AbortSignal.timeout(60_000) });
       } catch {
-        r.tries += 1; // the next try, after a fresh read, starts at the next operator, with this key
-        save(this.store, s);
+        r.from = at(api) + 1;
+        keep();
         return false;
       }
       if (res.ok) {
         r.answeredBy = api;
-        save(this.store, s);
+        r.answeredAt = Date.now();
+        keep();
         return true;
       }
-      // Too early on this operator's clock, the deal moved on, or the operator refuses: try the next one.
-      r.idempotencyKey = crypto.randomUUID();
-      save(this.store, s);
+      // Too early on this operator's clock, the deal moved on, or the operator refuses: the next one.
     }
     return false;
   }
@@ -510,12 +591,15 @@ export class BuyerSigner {
   }
 }
 
-/** Every key file in `store` with a funded deal and no outcome recorded: what a restarted client watches again. */
+/**
+ * Every key file in `store` with a funded deal and no confirmed outcome in its watch file: what a restarted client
+ * watches again. An outcome too few operators reported keeps the deal here.
+ */
 export async function openDeals(store: string, options: Options = {}): Promise<BuyerSigner[]> {
   const open: BuyerSigner[] = [];
   for (const name of readdirSync(store).filter((f) => /^0x[0-9a-f]{40}\.json$/.test(f)).sort()) {
     const saved = JSON.parse(readFileSync(join(store, name), 'utf8')) as Saved;
-    if (saved.commitmentId && saved.paid && !saved.watch?.outcome) open.push(new BuyerSigner(store, saved, options.operators ?? defaultOperators()));
+    if (saved.commitmentId && saved.paid && !readWatched(store, saved.address, saved.commitmentId).outcome) open.push(new BuyerSigner(store, saved, options));
   }
   return open;
 }
@@ -529,7 +613,7 @@ export async function makeKeys(store: string, options: Options = {}): Promise<Bu
   const privateKey = generatePrivateKey();
   const saved: Saved = { version: 1, address: privateKeyToAccount(privateKey).address.toLowerCase(), privateKey, encryptionSecretKey: Buffer.from(nacl.randomBytes(32)).toString('base64url'), createdAt: new Date().toISOString() };
   save(store, saved);
-  return new BuyerSigner(store, saved, options.operators ?? defaultOperators());
+  return new BuyerSigner(store, saved, options);
 }
 
 /** Reopens the keys of one deal after a restart, by its commitment ID or by the buyer address makeKeys returned. */
@@ -537,7 +621,7 @@ export async function loadKeys(store: string, commitmentIdOrAddress: string, opt
   const want = commitmentIdOrAddress.toLowerCase();
   for (const name of readdirSync(store).filter((f) => /^0x[0-9a-f]{40}\.json$/.test(f))) {
     const saved = JSON.parse(readFileSync(join(store, name), 'utf8')) as Saved;
-    if (saved.commitmentId === want || saved.address === want) return new BuyerSigner(store, saved, options.operators ?? defaultOperators());
+    if (saved.commitmentId === want || saved.address === want) return new BuyerSigner(store, saved, options);
   }
   throw new Error(`no key in ${store} for ${want}`);
 }
