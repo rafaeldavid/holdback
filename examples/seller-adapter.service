@@ -13,7 +13,8 @@ WorkingDirectory=/var/lib/crow-seller
 # HOLDBACK_KEY, HOLDBACK_OPERATORS and the quote credentials, one NAME=value per line. Owned by root, mode 0600:
 # systemd reads it before it drops to User, so the adapter's own user cannot read the file.
 EnvironmentFile=/etc/crow-seller/environment
-ExecStart=/usr/bin/node /opt/holdback/examples/seller-adapter.ts
+# The one configuration file (T-331): your API's addresses and any setting you change. It holds no secret.
+ExecStart=/usr/bin/node /opt/holdback/examples/seller-adapter.ts /etc/crow-seller/seller-adapter.json
 # On SIGTERM the adapter finishes the step in progress and records it, then exits; the next start resumes.
 KillSignal=SIGTERM
 TimeoutStopSec=60
