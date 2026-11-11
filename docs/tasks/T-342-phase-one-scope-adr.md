@@ -75,9 +75,13 @@ All are in ADR-0031, Proposed; Rafa may overrule each.
 9. **SC-5b: kept, by Rafa.** This task first recommended the cut. Rafa then said he wants to measure how many deals hold to their time bounds strictly and how many settle anyway, and decided to keep the path. The state model's finding F-1 is resolved toward the contract: core, ADR-0019 and the formal model change to allow it.
 10. **The red team's two High findings are accepted as the price of SC-7,** and the ADR states them: a wrong first decision is final and unpaid, and a party must trust all three adjudicators it names. One Medium finding raises a planned fix to required: the margin of one block before an escalation's beacon round.
 
+11. **Rafa answered decisions 2, 4, 5, 6 and 7 on 2026-11-11, after PR 329 merged (D58).** He agreed with 2 and 4, the stricter rules. He overruled the refusal behind 5: a zero price stays allowed. He confirmed 6: the unfunded offer's expiry moves off chain, and the operators send no transaction. He cut third-party payouts for phase one with a planned return, so `Paid` leaves with them and 7 is settled. A follow-up PR records all of it in ADR-0031, `docs/audit/scope.md` and D58.
+
 ## Handoff
 
-**Done.** ADR-0031 (Proposed), the phase-one section of `docs/audit/scope.md`, and D57.
+**Update after D58.** Where the lines below differ from D58, D58 wins: a zero price is not refused, so core gains no zero-price refusal; `Paid` leaves with SC-3; SC-6 is decided. One point is open with Rafa: a deal with price 0 and fee 0 cannot be funded, because the escrow refuses to hold nothing.
+
+**Done.** ADR-0031 (Proposed), the phase-one section of `docs/audit/scope.md`, D57 and D58.
 
 **Not done, on purpose.** No code, schema, contract or formal-model change. `CLAUDE.md` is not edited.
 
@@ -85,7 +89,7 @@ All are in ADR-0031, Proposed; Rafa may overrule each.
 
 > Appeals are backed by the adjudicator's bond. Phase one sets this line aside: its contracts have no party appeals and no bonds, and the first decision by the primary or the fallback adjudicator is final on chain (Rafa, 2026-11-11; D57, ADR-0031). SimChain keeps both.
 
-`CLAUDE.md` also says the decisions run "D1 to D56" in two places; they now run to D57.
+`CLAUDE.md` also says the decisions run "D1 to D56" in two places; they now run to D58.
 
 **For the task that owns `docs/audit/known-issues.md` (T-338).** The eight findings that move to "not in phase one", each with its new Status and wording. They move at the redeploy; until then they describe the deployed contracts.
 
@@ -125,7 +129,7 @@ Other rows the cuts touch:
 - **The escalation round's margin of one block is required before the freeze** (red-team finding M-1; review I-5).
 - The red team proposed ten fixtures for the phase-one contracts; ADR-0031 names four of them.
 - Check before cutting: SC-6's adapter change; the fixtures the ADR lists for the SimChain-only list; how the comparison between SimChain and the contract treats SimChain's bond postings and appeal window.
-- Core gains two refusals with the contract: a zero price, and (on a phase-one deployment) an acceptance whose `bondReserved` is not zero.
+- Core gains one refusal with the contract, on a phase-one deployment: an acceptance whose `bondReserved` is not zero. A zero price stays allowed (D58).
 
 **For the docs package.** ADR-0031's appendix lists every doc that promises what phase one cuts, with the sentence to change. The docs change at the redeploy, not before.
 

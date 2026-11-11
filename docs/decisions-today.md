@@ -966,3 +966,25 @@ The full text is kept privately (`docs/private-materials.md`).
 | Ship party appeals and bonds, with their fixes | A minimum appeal bond in the signed terms, a bond for the appeal adjudicator and a schema version, in a contract 263 bytes under the size limit; all of it in the audit |
 | Cut both for phase one (chosen) | The first decision is final; eight open findings stop applying; one line of litmus test 3 is set aside |
 | Cut appeals, keep bonds | A bond with nothing to pay: on chain a bond moves only when an appeal overturns a decision |
+
+## D58. Rafa's answers to ADR-0031's open points: the offer's expiry off chain, a zero price allowed, the strict rules, third-party payouts cut with a planned return
+
+**Decided 2026-11-11 by Rafa,** in the coordinating session, after ADR-0031 first merged with its open points. ADR-0031 stays Proposed and now records each answer; Rafa may overrule any line. No signed type and no file in `spec/schemas/` changes.
+
+1. **An unfunded offer's expiry is not recorded on chain (SC-6).** Rafa: "I don't think we need to send that message because the expiry date will be hit anyways so it will simply show expired?" Then, on the explanation: "ok for question 1 I agree with your explanation and no ping from our side is necessary."
+   - `expireOffer` and the `Expired` stage leave the phase-one contracts. The operators mark an unfunded offer expired by their own clock and send no transaction. `reclaim` still emits `JobExpired`.
+   - The fact he asked about: an expired offer cannot be revived. Funding after `offerExpiresAt` reverts whether or not the expiry was recorded. A new expiry date is a new commitment ID and needs three new signatures: the seller's terms, the primary adjudicator's acceptance and the buyer's agreement.
+2. **A zero price stays allowed.** Asked "Should we allow a deal with a price of zero?", Rafa: "Yes. There may be other terms and assets related so we need to assume the contract itself can have a zero token value but other considerations like a state from an oracle in the future."
+   - The phase-one contracts do not refuse a zero price, and the branches for it stay. A separate task writes their tests. The other refusals of that cut stand: deadlines out of order, `maxSubmissions` other than 1, and an escalation decision window of 0.
+   - ADR-0031 had named the refusal as a new limit that D31 does not cover. D31 holds: an amount the encoding can represent is the parties' to choose.
+3. **The two stricter rules are agreed.** Rafa: "Question 3: Agree with your strict rules."
+   - The acceptance's signed `bondReserved` must be 0 on chain. The plan had recommended leaving it unchecked.
+   - The five deadlines are checked in strict order, `offerExpiresAt < fundBy < deliverBy < judgeBy < fallbackBy`, as `packages/core` checks them.
+4. **Payouts to a third address are cut for phase one, with a planned return (SC-3).** Rafa's first reaction: "I do feel like Buyer and Seller should be able to agree to send the funds to any arbitrary address per their contract." The planning session then read the path as low risk, since the same kind of capture pays the adjudicator's fee on every reject, and recommended keeping it. Rafa decided: "Fine cut it for now, but make sure it's in the roadmap. It's very important because they may need to send the funds to another third party as part of the contract. Maybe the better design is that upon contract the seller has one address that is their counterparty and has another address related to receivable, and the receivable address can be changed with both party agreement to an arbitrary address if needed?"
+   - A phase-one mutual settlement pays the buyer and the seller only. D23 is deferred, not dropped.
+   - The `Paid` event leaves with the feature, under his rule that a cut feature's events go with it (D57).
+   - The return is planned work that starts after the phase-one contracts are frozen: funds to a third address by agreement, through a receivable address in the terms that both parties can change. A new field in the terms needs its own ADR and a schema version.
+5. **Still open for Rafa: a deal that holds nothing.** A deal with price 0 and fee 0 cannot be funded today, because the escrow refuses to hold nothing (`AuthCaptureEscrow.sol:179`), while core funds it. The recommendation is a stated phase-one limit: a deal must hold at least one base unit, as price or as fee.
+
+- **Litmus tests.** Neutrality: unchanged by items 1 to 3; item 4 narrows the fifth outcome of `docs/neutrality.md` to a split between the buyer and the seller, as ADR-0031 already recorded. The hold: unchanged; no answer moves funds differently from ADR-0031's record, and a zero price keeps the branches the contract has today. Defended judgment: untouched.
+- **Research pass:** the planning session's read of the fee-slot path and of the zero-price branches, and T-342's read behind ADR-0031.
