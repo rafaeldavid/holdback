@@ -77,14 +77,79 @@ Line numbers are those of `contracts-audit-ready` at `b88f9e5` [measured].
 
 Fill this in before review. Label each item measured, inferred or guessed.
 
-- Commands run and results:
-- Snapshot diffs:
-- Metrics:
+- **Gate before the cut** [measured]: holdback PR 333 merged at `67fde99`. On the lane with main merged in, `forge test` passed 343 of 343, and the side-by-side harness passed with an empty allow-list: 256 runs, every row L01 to L37 reached.
+- **`forge test` after the cut** [measured]: 295 of 295 pass in 44 suites. Before: 343 of 343.
+  - 59 test functions of the removed feature are deleted; `reports/scratch/t-346-deleted-tests.md` gives each one's file, name and reason. That table has 65 rows: 6 are tests moved to surviving files without their bond and appeal parts.
+  - 13 tests are added: `PhaseOneNoBonds.t.sol` has 8, `LateWorkKey.t.sol` 5.
+- **The `bondReserved` rule failed before** [measured]: `test_before_pinnedContractsRefuseZero_andFundWithThePriceAndWithMax` runs the pinned deployed contracts. They refuse `bondReserved` 0 and fund with the price; the cut does the opposite.
+- **Side-by-side harness (VG-1)** [measured]: 258 fuzz runs pass. All 18 phase-one rows are reached over the 48 coverage seeds, and the planted mutant still fails the harness. The allow-list names nine exact differences, all SC-7's:
+  1. no vault;
+  2. `BONDS()` and `KEY_APPEAL()` gone;
+  3. the word without `appeal`, `flags` and `t2`;
+  4. the vault's events, token transfers to or from the vault, `AppealFiled`, `AppealClosed` and `KeyReleased` on path 3;
+  5. no bond deposits;
+  6. `fileAppeal` and `expireAppeal` gone;
+  7. no appeal decision on a decided deal;
+  8. no overturn payout, the only entry that diverges a seed;
+  9. the appeal decision's `Decided` event.
+
+  The first full run found entries 7 (for `decideFallback`) and 9 missing; both were added.
+- **State oracle (VG-2)** [measured]: `invariant_legalDealStates` checks the phase-one rows (§9.3: P01 to P17, plus L02 until SC-6) after every step, 256 runs at depth 100. Its planted illegal states fail it.
+- **Size (VG-5)** [measured, `forge build --sizes`]: `HoldbackRules` runtime goes from 24,299 to 19,609 bytes, so 4,690 bytes are freed and 4,967 bytes of headroom remain. Initcode goes from 27,769 to 20,190 bytes.
+- **Signed types** [measured]: no file under `spec/schemas/` changes. Every type hash but `APPEAL_TYPEHASH` is unchanged, and `Vectors.t.sol`'s other 9 vectors pass unchanged, the acceptance with a nonzero `bondReserved` among them.
+- **Core** [measured]: `vitest run packages/core` passes 978 of 978, 12 of them new (`phase_one profile`); `tsc` on core is clean.
+- **Formal** [measured]: `formal/check.sh safety` passes, 132,339 distinct states at depth 31, in 15 s. The model is core's `full` profile, which is unchanged.
+- **Anvil suites and `abis.test.ts`** [measured, expected red until T-349]: see the Handoff and `reports/scratch/t-346-for-part-2.md`.
 
 ## Decisions
 
-- **Main came into the lane first, as its own PR** (holdback PR 343, `t-346-sync-main`). The lane predated the harness, and the harness must run against the branch before the cut. The merge had no file conflict; one import of the harness (`Sides.sol`) still named `src/SimBeacon.sol`, which T-334 moved to `script/`.
+- **Main came into the lane first, as its own PR** (holdback PR 343, `t-346-sync-main`). The lane predated the harness, and the harness must run against the branch before the cut. The merge had no file conflict, but two harness files still pointed `SimBeacon` at `src/`, which T-334 had moved to `script/` (`Sides.sol` and `PinnedSource.t.sol`); both are fixed on that PR.
+- **Landing: option B** (the coordinator, 2026-11-11). This PR stays a draft until T-349's off-chain PR merges into this branch; then one merge into `contracts-audit-ready` carries both, so the lane never goes red.
+- **The harness drives the deployed contracts through the phase-one handler.** Every choice an action makes rests on state both builds share. The pinned side overrides hooks for what differs: its seven-field word, its appeal state, `bondReserved` = price, and a funded vault. The vault holds 1,000 tUSD per adjudicator and token, so the old side never refuses for want of bond (a refusal phase one no longer has). The removed entry points stay as harness-only actions through the deployed selectors, with an appeal bond of 0, so the old side files, expires and decides appeals and the allow-list names each difference.
+- **The oracle takes the closing reason from the handler** until refactor RF-4 stores it in the word. Without it, rows P06 to P12 collapse into two, and the primary's and the fallback's time bounds could no longer be told apart. With it, every §9.3 row keeps its bound.
+- **Core's mirror is a profile, not a changed rule.** `step(s, e, 'phase_one')`; `'full'` stays the default for SimChain. A phase-one first decision gets an empty appeal window (`appealBy` = `appealDecideBy` = the decision's time), so core reports it final at once (ADR-0031 §8 point 7).
+- **Three invariants leave with the vault**: `invariant_bondsNeverNegative`, `invariant_encumberedNotDoubleCounted`, `invariant_overturnPaysFromTheBond`. `invariant_noAdminPath` drops the vault's code hash. The handler's ghost counters `withdrawMismatch` and `overturnMispaid` go with them.
+- **The contract-signer tests are a second PR on this branch.** The cut alone touches 48 files, with 1,481 lines added and 2,655 deleted [measured, `git diff --stat fb9ea77 HEAD`]. Adding the signer tests would make it too large to review as one change.
 
 ## Handoff
 
-What is done, what is not, how to resume, and the open questions that remain.
+**State.** The cut is on branch `t-346-cut-appeals-and-bonds`, in draft PR 352 into `contracts-audit-ready`. That PR is stacked on PR 343, which brings main into the lane. It stays a draft until T-349 merges its off-chain mirrors into the branch; then the full CI should be green and one merge carries both.
+
+**For T-349, the off-chain second part.** The full list is `reports/scratch/t-346-for-part-2.md`: 31 places, each with file and line, what it does today and what it must do after the cut, plus the measured failures. In short:
+- **`packages/settlement/evm`:**
+  - regenerate `abis.json`;
+  - `world.ts:255`, `:267` and `:273` stop loading the vault and reading `BONDS()`;
+  - `evm-settlement.ts:640-676` stops reading bonds, and `:974-991` steps core with `'phase_one'` and drops the coverage refusal;
+  - the appeal mappings and calls at `evm-settlement.ts:308`, `:313`, `:1055`, `:1352` and `:2102-2128` go, and so does the appeal-expiry timeout in `timeouts.ts:80`;
+  - `testing.ts:171` and `live.ts:706-718` sign 0 and deposit nothing;
+  - the four-field `dealOf` in `sync.ts`.
+- **`apps/adjudicator/src/service.ts`:** `:242` signs `bondReserved` 0; `:325` drops the coverage refusal; the appeal role hears escalations only.
+- **`apps/operator`:**
+  - `prepare.ts:51` refuses the appeal kind, and `:417-430` drops `fallbackBondRefusal` (ADR-0031 §8 point 6);
+  - the acceptance prepares 0;
+  - `registry.ts:90` reads no vault;
+  - `server.ts` refuses the appeal routes and the appeal-expiry trigger.
+- **`apps/demo-cloud/src/world.ts`:** `:116`, `:357-364`, `:654-671` and `:982`, with no deposit and no bond reads; its anvil tests follow.
+- **`examples/`:** the `e2e-*` party-appeal scenarios leave the EVM path; `deployments.ts` and `verify.ts` read no `bonds`.
+- **The demo's appeal beat** and **`site/llms.txt`** change at the redeploy (ADR-0031 appendix).
+
+Measured: the anvil settlement leg fails 10 of 13 files and the world leg 6 of 7, all first at `packages/settlement/evm/world.ts:267` (`BONDS` not on the ABI); `abis.test.ts` fails with 54 against 47 ABI entries.
+
+**For the docs package (`docs/audit/`, not this task's paths):**
+- `state-model.md`: §9 describes the cut as built. Add that the word is now (stage, attempt, t1, seedTag), and that rows P06 to P12 are told apart by the closing reason, which the oracle takes from the handler until RF-4.
+- `known-issues.md`: move L-3, L-5, T-221's bond refusal, the rest of I-8, A-1, A-2, A-3 and the limit on H-2 (and L-2) to "not in phase one", with the wording in T-342's Handoff.
+- `events.md`: the nine events leave (ADR-0031 §10).
+- `scope.md`: `HoldbackBonds.sol` leaves the audit's scope; `HoldbackRules` is 19,609 runtime bytes.
+- `threat-model.md`: TA-13 holds as built; there is no bond on chain.
+
+**Not done in this PR:** the contract-signer tests for every role, a second PR on this branch. Specifically:
+- the buyer and the seller as wallets through early accept and settlement;
+- the appeal adjudicator as a wallet on an escalation;
+- a wallet whose answer changes between two steps;
+- a wallet that burns its gas;
+- an EIP-7702 account;
+- a relay from inside another contract's call, for every entry point.
+
+`Erc1271Roles.t.sol`, `Erc1271Replay.t.sol` and `Erc6492Prepare.t.sol` already cover the seller, the primary, the fallback and the buyer's funding.
+
+**Refinements left alone:** `reports/scratch/t-346-triage.md`.
