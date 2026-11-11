@@ -190,13 +190,3 @@ export async function untilAppeal(r: Run, deal: Deal, states: string[], timeoutM
   }
   throw new Error(`${short(deal.id)} appeal still ${seen.map((s) => s.appealState).join(' / ')} after ${timeoutMs / 1000} s, waiting for ${states.join(' or ')}`);
 }
-
-/** A scenario the driver does not build yet: recorded as waiting for its prerequisites, then for the driver's own work. */
-export const waiting = (id: string, title: string, waitsFor: string[], needs: string): Scenario => ({
-  id, title, waitsFor, needs,
-  async run(r) {
-    await requires(r, waitsFor);
-    r.waitsFor = ['T-216'];
-    throw new Waits(r.waitsFor, `not built in the driver yet: ${needs}`);
-  },
-});

@@ -7,7 +7,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { wholeSecond, type Address, type Club, type EscrowState, type Timing } from '@holdback/core';
-import { encodeFunctionData, maxUint256, type Hex } from 'viem';
+import { encodeErrorResult, encodeFunctionData, maxUint256, type Hex } from 'viem';
 import { foundry } from 'viem/chains';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Genesis } from '../sim/simchain.js';
@@ -525,5 +525,86 @@ describe.skipIf(!ready)(`the operators send due timeouts on their own, on anvil 
     expect((await lanes()) - before).toBe(2);
     expect(held.map((d) => s.escrowState(d.id)!.kind).sort()).toEqual(['Held', 'Refunded', 'Refunded']);
     expect(s.escrowState(offer.id)!.kind).toBe('AcceptedByAdjudicator');
+  }, 120_000);
+
+  // T-313: whether a send went out is a flag on the relay's answer (`reverted`), set where the relay learns it. The pass
+  // read the words "reverted on chain" in the answer's detail before; the next two tests change the words each way.
+  /** A budget that counts what the pass takes and gives back. */
+  function counting(): { budget: TimeoutBudget; counts: { taken: number; given: number } } {
+    const counts = { taken: 0, given: 0 };
+    return {
+      counts,
+      budget: {
+        take: async () => {
+          counts.taken++;
+          return true;
+        },
+        give: async () => {
+          counts.given++;
+        },
+      },
+    };
+  }
+
+  it('a send that reverted on chain keeps its budget unit and waits an hour, whatever its detail says', async () => {
+    const { budget, counts } = counting();
+    const c = shimmed(chain);
+    // Between the relay's simulation and its transaction's block, a stranger's reclaim lands: the relay's own reverts.
+    let land: (() => Promise<void>) | undefined;
+    c.simulate = async (tx) => {
+      await LiveChain.prototype.simulate.call(c, tx);
+      const first = land;
+      land = undefined;
+      await first?.();
+    };
+    const { s, pass } = await node({ budget }, c);
+    const d = await funded('t-313-reverted', s);
+    await jump(3_601);
+    // The relay's answer as it left the settlement, then with other words, as a later edit of that message would leave it.
+    const answers: Array<Awaited<ReturnType<EvmSettlement['trigger']>>> = [];
+    const relay = s.trigger.bind(s);
+    s.trigger = async (...a) => {
+      const r = await relay(...a);
+      answers.push(r);
+      return r.ok ? r : { ...r, problem: { ...r.problem, detail: 'the transaction failed in its block' } };
+    };
+    land = () => direct(cast.stranger, chain.deployment.rules, rulesCall('reclaim', [termsView(d.terms)]));
+    const before = await lanes();
+    const r = await pass.run();
+    expect(answers).toEqual([expect.objectContaining({ ok: false, reverted: true })]);
+    expect(answer(answers[0]!)).toMatch(/^invalid_state: reclaim reverted on chain in 0x[0-9a-f]{64} after a passing simulation/);
+    expect(r.sent).toEqual([]);
+    expect(r.refused.map((x) => x.detail)).toEqual(['invalid_state: the transaction failed in its block']);
+    // The transaction went out and cost its gas: the budget keeps the unit, and the deal waits an hour, not a minute.
+    expect((await lanes()) - before).toBe(1);
+    expect(counts).toEqual({ taken: 1, given: 0 });
+    const wait = pass.nextAt()! - wall();
+    expect(wait).toBeGreaterThan(3_500_000);
+    expect(wait).toBeLessThanOrEqual(3_600_000);
+  }, 120_000);
+
+  it('a refusal before the broadcast gets its budget unit back and waits a minute, even when its detail says "reverted on chain"', async () => {
+    const { budget, counts } = counting();
+    const c = shimmed(chain);
+    // The relay's simulation meets a revert string that carries the words (a token's own, say): nothing is sent.
+    const revert: { words?: string } = {};
+    c.simulate = async (tx) => {
+      if (revert.words === undefined) return LiveChain.prototype.simulate.call(c, tx);
+      const data = encodeErrorResult({ abi: [{ type: 'error', name: 'Error', inputs: [{ type: 'string', name: 'message' }] }], errorName: 'Error', args: [revert.words] });
+      throw Object.assign(new Error('execution reverted'), { data });
+    };
+    const { s, pass } = await node({ budget }, c);
+    await funded('t-313-words', s);
+    await jump(3_601);
+    revert.words = 'the transfer reverted on chain';
+    const before = await lanes();
+    const r = await pass.run();
+    expect(r.sent).toEqual([]);
+    expect(r.refused.map((x) => x.detail)).toEqual(['invalid_state: contract revert Error(the transfer reverted on chain)']);
+    expect(await lanes()).toBe(before);
+    expect(counts).toEqual({ taken: 1, given: 1 });
+    const wait = pass.nextAt()! - wall();
+    expect(wait).toBeGreaterThan(0);
+    expect(wait).toBeLessThanOrEqual(60_000);
   }, 120_000);
 });

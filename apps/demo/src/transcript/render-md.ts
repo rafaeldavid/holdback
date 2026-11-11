@@ -4,7 +4,7 @@ import { closing } from './closing.js';
 import { formatAmount } from './money.js';
 import { formatMs, formatScore, header, narrate } from './narrate.js';
 import type { BeatTranscript, DemoEvent } from './types.js';
-import { fenced, mdText, plain, safeJson } from './untrusted.js';
+import { fenced, mdText, plain, safeJson } from '@holdback/testkit';
 
 type Of<K extends DemoEvent['kind']> = Extract<DemoEvent, { kind: K }>;
 export const eventsOf = <K extends DemoEvent['kind']>(t: BeatTranscript, kind: K): Of<K>[] => t.events.filter((e): e is Of<K> => e.kind === kind);

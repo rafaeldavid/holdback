@@ -85,7 +85,8 @@ export interface DemoFacts {
   token: { id: string; decimals: number };
   /** Adjudicators this world runs, by the role a party names them in. A convenience: the parties choose. */
   adjudicators: Array<{ role: 'primary' | 'fallback' | 'appeal'; address: Address; name: string }>;
-  faucet: { path: '/v1/faucet'; grant: TokenAmount; perAddressEverySec?: number; perClientPerWindow?: number };
+  /** `grant` is what a request that names no amount gets; `maxGrant` the largest amount one grant gives, when the faucet has a cap. */
+  faucet: { path: '/v1/faucet'; grant: TokenAmount; maxGrant?: TokenAmount; perAddressEverySec?: number; perClientPerWindow?: number };
   /** Every node of this world. */
   operators?: string[];
   /** The club's shortest judge, fallback and appeal window, in seconds. */
@@ -474,11 +475,13 @@ export class Operator {
 
   /** Catches up with the settlement layer's event log. Serialized, so concurrent reads index once. */
   private sync(): Promise<void> {
-    this.syncing = this.syncing.then(async () => {
+    const next = this.syncing.then(async () => {
       for await (const e of this.o.settlement.events(this.head + 1)) {
-        this.head = e.seq;
         if (USES.has(e.type) && e.actor && e.actor !== 'anyone') this.lastUsed.set(lc(e.actor), e.at);
-        if (!e.commitmentId) continue;
+        if (!e.commitmentId) {
+          this.head = e.seq;
+          continue;
+        }
         let entry = this.index.get(e.commitmentId);
         if (e.type === 'commitment.offered') {
           const t = e.payload['terms'] as AnyCommitmentTerms;
@@ -487,9 +490,13 @@ export class Operator {
           this.index.set(e.commitmentId, entry);
         }
         entry?.events.push(e);
+        // Last, so a throw above leaves the event for the next call to index.
+        this.head = e.seq;
       }
     });
-    return this.syncing;
+    // A failed read fails its own caller only (T-313): the next call reads on from `head + 1`, so it loses no event.
+    this.syncing = next.catch(() => undefined);
+    return next;
   }
 
   // Receipts
@@ -1011,8 +1018,8 @@ export class Operator {
 
   /**
    * POST /v1/faucet (test networks only; the one faucet, D39): test tokens for `address`, and whatever else this
-   * world grants with them (on the public demo, a mandate in its club). `amount` is optional; a node may grant a
-   * fixed amount instead, and `granted` says what it gave.
+   * world grants with them (on the public demo, a mandate in its club). `amount` is optional; the faucet refuses one
+   * above the cap discovery states (`demo.faucet.maxGrant`), and `granted` says what it gave.
    */
   private async faucet(ctx: Ctx, raw: unknown): Promise<StoredResponse> {
     const faucet = this.o.registry.faucet ?? fail('not_found', 'this node has no faucet: it does not serve a test network');
@@ -1021,7 +1028,7 @@ export class Operator {
     if (b.amount !== undefined && (typeof b.amount !== 'string' || !/^[1-9][0-9]{0,30}$/.test(b.amount))) fail('invalid_terms', 'amount, when given, is base units as a decimal string', { field: 'amount' });
     const address = lc(b.address as string) as Address;
     const r = await faucet(address, { ...(typeof b.amount === 'string' ? { amount: BigInt(b.amount) } : {}), client: this.client(ctx) });
-    if (!r.ok) fail(r.problem.type, r.problem.detail, r.retryAfterSec !== undefined ? { retryAfterSec: r.retryAfterSec } : {});
+    if (!r.ok) fail(r.problem.type, r.problem.detail, { ...(r.retryAfterSec !== undefined ? { retryAfterSec: r.retryAfterSec } : {}), ...(r.field !== undefined ? { field: r.field } : {}) });
     return this.ok({ address, ...(r as Extract<typeof r, { ok: true }>).grant });
   }
 
