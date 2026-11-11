@@ -90,6 +90,8 @@ If the seller is down or busy, `try.mjs` plays both sides and says so, so a site
 
 **Test seller deploy 2026-11-11 15:16 UTC, commit `7103cdf`: pass.** crow-test-agents `830eb7e1-9c6d-4892-a153-97b87bf17faa` (rollback target `545afdd8-1e1c-40ff-aa35-2eea83d9ec0e`). This deploy put the test buyer live. The first seller-started deal, `0xd298b3da40a61685ff5903284131607582b9b05dc41a14fa78401facf25c687a`, ended Released (T-239 Evidence) [measured].
 
+**Test seller deploy 2026-11-11 15:45 UTC, commit `69c783b`: pass.** crow-test-agents `6d3b1cb7-dcd3-4ad9-81b8-7042693b9d21` (rollback target `830eb7e1-9c6d-4892-a153-97b87bf17faa`). It carries PR 313's review fixes to the test buyer. A seller-started deal against it, `0xe855a9baf0c72677e92bced214abaa0f62b9b9bf4f993fc051e14e3e5e549b01`, ended Released on Sepolia [measured].
+
 **A world changes in place (D49).** The Sepolia world replays nothing on open, and each deal's book carries its own rulebook. So a rulebook change, an additive schema bump or a code deploy keeps the world names as they are, and deals open at the deploy continue. A new world is for a new rules contract or another chain only; record the switch below. The SimChain world still replays its journal on open, so a rulebook change there needs a new `sim` name (2026-11-02: v0.8 refused v0.7's offers with `rulebook_unknown`). Check `schemaVersion` in `/v1/status` after a deploy, and run `npx wrangler@4 tail holdback-op1 --format json` if it is wrong.
 
 **When a world changes** (D49): Rafa approves the redeploy. Switch while no deal is open on the old world, or send its permissionless timeouts afterwards and record them. Record here the old world's name, rules address and deployment file, the new world's, the Worker versions and the bonds' transactions. Never delete a world's storage: a rollback of both Workers serves it again.
@@ -121,6 +123,16 @@ Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wra
 - holdback-op1 `50fd05c4` and holdback-op2 `1a95b960`, with T-210's and T-211's fixes.
 
 After the deploy, a smoke deal ended Released in 44 s, and the test seller sold once each way (T-222 Evidence) [measured]. To roll back: holdback-op1 `5d369b0e`, holdback-op2 `1f169857` and crow-site `cb0adcb5` (`npx wrangler@4 rollback <version> --name <worker>`); `npx wrangler@4 delete --name crow-test-agents` removes the seller.
+
+### T-323 to T-327: the report converter, the buyer signer's outcome and the adjudicator's reference files (deployed 2026-11-11)
+
+All three deploys below ran on Rafa's go-ahead, or by Rafa himself, on 2026-11-11.
+
+**Site deploy 2026-11-11 15:56 UTC, commit `ac2d2b6` on branch `main`: pass.** crow-site `feff0e7f-fd7b-4d80-88cc-34405ea80092` (rollback target `a3fd2ab0-efb9-4d63-af16-659083754387`). Only `/llms.txt` changed; the live file is 97,269 bytes.
+
+**Deploy 2026-11-11 15:54 UTC, commit `ac2d2b6` on branch `main`: pass.** holdback-op1 `c93d6786-0171-4299-8d93-5b227b3aedfa` (rollback target `80b683f0-9023-4506-91e9-97c10f22809f`), holdback-op2 `24387d5f-e083-413a-8893-ace4204bec3c` (rollback target `2bfc0d0f-f9e6-4363-bdb3-baa90e3ebe54`). Smoke deal `0xb47e5385c117591b0b27b08293e52450c48b3d0bec1a532a8ce3a8f59f36d100` Released in 44 s. It carries T-327's PRs 306 and 312. The smoke deal has no reference check, so no live deal has exercised the reference path.
+
+**Site deploy 2026-11-11 15:04 UTC, commit `488f30a` on a detached HEAD: pass.** crow-site `a3fd2ab0-efb9-4d63-af16-659083754387` (rollback target `6094a438-4ada-4826-861f-10f6d99f4ad4`). Only `/llms.txt` changed: T-323's line on report mappings.
 
 ### T-318 to T-321: the seller adapter, the buyer signer and the audit-deal docs (site deployed 2026-11-11)
 
