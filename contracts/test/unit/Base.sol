@@ -13,7 +13,7 @@ import {DeployPermit2} from "permit2/../test/utils/DeployPermit2.sol";
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
 import {HoldbackBonds} from "../../src/HoldbackBonds.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
-import {SimBeacon} from "../../src/SimBeacon.sol";
+import {SimBeacon} from "../../script/SimBeacon.sol";
 
 /// Exposes the library's struct hashes (calldata-only) to tests.
 contract TypesHarness {

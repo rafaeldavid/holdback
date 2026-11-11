@@ -4,9 +4,9 @@ Crow's settlement contracts (protocol name Holdback), their tests and the Sepoli
 
 | Path | Holds |
 | --- | --- |
-| `src/` | The six contract files an audit covers (see [`docs/audit/scope.md`](../docs/audit/scope.md)) |
+| `src/` | The five contract files an audit covers (see [`docs/audit/scope.md`](../docs/audit/scope.md)) |
 | `test/` | Foundry tests: `unit/`, `fuzz/`, `invariant/` with its handler in `handlers/`, and `crosscheck/` |
-| `script/` | `deploy-sepolia.sh`; `TestUSDC.sol`, the open-mint test token on Sepolia; `LocalUSDC.sol` and `LocalMulticall3.sol`, helpers for the anvil tests |
+| `script/` | `deploy-sepolia.sh`; `TestUSDC.sol`, the open-mint test token on Sepolia; `LocalUSDC.sol`, `LocalMulticall3.sol` and `SimBeacon.sol` (the local chain's beacon, refused on any chain but 31337), helpers for the anvil tests |
 | `deployments/` | The Sepolia deployment records |
 | `lib/commerce-payments` | A git submodule: Coinbase's Commerce Payments Protocol, with the nested libraries `remappings.txt` names |
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {IHoldbackBeacon} from "./IHoldbackBeacon.sol";
+import {IHoldbackBeacon} from "../src/IHoldbackBeacon.sol";
 
 /// @title SimBeacon
 /// @notice The SimChain beacon on a local chain (ADR-0018 §3): value(round) = keccak256(simSeed ‖

@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {DrandQuicknetBeacon} from "../../src/DrandQuicknetBeacon.sol";
-import {SimBeacon} from "../../src/SimBeacon.sol";
+import {SimBeacon} from "../../script/SimBeacon.sol";
 
 /// T-209: the drand quicknet verifier against real rounds fetched from public relays
 /// (fixtures/beacon/drand-quicknet.json carries the source URLs), and the local-chain sim beacon.
