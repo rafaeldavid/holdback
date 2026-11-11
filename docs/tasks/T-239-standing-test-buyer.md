@@ -5,7 +5,7 @@
 - **Depends on:** T-222 (the test seller and the `crow-test-agents` Worker), merged.
 - **Paths this task may touch:** `apps/test-agents/`; `site/llms.txt` (the new seller section only), `site/check.mjs` (a matching check, if needed), `site/index.html` (only as the build regenerates it); `docs/operations.md` (a deploy command for the test buyer only); this file.
 - **Human gate:** yes for the last criterion only: the deploy and the first seller-started deal on Sepolia wait for Rafa.
-- **Status:** done (deployed 2026-11-11; the first seller-started deal ended Released on Sepolia)
+- **Status:** review fixes merged, wait for the redeploy (first deployed 2026-11-11; the first seller-started deal ended Released on Sepolia)
 - **Agent/session:** t-239-standing-test-buyer
 - **Change kind:** 4 (API and operator code): the package's tests, no review, a target of 150k tokens.
 
@@ -56,6 +56,22 @@ Fill this in before review. Label each item measured, inferred or guessed.
   - delivered: https://sepolia.etherscan.io/tx/0xaaf4d5ff51bb18aebcf7cd53b512313027456fc65435675355463342555741ed
   - decided: https://sepolia.etherscan.io/tx/0xfeb97694db5d2b78b0080f201cc67e6fa12f3d7f4eca273f369dc9835791be49
 - Snapshot diffs: none (no scenario fixtures change).
+
+### Review fixes (roadmap row N69, 2026-11-11)
+
+An independent review of PR 309 found 1 High, 2 Medium and 2 Low findings in the live buyer. Rafa: "Yes, fix all three" (the day's High findings). Each one was first a failing test in `buyer.test.ts` ("the review's findings"), then fixed. All 5 failed before the fix and pass after it (measured):
+
+1. **High: a postdated offer.** Before: an offer dated 2099, with short windows, was taken with 202. After: 422 `accepts.windows.maxCreatedAheadSec`. Every window now counts from settlement time at the post, never from the seller's `createdAt`: an offer dated more than 60 s ahead is refused, and the work is due at most 86,400 s from the post.
+2. **Medium: a refused reclaim looped.** Before: one `work()` pass sent 1,190 reclaim POSTs against a 409. After: 1 POST a pass. The next try comes no sooner than 12 s later (`RECLAIM_RETRY_MS`, one Sepolia block), with a new idempotency key, and the status shows `retryAt`.
+3. **Medium: no per-client cap.** Before: a third post from one client in a minute still read the operators. After: 429 `limits.perClientPerMinute`, before any operator read. The buyer allows 6 posts per client a minute and 60 an hour. It counts in memory only, with an IPv6 /64 as one client, and stores no address.
+4. **Low: the open cap raced.** Before: 5 concurrent posts took 5 deals against a cap of 2. After: 2 taken, and 3 answered 429 `limits.open`. The caps are checked again, and the deal written, one post at a time after the operator reads.
+5. **Low: `Agreed` and `Expired`.** Before: a deal in `Agreed` counted as funded, and one that then went `Expired` kept its slot. After: the buyer waits on `Agreed`, closes `Expired` as `expired`, and frees the slot. The 2-minute acceptance rule is now published as `accepts.windows.maxAdjudicatorAcceptSec` (120 s).
+6. **From the triage note: the deploy checks.** `scripts/deploy-checks.mjs` now reads the buyer's `/health` after the seller's health and card, and rolls back when it never reads operational. `deploy.test.ts` adds that case.
+
+- One older test changed with the rule: the over-a-day case offers 86,460 s, not 86,401 s, because the window now counts from the post, a few seconds after `createdAt`.
+- `pnpm exec vitest run apps/test-agents`: 6 files, 72 tests passed. `pnpm typecheck` passes, and `eslint apps/test-agents` reports no findings. `node site/build.mjs` and `node site/check.mjs` pass (measured).
+- The live buyer, read-only (measured, 2026-11-11): `/health` reads `"open": 0`, so it holds no deal, and none with a delivery deadline more than a day out. Its two deals from today ended Released and Refunded.
+- Until the redeploy, the live buyer keeps finding 1 and the others (inferred: it runs `830eb7e1`, built before these fixes).
 
 ## Decisions
 
