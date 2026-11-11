@@ -792,11 +792,11 @@ export class EvmSettlement implements Settlement {
   // Submission
 
   submit(submission: Submission, options: EvmSubmitOptions = {}): Promise<EvmSubmitResult> {
-    return this.enqueue(laneOf(submission), () => this.process(submission, options, false));
+    return this.enqueue(submissionCommitmentId(submission), () => this.process(submission, options, false));
   }
 
   validate(submission: DryRunSubmission): Promise<EvmSubmitResult> {
-    return this.enqueue(laneOf(submission as Submission), () => this.process(submission as Submission, {}, true));
+    return this.enqueue(submissionCommitmentId(submission as Submission), () => this.process(submission as Submission, {}, true));
   }
 
   trigger(commitmentId: Hex32, timeout: TimeoutKind, options: EvmSubmitOptions = {}): Promise<EvmSubmitResult> {
@@ -822,7 +822,7 @@ export class EvmSettlement implements Settlement {
   private async process(s: Submission, options: EvmSubmitOptions, dryRun: boolean): Promise<EvmSubmitResult> {
     const key = dryRun ? undefined : options.idempotencyKey;
     const body = canonicalKeccak(toJson(s));
-    const lane = laneOf(s) as Hex32;
+    const lane = submissionCommitmentId(s) as Hex32;
     // T-219: this commitment's transaction that a restart left in flight lands first, so a retry of it replays the
     // mined result instead of meeting the state that transaction moved.
     if (!dryRun) for (const row of this.world.inFlight?.() ?? []) if (row.note && lc(row.note.commitmentId) === lc(lane)) await this.land(row);
@@ -2702,8 +2702,8 @@ function postedOf(book: Book): Delivery | undefined {
   return book.posted ? deliveryOf(book.posted.note) : undefined;
 }
 
-/** The commitment a submission touches, for its lane. */
-function laneOf(s: Submission): string {
+/** The ID of the commitment a submission touches. Its queue and its relayer lane (live.ts `laneOf`) are keyed by it. */
+function submissionCommitmentId(s: Submission): string {
   switch (s.kind) {
     case 'offer':
       return s.commitment.id;
