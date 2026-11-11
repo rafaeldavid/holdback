@@ -1,9 +1,11 @@
-// crow-test-agents: Crow's always-on test counterparties on the Sepolia test environment (T-222). One Durable Object,
-// Agents, holds the test seller's deals; the Worker forwards each request with the caller's IP, and the object's
-// alarm advances the open deals every few seconds while any is open. The seller reaches the operators over their
-// public API like any agent (seller.ts). Test tokens only: it signs for the pinned Sepolia deployment and nothing
-// else, and refuses to start without its Sepolia-only secret.
-import { knownPins } from '../../../examples/verify.ts';
+// crow-test-agents: Crow's always-on test counterparties on the Sepolia test environment (T-222, T-239). One Durable
+// Object, Agents, holds the test seller's deals and the test buyer's (under the key prefix "buyer:"); the Worker
+// forwards each request with the caller's IP, and the object's alarm advances the open deals every few seconds while
+// any is open. Both reach the operators over their public API like any agent (seller.ts, buyer.ts). Test tokens
+// only: they sign for the pinned Sepolia deployment and nothing else, and refuse to start without their Sepolia-only
+// secret.
+import { knownPins, type Pin } from '../../../examples/verify.ts';
+import { prefixed, TestBuyer } from './buyer.ts';
 import { SEED_VAR } from './keys.ts';
 import { TestSeller, type Storage } from './seller.ts';
 
@@ -28,6 +30,8 @@ export interface Env {
   OPERATOR_ALIASES?: string;
   /** The intake's public URL, such as https://crow.direct/agents/test-seller. */
   SELLER_URL: string;
+  /** The test buyer's public URL, such as https://crow.direct/agents/test-buyer. Without it, no buyer runs. */
+  BUYER_URL?: string;
   /** Worker secret: 32 bytes of 0x-prefixed hex, Sepolia only (apps/test-agents/scripts/seed.mjs). */
   TEST_AGENTS_SEED?: string;
 }
@@ -39,22 +43,45 @@ const SEPOLIA_CHAIN_ID = 11155111;
 
 export class Agents {
   private seller: TestSeller | undefined;
+  private buyer: TestBuyer | undefined;
   constructor(
     private readonly state: DurableObjectState,
     private readonly env: Env,
   ) {}
 
-  private open(): TestSeller {
-    if (this.seller) return this.seller;
+  /** The secret, the pinned Sepolia deployment and the operators both agents run with. */
+  private config(): { seed: string; pin: Pin; operators: string[] } {
     const seed = this.env.TEST_AGENTS_SEED;
     if (!seed || !/^0x[0-9a-fA-F]{64}$/.test(seed)) throw new Error(`${SEED_VAR} is not set: it is a Worker secret (apps/test-agents/scripts/seed.mjs)`);
-    // No real money: the seller signs only for the Sepolia deployment pinned in examples/deployments.ts.
+    // No real money: the agents sign only for the Sepolia deployment pinned in examples/deployments.ts.
     const pin = knownPins().find((p) => p.domain.chainId === SEPOLIA_CHAIN_ID);
     if (!pin) throw new Error('examples/deployments.ts pins no Sepolia deployment');
     const operators = this.env.OPERATOR_URLS.split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean);
+    return { seed, pin, operators };
+  }
+
+  private open(): TestSeller {
+    if (this.seller) return this.seller;
+    const { seed, pin, operators } = this.config();
     const aliases = (this.env.OPERATOR_ALIASES ?? '').split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean);
     this.seller = new TestSeller({ storage: this.state.storage, operators, aliases, seed, pin, base: this.env.SELLER_URL });
     return this.seller;
+  }
+
+  /** The test buyer, when BUYER_URL is set: its deals live under "buyer:" in the same storage. */
+  private openBuyer(): TestBuyer | undefined {
+    if (this.buyer || !this.env.BUYER_URL) return this.buyer;
+    const { seed, pin, operators } = this.config();
+    this.buyer = new TestBuyer({ storage: prefixed(this.state.storage, 'buyer:'), operators, seed, pin, base: this.env.BUYER_URL });
+    return this.buyer;
+  }
+
+  /** Whether a request is for the buyer: its path is the buyer's base path or under it. */
+  private forBuyer(request: Request): boolean {
+    if (!this.env.BUYER_URL) return false;
+    const base = new URL(this.env.BUYER_URL).pathname.replace(/\/+$/, '');
+    const path = new URL(request.url).pathname;
+    return path === base || path.startsWith(`${base}/`);
   }
 
   /** Sets the alarm for `next` when none is set, a later one is, or the set one is overdue (its handler failed). */
@@ -66,15 +93,19 @@ export class Agents {
 
   async fetch(request: Request): Promise<Response> {
     const seller = this.open();
-    const response = await seller.fetch(request, request.headers.get(CLIENT) ?? 'unknown');
+    const buyer = this.openBuyer();
+    const response = buyer && this.forBuyer(request) ? await buyer.fetch(request) : await seller.fetch(request, request.headers.get(CLIENT) ?? 'unknown');
     // Any request re-arms a missing or overdue alarm while a deal is open, as the World does (docs/operations.md):
-    // a lost alarm chain would otherwise leave open deals, and the open cap, stuck. An idle seller sets none.
-    if (await seller.hasOpen()) await this.schedule(Date.now() + 500);
+    // a lost alarm chain would otherwise leave open deals, and the open cap, stuck. Idle agents set none.
+    if ((await seller.hasOpen()) || (buyer && (await buyer.hasOpen()))) await this.schedule(Date.now() + 500);
     return response;
   }
 
   async alarm(): Promise<void> {
-    await this.schedule(await this.open().work());
+    // Each agent's work runs on its own: one that throws does not stop the other's deals.
+    const runs = await Promise.allSettled([this.open().work(), this.openBuyer()?.work() ?? Promise.resolve(null)]);
+    const next = runs.map((r) => (r.status === 'fulfilled' ? r.value : Date.now() + 5000)).filter((x): x is number => x !== null);
+    await this.schedule(next.length ? Math.min(...next) : null);
   }
 }
 

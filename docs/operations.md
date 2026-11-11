@@ -52,6 +52,11 @@ npx wrangler@4 kv key list --binding EMAILS --config apps/early-access/wrangler.
 
 # Crow's test seller (T-222): deploys, waits for /health to read operational, and rolls back on its own
 node apps/test-agents/scripts/deploy.mjs
+
+# Crow's test buyer (T-239): the same Worker and the same command; then check the buyer and run one deal
+node apps/test-agents/scripts/deploy.mjs
+curl -s https://crow.direct/agents/test-buyer/health
+node apps/test-agents/scripts/sell-to-test-buyer.mjs
 ```
 
 **Every deploy script starts with a pre-flight** (T-313, `scripts/deploy-lib.mjs`). It refuses, with exit code 2 and before any build or upload, a checkout whose tracked files differ from its commit, and one that lacks origin/main's commits after a fresh fetch. So a deploy uploads the commit its record line names, and never an old wrangler file. Untracked files are fine.
@@ -76,6 +81,12 @@ node apps/test-agents/scripts/deploy.mjs
 6. Publish the site (above).
 
 If the seller is down or busy, `try.mjs` plays both sides and says so, so a site published first still completes a deal. **The mandate runs out after 30 days.** The seller asks the faucet for a fresh one 2 hours before. With T-223 (PR 191) each grant signs a new 30-day mandate. Operators that do not yet run T-223 return the address's existing mandate (D47), so the seller marks itself degraded and its health line reads `degraded`. In that case Rafa deploys the operators, or rotates the secret with `seed.mjs --replace`; a world reset also clears it.
+
+**Crow's test buyer, the first deploy** (T-239; Rafa's go-ahead first). The buyer runs in crow-test-agents beside the seller, on the route `crow.direct/agents/test-buyer*` with `BUYER_URL` set (`apps/test-agents/wrangler.jsonc`). Its key derives from `TEST_AGENTS_SEED` under its own label, so it needs no new secret. It takes its test tUSDC and its mandate from the faucet, and holds no ETH.
+
+1. `node apps/test-agents/scripts/deploy.mjs`: uploads the Worker with the new route. The script's checks read the seller's health only.
+2. `curl -s https://crow.direct/agents/test-buyer/health` should read `"status": "operational"`, and `https://crow.direct/agents/test-buyer/agent.json` a `crow-buyer` card.
+3. `node apps/test-agents/scripts/sell-to-test-buyer.mjs` plays an outside seller with fresh keys and should end `released`; add `--outcome refund` to see a refund. Record the transactions in T-239's Evidence.
 
 **A world changes in place (D49).** The Sepolia world replays nothing on open, and each deal's book carries its own rulebook. So a rulebook change, an additive schema bump or a code deploy keeps the world names as they are, and deals open at the deploy continue. A new world is for a new rules contract or another chain only; record the switch below. The SimChain world still replays its journal on open, so a rulebook change there needs a new `sim` name (2026-11-02: v0.8 refused v0.7's offers with `rulebook_unknown`). Check `schemaVersion` in `/v1/status` after a deploy, and run `npx wrangler@4 tail holdback-op1 --format json` if it is wrong.
 

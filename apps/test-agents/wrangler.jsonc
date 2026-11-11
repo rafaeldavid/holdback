@@ -7,6 +7,9 @@
 // is set by apps/test-agents/scripts/seed.mjs; it holds no Sepolia ETH, since the operators relay and pay the gas.
 // Workers Logs keeps the seller's transition lines (deal number, commitment ID, state; never a token or an IP) but no
 // invocation logs, which would record each caller's IP (docs/operations.md, Telemetry).
+// Crow's test buyer (T-239) runs in the same Worker at https://crow.direct/agents/test-buyer, on its own route. Its
+// key derives from the same secret under its own label ("buyer/standing"), so it needs no secret of its own; it takes
+// its test tUSDC and its mandate from the operators' faucet. It has no route on escrow.stream: it never lived there.
 {
   "name": "crow-test-agents",
   "main": "src/worker.ts",
@@ -16,9 +19,10 @@
   "preview_urls": false,
   "routes": [
     { "pattern": "crow.direct/agents/test-seller*", "zone_name": "crow.direct" },
-    { "pattern": "escrow.stream/agents/test-seller*", "zone_name": "escrow.stream" }
+    { "pattern": "escrow.stream/agents/test-seller*", "zone_name": "escrow.stream" },
+    { "pattern": "crow.direct/agents/test-buyer*", "zone_name": "crow.direct" }
   ],
-  "vars": { "OPERATOR_URLS": "https://api.crow.direct,https://api2.crow.direct", "OPERATOR_ALIASES": "https://api.escrow.stream,https://api2.escrow.stream", "SELLER_URL": "https://crow.direct/agents/test-seller" },
+  "vars": { "OPERATOR_URLS": "https://api.crow.direct,https://api2.crow.direct", "OPERATOR_ALIASES": "https://api.escrow.stream,https://api2.escrow.stream", "SELLER_URL": "https://crow.direct/agents/test-seller", "BUYER_URL": "https://crow.direct/agents/test-buyer" },
   "durable_objects": { "bindings": [{ "name": "AGENTS", "class_name": "Agents" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Agents"] }],
   "observability": { "enabled": true, "logs": { "invocation_logs": false } }
