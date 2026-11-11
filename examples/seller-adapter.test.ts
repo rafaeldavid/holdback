@@ -11,6 +11,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Agent } from './agent.ts';
 import { config as shipped, startSellerAdapter, type RunningAdapter, type SellerAdapterConfig } from './seller-adapter.ts';
 import { startStubSellerApi, type StubSellerApi, type StubOptions } from './seller-adapter-stub.ts';
+import { serveTwoOrigins } from './two-origins.ts';
 import { typedOf } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -163,6 +164,36 @@ describe('seller adapter: quote to offer', () => {
       await running.close();
       await stub!.close();
       stub = undefined;
+    }
+  });
+
+  it('refuses a price in a token other than the settlement layer\'s, and says which token it holds', async () => {
+    // A seller API set up for a chain prices in that chain's token address; this world holds tUSD.
+    const { running, lines } = await adapter({}, { token: '0x5029787d7e141f2d51788035cc23903652d196b6' });
+    const r = await quoteFor(running, agent('buyer-1'));
+    expect(r.status).toBe(502);
+    expect(r.body).toEqual({ type: 'seller_api_failed', detail: 'the seller could not price this scope' });
+    expect(lines.join('\n')).toContain("Quote refused: the seller API priced in 0x5029787d7e141f2d51788035cc23903652d196b6; this settlement layer's token is tUSD (tUSD).");
+    expect(running.deals()).toEqual([]);
+  });
+});
+
+describe('seller adapter: the settlement layer', () => {
+  it('signs under the domain the operators serve, and refuses to start on one that is not pinned', async () => {
+    // The adapter's offer on this world verifies under the domain discovery serves (the first quote test). Two
+    // operators that serve another domain: the adapter stops before it signs anything, and names the domain.
+    const foreign = { name: 'Holdback', version: '0.7', chainId: 99_999, verifyingContract: `0x${'12'.repeat(20)}` };
+    const world = { fetch: async () => new Response(JSON.stringify({ domain: foreign }), { headers: { 'content-type': 'application/json' } }), work: async () => {} };
+    const served = await serveTwoOrigins(world as unknown as Parameters<typeof serveTwoOrigins>[0]);
+    stub = await startStubSellerApi({ port: 0 });
+    try {
+      const start = startSellerAdapter(
+        { ...shipped, port: 0, sellerApi: stub.api, journal: join(mkdtempSync(join(tmpdir(), 't321-')), 'journal.json'), log: () => {} },
+        { HOLDBACK_KEY: acct('seller-1').privateKey, HOLDBACK_OPERATORS: served.urls.join(',') },
+      );
+      await expect(start).rejects.toThrow(/^the operators serve EIP-712 domain \{"chainId":99999,.*\}, not one pinned in verify\.ts \(/);
+    } finally {
+      await served.close();
     }
   });
 });
