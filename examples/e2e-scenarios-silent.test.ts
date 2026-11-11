@@ -81,7 +81,7 @@ describe('e2e-scenarios-silent.ts', () => {
       expect(r.out, r.out).toMatch(/^results: 3b (pass|fail), 4 waits, 9 pass, 10b pass$/m);
       for (const id of ['9', '10b']) expect(failed(byId[id]), id).toEqual([]);
       // anvil 1.0.0 refuses to estimate a trigger whose EIP-7623 calldata floor exceeds its execution gas, so the
-      // operator's relay can answer 500 and the driver sends the call directly (docs/backlog.md); Sepolia's nodes estimate it.
+      // operator's relay can answer 500 and the driver sends the call directly (backlog); Sepolia's nodes estimate it.
       const known = /^(fallback|default) relayed through the API: /;
       for (const f of failed(byId['3b'])) expect(f).toMatch(known);
       // The anvil world's fallback decides on a chain only with drand proofs (T-217).

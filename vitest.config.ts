@@ -38,6 +38,7 @@ const COST: Record<string, number> = {
   'examples/e2e-settle.test.ts': 45,
   'apps/demo/src/transcript/narrate.test.ts': 43,
   'apps/operator/src/sim-world.test.ts': 42,
+  'examples/seller-adapter.test.ts': 40, // T-318, measured locally at about 4 s; not yet measured in CI
   'tests/contract/openapi.contract.test.ts': 36,
   'examples/verify.test.ts': 29,
   'packages/settlement/sim/simchain.test.ts': 23,

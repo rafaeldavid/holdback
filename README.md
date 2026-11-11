@@ -85,7 +85,7 @@ The contract review (T-206) is done: models from two families reviewed the contr
 As of 2026-11-06:
 
 - **Done, 2026-11-01: Phase 1.** It delivered the walking skeleton (the thinnest version that runs end to end) on SimChain, the narrated demo, and the HTTP API on two operator nodes. It also delivered the public demo at escrow.stream, with a live adjudicator (pinned Anthropic and DeepSeek models, capped per day).
-- **In progress: Phase 2, settlement on EVM (the Ethereum virtual machine).** The focus is stable operations on Sepolia (D53); Phase 2's seven exit criteria are in `docs/plan.md` (D54).
+- **In progress: Phase 2, settlement on EVM (the Ethereum virtual machine).** The public demo settles on Ethereum Sepolia, and `docs/plan.md` lists Phase 2's seven exit criteria.
   - **Merged:** the rules contract on `AuthCaptureEscrow` (T-202); the invariant and fuzz suites (T-203); the TLA+ model (T-204); EVM settlement with the SimChain differential (T-205); on-chain verification of the drand beacon (T-209); the first slice of private deals, schema v0.8 (T-207).
   - **Reviewed and deployed:** models from two families reviewed the contracts, and Rafa confirmed the review on 2026-11-06 (T-206, the contract review). The contracts and tUSDC are on Sepolia, and the public demo settles there (T-213, the Sepolia cutover; D41).
   - **Redeployed on 2026-11-04 as the 0.7 contracts** (EIP-712 domain 0.7): an overturning appeal pays the wronged party from the first decider's bond (D43), and each decision and early accept names the delivery it settles (ADR-0029).
@@ -96,7 +96,7 @@ As of 2026-11-06:
   - **Blocked until an audit:** Ethereum mainnet, the target chain (D4, the chain decision).
 - **Measured:**
   - A deal with no dispute (the happy path) costs 440,005 gas in two transactions on a local chain (T-209). The deal pays the operator fee, which the demo charges, as part of funding. Gas is the chain's unit of computation, paid for in ETH.
-  - The same deal on Sepolia took 1,636,242 gas in three transactions on the 0.7 contracts (T-215, 2026-11-04). On 2026-11-05 the median deal used 1,261,428 gas, its appeal expiry included, from per-step medians over 15 and 16 deals (T-066's metrics, `docs/costs.md`). The demo's minimum operator fee, 4.71 tUSDC, prices the first figure: 4.70 for the gas, at a fixed and fictional rate, and 0.01 for relaying (T-215, the gas share on small deals).
+  - The same deal on Sepolia took 1,636,242 gas in three transactions on the 0.7 contracts (T-215, 2026-11-04). On 2026-11-05 the median deal used 1,261,428 gas, its appeal expiry included, from per-step medians over 15 and 16 deals (T-066's metrics). The demo's minimum operator fee, 4.71 tUSDC, prices the first figure: 4.70 for the gas, at a fixed and fictional rate, and 0.01 for relaying (T-215, the gas share on small deals).
   - On 2026-11-06, at `5cb8c25`, `pnpm snap` passed all 30 scenarios in `fixtures/scenarios/`: 29 fixtures, plus 1 `todo.` record of a known gap. `forge test` passed 241 contract tests.
 - **Limits,** as "Honest limits" in https://crow.direct/llms.txt lists them:
   - test tokens only;
@@ -104,7 +104,7 @@ As of 2026-11-06:
   - a signed step the operators cannot read leaves their view of a deal behind the chain, and their adjudicators then skip that deal (residual 13 in `docs/neutrality.md`; T-227 fixes it before mainnet, D50);
   - the judges are uncalibrated.
 
-`docs/plan.md` lists every task by phase. The newest file in `docs/log/` has the latest "Next steps".
+`docs/plan.md` lists the current build's tasks by phase.
 
 ## Repository map
 
@@ -123,12 +123,15 @@ As of 2026-11-06:
 | `formal/` | The TLA+ model of the commitment state machine |
 | `spec/` | JSON Schemas (the API contract), examples and the OpenAPI document |
 | `fixtures/` | Scenario fixtures, recordings, demo clubs, terms and data |
-| `examples/` | Example agents that use only HTTP, an EIP-712 signing library and NaCl |
+| `examples/` | The reference agent, which uses only HTTP, an EIP-712 signing library and NaCl. Four of its files run in production: the test seller imports `agent.ts` and `verify.ts`, and `site/try.mjs` is the bundle of `try.ts` with them and `deployments.ts`. The `e2e-*` files drive round 1 on Sepolia |
 | `site/` | crow.direct and its agent guide, `site/llms.txt` |
 | `tools/` | The agent simulation, the design map and the contract-stack page |
+| `scripts/` | Build and check scripts: the spec and OpenAPI checks, `pnpm verify`, `pnpm health`, the shared deploy helper, the metrics Crow Control reads |
+| `tests/` | Tests that cross packages: the API contract, the spec, the lint rules, the scripts |
+| `config/` | The judge registries and the templates for local settings |
 | `docs/` | Specs, decisions, ADRs, tasks, plan, reviews and research |
 
-Read first: `docs/PRD.md`, `docs/neutrality.md`, `docs/architecture.md`, `docs/judgment-and-defenses.md` and `docs/api.md`.
+Read first: `docs/PRD.md`, `docs/neutrality.md`, `docs/architecture.md`, `docs/judgment-and-defenses.md` and `docs/api.md`. Planning and business documents are kept in a private repository; [docs/private-materials.md](docs/private-materials.md) lists them and says how to ask for access.
 
 ## How it is built
 

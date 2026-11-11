@@ -76,7 +76,7 @@ const callsOf = (deal: Deal, fn: string) => deal.record.transactions.flatMap((t)
  * A timeout trigger through the API, as any party may send it, recorded as a check. When another sender got there
  * first (the deal has left every state in `from`), it says so. When the operator fails it, the round sends the call
  * directly from the buyer's key instead (the escape hatch, ADR-0005), so the deal still ends: anvil 1.0.0 refuses to
- * estimate a call whose EIP-7623 calldata floor exceeds its execution gas, a cheap trigger among them (docs/backlog.md).
+ * estimate a call whose EIP-7623 calldata floor exceeds its execution gas, a cheap trigger among them (backlog).
  * Returns who sent it.
  */
 async function sendTrigger(r: Run, deal: Deal, kind: 'fallback' | 'default', fn: 'triggerFallback' | 'triggerDefault', from: string[]): Promise<string> {

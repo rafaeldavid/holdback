@@ -84,7 +84,7 @@ const said = (out) => (lastLine(out) ? ` (${lastLine(out)})` : '');
  *   fetch: { code: number | null, out: string },
  *   ancestor: { code: number | null, out: string },
  * }} facts `command` is the deploy to run again, as its user types it; `branch` is `git branch --show-current` (empty
- *   on a detached HEAD); `status` is `git status --porcelain --untracked-files=no`; `fetch` is `git fetch origin main`;
+ *   on a detached HEAD); `status` is `git status --porcelain --untracked-files=no --ignore-submodules=dirty`; `fetch` is `git fetch origin main`;
  *   `ancestor` is `git merge-base --is-ancestor origin/main HEAD`. A code of null means the command timed out.
  * @returns {string | null} null when the deploy may go on; otherwise the one sentence that refuses it.
  */
@@ -117,7 +117,9 @@ export async function checkout(command, run = sh) {
   const refused = preflight({
     command,
     branch,
-    status: await git('status', '--porcelain', '--untracked-files=no'),
+    // A changed or untracked file inside a submodule is ignored: no deploy uploads anything from one (contracts/lib),
+    // and such a file refused the first deploy from the main checkout (2026-11-11). A moved submodule commit still counts.
+    status: await git('status', '--porcelain', '--untracked-files=no', '--ignore-submodules=dirty'),
     fetch: await git('fetch', 'origin', 'main'),
     ancestor: await git('merge-base', '--is-ancestor', 'origin/main', 'HEAD'),
   });
