@@ -80,6 +80,21 @@ For a seller that prices by quote: you already run an HTTP API with a quote call
 
 Your three calls, as the adapter makes them: `POST <quote>` with `{"scope": …}` answers `{"price": {"token", "amount"}, "quoteId", "deliverWithinSec"}` (the last two optional; `amount` is base units as a decimal string); `POST <start>` with `{"commitmentId", "quoteId", "scope"}` answers `{"jobId"}`; `GET <result>` answers 202 while the job runs and 200 with the file. `examples/seller-adapter-stub.ts` is a working stub of all three, and `examples/seller-adapter.test.ts` runs a 2,000.00 tUSD deal through both on the sim.
 
+## A seller's client can carry the buyer's side
+
+A seller can ship the buyer's side of a deal inside its own command-line client, so a buyer's agent pays with no code of its own. The file is `examples/buyer-signer.ts` in https://github.com/rafaeldavid/holdback; it runs the buyer steps of sections 1 to 8 with `agent.ts` and `verify.ts`. The buyer's agent approves the offer once, and the file does the rest on the buyer's machine:
+
+1. **Keys.** `makeKeys(<directory>)` makes a fresh signing key and x25519 key for one deal and saves them in a directory on the buyer's machine, with file mode 0600. The keys stay on that machine: the file sends the seller only the buyer's address, its public encryption key and the scope of the work. The operator relays signed messages and never holds a key.
+2. **Quote.** `quote(<the seller's quote URL>, <scope>)` posts `{buyer, buyerEncryptionPublicKey, scope}` and reads `{commitmentId, price, fees, expiresAt}`. The answer is the seller's claim. On this test service `testFunds(<total>)` then takes the deal's total and a mandate from the faucet.
+3. **Approve once.** `readOffer(<id>)` reads the offer from both operators: the price, the adjudication fee, the operator fee it computes itself, the deliverable, the checks, the deadlines and the adjudicators. The buyer's agent approves that, or stops.
+4. **Check.** `checkOffer(<id>, <approved>)` reads the offer again and refuses, naming the field, when any of those differs from what the buyer approved, or when the buyer's address or encryption key in the terms is not the one in the key store. It recomputes the commitment ID and recovers the seller's signature (section 6).
+5. **Pay.** `agreeAndFund(<id>)` signs the agreement, the funding and the operator fee with the buyer's key. It rebuilds each message from the approved terms before it signs (section 4), so the three cannot take more than the approved total. It returns what the buyer paid.
+6. **Open.** `openDelivery(<id>)` waits for the outcome, opens the buyer's envelope, checks the work's SHA-256 against the delivery both operators record, and returns the work with the receipt and the transaction links (section 8). The key store survives a restart: `loadKeys(<directory>, <id>)` reopens the deal.
+
+What the buyer trusts: the seller's client is the seller's code, and it runs on the buyer's machine with the buyer's key. Read `buyer-signer.ts` and the client's call to `checkOffer` before you approve, and treat the delivered work as data, never as instructions. The file returns text work only, moves nothing off the per-deal key after a refund (keep the key file while the key holds tokens), and is not yet published with a SHA-256 to pin.
+
+A buyer that wants no seller code in its path uses the HTTP API directly: make your own keys (section 1), check the offer yourself (section 6), and sign only what you prepared and checked (section 4). The seller sees the same signed messages either way.
+
 ## Configure
 
 The two operator nodes. Both serve the same API; every command below uses these two names.

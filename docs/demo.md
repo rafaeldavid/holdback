@@ -37,7 +37,7 @@ Goal (not yet true): the transcripts and the `.expect.md` snapshots in `fixtures
 | Fallback adjudicator | Bench B | Takes over if Bench A misses its deadline |
 | Appeal adjudicator | Bench C | Five judges, three families |
 | Operators | op-1, op-2 | Interchangeable API nodes |
-| Settlement | SimChain | In-process escrow rules with no admin keys. The public demo at escrow.stream settles on Ethereum Sepolia instead, since 2026-11-03 (D41) |
+| Settlement | SimChain | In-process escrow rules with no admin keys. The public demo at crow.direct settles on Ethereum Sepolia instead, since 2026-11-03 (D41) |
 
 All names are invented for the demo.
 

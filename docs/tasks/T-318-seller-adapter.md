@@ -6,7 +6,7 @@
 - **Depends on:** T-316 (`preflightDelivery`, PR 278), T-317 (the audit-report terms and sample reports, PR 273)
 - **Paths this task may touch:** `examples/seller-adapter.ts`, `examples/seller-adapter-stub.ts`, `examples/seller-adapter.template.json`, `examples/seller-adapter.test.ts`, `vitest.config.ts` (the test file's cost line only), `.gitignore` (the journal's line only), `site/llms.txt` (the card paragraph and the new section only), `site/index.html` (only if the build regenerates it), this file. Never: `spec/schemas/`, `contracts/`, `packages/`, `apps/`, `examples/buyer-signer.ts` (T-319).
 - **Human gate:** no. The site deploy that publishes the `llms.txt` section waits for Rafa.
-- **Status:** review
+- **Status:** done (PR 284, merged 2026-11-11)
 - **Agent/session:** the T-318 session, 2026-11-11, branch `t-318-seller-adapter`
 
 ## Intent
@@ -82,6 +82,8 @@ All runs on 2026-11-11, on branch `t-318-seller-adapter`, cut from `origin/main`
 - **The examples and the site's tests (measured).** `pnpm exec vitest run examples tests/site-deploy.test.ts tests/audit-report-template.test.ts`: 20 files passed; 210 tests passed and 13 skipped. That run came before the operator-fee test and the `total` field; the adapter's own test ran again after them.
 - **Types and lint (measured).** `pnpm typecheck` exits 0. `pnpm lint` prints nothing.
 - **Site (measured).** `node site/build.mjs && node site/check.mjs`: "site check PASS". `site/index.html` and `site/try.mjs` did not change.
+- **After merging `origin/main` at `9d39709` (measured).** T-319's section and this one both sit before "Configure" in `site/llms.txt`. `pnpm exec vitest run examples/seller-adapter.test.ts` passed again with 10 tests, and so did `pnpm typecheck`, `pnpm lint` and the site check. T-319's `examples/buyer-signer.test.ts`, which this branch does not change, failed 2 of 3 runs alone on this machine (Handoff, finding 1).
+- **CI (measured).** Every check on PR 284 passed before the merge of `origin/main`: four test shards, typecheck, lint, spec, snap, contracts, formal, gitleaks and CodeQL.
 - **Not run.** The full `pnpm verify` (the recipe keeps it for deploys), `pnpm snap` (no scenario or judgment code changed) and gitleaks, which is not installed on this machine. CI runs all three.
 
 ## Decisions
@@ -103,7 +105,7 @@ All runs on 2026-11-11, on branch `t-318-seller-adapter`, cut from `origin/main`
 
 **Not done.**
 - The site deploy that publishes the section waits for Rafa.
-- T-319's buyer signer (PR 281) has not run against this adapter. Its test plays the seller itself. A follow-up test can point `examples/buy-with-signer.ts` at the adapter: the signer sends the scope as given, and the adapter's sample rules want `{commit, files, lines}`.
+- T-319's buyer signer (PR 281, merged 2026-11-11) has not run against this adapter. Its test plays the seller itself. A follow-up test can point `examples/buy-with-signer.ts` at the adapter: the signer sends the scope as given, and the adapter's sample rules want `{commit, files, lines}`.
 
 **Follow-ups, each out of scope here.**
 1. **A ledger with a monthly export.** The journal keeps every deal and every keyed quote answer and never prunes them.
@@ -113,6 +115,10 @@ All runs on 2026-11-11, on branch `t-318-seller-adapter`, cut from `origin/main`
 5. **A rate limit on `POST /quote`.** Each quote makes the adapter sign and submit an offer. The adapter listens on 127.0.0.1; a seller puts its own front before it.
 6. **Private and judgment-level deals.** The adapter makes public-level offers with the seller's standing key. Per-deal keys and sealed terms (ADR-0024) need `Agent.offerPrivate`.
 7. **A second look at a refused result.** After a failed preflight the adapter stops on that deal. It does not fetch a corrected result.
+
+**Findings for other lanes, none fixed here.**
+
+1. **Medium · `examples/buyer-signer.test.ts` (T-319, PR 281) fails some runs.** On 2026-11-11 the test "checkOffer refuses an offer whose price, check list or adjudicator differs" failed 2 of 3 runs alone on this machine, on files identical to `origin/main` at `9d39709`: it reads the commitment once and expects `AcceptedByAdjudicator`, and the primary adjudicator had not accepted yet, so the state read `Offered`. Impact: a test shard in CI can fail on any PR. Next action: the T-319 session waits for the state (`waitFor`) before it asserts.
 
 **Known limits.**
 - Run one adapter per journal. Two processes on one journal could both call start; the `Idempotency-Key` still gives one job on a seller API that honors it.
