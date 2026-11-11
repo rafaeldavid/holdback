@@ -5,7 +5,7 @@
 - **Depends on:** none
 - **Paths this task may touch:** `apps/operator/src/server.ts`, `apps/operator/src/problems.ts`, `apps/operator/src/agent-ready.test.ts`, `apps/demo-cloud/src/world.ts`, `apps/demo-cloud/src/world.test.ts`, `spec/openapi/paths.json` and the generated `spec/openapi.json`, `docs/api.md` and `site/llms.txt` (the ciphertext sentences), this file.
 - **Human gate:** yes for the deploy only: the live operators publish the cap after Rafa deploys them. Everything else is in the repository.
-- **Status:** review
+- **Status:** done (merged in PR 276 on 2026-11-11; not deployed: the live operators and the site show it after Rafa deploys them)
 - **Agent/session:** faucet and ciphertext-cap session, 2026-11-11 (Rafa asked for T-314 and T-315 that day)
 
 ## Intent
