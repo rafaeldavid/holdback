@@ -188,7 +188,7 @@ describe('I. judges see what the checks see', () => {
 
 // ---------------------------------------------------------------- K. DoS
 // Wall-clock budgets are flaky under load, so they run only in the opt-in perf pass, alone:
-// HOLDBACK_PERF=1 pnpm vitest run packages/judgment/src/redteam.test.ts (docs/backlog.md).
+// HOLDBACK_PERF=1 pnpm vitest run packages/judgment/src/redteam.test.ts (backlog).
 describe.runIf(process.env['HOLDBACK_PERF'] === '1')('K. linear but expensive inputs stay within budget at 10 MB', () => {
   it('K1 a bounded pattern on long cells', () => {
     const r = compileSafeRegex('^[^,]{0,1000}x{0,1000}$');

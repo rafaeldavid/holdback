@@ -29,13 +29,13 @@ A change to one part of Crow often means another part must change too. This page
 | testagents | Crow's test seller | `apps/test-agents/` | escrow.stream/agents/test-seller, live since 2026-11-04 (D47, T-222) |
 | quickstart | Quickstart | `docs/quickstart.md`, `tools/sim/README.md` | |
 | ghdocs | GitHub docs | `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, `LICENSE`, `.github/ISSUE_TEMPLATE/`, `.github/pull_request_template.md` | The repository's front page on GitHub |
-| roadmap | Roadmap | `docs/plan.md`, `docs/backlog.md`, `docs/tasks/` | |
+| roadmap | Roadmap | `docs/plan.md`, `docs/tasks/` | |
 | decisions | Decisions | `docs/decisions-today.md`, `docs/decisions/` | |
 | log | Daily log | `docs/log/` | |
 | map | Design map | `scripts/design-map.mjs`, `tools/design-map/`, `tests/design-map.test.ts` | The page `pnpm map` writes (git-ignored), and the claude.ai design map page, which `/map` republishes |
 | console | Founder console | | A private page built from the design map, the newest log, the task files, the radar's inputs and GitHub |
 | stack | Contract-stack page | `scripts/contract-stack.mjs`, `tools/contract-stack/`, `tests/contract-stack.test.ts` | https://control.escrow.stream/contracts (the founder console) |
-| costs | Costs and telemetry | `scripts/costs/`, `tests/costs/`, `docs/costs.md`, `config/costs.template.json`, `config/keys-costs.template`, `apps/demo-cloud/src/telemetry.ts`, `apps/demo-cloud/src/feedback-store.ts`, `apps/demo-cloud/scripts/feedback.ts` | The cost collector's daily output, kept outside the repository |
+| costs | Costs and telemetry | `scripts/costs/`, `tests/costs/`, `config/costs.template.json`, `config/keys-costs.template`, `apps/demo-cloud/src/telemetry.ts`, `apps/demo-cloud/src/feedback-store.ts`, `apps/demo-cloud/scripts/feedback.ts` | The cost collector's daily output, kept outside the repository |
 
 ## Flows
 
@@ -71,7 +71,7 @@ A change to one part of Crow often means another part must change too. This page
 | agentdocs | homepage | checked | `node site/build.mjs` renders `site/index.html` from `site/llms.txt`. `examples/try.test.ts` (`pnpm test`) and `node site/check.mjs` fail while it is stale. | One source for the page and the agent guide (`site/check.mjs`, group 1). |
 | roadmap | map | generated | `pnpm map` reads the phases in `docs/plan.md` and each task file's status. | |
 | roadmap | stack | generated | `pnpm stack` reads `docs/tasks/T-212-contract-hardening.md`: an item marked "**Done**" shows its finding as fixed, and its "Gas on Sepolia" line gives the smoke deal's gas. | The hardening task is where a contract fix is recorded once it merges. |
-| decisions | roadmap | manual | Write a decision that changes scope, order or a phase into `docs/plan.md`, `docs/backlog.md` or the task files (inferred). | Rafa, 2026-11-04: a roadmap decision lives "only in the roadmap and crow-control". |
+| decisions | roadmap | manual | Write a decision that changes scope, order or a phase into `docs/plan.md`, the private backlog or the task files (inferred). | Rafa, 2026-11-04: a roadmap decision lives "only in the roadmap and crow-control". |
 | decisions | map | generated | `pnpm map` reads `docs/decisions-today.md` and each ADR's status. | `tests/design-map.test.ts` checks every decision has a known status. |
 | log | map | generated | `pnpm map` reads the newest log's "Waiting on Rafa". | |
 | map | console | generated | The console's build calls the map's `collect()` and renders the map page beside it; it also reads the task files and the newest log directly. At each milestone, a session republishes the claude.ai copy of the map by hand with `/map`. | `docs/team.md`, Cadence: run `/map` at each milestone. |

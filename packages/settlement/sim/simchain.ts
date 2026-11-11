@@ -301,7 +301,7 @@ export class SimChain implements Settlement {
   /**
    * Test only (the public demo's faucet): adds a principal-signed mandate after genesis, as genesis
    * mandates are, and journals it so a replay has the same agents. Phase 1 has no run-time registration on a
-   * real settlement layer (docs/backlog.md). Returns a problem when the club is unknown or the signature does
+   * real settlement layer (backlog). Returns a problem when the club is unknown or the signature does
    * not recover to the principal; a later mandate for the same agent and club replaces the earlier one.
    */
   async admit(mandate: Mandate): Promise<Problem | null> {
@@ -619,7 +619,7 @@ export class SimChain implements Settlement {
     return tx.bal(account.junior(a)) + tx.bal(account.senior(a)) - tx.reservedOf(a);
   }
 
-  /** On takeover, reserve up to the price from what the pool has free (shortfall: docs/backlog.md, F5). */
+  /** On takeover, reserve up to the price from what the pool has free (shortfall: backlog, F5). */
   private reserveUpTo(tx: Tx, id: Hex32, a: string, price: bigint): void {
     const free = this.available(tx, a);
     this.reserve(tx, id, a, min(price, free > 0n ? free : 0n));

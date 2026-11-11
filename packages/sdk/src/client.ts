@@ -3,7 +3,7 @@
 // (ADR-0005, the escape hatch). Operators add speed, never authority: the SDK treats any operator refusal as a
 // reason to try the next one, and only the settlement layer's own refusal is final. An operator's success is
 // taken as reported. The SDK returns the receipt but does not check it: neither its signature against
-// /v1/status nor its event against the settlement log (an opt-in verifyReceipts mode is in docs/backlog.md).
+// /v1/status nor its event against the settlement log (an opt-in verifyReceipts mode is in the backlog).
 // An agent that must not rely on an operator's word reads the state back from the settlement layer.
 import { randomUUID } from 'node:crypto';
 import { trimTrailingSlashes, type CommitmentStateView, type Hex32, type OperatorStatus, type Page, type Problem, type ProblemType, type Receipt, type SettlementEvent } from '@holdback/core';
