@@ -23,6 +23,8 @@
 //
 // It keeps a journal file of its deals, so a restart neither starts a job twice nor delivers twice: the journal
 // records each job, and the settlement layer says whether a delivery is already there. Run one adapter per journal.
+// It listens on 127.0.0.1 and makes public-level offers. Put your own HTTPS front and rate limit before /quote:
+// every quote makes the adapter sign an offer.
 // The deliverable is data: the adapter parses it only inside the check library, and runs nothing from it, from
 // the template or from the scope.
 //
@@ -281,8 +283,11 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     log(`${id} is offered to ${terms.buyer} for ${terms.price.amount} base units of ${plain(terms.price.token)}; the offer expires ${terms.timing.offerExpiresAt}.`);
     // What the buyer pays on top of the price: the adjudication fee, and the operators' fee when they publish one.
     const schedule = await seller.operatorFeeSchedule();
-    const operator = schedule ? { token: schedule.token, amount: operatorFeeOf(terms.price, schedule).toString() } : null;
-    return { commitmentId: id, price: terms.price, fees: { adjudication: terms.adjudication.fee, operator }, expiresAt: terms.timing.offerExpiresAt };
+    const operatorFee = schedule ? operatorFeeOf(terms.price, schedule) : 0n;
+    const operator = schedule ? { token: schedule.token, amount: operatorFee.toString() } : null;
+    // `total` is what the buyer funds: the price plus both fees. The buyer computes it again from the terms itself.
+    const total = { token: terms.price.token, amount: (BigInt(terms.price.amount) + BigInt(terms.adjudication.fee.amount) + operatorFee).toString() };
+    return { commitmentId: id, price: terms.price, fees: { adjudication: terms.adjudication.fee, operator, total }, expiresAt: terms.timing.offerExpiresAt };
   }
 
   const inFlight = new Map<string, { bodyHash: string; answer: Promise<J> }>();

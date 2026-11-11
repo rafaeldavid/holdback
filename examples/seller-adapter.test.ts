@@ -94,6 +94,7 @@ describe('seller adapter: quote to offer', () => {
     expect(q.body.price).toEqual({ token: 'tUSD', amount: '2000000000' }); // 2,000.00 tUSD in base units, a string
     expect(q.body.fees.adjudication).toEqual({ token: 'tUSD', amount: expect.stringMatching(/^[1-9][0-9]*$/) });
     expect(q.body.fees.operator).toBeNull(); // this world's operators publish no fee
+    expect(q.body.fees.total).toEqual({ token: 'tUSD', amount: (2_000_000_000n + BigInt(q.body.fees.adjudication.amount)).toString() });
 
     const signed = await buyer.call('GET', `/v1/commitments/${q.body.commitmentId}/terms`);
     const { id, signatures, ...terms } = signed;
@@ -164,6 +165,27 @@ describe('seller adapter: quote to offer', () => {
       stub = undefined;
     }
   });
+});
+
+describe('seller adapter: on operators that charge a fee', () => {
+  it('quotes the operator fee and the total, and the deal settles with the fee paid', async () => {
+    const shared = world;
+    world = await startSimWorld({ env: {}, onError: () => {}, operatorFee: { bps: 1, min: '10000', max: null } }); // 1 bp, at least 0.01 tUSD
+    try {
+      const { running } = await adapter({}, { pollsUntilComplete: 0 });
+      const buyer = agent('buyer-1');
+      const { body: q } = await quoteFor(running, buyer);
+      expect(q.fees.operator).toEqual({ token: 'tUSD', amount: '200000' }); // 1 bp of 2,000.00 tUSD is 0.20 tUSD
+      expect(q.fees.total).toEqual({ token: 'tUSD', amount: (2_000_000_000n + BigInt(q.fees.adjudication.amount) + 200_000n).toString() });
+      await buyer.waitFor(q.commitmentId, ['AcceptedByAdjudicator']);
+      await buyer.agreeAndFund(await termsOf(buyer, q.commitmentId), BigInt(q.fees.total.amount)); // the total is exactly enough
+      expect((await buyer.waitFor(q.commitmentId, ['Released', 'Refunded'])).escrowState).toBe('Released');
+      await running.close();
+    } finally {
+      await world.close();
+      world = shared;
+    }
+  }, 30_000);
 });
 
 describe('seller adapter: funded hold to delivery', () => {
