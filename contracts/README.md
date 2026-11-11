@@ -42,14 +42,14 @@ forge test
 
 | Suite | Files | What it checks |
 | --- | --- | --- |
-| `test/unit/` | 17 test files and `Base.sol` | Each entry point and each review fix. `Vectors.t.sol` pins the EIP-712 hashes against `packages/core`. `GasPerDeal.t.sol` holds gas budgets |
+| `test/unit/` | 26 test files and `Base.sol` | Each entry point and each review fix. `Vectors.t.sol` pins the EIP-712 hashes against `packages/core`. `GasPerDeal.t.sol` holds gas budgets |
 | `test/fuzz/` | `NoAdmin`, `Postings`, `Rounding` | No admin path, postings that balance, and named rounding. `foundry.toml` sets no fuzz run count, so Foundry's default applies |
-| `test/invariant/` | `RulesInvariants.t.sol`, `HandlerSmoke.t.sol`, with `test/handlers/RulesHandler.sol` | 10 invariants, each at 256 runs with depth 100. The counts are set inline in `RulesInvariants.t.sol`, not in `foundry.toml` |
-| `test/crosscheck/` | 9 files | Cases from the public-audit cross-check (`docs/reviews/2026-11-03-public-audit-crosscheck.md`) |
+| `test/invariant/` | `RulesInvariants.t.sol`, `HandlerSmoke.t.sol`, with `test/handlers/RulesHandler.sol` | 11 invariants, each at 256 runs with depth 100 (listed in [`docs/audit/invariants.md`](../docs/audit/invariants.md)). The counts are set inline in `RulesInvariants.t.sol`, not in `foundry.toml` |
+| `test/crosscheck/` | 10 files | Cases from the public-audit cross-check (`docs/reviews/2026-11-03-public-audit-crosscheck.md`) |
 
 Notes:
 - `NoAdmin.fuzz.t.sol` reads the compiled ABIs from `out/`, and the drand tests read `../fixtures/beacon`. `foundry.toml` grants read access to those two paths only.
-- The last recorded run passed 241 tests at commit `64be1f1` on 2026-11-04 (documented: `docs/tasks/T-212-contract-hardening.md`, Evidence). Run `forge test` for today's count.
+- The last recorded run passed 293 tests in 46 suites, 0 skipped, on 2026-11-11 (CI run 43085901114, after T-335 and T-336). The deployed commit `64be1f1` passed 241 (`docs/tasks/T-212-contract-hardening.md`, Evidence). Run `forge test` for today's count.
 - CI runs `forge test` in its `contracts` job. Its `anvil` job runs `forge build`, because `forge test` does not compile `script/`, which the anvil tests need.
 
 ## TypeScript tests that need anvil
