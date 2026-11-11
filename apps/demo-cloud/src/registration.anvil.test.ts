@@ -10,7 +10,7 @@ import { LIVE_REGISTRY_URI, liveRegistry, markedFake, markerFake } from '@holdba
 import { LiveChain, type DeploymentFile, type EvmSettlement } from '@holdback/settlement/live';
 import { EvmWorld } from '@holdback/settlement/evm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { deploymentOf, ENV, CSV, lc, Outsider, outsideDeal, PRICE, ready, RELAYER, root, serve, sleep, untilBoth, type J } from '../test/anvil.ts';
+import { deploymentOf, ENV, CSV, lc, Outsider, outsideDeal, ready, RELAYER, root, serve, sleep, untilBoth, type J } from '../test/anvil.ts';
 import { MemoryStorage, PublicWorld } from './index.js';
 
 describe.skipIf(!ready)(`an outside adjudicator on a live chain (anvil; T-221)${ready ? '' : ' (SKIPPED: needs anvil on PATH and forge build output in contracts/out)'}`, () => {

@@ -137,7 +137,7 @@ export async function settleDeal(round: Round, id: Hex, o: { direction: Directio
 
   r.step = 'plan';
   r.say(`${id} is the round's own deal: the terms both operators serve hash to it and name the buyer ${buyer} and the seller ${seller}`);
-  r.say(`dealOf reads ${deal.stage} at block ${block}, appeal ${deal.appeal}; CPP can still capture ${amount(before.capturable)} for it`);
+  r.say(`dealOf reads ${deal.stage} at block ${block}; CPP can still capture ${amount(before.capturable)} for it`);
   const view: J = await get(reader, `/v1/commitments/${id}`).catch(() => null);
   const behind = ((view?.notices ?? []) as string[]).find((n) => n.startsWith('Behind the chain'));
   if (behind) r.say(`the operators show it behind the chain, so they may refuse a signed step on it: ${behind.replace(/^Behind the chain: /, '').split(/(?<=\.) /)[0]}`);
@@ -222,12 +222,10 @@ export async function settleDeal(round: Round, id: Hex, o: { direction: Directio
   const call = tx.calls.find((c) => c.fn === 'mutualSettle' && lc(String(c.args?.[1]?.nonce)) === lc(m.nonce));
   r.check('the transaction succeeded', tx.status === 'success', `${chain.link(tx.tx)} ${tx.status}`);
   r.check('the settlement is this one, with no key released', call !== undefined && settled.length === 1 && settled[0]!.args.keyReleased === false && logs('rules', 'KeyReleased').length === 0, `${call ? 'mutualSettle with this nonce' : 'no mutualSettle call with this nonce'}; ${settled.length} MutuallySettled log(s) for the deal, keyReleased ${settled[0]?.args.keyReleased ?? 'none'}; ${logs('rules', 'KeyReleased').length} KeyReleased log(s)`);
-  r.check(`dealOf reads Settled after block ${at}`, after.stage === 'Settled', `${after.stage}, appeal ${after.appeal}`);
+  r.check(`dealOf reads Settled after block ${at}`, after.stage === 'Settled', after.stage);
   r.check(`the buyer receives ${amount(plan.toBuyer - feeShare)}`, received(buyer) === plan.toBuyer - feeShare, `${amount(received(buyer))} in ${logs('token', 'Transfer').filter((l) => lc(String(l.args.to)) === lc(buyer)).length} Transfer log(s) to ${short(buyer)}`);
   r.check(`the seller receives ${amount(plan.toSeller)}`, received(seller) === plan.toSeller, `${amount(received(seller))} in ${logs('token', 'Transfer').filter((l) => lc(String(l.args.to)) === lc(seller)).length} Transfer log(s) to ${short(seller)}`);
   r.check('CPP holds nothing to capture for the deal', payment.capturable === '0', `capturable ${amount(before.capturable)} at block ${block}, ${amount(payment.capturable)} after block ${at}; refundable ${amount(payment.refundable)}`);
-  const freed = logs('bonds', 'BondReleased').map((l) => `${amount(l.args.amount)} for ${short(lc(String(l.args.adjudicator)))}`);
-  r.say(`bonds freed: ${freed.join(', ') || 'none'}`);
   r.step = 'done';
   const failed = r.checks.filter((c) => !c.ok).length;
   r.say(failed ? `${failed} of ${r.checks.length} checks failed for ${id}; the settlement transaction is ${chain.link(tx.tx)}` : `${id} is Settled: ${chain.link(tx.tx)}`);

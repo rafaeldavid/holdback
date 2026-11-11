@@ -112,7 +112,7 @@ describe("planSettlement: only the round's own open deal, and exactly the messag
   });
 });
 
-const ABIS = JSON.parse(readFileSync(new URL('../packages/settlement/evm/abis.json', import.meta.url), 'utf8')) as Record<'rules' | 'bonds' | 'token' | 'escrow', Abi>;
+const ABIS = JSON.parse(readFileSync(new URL('../packages/settlement/evm/abis.json', import.meta.url), 'utf8')) as Record<'rules' | 'token' | 'escrow', Abi>;
 /** The settlement transaction in the stand-in, mined in block SETTLED_AT once an operator relays it. */
 const SETTLE_TX = `0x${'5e'.repeat(32)}` as Hex;
 const PLANNED_AT = 12_075_100n;
@@ -171,7 +171,7 @@ async function standIn(o: { terms: J; stage: string; answers?: [Answer, Answer] 
     send(404, { type: 'not_found', detail: 'stand-in' });
   });
   const d = SEPOLIA!;
-  const contractAt: Record<string, keyof typeof ABIS> = { [d.rules.toLowerCase()]: 'rules', [d.escrow.toLowerCase()]: 'escrow', [d.bonds.toLowerCase()]: 'bonds', [d.token.address.toLowerCase()]: 'token' };
+  const contractAt: Record<string, keyof typeof ABIS> = { [d.rules.toLowerCase()]: 'rules', [d.escrow.toLowerCase()]: 'escrow', [d.token.address.toLowerCase()]: 'token' };
   const hold = BigInt(o.terms.price.amount) + BigInt(o.terms.adjudication.fee.amount);
   const log = (contract: keyof typeof ABIS, address: string, eventName: string, args: J, data: Hex, i: number) => ({
     address: address.toLowerCase(), topics: encodeEventTopics({ abi: ABIS[contract], eventName, args } as never), data,
@@ -179,7 +179,6 @@ async function standIn(o: { terms: J; stage: string; answers?: [Answer, Answer] 
   });
   const uint = (v: bigint) => encodeAbiParameters([{ type: 'uint256' }], [v]);
   const logs = () => [
-    log('bonds', d.bonds, 'BondReleased', { adjudicator: DEMO_PRIMARY, token: ASSET }, uint(BigInt(o.terms.price.amount)), 0),
     log('token', d.token.address, 'Transfer', { from: STORE, to: o.terms.buyer }, uint(hold), 1),
     log('rules', d.rules, 'Refunded', { jobId: id, client: o.terms.buyer }, uint(hold), 2),
     log('rules', d.rules, 'MutuallySettled', { id }, encodeAbiParameters([{ type: 'bool' }], [false]), 3),

@@ -8,7 +8,7 @@ import { concat, hashStruct, keccak256, toBytes, type Hex } from 'viem';
 import { RoundAdjudicator } from './e2e-adjudicator.ts';
 import { termsTuple, type TxRecord } from './e2e-chain.ts';
 import { buyerKeys, buyerOpens, delta, deliver, ensureFunds, eventsOf, finish, fund, get, logsOf, openDeal, reason, refreshBefore, retry, short, shortWindows, sleep, trigger, until, waitPast, Waits, type Deal, type Run } from './e2e-run.ts';
-import { CHECKS, CSV, DATASET, PRICE, bondFreedCheck, expireAppeal, here, lc, paidCheck, requires, settledChecks, type J, type Scenario } from './e2e-scenario-kit.ts';
+import { CHECKS, CSV, DATASET, PRICE, expireAppeal, here, lc, paidCheck, requires, settledChecks, type J, type Scenario } from './e2e-scenario-kit.ts';
 import { ERC3009_TYPES, freshNonce, fundingNonceOf, TYPES, typedOf } from './verify.ts';
 
 /** T-218's target: a direct call shows in the operators' view within one sync pass, 60 s or less. */
@@ -223,7 +223,6 @@ export const DIRECT: Scenario[] = [
         r.check('direct: the posted copy joins the delivery with no second deliver transaction', delivers === 1, `${delivers} deliver call(s) among the deal's transactions`);
         settledChecks(r, deal, 'Released');
         paidCheck(r, deal, 'direct: the price reaches the seller on chain', seller, price);
-        bondFreedCheck(r, deal);
       }
 
       // 2. A direct reclaim: scenario 3a sends it from the buyer's key on its second deal, so 8 does not repeat it.
@@ -241,7 +240,7 @@ export const DIRECT: Scenario[] = [
           return false;
         },
       );
-      const primary = await RoundAdjudicator.ready(r, 'adjudicator-1', { bond: price });
+      const primary = await RoundAdjudicator.ready(r, 'adjudicator-1');
       const { fallback, appeal } = round.demo.adjudicators;
       const serving = await primary.serve(r, 'silent');
       try {

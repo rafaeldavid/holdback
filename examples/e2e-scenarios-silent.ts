@@ -22,15 +22,18 @@ const roundAt = (c: Clock, iso: string): number => {
   return t < c.genesis ? 0 : Math.floor((t - c.genesis) / c.period) + 1;
 };
 
-/** The deal's price: the round's adjudicator bonds for it on a chain; on SimChain it cannot, so the deal is priced at 0. */
+/**
+ * The deal's price. On a chain the round's adjudicator needs no bond (ADR-0031 §8); on SimChain it would need one, and
+ * cannot bond at run time, so the deal is priced at 0.
+ */
 function priceFor(r: Run): string {
   if (r.round.chain) return PRICE;
   r.note("SimChain: the round's own adjudicator cannot bond at run time, so this deal is priced at 0; the money checks run on a chain");
   return '0';
 }
 
-/** The round's adjudicator under `role`, registered through the API and, on a chain, holding free bond for the price. */
-const adjudicator = (r: Run, role: AdjudicatorRole, price: string): Promise<RoundAdjudicator> => RoundAdjudicator.ready(r, role, r.round.chain ? { bond: BigInt(price) } : {});
+/** The round's adjudicator under `role`, registered through the API. */
+const adjudicator = (r: Run, role: AdjudicatorRole): Promise<RoundAdjudicator> => RoundAdjudicator.ready(r, role);
 
 /**
  * Windows short enough that a timeout comes within minutes, with room first for the round's primary to accept (it
@@ -62,9 +65,6 @@ const views = (deal: Deal): Promise<J[]> => Promise.all(deal.buyer.sources().map
 
 /** Each operator's events of one type for the deal. */
 const eventsOfType = (deal: Deal, type: string): Promise<J[][]> => Promise.all(deal.buyer.sources().map(async (api) => (await eventsOf(deal.buyer, deal.id, api)).filter((e) => e.type === type)));
-
-/** The BondReleased total for `adjudicator` among the deal's transactions. */
-const released = (deal: Deal, adjudicator: string): bigint => logsOf(deal.record, 'BondReleased').filter((l) => lc(l.args.adjudicator) === lc(adjudicator)).reduce((s, l) => s + BigInt(l.args.amount), 0n);
 
 /** The KeyReleased logs that name the buyer. */
 const keysToBuyer = (deal: Deal) => logsOf(deal.record, 'KeyReleased').filter((l) => lc(l.args.recipient) === deal.buyer.address);
@@ -164,10 +164,10 @@ export const SILENT: Scenario[] = [
       const { round } = r;
       const [buyer, seller] = [round.address('buyer'), round.address('seller')];
       const price = priceFor(r);
-      const primary = await adjudicator(r, 'adjudicator-1', price);
+      const primary = await adjudicator(r, 'adjudicator-1');
       // The fallback reserves its bond only by deciding, but a relay refuses terms whose fallback shows less free bond
       // than the price (T-221). It never serves: no takeover, no decision.
-      const fallback = await adjudicator(r, 'adjudicator-2', price);
+      const fallback = await adjudicator(r, 'adjudicator-2');
       let deal!: Deal;
       let takenBy = '';
       let defaulted = '';
@@ -200,8 +200,6 @@ export const SILENT: Scenario[] = [
         r.check('triggerDefault defaults and refunds in one transaction', dTx.length === 1 && refunded.length === 1 && dTx[0]!.tx === refunded[0]!.tx && callsOf(deal, 'triggerDefault').length === 1, `${dTx.length} Defaulted and ${refunded.length} Refunded log(s)${dTx[0] ? `, Defaulted in ${short(dTx[0].tx)}` : ''}${refunded[0] ? `, Refunded in ${short(refunded[0].tx)}` : ''}`);
         const takeover = logsOf(deal.record, 'FallbackTriggered');
         r.check('triggerFallback lands once, after judgeBy', takeover.length === 1 && callsOf(deal, 'triggerFallback').length === 1, `${takeover.length} FallbackTriggered log(s), beacon round ${takeover[0]?.args?.beaconRound ?? 'none'}`);
-        r.check("the primary's bond is freed", released(deal, primary.address) === BigInt(price), `BondReleased ${round.amount(released(deal, primary.address))} for ${short(primary.address)}`);
-        r.check("the fallback's bond is never encumbered", released(deal, fallback.address) === 0n && delta(deal.record, fallback.address, 'free') === 0n, `BondReleased ${round.amount(released(deal, fallback.address))}; free bond ${round.amount(delta(deal.record, fallback.address, 'free'))} across the deal`);
         r.check('no KeyReleased log names the buyer', keysToBuyer(deal).length === 0, `${keysToBuyer(deal).length} log(s)`);
       } else {
         deal.record.notes.push(`SimChain paid the seller ${round.amount(delta(deal.record, seller))} from the default outcome: its rulebook's compensation rate of a price of 0`);
@@ -218,7 +216,7 @@ export const SILENT: Scenario[] = [
       const [buyer, seller] = [round.address('buyer'), round.address('seller')];
       const { fallback, appeal } = round.demo.adjudicators;
       const price = priceFor(r);
-      const primary = await adjudicator(r, 'adjudicator-1', price);
+      const primary = await adjudicator(r, 'adjudicator-1');
       // The fallback decides between judgeBy and fallbackBy, after a beacon round and a block: room for both (D31).
       const timing = timeoutWindows(r, { fallbackWithinSec: Math.max(round.demo.minWindowSec, 180) });
       let deal!: Deal;
@@ -270,8 +268,6 @@ export const SILENT: Scenario[] = [
         r.check('the key reaches the buyer on chain', keysToBuyer(deal).length === 1, `${keysToBuyer(deal).length} KeyReleased log(s) to the buyer`);
         paidCheck(r, deal, 'the price reaches the seller on chain', seller, BigInt(price));
         paidCheck(r, deal, 'the adjudication fee goes to the fallback, whose decision settles', fallback, fee);
-        r.check("the primary's bond is freed at the fallback's decision", released(deal, primary.address) === BigInt(price), `BondReleased ${round.amount(released(deal, primary.address))} for ${short(primary.address)}`);
-        r.check("the fallback's bond is freed after the appeal window", released(deal, fallback) === BigInt(price), `BondReleased ${round.amount(released(deal, fallback))} for ${short(fallback)}`);
       } else {
         const actors = decided.map((es) => lc(es.at(-1)?.actor ?? 'none'));
         r.check('the demo fallback adjudicator decides', decided.every((es) => es.at(-1)?.payload?.role === 'fallback') && actors.every((a) => a === fallback), `judgment.decided by ${actors.map(short).join(' / ')}, role ${decided.map((es) => es.at(-1)?.payload?.role ?? 'none').join(' / ')}`);
@@ -289,7 +285,7 @@ export const SILENT: Scenario[] = [
       const { round } = r;
       const [buyer, seller] = [round.address('buyer'), round.address('seller')];
       const price = priceFor(r);
-      const primary = await adjudicator(r, 'adjudicator-1', price);
+      const primary = await adjudicator(r, 'adjudicator-1');
       let deal!: Deal;
       let late = '';
       await withSilent(r, primary, async (serving) => {
@@ -318,12 +314,10 @@ export const SILENT: Scenario[] = [
       r.check('the buyer pays the price and the operator fee; the adjudication fee comes back', delta(deal.record, buyer) === -(BigInt(price) + (deal.operatorFee ?? 0n)), `buyer ${round.amount(delta(deal.record, buyer))}; adjudication fee ${round.amount(fee)}`);
       settledChecks(r, deal, 'Released');
       if (round.chain) {
-        r.check("dealOf's appeal state is closed (no appeal follows an early accept)", deal.record.chain?.appeal === 'closed', deal.record.chain?.appeal ?? 'unread');
         r.check('the key reaches the buyer on chain', keysToBuyer(deal).length === 1 && Number(keysToBuyer(deal)[0]!.args.path) === 1, `${keysToBuyer(deal).length} KeyReleased log(s) to the buyer, path ${keysToBuyer(deal).map((l) => l.args.path).join(', ') || 'none'} (1 is the early accept)`);
         r.check('no Decided log', logsOf(deal.record, 'Decided').length === 0, `${logsOf(deal.record, 'Decided').length} log(s)`);
         paidCheck(r, deal, 'the price reaches the seller on chain', seller, BigInt(price));
         paidCheck(r, deal, 'the adjudication fee returns to the buyer on chain', buyer, fee);
-        r.check("the primary's bond is freed at the early accept", released(deal, primary.address) === BigInt(price), `BondReleased ${round.amount(released(deal, primary.address))} for ${short(primary.address)}`);
       }
     },
   },
@@ -339,7 +333,7 @@ export const SILENT: Scenario[] = [
       if (!round.chain) throw new Error("SimChain: the round's own adjudicator cannot bond at run time, so its deal would be priced at 0, and a settlement of a price of 0 has no payout to carry; 10b runs on a chain (anvil in the tests, Sepolia live)");
       const [buyer, seller] = [round.address('buyer'), round.address('seller')];
       const price = priceFor(r);
-      const primary = await adjudicator(r, 'adjudicator-1', price);
+      const primary = await adjudicator(r, 'adjudicator-1');
       const total = BigInt(price);
       const share = (total * 6_000n) / 10_000n;
       let deal!: Deal;
@@ -373,7 +367,6 @@ export const SILENT: Scenario[] = [
         r.check('the settlement carries the delivery and releaseKey', settle?.hasDelivery === true && settle?.releaseKey === true, `hasDelivery ${settle?.hasDelivery}, releaseKey ${settle?.releaseKey}`);
         r.check('the key reaches the buyer on chain', keysToBuyer(deal).length === 1 && Number(keysToBuyer(deal)[0]!.args.path) === 2, `${keysToBuyer(deal).length} KeyReleased log(s) to the buyer, path ${keysToBuyer(deal).map((l) => l.args.path).join(', ') || 'none'} (2 is a mutual settlement)`);
         paidCheck(r, deal, 'the seller\'s share reaches it on chain', seller, share);
-        r.check("the primary's bond is freed", released(deal, primary.address) === total, `BondReleased ${round.amount(released(deal, primary.address))} for ${short(primary.address)}`);
       }
     },
   },

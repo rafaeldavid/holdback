@@ -161,7 +161,7 @@ export interface DealRecord {
   relay: string;
   transactions: Array<TxRecord & { steps: string[]; link: string; sentBy: string }>;
   /** dealOf and CPP's payment state after `block`, the deal's last transaction's block (the latest block when it has none). */
-  chain?: { stage: string; appeal: string; attempt: number; payment: { collected: boolean; capturable: string; refundable: string }; block?: number };
+  chain?: { stage: string; attempt: number; payment: { collected: boolean; capturable: string; refundable: string }; block?: number };
   operators?: { views: Array<{ origin: string; escrowState: string; appealState?: string; events: number; head: string | null }>; agree: boolean };
   balances: { before: Record<string, Holding>; after?: Record<string, Holding> };
   /** On a chain: the block the starting balances were read at, where the chain's own list of the deal's transactions starts. */
@@ -538,7 +538,7 @@ export async function finish(run: Run, deal: Deal): Promise<void> {
     at = last === undefined ? undefined : BigInt(last);
     r.chain = { ...(await round.chain.deal(deal.id, at)), payment: await round.chain.payment(deal.terms, deal.id, at), ...(last === undefined ? {} : { block: last }) };
     for (const t of r.transactions) run.say(`${t.steps.join(', ').padEnd(28)} ${t.link} ${t.gasUsed} gas, block ${t.block}${t.status === 'success' ? '' : ' REVERTED'}`);
-    run.say(`dealOf${last === undefined ? '' : ` after block ${last}`}: ${r.chain.stage}, appeal ${r.chain.appeal}; CPP capturable ${round.amount(r.chain.payment.capturable)}, refundable ${round.amount(r.chain.payment.refundable)}`);
+    run.say(`dealOf${last === undefined ? '' : ` after block ${last}`}: ${r.chain.stage}; CPP capturable ${round.amount(r.chain.payment.capturable)}, refundable ${round.amount(r.chain.payment.refundable)}`);
   } else {
     r.notes.push('SimChain: no chain to read; the evidence is the operators\' view only');
   }
@@ -579,37 +579,23 @@ export async function openDeals(run: Run, deals: readonly DealRef[] = run.deals)
 
 /**
  * What the deal itself moved for `address`, in base units: the test token's Transfer logs to and from it among the
- * deal's own transactions, and HoldbackBonds' events for its bond and its free bond (the bond less what open deals
- * encumber). The round's buyer and seller play every deal, so a wallet's balance change across a deal can take in
- * another deal funded or paid in the same window: in round 1's 2026-11-05 run, 4's buyer showed -61.42 tUSDC and 5a's
- * seller 25 tUSDC from a second run's scenario 1. The relayer bundles only a deal's own operator fee with its funding,
- * so a deal's transactions carry no other deal's transfers [inferred from evm-settlement.ts, agreeAndFund].
+ * deal's own transactions. The phase-one contracts hold no bond (ADR-0031 §8), so bond and free bond move 0 on a chain.
+ * The round's buyer and seller play every deal, so a wallet's balance change across a deal can take in another deal
+ * funded or paid in the same window: in round 1's 2026-11-05 run, 4's buyer showed -61.42 tUSDC and 5a's seller 25
+ * tUSDC from a second run's scenario 1. The relayer bundles only a deal's own operator fee with its funding, so a deal's
+ * transactions carry no other deal's transfers [inferred from evm-settlement.ts, agreeAndFund].
  */
 export function flowOf(r: DealRecord, address: string): Holding {
   const a = address.toLowerCase();
   const is = (x: unknown) => String(x).toLowerCase() === a;
   let token = 0n;
-  let bond = 0n;
-  let free = 0n;
   for (const t of r.transactions) {
     for (const l of t.logs) {
       const amount = BigInt(l.args?.amount ?? 0);
       if (l.contract === 'token' && l.event === 'Transfer') token += (is(l.args.to) ? amount : 0n) - (is(l.args.from) ? amount : 0n);
-      if (l.contract !== 'bonds') continue;
-      // [bond, free] for each HoldbackBonds event that names this address. A slash takes the amount from the bond and
-      // from its encumbrance alike, so the free bond stays.
-      const step: Record<string, [bigint, bigint]> = { BondDeposited: [amount, amount], BondWithdrawn: [-amount, -amount], BondEncumbered: [0n, -amount], BondReleased: [0n, amount], BondSlashed: [-amount, 0n] };
-      if (l.event in step && is(l.args.adjudicator)) {
-        bond += step[l.event]![0];
-        free += step[l.event]![1];
-      }
-      if (l.event === 'AppealBondPaid' && l.args.toBond === true && is(l.args.to)) {
-        bond += amount;
-        free += amount;
-      }
     }
   }
-  return { token: token.toString(), bond: bond.toString(), free: free.toString() };
+  return { token: token.toString(), bond: '0', free: '0' };
 }
 
 /**
