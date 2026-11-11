@@ -7,7 +7,7 @@
 - **Roadmap:** N80; package 7 of the pilot plan (crow-private `roadmap/plans/2026-11-11-pilot-refocus.md`, section 7.1)
 - **Paths this task may touch:** `apps/adjudicator/src/service.ts` and its tests, one new `neutrality.*` scenario under `fixtures/scenarios/` with any terms or data files it needs, `packages/testkit/src/judgment.ts` (only if the snap runner needs the same handling), this file. Never: `contracts/`, `packages/core/`, `packages/settlement/`, `apps/operator/`, `spec/schemas/`, `examples/`, `site/`.
 - **Human gate:** no. The fix reaches the live adjudicators only with a deploy, which waits for Rafa.
-- **Status:** in progress
+- **Status:** done (PR 346)
 - **Agent/session:** the T-347 session, 2026-11-11, branch `t-347-unreadable-delivery`
 
 ## Intent
@@ -85,7 +85,8 @@ All runs on 2026-11-11, on branch `t-347-unreadable-delivery`, from `origin/main
     - A failed read produces no record, decision or judge call, as primary or as fallback.
     - A retry after the panel ran asks no judge again.
     - No new refusal of terms.
-- **Not run.** The full `pnpm verify` and gitleaks. CI runs both gates.
+- **Not run locally.** The full `pnpm verify` and gitleaks. CI runs both gates.
+- **CI (measured).** PR 346: every job passed, including the anvil tests, `forge test`, TLC, gitleaks and CodeQL. The first run was queued during a GitHub Actions outage and never started, so an empty commit started a new one.
 
 ## Decisions
 
