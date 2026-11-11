@@ -151,6 +151,14 @@ Every review below was run by AI model sessions. T-206 names an external audit a
 
 ## Where to start reading
 
+The audit pages, in reading order:
+1. this page: what is in scope, the deployed commit and the trust assumptions;
+2. [`threat-model.md`](threat-model.md) (added by T-340): the actors, assets, trust boundaries and attack classes;
+3. [`invariants.md`](invariants.md): the properties the code is checked against, keyed to the ten `invariant_*` tests, the state machine and the formal model;
+4. [`known-issues.md`](known-issues.md): what is open, accepted or fixed, and how the sources' disagreements were settled;
+5. [`events.md`](events.md): every event the contracts emit, who reads it and what it reveals.
+
+Then the sources behind them:
 1. [`docs/neutrality.md`](../neutrality.md): the property the contracts must keep, and who can do what.
 2. [`docs/architecture.md`](../architecture.md): the state machine and the settlement interface.
 3. [`contracts/src/HoldbackRules.sol`](../../contracts/src/HoldbackRules.sol): the entry points, then `HoldbackTypes.sol` and `HoldbackBonds.sol`.
