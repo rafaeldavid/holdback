@@ -65,7 +65,7 @@ contract HoldbackRules is EIP712 {
     uint8 public constant KEY_APPEAL = 3;
 
     /// @notice Mutual settlement fee share to the sitting adjudicator (rulebook `adjudicatorFeeShareAfterDeliveryBps`).
-    ///         The rulebook is not on chain, so the Phase 1 default of 0 applies; the remainder goes to the buyer.
+    ///         The rulebook is not on chain, so the default of 0 applies: `_payOut` returns the whole fee to the buyer.
     uint256 public constant MUTUAL_FEE_SHARE_BPS = 0;
 
     AuthCaptureEscrow public immutable ESCROW;
@@ -451,12 +451,12 @@ contract HoldbackRules is EIP712 {
         d.appeal = AppealState.Closed;
         d.flags = 0;
         _releaseBonds(t, flags);
-        _payOut(id, t, m.payouts, s);
+        _payOut(id, t, m.payouts);
         emit MutuallySettled(id, m.releaseKey);
         if (m.releaseKey) _releaseKey(id, t.buyer, KEY_MUTUAL, k.scheme, k.ciphertext);
     }
 
-    function _payOut(bytes32 id, H.Terms calldata t, H.Payout[] calldata payouts, Stage s) internal {
+    function _payOut(bytes32 id, H.Terms calldata t, H.Payout[] calldata payouts) internal {
         AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(id, t);
         uint256 total;
         uint256 toSeller;
@@ -479,17 +479,9 @@ contract HoldbackRules is EIP712 {
             _capture(pi, toSeller, 0, address(0));
             emit PaymentReleased(id, t.seller, toSeller);
         }
-        // ADR-0022 rule 2: the fee share rounds down to the sitting adjudicator, the remainder to the buyer.
-        (uint256 share,) = Money.split(t.fee, MUTUAL_FEE_SHARE_BPS);
-        if (share > 0) {
-            address sitting = s == Stage.FallbackJudging
-                ? t.fallbackAdjudicator
-                : s == Stage.Escalated ? t.appealAdjudicator : t.adjudicator;
-            _capture(pi, share, share, sitting);
-            emit FeePaid(id, sitting, share);
-        }
-        // Everything still held (the buyer's payouts and the fee remainder) goes back to the buyer.
-        uint256 rest = pi.maxAmount - captured - toSeller - share;
+        // Everything still held (the buyer's payouts and the whole fee, MUTUAL_FEE_SHARE_BPS being 0) goes back to
+        // the buyer.
+        uint256 rest = pi.maxAmount - captured - toSeller;
         if (rest > 0) {
             _void(pi);
             emit Refunded(id, t.buyer, rest);
