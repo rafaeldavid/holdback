@@ -1073,7 +1073,7 @@ export class SimChain implements Settlement {
         const a = s.via.appeal;
         if (a.kind === 'none') return passed(a.appealBy) ? a.appealBy : null;
         if (a.kind === 'open') return passed(a.appealDecideBy) ? a.appealDecideBy : null;
-        if (a.kind === 'expired') return rec.appealClosedAt ?? null;
+        // Upheld, overturned or expired: when the appeal closed.
         return rec.appealClosedAt ?? null;
       }
       default:

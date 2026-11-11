@@ -712,24 +712,6 @@ export class EvmSettlement implements Settlement {
     return (this.books.get(id)?.released ?? []).filter((k) => lc(k.recipient) === lc(recipient));
   }
 
-  /**
-   * Commitments an adjudicator still has a turn on, within its window: offers to accept, deliveries to judge,
-   * takeovers and escalations to decide, open appeals. A live world paces its adjudicator passes by it.
-   */
-  awaitingAdjudicator(): number {
-    const now = Date.parse(this.now());
-    const within = (ts: Timestamp) => now < Date.parse(ts) + 60_000;
-    let n = 0;
-    for (const { state: s } of this.books.values()) {
-      const t = s.terms.timing;
-      if (s.kind === 'Offered' && within(t.offerExpiresAt)) n++;
-      else if ((s.kind === 'Delivered' || s.kind === 'FallbackJudging') && within(t.fallbackBy)) n++;
-      else if (s.kind === 'Escalated' && within(s.escalation.appealDecideBy)) n++;
-      else if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance' && s.via.appeal.kind === 'open' && within(s.via.appeal.appealDecideBy)) n++;
-    }
-    return n;
-  }
-
   /** The books, events and mandates that changed since the last call, for a store to write. */
   drain(): EvmChanges {
     const books = [...this.dirty].map((id) => [id, structuredClone(this.books.get(id)!)] as [Hex32, Book]);
