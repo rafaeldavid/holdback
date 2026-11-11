@@ -29,7 +29,7 @@ Every design and code change must pass all three.
    - Declarative deterministic checks run first.
    - A panel of pinned models from at least two families follows, selected by commit-reveal.
    - The panel is defended against injection, gaming, drift and correlated error.
-   - Appeals are backed by the adjudicator's bond.
+   - Appeals are backed by the adjudicator's bond. Phase one sets this line aside: its contracts have no party appeals and no bonds, and the first decision by the primary or the fallback adjudicator is final on chain (Rafa, 2026-11-11; D57, ADR-0031). SimChain keeps both.
 
 ## Design principle: user choice
 
