@@ -86,7 +86,7 @@ const GRACE_MS = 60_000;
 /** Every deal waits this long after the relay refused a send, doubling with each refusal in a row, up to 15 minutes. */
 const PAUSE = { first: 60_000, max: 900_000 } as const;
 /** HoldbackRules.Stage's order: every transition on the contract moves a deal to a later stage or a later appeal state. */
-const rankOf = (d: { stage: string; appeal: number }) => STAGES.indexOf(d.stage as (typeof STAGES)[number]) * 8 + d.appeal;
+const rankOf = (d: { stage: string }) => STAGES.indexOf(d.stage as (typeof STAGES)[number]) * 8 + d.appeal;
 /**
  * The back-offs, each doubling with every miss in a row for that deal. The first is for a block before a deadline the
  * wall clock already passed (TooEarly), about one Sepolia block. Any other refusal at the pinned block means the book

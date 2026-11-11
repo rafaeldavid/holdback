@@ -188,8 +188,8 @@ export class Adjudicator {
     const port = this.#cfg.settlement;
     const report: RunReport = { accepted: [], declined: [], expired: [], triggered: [], decided: [], undecided: [], refused: [] };
     // T-211: its own decisions hold its bond until their appeal closes, and a sham deal's parties never close it. So it
-    // expires them itself once due, first, so the bond they free counts for what follows.
-    for (const id of await port.appealExpiriesDue(this.address)) {
+    // expires them itself once due, first, so the bond they free counts for what follows. Phase one has neither.
+    for (const id of port.phaseOne ? [] : await port.appealExpiriesDue(this.address)) {
       try {
         if ((await port.expireAppeal(id)).ok) report.expired.push(id);
       } catch (e) {
@@ -239,7 +239,8 @@ export class Adjudicator {
       policyHash: adjudication.policyHash,
       registryHash: adjudication.registryHash,
       fee: adjudication.fee,
-      bondReserved: c.price,
+      // Phase one has no bonds, and its contract refuses any other value (ADR-0031 §8 point 2); SimChain keeps the price.
+      bondReserved: this.#cfg.settlement.phaseOne ? ({ token: c.price.token, amount: '0' } as TokenAmount) : c.price,
       nonce: keccak256(concat([toBytes(c.id), stringToBytes('holdback.acceptance-nonce.v1')])),
       expiresAt: c.timing.offerExpiresAt,
     };
@@ -350,7 +351,8 @@ export class Adjudicator {
       const terms = (role === 'fallback' ? this.#windowsProblem(c) : null) ?? this.#feeProblem(c);
       if (terms) return terms;
     }
-    return o.cover ? this.#coverProblem(c) : null;
+    // Phase one: no bond backs a decision, so there is no cover to check (ADR-0031 §8).
+    return o.cover && !this.#cfg.settlement.phaseOne ? this.#coverProblem(c) : null;
   }
 
   /**

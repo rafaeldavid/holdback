@@ -269,9 +269,9 @@ class Reader {
     };
   }
 
-  /** dealOf's stage and appeal state for each commitment, at block `at`. */
-  async stages(evm: EvmSettlement, ids: Iterable<Hex32>, at: bigint): Promise<Map<Hex32, { stage: string; appeal: number }>> {
-    const out = new Map<Hex32, { stage: string; appeal: number }>();
+  /** dealOf's stage for each commitment, at block `at`. */
+  async stages(evm: EvmSettlement, ids: Iterable<Hex32>, at: bigint): Promise<Map<Hex32, { stage: string }>> {
+    const out = new Map<Hex32, { stage: string }>();
     for (const id of ids) {
       this.rpc++;
       out.set(id, await evm.stage(id, at));
@@ -286,7 +286,7 @@ class Reader {
  * after it landed directly. With `atLeast`, a node whose head trails that block is not read past (docs/team.md, a read
  * after a write): the call throws, and the caller asks again (T-230). Throws on an RPC error.
  */
-export async function commitmentTxs(evm: EvmSettlement, id: Hex32, atLeast?: bigint): Promise<{ txs: ChainTx[]; stages: Map<Hex32, { stage: string; appeal: number }> }> {
+export async function commitmentTxs(evm: EvmSettlement, id: Hex32, atLeast?: bigint): Promise<{ txs: ChainTx[]; stages: Map<Hex32, { stage: string }> }> {
   const read = new Reader(evm.world);
   const head = await read.head();
   if (atLeast !== undefined && head < atLeast) throw new Error(`the RPC node's latest block ${head} trails block ${atLeast}`);
