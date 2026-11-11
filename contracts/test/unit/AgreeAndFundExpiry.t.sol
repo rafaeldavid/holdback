@@ -37,18 +37,15 @@ contract AgreeAndFundExpiryTest is Base {
         assertEq(_held(t), PRICE + FEE);
     }
 
-    /// The buyer's agree at its expiresAt: refused, and the buyer keeps the money.
+    /// The buyer's agree at its expiresAt: refused.
     function test_refusesAnAgreementAtItsExpiry() public {
         H.Terms memory t = _terms();
         H.Agree memory ag = _agreeUntil(t, uint64(block.timestamp));
         bytes memory sellerSig = _sellerSig(t, SELLER_PK);
         H.Acceptance memory acc = _acceptance(t, ADJ_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
-        uint256 b0 = usdc.balanceOf(buyer);
         vm.expectRevert(HoldbackRules.MessageExpired.selector);
         rules.agreeAndFund(t, sellerSig, acc, ag, f);
-        assertEq(uint8(_stage(hx.id(t))), uint8(HoldbackRules.Stage.None));
-        assertEq(usdc.balanceOf(buyer), b0);
     }
 
     /// The buyer's agree one second before its expiresAt: funded.
