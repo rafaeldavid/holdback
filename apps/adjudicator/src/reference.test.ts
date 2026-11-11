@@ -1,6 +1,8 @@
 // T-327: a deal whose terms name a reference file and make reference_row_match_min required. The adjudicator
-// loads the reference from its content store by the hash the terms commit to, never from another source, and
-// a reference it cannot read fails the check closed.
+// loads the reference from its content store by the hash the terms commit to, never from another source. It
+// serves a deal only when its store returns every reference, and does not judge a turn whose reference the store
+// withholds or corrupts (it retries; the fallback and the default outcome follow). Terms whose URI does not end in
+// the committed hash fail the check closed, the same on every adjudicator.
 import { readFileSync } from 'node:fs';
 import { step, type Commitment, type Judgment } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
@@ -226,8 +228,14 @@ describe('an adjudicator serves a deal only when its store holds the references 
     const report = await b.adj.runOnce();
     expect(report.triggered).toEqual([]);
     expect(report.refused).toEqual([{ commitmentId: id, problem: { type: 'adjudicator_unavailable', detail: expect.stringMatching(/reference/) } }]);
+    // Anyone may trigger the takeover; the fallback still does not judge without the reference, and publishes nothing.
+    expect((await s.triggerFallback(id)).ok).toBe(true);
+    const turn = await b.adj.runOnce();
+    expect(turn.decided).toEqual([]);
+    expect(turn.refused.map((r) => r.problem.detail)).toEqual([expect.stringMatching(/reference files unavailable/)]);
     expect(b.calls).toHaveLength(0);
     expect(a.calls).toHaveLength(0);
+    expect(s.records.size).toBe(0);
     s.at(c.timing.fallbackBy);
     const kept = s.cases.get(id)!;
     for (const e of [{ type: 'trigger_default' as const, at: s.now() }, { type: 'apply_default_outcome' as const, at: s.now() }]) {

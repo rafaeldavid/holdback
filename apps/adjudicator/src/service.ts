@@ -229,7 +229,7 @@ export class Adjudicator {
   async #accept(c: DecisionTask['commitment']): Promise<Result<AdjudicatorAcceptance, Problem>> {
     const { adjudication } = c;
     if (adjudication.adjudicator.toLowerCase() !== this.address) return err(problem('not_your_turn', 'not the primary adjudicator'));
-    const declined = this.#offerProblem(c);
+    const declined = this.#offerProblem(c) ?? (await this.#referenceProblem(c));
     if (declined) return err(declined);
     const unsigned: Omit<AdjudicatorAcceptance, 'signature'> = {
       type: 'AdjudicatorAcceptance',
@@ -273,7 +273,7 @@ export class Adjudicator {
    * (T-221 review). The fallback's cover and the appeal's timing are still checked at the turn. null: it would take it.
    */
   async declines(c: DecisionTask['commitment'], role: DecisionTask['role']): Promise<Problem | null> {
-    if (role === 'primary') return this.#offerProblem(c);
+    if (role === 'primary') return this.#offerProblem(c) ?? (await this.#referenceProblem(c));
     const consented = c.adjudication.adjudicator.toLowerCase() === this.address;
     return this.#termsMismatch(c) ?? (await this.#turnProblem(c, role, { consented, cover: false, ahead: true })) ?? (await this.#runnable(c, role));
   }
@@ -393,11 +393,27 @@ export class Adjudicator {
     return null;
   }
 
-  /** What the terms ask that this build or registry cannot run: a policy it cannot honour, another registry, a panel it cannot seat. */
+  /**
+   * What the terms ask that this build, registry or store cannot run: a policy it cannot honour, another registry, a
+   * panel it cannot seat, or a reference its store does not return.
+   */
   async #runnable(c: DecisionTask['commitment'], role: DecisionTask['role']): Promise<Problem | null> {
     const policy = await this.#boundPolicy(c);
     if (!policy.ok) return policy.error;
-    return this.#registryProblem(c) ?? this.#seatProblem(policy.value, role);
+    return this.#registryProblem(c) ?? this.#seatProblem(policy.value, role) ?? (await this.#referenceProblem(c));
+  }
+
+  /**
+   * T-327 review, finding 1: it does not agree to serve a deal whose references its store does not return (or returns
+   * with other bytes, or larger than any store keeps), as primary at acceptance and as fallback before a takeover.
+   * Otherwise it would refuse every turn of a deal it accepted, and a buyer and seller acting together could send the
+   * deal to its default outcome and take the bonds. Read here and again at judging; a store that loses the bytes later
+   * leaves the deal to the fallback and then its default outcome.
+   */
+  async #referenceProblem(c: DecisionTask['commitment']): Promise<Problem | null> {
+    const { unavailable } = await loadReferences(c.acceptance.deterministicChecks, (uri) => this.#cfg.settlement.ciphertext(uri));
+    if (!unavailable.length) return null;
+    return problem('adjudicator_unavailable', `${this.#cfg.name} serves a deal only when its store holds every reference the terms name, and the reference ${describeUnavailable(unavailable)}: upload it with POST /v1/ciphertext to the store this adjudicator reads, then offer again`);
   }
 
   /**

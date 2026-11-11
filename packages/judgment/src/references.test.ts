@@ -88,12 +88,12 @@ describe('loadReferences', () => {
         throw new Error('not in the store');
       },
     );
-    expect(asked).toEqual([`mem://ciphertext/${H}`, `mem://ciphertext/${other}`, `mem://ciphertext/${wrong}`]);
+    // It stops at the first reference it cannot use, so the third is never read.
+    expect(asked).toEqual([`mem://ciphertext/${H}`, `mem://ciphertext/${other}`]);
     expect([...references.keys()]).toEqual([H]);
     expect(references.get(H)).toEqual(bytes);
-    expect(unavailable).toEqual([
-      { sha256: other, uri: `mem://ciphertext/${other}`, reason: 'not_returned' },
-      { sha256: wrong, uri: `mem://ciphertext/${wrong}`, reason: 'hash_mismatch' },
-    ]);
+    expect(unavailable).toEqual([{ sha256: other, uri: `mem://ciphertext/${other}`, reason: 'not_returned' }]);
+    const mismatch = await loadReferences([ref('c', `mem://ciphertext/${wrong}`, wrong)], async () => bytes);
+    expect(mismatch.unavailable).toEqual([{ sha256: wrong, uri: `mem://ciphertext/${wrong}`, reason: 'hash_mismatch' }]);
   });
 });
