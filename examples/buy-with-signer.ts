@@ -8,7 +8,7 @@ const say = (x: unknown) => console.error(printable(JSON.stringify(x))); // sell
 const finish = async (s: BuyerSigner) => { const done = await s.openDelivery(s.commitmentId!, { onReport: say }); console.log(printable(JSON.stringify({ commitmentId: s.commitmentId, buyer: s.address, paid: s.paid?.total, outcome: done.outcome, work: done.work, transactions: done.transactions }))); };
 if (quoteUrl === 'resume') for (const s of await openDeals(store!)) await finish(s);
 else {
-  const signer = await makeKeys(store!, { quoteCredentialEnv: process.env['CROW_QUOTE_CREDENTIAL'] ? 'CROW_QUOTE_CREDENTIAL' : undefined }); // fresh keys, mode 0600
+  const signer = await makeKeys(store!, { quoteCredentialEnv: process.env['CROW_QUOTE_CREDENTIAL'] ? 'CROW_QUOTE_CREDENTIAL' : undefined, expect: JSON.parse(process.env['CROW_EXPECT'] || '{}') }); // fresh keys, mode 0600; CROW_EXPECT: what you expect of the club, policy and mode, as JSON
   const quote = await signer.quote(quoteUrl!, JSON.parse(scope!), options ? JSON.parse(options) : undefined); // the address, the public key, the scope
   const offer = await signer.readOffer(quote.commitmentId, defaults ? { defaults } : {}); // both operators' offer, checked against discovery, and what differs from the defaults
   // The buyer's agent approves here, once: the price, the fees, the deliverable, the checks, the deadlines, the adjudicators, each difference, and these signed fields.

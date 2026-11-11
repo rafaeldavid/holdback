@@ -72,7 +72,7 @@ export type Offer = {
    * against `expect.settlementMode`, or else the modes every operator's discovery lists (T-332).
    */
   settlement: { mode: string };
-  /** Who may read the terms and records. Checked against `expect.disclosureLevel`, by default `public` (T-332). */
+  /** Who may read the terms and records. Always `public`: the one level whose terms this file can read and show (T-332). */
   disclosure: { level: string };
   /** The club whose rulebook governs the deal. Checked against `expect.clubId`, or else discovery's demo club (T-332). */
   clubId: string;
@@ -106,8 +106,8 @@ export type Approved = Pick<Offer, 'price' | 'deliverable' | 'checks' | 'deadlin
 export type Expect = {
   /** Without it: a mode every operator's discovery lists in `settlementModes`. */
   settlementMode?: string;
-  /** Without it: `public`, the one level whose terms carry the deliverable and the checks in the clear for this file to show. */
-  disclosureLevel?: string;
+  // No setting for disclosure.level: it must be `public`, the one level whose terms carry the deliverable and the
+  // checks in the clear for this file to show. A private deal needs a signer that opens privateTerms (ADR-0024).
   /** Without it: the demo club every operator's discovery names (`demo.clubId`). With neither, the signer refuses. */
   clubId?: string;
   /** Compared as well as the club's hash every operator serves. */
@@ -536,6 +536,9 @@ export class BuyerSigner {
   async #served(id: Hex): Promise<{ terms: J; offer: Offer }> {
     const { agent } = await this.#connect();
     const { id: servedId, signatures, ...terms } = await agent.trusted(`/v1/commitments/${id}/terms`);
+    // The level first: at private and judgment an operator serves no plain deliverable or acceptance (ADR-0024), so
+    // the ID below would not recompute. Name the level, not a mismatch that reads like tampering (T-332).
+    if (terms.disclosure?.level !== 'public') refuse(`disclosure.level is ${shown(terms.disclosure?.level ?? null)}, not "public", the one level whose terms this file can read and show`);
     if (commitmentIdOf(terms) !== id || String(servedId).toLowerCase() !== id) refuse(`the commitment ID does not match the terms the operators serve (recomputed ${commitmentIdOf(terms)})`);
     const signer = await recoverTypedDataAddress({ ...typedOf('CommitmentTerms', terms, agent.domain), signature: signatures?.seller }).catch(() => '');
     if (signer.toLowerCase() !== String(terms.seller).toLowerCase()) refuse("the seller's signature does not recover to the seller in the terms");
@@ -583,8 +586,7 @@ export class BuyerSigner {
     const mode = offer.settlement.mode;
     if (e.settlementMode !== undefined) mine('settlement.mode', mode, 'settlementMode');
     else if (!found.modes.includes(mode)) refuse(`settlement.mode is ${shown(mode ?? null)}, not a mode every operator lists (${shown(found.modes)}): set expect.settlementMode to sign another`);
-    if (e.disclosureLevel !== undefined) mine('disclosure.level', offer.disclosure.level, 'disclosureLevel');
-    else differs('disclosure.level', offer.disclosure.level, 'public', '"public", the level this file reads: set expect.disclosureLevel to sign another');
+    // disclosure.level: #served refused anything but public before it read the terms.
 
     if (e.clubId !== undefined) mine('clubId', offer.clubId, 'clubId');
     else if (found.clubId === null) refuse(`clubId is ${shown(offer.clubId ?? null)}, and the operators name no demo club: set expect.clubId to the club you expect`);

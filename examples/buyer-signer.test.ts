@@ -265,7 +265,6 @@ describe('buyer-signer.ts', () => {
   // T-332: each of the seven is checked against what the buyer's configuration expects, before the offer is shown.
   it.each([
     ['settlement.mode', { settlementMode: 'optimistic' }, /^refusing to sign: settlement\.mode is "guaranteed_on_decision", not the expected "optimistic" \(expect\.settlementMode\)/],
-    ['disclosure.level', { disclosureLevel: 'private' }, /^refusing to sign: disclosure\.level is "public", not the expected "private" \(expect\.disclosureLevel\)/],
     ['clubId', { clubId: 'another-club' }, /^refusing to sign: clubId is "[^"]+", not the expected "another-club" \(expect\.clubId\)/],
     ['rulebookHash', { rulebookHash: `0x${'7'.repeat(64)}` }, /^refusing to sign: rulebookHash is "0x[0-9a-f]{64}", not the expected "0x7{64}" \(expect\.rulebookHash\)/],
     ['policyId', { policyId: 'another-policy' }, /^refusing to sign: policyId is "[^"]+", not the expected "another-policy" \(expect\.policyId\)/],
@@ -291,11 +290,13 @@ describe('buyer-signer.ts', () => {
     let tampered: TwoOrigins;
     let other: Awaited<ReturnType<typeof serveSeller>>;
     let tamper: ((path: string, body: J) => J | undefined) | null = null;
+    let onlyNode: number | null = null; // null: both nodes serve the change
     beforeAll(async () => {
       const world = await PublicWorld.open({ storage: new MemoryStorage(), env: { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '10000' } });
       tampered = await serveTwoOrigins(world, {
         tickMs: 100,
-        rewrite: (_node, path, body) => {
+        rewrite: (node, path, body) => {
+          if (onlyNode !== null && node !== onlyNode) return undefined;
           const out = tamper?.(path, JSON.parse(body));
           return out === undefined ? undefined : JSON.stringify(out);
         },
@@ -328,6 +329,8 @@ describe('buyer-signer.ts', () => {
         return { ...b, policy, policyHash: rehash(policy) };
       }, /^refusing to sign: policyHash is "0x[0-9a-f]{64}", not the primary adjudicator's as every operator serves it \("0x[0-9a-f]{64}"\)/],
       ['registryHash', (path: string, b: J) => (path.startsWith('/v1/adjudicators/') ? { ...b, registry: { ...b.registry, hash: `0x${'7'.repeat(64)}` } } : undefined), /^refusing to sign: registryHash is "0x[0-9a-f]{64}", not the primary adjudicator's as every operator serves it \("0x7{64}"\)/],
+      // The terms themselves at another level: refused by name before the ID is recomputed.
+      ['disclosure.level', (path: string, b: J) => (path.endsWith('/terms') ? { ...b, disclosure: { level: 'judgment' } } : undefined), /^refusing to sign: disclosure\.level is "judgment", not "public", the one level whose terms this file can read and show/],
     ])('checkOffer refuses when every operator serves another %s after the approval', async (_field, change, message) => {
       const signer = await makeKeys(store(), { operators: tampered.urls });
       const quote = await signer.quote(other.quoteUrl, '3 rows of customer_id,email');
@@ -340,6 +343,25 @@ describe('buyer-signer.ts', () => {
         await expect(signer.agreeAndFund(quote.commitmentId)).rejects.toThrow(/checkOffer/);
       } finally {
         tamper = null;
+      }
+    }, 60_000);
+
+    it('checkOffer stops when only one operator serves another rulebook: the reads must agree', async () => {
+      const signer = await makeKeys(store(), { operators: tampered.urls });
+      const quote = await signer.quote(other.quoteUrl, '3 rows of customer_id,email');
+      const offer = await signer.readOffer(quote.commitmentId);
+      onlyNode = 0;
+      tamper = (path, b) => {
+        if (!path.startsWith('/v1/clubs/')) return undefined;
+        const rulebook = { ...b.rulebook, note: 'changed' };
+        return { ...b, rulebook, rulebookHash: jcsHash(rulebook) };
+      };
+      try {
+        await expect(signer.checkOffer(quote.commitmentId, offer)).rejects.toThrow(/^operators disagree on \/v1\/clubs\/[^;]+; do not proceed/);
+        await expect(signer.agreeAndFund(quote.commitmentId)).rejects.toThrow(/checkOffer/);
+      } finally {
+        tamper = null;
+        onlyNode = null;
       }
     }, 60_000);
   });
