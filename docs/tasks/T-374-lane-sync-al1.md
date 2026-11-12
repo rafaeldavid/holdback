@@ -1,6 +1,6 @@
 # T-374: the lane takes main, then AL-1, the code alignment
 
-- **Status:** review
+- **Status:** done (part 1: PR 398, `027e3db`; part 2: PR 404)
 - **Kind:** 4 (API and operator code), with one reviewer, on `contracts-audit-ready` (the plan's 7c.2 sets that rule for AL-1)
 - **Branch:** `t-374-lane-sync` (part 1), then `t-374-al1-*` (part 2); pull requests into `contracts-audit-ready`, never `main`
 - **Budget:** 300,000 tokens, a target and not a stop
