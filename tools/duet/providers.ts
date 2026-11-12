@@ -49,6 +49,11 @@ export interface Provider {
   model: string;
   /** One turn. `signal` aborts the call when the run ends, retries and backoff included. */
   turn(system: string, history: readonly Turn[], tools: readonly ToolSpec[], signal?: AbortSignal): Promise<Answer>;
+  /**
+   * The key check before a live run: the smallest request the vendor takes (one input word, one output token), so a
+   * key that cannot be used stops the run before the world starts. Throws a VendorError with the vendor's message.
+   */
+  ping(signal?: AbortSignal): Promise<void>;
 }
 
 export const KEY_ENV = { anthropic: 'HOLDBACK_AGENT_ANTHROPIC_API_KEY', deepseek: 'HOLDBACK_AGENT_OPENAI_COMPATIBLE_API_KEY' } as const;
@@ -143,6 +148,9 @@ export function anthropic(model: string, key: string, f: typeof fetch = fetch): 
   return {
     vendor: 'anthropic',
     model,
+    async ping(signal) {
+      await post(ANTHROPIC_URL, { 'x-api-key': key, 'anthropic-version': '2023-06-01' }, { model: providerModelId(model), max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }, f, signal);
+    },
     async turn(system, history, tools, signal) {
       const messages: J[] = history.map((t) => {
         if (t.role === 'user') return { role: 'user', content: [{ type: 'text', text: t.text }] };
@@ -176,6 +184,9 @@ export function openaiCompatible(model: string, key: string, baseUrl: string, f:
   return {
     vendor: 'deepseek',
     model,
+    async ping(signal) {
+      await post(`${baseUrl.replace(/\/$/, '')}/chat/completions`, { authorization: `Bearer ${key}` }, { model: providerModelId(model), messages: [{ role: 'user', content: 'ping' }], max_tokens: 1, ...extra }, f, signal);
+    },
     async turn(system, history, tools, signal) {
       const messages: J[] = [{ role: 'system', content: system }];
       for (const t of history) {
@@ -219,6 +230,7 @@ export function scripted(steps: readonly ScriptStep[], model = 'scripted'): Prov
   return {
     vendor: 'scripted',
     model,
+    async ping() { /* a script needs no key */ },
     async turn(system, history) {
       const results = () => history.flatMap((t) => (t.role === 'results' ? t.results.map((r) => r.content) : []));
       const ctx: ScriptContext = { history, results, find: (re) => results().reverse().map((r) => re.exec(r)?.[1]).find((x) => x !== undefined) };

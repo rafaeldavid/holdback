@@ -5,6 +5,7 @@
 // behind "Exact call" disclosures. Every string from the record is escaped: an agent's words, or anything it quoted,
 // is shown as text, never as markup. The only network use is a link the reader clicks. A small inline script steps
 // through the run; without it, every step shows.
+import { readFileSync } from 'node:fs';
 import type { Summary } from './measures.ts';
 import type { Event } from './record.ts';
 import type { Over } from './tickets.ts';
@@ -207,7 +208,7 @@ const ICON: Record<string, string> = {
 const icon = (name: string) => `<svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">${ICON[name] ?? ICON['act']}</svg>`;
 
 /** How the replayed run ended, as the proof beat tells it. */
-export type Ending = 'paid' | 'refunded' | 'declined' | 'held' | 'stopped';
+export type Ending = 'paid' | 'refunded' | 'declined' | 'held' | 'stopped' | 'notstarted';
 
 /**
  * The page's opening, in one place: the title, the descriptor, and the pitch in five labelled beats (Rafa's words,
@@ -231,6 +232,7 @@ export const PITCH = {
     if (ended === 'refunded') return `See it happen. Below, one agent buys ${item} from another. It orders, the seller delivers, the work is checked and fails, and the buyer gets its money back. The work stays locked.`;
     if (ended === 'declined') return `See it happen. Below, one agent asks another for ${item}. The offer breaks the limits its company set, so it walks away. Nothing is signed and nothing is paid.`;
     if (ended === 'held') return `See it happen. Below, one agent buys ${item} from another. The payment is set aside, but the run stopped before the work was checked, so the payment is still set aside.`;
+    if (ended === 'notstarted') return `See it happen. Below, one agent tries to buy ${item} from another. This run did not start: one agent's AI provider refused its first request, so nothing was ordered or paid.`;
     return `See it happen. Below, one agent tries to buy ${item} from another. The run stopped before an order was placed, so nothing was paid.`;
   },
 };
@@ -246,6 +248,14 @@ export const HERO = {
   learnIntro: 'Two companies\' agents agree the checks, the payment is set aside, and the seller is paid the moment the work passes. Here is how it works, and what happened in this sample.',
   closing: 'Live in early access on test money.',
 };
+/**
+ * Crow's mark: a crow in flight, as the crow flies (Rafa, 2026-11-12). One path, read from crow-mark.svg beside this
+ * file (where it came from is in README.md, "The mark"), drawn in the text's colour for the header and the tab icon.
+ */
+export const CROW_MARK = /\sd="([^"]+)"/.exec(readFileSync(new URL('./crow-mark.svg', import.meta.url), 'utf8'))?.[1] ?? '';
+const markSvg = (fill: string, cls = '') => `<svg${cls ? ` class="${cls}"` : ''} viewBox="0 0 24 24" aria-hidden="true"><path fill="${fill}" fill-rule="evenodd" d="${CROW_MARK}"/></svg>`;
+const FAVICON = `data:image/svg+xml,${encodeURIComponent(markSvg('#1d1d1f').replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" '))}`;
+
 /** Where "Request early access" goes: the sign-up form on Crow's site. */
 export const EARLY_ACCESS = 'https://crow.direct/#join-form';
 
@@ -259,35 +269,8 @@ export interface PageExtras {
    * machine and carries nothing a secret scanner reads as a key.
    */
   publish?: boolean;
-  /**
-   * `home`: the home page's brand (crow.direct): warm paper, its ink and rules, EB Garamond, outlined buttons and the
-   * pencil crow above the headline; light only, as the home page is. Default: neutral system type.
-   */
-  theme?: 'neutral' | 'home';
-  /** The crow drawing's address for the `home` theme: `/crow.png` on the site; a data URL for a file opened from disk. */
-  bird?: string;
 }
 
-/** The home page's brand, laid over the neutral page: its tokens from site/index.html, light only. */
-const HOME_THEME = `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&display=swap">
-<style>
-:root,:root[data-theme]{color-scheme:light}
-:root{--font:"EB Garamond",Garamond,"Times New Roman",serif;--display:"EB Garamond",Garamond,"Times New Roman",serif;--page:#faf7f0;--band:#f3eee3;--surface:#fffdf8;--ink:#2f2d2a;--ink2:#57534c;--ink3:#706a5f;--line:#cfc8b8;--hair:rgba(47,45,42,.12);--bubble-a:#eee8da;--bubble-a-ink:#2f2d2a;--bubble-b:#fffdf8;--bubble-b-ink:#2f2d2a;--bubble-b-line:#cfc8b8;--primary:#2f2d2a;--primary-ink:#faf7f0;--green:#4c6f45;--wash-green:#ecefe1}
-@media (prefers-color-scheme:dark){:root{--page:#faf7f0;--band:#f3eee3;--surface:#fffdf8;--ink:#2f2d2a;--ink2:#57534c;--ink3:#706a5f;--line:#cfc8b8;--hair:rgba(47,45,42,.12);--bubble-a:#eee8da;--bubble-a-ink:#2f2d2a;--bubble-b:#fffdf8;--bubble-b-ink:#2f2d2a;--bubble-b-line:#cfc8b8;--primary:#2f2d2a;--primary-ink:#faf7f0;--green:#4c6f45;--wash-green:#ecefe1}}
-html,body{font-size:18px}
-.app{font-size:20px;font-weight:500}.app small{font-style:italic;font-size:14px}
-.headline,.page-title,.block-title,.closing h3{font-weight:500;letter-spacing:-.005em}
-.headline{font-size:60px}
-.intro,.page-intro{font-size:22px;color:var(--ink)}
-.bird{display:block;width:min(46vw,190px);height:auto;margin:0 auto 4px}
-.button{font-weight:500;font-size:18px}
-.button:not(.quiet){background:transparent;color:var(--ink);border-color:var(--ink)}
-.cta .button:not(.quiet),.closing .button{background:var(--ink);color:var(--page)}
-.bubble{font-size:17px}
-.demo-label,.eyebrow,.beat-label,details.engineers>summary{font-variant:small-caps;text-transform:lowercase;letter-spacing:.06em;font-size:15px}
-.step-num{background:transparent;color:var(--ink);border:1px solid var(--ink)}
-.avatar.seller{background:var(--ink);color:var(--page)}
-</style>`;
 
 /** The published page's text: local paths cut to the run's own part, long hex strings to their ends. */
 export function forPublishing(html: string): string {
@@ -297,7 +280,7 @@ export function forPublishing(html: string): string {
 }
 
 export function replayPage(events: readonly Event[], s: Summary, extras: PageExtras = {}): string {
-  const html = extras.theme === 'home' ? page(events, s, extras).replace('</head>', `${HOME_THEME}\n</head>`).replace('<h1 class="headline">', `<img class="bird" src="${esc(extras.bird ?? '/crow.png')}" alt="Pencil study of a hooded crow" width="640" height="406">\n<h1 class="headline">`) : page(events, s, extras);
+  const html = page(events, s, extras);
   return extras.publish ? forPublishing(html) : html;
 }
 
@@ -323,7 +306,7 @@ function page(events: readonly Event[], s: Summary, extras: PageExtras): string 
   const refunded = chain.some((e) => e.type === 'settlement.refunded');
   const scope = start?.scope as { files?: string[]; lines?: number } | undefined;
   // How the run ended, for the proof beat: settled either way, a refused offer, a held payment, or stopped earlier.
-  const ending: Ending = paidSeller ? 'paid' : refunded ? 'refunded' : held !== null ? 'held' : events.some((e) => e.kind === 'signer.stop') && (events.find((e) => e.kind === 'agent.end' && e.role === 'buyer') as J)?.status === 'finished' ? 'declined' : 'stopped';
+  const ending: Ending = s.notStarted ? 'notstarted' : paidSeller ? 'paid' : refunded ? 'refunded' : held !== null ? 'held' : events.some((e) => e.kind === 'signer.stop') && (events.find((e) => e.kind === 'agent.end' && e.role === 'buyer') as J)?.status === 'finished' ? 'declined' : 'stopped';
   const boughtItem = String(start?.item ?? (scope?.files?.length ? 'a software security audit' : 'a piece of work'));
   const bought = `A security review of ${scope?.files?.length ?? 'several'} smart-contract files (${n(Number(scope?.lines ?? 0))} lines), written as a report`;
   const outcome = paidSeller ? 'The work passed. The seller was paid and the buyer received the report.' : refunded ? 'The work failed a required check. The buyer got the price back and the report stayed locked.' : 'No order was placed. Nothing was signed and nothing was paid.';
@@ -386,6 +369,7 @@ function page(events: readonly Event[], s: Summary, extras: PageExtras): string 
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(PITCH.title)} · ${esc(PITCH.descriptor)}</title>
+<link rel="icon" href="${FAVICON}">
 <style>
 /* One neutral family and one accent. The accent (ink) is kept for the primary action; the conversation is neutral;
    green means money moved and nothing else. */
@@ -401,7 +385,7 @@ html,body{margin:0;background:var(--page);color:var(--ink);font:16px/1.5 var(--f
 a{color:inherit}
 .toolbar{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--page) 92%,transparent);backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid var(--hair)}
 .toolbar-inner{max-width:1040px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:20px}
-.app{font-weight:600;font-size:16px;color:var(--ink);text-decoration:none;line-height:1.2}.app small{display:block;font-weight:400;font-size:12px;color:var(--ink2)}
+.app{display:flex;align-items:center;gap:10px;font-weight:600;font-size:16px;color:var(--ink);text-decoration:none;line-height:1.2}.app .mark{width:28px;height:28px;flex:none}.app small{display:block;font-weight:400;font-size:12px;color:var(--ink2)}
 .spacer{flex:1}
 .navlink{font-size:14px;color:var(--ink2);text-decoration:none}.navlink:hover{color:var(--ink)}
 .button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 22px;border-radius:999px;background:var(--primary);color:var(--primary-ink);font:inherit;font-size:16px;font-weight:600;text-decoration:none;border:1px solid var(--primary);cursor:pointer}
@@ -521,7 +505,7 @@ footer{font-size:12px;color:var(--ink3);margin:40px 0 0;max-width:720px}
 </style>
 </head>
 <body>
-<div class="toolbar"><div class="toolbar-inner"><a class="app" href="#">${esc(PITCH.title)}<small>${esc(PITCH.descriptor)}</small></a><div class="spacer"></div><a class="navlink" href="#learn-more">Learn more</a><a class="button quiet" href="${esc(EARLY)}" rel="noopener">Request early access</a></div></div>
+<div class="toolbar"><div class="toolbar-inner"><a class="app" href="#" aria-label="${esc(PITCH.title)}">${markSvg('currentColor', 'mark')}<span>${esc(PITCH.title)}<small>${esc(PITCH.descriptor)}</small></span></a><div class="spacer"></div><a class="navlink" href="#learn-more">Learn more</a><a class="button quiet" href="${esc(EARLY)}" rel="noopener">Request early access</a></div></div>
 
 <main id="demo-view">
 <div class="hero">
@@ -536,6 +520,7 @@ footer{font-size:12px;color:var(--ink3);margin:40px 0 0;max-width:720px}
 ${demoList.map(demoItem).join('\n')}
 </ol></div>
 </section>
+${s.notStarted ? `<p class="after">This run did not start: the ${esc(AGENT_NAME[s.notStarted.role === 'seller' ? 'seller' : 'buyer'])}'s AI provider refused its first request, so nothing was ordered or paid.</p>` : ''}
 <p class="after">What was checked, what each side paid, and the full record: <a class="textlink" href="#learn-more">Learn more ›</a></p>
 </main>
 
