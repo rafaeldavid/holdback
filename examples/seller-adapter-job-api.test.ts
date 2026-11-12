@@ -1,0 +1,340 @@
+// The seller adapter against a job API of another shape (T-366), driven only by a configuration file: a credential
+// header, mapped quote and start calls, a run read by a state field, and proof files fetched one by one. The first
+// part runs deals on SimChain; the second checks the mapping's refusals against the stub alone, with no chain.
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { Hex } from 'viem';
+import { startSimWorld, type SimWorld } from '@holdback/operator';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { Agent } from './agent.ts';
+import { loadConfig, startSellerAdapter, type RunningAdapter } from './seller-adapter.ts';
+import { DELIVERY_CAP_BYTES, FilesNotAdded, sellerApiClient } from './seller-adapter-api.ts';
+import { DEFAULT_FILES, jobStubSellerApi, startJobStub, type JobStub, type JobStubOptions } from './seller-adapter-job-stub.ts';
+
+type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
+const KEY = 'jobs-api-test-credential-7f3a9c'; // a test credential: it must appear in no log line and no journal
+const SCOPE = { target: 'vault-core', depth: 2 };
+const SCOPE_RULES = { target: { type: 'string', pattern: '^[a-z0-9-]{1,40}$' }, depth: { type: 'integer', min: 1, max: 10 } };
+const FIELDS = { scope: ['target', 'depth'], options: [] };
+/** The seller's own deal template: a JSON report with two or more proof files, each with its path and content. */
+const TEMPLATE = {
+  deliverable: { kind: 'document', description: 'A review of {{target}} to depth {{depth}}, with the proof files it names.', format: 'application/json' },
+  checks: [
+    {
+      id: 'report',
+      type: 'json_schema',
+      required: true,
+      schema: {
+        type: 'object',
+        required: ['summary', 'target', 'proofs'],
+        properties: {
+          target: { const: '{{target}}' },
+          proofs: { type: 'array', minItems: 2, items: { type: 'object', additionalProperties: false, required: ['path', 'content'], properties: { path: { type: 'string' }, content: { type: 'string', minLength: 1 } } } },
+        },
+      },
+    },
+  ],
+};
+
+let world: SimWorld;
+let stub: JobStub | undefined;
+const adapters: RunningAdapter[] = [];
+const acct = (label: string) => world.info.accounts.find((a) => a.label === label)!;
+const agent = (label: string) => new Agent(world.info.operators, acct(label).privateKey as Hex, Buffer.from(acct(label).encryptionSecretKey, 'base64url'));
+
+beforeAll(async () => {
+  world = await startSimWorld({ env: {}, onError: () => {} });
+});
+afterAll(() => world.close());
+afterEach(async () => {
+  for (const a of adapters.splice(0)) await a.close();
+  await stub?.close();
+  stub = undefined;
+});
+
+/** Writes the seller's configuration file and template into a new folder; returns the file's path. */
+function configFile(stubBase: string, extra: J = {}, files: J = {}): string {
+  const dir = mkdtempSync(join(tmpdir(), 't366-'));
+  writeFileSync(join(dir, 'template.json'), JSON.stringify(TEMPLATE));
+  const file = join(dir, 'seller.json');
+  writeFileSync(file, JSON.stringify({ port: 0, pollMs: 50, journal: join(dir, 'journal.json'), template: 'template.json', scope: SCOPE_RULES, redelivery: { refetchEverySec: 0 }, sellerApi: jobStubSellerApi(stubBase, { files }), ...extra }));
+  return file;
+}
+
+/** An adapter for seller-1 started from the configuration file alone; only the log goes to the test. */
+async function adapter(file: string) {
+  const lines: string[] = [];
+  const running = await startSellerAdapter({ ...loadConfig(file), log: (l) => lines.push(l) }, { HOLDBACK_KEY: acct('seller-1').privateKey, HOLDBACK_OPERATORS: world.info.operators.join(','), JOBS_API_KEY: KEY });
+  adapters.push(running);
+  return { running, lines };
+}
+async function quote(a: RunningAdapter, buyer: Agent): Promise<{ status: number; body: J }> {
+  const res = await fetch(`${a.url}/quote`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ buyer: buyer.address, buyerEncryptionPublicKey: buyer.encryptionPublicKey, scope: SCOPE }) });
+  return { status: res.status, body: await res.json() };
+}
+async function termsOf(buyer: Agent, id: Hex): Promise<J> {
+  const terms = await buyer.call('GET', `/v1/commitments/${id}/terms`);
+  delete terms.id;
+  delete terms.signatures;
+  return terms;
+}
+async function fund(buyer: Agent, id: Hex): Promise<J> {
+  await buyer.waitFor(id, ['AcceptedByAdjudicator']);
+  return buyer.agreeAndFund(await termsOf(buyer, id), 2_100_000_000n);
+}
+const deliveries = async (buyer: Agent, id: Hex): Promise<J[]> => (await buyer.call('GET', `/v1/commitments/${id}/events?limit=200`)).items.filter((e: J) => e.type === 'delivery.submitted');
+async function until(what: string, ok: () => boolean | Promise<boolean>, timeoutMs = 15_000): Promise<void> {
+  for (const end = Date.now() + timeoutMs; Date.now() < end; await new Promise((r) => setTimeout(r, 25))) if (await ok()) return;
+  throw new Error(`timed out waiting for ${what}`);
+}
+const stageOf = (a: RunningAdapter, id: Hex) => a.deals().find((d) => d.id === id)?.stage;
+const journalText = (file: string) => readFileSync(JSON.parse(readFileSync(file, 'utf8')).journal, 'utf8');
+
+describe('seller adapter, a job API of another shape (T-366): deals', () => {
+  it('a quote becomes a signed offer: the mapped body, the credential header, the price read by pointers', async () => {
+    stub = await startJobStub({ key: KEY });
+    const file = configFile(stub.base);
+    const { running, lines } = await adapter(file);
+    const buyer = agent('buyer-1');
+    const q = await quote(running, buyer);
+    expect(q.status, JSON.stringify(q.body)).toBe(200);
+    expect(q.body.price).toEqual({ token: 'tUSD', amount: '200000000' }); // 200.00 tUSD; the mapping reads no token
+    const asked = stub.requests.filter((r) => r.path === '/api/v2/estimates');
+    expect(asked).toEqual([{ method: 'POST', path: '/api/v2/estimates', apiKey: KEY, requestKey: undefined, body: { target: 'vault-core', depth: 2, client: buyer.address.toLowerCase() } }]);
+    const terms = await termsOf(buyer, q.body.commitmentId);
+    expect((Date.parse(terms.timing.deliverBy) - Date.parse(terms.createdAt)) / 1000).toBe(2 * 86_400); // turnaroundSeconds
+    expect((Date.parse(terms.timing.offerExpiresAt) - Date.parse(terms.createdAt)) / 1000).toBe(600); // validSeconds caps the 900 s default
+    expect(terms.deliverable.description).toBe('A review of vault-core to depth 2, with the proof files it names.');
+    const log = lines.join('\n');
+    expect(log).toContain(`The seller API is under ${stub.base}, with a credential from JOBS_API_KEY in header x-api-key; its job state is read by a status field, and a result's further files are added at /proofs.`);
+    expect(log).not.toContain(KEY);
+    expect(journalText(file)).not.toContain(KEY);
+  }, 30_000);
+
+  it('a funded deal starts one job, polls it while it runs, adds its files, and delivers once', async () => {
+    stub = await startJobStub({ key: KEY, readsUntilComplete: 3 });
+    const file = configFile(stub.base);
+    const { running, lines } = await adapter(file);
+    const buyer = agent('buyer-1');
+    const { body: q } = await quote(running, buyer);
+    const id = q.commitmentId as Hex;
+    await new Promise((r) => setTimeout(r, 200)); // polls pass while the offer is unfunded
+    expect(stub.runs()).toEqual([]);
+    await fund(buyer, id);
+    expect((await buyer.waitFor(id, ['Released', 'Refunded', 'Escalated'])).escrowState).toBe('Released');
+    await until('the journal to record the delivery', () => stageOf(running, id) === 'delivered');
+
+    // One run, keyed by the deal's ID, with the mapped body; the run was read while queued and running.
+    expect(stub.runs()).toEqual([{ id: 41, key: id, reference: id }]);
+    const starts = stub.requests.filter((r) => r.path === '/api/v2/runs');
+    expect(starts.map((s) => [s.requestKey, s.body])).toEqual([[id, { estimate: expect.stringMatching(/^est-/), reference: id, input: SCOPE }]]);
+    expect(stub.requests.filter((r) => r.path === '/api/v2/runs/41').length).toBeGreaterThanOrEqual(4);
+    expect(stub.requests.filter((r) => r.path.startsWith('/api/v2/runs/41/files/')).map((r) => r.path)).toEqual(['/api/v2/runs/41/files/poc/overflow.t.sol', '/api/v2/runs/41/files/poc/reentry.t.sol']);
+    expect(stub.requests.every((r) => r.path.startsWith('/api/v2/') && r.apiKey === KEY)).toBe(true);
+
+    // The delivered JSON carries each file's path and content where the list was.
+    const delivered = JSON.parse(await buyer.openDelivery(id));
+    expect(delivered).toEqual({ summary: 'Reviewed vault-core to depth 2.', target: 'vault-core', proofs: Object.entries(DEFAULT_FILES).map(([path, content]) => ({ path, content })) });
+    expect(await deliveries(buyer, id)).toHaveLength(1);
+    const log = lines.join('\n');
+    expect(log).toMatch(/added the result's files/);
+    expect(log).toMatch(/preflight: accept/);
+    expect(log).not.toContain(KEY);
+    expect(journalText(file)).not.toContain(KEY);
+  }, 30_000);
+
+  it('a start whose answer is lost, then a restart, starts one job under the same key and delivers once', async () => {
+    stub = await startJobStub({ key: KEY, failFirstStart: true, readsUntilComplete: 0 });
+    const file = configFile(stub.base);
+    const one = await adapter(file);
+    const buyer = agent('buyer-2');
+    const { body: q } = await quote(one.running, buyer);
+    const id = q.commitmentId as Hex;
+    await fund(buyer, id);
+    await until('the lost start answer', () => one.lines.some((l) => l.includes(`${id} waits at starting: the seller API answered 503 to the start`)));
+    await one.running.close();
+    expect(stub.runs()).toHaveLength(1); // the seller made the run, and the adapter never heard
+
+    const two = await adapter(file);
+    expect((await buyer.waitFor(id, ['Released', 'Refunded'])).escrowState).toBe('Released');
+    await until('run 2 to record the delivery', () => stageOf(two.running, id) === 'delivered');
+    const starts = stub.requests.filter((r) => r.path === '/api/v2/runs');
+    expect(starts.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(starts.map((s) => s.requestKey))).toEqual(new Set([id]));
+    expect(stub.runs()).toHaveLength(1);
+    expect(await deliveries(buyer, id)).toHaveLength(1);
+  }, 30_000);
+
+  it('a failed job is reported once and never delivered', async () => {
+    stub = await startJobStub({ key: KEY, fail: true, readsUntilComplete: 1 });
+    const { running, lines } = await adapter(configFile(stub.base));
+    const buyer = agent('buyer-1');
+    const { body: q } = await quote(running, buyer);
+    const id = q.commitmentId as Hex;
+    await fund(buyer, id);
+    await until('the adapter to close the deal', () => stageOf(running, id) === 'closed');
+    await new Promise((r) => setTimeout(r, 300)); // more polls: nothing more happens
+    expect(lines.filter((l) => l.includes(`ALERT ${id} job.failed`))).toHaveLength(1);
+    expect(lines.join('\n')).toContain(`the seller's job 41 failed (error); nothing is delivered`);
+    expect(await deliveries(buyer, id)).toEqual([]);
+    expect((await buyer.call('GET', `/v1/commitments/${id}`)).escrowState).toBe('Held');
+  }, 30_000);
+
+  it('a file that fails to fetch holds the delivery and alerts; once it fetches, the result is delivered once', async () => {
+    stub = await startJobStub({ key: KEY, readsUntilComplete: 0, brokenFiles: ['poc/reentry.t.sol'] });
+    const file = configFile(stub.base);
+    const { running, lines } = await adapter(file);
+    const buyer = agent('buyer-2');
+    const { body: q } = await quote(running, buyer);
+    const id = q.commitmentId as Hex;
+    await fund(buyer, id);
+    await until('the adapter to hold the delivery', () => stageOf(running, id) === 'refused');
+    await new Promise((r) => setTimeout(r, 300)); // refetches of the same result raise no second alert
+    const alerts = lines.filter((l) => l.includes(`ALERT ${id} delivery.refused`));
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toContain('FILES NOT ADDED file poc/reentry.t.sol: the seller API answered 500');
+    expect(await deliveries(buyer, id)).toEqual([]);
+
+    stub.fixFiles();
+    expect((await buyer.waitFor(id, ['Released', 'Refunded'])).escrowState).toBe('Released');
+    await until('the journal to record the delivery', () => stageOf(running, id) === 'delivered');
+    expect(await deliveries(buyer, id)).toHaveLength(1);
+    expect(lines.join('\n')).not.toContain(KEY);
+    expect(journalText(file)).not.toContain(KEY);
+  }, 30_000);
+
+  it('stops at start when the credential\'s variable is unset, before it reads the operators', async () => {
+    stub = await startJobStub({ key: KEY });
+    const settings = loadConfig(configFile(stub.base));
+    // No operators either: a start that reached the network would fail on those first, with another message.
+    await expect(startSellerAdapter({ ...settings, log: () => {} }, { HOLDBACK_KEY: acct('seller-1').privateKey, HOLDBACK_OPERATORS: '' })).rejects.toThrow("set JOBS_API_KEY to your seller API's credential: sellerApi.auth names it");
+    expect(stub.requests).toEqual([]);
+  });
+});
+
+// ---- The mapping's refusals, against the stub alone ----
+
+const client = (api: J, env: Record<string, string> = { JOBS_API_KEY: KEY }) => sellerApiClient(api, env, FIELDS);
+const withResult = (base: string, change: (r: J) => void): J => {
+  const api = jobStubSellerApi(base);
+  change(api.result);
+  return api;
+};
+
+describe('seller adapter, a job API of another shape (T-366): the configuration', () => {
+  const base = 'http://127.0.0.1:9/api/v2/';
+  it('refuses a mapping that could send a request outside the base URL, naming the field', () => {
+    const at = (path: string) => () => client({ ...jobStubSellerApi(base), quote: { ...jobStubSellerApi(base).quote, path } });
+    for (const path of ['../admin', 'a/../../admin', 'https://elsewhere.example/estimates']) expect(at(path), path).toThrow(/sellerApi\.quote\.path: (the address leaves the base URL|a path under sellerApi\.baseUrl, not an address)/);
+    expect(() => client({ ...jobStubSellerApi(base), baseUrl: undefined })).toThrow('sellerApi.baseUrl is required with a mapping or a credential');
+    expect(() => client({ ...jobStubSellerApi(base), baseUrl: 'http://user:pw@127.0.0.1:9/api/' })).toThrow(/carries no user, query or fragment/);
+    expect(() => client({ baseUrl: base, quote: 'http://elsewhere.example/quote', start: `${base}runs`, result: `${base}runs/{jobId}` })).toThrow('sellerApi.quote: the address leaves the base URL');
+  });
+
+  it('refuses a placeholder outside the fixed list, or one the call cannot fill, and any expression', () => {
+    const body = (b: J) => () => client({ ...jobStubSellerApi(base), quote: { ...jobStubSellerApi(base).quote, body: b } });
+    expect(body({ k: '{{secret}}' })).toThrow('sellerApi.quote.body.k uses {{secret}}, which this call cannot fill');
+    expect(body({ k: '{{jobId}}' })).toThrow('uses {{jobId}}, which this call cannot fill');
+    expect(body({ k: '{{scope.price}}' })).toThrow('uses {{scope.price}}, which the scope rules do not define');
+    expect(body({ k: 'depth {{scope}}' })).toThrow('uses {{scope}} inside text');
+    expect(body({ k: '{{ scope.depth + 1 }}' })).toThrow('a placeholder is {{name}} or {{scope.<field>}}, nothing else');
+    expect(body({ k: '{{env.KEY}}' })).toThrow('uses {{env}}, which this call cannot fill');
+  });
+
+  it('refuses a header that would replace the credential or the idempotency key, and a GET with a body', () => {
+    const api = jobStubSellerApi(base);
+    expect(() => client({ ...api, quote: { ...api.quote, headers: { 'X-Api-Key': 'mine' } } })).toThrow('set by the adapter');
+    expect(() => client({ ...api, start: { ...api.start, headers: { 'x-request-key': '{{scope.target}}' } } })).toThrow('set by the adapter');
+    expect(() => client({ ...api, start: { ...api.start, idempotencyHeader: 'X-Api-Key' } })).toThrow('idempotencyHeader must be a header name other than the credential');
+    expect(() => client(withResult(base, (r) => (r.body = { a: 1 })))).toThrow('a GET carries no body');
+  });
+
+  it('refuses file limits above the delivery cap, and status values in two lists', () => {
+    expect(() => client(withResult(base, (r) => (r.files.maxTotalBytes = DELIVERY_CAP_BYTES + 1)))).toThrow(`at most the delivery cap of ${DELIVERY_CAP_BYTES}`);
+    expect(() => client(withResult(base, (r) => (r.files.maxCount = 0)))).toThrow('maxCount must be a positive whole number');
+    expect(() => client(withResult(base, (r) => (r.status.failed = ['complete'])))).toThrow('a status value is in more than one list');
+    expect(() => client(withResult(base, (r) => (r.status = { by: 'code' })))).toThrow('status.by must be "http" or "field"');
+  });
+
+  it('the shipped job-API example loads and its mapping passes the checks; the Caddyfile forwards /defaults', () => {
+    const example = loadConfig(fileURLToPath(new URL('./seller-adapter.job-api.config.json', import.meta.url)));
+    expect(() => sellerApiClient(example.sellerApi, { JOBS_API_KEY: KEY }, { scope: Object.keys(example.scope), options: [] })).not.toThrow();
+    const caddy = readFileSync(fileURLToPath(new URL('./seller-adapter.Caddyfile', import.meta.url)), 'utf8');
+    expect(caddy).toMatch(/handle \/quote \{\s+reverse_proxy 127\.0\.0\.1:8791\s+\}/);
+    expect(caddy).toMatch(/handle \/defaults \{\s+reverse_proxy 127\.0\.0\.1:8791\s+\}/);
+    expect(caddy).not.toMatch(/handle \/deals/);
+  });
+
+  it('loads a configuration file with a mapping, and keeps today\'s three addresses working', () => {
+    const file = configFile(base);
+    expect(loadConfig(file).sellerApi).toEqual(jobStubSellerApi(base));
+    expect(() => client({ quote: 'http://127.0.0.1:8790/quote', start: 'http://127.0.0.1:8790/jobs', result: 'http://127.0.0.1:8790/jobs/{jobId}/result' }, {})).not.toThrow();
+  });
+});
+
+describe('seller adapter, a job API of another shape (T-366): answers', () => {
+  it('a job ID that would climb out of the base URL is refused before any request', async () => {
+    stub = await startJobStub({ key: KEY });
+    const api = client(jobStubSellerApi(stub.base));
+    await expect(api.result({ jobId: '..' })).rejects.toThrow('a path segment is empty, "." or ".."');
+    await api.result({ jobId: '../../elsewhere' }).catch(() => {}); // encoded: it stays a run ID under the base
+    expect(stub.requests.map((r) => r.path)).toEqual(['/api/v2/runs/..%2F..%2Felsewhere']);
+  });
+
+  it('a redirect is refused, so the credential never follows it elsewhere', async () => {
+    stub = await startJobStub({ key: KEY });
+    const api = client({ ...jobStubSellerApi(stub.base), quote: { ...jobStubSellerApi(stub.base).quote, path: 'moved' } });
+    await expect(api.quote({ scope: SCOPE })).rejects.toThrow();
+    expect(stub.requests.map((r) => r.path)).toEqual(['/api/v2/moved']);
+  });
+
+  it('reads the job state by HTTP status when the configuration says so', async () => {
+    const codes = [202, 202, 410];
+    const server = createServer((_req, res) => res.writeHead(codes.shift() ?? 200, { 'content-type': 'application/json' }).end('{"ok": true}'));
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const b = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
+    try {
+      const api = client({ baseUrl: b, quote: { path: 'q' }, start: { path: 's' }, result: { path: 'jobs/{{jobId}}', status: { by: 'http', running: [202], done: [200], failed: [410] } } });
+      expect(await api.result({ jobId: '7' })).toEqual({ state: 'running' });
+      expect(await api.result({ jobId: '7' })).toEqual({ state: 'running' });
+      expect(await api.result({ jobId: '7' })).toEqual({ state: 'failed', status: 'HTTP 410' });
+      expect(await api.result({ jobId: '7' })).toMatchObject({ state: 'done' });
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  });
+
+  const files = async (options: Partial<JobStubOptions>, change: (f: J) => void = () => {}) => {
+    stub = await startJobStub({ key: KEY, ...options });
+    const api = client(withResult(stub.base, (r) => change(r.files)));
+    const report = new TextEncoder().encode(JSON.stringify({ summary: 's', target: 't', proofs: options.fileList ?? Object.keys(DEFAULT_FILES) }));
+    return api.withFiles(report, { jobId: '41' });
+  };
+  it('refuses a file list that repeats, climbs out, or is too long, and files over the byte limit', async () => {
+    await expect(files({ fileList: ['poc/overflow.t.sol', 'poc/overflow.t.sol'] })).rejects.toThrow(new FilesNotAdded('the result names a file twice: poc/overflow.t.sol'));
+    await stub!.close();
+    for (const bad of ['../../../elsewhere', 'poc/../../x', '/etc/passwd', 'poc//a']) {
+      await expect(files({ fileList: [bad] }), bad).rejects.toThrow(/a path segment is empty/);
+      expect(stub!.requests, bad).toEqual([]);
+      await stub!.close();
+    }
+    await expect(files({}, (f) => (f.maxCount = 1))).rejects.toThrow('the result names 2 files, more than files.maxCount, 1');
+    await stub!.close();
+    await expect(files({ files: { a: 'x'.repeat(600), b: 'y'.repeat(600) }, fileList: ['a', 'b'] }, (f) => (f.maxTotalBytes = 1000))).rejects.toThrow('file b: the seller API\'s answer to a file is larger than 400 bytes');
+    await stub!.close();
+    await expect(files({ fileList: ['poc/missing.t.sol'] })).rejects.toThrow('file poc/missing.t.sol: the seller API answered 404');
+    await stub!.close();
+    await expect(files({ files: { bin: new Uint8Array([0xff, 0xfe]) }, fileList: ['bin'] })).rejects.toThrow('file bin is not UTF-8 text');
+    await stub!.close();
+    await expect(files({}, (f) => (f.into = '/summary'))).rejects.toThrow('the result already has a field at /summary');
+  });
+
+  it('adds base64 content when the configuration says so', async () => {
+    const out = JSON.parse(new TextDecoder().decode(await files({ files: { bin: new Uint8Array([0xff, 0xfe]) }, fileList: ['bin'] }, (f) => { f.encoding = 'base64'; f.into = '/attachments'; })));
+    expect(out).toEqual({ summary: 's', target: 't', proofs: ['bin'], attachments: [{ path: 'bin', content: '//4=' }] });
+  });
+});

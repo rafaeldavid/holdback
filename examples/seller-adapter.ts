@@ -30,6 +30,9 @@
 //           The same key must return the same job: after a crash the adapter sends the start again.
 //   result: GET  <result>  ({jobId} in the address)       -> 202 while the job runs; 200 with the result's bytes.
 //           After a refusal, the same address answers with your fixed report once you have one.
+// An API of another shape needs no service in between (T-366, seller-adapter-api.ts): `sellerApi` can name a base
+// URL, a credential from the environment, a method, path, headers and body template for each call, JSON pointers
+// that read the answers, a job status field, and further files a result names, fetched one by one.
 //
 // It keeps a journal file of its deals, so a restart neither starts a job twice nor delivers twice: the journal
 // records each job, and the settlement layer says whether a delivery is already there. Run one adapter per journal.
@@ -56,6 +59,7 @@ import { preflightDelivery } from '@holdback/judgment';
 import { plain } from '@holdback/testkit';
 import { Agent } from './agent.ts';
 import { convertReport, loadReportMapping, ReportNotConverted } from './report-converter.ts';
+import { FilesNotAdded, sellerApiClient, type SellerApiConfig } from './seller-adapter-api.ts';
 import { jcs, knownPins, operatorFeeOf } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -120,8 +124,11 @@ export interface SellerAdapterConfig {
    * your proxy, which sees the client's address.
    */
   quoteRateLimit?: { overall?: QuoteLimit };
-  /** Your API's three addresses. `result` holds `{jobId}` where the job's ID goes. */
-  sellerApi: { quote: string; start: string; result: string };
+  /**
+   * Your API's three addresses, `result` with `{jobId}` where the job's ID goes; or, for an API of another shape,
+   * `baseUrl`, an optional `auth` credential and a mapping for each call (T-366, seller-adapter-api.ts).
+   */
+  sellerApi: SellerApiConfig;
   /**
    * Your deal template: a JSON file with `deliverable`, `checks` and optionally `rubric` and `fee` (the adjudication
    * fee you offer; left out, the primary adjudicator's published minimum), in the shapes of an offer. `{{field}}`
@@ -268,8 +275,9 @@ export function loadConfig(file: string): SellerAdapterConfig {
   for (const k of Object.keys(f)) if (!FILE_KEYS.includes(k)) throw new Error(`${file} has a field the adapter does not take: ${plain(k).slice(0, 60)}`);
   const api = f.sellerApi;
   if (!isRecord(api)) throw new Error(`${file}: sellerApi is required: your API's quote, start and result addresses`);
-  for (const k of ['quote', 'start', 'result']) if (!httpAddress(api[k])) throw new Error(`${file}: sellerApi.${k} must be an http or https address`);
-  for (const k of Object.keys(api)) if (!['quote', 'start', 'result'].includes(k)) throw new Error(`${file}: sellerApi has a field the adapter does not take: ${plain(k).slice(0, 60)}`);
+  // An address in today's shape, or a mapping (T-366), which the start checks whole, with the credential.
+  for (const k of ['quote', 'start', 'result']) if (!isRecord(api[k]) && !httpAddress(api[k])) throw new Error(`${file}: sellerApi.${k} must be an http or https address, or a call mapping`);
+  for (const k of Object.keys(api)) if (!['quote', 'start', 'result', 'baseUrl', 'auth'].includes(k)) throw new Error(`${file}: sellerApi has a field the adapter does not take: ${plain(k).slice(0, 60)}`);
   const beside = (p: J, at: string): string => {
     if (typeof p !== 'string' || p === '') throw new Error(`${file}: ${at} must be a file path`);
     return resolve(dirname(file), p);
@@ -300,7 +308,7 @@ export function loadConfig(file: string): SellerAdapterConfig {
   const pass = (k: string) => (f[k] === undefined ? {} : { [k]: f[k] });
   return {
     port: f.port ?? config.port,
-    sellerApi: { quote: api.quote, start: api.start, result: api.result },
+    sellerApi: { ...(api.baseUrl === undefined ? {} : { baseUrl: api.baseUrl }), ...(api.auth === undefined ? {} : { auth: api.auth }), quote: api.quote, start: api.start, result: api.result },
     template: own ? beside(f.template, 'template') : config.template,
     ...(f.reportMapping === undefined ? {} : { reportMapping: beside(f.reportMapping, 'reportMapping') }),
     scope: f.scope ?? config.scope,
@@ -694,7 +702,6 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   if (removed) throw new Error(removed);
   // A misspelt field inside a block would load silently and fall back to a default: refuse it, naming the path.
   const blocks: Array<[string, J, string[]]> = [
-    ['sellerApi', c.sellerApi, ['quote', 'start', 'result']],
     ['adjudicators', c.adjudicators, ['primary', 'fallback', 'appeal']],
     ['mandate', c.mandate, ['fromFaucet', 'renewBeforeSec']],
     ['quoteAuth', c.quoteAuth, ['kind', 'env']],
@@ -707,6 +714,8 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     if (!isRecord(block)) throw new Error(`${at} must be an object`);
     for (const k of Object.keys(block)) if (!keys.includes(k)) throw new Error(`${at} has a field the adapter does not take: ${plain(k).slice(0, 60)}`);
   }
+  // Your API: its mapping and its credential, checked before anything is sent or signed (T-366).
+  const sellerApi = sellerApiClient(c.sellerApi, env, { scope: Object.keys(c.scope ?? {}), options: Object.keys(isRecord(c.options) ? c.options! : {}) });
   const admit = gate(c, env); // refuses a malformed limit or a missing credential before anything is signed
   const refusal = refusalSettings(c, env);
   const m = c.mandate ?? {};
@@ -752,13 +761,6 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     save();
     log(`${deal.id} is ${deal.stage}${deal.note ? `: ${plain(deal.note)}` : ''}.`);
   };
-  /** Your API. A failure names the call and the status only; the body is your API's and may be anything. */
-  const api = async (what: string, url: string, init: RequestInit = {}): Promise<Response> => {
-    const res = await fetch(url, { signal: AbortSignal.timeout(30_000), ...init });
-    if (res.status !== 200 && res.status !== 202) throw new Error(`the seller API answered ${res.status} to ${what}`);
-    return res;
-  };
-  const post = (what: string, url: string, body: unknown, headers: Record<string, string> = {}) => api(what, url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
 
   // ---- The mandate: every offer needs one in the club (T-331) ----
   // On the test service (discovery offers a faucet for this club) each faucet grant signs a fresh 30-day mandate;
@@ -839,12 +841,14 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     refusalFor(c, template, scope, options); // the seller's own exclusions, before its API is asked
     let quoted: J;
     try {
-      quoted = await (await post('the quote', c.sellerApi.quote, { scope, ...(options === undefined ? {} : { options }) })).json();
+      // Your API's errors name the call and the status only; its body is your API's and may be anything.
+      quoted = await sellerApi.quote({ buyer, scope, options });
     } catch (e) {
       log(`Quote failed: ${plain((e as Error).message)}.`);
       throw new Refused(502, 'seller_api_failed', 'the seller could not price this scope');
     }
-    const price = quoted?.price;
+    // A mapping that reads no token prices in the settlement layer's token (T-366).
+    const price = sellerApi.readsToken ? quoted?.price : { ...quoted?.price, token: token.id };
     // Money is base units as a decimal string, never a number (hard rule): refuse anything else from the seller API.
     if (!price || typeof price.token !== 'string' || typeof price.amount !== 'string' || !BASE_UNITS.test(price.amount)) {
       log('Quote refused: the seller API\'s price is not {token, amount} with the amount in base units as a decimal string.');
@@ -857,7 +861,11 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     }
     const deliverWithinSec = quoted.deliverWithinSec;
     if (deliverWithinSec !== undefined && (!Number.isSafeInteger(deliverWithinSec) || deliverWithinSec < 0)) throw new Refused(502, 'seller_api_failed', 'the seller could not price this scope');
+    const validForSec = quoted.validForSec;
+    if (validForSec !== undefined && (!Number.isSafeInteger(validForSec) || validForSec < 0)) throw new Refused(502, 'seller_api_failed', 'the seller could not price this scope');
     const built = termsFor(c, template, scope, options, deliverWithinSec);
+    // The offer never outlives your price: how long the price holds caps the offer's window.
+    if (validForSec !== undefined) built.timing.offerExpiresInSec = Math.min(built.timing.offerExpiresInSec, validForSec);
     const panel = Array.isArray(built.rubric?.criteria) && built.rubric.criteria.length > 0;
     try {
       await ensureMandate(await seller.settlementNow()); // renews a test mandate that ran out while the adapter waited
@@ -946,9 +954,9 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
       record(deal, { stage: 'starting', note: 'every operator shows the hold funded' }); // recorded before the call, so a crash here repeats it under the same key
     }
     if (deal.stage === 'starting') {
-      const started = (await (await post('the start', c.sellerApi.start, { commitmentId: id, ...(deal.quoteId ? { quoteId: deal.quoteId } : {}), scope: deal.scope, ...(deal.options === undefined ? {} : { options: deal.options }) }, { 'idempotency-key': id })).json()) as J;
-      if (typeof started?.jobId !== 'string' || !/^[\x21-\x7e]{1,200}$/.test(started.jobId)) throw new Error('the seller API\'s start answer has no usable jobId');
-      record(deal, { stage: 'started', jobId: started.jobId, note: `job ${started.jobId}` });
+      // The idempotency key is the deal's ID, so a start repeated after a crash returns the same job.
+      const jobId = await sellerApi.start({ commitmentId: id, quoteId: deal.quoteId, buyer: deal.terms.buyer, scope: deal.scope, options: deal.options });
+      record(deal, { stage: 'started', jobId, note: `job ${jobId}` });
     }
     if (deal.stage === 'started' || deal.stage === 'refused' || deal.stage === 'delivering') {
       // The settlement layer, not the journal, says whether a delivery is already there. After a crash at the
@@ -971,12 +979,27 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
         const due = deal.ready === true || (refusal.refetchEverySec !== undefined && (deal.nextFetchAt === undefined || Date.parse(deal.nextFetchAt) <= now));
         if (!due) return; // the delivery waits for the seller's fixed report
       }
-      // The address is the configuration's; only the job's ID, from your API, goes into it.
-      const res = await api('the result', c.sellerApi.result.replace('{jobId}', encodeURIComponent(deal.jobId!)));
-      if (res.status === 202) return; // the job still runs
-      const result = new Uint8Array(await res.arrayBuffer());
+      // The address is the configuration's; only named values, such as the job's ID from your API, go into it.
+      const values = { commitmentId: id, quoteId: deal.quoteId, jobId: deal.jobId!, buyer: deal.terms.buyer, scope: deal.scope, options: deal.options };
+      const job = await sellerApi.result(values);
+      if (job.state === 'running') return; // the job still runs
+      if (job.state === 'failed') {
+        // A failed job is never delivered. The deal closes, so the seller hears of it once.
+        const said = `the seller's job ${deal.jobId} failed (${job.status}); nothing is delivered, and the buyer may reclaim the hold after deliverBy ${deliverBy}`;
+        record(deal, { stage: 'closed', ready: false, note: said });
+        return alert({ type: 'job.failed', commitmentId: id, jobId: deal.jobId!, status: job.status, deliverBy }, said);
+      }
+      const result = job.bytes;
       const resultSha256 = createHash('sha256').update(result).digest('hex');
       let bytes = result;
+      try {
+        // Further files the result names, added before the checks run (T-366). One that fails holds the delivery.
+        bytes = await sellerApi.withFiles(result, values);
+        if (bytes !== result) log(`${id} added the result's files: ${result.length} bytes to ${bytes.length} bytes.`);
+      } catch (e) {
+        if (!(e instanceof FilesNotAdded)) throw e;
+        return refuse(deal, now, resultSha256, { result: 'files_not_added', files: e.message, checks: [] }, `its files could not be added: ${e.message}`);
+      }
       if (reportMapping) {
         // Your report in the template's shape (T-323). A report the mapping cannot convert is never delivered.
         try {
@@ -1059,6 +1082,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
       ...(typeof detail['refused'] === 'object' && detail['refused'] ? [`REFUSED ${plain(String((detail['refused'] as J).code))}: ${plain(String((detail['refused'] as J).detail))}`] : []),
       ...detail.checks.map(checkLine),
       ...(typeof detail['conversion'] === 'string' ? [`NOT CONVERTED ${plain(detail['conversion'])}`] : []),
+      ...(typeof detail['files'] === 'string' ? [`FILES NOT ADDED ${plain(detail['files'])}`] : []),
     ];
     alert({ type: 'delivery.refused', commitmentId: deal.id, deliverBy, attempt, ...detail, nextFetchAt: nextFetchAt ?? null }, `${reasons.join('; ') || plain(why)}. ${waits}.`);
   }
@@ -1166,6 +1190,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   log(`Offers name club ${plain(clubId)} and its adjudicators ${fromDiscovery.club === fromDiscovery.adjudicators ? source(fromDiscovery.club) : `${source(fromDiscovery.adjudicators)}, the club ${source(fromDiscovery.club)}`}: primary ${adjudicators.primary}, fallback ${adjudicators.fallback}, appeal ${adjudicators.appeal}. The mandate ends ${at(mandateUntil)}${faucet ? '; the faucet renews it' : ''}.`);
   log(`A refused result alerts by the log${refusal.callback ? ' and the callback' : ''}${refusal.secret ? ', signed' : ''}; the adapter fetches it again ${refusal.refetchEverySec === undefined ? 'only when you say' : `every ${refusal.refetchEverySec} s`}${refusal.ready ? ', and on POST /deals/<commitmentId>/ready' : ''}, until deliverBy.`);
   const limit = c.quoteRateLimit?.overall;
+  log(sellerApi.describe);
   log(`The quote route takes ${c.quoteAuth ? `a bearer credential from ${plain(c.quoteAuth.env)}` : 'no credential'}; rate limit ${limit ? `${limit.requests} per ${limit.windowSec} s` : 'none'}.`);
 
   return {
