@@ -950,6 +950,7 @@ function verifyPrepared(prepared, intent, me, domain, settlementNowMs) {
 	if (where) refuse$1(`${where} differs from what you asked for`);
 	if (!Array.isArray(prepared.sign) || prepared.sign.length !== plan.slots.length) refuse$1(`expected ${plan.slots.length} signature slot(s), got ${prepared.sign?.length}`);
 	const toSign = [];
+	const slots = [];
 	for (const [i, want] of plan.slots.entries()) {
 		const got = prepared.sign[i];
 		if (got.slot !== want.slot || got.typedData?.primaryType !== want.primaryType || got.signer.toLowerCase() !== want.signer.toLowerCase()) refuse$1(`slot ${i} is ${got.slot}/${got.typedData?.primaryType}, expected ${want.slot}/${want.primaryType}`);
@@ -977,11 +978,18 @@ function verifyPrepared(prepared, intent, me, domain, settlementNowMs) {
 			slot: want.slot,
 			typed
 		});
+		slots.push({
+			slot: want.slot,
+			signer: want.signer.toLowerCase(),
+			typed,
+			digest: mine
+		});
 	}
 	return {
 		path: plan.path,
 		body: plan.body,
-		toSign
+		toSign,
+		slots
 	};
 }
 /** The delivery hash the settlement layer records (EIP-712 struct hash of the delivery without its signature). */
@@ -1255,6 +1263,9 @@ async function verifyDelegation(d, want, domain) {
 // examples/agent.ts
 const b64 = (b) => Buffer.from(b).toString("base64url");
 const bytes = (b) => new Uint8Array(b);
+const refusal = (why) => {
+	throw new Refusal(`refusing to submit: ${why}`);
+};
 const sha = async (b) => `sha256:${Buffer.from(await crypto.subtle.digest("SHA-256", bytes(b))).toString("hex")}`;
 var Agent = class Agent {
 	account;
@@ -1407,24 +1418,35 @@ var Agent = class Agent {
 	* publish a fee, the agent computes it from that schedule and pays it with the agreement; maxTotal covers it too.
 	*/
 	async agreeAndFund(terms, maxTotal) {
-		if (String(terms.buyerPaymentAddress).toLowerCase() !== this.address) throw new Error(`the terms name ${terms.buyerPaymentAddress} as the payment address: that address signs the funding and the operator fee, not this agent (${this.address})`);
+		if (String(terms.buyerPaymentAddress).toLowerCase() !== this.address) throw new Error(`the terms name ${terms.buyerPaymentAddress} as the payment address: that address signs the funding and the operator fee, not this agent (${this.address}); use prepareAgreeAndFund and submitAgreeAndFund with its signatures`);
+		const { prepared, intent } = await this.prepareAgreeAndFund(terms, maxTotal);
+		return this.signAndSubmit(prepared, intent);
+	}
+	/**
+	* Buyer: the prepared agreement and funding for `terms`, checked against this agent's intent (verify.ts), with the
+	* typed data of every slot it holds. `paymentAddress` is the buyer's own payment address (default: this agent).
+	* `nonces` repeats a preparation the agent made before, so the funding message stays the one a wallet signed: on
+	* SimChain the agent picks them; on a chain they are fixed by the terms (ADR-0025).
+	*/
+	async prepareAgreeAndFund(terms, maxTotal, o = {}) {
 		const schedule = await this.operatorFeeSchedule();
 		const id = commitmentIdOf(terms);
 		const c = this.chain;
 		const nonces = {
-			agreeNonce: freshNonce(),
-			fundingNonce: c ? fundingNonceOf(terms, id, c) : freshNonce()
+			agreeNonce: o.nonces?.agreeNonce ?? freshNonce(),
+			fundingNonce: c ? fundingNonceOf(terms, id, c) : o.nonces?.fundingNonce ?? freshNonce()
 		};
-		const feeNonce = c ? operatorFeeNonceOf(id) : freshNonce();
+		const feeNonce = c ? operatorFeeNonceOf(id) : o.nonces?.operatorFeeNonce ?? freshNonce();
 		const prepared = await this.call("POST", "/v1/prepare/agree-and-fund", {
 			commitmentId: id,
 			...nonces,
 			...schedule ? { operatorFeeNonce: feeNonce } : {}
 		});
-		return this.signAndSubmit(prepared, {
+		const intent = {
 			kind: "agree-and-fund",
 			terms,
 			me: this.address,
+			...o.paymentAddress ? { paymentAddress: o.paymentAddress } : {},
 			encryptionPublicKey: this.encryptionPublicKey,
 			maxTotal,
 			...nonces,
@@ -1433,7 +1455,40 @@ var Agent = class Agent {
 				nonce: feeNonce
 			} } : {},
 			...c ? { chain: c } : {}
-		});
+		};
+		const { slots } = verifyPrepared(prepared, intent, this.address, this.domain, await this.settlementNow());
+		return {
+			prepared,
+			intent,
+			slots
+		};
+	}
+	/**
+	* Buyer: verifies the prepared funding again, signs this agent's own slot (the agreement), puts in the signatures
+	* another wallet made for the others (`outside`, by slot: `fund.signature`, `operatorFee.signature`), and submits.
+	* Each outside signature must recover to its slot's signer over the typed data this agent built itself, or nothing
+	* is sent. A contract wallet's signature (ERC-1271) does not recover, so this path refuses it.
+	*/
+	async submitAgreeAndFund(prepared, intent, outside) {
+		const v = verifyPrepared(prepared, intent, this.address, this.domain, await this.settlementNow());
+		const put = (body, slot, sig) => {
+			const keys = slot.split(".");
+			keys.slice(0, -1).reduce((o, k) => o[k], body)[keys.at(-1)] = sig;
+		};
+		for (const s of v.slots) {
+			if (s.signer === this.address) continue;
+			const sig = outside[s.slot];
+			if (typeof sig !== "string" || !/^0x[0-9a-fA-F]{130}$/.test(sig)) refusal(`the ${s.slot} slot needs a 65-byte signature by ${s.signer}, as 0x and 130 hex characters`);
+			const by = (await recoverTypedDataAddress({
+				...s.typed,
+				signature: sig
+			}).catch(() => "")).toLowerCase();
+			if (by !== s.signer) refusal(`the ${s.slot} signature recovers to ${by || "nothing"} over this deal's message, not to ${s.signer}: it was made by another address or over another message (another deal, another amount)`);
+			put(v.body, s.slot, sig);
+		}
+		for (const s of v.toSign) put(v.body, s.slot, await this.account.signTypedData(s.typed));
+		for (const slot of Object.keys(outside)) if (!v.slots.some((s) => s.slot === slot && s.signer !== this.address)) refusal(`there is no ${slot} slot for another signer in this funding`);
+		return this.call("POST", v.path, v.body);
 	}
 	async waitFor(id, states, timeoutMs = 2e4) {
 		for (const end = Date.now() + timeoutMs; Date.now() < end; await new Promise((r) => setTimeout(r, 100))) {
