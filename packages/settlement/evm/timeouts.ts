@@ -211,7 +211,9 @@ export class OperatorTimeouts {
 
   /** Before this (ms) nothing of `kind` may go: the budget is closed, or the relay refused a send. */
   private closedFor(kind: TimeoutKind | undefined): number {
-    return Math.max(this.closed.all, this.pausedUntil, kind === 'expire_offer' ? this.closed.offers : 0);
+    // An offer's expiry sends nothing (SC-6): neither the budget nor a paused relay holds it back.
+    if (kind === 'expire_offer') return 0;
+    return Math.max(this.closed.all, this.pausedUntil);
   }
 
   /** When a pass should next run to send a timeout (ms), or null when none is ahead. */

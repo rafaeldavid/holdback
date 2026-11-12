@@ -1313,9 +1313,25 @@ export class EvmSettlement implements Settlement {
         // ADR-0031 §7 (SC-6): the phase-one contracts keep no record of an unfunded offer's expiry, and from its
         // deadline agreeAndFund refuses it. So the expiry is this node's own record, by its clock: core steps it, the
         // log says `offer.expired`, and no transaction goes out. The contract still holds the deal as None.
+        // Behind the chain (T-218), the contract has moved this deal: it is no unfunded offer.
+        if (book.behind) refuse('invalid_state', this.lag(id)!);
         const at = this.now();
         const before = book.state;
         const next = this.stepped(before, { type: 'expire', at });
+        // Before SC-6 the contract closed two races by refusing expireOffer: a funding this node has not synced (relayed by
+        // another operator, or sent directly), and a node clock ahead of the chain's. One free read of one block closes
+        // both: the deal is None there, and on a live chain that block's own time has passed the deadline after which
+        // agreeAndFund refuses it (min of offerExpiresAt and fundBy), so no later block can fund it.
+        const block = await this.world.publicClient.getBlock({ blockTag: 'latest' });
+        const timing = before.terms.timing;
+        const due = Math.min(Date.parse(timing.offerExpiresAt), Date.parse(timing.fundBy));
+        if (this.wall && Number(block.timestamp) * 1000 < due) {
+          refuse('invalid_state', `the chain's latest block (${toTimestamp(Number(block.timestamp) * 1000)}) is still before this offer's deadline ${toTimestamp(due)}, so it can still be funded; ask again after that block time`);
+        }
+        const onChain = await this.stage(id, block.number ?? undefined);
+        if (onChain.stage !== 'None') {
+          refuse('invalid_state', `the contract holds this deal ${onChain.stage}: it was funded, so it is not an expired offer. This node applies the funding at its next sync`);
+        }
         if (dryRun) return id;
         book.state = next;
         this.emit('offer.expired', id, 'anyone', options.via ?? 'direct', { from: before.kind }, false, at);

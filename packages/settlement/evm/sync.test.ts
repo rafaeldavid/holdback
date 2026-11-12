@@ -786,6 +786,27 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect(s.openDeals()).toEqual({ recent: 0, idle: 0 });
   }, 90_000);
 
+  // SC-6 (T-356, review M-1): before SC-6 the contract's expireOffer reverted WrongStage(Held) for this race; now the
+  // trigger reads the chain first.
+  it('an offer funded on chain that this node has not synced is not marked expired: the trigger reads dealOf first', async () => {
+    const { s, sync } = await node();
+    const d = new EvmDeal(s, cast, club, 'expire-race');
+    await ok(s, await d.offer());
+    await ok(s, await d.accept());
+    const served = s.log().find((e) => e.commitmentId === d.id && e.type === 'adjudicator.accepted')!.payload['acceptance'] as AdjudicatorAcceptance;
+    const sellerSignature = s.log().find((e) => e.commitmentId === d.id && e.type === 'commitment.offered')!.payload['sellerSignature'] as Hex;
+    const af = await d.agreeAndFund();
+    if (af.kind !== 'agree_and_fund') throw new Error('unreachable');
+    await direct(cast.buyer, 'agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(served), agreeView(af.agree), { signature: af.funding.signature }]);
+    await jump(901);
+    const r = await s.trigger(d.id, 'expire_offer', { via: 'op-1' });
+    expect(r.ok ? 'ok' : `${r.problem.type}: ${r.problem.detail}`).toMatch(/^invalid_state: the contract holds this deal Held/);
+    expect(s.escrowState(d.id)!.kind).toBe('AcceptedByAdjudicator');
+    expect(s.log().some((e) => e.commitmentId === d.id && e.type === 'offer.expired')).toBe(false);
+    expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
+    expect(s.escrowState(d.id)!.kind).toBe('Held');
+  }, 60_000);
+
   it('a takeover sent by a stranger hands the fallback its envelope with the contract round; a default closes a deal, and a decision is final at once', async () => {
     const { s, sync } = await node();
     const takeover = await funded('direct-fallback', s, { deliver: true });
