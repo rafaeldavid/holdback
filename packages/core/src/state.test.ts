@@ -315,7 +315,7 @@ describe('offer', () => {
   it.each<[string, OfferInput, RegExp]>([
     ['price and fee both 0, the deal holding nothing', phaseOne({ price: zero('0'), adjudication: { ...exampleCommitment.adjudication, fee: zero('0') } }), /both 0.*ZeroAmount/],
     ['an escalation window of 0', phaseOne({ timing: { ...exampleCommitment.timing, appealDecideSec: 0 } }, { ...rulebook, minWindowsSec: { ...rulebook.minWindowsSec, appealDecide: 0 } }), /appealDecideSec must be at least 1/],
-    ['maxSubmissions other than 1', phaseOne({ timing: { ...exampleCommitment.timing, maxSubmissions: 2 } }, { ...rulebook, maxSubmissions: 3 }), /take one delivery/],
+    ['maxSubmissions other than 1', phaseOne({ timing: { ...exampleCommitment.timing, maxSubmissions: 2 as never } }, { ...rulebook, maxSubmissions: 3 }), /take one delivery/],
   ])('phase one refuses %s', (_name, input, detail) => {
     const r = offer(input);
     expect(r.ok).toBe(false);
