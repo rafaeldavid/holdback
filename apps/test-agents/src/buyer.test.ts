@@ -1,6 +1,6 @@
 // Crow's test buyer against the public demo's own world, served on two origins in this process: an outside seller's
 // agent reads the buyer's card, offers on Crow naming the buyer, and posts the commitment ID to the buyer's intake,
-// over HTTP only, as site/llms.txt "Sell to Crow's test buyer" describes.
+// over HTTP only, as site/ref/intake.txt, "Sell to Crow's test buyer", describes.
 import { MemoryStorage } from '@holdback/demo-cloud';
 import nacl from 'tweetnacl';
 import type { Hex } from 'viem';
@@ -58,7 +58,7 @@ async function freshSeller(world = demo): Promise<Agent> {
   return seller;
 }
 
-/** The outside seller's side: read the buyer's card and discovery, offer on Crow naming the buyer, as section 5 does. */
+/** The outside seller's side: read the buyer's card and discovery, offer on Crow naming the buyer, as site/ref/http-seller.txt ("Offer") does. */
 async function offerTo(s: Started, seller: Agent, over: J = {}): Promise<{ id: Hex; terms: J }> {
   const card = await (await s.call('/agent.json')).json();
   const found = await seller.trusted('/.well-known/holdback.json', (x) => ({ clubId: x.demo.clubId, adjudicators: x.demo.adjudicators }));
