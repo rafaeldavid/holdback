@@ -15,6 +15,8 @@ import {HoldbackTypes as H, Money} from "./HoldbackTypes.sol";
 ///         Buyer funds sit in CPP's per-operator TokenStore; this contract moves them only on
 ///         (a) the deciding adjudicator's signed decision, (b) the buyer's signed early accept, (c) a settlement both
 ///         parties signed, or (d) a timeout anyone may trigger. Every entry point is permissionless: anyone relays.
+///         `IHoldbackRules` describes every function, event, error and type, and gives the auditor's map: the stages,
+///         the deadlines in order, and where the money moves.
 /// @dev No owner, role, pause, upgrade, fallback or receive. The contract takes the settlement view (ADR-0024 §8)
 ///      in calldata, recomputes the commitment ID from it, and stores one word per commitment. Offer, adjudicator
 ///      acceptance and agreement are signatures checked at `agreeAndFund`; nothing is stored before funding.
@@ -22,13 +24,16 @@ contract HoldbackRules is EIP712, IHoldbackRules {
     // State
 
     // Key release paths (ADR-0012).
+    /// @inheritdoc IHoldbackRules
     uint8 public constant KEY_DECISION = 0;
+    /// @inheritdoc IHoldbackRules
     uint8 public constant KEY_EARLY_ACCEPT = 1;
+    /// @inheritdoc IHoldbackRules
     uint8 public constant KEY_MUTUAL = 2;
 
-    /// @notice Mutual settlement fee share to the sitting adjudicator (rulebook `adjudicatorFeeShareAfterDeliveryBps`).
-    ///         The rulebook is not on chain, so the default of 0 applies: `_payOut` returns the whole fee to the buyer.
-    ///         No code here reads it; the getter stays in the ABI, and `Postings.fuzz.t.sol` fails if it leaves 0.
+    /// @inheritdoc IHoldbackRules
+    /// @dev The rulebook's `adjudicatorFeeShareAfterDeliveryBps` is not on chain, so its default of 0 applies. No code
+    ///      here reads the constant: `_payOut` returns the whole fee. `Postings.fuzz.t.sol` fails if it leaves 0.
     uint256 public constant MUTUAL_FEE_SHARE_BPS = 0;
 
     /// @dev 9999-12-31T23:59:59-23:59 in unix seconds: the last instant an RFC 3339 timestamp can state (a four-digit
@@ -41,29 +46,39 @@ contract HoldbackRules is EIP712, IHoldbackRules {
     /// @dev The one delivery attempt phase one takes: the terms' `maxSubmissions` and every delivery's attempt number.
     uint8 internal constant ONLY_ATTEMPT = 1;
 
+    /// @inheritdoc IHoldbackRules
     AuthCaptureEscrow public immutable ESCROW;
-    /// @notice CPP's ERC-3009 collector, the one way a phase-one deal funds (ADR-0031 §3, SC-2).
+    /// @inheritdoc IHoldbackRules
     address public immutable ERC3009_COLLECTOR;
-    /// @notice Added after the last moment a capture can happen (fallbackBy + appealDecideSec) to get CPP's
-    ///         authorizationExpiry, after which only the payment address's own reclaim on CPP remains (ADR-0003).
+    /// @inheritdoc IHoldbackRules
     uint64 public immutable EXPIRY_MARGIN;
-    /// @notice The beacon that fixes fallback and escalation panel seeds (ADR-0018): the drand quicknet verifier
-    ///         on shared chains, the sim beacon on anvil. Fixed at deploy; it also owns the round arithmetic.
+    /// @inheritdoc IHoldbackRules
+    /// @dev It also computes the rounds (`roundAt`).
     IHoldbackBeacon public immutable BEACON;
-    /// @notice The one settlement token this deployment serves, fixed at deploy (ADR-0031 §2, SC-1). Terms that name
-    ///         another token never fund here; a second token needs a second deployment, and so another signing domain.
+    /// @inheritdoc IHoldbackRules
+    /// @dev A second token needs a second deployment, and so another signing domain.
     address public immutable TOKEN;
-    /// @notice Seconds after the last moment a choice can still be made at which the fallback's and the escalation's
-    ///         panel rounds are taken (ADR-0032): two block slots, 29 s, on Ethereum mainnet and Sepolia, so nobody
-    ///         who builds the block that fixes a round knows its value; 0 only on the local chain. Fixed at deploy.
+    /// @inheritdoc IHoldbackRules
     uint64 public immutable BEACON_MARGIN;
 
+    /// @dev Each funded deal's word (`Deal`), by commitment ID; `dealOf` reads it. Written only by the functions that
+    ///      change a deal's stage.
     mapping(bytes32 commitmentId => Deal) internal _deals;
-    /// @notice The posted delivery's hash (the EIP-712 struct hash of the seller's Delivery, as `JobSubmitted` emits
-    ///         it), written by whichever call lands the delivery. Every decision, early accept and mutual settlement
-    ///         after it must name this hash (ADR-0029).
+    /// @inheritdoc IHoldbackRules
+    /// @dev Written once, by whichever call lands the delivery (`_acceptDelivery`).
     mapping(bytes32 commitmentId => bytes32) public deliveryHashOf;
 
+    /// @notice Fixes the deployment's parameters; nothing can change them later.
+    /// @dev Refuses with `ZeroAddress` when the escrow, the collector, the beacon or the token is the zero address,
+    ///      and with `NoBeaconMargin` when the beacon margin is 0 on a chain other than the local one (chain ID 31337).
+    ///      It takes any expiry margin, and any nonzero beacon margin on any chain: the deploy script holds the table
+    ///      of margins per chain (ADR-0032 §3.4). It does not check that the addresses hold code.
+    /// @param escrow The Commerce Payments AuthCaptureEscrow that holds every deal's funds.
+    /// @param erc3009Collector CPP's ERC-3009 payment collector.
+    /// @param expiryMargin Seconds from the last possible decision to the escrow's expiry.
+    /// @param beacon The beacon that proves the fallback's and the appeal adjudicator's rounds.
+    /// @param token The one settlement token.
+    /// @param beaconMargin Seconds from the last moment of choice to the panel round's time.
     constructor(
         AuthCaptureEscrow escrow,
         address erc3009Collector,
@@ -87,12 +102,12 @@ contract HoldbackRules is EIP712, IHoldbackRules {
 
     // Views
 
+    /// @inheritdoc IHoldbackRules
     function dealOf(bytes32 id) external view returns (Deal memory) {
         return _deals[id];
     }
 
-    /// @notice The EIP-712 digest a party signs for a struct hash under this contract's domain
-    ///         ("Holdback", "0.8", chain ID, this address).
+    /// @inheritdoc IHoldbackRules
     function typedDataHash(bytes32 structHash) external view returns (bytes32) {
         return _hashTypedData(structHash);
     }
@@ -126,9 +141,8 @@ contract HoldbackRules is EIP712, IHoldbackRules {
 
     // Agree and fund (transaction 1)
 
-    /// @notice Verifies the seller's signature over the terms, the primary's acceptance and the buyer's Agree, then
-    ///         moves price + fee from the buyer's payment address into CPP's hold with that address's ERC-3009
-    ///         signature for the collector (ADR-0033 §3).
+    /// @inheritdoc IHoldbackRules
+    /// @dev The deal's word is written before the one state-changing external call, the escrow's `authorize`.
     function agreeAndFund(
         H.Terms calldata t,
         bytes calldata sellerSignature,
@@ -179,9 +193,8 @@ contract HoldbackRules is EIP712, IHoldbackRules {
 
     // Deliver
 
-    /// @notice Anyone posts the seller-signed delivery before deliverBy, which stops a reclaim. Optional on the happy
-    ///         path: a decision or early accept may carry the delivery instead, also before deliverBy (D4: two
-    ///         transactions).
+    /// @inheritdoc IHoldbackRules
+    /// @dev Optional on the happy path, so a deal can settle in two transactions (D4).
     function deliver(H.Terms calldata t, H.Delivery calldata dv, bytes calldata sellerSignature) external {
         bytes32 id = H.commitmentId(t);
         Deal storage d = _deals[id];
@@ -192,8 +205,7 @@ contract HoldbackRules is EIP712, IHoldbackRules {
 
     // Decide
 
-    /// @notice Anyone relays the adjudicator's signed decision. In `Held`, the decision carries the delivery it
-    ///         judged (`dv`, `sellerSignature`), which must land before deliverBy. Outside `Held` they are ignored.
+    /// @inheritdoc IHoldbackRules
     /// @dev RF-2 (T-375): the deal's word is read once, here, into `d`, and every path writes it once, in
     ///      `_firstInstance` or `_escalationDecision`, before any token moves. No helper reads or writes the word in
     ///      between: `_acceptDelivery` stores only the delivery's hash, and the attempt travels in `d`.
@@ -311,10 +323,7 @@ contract HoldbackRules is EIP712, IHoldbackRules {
 
     // Early accept
 
-    /// @notice Anyone relays the buyer's signed early accept: the price to the seller, the fee back to the buyer
-    ///         (no adjudicator judged), and the buyer's envelope from the delivery the buyer named, in the same
-    ///         transaction (ADR-0012, ADR-0029). In `Held` the call carries that delivery, seller-signed; after
-    ///         `deliver` it carries the posted one, whose signature was checked when it landed.
+    /// @inheritdoc IHoldbackRules
     function earlyAccept(
         H.Terms calldata t,
         H.EarlyAccept calldata m,
@@ -346,10 +355,8 @@ contract HoldbackRules is EIP712, IHoldbackRules {
 
     // Mutual settlement
 
-    /// @notice A settlement both parties signed closes a funded, undecided commitment (ADR-0019): the payouts split the
-    ///         price between the buyer and the seller (D23's payouts to other addresses are deferred past phase one,
-    ///         ADR-0031 §4); the fee goes back to the buyer (fee share 0 bps). With `releaseKey`, the buyer's
-    ///         envelope from the named delivery is released in the same transaction.
+    /// @inheritdoc IHoldbackRules
+    /// @dev D23's payouts to other addresses are deferred past phase one (ADR-0031 §4).
     function mutualSettle(H.Terms calldata t, H.Mutual calldata m, H.Delivery calldata dv, H.KeyProof calldata k)
         external
     {
@@ -413,7 +420,7 @@ contract HoldbackRules is EIP712, IHoldbackRules {
     // No expire_offer on chain (ADR-0031 §7, SC-6): an unfunded offer stores nothing, and from offerExpiresAt (or
     // fundBy) agreeAndFund refuses it, so the operators mark it expired by their own clock and send nothing.
 
-    /// @notice reclaim: nothing delivered on chain by deliverBy; price + fee back to the buyer.
+    /// @inheritdoc IHoldbackRules
     function reclaim(H.Terms calldata t) external {
         bytes32 id = H.commitmentId(t);
         Deal storage d = _deals[id];
@@ -423,7 +430,7 @@ contract HoldbackRules is EIP712, IHoldbackRules {
         emit JobExpired(id);
     }
 
-    /// @notice fallback: the primary missed judgeBy; the fallback adjudicator takes over.
+    /// @inheritdoc IHoldbackRules
     function triggerFallback(H.Terms calldata t) external {
         bytes32 id = H.commitmentId(t);
         Deal storage d = _deals[id];
@@ -434,9 +441,8 @@ contract HoldbackRules is EIP712, IHoldbackRules {
         emit FallbackTriggered(id, _fallbackRound(t));
     }
 
-    /// @notice default and apply_default in one call: the fallback missed fallbackBy, or the
-    ///         appeal adjudicator missed appealDecideBy after an escalation; price + fee back to the buyer. Phase one
-    ///         has no bond, so nothing compensates the seller (ADR-0031 §8).
+    /// @inheritdoc IHoldbackRules
+    /// @dev SimChain's `default` and `apply_default` in one call.
     function triggerDefault(H.Terms calldata t) external {
         bytes32 id = H.commitmentId(t);
         Deal storage d = _deals[id];
@@ -466,9 +472,10 @@ contract HoldbackRules is EIP712, IHoldbackRules {
         return uint256(t1) + t.timing.appealDecideSec;
     }
 
-    /// @dev The escrow's expiry, its `authorizationExpiry` and `refundExpiry`: the last decision can come at
-    ///      `fallbackBy + appealDecideSec` (a fallback's escalation just before fallbackBy), and the margin follows it
-    ///      (ADR-0003). From it only the payment address's own reclaim on the escrow remains.
+    /// @dev The escrow's expiry, its `authorizationExpiry` and `refundExpiry`: every decision lands before
+    ///      `fallbackBy + appealDecideSec` (a fallback's escalation just before fallbackBy gives the latest), and the
+    ///      margin follows it (ADR-0003). From it the escrow refuses captures; voids still work, and the payment
+    ///      address may reclaim the hold on the escrow itself.
     function _escrowExpiry(H.Terms calldata t) internal view returns (uint256) {
         return uint256(t.timing.fallbackBy) + t.timing.appealDecideSec + EXPIRY_MARGIN;
     }
@@ -494,6 +501,9 @@ contract HoldbackRules is EIP712, IHoldbackRules {
         return _roundAfter(t1);
     }
 
+    /// @dev Closes the deal as Refunded with `reason`, then voids the whole hold back to the buyer's payment address
+    ///      and emits `Refunded`. From the escrow's expiry the payment address may have reclaimed the hold on the
+    ///      escrow already; the deal then closes with nothing to void and no `Refunded`.
     function _refundAll(bytes32 id, H.Terms calldata t, Deal storage d, Reason reason) internal {
         (d.stage, d.reason) = (Stage.Refunded, reason);
         AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(id, t);
@@ -523,6 +533,8 @@ contract HoldbackRules is EIP712, IHoldbackRules {
         emit JobSubmitted(id, t.seller, dh);
     }
 
+    /// @dev Requires `k` to prove the recipient's envelope: the envelope's hash, addressed to `recipient`, sits at
+    ///      `k.index` of `k.keyHashes`, and the packed list hashes to the delivery's `keysHash`. Reverts `BadKeyProof`.
     function _requireKeyProof(address recipient, bytes32 keysHash, H.KeyProof calldata k) internal pure {
         if (k.index >= k.keyHashes.length || k.keyHashes[k.index] != H.encryptedKeyHash(recipient, k)) {
             revert BadKeyProof();
@@ -530,28 +542,35 @@ contract HoldbackRules is EIP712, IHoldbackRules {
         if (keccak256(abi.encodePacked(k.keyHashes)) != keysHash) revert BadKeyProof();
     }
 
+    /// @dev Captures `amount` of the hold: `fee` of it to `feeReceiver`, the rest to the payment's receiver, the
+    ///      seller's payout address.
     function _capture(AuthCaptureEscrow.PaymentInfo memory pi, uint256 amount, uint256 fee, address feeReceiver)
         internal
     {
         ESCROW.capture(pi, amount, fee, feeReceiver);
     }
 
+    /// @dev Emits the buyer's sealed key (`KeyReleased`); the caller has already moved the money it goes with.
     function _releaseKey(bytes32 id, address to, uint8 path, string calldata scheme, string calldata ciphertext)
         internal
     {
         emit KeyReleased(id, to, path, scheme, ciphertext);
     }
 
+    /// @dev Voids what is left of the hold, back to the payment's payer, the buyer's payment address.
     function _void(AuthCaptureEscrow.PaymentInfo memory pi) internal {
         ESCROW.void(pi);
     }
 
+    /// @dev Requires `signature` to be `signer`'s over `structHash` under this contract's EIP-712 domain: ECDSA for an
+    ///      address without code, ERC-1271 for one with code. Reverts `BadSignature`.
     function _requireSigned(address signer, bytes32 structHash, bytes calldata signature) internal view {
         if (!SignatureCheckerLib.isValidSignatureNowCalldata(signer, _hashTypedData(structHash), signature)) {
             revert BadSignature();
         }
     }
 
+    /// @dev The EIP-712 domain: name "Holdback", version "0.8".
     function _domainNameAndVersion() internal pure override returns (string memory, string memory) {
         return ("Holdback", "0.8");
     }
