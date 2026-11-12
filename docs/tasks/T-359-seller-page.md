@@ -6,7 +6,7 @@
 - **Depends on:** T-329 (PR 317), T-330 (PR 316), T-331, T-332 (PR 320), T-333, T-355 (PR 363), all merged on `main`
 - **Paths this task may touch:** `site/llms.txt`, the new `site/sell.txt`, `site/build.mjs` and `site/check.mjs` only as the page needs, this file
 - **Human gate:** no for the change; the site deploy that publishes the page is Rafa's
-- **Status:** review
+- **Status:** done (PR 373, merged 2026-11-12 at 05:10 UTC as `18d2225`; live from the site deploy of 05:14 UTC)
 - **Agent/session:** the T-359 session, 2026-11-12, branch `t-359-seller-page`; pilot plan package 5 (crow-private `roadmap/plans/2026-11-11-pilot-refocus.md`, section 7.1)
 
 ## Intent
@@ -56,7 +56,7 @@
 **Done.** `site/sell.txt` with the first hour and the seller sections, the doc lines of T-331, T-332, T-333 and T-355 placed, the pointer in `site/llms.txt` (a "Sell on Crow" section, and one line under "Writing checks that protect a buyer"), `sellerPage()` and the publish write in `site/build.mjs`, check group 10 in `site/check.mjs` and check group 9 moved to read `sell.txt`. One stale line fixed while moving: "Run it as a service" said `quoteRateLimit` limits per client, which T-331 removed.
 
 **Not done.**
-- **The site deploy is Rafa's** (`pnpm site:deploy`). Until it runs, `https://crow.direct/sell.txt` does not exist and the live `llms.txt` still carries the four sections. `site/deploy.mjs` checks `/`, `/llms.txt` and `/try.mjs` after the upload, not `/sell.txt`; adding it is a small change to the deploy script, out of this task's paths.
+- **The site deploy is Rafa's** (`pnpm site:deploy`). Done: Rafa deployed the site on 2026-11-12 at 05:14 UTC from `18d2225`, and `https://crow.direct/sell.txt` answers HTTP 200 with 33,495 bytes [measured by the coordinating session]. `site/deploy.mjs` checks `/`, `/llms.txt` and `/try.mjs` after the upload, not `/sell.txt`; adding it is a small change to the deploy script, out of this task's paths.
 - **For R6c-3 (the contract lane, schema v0.11).** The page names no payout or payment address. R6c-3 adds the seller's payout address to "Sell a priced API service" (the adapter's configuration, and what the offer signs) and to the first hour's step 5 if the adapter needs a new field to start, and the buyer's payment address to "A seller's client can carry the buyer's side" (the fields the signer shows and checks). `site/check.mjs` group 10 then holds any new file or script those lines name.
 
 **For the coordinator: a gap in code, not on the page.** On `pnpm sim` no shipped buyer funds an offer: the sim's faucet (`apps/operator/src/registry.ts`, `faucet`) grants tokens and no mandate, and `examples/buyer-signer.ts` always makes fresh keys, so `buy-with-signer.ts` stops at the agreement with `scope_exceeded`. The seller's own configuration file therefore reaches a signed offer on a local chain, and the delivered deal on a local chain comes from `pnpm audit-deal`, whose world's faucet grants a mandate. Two small fixes would each close it: the sim's faucet grants a mandate in the sim club, as the test service's does; or `buy-with-signer.ts` takes `--sim`, as the adapter does, and uses a funded sim account. Either lets the first hour end with the seller's own adapter delivering. Not fixed here: it is outside this task's paths.

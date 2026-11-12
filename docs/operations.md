@@ -124,6 +124,12 @@ Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wra
 
 After the deploy, a smoke deal ended Released in 44 s, and the test seller sold once each way (T-222 Evidence) [measured]. To roll back: holdback-op1 `5d369b0e`, holdback-op2 `1f169857` and crow-site `cb0adcb5` (`npx wrangler@4 rollback <version> --name <worker>`); `npx wrangler@4 delete --name crow-test-agents` removes the seller.
 
+### T-359: the seller's page (site deployed 2026-11-12)
+
+**Site deploy 2026-11-12 05:14 UTC, commit `18d2225` on branch `main`: pass.** crow-site `cb842681-4a45-4f9a-a97e-265dc725f323` (rollback target `106cdd47-c29b-41cb-825b-1c296ba75cda`).
+
+Rafa ran it. The seller's page is live at `https://crow.direct/sell.txt` [measured by the coordinating session: HTTP 200, 33,495 bytes], and `llms.txt` points to it in place of the four seller sections.
+
 ### T-347: the operators catch up with `main` (deployed 2026-11-12)
 
 Rafa ran this deploy on 2026-11-12. With it, T-347's fix is live: an unreadable delivery no longer stalls the adjudicator's other deals (PR 346).
