@@ -172,15 +172,13 @@ if [ "$MODE" = deploy ]; then
   read -r CP2 CP2_TX <<<"$OUT_LINE"
   OUT_LINE="$(create "$BEACON_ID")"
   read -r BEACON BEACON_TX <<<"$OUT_LINE"
-  OUT_LINE="$(create "$RULES_ID" "$ESCROW" "$C3009" "$CP2" "$EXPIRY_MARGIN" "$BEACON")"
+  # The demo's open-mint test token. A deployment serves one token, fixed in the rules contract's constructor
+  # (ADR-0031 §2, SC-1), so the token comes first.
+  [ -f "$ROOT/script/TestUSDC.sol" ] || fail "script/TestUSDC.sol is missing: the rules contract needs its token at deploy"
+  OUT_LINE="$(create "$TOKEN_ID")"
+  read -r TOKEN TOKEN_TX <<<"$OUT_LINE"
+  OUT_LINE="$(create "$RULES_ID" "$ESCROW" "$C3009" "$CP2" "$EXPIRY_MARGIN" "$BEACON" "$TOKEN")"
   read -r RULES RULES_TX <<<"$OUT_LINE"
-  # The demo's open-mint test token, when it is on this commit (Sepolia demo session). The escrow is token-agnostic:
-  # the terms name the token, so the core set does not depend on it.
-  TOKEN=""
-  if [ -f "$ROOT/script/TestUSDC.sol" ]; then
-    OUT_LINE="$(create "$TOKEN_ID")"
-    read -r TOKEN TOKEN_TX <<<"$OUT_LINE"
-  fi
 else
   ESCROW="$(field .contracts.AuthCaptureEscrow.address)"
   ESCROW_TX="$(field .contracts.AuthCaptureEscrow.tx)"
@@ -192,8 +190,8 @@ else
   BEACON_TX="$(field .contracts.DrandQuicknetBeacon.tx)"
   RULES="$(field .contracts.HoldbackRules.address)"
   RULES_TX="$(field .contracts.HoldbackRules.tx)"
-  TOKEN="$(jq -r '.token.address // ""' "$OUT")"
-  [ -z "$TOKEN" ] || TOKEN_TX="$(field .token.tx)"
+  TOKEN="$(field .token.address)"
+  TOKEN_TX="$(field .token.tx)"
 fi
 
 # Each transaction succeeded, came from the deployer, and carried this build's creation code and arguments.
@@ -206,8 +204,8 @@ creation_matches "$ESCROW_ID" "$ESCROW_TX"
 creation_matches "$C3009_ID" "$C3009_TX" 'constructor(address,address)' "$ESCROW" "$MULTICALL3"
 creation_matches "$CP2_ID" "$CP2_TX" 'constructor(address,address,address)' "$ESCROW" "$PERMIT2" "$MULTICALL3"
 creation_matches "$BEACON_ID" "$BEACON_TX"
-creation_matches "$RULES_ID" "$RULES_TX" 'constructor(address,address,address,uint64,address)' \
-  "$ESCROW" "$C3009" "$CP2" "$EXPIRY_MARGIN" "$BEACON"
+creation_matches "$RULES_ID" "$RULES_TX" 'constructor(address,address,address,uint64,address,address)' \
+  "$ESCROW" "$C3009" "$CP2" "$EXPIRY_MARGIN" "$BEACON" "$TOKEN"
 
 # The deployment is wired as the review assumed. Phase one has no bond vault (ADR-0031 §8).
 TOKEN_STORE_IMPL="$(call "$ESCROW" 'tokenStoreImplementation()(address)')"
@@ -216,6 +214,7 @@ expect "rules ERC3009_COLLECTOR" "$C3009" call "$RULES" 'ERC3009_COLLECTOR()(add
 expect "rules PERMIT2_COLLECTOR" "$CP2" call "$RULES" 'PERMIT2_COLLECTOR()(address)'
 expect "rules BEACON" "$BEACON" call "$RULES" 'BEACON()(address)'
 expect "rules EXPIRY_MARGIN" "$EXPIRY_MARGIN" call "$RULES" 'EXPIRY_MARGIN()(uint64)'
+expect "rules TOKEN" "$TOKEN" call "$RULES" 'TOKEN()(address)'
 expect "ERC-3009 collector escrow" "$ESCROW" call "$C3009" 'authCaptureEscrow()(address)'
 expect "ERC-3009 collector multicall3" "$MULTICALL3" call "$C3009" 'multicall3()(address)'
 expect "Permit2 collector escrow" "$ESCROW" call "$CP2" 'authCaptureEscrow()(address)'
@@ -276,7 +275,7 @@ RECORD="$(jq -n \
   --arg permit2 "$PERMIT2" --arg permit2CodeHash "$PERMIT2_CODEHASH" \
   --arg multicall "$MULTICALL3" --arg multicallCodeHash "$MULTICALL3_CODEHASH" \
   --argjson expiryMarginSec "$EXPIRY_MARGIN" \
-  --argjson token "$TOKEN_JSON" \
+  --argjson token "$TOKEN_JSON" --arg tokenAddress "$TOKEN" \
   '{
     chainId: 11155111,
     commit: $commit,
@@ -308,7 +307,7 @@ RECORD="$(jq -n \
       Permit2PaymentCollector: {address: $cp2, tx: $cp2Tx, block: $cp2Block, args: [$escrow, $permit2, $multicall]},
       DrandQuicknetBeacon: {address: $beacon, tx: $beaconTx, block: $beaconBlock, args: []},
       HoldbackRules: {address: $rules, tx: $rulesTx, block: $rulesBlock,
-        args: [$escrow, $c3009, $cp2, ($expiryMarginSec | tostring), $beacon]}
+        args: [$escrow, $c3009, $cp2, ($expiryMarginSec | tostring), $beacon, $tokenAddress]}
     }
   }')"
 
