@@ -53,6 +53,7 @@ import {
 import type { ApiProblem } from './problems.js';
 import { freeBond, hasBond, type Bond } from './registrations.js';
 import { checksOnlyTerms, completeTerms, defaultTerms, type AdjudicatorSlate, type RelativeTiming, type TermsDraft } from './terms.js';
+import { amountTokenRefusal, tokenRefusal, type AcceptedToken } from './token.js';
 import { formatTusd } from './units.js';
 
 export const PREPARE_KINDS = ['offer', 'agree-and-fund', 'delivery', 'early-accept', 'appeal', 'settlement'] as const;
@@ -121,6 +122,8 @@ export interface PrepareContext {
    * address equal to one gets an advisory notice (ADR-0033 §7). Absent: SimChain, which has none.
    */
   contracts?: ReadonlyArray<{ name: string; address: Address }>;
+  /** The one token this deployment settles in (the plan's 2c): terms in another are refused before anything is signed. Absent: no check. */
+  token?: AcceptedToken;
 }
 
 /**
@@ -333,6 +336,13 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
   const club = ctx.club(input['clubId'] as string) ?? bad(`no club ${String(input['clubId'])}`, 'clubId');
   if (!isObj(input['deliverable'])) bad('deliverable is {"kind", "description", "format"}', 'deliverable');
   const nonce = nonceIn(input['nonce'], 'nonce');
+  // The plan's 2c: a price or a fee the caller names in another token is refused first, before any registration is read.
+  // The completed terms are checked again below, for a fee taken from the primary's registration.
+  for (const [k, field] of [['price', 'price.token'], ['fee', 'adjudication.fee.token']] as const) {
+    const a = input[k];
+    const early = isObj(a) && typeof a['token'] === 'string' ? amountTokenRefusal(ctx.token, a as unknown as TokenAmount, field) : null;
+    if (early) throw new PrepareError(early);
+  }
   // ADR-0030 §3: an expired registration stays listed, but no longer speaks for its adjudicator's policy, fee or key.
   const current = async (role: AdjudicatorRole) => {
     const r = (await ctx.registration(slate[role])) ?? notFound(`the ${role} adjudicator ${slate[role]} has no published registration`);
@@ -380,6 +390,9 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
     createdAt,
   };
   const terms: CommitmentTerms = representable(() => completeTerms(draft, { ...resolved, nonce }));
+  // The plan's 2c: one token per deployment, refused here before the seller signs terms the contract would refuse at funding.
+  const otherToken = tokenRefusal(ctx.token, terms);
+  if (otherToken) throw new PrepareError(otherToken);
   // ADR-0031 §6 (SC-5, Rafa 2026-11-11): a phase-one deal holds at least one base unit, as price or as fee; the escrow
   // refuses to hold nothing. Said here, before the seller signs terms no one could fund.
   if (ctx.phaseOne && BigInt(terms.price.amount) === 0n && BigInt(terms.adjudication.fee.amount) === 0n) bad(ZERO_HOLD_PROBLEM, 'price');
@@ -402,6 +415,7 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
   const shortfall = await fallbackBondRefusal(ctx, terms);
   if (shortfall) bad(shortfall, 'adjudicators.fallback');
   const notices = [
+    ...escalationWindowNotices(club, terms),
     ...addressDefaultNotices(terms, { payment: buyer!['paymentAddress'] === undefined, payout: input['sellerPayoutAddress'] === undefined }),
     ...moneyAddressNotices(ctx, terms),
     ...(await bondNotices(ctx, terms)),
@@ -487,6 +501,24 @@ async function turnProblems(ctx: Pick<PrepareContext, 'declines'>, c: AnyCommitm
     if (why) out[role] = why;
   }
   return out;
+}
+
+/**
+ * ADR-0032: on a chain whose rules contract takes drand quicknet's rounds with a 29 s margin (Sepolia, Ethereum mainnet),
+ * the appeal adjudicator cannot decide an escalation in a window below 37 s: no block inside it is built after the round
+ * is public, and every escalation under those terms defaults to a refund. The local chain and SimChain run the sim beacon,
+ * whose floor is 2 s, so a club on it gets no warning.
+ */
+export const SMALLEST_DECIDABLE_ESCALATION_SEC = 37;
+
+/** ADR-0032 §5, gate line BR-5: an advisory notice, never a refusal (D31), for an escalation window below the chain's floor. */
+export function escalationWindowNotices(club: Pick<Club, 'rulebook'>, t: Pick<AnyCommitmentTerms, 'timing'>): string[] {
+  if (club.rulebook.randomness?.source !== 'drand-quicknet') return [];
+  const w = t.timing.appealDecideSec;
+  if (w >= SMALLEST_DECIDABLE_ESCALATION_SEC) return [];
+  return [
+    `timing.appealDecideSec is ${w} s, below the ${SMALLEST_DECIDABLE_ESCALATION_SEC} s the appeal adjudicator needs on this chain to decide an escalation after the beacon's round is public (ADR-0032): every escalation under these terms would end in the default outcome, a refund. A panel needs more; the repository's terms use 300 s. You may still choose it`,
+  ];
 }
 
 /** ADR-0033 §7: one line for each money address the request left out, so the party knows its signing address holds the money. */
@@ -771,7 +803,10 @@ async function settlement(ctx: PrepareContext, input: Record<string, unknown>): 
     if (!Array.isArray(input['payouts'])) bad('payouts is a list of {"to", "amount"}', 'payouts');
     payouts = (input['payouts'] as unknown[]).map((p, i) => {
       if (!isObj(p) || !isAddress(p['to'])) return bad(`payouts[${i}].to must be an address`, `payouts.${i}.to`);
-      return { to: p['to'] as Address, amount: amountIn(p['amount'], `payouts.${i}.amount`) };
+      const amount = amountIn(p['amount'], `payouts.${i}.amount`);
+      const otherToken = amountTokenRefusal(ctx.token, amount, `payouts.${i}.amount.token`);
+      if (otherToken) throw new PrepareError(otherToken);
+      return { to: p['to'] as Address, amount };
     });
   } else {
     const bps = input['toSellerBps'];

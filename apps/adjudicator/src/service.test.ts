@@ -223,6 +223,24 @@ describe('acceptance (commit)', () => {
     expect(report.declined).toEqual([{ commitmentId: c.id, reason: expect.stringMatching(/does not trust/) }]);
   });
 
+  // Triage item 63 (T-378): on a chain settlement no bond is at stake (ADR-0031 §8), so the two consent rules give their
+  // phase-one reasons, and the rules still apply: they are the adjudicator's own choice (D29).
+  it('on the phase-one contracts declines with reasons that name no bond', async () => {
+    const s = new TestSettlement();
+    s.phaseOne = true;
+    const a = bench(A, 'bench-a', s);
+    const terms = { primary: A.address, fallback: B.address, policyHash: policyHashOf(a.adj.policy), registryHash: reg.hash, buyer: BUYER, seller: SELLER };
+    const untrusted = makeCommitment({ ...terms, appeal: party(9).address });
+    const long = makeCommitment({ ...terms, appeal: C.address, timing: { appealWindowSec: 0, appealDecideSec: DEFAULT_APPEAL_LIMITS.maxAppealDecideSec + 1 } });
+    s.offer(untrusted);
+    s.offer(long);
+    const report = await a.adj.runOnce();
+    const reasons = Object.fromEntries(report.declined.map((d) => [d.commitmentId, d.reason]));
+    expect(reasons[untrusted.id]).toMatch(/does not trust .*: on the phase-one contracts the appeal adjudicator decides every escalation, and its decision is final/);
+    expect(reasons[long.id]).toMatch(/appealDecideSec is at most \d+ s: a deal it escalates stays open that long/);
+    for (const r of Object.values(reasons)) expect(r).not.toMatch(/bond/);
+  });
+
   it('with no trusted set configured, trusts only itself as fallback and appeal adjudicator', async () => {
     const s = new TestSettlement();
     const lone = new Adjudicator({
@@ -798,6 +816,8 @@ describe('never re-roll after a post-panel failure (review item 1)', () => {
     s.failNextPublishes = 1;
     const first = await a.adj.runOnce();
     expect(first.refused).toHaveLength(1);
+    // Caught where it happens, with the reason, not by the pass's catch-all (triage item 67, T-378).
+    expect(first.refused[0]!.problem.detail).toMatch(/^judgment record publication failed \(\w+\); retrying without re-judging$/);
     expect(a.calls).toHaveLength(3);
     expect(s.records.size).toBe(0);
     s.at('2026-11-01T10:00:40Z');
@@ -865,6 +885,24 @@ describe('review item 4: rules the mutation sweep found untested', () => {
     await c.adj.runOnce();
     const record = [...s.records.values()][1]!;
     expect(record.panel.members).toHaveLength(5);
+    expect(new Set(record.panel.members.map((m) => m.family)).size).toBe(3);
+  });
+
+  // Triage item 67 (T-378): with eight claude judges beside one gpt and one qwen, a five-seat panel drawn for two
+  // families would rarely seat both minor families; the appeal panel's three-family minimum seats them every time.
+  it('the appeal panel meets minFamiliesAppeal (3) where the first-instance minimum (2) would be met by two families', async () => {
+    const r = loadRegistry({
+      version: 1,
+      judges: [...['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((x) => entry(`claude-${x}`, 'claude', 'anthropic')), entry('gpt-a', 'gpt', 'openai-compatible'), entry('qwen-a', 'qwen', 'openai-compatible')],
+    });
+    if (!r.ok) throw new Error(r.error.detail);
+    const { s, a, c, id } = await setup({ registry: r.value, scriptA: onlyClaudePasses });
+    s.at('2026-11-01T10:00:30Z');
+    await a.adj.runOnce();
+    expect(s.state(id).kind).toBe('Escalated');
+    s.at('2026-11-01T10:00:32Z');
+    await c.adj.runOnce();
+    const record = [...s.records.values()][1]!;
     expect(new Set(record.panel.members.map((m) => m.family)).size).toBe(3);
   });
 
