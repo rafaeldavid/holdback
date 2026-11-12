@@ -167,6 +167,58 @@ describe.skipIf(!ready)(`the deploy script on a local chain (T-383)${ready ? '' 
     expect(c.stderr).toContain("the record's beaconMarginSec is 30; this script deploys 29");
   }, 300_000);
 
+  /** An accepted-token table with one entry for the local chain. */
+  const table = (address: string): string => {
+    const file = join(chain.dir, `table-${address.toLowerCase()}.json`);
+    writeFileSync(file, JSON.stringify({ '31337': { address, symbol: 'tUSDC', decimals: 6 } }));
+    return file;
+  };
+
+  it('--check passes when the table, the record and TOKEN() name one token', async () => {
+    const r = JSON.parse(readFileSync(record, 'utf8'));
+    const c = await chain.check(record, { ACCEPTED_TOKENS: table(r.token.address.toLowerCase()) });
+    expect(c.stderr).toBe('');
+    expect(c.code).toBe(0);
+  }, 300_000);
+
+  it('--check fails on a table that names another token, and names both', async () => {
+    const r = JSON.parse(readFileSync(record, 'utf8'));
+    const other = '0x00000000000000000000000000000000000BeEF0';
+    const c = await chain.check(record, { ACCEPTED_TOKENS: table(other) });
+    expect(c.code).not.toBe(0);
+    expect(c.stderr).toContain(`the record's token is ${r.token.address}, but Crow's operators accept ${other} on chain 31337`);
+  }, 300_000);
+
+  it('--check fails on a table entry for the chain that names no address', async () => {
+    const file = join(chain.dir, 'table-no-address.json');
+    writeFileSync(file, JSON.stringify({ '31337': { symbol: 'tUSDC', decimals: 6 } }));
+    const c = await chain.check(record, { ACCEPTED_TOKENS: file });
+    expect(c.code).not.toBe(0);
+    expect(c.stderr).toContain("the accepted-token table's entry for chain 31337 names no address");
+  }, 300_000);
+
+  it('--check fails on a token address that holds no code', async () => {
+    const r = JSON.parse(readFileSync(record, 'utf8'));
+    const snapshot = await chain.rpcCall('evm_snapshot', []);
+    try {
+      await chain.rpcCall('anvil_setCode', [r.token.address, '0x']);
+      const c = await chain.check(record);
+      expect(c.code).not.toBe(0);
+      expect(c.stderr).toContain(`no contract at the token address ${r.token.address}: no deal could fund`);
+    } finally {
+      await chain.rpcCall('evm_revert', [snapshot]);
+    }
+  }, 300_000);
+
+  it('--check fails on a record whose token is not the rules contract’s TOKEN()', async () => {
+    const other = '0x00000000000000000000000000000000000BeEF0';
+    const wrong = chain.planted(record, 'wrong-token', (r) => ((r['token'] as Record<string, unknown>)['address'] = other));
+    const c = await chain.check(wrong);
+    expect(c.code).not.toBe(0);
+    // The rules contract's creation input carries its token, so the creation-code check is the first to refuse.
+    expect(c.stderr).toContain('src/HoldbackRules.sol:HoldbackRules: the creation input differs from this build');
+  }, 300_000);
+
   it('a rehearsal needs DEPLOY_RECORD and never names the Sepolia record', async () => {
     const none = await run('bash', [SCRIPT, '--check', chain.rpc], { DEPLOY_RECORD: '' });
     expect(none.code).not.toBe(0);

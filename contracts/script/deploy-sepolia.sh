@@ -40,6 +40,9 @@ INVALID_SIGNATURE=0x8baa579f # DrandQuicknetBeacon's InvalidSignature()
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SEPOLIA_RECORD="$ROOT/deployments/sepolia.json"
 OUT="${DEPLOY_RECORD:-$SEPOLIA_RECORD}"
+# The one token Crow's operators accept on each chain (T-383). A rehearsal may name another table; Sepolia may not.
+REPO_TABLE="$ROOT/../packages/settlement/evm/accepted-tokens.json"
+TABLE="${ACCEPTED_TOKENS:-$REPO_TABLE}"
 BUILD_INPUTS=(src lib foundry.toml remappings.txt script/TestUSDC.sol)
 
 fail() {
@@ -133,6 +136,7 @@ case "$CHAIN" in
 "$SEPOLIA")
   # A Sepolia run writes and checks the one Sepolia record.
   [ "$OUT" = "$SEPOLIA_RECORD" ] || fail "on Sepolia the record is $SEPOLIA_RECORD; unset DEPLOY_RECORD"
+  [ "$TABLE" = "$REPO_TABLE" ] || fail "on Sepolia the accepted-token table is $REPO_TABLE; unset ACCEPTED_TOKENS"
   ;;
 "$LOCAL")
   LOCAL_RPC='^http://(127\.0\.0\.1|localhost)(:[0-9]+)?/?$'
@@ -236,6 +240,28 @@ expect "rules BEACON" "$BEACON" call "$RULES" 'BEACON()(address)'
 expect "rules EXPIRY_MARGIN" "$EXPIRY_MARGIN" call "$RULES" 'EXPIRY_MARGIN()(uint64)'
 expect "rules TOKEN" "$TOKEN" call "$RULES" 'TOKEN()(address)'
 expect "rules BEACON_MARGIN" "$BEACON_MARGIN" call "$RULES" 'BEACON_MARGIN()(uint64)'
+
+# T-383: one token, three ways. TOKEN() equals the record's token (above); the token holds code; and the table's entry
+# for this chain, when it has one, names the same token. The contract's constructor checks neither on purpose: a token
+# with no code could take no funding, so the check after the deploy is the place for it (refinement plan, item 53).
+TOKEN_CODE="$(cast code "$TOKEN" --rpc-url "$RPC")" || fail "reading the code at the token $TOKEN failed"
+[ "$TOKEN_CODE" != 0x ] || fail "no contract at the token address $TOKEN: no deal could fund"
+TABLE_TOKEN="$(jq -r --arg chain "$CHAIN" 'if has($chain) then (.[$chain].address // "none") else "" end' "$TABLE")" || fail "reading the accepted-token table $TABLE failed"
+# Only a chain with no entry skips the table, and Sepolia must have one (review of PR 423, M4).
+ADDRESS_FORM='^0x[0-9a-fA-F]{40}$'
+if [ "$CHAIN" = "$SEPOLIA" ] && [ -z "$TABLE_TOKEN" ]; then fail "the accepted-token table $TABLE has no entry for Sepolia"; fi
+if [ -n "$TABLE_TOKEN" ] && ! [[ "$TABLE_TOKEN" =~ $ADDRESS_FORM ]]; then fail "the accepted-token table's entry for chain $CHAIN names no address"; fi
+TOKEN_LOWER="$(tr '[:upper:]' '[:lower:]' <<<"$TOKEN")"
+TABLE_LOWER="$(tr '[:upper:]' '[:lower:]' <<<"$TABLE_TOKEN")"
+if [ -z "$TABLE_TOKEN" ] || [ "$TABLE_LOWER" = "$TOKEN_LOWER" ]; then
+  :
+elif [ "$MODE" = deploy ]; then
+  # Each Sepolia deployment creates its own test token, so the table names the last one until the record's copies
+  # are written (cutover step 3). --check compares all three after that.
+  echo "deploy-sepolia: this deployment created the token $TOKEN; the table names $TABLE_TOKEN for chain $CHAIN until scripts/record-copies.mjs writes the new record's copies, and --check then compares all three"
+else
+  fail "the record's token is $TOKEN, but Crow's operators accept $TABLE_TOKEN on chain $CHAIN ($TABLE)"
+fi
 expect "ERC-3009 collector escrow" "$ESCROW" call "$C3009" 'authCaptureEscrow()(address)'
 expect "ERC-3009 collector multicall3" "$MULTICALL3" call "$C3009" 'multicall3()(address)'
 

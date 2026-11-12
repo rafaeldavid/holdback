@@ -44,6 +44,7 @@ import {
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import { holdbackDomain, type HoldbackDomain } from '@holdback/core';
 import abisJson from './abis.json' with { type: 'json' };
+import acceptedTokensJson from './accepted-tokens.json' with { type: 'json' };
 import { RelayRefused, type Abis, type Deployment, type EvmChain, type LaneRow, type Mined, type RelayNote } from './chain.js';
 import { revertData } from './errors.js';
 import { assertSafeChain } from './guard.js';
@@ -77,6 +78,37 @@ export interface DeploymentFile {
 export function domainMismatch(onChain: { name: string; version: string }, want: Pick<HoldbackDomain, 'name' | 'version'>): string | null {
   if (onChain.name === want.name && onChain.version === want.version) return null;
   return `the rules contract signs under EIP-712 domain "${onChain.name}" ${onChain.version}, this build under "${want.name}" ${want.version}: every message would revert BadSignature. Deploy the ${want.version} contracts and update the deployment file (contracts/deployments/<network>.json, ADR-0029 §8) before starting this build`;
+}
+
+/** A token Crow's operators accept on one chain. */
+export interface AcceptedToken {
+  address: string;
+  symbol: string;
+  decimals: number;
+}
+
+/**
+ * The one token Crow's operators accept, per chain ID (accepted-tokens.json, T-383). It is Crow's rule, not the
+ * protocol's: the contract serves whatever token its deployer fixed. A chain with no entry, the local one, skips it.
+ */
+export const ACCEPTED_TOKENS: Readonly<Record<string, AcceptedToken>> = Object.fromEntries(
+  Object.entries(acceptedTokensJson as Record<string, unknown>).filter((e): e is [string, AcceptedToken] => /^\d+$/.test(e[0])),
+);
+
+/**
+ * Why a deployment's token is not one this build settles in, or null. Three values must agree: the table's entry for
+ * the chain (none: that comparison is skipped), the deployment file's token, and the rules contract's TOKEN(). Each
+ * message names both sides of the first pair that differs.
+ */
+export function tokenMismatch(chainId: number, file: string, onChain: string, table: Readonly<Record<string, AcceptedToken>> = ACCEPTED_TOKENS): string | null {
+  const entry = table[String(chainId)];
+  // Only a chain with no entry skips the table; Sepolia, which Crow's operators serve, must have one (review of PR 423).
+  if (!entry && chainId === 11155111) return `Crow's operators accept no token on chain ${chainId}: packages/settlement/evm/accepted-tokens.json has no entry for it`;
+  if (entry && !/^0x[0-9a-fA-F]{40}$/.test(String(entry.address))) return `the accepted-token table's entry for chain ${chainId} names no address (packages/settlement/evm/accepted-tokens.json)`;
+  if (entry && lc(entry.address) !== lc(file)) return `the deployment file's token is ${file}, but Crow's operators accept ${entry.address} (${entry.symbol}) on chain ${chainId} (packages/settlement/evm/accepted-tokens.json)`;
+  // With the first two equal, a third difference (table against chain) is this one.
+  if (lc(onChain) !== lc(file)) return `the rules contract's TOKEN() is ${onChain}, the deployment file says ${file}`;
+  return null;
 }
 
 /** The six ABIs from contracts/out (scripts/evm-abis.mjs), for a runtime with no file system. */
@@ -325,6 +357,14 @@ export class LiveChain implements EvmChain {
     const [, name, version] = (await this.publicClient.readContract({ address: this.deployment.rules, abi: this.abis.rules, functionName: 'eip712Domain' })) as readonly [Hex, string, string, bigint, Address, Hex, readonly bigint[]];
     const mismatch = domainMismatch({ name, version }, holdbackDomain(id, this.deployment.rules));
     if (mismatch) throw new RangeError(`${mismatch} (rules contract ${this.deployment.rules} on chain ${id})`);
+    // T-383: one token, three ways (the table, the file, TOKEN()), and code at it. A token with no code could take no
+    // funding at all; it is refused here and by the deploy script's check, not by the contract's constructor.
+    // eslint-disable-next-line no-restricted-syntax -- read before any write, and TOKEN is a constant of the deployed contract.
+    const token = (await this.publicClient.readContract({ address: this.deployment.rules, abi: this.abis.rules, functionName: 'TOKEN' })) as Address;
+    const wrongToken = tokenMismatch(id, this.deployment.token, token);
+    if (wrongToken) throw new RangeError(`${wrongToken} (rules contract ${this.deployment.rules} on chain ${id})`);
+    const tokenCode = await this.publicClient.getCode({ address: this.deployment.token });
+    if (!tokenCode || tokenCode === '0x') throw new RangeError(`no contract at the token address ${this.deployment.token} on chain ${id}: no deal could fund`);
     // Every funding nonce hashes the margin: a deployment file that disagrees with the contract signs for nothing.
     // eslint-disable-next-line no-restricted-syntax -- T-232: read before any write, and EXPIRY_MARGIN is a constant of the deployed contract.
     const margin = (await this.publicClient.readContract({ address: this.deployment.rules, abi: this.abis.rules, functionName: 'EXPIRY_MARGIN' })) as bigint;
