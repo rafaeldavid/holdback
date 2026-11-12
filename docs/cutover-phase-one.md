@@ -6,7 +6,7 @@ This page moves the live test service from the contracts deployed on 2026-11-04 
 
 ## Rules for the whole run
 
-1. **Sepolia only.** Every chain step runs on Ethereum Sepolia, chain ID 11155111. Before any step that names an RPC, run `cast chain-id --rpc-url <rpc-url>`. If it prints anything else, stop. This page does not apply to another chain, and no line of it may be adapted to a mainnet chain ID. A mainnet deploy needs an audit, Rafa's written approval and its own checklist ([`operations.md`](operations.md), Gates). The deploy script refuses any other chain (`contracts/script/deploy-sepolia.sh:123-124`), and so does the operators' chain client (`packages/settlement/evm/live.ts:253-254`) [measured by reading].
+1. **Sepolia only.** Every chain step runs on Ethereum Sepolia, chain ID 11155111. Before any step that names an RPC, run `cast chain-id --rpc-url <rpc-url>`. If it prints anything else, stop. This page does not apply to another chain, and no line of it may be adapted to a mainnet chain ID. A mainnet deploy needs an audit, Rafa's written approval and its own checklist ([`operations.md`](operations.md), Gates). The deploy script refuses any other chain, except a rehearsal on a local anvil behind a `http://127.0.0.1` RPC that never writes the Sepolia record, and so does the operators' chain client (`packages/settlement/evm/live.ts`) [measured by reading].
 2. **Rafa runs each step, or a session runs it on his word for that step.** One go-ahead covers one step. The contract deploy needs the deployer's keystore, which sits on Rafa's Mac.
 3. **Secrets go by name.** Nobody reads, prints or copies `.env*`, the keystore, its password file, `SEPOLIA_RELAYER_KEY` or `TEST_AGENTS_SEED`. A keyed RPC URL is a secret too: pass it from the environment.
 4. **One build, one set of contracts.** The lane's build cannot settle on the old contracts, and the live operators cannot settle on the new ones (T-346 and T-349, Handoff). The order below keeps each build on its own contracts at every moment.
@@ -113,13 +113,13 @@ This page moves the live test service from the contracts deployed on 2026-11-04 
 
 **What the code says** [measured]:
 
-- **The lane's script already deploys the phase-one shape:** five `forge create` calls for the escrow, its one collector, the beacon, a new test token and the rules contract (`contracts/script/deploy-sepolia.sh:164-176`). It creates no vault. The rules constructor takes the escrow, the collector, the expiry margin of 86,400 s, the beacon and the token (`contracts/src/HoldbackRules.sol:114-120`).
-- **It writes over `contracts/deployments/sepolia.json`** (`:302`), and records `HEAD` as the deployed commit (`:128`).
-- **It checks only the build inputs for changes** (`src`, `lib`, `foundry.toml`, `remappings.txt`, `script/TestUSDC.sol`; `:35`, `:135-137`). A new file under `contracts/deployments/` does not stop it.
-- **It does not resume.** If one `forge create` fails, it exits, writes nothing, and leaves the contracts already created on Sepolia, unused. A second run creates a full new set [inferred].
-- **Each deployment creates a new test token** (`:173`). Every balance starts at zero in the new world, and the faucet mints the new token.
-
-**Second pass:** R8 adds the beacon margin of 29 s to the constructor (ADR-0032), and R7 may change it again. The script's `create` line (`:175`), its creation-code check (`:198`), its wiring checks (`:203-209`) and the record's `args` (`:290-291`) follow, in the deploy-script package. Run nothing here until that package has landed.
+- **The lane's script deploys the phase-one shape:** five `forge create` calls for the escrow, its one collector, the beacon, a new test token and the rules contract. It creates no vault. The rules constructor takes the escrow, the collector, the expiry margin of 86,400 s, the beacon, the token and the beacon margin of 29 s (ADR-0032). The script names the margin once, as `BEACON_MARGIN`, and the create line, the creation-code check, the wiring check and the record's `beaconMarginSec` and `args` all take it from there (T-383).
+- **It writes over `contracts/deployments/sepolia.json`**, and records `HEAD` as the deployed commit.
+- **It checks only the build inputs for changes** (`src`, `lib`, `foundry.toml`, `remappings.txt`, `script/TestUSDC.sol`). A new file under `contracts/deployments/` does not stop it.
+- **It does not resume, on purpose.** If one `forge create` fails, it exits, writes nothing, and leaves the contracts already created on Sepolia, unused. Rerun the whole step; the next run creates a full new set [inferred].
+- **Each deployment creates a new test token.** Every balance starts at zero in the new world, and the faucet mints the new token.
+- **The token is checked three ways** (T-383): the accepted-token table (`packages/settlement/evm/accepted-tokens.json`), the record, and `TOKEN()` on chain, and the token must hold code. Right after the deploy the table still names the old token, so the deploy prints a note that says so instead of failing, and the full `--check` waits for step 3, after the record's copies are written.
+- **A rehearsal on this Mac** runs the same script against a local anvil (chain 31337, a `http://127.0.0.1` RPC), with `DEPLOY_RECORD` naming a scratch record; it can never write `contracts/deployments/sepolia.json`. `packages/settlement/evm/deploy-script.test.ts` runs the whole routine twice that way [measured, T-383].
 
 **Do:**
 
@@ -138,16 +138,11 @@ This page moves the live test service from the contracts deployed on 2026-11-04 
    /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/contracts/script/deploy-sepolia.sh <sepolia-rpc-url> <keystore-file> <password-file>
    ```
 
-5. **Check, read-only:**
+5. **Read the deploy's token note.** Among its last lines the deploy prints `deploy-sepolia: this deployment created the token <new token>; the table names <old token> for chain 11155111 …`. Write both addresses down. The read-only `--check` runs at step 3.2, once the table names the new token.
+6. **Read the domain the rules contract signs under:** `cast call <rules-address> 'eip712Domain()(bytes1,string,string,uint256,address,bytes32,uint256[])' --rpc-url https://ethereum-sepolia-rpc.publicnode.com`. It must read "Holdback" 0.8; the old contracts read 0.7.
+7. **Explorer verification** moves to step 3.3: the `--verify` mode runs `--check` first, and that check waits for the table.
 
-   ```sh
-   /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/contracts/script/deploy-sepolia.sh --check https://ethereum-sepolia-rpc.publicnode.com
-   ```
-
-6. **Read the domain the rules contract signs under:** `cast call <rules-address> 'eip712Domain()(bytes1,string,string,uint256,address,bytes32,uint256[])' --rpc-url https://ethereum-sepolia-rpc.publicnode.com`. **Second pass:** it must read "Holdback" 0.8 once T-358 has landed. On the lane today it reads 0.7, the same as the old contracts (`HoldbackRules.sol:537`).
-7. **Verify the source on the explorer. Second pass:** no command, API key variable or owner exists for this (gap 4 of T-363), and the live deployment is not verified today [documented, [`operations.md`](operations.md)]. A candidate that needs no key is `forge verify-contract <address> <path:Contract> --chain sepolia --verifier sourcify` for each of the five contracts [guessed; not tried].
-
-**It must show:** step 2.4 ends with `wrote …/contracts/deployments/sepolia.json`; step 2.5 prints `deploy-sepolia: contracts/deployments/sepolia.json matches the chain and the build at <the frozen commit>`; the record's `commit` equals `git -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one rev-parse HEAD`.
+**It must show:** step 2.4 ends with `wrote …/contracts/deployments/sepolia.json`, with the token note of step 2.5 above it; the record's `commit` equals `git -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one rev-parse HEAD`.
 **Time:** not measured. Five transactions and the checks; a few minutes [guessed].
 **Rollback:** nothing on chain can be undone, and nothing needs to be: no live component reads the new contracts. To abandon, run `git -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one checkout -- contracts/deployments/sepolia.json` and delete the copy of step 2.3. The cost is the deployer's test ETH. **Stopping here is safe.**
 
@@ -155,19 +150,19 @@ This page moves the live test service from the contracts deployed on 2026-11-04 
 
 **Who:** a session on Rafa's word; Rafa for the gitleaks entries and the merge decision.
 
-**Why one commit:** a world refuses to open against another rules address (`apps/demo-cloud/src/world.ts:507`), and a new world stores its rules address before it checks the chain (`:503`, `:915`) [measured]. A build with the new name and the old record would create the new world on the old contracts, and that name could not be used again [inferred]. So the record, the world's name and every copy move together.
+**Why one commit:** a world refuses to open against another rules address (`apps/demo-cloud/src/world.ts:507`), and a new world stores its rules address before it checks the chain (`:503`, `:915`) [measured]. A build with the new name and the old record would create the new world on the old contracts, and that name could not be used again [inferred]. So the record, the world's name and every copy move together. Since T-383 the world's name is the record's rules address in both Workers, so the name cannot lag the record.
 
-**The files,** from a sweep of the lane at `02ddb24` [measured]:
+**The files.** The copies command of step 3.1 (`scripts/record-copies.mjs`, T-383) writes the first six rows; the rest stay by hand:
 
 | File | What changes | Guarded by |
 | --- | --- | --- |
 | `contracts/deployments/sepolia.json` | Written by step 2 | `deploy-sepolia.sh --check` |
 | `contracts/deployments/sepolia-2026-11-04-domain-0.7.json` | The old record, copied in step 2.3 | `tests/contract-stack.test.ts` ("every kept earlier deployment") |
-| `examples/deployments.ts` | The `SEPOLIA` constant equals the new record. The type and the constant lose `bonds` and `permit2Collector`, two fields of features that are not in phase one; the type requires the second today (`:24`) | `examples/deployments.test.ts` |
-| `site/llms.txt` | The literal pins: the domain block (`:136`), the deployment block (`:142`), the token's address (`:156`, `:205`, `:221`, `:222`, `:229`), the versions (`:165`, `:575`). The two lines that name the vault's address (`:536`, `:552`) leave with the words package | `node site/check.mjs` compares both blocks with `examples/verify.ts` |
-| `site/try.mjs`, `site/index.html` | Rebuilt by `node site/build.mjs`. The bundle's SHA-256 changes, so the one command changes | `examples/try.test.ts`, `site/check.mjs` |
-| `apps/demo-cloud/src/worker.ts:61` | `WORLD_NAMES.sepolia` gets a new name, for example `holdback-public-demo-sepolia-<the cutover's date>`. **Second pass:** `WORLD_NAMES.sim` moves too, because schema v0.11 changes what a stored SimChain journal replays ([`operations.md`](operations.md), "A world changes in place") | `apps/demo-cloud/src/worker.test.ts:240` |
-| `apps/test-agents/src/worker.ts:40` | `OBJECT_NAME` gets a new name only if step 5 finds a deal the agents still hold open | none |
+| `examples/deployments.ts` | The command writes the new record as the `SEPOLIA` constant, whole, with its comment. The type no longer requires the second collector, which is not in phase one | `examples/deployments.test.ts` |
+| `site/llms.txt`, `examples/verify.ts`, `tools/contract-stack/plain.json` | The command replaces each old address and hash with the new one, in the letter case it was written in | `node site/check.mjs` compares both blocks with `examples/verify.ts` |
+| `packages/settlement/evm/accepted-tokens.json` | The command replaces Sepolia's token with the new one | `deploy-sepolia.sh --check`, and the operators' start-up |
+| `site/try.mjs`, `site/index.html` | The command runs `node site/build.mjs`. The bundle's SHA-256 changes, so the one command changes | `examples/try.test.ts`, `site/check.mjs` |
+| `apps/demo-cloud/src/worker.ts`, `apps/test-agents/src/worker.ts` | No edit: each Worker names its Sepolia world by the record's rules address. `WORLD_NAMES.sim` is R6c-2's, because schema v0.11 changes what a stored SimChain journal replays ([`operations.md`](operations.md), "A world changes in place") | `apps/demo-cloud/src/worker.test.ts` |
 | `scripts/contract-stack.mjs:55-65`, `tests/contract-stack.test.ts:33`, `tools/contract-stack/plain.json` | The address lists and the plain-words file drop the vault and the second collector, which are not in phase one | `tests/contract-stack.test.ts` |
 | `tests/cut-feature-alignment.known.json` | Shrinks by the files this commit fixed: `pnpm -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one exec vitest run tests/cut-feature-alignment.test.ts -u`, then read its diff: only removals | the test itself |
 | `.gitleaksignore` | **Rafa's file.** gitleaks flagged the record and its copies at both earlier deployments (`:34-36`, `:49-55`). Each entry names the commit, so it can only be written after the commit exists | the `gitleaks` CI job |
@@ -177,32 +172,45 @@ This page moves the live test service from the contracts deployed on 2026-11-04 
 
 **Do:**
 
-1. Make the edits above, then rebuild and check the site:
+1. **Write the record's copies, by one command.** It substitutes, rebuilds the site, then sweeps: it fails, naming each `file:line`, if any old address or hash remains in a tracked file outside the dated records, `docs/`, the recorded fixtures under `tests/metrics/fixtures/` and three fixed test vectors (`examples/e2e-run.test.ts`, `examples/e2e-adjudicator.test.ts`, `examples/send-timeout.test.ts`). The list and the reason for each are at the top of the script.
 
    ```sh
-   node /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/site/build.mjs
+   node /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/scripts/record-copies.mjs --old contracts/deployments/sepolia-2026-11-04-domain-0.7.json --new contracts/deployments/sepolia.json
+   ```
+
+   It must end with `record-copies: pass: …`. On the lane at the time of writing it fails on exactly two lines of `site/llms.txt` that name the cut vault [measured, `tests/record-copies.test.ts`]; the words package removes them before the freeze. Any other line it names is a pin to fix by hand, then rerun the command.
+2. **Check the deployment, read-only,** now with all three token values:
+
+   ```sh
+   /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/contracts/script/deploy-sepolia.sh --check https://ethereum-sepolia-rpc.publicnode.com
+   ```
+
+   It must print `deploy-sepolia: …/contracts/deployments/sepolia.json matches the chain and the build at <the frozen commit>`.
+3. **Verify the source on the explorers.** It runs the same check, then `forge verify-contract` for the five contracts with the record's constructor arguments: Sourcify, with no key; Etherscan too when `ETHERSCAN_API_KEY` is in the environment, which forge reads by that name. A contract already verified is skipped, so a rerun is safe. Whether to get an Etherscan key is Rafa's decision.
+
+   ```sh
+   /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/contracts/script/deploy-sepolia.sh --verify https://ethereum-sepolia-rpc.publicnode.com
+   ```
+
+   It must end with `the five contracts are verified on Sourcify` (and Etherscan, with a key). What Sourcify and Etherscan answer on Sepolia has not been tried [T-383 tested the commands it builds on a local chain only].
+4. Check the site:
+
+   ```sh
    node /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/site/check.mjs
    ```
 
-2. Run the guards:
+5. Run the guards:
 
    ```sh
    pnpm -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one exec vitest run examples/deployments.test.ts examples/try.test.ts tests/contract-stack.test.ts tests/site-deploy.test.ts tests/cut-feature-alignment.test.ts apps/demo-cloud/src/worker.test.ts
    pnpm -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/apps/demo-cloud build
    ```
 
-3. **Sweep for a pin left behind.** The old rules, token and escrow addresses and the old start block must appear only in the dated record and in recorded fixtures:
+6. Commit once, push the branch, and open one pull request from `cutover-phase-one` into `main`. Do not merge it. A pull request into `main` runs every CI job, CodeQL included [inferred: pull requests into the lane run no CodeQL].
+7. Rafa adds the gitleaks entries for the new commit to `.gitleaksignore`.
+8. Run the full check once: `pnpm -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one verify`.
 
-   ```sh
-   git -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one grep -n -i -I -e 0xf38287e5c5c1f20c6d03be500edbf8a244f27cfa -e 0x5029787d7e141f2d51788035cc23903652d196b6 -e 0x2d9ad608de707ac470111b73c693020d9c9342cc -e 12061237 -- . ':!docs' ':!contracts/deployments/sepolia-2026-11-04-domain-0.7.json'
-   ```
-
-   Today four test files outside `docs/` record the old addresses: `tests/metrics/fixtures/discovery.json`, `tests/metrics/fixtures/deal-once.events.json`, `examples/e2e-run.test.ts` and `examples/e2e-adjudicator.test.ts` [measured]. They read as records of past runs [inferred; not verified].
-4. Commit once, push the branch, and open one pull request from `cutover-phase-one` into `main`. Do not merge it. A pull request into `main` runs every CI job, CodeQL included [inferred: pull requests into the lane run no CodeQL].
-5. Rafa adds the gitleaks entries for the new commit to `.gitleaksignore`.
-6. Run the full check once: `pnpm -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one verify`.
-
-**It must show:** the tracked tree is clean; `site/check.mjs` passes; every CI job on the pull request passes, gitleaks included; `--check` of step 2.5 still passes from this commit.
+**It must show:** the copies command ends `pass`; the tracked tree is clean after the commit; `site/check.mjs` passes; every CI job on the pull request passes, gitleaks included; `--check` of step 3.2 still passes from this commit.
 **Time:** CI takes minutes [documented, the team's batching rule]; not measured for this change.
 **Rollback:** close the pull request. **Stopping here is safe:** the old world still serves, and nothing live has changed.
 
@@ -230,7 +238,7 @@ Run them one at a time. If publicnode makes anvil exit, use `https://sepolia.gat
 
 1. Repeat the list of step 1.3 on both nodes. It must be empty, or hold only deals recorded as left behind in step 1.5.
 2. Read `head.eventSeq` from `https://api.crow.direct/v1/status` and `https://api2.crow.direct/v1/status` twice, 30 s apart. It must not move [documented, the check before T-220's deploy].
-3. Read the agents: `curl -s https://crow.direct/agents/test-seller/health` and `curl -s https://crow.direct/agents/test-buyer/health`. Each must say `"open": 0`. If one holds a deal open that the operators report as final, give `OBJECT_NAME` a new name in step 3's commit and repeat step 3.
+3. Read the agents: `curl -s https://crow.direct/agents/test-seller/health` and `curl -s https://crow.direct/agents/test-buyer/health`. Each must say `"open": 0`. The agents' storage is new with each record (T-383: its name is the record's rules address), so a deal one of them still holds stays in the old storage, which a rollback serves again.
 
 **It must show:** all three lines true within the same minute.
 **The race that remains:** a stranger can open a deal between this check and step 6, because nothing can refuse new deals (gap 1 of T-363). Step 6.5 looks for it.
@@ -246,7 +254,7 @@ Run them one at a time. If publicnode makes anvil exit, use `https://sepolia.gat
 - **The first request creates the new world** under its new name. It draws a new secret, so the three demo adjudicators and the demo club get new addresses, and the club gets a new `rulebookHash` (`world.ts:503-532`).
 - **The new world's setup checks the chain and tops up the deal lanes, and nothing else.** It registers no bond and deposits none (`world.ts:912-925`, `:543`).
 - **The old world's storage stays.** Never delete it: a rollback of both Workers serves it again [documented, [`operations.md`](operations.md)].
-- **The start-up check does not yet tell the old contracts from the new.** It compares the chain ID, the code, the domain and the expiry margin (`packages/settlement/evm/live.ts:307-322`). **Second pass:** T-358's domain 0.8 makes the domain check refuse the old contracts; the deploy-script package adds a check of the token and a refusal of an old world.
+- **The start-up check refuses the old contracts.** It compares the chain ID, the code, the domain, the expiry margin and the beacon margin, then the token three ways (the table, the record, `TOKEN()`) and the token's code (`LiveChain.verify` in `packages/settlement/evm/live.ts`). The old contracts sign under domain 0.7, so the domain check refuses them before any token read, and the error names both versions; `packages/settlement/evm/live.test.ts` shows it on the 64be1f1 record [measured, T-383].
 
 **Do:**
 
@@ -399,7 +407,7 @@ It must show the new rules address, the new token and the new world's start bloc
 10. **The deploy script does not resume** after a failed `forge create`.
 11. **The operators' gas quote** was measured on the old contracts.
 12. **The old vault keeps the demo adjudicators' deposits.**
-13. **The start-up check cannot tell old contracts from new** until the domain moves to 0.8. **Second pass.**
+13. **The start-up check tells old contracts from new** by the domain, 0.7 against 0.8, and checks the token three ways (T-383).
 14. **No staging operators exist.** The first run of the lane's Workers on Cloudflare is step 6; its own smoke deal and rollback are the only net.
 
 ## Second pass: every line that waits
@@ -407,13 +415,13 @@ It must show the new rules address, the new token and the new world's start bloc
 | Line | Waits for | What will change |
 | --- | --- | --- |
 | Step 0.1, 0.10 | R7 to R11, the rehearsal | The gates pass; measured times and corrections enter this page |
-| Step 2, the constructor | R7, R8, the deploy-script package | The beacon margin of 29 s and any refactor's argument; the script's `create` line, checks and record follow |
+| Step 2, the constructor | R7 | Done for R8 by T-383: the margin of 29 s is in the script's create line, checks and record. A refactor that changes the constructor again changes the script with it |
 | Step 2.6, step 6.4 | T-358 | The domain reads 0.8 and the schema 0.11 |
-| Step 2.7 | An owner for explorer verification | A real command and its key's variable name |
+| Step 3.3 | Rafa, for an Etherscan key | Done by T-383: `deploy-sepolia.sh --verify`, Sourcify with no key; Etherscan when `ETHERSCAN_API_KEY` is set. Not tried against the real explorers |
 | Step 3, the versions and the test rulebooks | T-358; an owner for the two test rulebooks | They land on the lane before the freeze, not in the cutover's commit |
 | Step 3, `WORLD_NAMES.sim` | T-358 | The SimChain world's new name |
 | Step 4 | The code-alignment package | Three fork suites rewritten for the phase-one record; the pre-deploy suite's place decided |
-| Step 6, the start-up check | T-358, the deploy-script package | A refusal of the old contracts at start-up: by domain, by token, by an old world's record |
+| Step 6, the start-up check | none | Done: T-358's domain 0.8, and T-383's token check and old-record test |
 | Step 6.4, the club's minimum appeal window | T-358 | The rulebook and a required window of 0 agree |
 | Step 6, the world's fallback wake-up | R8 (ADR-0032) | The wake-up moves to the round's publishing time; the smoke deal does not exercise it |
 | Step 7 | The code-alignment package; a pre-deploy tool if one is built | The scenario's name and flags; perhaps the step's place |
