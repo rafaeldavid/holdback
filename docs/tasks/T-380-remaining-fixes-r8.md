@@ -5,7 +5,7 @@
 - **Depends on:** T-375 (package R7, holdback PR 409, lane tip `2ef35b3`), T-356 (SC-5's refusals, the parent-commit harness), T-348 (ADR-0032), T-341 (the side-by-side harness and the state oracle)
 - **Paths this task may touch:** `contracts/`; `packages/core/`; `packages/settlement/` where the adapter must follow; `apps/adjudicator/src/randomness.ts` (the one file of T-378's area, after telling the coordinator); `spec/schemas/` only with an ADR and a schema version; `fixtures/` where a recording must follow; this task file. Anything else goes in the Handoff
 - **Human gate:** no for the branch. The freeze, the merge to `main` and the redeploy are Rafa's
-- **Status:** in progress (PR 1 merged, holdback PR 414, `7f99f90`; PR 2 merged, holdback PR 418, `cd88cca`)
+- **Status:** done once PR 4 merges (PR 1: holdback PR 414, `7f99f90`; PR 2: PR 418, `cd88cca`; PR 3: PR 420, `d0daf3e`; PR 4: this task's last pull request)
 - **Agent/session:** implementer session, change kind 7 (smart contracts): `forge test`, the differential and invariant suites, one reviewer per pull request, one red team on the rounds change
 
 ## Intent
@@ -50,12 +50,12 @@ Each pull request re-seats the side-by-side harness's parent to the lane's tip a
 
 ## Acceptance criteria
 
-- [ ] Fix 1 merged, with a test that failed before it.
-- [ ] Fix 2 merged; the three wrong-round tests pass; one fallback and one escalation decided end to end by the reference adjudicator on a local chain with a non-zero margin.
-- [ ] Fix 3 merged; the contract and core refuse the same values at the same bounds, shown by a test on each side.
-- [ ] Fix 4 merged; the task file says which constructor checks were added and why each is standard.
-- [ ] `forge test` and the harness pass on the lane's tip; the runtime stays under 24,576 bytes.
-- [ ] Evidence and Handoff filled; Status done.
+- [x] Fix 1 merged, with a test that failed before it.
+- [x] Fix 2 merged; the three wrong-round tests pass; one fallback and one escalation decided end to end by the reference adjudicator on a local chain with a non-zero margin.
+- [x] Fix 3 merged; the contract and core refuse the same values at the same bounds, shown by a test on each side.
+- [x] Fix 4 merged; the task file says which constructor checks were added and why each is standard.
+- [x] `forge test` and the harness pass on the lane's tip; the runtime stays under 24,576 bytes.
+- [x] Evidence and Handoff filled; Status done.
 
 ## Out of scope
 
@@ -82,6 +82,12 @@ Fill this in before review. Label each item measured, inferred or guessed.
   - **Each side of each bound, on each side.** Contract: `contracts/test/unit/Unrepresentable.t.sol`, 8 tests, the review's −00:01 case among them; the two new refusals fail on the parent and all pass on the fix [measured]. Core: `state.test.ts`, "the bounds core and the contract share": a hold of 2^120 − 1 offers and 2^120 is refused on the phase-one profile (the full profile takes it); the parser takes an escalation window of 2^32 − 1 s and refuses 2^32 s, and takes a fallbackBy at 9999-12-31T23:59:59−23:59 (and −00:01, and Z) and refuses year 10000 in both forms [measured: 3 of 3].
   - **The harness.** `RulesHandler._boundary` now has eight kinds: the hold's 120 bits, the window's 32 bits, the last RFC 3339 instant, each on both sides, and SC-5's smallest gaps. T-375's 48-bit expiry kind is gone: a window that large is refused for its 32 bits first. `CLOCK_CAP` is gone: every warp target is a funded deal's deadline, below 2^40 s. `HandlerSmoke.t.sol` pins the eight kinds [measured]. The 48-bit expiry tests in `UntestedReverts.t.sol` now reach the bound through a deployment's EXPIRY_MARGIN, the one way left.
 
+- **PR 4, the constructor, the pragma and static analysis.** Runtime unchanged at 20,469 bytes; the initcode grows 61 bytes [measured: the artifact].
+  - **Checks added, and why each is standard.** The constructor refuses a zero escrow, ERC-3009 collector, beacon or token with `ZeroAddress`. Each is an immutable with no setter (no admin keys), so a zero address would leave every deal unfundable (escrow, collector, token) or every fallback and escalation undecidable (beacon) for the deployment's life; a zero-address check on an immutable address argument is the check Slither's `missing-zero-check` asks for, and auditors expect it on immutables. Fix 2 added the other one, a beacon margin of 0 refused off chain 31337 (ADR-0032 §3.4). Not added: a check that the token address holds code (withdrawn on Rafa's question; CU-1's deploy script and start-up check own it, `test_tokenWithoutCode_deploys` pins its absence); a bound on `expiryMargin` or the beacon margin (deploy-time values the deploy script's per-chain table checks, CU-1).
+  - `contracts/test/unit/ConstructorChecks.t.sol`: the four zero addresses fail on the parent (it deployed each) and are refused on the fix; every address set deploys [measured: 6 of 6]. `forge test` on the lane's tip `d0daf3e` plus this change: 470 passed, 0 failed, the harness compared with `d0daf3e` and an empty allow list [measured]. The anvil suites that deploy the contract (`margin.test.ts`, `evm-settlement.test.ts`, the done test) pass, 47 of 47 [measured].
+  - **The pragma** was already pinned: every file in `contracts/src/` reads `pragma solidity 0.8.28;` [measured: grep].
+  - **Static analysis** (Slither 0.11.6, Aderyn 0.6.8, the commands of `docs/reviews/2026-11-11-static-analysis.md`) [measured]. Slither: 49 results, no High; `missing-zero-check` 2 → 0. The Mediums are the classes that review dismissed: `incorrect-equality` ×9 (enum stages and role codes, never a balance), `uninitialized-local` ×2 (`_payOut`'s sums that start at 0), `unused-return` ×1 (`_refundAll` reads one field of `paymentState`). Lows: `reentrancy-events` ×9 and `timestamp` ×10, as dismissed there. Aderyn: H-1 `abi.encodePacked` ×9 (type strings, dismissed as A-1) and 7 Lows, each dismissed there (L-5 unchecked return as A-3, L-7 `PAIRING_GAS` as A-4, a false positive). Nothing new.
+
 ## Decisions
 
 - **D66** (`docs/decisions-today.md`): how the margin reaches core (an argument to `step` and `beaconRoundFor`, not a field of the state), the EVM chain (the deployment file states it; the live chain checks it against `BEACON_MARGIN()` at start-up), and the adjudicator service (`Settlement.beaconMarginSec`, carried on the randomness source). The constructor takes the margin last, apart from `expiryMargin`.
@@ -99,3 +105,7 @@ Fill this in before review. Label each item measured, inferred or guessed.
 - **For T-376 (the formal model).** The round a panel's seed comes from is outside the TLA+ model's state as far as I read [guessed: I did not open `formal/`]; if it models `judgeBy`'s round, the rule is now the first round after `judgeBy − 1 + margin`.
 
 - **For AL-2 (docs), once PR 414 merges:** known issue L-4 (`docs/audit/known-issues.md`) and the state model's row 13 of section 9 (`docs/audit/state-model.md:396`) and its acceptance row (`:344`) can say the tag binds the whole commitment and the commitment ID. One residual stays and should be stated, not called closed: the primary knows the commitment ID before it signs, so about 2^72 hash attempts still buy a two-way seed choice on that one deal; the primary already chooses its own seed (DS-1), so it gains nothing it lacked [inferred; the reviewer's Info 4].
+- **For R9 (comments and names).** New names to review: `HoldbackTypes.seedTag`; `BEACON_MARGIN`, `_roundAfter`, `LOCAL_CHAIN_ID`, `LAST_TIMESTAMP`, the errors `NoBeaconMargin` and `ZeroAddress` in `HoldbackRules.sol`. The deadlines block's comment (`// Deadlines (RF-3, T-375)`) now sits beside `_roundAfter`; the fix-3 comment in `agreeAndFund` states why the two refusals are encoding limits. The struct comment on `Deal.seedTag` names the L-4 rule. None of these has NatSpec beyond `@dev`/`@notice` lines written here; R9's VG-1 pass should read them.
+- **For R10 (the mutation run).** `contracts/scripts/mutants.json`: M013 and M040 follow the L-4 lines (PR 1); M027, M028 and M112 follow the new round lines and M139 (no margin) and M140 (the margin guard dropped) are new (PR 2). Fixes 3 and 4 add lines no mutant covers yet: the `Unrepresentable` check in `agreeAndFund` (each clause, and `>` against `>=` at both bounds) and each `ZeroAddress` clause. `apps/adjudicator/scripts/mutants.mjs` is T-378's (see above).
+- **For T-376 (the formal model).** If the model carries the seed tag, the round rule or the timestamp bounds: the tag binds the commitment ID (PR 1); the fallback's round is the first after `judgeBy − 1 + margin` and the escalation's the first after `t1 + margin` (PR 2); terms with `fallbackBy` after 253,402,387,139 s or `appealDecideSec` above 2^32 − 1 never fund (PR 3). I did not open `formal/` [not verified].
+- **Accepted, stated for the auditors.** `triggerFallback` writes `t1 = block.timestamp` whenever it is called after `judgeBy`, also long after `fallbackBy`; a call at or after 2^40 s (the year 36,812) would store a wrapped `t1`. The terms' bounds keep every other `t1` below 2^40, and the harness's clock no longer needs a cap because every warp target is a funded deal's deadline [inferred: read]. A chain clock past 2^40 s is out of scope.
