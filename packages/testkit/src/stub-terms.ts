@@ -13,7 +13,7 @@ export const STUB_CLUB_ID = 'data-services-v1';
 export const STUB_RULEBOOK: Rulebook = {
   version: '1.0-stub',
   open: true,
-  minWindowsSec: { judge: 120, fallback: 120, appealWindow: 300, appealDecide: 300 },
+  minWindowsSec: { judge: 120, fallback: 120, appealWindow: 0, appealDecide: 300 },
   windowCoverageRatioBps: 2000,
   appealBondRateBps: 500,
   sealedChecksMaxWeightBps: 3000,

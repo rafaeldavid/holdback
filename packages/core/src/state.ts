@@ -134,6 +134,14 @@ export interface OfferInput {
 export const ZERO_HOLD_PROBLEM =
   'price and adjudication fee are both 0, and the phase-one contracts cannot fund a deal that holds nothing: the escrow refuses to hold 0 (AuthCaptureEscrow ZeroAmount; ADR-0031 §6). A zero price is allowed with a fee above 0; give the deal a price or a fee of at least one base unit';
 
+/**
+ * ADR-0033 §2b (D62; Rafa, 2026-11-12, "Yes, contract too"): phase one has no party appeal, so a phase-one deal's
+ * terms state an appeal window of 0. The contract (`agreeAndFund`, InvalidMessage), core's `phase_one` profile and the
+ * operator's prepare routes refuse any other value, each with this reason.
+ */
+export const APPEAL_WINDOW_PROBLEM =
+  'timing.appealWindowSec must be 0: phase one has no party appeal, so the first decision is final and the phase-one contracts refuse any other appeal window (ADR-0033 §2b)';
+
 export type EscrowEvent =
   | { type: 'adjudicator_accept'; at: Timestamp; message: AdjudicatorAcceptance; unencumberedBond: TokenAmount }
   | { type: 'agree'; at: Timestamp; message: Agree; buyerScope: Scope; spentToday: TokenAmount; memberAdmitted: boolean }
@@ -216,7 +224,9 @@ export function offer(input: OfferInput): R<Extract<EscrowState, { kind: 'Offere
   if (LEVEL_RANK[level] < LEVEL_RANK[rulebook.disclosureMin]) return fail('invalid_terms', `disclosure.level ${level} is below the rulebook minimum ${rulebook.disclosureMin}`);
   if ((level === 'public') === isSealed(terms)) return fail('invalid_terms', level === 'public' ? 'a public commitment carries its bodies in the clear, not privateTerms' : `a ${level} commitment carries its bodies only as privateTerms`);
 
-  const timing = validateTiming(terms.timing, rulebook);
+  // ADR-0033 §2b: on phase one the appeal window is 0, whatever the rulebook's minimum; the phase-one rule replaces it.
+  if (input.profile === 'phase_one' && terms.timing.appealWindowSec !== 0) return fail('invalid_terms', APPEAL_WINDOW_PROBLEM);
+  const timing = validateTiming(terms.timing, input.profile === 'phase_one' ? { minWindowsSec: { ...rulebook.minWindowsSec, appealWindow: 0 } } : rulebook);
   if (!timing.ok) return timing;
   // ADR-0031 §6 (SC-5): what the phase-one contracts refuse at funding, refused at the offer, before the buyer and the
   // adjudicator sign (the operator's prepare route says it before the seller signs). The strict deadline order is
@@ -297,7 +307,8 @@ function fund(s: Extract<EscrowState, { kind: 'Agreed' }>, e: Extract<EscrowEven
   if (profile === 'phase_one' && m.scheme !== 'erc3009') {
     return fail('invalid_terms', `the phase-one contracts fund by ERC-3009 only, not ${m.scheme} (ADR-0031 §3)`);
   }
-  if (!sameAddress(m.from, terms.buyer)) return fail('invalid_signature', 'funding authorization is not from the buyer');
+  // ADR-0033: the buyer's payment address funds the hold; the buyer's signing address agreed to it above.
+  if (!sameAddress(m.from, terms.buyerPaymentAddress)) return fail('invalid_signature', `funding authorization is not from the buyer's payment address ${terms.buyerPaymentAddress}`);
   if (m.commitmentId !== s.id) return fail('invalid_terms', 'funding authorization is for another commitment');
   if (!before(e.at, terms.timing.fundBy)) return fail('deadline_passed', `fundBy passed at ${terms.timing.fundBy}`);
   const live = messageLive(m, e.at);
@@ -588,11 +599,12 @@ function lateDelivery(s: Extract<Settleable, { kind: 'Held' }>, m: MutualSettlem
 function mutualSettle(s: Settleable, e: Extract<EscrowEvent, { type: 'mutual_settle' }>, profile: SettlementProfile): R {
   const m = e.message;
   if (m.commitmentId !== s.id) return fail('invalid_terms', 'settlement is for another commitment');
-  // ADR-0031 §4 (SC-3): the phase-one contracts pay a settlement to the buyer and the seller only, whatever the
-  // rulebook's payoutsTo says; D23's payouts to other addresses are deferred past phase one.
+  // ADR-0031 §4 (SC-3), ADR-0033 §2: the phase-one contracts pay a settlement to the buyer's payment address and the
+  // seller's payout address only, whatever the rulebook's payoutsTo says; a signing address that differs from them is a
+  // third address. D23's payouts to other addresses are deferred past phase one.
   if (profile === 'phase_one') {
-    const other = m.payouts.find((p) => !sameAddress(p.to, s.terms.buyer) && !sameAddress(p.to, s.terms.seller));
-    if (other) return fail('invalid_terms', `payout recipient ${other.to} is neither the buyer nor the seller: the phase-one contracts pay a mutual settlement to the parties only (ADR-0031 §4)`);
+    const other = m.payouts.find((p) => !sameAddress(p.to, s.terms.buyerPaymentAddress) && !sameAddress(p.to, s.terms.sellerPayoutAddress));
+    if (other) return fail('invalid_terms', `payout recipient ${other.to} is neither the buyer's payment address nor the seller's payout address: the phase-one contracts pay a mutual settlement to those two only (ADR-0031 §4, ADR-0033)`);
   }
   const live = messageLive(m, e.at);
   if (!live.ok) return live;

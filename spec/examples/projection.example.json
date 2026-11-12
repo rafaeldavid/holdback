@@ -24,7 +24,7 @@
     "deliverBy": "2026-11-02T10:00:00Z",
     "judgeBy": "2026-11-02T10:02:00Z",
     "fallbackBy": "2026-11-02T10:04:00Z",
-    "appealWindowSec": 300,
+    "appealWindowSec": 0,
     "appealDecideSec": 300,
     "maxSubmissions": 1
   },

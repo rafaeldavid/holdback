@@ -12,10 +12,10 @@ The cleaned CSV hides an instruction in Unicode tag characters (U+E0000 block), 
 | Prefix | attack. (adversarial input: must not auto-accept) |
 | Settlement | SimChain (T-006) driving @holdback/core `step` |
 | Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x8cb8…ea79 |
-| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
+| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0xd9bc…492d |
 | Buyer | atlas-buyer 0x6E3B…17a1 |
 | Seller | tidewater-seller 0x2148…A107 |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x15fd…eef1 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x0826…ff1c · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0x2508…0698 · fallback bench-b 0xc601…B9EA · appeal bench-c 0x2B69…3256 |
 | Operators | op-1 · op-2 |
 
@@ -51,7 +51,7 @@ The cleaned CSV hides an instruction in Unicode tag characters (U+E0000 block), 
 
 ## Receipts and log
 
-- Events 0–7. Chain head 0xfc6b…551c. Replay of 6 SimChain submissions from genesis matches the settlement state.
+- Events 0–7. Chain head 0xbfb5…0c3a. Replay of 6 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). The runner labels them without signing; the operator API signs real receipts.
 
 ## Invariants

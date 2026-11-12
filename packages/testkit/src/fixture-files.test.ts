@@ -40,7 +40,7 @@ describe('fixtures/clubs/data-services-v1.yaml', () => {
     expect(club.id).toBe('data-services-v1');
     expect(club.rulebook).toEqual(example.rulebook);
     expect(club.rulebookHash).toBe(rulebookHash(example.rulebook));
-    expect(club.rulebookHash).toBe('0x140edd090559cb7dd3950b3a8b755b9cca7b81a37d11359738e1b9df7d0d971e');
+    expect(club.rulebookHash).toBe('0xd9bc9c4961c67a80c4a1100bc5cb3345a70881b42725f7f84611d6a240f5492d');
   });
 
   it('refuses a rulebookHash written in the file: the loader computes it', () => {
@@ -59,7 +59,7 @@ describe('fixtures/terms', () => {
   it('clean-customers-2000 builds terms that parse as a commitment and that core offer accepts under the club rulebook', () => {
     const p = params();
     const terms = termsFromTemplate(loadTermsFile(TERMS), p);
-    expect(terms.schemaVersion).toBe('0.7');
+    expect(terms.schemaVersion).toBe('0.8');
     expect(terms.price).toEqual({ token: 'tUSD', amount: '2000000000' });
     expect(terms.adjudication.fee).toEqual({ token: 'tUSD', amount: '50000000' });
     expect(terms.acceptance.deterministicChecks.map((c) => c.id)).toEqual(['cols', 'rows', 'uniq', 'dates', 'id_nulls', 'name_nulls', 'email_nulls', 'emails', 'hidden']);
@@ -70,7 +70,7 @@ describe('fixtures/terms', () => {
       deliverBy: '2026-11-03T09:00:00Z',
       judgeBy: '2026-11-03T09:02:00Z',
       fallbackBy: '2026-11-03T09:04:00Z',
-      appealWindowSec: 300,
+      appealWindowSec: 0,
       appealDecideSec: 300,
       maxSubmissions: 1,
     });

@@ -169,11 +169,13 @@ export const fixtures: Record<string, UnsignedMessage> = {
 };
 
 export const terms: CommitmentTerms = {
-  schemaVersion: '0.7',
+  schemaVersion: '0.8',
   clubId: 'data-services-v1',
   rulebookHash: h('11'),
   buyer: B,
   seller: A,
+  buyerPaymentAddress: B,
+  sellerPayoutAddress: A,
   deliverable: { kind: 'dataset', description: 'Clean customers.csv', format: 'text/csv' },
   acceptance: { deterministicChecks: [{ id: 'cols', type: 'csv_columns_exact', required: true, columns: ['id'] }], rubric: { criteria: [], passThreshold: 3 } },
   price: tusd('2000000000'),
@@ -225,7 +227,7 @@ const encodeTypePins: Record<string, string> = {
   KeyRegistration: 'KeyRegistration(address adjudicator,string encryptionPublicKey,string keyId,bytes32 nonce,uint64 expiresAt)',
   AdjudicatorRegistration: `AdjudicatorRegistration(address adjudicator,string encryptionPublicKey,string keyId,bytes32 policyHash,bytes32 registryHash,TokenAmount fee,bytes32 poolTermsHash,bytes32 bodyHash,uint64 issuedAt,bytes32 nonce,uint64 expiresAt)${TOKEN}`,
   CommitmentTerms:
-    'CommitmentTerms(string schemaVersion,string clubId,bytes32 rulebookHash,address buyer,address seller,bytes32 deliverableHash,bytes32 acceptanceHash,TokenAmount price,Adjudication adjudication,Timing timing,Settlement settlement,Remedy remedy,Disclosure disclosure,string buyerEncryptionPublicKey,bytes32 nonce,uint64 createdAt)' +
+    'CommitmentTerms(string schemaVersion,string clubId,bytes32 rulebookHash,address buyer,address seller,address buyerPaymentAddress,address sellerPayoutAddress,bytes32 deliverableHash,bytes32 acceptanceHash,TokenAmount price,Adjudication adjudication,Timing timing,Settlement settlement,Remedy remedy,Disclosure disclosure,string buyerEncryptionPublicKey,bytes32 nonce,uint64 createdAt)' +
     'Adjudication(address adjudicator,address fallbackAdjudicator,address appealAdjudicator,string policyId,TokenAmount fee,bytes32 registryHash,bytes32 policyHash)' +
     'Disclosure(string level)' +
     'Remedy(string onReject)Settlement(string mode,string token)' +
@@ -235,28 +237,28 @@ const encodeTypePins: Record<string, string> = {
 
 // Digests of the fixtures above under holdbackDomain(31337).
 const digestPins: Record<string, Hex> = {
-  Offer: '0x22c26504d40fe5e8c720ebf44c657e53225aece83935f83e6f30716dcf336e64',
-  Agree: '0xc01dd708daf9b7dca1073587e01cc580938eabe07a80ae3bf43a9ae50651f851',
-  AdjudicatorAcceptance: '0x36ad2ebe15c7421dd89d244b60bdd61e9cba5a08f958f29bbfdcf121378fc01d',
-  FundingAuthorization: '0x691f1ec03351d75ef7ef4c2514ff9be1cc43d640272817ad4bb9a3316d6f935d',
-  EarlyAccept: '0x903934dbb678e3103924d708bdc1c0013a6a28df8fa02c25da1281291373cec5',
-  Decision: '0x29f39a52154bd2cbf477392ce424b8b6e741e70960164aebe647708573d35b20',
-  AgentRevocation: '0x69bdde5116fed175411e60bc11aa4203f7c0fc19b26f0da71f31c5feec23bf3e',
-  MemberAdmission: '0xd50b50791f99207a1bacbd051265bdf87a2c154b8d7d31a945de60bdbee3b31f',
-  MemberRevocation: '0x8fdff2f935c3e39862878ae3445fb674ae1f637ffc3334ee76295a8f4f57e05c',
-  Dispute: '0xfb0d307fed62abc138682698fc23c98880f06966f3cf1264a011b25c06a7242f',
-  Receipt: '0xdf30b8716ef19c659b2b69354134635c26d91ed75666ef867e98da92627308c3',
-  Publish: '0x9dfa9972dbd187eb7cf5d21e31ecb769c5c5e9d08f8f904c1a99aaa2ca77221a',
-  MutualSettlement: '0xbde7a6e5536eb429ee21215afd08fe08c794d4afccab2abea3606c0181f087ad',
-  Delivery: '0xbf4c97a3297c3b441097739acfd6616400dcd1eea8c3dbac076766e8a97dca97',
-  Appeal: '0x54080ee0cc8c92a61588df9c49495294aa58be046c1fc15cd616352f69a05fa8',
-  Mandate: '0x10bb5c72e481809cedb23b4d52fd6b16f6dd816116396b1905890d949f06a63c',
-  TransferAuthorization: '0x3d5a2f5281bce38ffe49ba1643fb34bb8f5a80eb4e72fef0c3973035f8cdaf42',
-  ReadToken: '0x8d7e74363e4f5f5adc3a66faaf441f26fe4fe0d8abe21cedf2f8307f27986bf2',
-  Delegation: '0xe54275c69e54db3999f5fb1db14340ccb942b507cf50e2b48aa8858dd8232525',
-  KeyRegistration: '0x05549f3b21a613695d0e150061bd5e67eb8f433bf59a2eac1738c888eae46e0e',
-  AdjudicatorRegistration: '0xab599c0bcba50a87775692f12518353aeb459cc698db479b713456c5b3e98a38',
-  CommitmentTerms: '0x0efe5c62867daa76f58889d43b424ab16d2a4a48fa03aa4511288f9bf9d45d75',
+  Offer: '0xc6e21e1a59dea35e3db69e6fe0bb403d01ed83b35b8f00dce86cc5450a267043',
+  Agree: '0xd71e8d67e4814c5b3f3e136b61669d0d4046a758d9b8296f44e5cc34ef115e9d',
+  AdjudicatorAcceptance: '0x1d618ff47e79c5d8866dd0203b47d6264651703b88195ae6c1dafd6ec2fa3d34',
+  FundingAuthorization: '0x861bba02d6cd4a9e9c0af6eef931b0cc71e0131728197c2a9e688afeb8915c59',
+  EarlyAccept: '0xe320a9e1e5b563f6712de7f605397e44bb3b2c327d09e5f43974fcf88f091de4',
+  Decision: '0xcbc88b85518085967ff17aa0380fa625be10a3ed4d47d9170ddd93ddf1dca7b6',
+  AgentRevocation: '0xef14c0c06c8ee1c92c42a1d5626121149f46e69bd3b53731912a78c6d3e09922',
+  MemberAdmission: '0x93ec1c5488107a1f4667f6dfda18d076f15243484cbcdc95fb60596b04e3b218',
+  MemberRevocation: '0xcbfde1e289953929b8c71d34a243ed382b551427a3f4e161be105a0fd59eb810',
+  Dispute: '0x9bc11f46154e59dbf11bed04e8ec99ae052308bae6d009c9aa94ae3764b39e8b',
+  Receipt: '0x7fd76f264f42127d85782fdbd4ee63131b9f9751b5fc2c0397e9a11e148aacbb',
+  Publish: '0x4b35150e903160db30d980b6d742e8b9975e312d8942f46907e73df7987090dc',
+  MutualSettlement: '0x82bce7df3f63ca86861d23c57bde6b09149375d6596b292527075ff055075a93',
+  Delivery: '0x88ee48b6faf01a5641d4416fb018c80361a53e3e6fb372e332810551b444ba32',
+  Appeal: '0xce716388f78f157c6dd6ee18572af9daf838cb4a244912f275f19e35bc3f88d1',
+  Mandate: '0x5fa879cce8bda68119b5c417e3c87f5ac642a72adcd81db67baca930dd203e44',
+  TransferAuthorization: '0x068da255be29a635ec06af2b32519aadd21c6183d29c32a329b4fc8720754e87',
+  ReadToken: '0xaf6ff6a1bc7409b783fdaf82074ec496af27435b2d6a3ec02bd8539e833fd082',
+  Delegation: '0x7c3c0b07bb158bebbe63bf9a2425c2990643c02c87e906dee07bf8b178e90928',
+  KeyRegistration: '0xf69f65f7b28d45c092eec9f7b41e5fd19b4e1d0f71198ac2744a3379f82d7710',
+  AdjudicatorRegistration: '0x6bc7c12b513432a57f7c08a80673bbaddf145fe0593a1d35371ed747213b1766',
+  CommitmentTerms: '0x5e8149bb4b432dd21a4e334ccd8c8ca820d76fc09927cf09e16fd7ddeee20498',
 };
 
 // A second, hand-written EIP-712 implementation (encodeType, encodeData, hashStruct, domain separator)
@@ -300,7 +302,7 @@ function hashStruct(type: string, data: Record<string, unknown>): Hex {
 const domainSeparator = keccak256(
   encodeAbiParameters(
     [{ type: 'bytes32' }, { type: 'bytes32' }, { type: 'bytes32' }, { type: 'uint256' }, { type: 'address' }],
-    [keccak256(stringToHex('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')), keccak256(stringToHex('Holdback')), keccak256(stringToHex('0.7')), 31337n, SIMCHAIN_VERIFYING_CONTRACT],
+    [keccak256(stringToHex('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')), keccak256(stringToHex('Holdback')), keccak256(stringToHex('0.8')), 31337n, SIMCHAIN_VERIFYING_CONTRACT],
   ),
 );
 const handDigest = (primaryType: string, message: Record<string, unknown>): Hex => keccak256(concat(['0x1901', domainSeparator, hashStruct(primaryType, message)]));

@@ -229,7 +229,8 @@ describe('neutrality.operator-lies-in-prepare', () => {
   });
 
   it('appeal: the bond is exactly the rulebook rate of the price, never what the operator asks', async () => {
-    const { id, terms } = await held();
+    // The full protocol's party appeal (SimChain): the terms name an appeal window; the default is phase one's 0.
+    const { id, terms } = await held({ timing: { appealWindowSec: 300 } });
     await seller.deliver(terms, new TextEncoder().encode('b\n2\n')); // wrong column: refunded
     await buyer.waitFor(id, ['Refunded']);
     const prepared = await seller.call('POST', '/v1/prepare/appeal', { commitmentId: id, appellant: seller.address });

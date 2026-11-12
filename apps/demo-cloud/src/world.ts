@@ -523,7 +523,7 @@ export class PublicWorld {
     // The club is rebuilt from code on every open, so the rulebook changes in place: each stored deal keeps the club it
     // was offered under (Book.club), and only a new offer binds the new hash. SimChain keeps the sim beacon (T-217).
     const drand = o.live && (o.live.beacon ?? (o.live.chain.chainId === SIM_CHAIN_ID ? 'sim' : 'drand-quicknet')) === 'drand-quicknet';
-    const rulebook = rebindToken({ ...SIM_RULEBOOK, minWindowsSec: { judge: m, fallback: m, appealWindow: m, appealDecide: m }, ...(drand ? { randomness: { source: 'drand-quicknet' as const, chainHash: DRAND_QUICKNET_CHAIN_HASH } } : {}) }, TOKEN, token);
+    const rulebook = rebindToken({ ...SIM_RULEBOOK, minWindowsSec: { judge: m, fallback: m, appealWindow: 0, appealDecide: m }, ...(drand ? { randomness: { source: 'drand-quicknet' as const, chainHash: DRAND_QUICKNET_CHAIN_HASH } } : {}) }, TOKEN, token);
     // One source for the three: a proven round is kept, so the fallback and appeal adjudicators never ask for it twice.
     // In a Worker it uses the global fetch, one relay request per decision when the first relay answers (T-217).
     const rounds = drand ? (o.live!.drand ?? drandQuicknet({ now: () => wholeSecond(now()) })) : undefined;
@@ -1334,7 +1334,7 @@ export function notesFor(
     `The faucet mandate is signed by the demo club's own test principal, which this demo holds; it lets your address act as buyer or seller in ${clubId}.`,
     judges,
     'Disclosure: offer at "public" on these nodes. The demo adjudicators cannot open sealed terms yet, so they decline private and judgment offers, which then expire unaccepted. The work itself is encrypted at every level.',
-    `Settlement time is the wall clock. Club ${clubId} allows windows from ${minWindowSec} seconds: timing {"judgeWithinSec": ${minWindowSec}, "fallbackWithinSec": ${minWindowSec}, "appealWindowSec": ${minWindowSec}, "appealDecideSec": ${minWindowSec}} completes a deal in a few minutes.`,
+    `Settlement time is the wall clock. Club ${clubId} allows windows from ${minWindowSec} seconds: timing {"judgeWithinSec": ${minWindowSec}, "fallbackWithinSec": ${minWindowSec}, "appealWindowSec": 0, "appealDecideSec": ${minWindowSec}} completes a deal in a few minutes.`,
     ...(feeNote ? [feeNote] : []),
     'Request log: these nodes keep one line per request for seven days (Request-Id, time, node, method, route template, status, problem type, timing), never a body, a header value, an IP address, or the addresses and IDs in the path. Quote the Request-Id of a failed request when you report it.',
     ...(chain

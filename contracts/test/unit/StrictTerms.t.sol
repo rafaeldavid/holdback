@@ -13,11 +13,11 @@ import {Base} from "./Base.sol";
 ///           exactly as `packages/core/src/timing.ts` compares them (an equal pair is refused: no step's window may be
 ///           zero);
 ///         - `maxSubmissions` other than 1 (the contract takes one delivery);
-///         - an escalation decision window (`appealDecideSec`) of 0, which the schema already forbids.
+///         - an escalation decision window (`appealDecideSec`) of 0, which the schema already forbids;
+///         - since T-358 (ADR-0033 §2b), an appeal window (`appealWindowSec`) other than 0: phase one has no party appeal.
 ///         Every refused input was funded by the parent (`test/differential/parent/`). A zero price is not refused
 ///         (Rafa, 2026-11-11); a deal that holds nothing (price 0 and fee 0) is refused by the escrow itself
-///         (`test_zeroPriceZeroFee_escrowRefusesZeroAmount` below; on `main`, `ZeroPrice.t.sol`). `appealWindowSec` is not
-///         checked: whether phase one requires it to be 0 is open with Rafa.
+///         (`test_zeroPriceZeroFee_escrowRefusesZeroAmount` below; on `main`, `ZeroPrice.t.sol`).
 contract StrictTermsTest is Base {
     /// Relays `agreeAndFund` for `t` with every message correctly signed for it; returns the outcome.
     function _fundCall(H.Terms memory t) internal returns (bool ok, bytes memory ret) {
@@ -134,11 +134,32 @@ contract StrictTermsTest is Base {
         _funds(t);
     }
 
-    /// `appealWindowSec` is signed and not read: 0 still funds (no check added, removed or changed; open with Rafa).
-    function test_appealWindowSec_isNotChecked() public {
+    // ------------------------------------------------------------ an appeal window of 0 (T-358, ADR-0033 §2b)
+
+    /// Phase one has no party appeal, so the terms state an appeal window of 0 and any other value is refused with
+    /// `InvalidMessage`: core's `APPEAL_WINDOW_PROBLEM` ("timing.appealWindowSec must be 0: phase one has no party
+    /// appeal, ...") on chain. Failed before: the parent funded a window of 1 (`test/differential/parent/`, the
+    /// side-by-side harness's R6c-1 entry 2).
+    function test_appealWindowSec_one_refused() public {
         H.Terms memory t = _terms();
-        t.timing.appealWindowSec = 0;
+        t.timing.appealWindowSec = 1;
+        _refused(t);
+    }
+
+    function test_appealWindowSec_max_refused() public {
+        H.Terms memory t = _terms();
+        t.timing.appealWindowSec = type(uint64).max;
+        _refused(t);
+    }
+
+    function test_appealWindowSec_zero_fundsAndSettles() public {
+        H.Terms memory t = _terms();
+        assertEq(t.timing.appealWindowSec, 0);
         _funds(t);
+        bytes32 id = hx.id(t);
+        _deliver(t, id);
+        rules.decide(t, _primary(t, id, H.OUTCOME_ACCEPT), _noDelivery(), "");
+        assertEq(uint8(rules.dealOf(id).stage), uint8(HoldbackRules.Stage.Released));
     }
 
     // ------------------------------------------------------------ what is not refused

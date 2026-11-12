@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.10/club.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.11/club.schema.json",
   "title": "Club and rulebook",
   "type": "object",
   "required": [
@@ -84,7 +84,8 @@
             },
             "appealWindow": {
               "type": "integer",
-              "minimum": 1
+              "minimum": 0,
+              "description": "0 lets a commitment waive party appeals with an appeal window of 0, as a phase-one deployment requires (ADR-0033 §2b)"
             },
             "appealDecide": {
               "type": "integer",
@@ -271,7 +272,7 @@
                 "parties",
                 "any"
               ],
-              "description": "parties: payouts may name only the buyer and the seller. any: any addresses both parties sign for, such as another escrow or an outside arbiter (D23). A regulated club sets parties."
+              "description": "parties: payouts may name only the buyer's payment address and the seller's payout address (ADR-0033). any: any addresses both parties sign for, such as another escrow or an outside arbiter (D23). No rulebook field limits which addresses those two are: a party chooses its own, and membership and mandates bind the signing addresses only."
             }
           }
         },

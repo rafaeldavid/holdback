@@ -57,6 +57,8 @@ export function termsView(t: AnyCommitmentTerms) {
     rulebookHash: t.rulebookHash,
     buyer: getAddress(t.buyer),
     seller: getAddress(t.seller),
+    buyerPaymentAddress: getAddress(t.buyerPaymentAddress),
+    sellerPayoutAddress: getAddress(t.sellerPayoutAddress),
     ...bodyHashes(t),
     token: tokenAddressOf(t),
     price: BigInt(t.price.amount),
@@ -208,8 +210,8 @@ export function paymentInfo(t: TermsView, rules: Address, commitmentId: Hex32, e
   const expiry = Number(t.timing.fallbackBy + t.timing.appealDecideSec + expiryMargin);
   return {
     operator: rules,
-    payer: t.buyer,
-    receiver: t.seller,
+    payer: t.buyerPaymentAddress, // ADR-0033: funds the hold, receives every void
+    receiver: t.sellerPayoutAddress, // ADR-0033: receives every capture net of the fee
     token: t.token,
     maxAmount: t.price + t.fee,
     preApprovalExpiry: Number(t.timing.fundBy),

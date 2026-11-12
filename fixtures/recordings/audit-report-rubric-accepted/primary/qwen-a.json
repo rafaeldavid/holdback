@@ -7,7 +7,7 @@
   "family": "qwen",
   "model": "placeholder-qwen-a-20260601",
   "promptTemplateHash": "0xabb5ec9b33cf9a936e140bf8530c217f6629fdf1e08a46fbdf6bd7363ce84dd2",
-  "inputHash": "0x26523c324e6ef9af9673f142af58e286f4d96c07f33867f0c01500689150e5db",
+  "inputHash": "0x440c6dc105c4215c317e11168e680ec969a609e55032250c1738204eb765f5f6",
   "rubricHash": "0x0fdbdfe2b3b351efd10175b9f139df1a92ad06345e6a29b03b72b116d27c5167",
   "capturedFrom": "fake",
   "verdict": {

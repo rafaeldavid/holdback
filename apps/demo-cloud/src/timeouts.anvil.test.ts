@@ -54,7 +54,7 @@ describe.skipIf(!ready)(`the operators send due timeouts on their own in the pub
         price: { token: usdc, amount: PRICE },
         deliverable: DATASET,
         checks: CHECKS,
-        timing: { judgeWithinSec: 5, fallbackWithinSec: 5, appealWindowSec: 5, appealDecideSec: 5, ...timing },
+        timing: { judgeWithinSec: 5, fallbackWithinSec: 5, appealWindowSec: 0, appealDecideSec: 5, ...timing },
       });
       // An offer the demo primary accepts and nobody funds.
       const unfunded = await seller.agent.offer(terms({ offerExpiresInSec: 20, fundWithinSec: 30, deliverWithinSec: 40 }));

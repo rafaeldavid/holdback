@@ -32,7 +32,7 @@ describe.skipIf(!ready)(`one world through the drand rulebook (anvil; T-220, D49
     const chainOf = () => new LiveChain({ deployment, rpcUrls: [anvil.rpcUrl], relayerKey: RELAYER, pollMs: 200, rebroadcastMs: 10_000, mintBatchMs: 200 });
     const errors: string[] = [];
     const onError = (e: Error) => errors.push(e.message);
-    const timing = { judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 60, appealDecideSec: 60 };
+    const timing = { judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 0, appealDecideSec: 60 }; // phase one: no party appeal (ADR-0033 §2b)
 
     // Today's world: the rulebook names the sim beacon, as the deployed build's does. It posts no bond (ADR-0031 §8).
     const today = await PublicWorld.open({ storage, env: ENV, live: { chain: chainOf(), beacon: 'sim' }, faucetPerClient: 100, onError });

@@ -403,7 +403,7 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     const txs = chain.transactions().length;
     const r = await chain.submit({ kind: 'mutual_settle', message }, { via: 'op-1', sender: cast.operator.key });
     expect(r.ok ? 'ok' : r.problem.type).toBe('invalid_terms');
-    expect(r.ok ? '' : r.problem.detail).toMatch(/neither the buyer nor the seller.*\(ADR-0031 §4\)/);
+    expect(r.ok ? '' : r.problem.detail).toMatch(/neither the buyer's payment address nor the seller's payout address.*\(ADR-0031 §4, ADR-0033\)/);
     expect(chain.transactions()).toHaveLength(txs);
     expect(chain.escrowState(d.id)?.kind).toBe('Held');
     // The parties' own split settles.

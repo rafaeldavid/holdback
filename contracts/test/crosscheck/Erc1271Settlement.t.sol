@@ -23,6 +23,7 @@ contract Erc1271SettlementTest is SignerBase {
         SwitchWallet w = _wallet(BW_PK);
         H.Terms memory t = _terms();
         t.buyer = address(w);
+        t.buyerPaymentAddress = address(w); // ADR-0033: the wallet also holds the money
         bytes32 id = _fundAs(t, BW_PK, SELLER_PK, ADJ_PK);
         (H.Delivery memory d, H.KeyProof memory k) = _deliverAs(t, id, SELLER_PK);
         H.EarlyAccept memory m = _earlyFor(t, id, d, BW_PK);
@@ -57,6 +58,7 @@ contract Erc1271SettlementTest is SignerBase {
         SwitchWallet w = _wallet(BW_PK);
         H.Terms memory t = _terms();
         t.buyer = address(w);
+        t.buyerPaymentAddress = address(w); // ADR-0033: the wallet also holds the money
         bytes32 id = _fundAs(t, BW_PK, SELLER_PK, ADJ_PK);
         (H.Delivery memory d, H.KeyProof memory k) = _deliveryFor(t.buyer);
         bytes memory sellerSig = _deliverySig(id, d, SELLER_PK);
@@ -90,6 +92,7 @@ contract Erc1271SettlementTest is SignerBase {
         SwitchWallet w = _wallet(BW_PK);
         H.Terms memory t = _terms();
         t.buyer = address(w);
+        t.buyerPaymentAddress = address(w); // ADR-0033: the wallet also holds the money
         bytes32 id = _fundAs(t, BW_PK, SELLER_PK, ADJ_PK);
         (H.Delivery memory d, H.KeyProof memory k) = _deliverAs(t, id, SELLER_PK);
         uint256 toSeller = 20_000_000;
@@ -123,6 +126,7 @@ contract Erc1271SettlementTest is SignerBase {
         SwitchWallet w = _wallet(SW_PK);
         H.Terms memory t = _terms();
         t.seller = address(w);
+        t.sellerPayoutAddress = address(w); // ADR-0033: the wallet also holds the money
         bytes32 id = _fundAs(t, BUYER_PK, SW_PK, ADJ_PK);
         (H.Delivery memory d, H.KeyProof memory k) = _deliverAs(t, id, SW_PK);
         uint256 toSeller = 13_000_000;
@@ -155,7 +159,9 @@ contract Erc1271SettlementTest is SignerBase {
         SwitchWallet sw = _wallet(SW_PK);
         H.Terms memory t = _terms();
         t.buyer = address(bw);
+        t.buyerPaymentAddress = address(bw); // ADR-0033: the wallet also holds the money
         t.seller = address(sw);
+        t.sellerPayoutAddress = address(sw); // ADR-0033: the wallet also holds the money
         bytes32 id = _fundAs(t, BW_PK, SW_PK, ADJ_PK);
         H.Mutual memory mu = _mutualFor(t, id, BW_PK, SW_PK, 5_000_000);
         H.Delivery memory none;

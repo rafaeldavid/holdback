@@ -16,7 +16,7 @@ export const CHECKS = [
  * delivers within seconds of the funding; deliverBy counts from the offer, so if the seller never delivers, the buyer
  * reclaims its hold an hour after the offer (bounded loss, D26).
  */
-export const TIMING = { offerExpiresInSec: 1800, fundWithinSec: 2400, deliverWithinSec: 3600, judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 60, appealDecideSec: 60 };
+export const TIMING = { offerExpiresInSec: 1800, fundWithinSec: 2400, deliverWithinSec: 3600, judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 0, appealDecideSec: 60 }; // phase one: no party appeal (ADR-0033 §2b)
 
 export const GOOD_CSV = 'customer_id,email\n1,ada@example.com\n2,alan@example.com\n3,grace@example.com\n';
 /** Fails the rows check (2 rows, not 3): the buyer gets the price back. */

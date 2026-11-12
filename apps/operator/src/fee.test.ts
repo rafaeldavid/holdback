@@ -59,8 +59,8 @@ describe('operator fee (ADR-0023)', () => {
     const status = (await call(op.url, 'GET', '/v1/status')).body;
     expect(parseOperatorStatus(status).ok).toBe(true);
     expect(status['fees']).toEqual({ operator: D33 });
-    expect(status['schemaVersion']).toBe('0.10');
-    expect((status['domain'] as J)['version']).toBe('0.7');
+    expect(status['schemaVersion']).toBe('0.11');
+    expect((status['domain'] as J)['version']).toBe('0.8');
     expect(((await call(op.url, 'GET', '/.well-known/holdback.json')).body['fees'] as J)['operator']).toEqual(D33);
     const free = await w.operator('op-2');
     expect((await call(free.url, 'GET', '/v1/status')).body['fees']).toBeUndefined();

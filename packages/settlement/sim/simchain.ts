@@ -751,10 +751,11 @@ export class SimChain implements Settlement {
         this.beforeCaptureExpiry(rec.state.terms, at, 'an early accept pays the seller');
         const next = this.stepped(rec.state, { type: 'early_accept', at, message: m });
         this.setState(tx, m.commitmentId, next);
-        const { price, adjudication, seller, buyer } = next.terms;
+        const { price, adjudication, buyer, buyerPaymentAddress, sellerPayoutAddress } = next.terms;
         const postings: Posting[] = [];
-        tx.post(account.escrow(m.commitmentId), account.party(seller), BigInt(price.amount), 'price to the seller', postings);
-        tx.post(account.escrow(m.commitmentId), account.party(buyer), BigInt(adjudication.fee.amount), 'fee back to the buyer: no adjudicator judged', postings);
+        // ADR-0033: deal money moves to and from the payment and payout addresses; buyer and seller sign.
+        tx.post(account.escrow(m.commitmentId), account.party(sellerPayoutAddress), BigInt(price.amount), 'price to the seller', postings);
+        tx.post(account.escrow(m.commitmentId), account.party(buyerPaymentAddress), BigInt(adjudication.fee.amount), 'fee back to the buyer: no adjudicator judged', postings);
         this.releaseAll(tx, m.commitmentId);
         tx.emit('settlement.released', m.commitmentId, buyer, { via: 'early_accept', postings });
         this.releaseHeld(tx, m.commitmentId, buyer, buyer, 'early_accept');
@@ -826,7 +827,7 @@ export class SimChain implements Settlement {
    */
   private operatorFee(tx: Tx, m: NonNullable<Extract<Submission, { kind: 'agree_and_fund' }>['operatorFee']>): void {
     const { terms } = this.recOf(tx, m.commitmentId).state;
-    if (lc(m.from) !== lc(terms.buyer)) refuse('invalid_terms', `the operator fee must come from the buyer ${terms.buyer}`);
+    if (lc(m.from) !== lc(terms.buyerPaymentAddress)) refuse('invalid_terms', `the operator fee must come from the buyer's payment address ${terms.buyerPaymentAddress}`);
     if (m.token !== terms.price.token) refuse('invalid_terms', `the operator fee is in ${m.token}, not the price token ${terms.price.token}`);
     if (lc(m.to) === lc(m.from)) refuse('invalid_terms', 'the operator fee pays its own payer');
     const at = Date.parse(tx.at);
@@ -852,7 +853,8 @@ export class SimChain implements Settlement {
       refuse('invalid_terms', prev.kind === 'Refunded' ? 'a decision on a refunded deal carries no key for the buyer' : `a ${m.outcome} decision carries no key for the buyer`);
     }
     const { terms } = next;
-    const { price, adjudication, buyer, seller } = terms;
+    // ADR-0033: buyer receives the key; the payment and payout addresses receive the money.
+    const { price, adjudication, buyer, buyerPaymentAddress, sellerPayoutAddress } = terms;
     const seedSource = m.role === 'primary' ? { seedSource: 'commit-reveal' } : { seedSource: 'beacon', beaconRound: beacon?.round };
     const decidedBy = { role: m.role, outcome: m.outcome, recordHash: m.judgmentRecordHash, ...seedSource };
 
@@ -873,7 +875,8 @@ export class SimChain implements Settlement {
       }
       tx.emit('appeal.decided', id, m.adjudicator, { ...decidedBy, appealState: verdict, postings });
       if (verdict === 'overturned') {
-        const wronged = prev.kind === 'Released' ? buyer : seller;
+        // ADR-0033 §4: a bond pays the wronged party's money address; the appeal bond above stays with its signer.
+        const wronged = prev.kind === 'Released' ? buyerPaymentAddress : sellerPayoutAddress;
         const bondPostings: Posting[] = [];
         this.payFromBond(tx, id, first, account.party(wronged), BigInt(price.amount), 'overturn', bondPostings);
       }
@@ -891,7 +894,7 @@ export class SimChain implements Settlement {
     const postings: Posting[] = [];
     const escrow = account.escrow(id);
     if (next.kind === 'Released' || next.kind === 'Refunded') {
-      const payee = next.kind === 'Released' ? seller : buyer;
+      const payee = next.kind === 'Released' ? sellerPayoutAddress : buyerPaymentAddress;
       tx.post(escrow, account.party(payee), BigInt(price.amount), next.kind === 'Released' ? 'price to the seller' : 'price back to the buyer', postings);
       tx.post(escrow, account.party(m.adjudicator), BigInt(adjudication.fee.amount), `fee to the ${m.role} adjudicator, whose decision settles`, postings);
       tx.emit('judgment.decided', id, m.adjudicator, decidedBy);
@@ -922,14 +925,17 @@ export class SimChain implements Settlement {
     const next = this.stepped(prev, { type: 'mutual_settle', at: tx.at, message: m, rule: rec.club.rulebook.mutualSettlement, ...(late ? { delivery: late } : {}) });
     if (next.kind !== 'Settled') return refuse('invalid_state', `settlement led to ${next.kind}`);
     this.setState(tx, id, next);
-    const { price, adjudication, buyer } = next.terms;
+    const { price, adjudication, buyer, buyerPaymentAddress, sellerPayoutAddress } = next.terms;
     // D23: one posting per payout. Core already checked the sum, token and recipients; this re-checks the sum
     // so a posting can never take more than the price out of escrow.
     const payouts = next.payouts.map((p) => ({ to: p.to, amount: BigInt(p.amount.amount) }));
     if (payouts.some((p) => p.amount <= 0n) || payouts.reduce((a, p) => a + p.amount, 0n) !== BigInt(price.amount)) refuse('invalid_terms', 'payouts must be positive and sum to the price');
-    // A payout to anyone but the buyer is a capture; returning everything to the buyer is not (CPP void).
+    // A payout to the seller's payout address, or to anyone but the buyer's payment address, is a capture; returning
+    // everything to the payment address is not (CPP void). The payout address is checked first, as on the contract, so
+    // with the two addresses equal every payout is a capture (ADR-0033 §2).
     const shareBps = BigInt(rec.club.rulebook.mutualSettlement.adjudicatorFeeShareAfterDeliveryBps);
-    if (payouts.some((p) => lc(p.to) !== lc(buyer)) || (shareBps > 0n && BigInt(adjudication.fee.amount) > 0n)) this.beforeCaptureExpiry(next.terms, tx.at, 'this settlement pays someone other than the buyer');
+    const capture = (to: Address) => lc(to) === lc(sellerPayoutAddress) || lc(to) !== lc(buyerPaymentAddress);
+    if (payouts.some((p) => capture(p.to)) || (shareBps > 0n && BigInt(adjudication.fee.amount) > 0n)) this.beforeCaptureExpiry(next.terms, tx.at, 'this settlement pays someone other than the buyer');
     const postings: Posting[] = [];
     const escrow = account.escrow(id);
     for (const p of payouts) tx.post(escrow, account.party(p.to), p.amount, 'agreed payout', postings);
@@ -939,7 +945,7 @@ export class SimChain implements Settlement {
     if (!fee.ok) refuse('invalid_terms', fee.error.kind);
     if (fee.ok) {
       tx.post(escrow, account.party(sitting), BigInt(fee.value.share.amount), 'fee share to the sitting adjudicator', postings);
-      tx.post(escrow, account.party(buyer), BigInt(fee.value.remainder.amount), 'fee back to the buyer', postings);
+      tx.post(escrow, account.party(buyerPaymentAddress), BigInt(fee.value.remainder.amount), 'fee back to the buyer', postings);
     }
     this.releaseAll(tx, id);
     tx.emit('commitment.settled', id, 'anyone', { payouts: next.payouts, keyReleased: next.keyReleased });
@@ -958,7 +964,7 @@ export class SimChain implements Settlement {
     const type = TRIGGER_EVENT[timeout as Exclude<TimeoutKind, 'settle'>];
     const next = this.stepped(prev, { type, at: tx.at } as EscrowEvent);
     this.setState(tx, id, next);
-    const { price, adjudication, buyer, seller } = next.terms;
+    const { price, adjudication, buyerPaymentAddress, sellerPayoutAddress } = next.terms;
     const escrow = account.escrow(id);
     const postings: Posting[] = [];
     switch (type) {
@@ -967,7 +973,7 @@ export class SimChain implements Settlement {
         tx.emit('offer.expired', id, 'anyone', { from: prev.kind });
         break;
       case 'reclaim':
-        tx.post(escrow, account.party(buyer), tx.bal(escrow), 'price + fee back to the buyer: nothing delivered', postings);
+        tx.post(escrow, account.party(buyerPaymentAddress), tx.bal(escrow), 'price + fee back to the buyer: nothing delivered', postings);
         this.releaseAll(tx, id);
         tx.emit('settlement.reclaimed', id, 'anyone', { postings });
         break;
@@ -981,20 +987,20 @@ export class SimChain implements Settlement {
         break;
       case 'apply_default_outcome': {
         if (prev.kind !== 'Defaulted') return refuse('invalid_state', 'no default to apply');
-        tx.post(escrow, account.party(buyer), tx.bal(escrow), 'price + fee back to the buyer: default outcome', postings);
+        tx.post(escrow, account.party(buyerPaymentAddress), tx.bal(escrow), 'price + fee back to the buyer: default outcome', postings);
         tx.emit('settlement.refunded', id, 'anyone', { via: 'default_outcome', from: prev.from, postings });
         // ADR-0022 rule 3: a payout from a bond rounds down; the bond keeps the dust.
         const comp = mulBps(price, BigInt(rec.club.rulebook.defaultOutcome.judged.sellerCompensationRateBps), 'floor');
         if (!comp.ok) return refuse('invalid_terms', comp.error.kind);
         const bondPostings: Posting[] = [];
         if (prev.from === 'Escalated') {
-          this.payFromBond(tx, id, adjudication.appealAdjudicator, account.party(seller), BigInt(comp.value.amount), 'default', bondPostings);
+          this.payFromBond(tx, id, adjudication.appealAdjudicator, account.party(sellerPayoutAddress), BigInt(comp.value.amount), 'default', bondPostings);
         } else {
           // Both adjudicators missed their windows: the fallback pays half rounded down, the primary the rest.
           const split = splitBps(comp.value, HALF_BPS);
           if (!split.ok) return refuse('invalid_terms', split.error.kind);
-          this.payFromBond(tx, id, adjudication.adjudicator, account.party(seller), BigInt(split.value.remainder.amount), 'default', bondPostings);
-          this.payFromBond(tx, id, adjudication.fallbackAdjudicator, account.party(seller), BigInt(split.value.share.amount), 'default', bondPostings);
+          this.payFromBond(tx, id, adjudication.adjudicator, account.party(sellerPayoutAddress), BigInt(split.value.remainder.amount), 'default', bondPostings);
+          this.payFromBond(tx, id, adjudication.fallbackAdjudicator, account.party(sellerPayoutAddress), BigInt(split.value.share.amount), 'default', bondPostings);
         }
         this.releaseAll(tx, id);
         break;
@@ -1051,7 +1057,8 @@ export class SimChain implements Settlement {
       ...(posted ? { deliveryHash: posted } : {}),
       ...hold,
       deadlines,
-      balances: { [s.terms.buyer]: amount(s.terms.buyer), [s.terms.seller]: amount(s.terms.seller) },
+      // ADR-0033 §4: the parties' money is at the payment and payout addresses.
+      balances: { [s.terms.buyerPaymentAddress]: amount(s.terms.buyerPaymentAddress), [s.terms.sellerPayoutAddress]: amount(s.terms.sellerPayoutAddress) },
       settledAt: s.kind === 'Released' || s.kind === 'Refunded' || s.kind === 'Settled' ? s.settledAt : null,
       finalAt: this.finalAt(rec),
       lastEventSeq: rec.lastEventSeq,

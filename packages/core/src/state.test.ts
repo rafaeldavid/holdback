@@ -8,7 +8,7 @@ import { commitmentId, deliveryHash, termsOf } from './eip712.js';
 import type { TokenAmount } from './money/index.js';
 import { parseAppeal, parseClub, parseCommitment, parseDelivery, parseMessage } from './parse.js';
 import { PROBLEM_TYPES, type ProblemType } from './problem.js';
-import { beaconRoundFor, offer, panelSeed, postedDeliveryHash, step, type EscrowEvent, type EscrowState, type OfferInput } from './state.js';
+import { APPEAL_WINDOW_PROBLEM, beaconRoundFor, offer, panelSeed, postedDeliveryHash, step, type EscrowEvent, type EscrowState, type OfferInput } from './state.js';
 import type { AdjudicatorAcceptance, Agree, Appeal, Commitment, CommitmentTerms, Decision, Delivery, EarlyAccept, FundingAuthorization, MutualSettlement, Rulebook, Scope } from './types.js';
 
 function load(file: string): unknown {
@@ -23,10 +23,14 @@ const SIG: Hex = `0x${'ab'.repeat(65)}`;
 const ZERO32: Hex = `0x${'00'.repeat(32)}`;
 const tusd = (amount: string): TokenAmount => ({ token: 'tUSD', amount: amount as TokenAmount['amount'] });
 
-// The example's hashes are placeholders, so derive a self-consistent commitment from its terms.
+// The example's hashes are placeholders, so derive a self-consistent commitment from its terms. The example names a
+// payout address apart from its seller (ADR-0033); these tests keep both money addresses equal to the signing
+// addresses unless a test sets them apart ('two money addresses' below). The example states an appeal window of 0, as
+// phase one requires; these tests run the full protocol's party appeals, so they give it 300 s unless a test says.
 const rulebook = parsedClub.value.rulebook;
 function commitmentFor(rb: Rulebook, patch: Partial<CommitmentTerms> = {}): Commitment {
-  const t = { ...termsOf(exampleCommitment), ...patch, rulebookHash: rulebookHash(rb) };
+  const base = termsOf(exampleCommitment);
+  const t = { ...base, buyerPaymentAddress: base.buyer, sellerPayoutAddress: base.seller, timing: { ...base.timing, appealWindowSec: 300 }, ...patch, rulebookHash: rulebookHash(rb) };
   return { ...t, id: commitmentId(t), signatures: { seller: SIG } };
 }
 const commitment = commitmentFor(rulebook);
@@ -311,7 +315,7 @@ describe('offer', () => {
 
   // T-356 (SC-5, ADR-0031 §6): on the phase-one profile the offer is refused for what the contracts refuse at funding.
   const zero = (amount: string) => ({ token: 'tUSD', amount }) as TokenAmount;
-  const phaseOne = (patch: Partial<CommitmentTerms>, rb: Rulebook = rulebook): OfferInput => offerInput({ ...withRulebook(rb, patch), profile: 'phase_one' });
+  const phaseOne = (patch: Partial<CommitmentTerms>, rb: Rulebook = rulebook): OfferInput => offerInput({ ...withRulebook(rb, { timing: exampleCommitment.timing, ...patch }), profile: 'phase_one' });
   it.each<[string, OfferInput, RegExp]>([
     ['price and fee both 0, the deal holding nothing', phaseOne({ price: zero('0'), adjudication: { ...exampleCommitment.adjudication, fee: zero('0') } }), /both 0.*ZeroAmount/],
     ['an escalation window of 0', phaseOne({ timing: { ...exampleCommitment.timing, appealDecideSec: 0 } }, { ...rulebook, minWindowsSec: { ...rulebook.minWindowsSec, appealDecide: 0 } }), /appealDecideSec must be at least 1/],
@@ -323,6 +327,22 @@ describe('offer', () => {
       expect(r.error.type).toBe('invalid_terms');
       expect(r.error.detail).toMatch(detail);
     }
+  });
+
+  // T-358 (ADR-0033 §2b): phase one has no party appeal, so its terms state an appeal window of 0, whatever the
+  // rulebook's minimum. The contract (StrictTerms.t.sol) and the prepare routes refuse with the same reason.
+  it.each([1, 300, 2 ** 32])('phase one refuses an appeal window of %i s with APPEAL_WINDOW_PROBLEM', (sec) => {
+    const r = offer(phaseOne({ timing: { ...exampleCommitment.timing, appealWindowSec: sec } }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatchObject({ type: 'invalid_terms', detail: APPEAL_WINDOW_PROBLEM });
+  });
+
+  it('phase one takes an appeal window of 0 under a rulebook whose minimum is 300 s; the full protocol keeps the minimum', () => {
+    const strict = { ...rulebook, minWindowsSec: { ...rulebook.minWindowsSec, appealWindow: 300 } };
+    const zero = { timing: { ...exampleCommitment.timing, appealWindowSec: 0 } };
+    expect(offer(phaseOne(zero, strict)).ok).toBe(true);
+    expect(offer(offerInput(withRulebook(strict, zero)))).toMatchObject({ ok: false, error: { type: 'invalid_terms' } });
+    expect(offer(offerInput(withRulebook(strict, { timing: { ...exampleCommitment.timing, appealWindowSec: 300 } }))).ok).toBe(true);
   });
 
   it('phase one takes a zero price with a fee above 0, and the full protocol takes a deal that holds nothing', () => {
@@ -1014,7 +1034,7 @@ describe('phase_one profile', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error.type).toBe('invalid_terms');
-      expect(r.error.detail).toContain('neither the buyer nor the seller');
+      expect(r.error.detail).toContain("neither the buyer's payment address nor the seller's payout address");
     }
     expect(step(held, fill(held, ev.mutual(T.deliver, { payouts: split('1500000000', '500000000') }, { allowed: true, payoutsTo: 'any' })), 'phase_one').ok).toBe(true);
     // The full protocol keeps D23: the same payout settles there.
@@ -1084,5 +1104,68 @@ describe('phase_one profile', () => {
     const s = phaseOne([...toDeliveredP1, ev.decide('primary', 'escalate', escalatedAt), ev.decide('appeal', 'accept', escalationDecideBy.replace('10:06', '10:02'))]);
     expect(s.kind).toBe('Released');
     if (s.kind === 'Released') expect(s.via.kind).toBe('escalation');
+  });
+});
+
+// T-358 (ADR-0033): the buyer's payment address funds the hold and the seller's payout address is paid; `buyer` and
+// `seller` keep signing. These terms set all four apart.
+describe('two money addresses (ADR-0033)', () => {
+  const PAYMENT: Hex = '0x00000000000000000000000000000000000000c1';
+  const PAYOUT: Hex = '0x00000000000000000000000000000000000000c2';
+  const apart = commitmentFor(rulebook, { buyerPaymentAddress: PAYMENT, sellerPayoutAddress: PAYOUT, timing: exampleCommitment.timing });
+  const aid = apart.id;
+  const adh = deliveryHash(delivery({ commitmentId: aid }));
+  const p1 = (s: EscrowState, e: EscrowEvent) => step(s, fill(s, e), 'phase_one');
+  const offeredApart = (): EscrowState => {
+    const r = offer({ ...offerInput({ commitment: apart }), profile: 'phase_one' });
+    if (!r.ok) throw new Error(r.error.detail);
+    return r.value;
+  };
+  const agreedApart = (): EscrowState => {
+    let s = offeredApart();
+    for (const e of [ev.accept({ commitmentId: aid, bondReserved: tusd('0') }, T.accept, tusd('0')), ev.agree(T.agree, { commitmentId: aid })]) {
+      const r = p1(s, e);
+      if (!r.ok) throw new Error(r.error.detail);
+      s = r.value;
+    }
+    return s;
+  };
+  const fundFrom = (from: Hex) => ev.fund(T.fund, { from, message: { commitmentId: aid } });
+  const heldApart = (): EscrowState => {
+    const r = p1(agreedApart(), fundFrom(PAYMENT));
+    if (!r.ok) throw new Error(r.error.detail);
+    return r.value;
+  };
+
+  it("the payment address funds; the buyer's signing address cannot", () => {
+    expect(p1(agreedApart(), fundFrom(PAYMENT))).toMatchObject({ ok: true, value: { kind: 'Held' } });
+    const r = p1(agreedApart(), fundFrom(buyer));
+    expect(r).toMatchObject({ ok: false, error: { type: 'invalid_signature' } });
+    if (!r.ok) expect(r.error.detail).toContain(PAYMENT);
+  });
+
+  it('the agreement and the early accept stay on the signing address', () => {
+    expect(p1(offeredApart(), ev.accept({ commitmentId: aid, bondReserved: tusd('0') }, T.accept, tusd('0'))).ok).toBe(true);
+    const accepted = (p1(offeredApart(), ev.accept({ commitmentId: aid, bondReserved: tusd('0') }, T.accept, tusd('0'))) as { value: EscrowState }).value;
+    expect(p1(accepted, ev.agree(T.agree, { commitmentId: aid, message: { buyer: PAYMENT } }))).toMatchObject({ ok: false, error: { type: 'invalid_signature' } });
+    const delivered = (p1(heldApart(), ev.deliver(T.deliver, { commitmentId: aid })) as { value: EscrowState }).value;
+    expect(p1(delivered, ev.earlyAccept(T.decide, PAYMENT, { commitmentId: aid, deliveryHash: adh }))).toMatchObject({ ok: false });
+    expect(p1(delivered, ev.earlyAccept(T.decide, buyer, { commitmentId: aid, deliveryHash: adh }))).toMatchObject({ ok: true, value: { kind: 'Released' } });
+  });
+
+  it("phase one pays a settlement to the payment and payout addresses only; a signing address is a third address", () => {
+    const pays = (payouts: MutualSettlement['payouts']) => p1(heldApart(), ev.mutual(T.deliver, { commitmentId: aid, payouts }, { allowed: true, payoutsTo: 'any' }));
+    expect(pays([{ to: PAYOUT, amount: tusd('1400000000') }, { to: PAYMENT, amount: tusd('600000000') }])).toMatchObject({ ok: true, value: { kind: 'Settled' } });
+    for (const signer of [seller, buyer]) {
+      const r = pays([{ to: signer, amount: tusd('1400000000') }, { to: signer === seller ? PAYMENT : PAYOUT, amount: tusd('600000000') }]);
+      expect(r).toMatchObject({ ok: false, error: { type: 'invalid_terms' } });
+      if (!r.ok) expect(r.error.detail).toContain("neither the buyer's payment address nor the seller's payout address");
+    }
+  });
+
+  it('a changed payment or payout address changes the commitment ID', () => {
+    expect(commitmentFor(rulebook, { buyerPaymentAddress: PAYMENT, sellerPayoutAddress: buyer }).id).not.toBe(aid);
+    expect(commitmentFor(rulebook, { buyerPaymentAddress: seller, sellerPayoutAddress: PAYOUT }).id).not.toBe(aid);
+    expect(commitment.id).not.toBe(aid);
   });
 });

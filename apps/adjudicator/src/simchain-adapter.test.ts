@@ -99,11 +99,13 @@ async function world(bonds = { primary: 10_000_000_000n, fallback: 10_000_000_00
   // The example commitment's deliverable and checks, on the sim club's rules and this bench.
   const now = chain.now();
   const terms: CommitmentTerms = {
-    schemaVersion: '0.7',
+    schemaVersion: '0.8',
     clubId: club.id,
     rulebookHash: club.rulebookHash,
     buyer: cast.buyer.address,
     seller: cast.seller.address,
+    buyerPaymentAddress: cast.buyer.address,
+    sellerPayoutAddress: cast.seller.address,
     deliverable: EXAMPLE.deliverable,
     acceptance: EXAMPLE.acceptance,
     price: tusd('2000000000'),

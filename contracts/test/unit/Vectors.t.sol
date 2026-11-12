@@ -9,7 +9,8 @@ import {TypesHarness} from "./Base.sol";
 /// Cross-language vectors: the values `packages/core` (eip712.ts, viem) computes for spec/examples, with every
 /// token identifier set to the address 0x…beef (ADR-0025). The contract must rebuild the same commitment ID,
 /// delivery hash and message digests from the settlement view. The generator is
-/// `packages/core/src/eip712.vectors.test.ts`, which pins the same values (domain 0.7, ADR-0029).
+/// `packages/core/src/eip712.vectors.test.ts`, which pins the same values (domain 0.8, ADR-0033). The example's four party addresses all differ, so a mix-up of
+/// `buyer` and `buyerPaymentAddress`, or of `seller` and `sellerPayoutAddress`, moves every vector.
 contract VectorsTest is Test {
     TypesHarness internal hx = new TypesHarness();
     address internal constant TOKEN = 0x000000000000000000000000000000000000bEEF;
@@ -17,11 +18,13 @@ contract VectorsTest is Test {
 
     function _terms() internal pure returns (H.Terms memory t) {
         t = H.Terms({
-            schemaVersionHash: 0x039eb7c1a17686c95dc5e5f7bb8ad8976b26a2ed19913115218a992047cfcee5,
+            schemaVersionHash: 0x15e7a716d821b9602c70f6d0f574efbb8147fb465215d43354c7b3e69d03ed92,
             clubIdHash: 0x7b600434c72773d2aacdfc4846c576db4f5f847cab94ead38a22a3c4e01c7003,
             rulebookHash: 0xb70959b8b5a5a9d365df7471120396553ed1bc0bff83059e4862e6d11b36a556,
             buyer: 0x04D6c65223896Ba94e731bc9eB765C19Bd289b0d,
             seller: 0x9Ff412388F11e58327E71F841705dbC739c8CC46,
+            buyerPaymentAddress: 0x2B4D6f8a0c1E3A5C7e9b1D3F5A7c9E1b3D5f7a90,
+            sellerPayoutAddress: 0x7a1c3e5b9d2F4A6c8e0B1d3f5A7c9E1b3D5f7A9c,
             deliverableHash: 0x303342f144fa951dc84612d5d026d641ee77f3ae3b044d39b3e6d5661894d942,
             acceptanceHash: 0x731647db76ade2a3774a204fc9a7d13eb74798faf5e4d19891aa9d3f1642378b,
             token: TOKEN,
@@ -39,7 +42,7 @@ contract VectorsTest is Test {
                 deliverBy: 1_793_527_200,
                 judgeBy: 1_793_527_320,
                 fallbackBy: 1_793_527_440,
-                appealWindowSec: 300,
+                appealWindowSec: 0,
                 appealDecideSec: 300,
                 maxSubmissions: 1,
                 disputeBy: 0,
@@ -54,16 +57,16 @@ contract VectorsTest is Test {
         });
     }
 
-    bytes32 internal constant ID = 0x529405ab41df1b56773108432572110d616c6c7c57af5b3ebd00154eec003627;
+    bytes32 internal constant ID = 0xaa5d018d99b55e9a09c1cd916d6e3185e52b9b0286b174c292567c991f8b923f;
     /// The delivery example's struct hash under ID: what a Decision and an EarlyAccept name (ADR-0029).
-    bytes32 internal constant DELIVERY = 0x1d70f2ee1a2f03f0438c730ea47aec3989152b32927a3f6a37fc46f3b3a7772e;
+    bytes32 internal constant DELIVERY = 0x066268f079f4bb4793fabf3fa8dd9747532bd69048bc3ff099f83b74799f04f8;
 
     function _digest(bytes32 structHash) internal pure returns (bytes32) {
         bytes32 domain = keccak256(
             abi.encode(
                 keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
                 keccak256("Holdback"),
-                keccak256("0.7"),
+                keccak256("0.8"),
                 uint256(31337),
                 VERIFYING
             )
@@ -81,7 +84,7 @@ contract VectorsTest is Test {
         vm.chainId(31337);
         bytes memory args = abi.encode(address(0), address(0), address(0), uint64(0), address(0), TOKEN);
         deployCodeTo("HoldbackRules.sol:HoldbackRules", args, VERIFYING);
-        bytes32 core = 0x78f007af036c3eba017d3090790b8c71b02e7b6a09f93edab14f6b72c992e1a9;
+        bytes32 core = 0x2bb88f88c30641ab49ab6823d4cf2e692d1772f9137f681191123f4c19b46724;
         assertEq(HoldbackRules(VERIFYING).typedDataHash(ID), core);
         assertEq(_digest(ID), core);
     }
@@ -139,7 +142,7 @@ contract VectorsTest is Test {
         H.Terms memory t = _terms();
         assertEq(
             _digest(hx.decision(ID, t.adjudicator, t, m)),
-            0x77ce852f1204ab202d7ce466066b6aae816c612c1840a69217816c219abb40fd
+            0x64343a2c8fff8bf7562a10e502a2fad78cda9674368b1c7cb4a893c8fd5459e1
         );
     }
 
@@ -152,7 +155,7 @@ contract VectorsTest is Test {
             signature: ""
         });
         assertEq(
-            _digest(hx.acceptance(ID, _terms(), a)), 0x197971ce7307f9f2d8c61bbb914e3eef49e04fe747a90f9191b7d81687b2edb4
+            _digest(hx.acceptance(ID, _terms(), a)), 0x816923467536d8459e2cb690cea9439b7a31fa2cb9dfcd6ca0c62240c4d6e1c0
         );
     }
 
@@ -163,7 +166,7 @@ contract VectorsTest is Test {
             expiresAt: 1_793_355_300,
             signature: ""
         });
-        assertEq(_digest(hx.agree(ID, b, g)), 0x75acef94809bbb682cd4059318096010276885586e6d89df16871caafb741b86);
+        assertEq(_digest(hx.agree(ID, b, g)), 0x5970a7aa087444ecfc533eb1c1bbfff3fe736922db3208b37707fb5c402b022b);
         H.EarlyAccept memory e = H.EarlyAccept({
             attempt: 1,
             deliveryHash: DELIVERY,
@@ -171,7 +174,7 @@ contract VectorsTest is Test {
             expiresAt: 1_793_527_200,
             signature: ""
         });
-        assertEq(_digest(hx.early(ID, b, e)), 0x8b3b3acb5f186c9f065ea40a5fc4c314e9e54f01490b932ef18a4654fd89cb88);
+        assertEq(_digest(hx.early(ID, b, e)), 0x797d9eab50f3743a32aa900fb6d1652d486b9a7a117032288d8644ff5965fc58);
     }
 
     function test_mutual_matchesCore() public view {
@@ -184,16 +187,16 @@ contract VectorsTest is Test {
         m.releaseKey = true;
         m.nonce = 0x5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d;
         m.expiresAt = 1_793_527_320;
-        assertEq(_digest(hx.mutual(ID, TOKEN, m)), 0x902fedd1cc7ae1ea7efbe1987a3d6b9277744d414aa4d67523a157c5858a724e);
+        assertEq(_digest(hx.mutual(ID, TOKEN, m)), 0x7a435893e73e059cbc988c3e29754dc13c95c14f9067cdd8bf22df53cea02aa5);
     }
 
     // The Appeal vector left with the contract's appealHash (T-346, ADR-0031 §8): phase one hashes no Appeal.
-    // packages/core and spec/ keep theirs, digest 0x52e6969b9d47150bcd17190e43ccc3b93a40feb6208f3aea4d4c89a149ccd235.
+    // packages/core and spec/ keep theirs, digest 0x55838aa7f5437ab2dc68d37668acc76eaa26bedfefa0ffd24fd517c55e7a4744.
 
     function test_panelSeed_matchesCore() public view {
         assertEq(
             hx.panelSeed(ID, H.ROLE_FALLBACK, 1, bytes32(uint256(0x33) * (type(uint256).max / 0xff))),
-            0x07a9721cfe7c323ec0815715c5a629b8cd46b5a5b0a35feaca57b0f76bd53f3e
+            0x49566397618363247d353cc28e612aaceecc13dbbf17727b21034147547af0ad
         );
     }
 }

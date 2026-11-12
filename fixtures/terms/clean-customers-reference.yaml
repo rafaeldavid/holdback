@@ -6,7 +6,7 @@
 # hash, as it reads the delivery's ciphertext. customers.clean.csv matches 40 of 40 and is accepted;
 # customers.clean.row-drop.csv lacks two of the 40 and is rejected.
 # Field rules are as in clean-customers-2000.yaml.
-schemaVersion: "0.7"
+schemaVersion: "0.8"
 clubId: data-services-v1
 deliverable:
   kind: dataset
@@ -40,7 +40,7 @@ timing:
   deliverWithinSec: 172800
   judgeWithinSec: 120
   fallbackWithinSec: 120
-  appealWindowSec: 300
+  appealWindowSec: 0
   appealDecideSec: 300
   maxSubmissions: 1
 settlement: { mode: guaranteed_on_decision, token: tUSD }

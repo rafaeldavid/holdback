@@ -38,7 +38,7 @@ export interface RelativeTiming {
 }
 
 export interface TermsTemplate {
-  schemaVersion: '0.7';
+  schemaVersion: '0.8';
   clubId: string;
   deliverable: Deliverable;
   acceptance: AcceptanceSpec;
@@ -55,6 +55,9 @@ export interface TermsParams {
   club: Club;
   buyer: Address;
   seller: Address;
+  /** ADR-0033: the buyer's payment address and the seller's payout address; each defaults to its signing address. */
+  buyerPaymentAddress?: Address;
+  sellerPayoutAddress?: Address;
   adjudicator: Address;
   fallbackAdjudicator: Address;
   appealAdjudicator: Address;
@@ -123,6 +126,8 @@ export function termsFromTemplate(t: TermsTemplate, p: TermsParams): CommitmentT
     rulebookHash: p.club.rulebookHash,
     buyer: p.buyer,
     seller: p.seller,
+    buyerPaymentAddress: p.buyerPaymentAddress ?? p.buyer,
+    sellerPayoutAddress: p.sellerPayoutAddress ?? p.seller,
     deliverable: structuredClone(t.deliverable),
     acceptance: structuredClone(t.acceptance),
     price: { ...t.price },

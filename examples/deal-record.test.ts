@@ -69,6 +69,9 @@ async function deal(work: string | null): Promise<Deal> {
     await buyer.call('POST', `/v1/commitments/${offer.id}/triggers/reclaim`, {});
   }
   await buyer.waitFor(offer.id, ['Released', 'Refunded']);
+  // T-358: with an appeal window of 0 (phase one's default) the operator closes the appeal window right after the
+  // decision; the record is of a final deal, so wait for it.
+  for (let i = 0; i < 100 && !(await buyer.call('GET', `/v1/commitments/${offer.id}`)).finalAt; i++) await new Promise((r) => setTimeout(r, 100));
   return { id: offer.id, terms: offer.terms, buyer, buyerKey: b.encryptionSecretKey, seller, delivery, plaintext: work };
 }
 
@@ -106,7 +109,7 @@ describe('deal-record.ts writes one verified record of a finished deal (T-333)',
       { to: released.seller.address, amount: PRICE, why: 'price to the seller' },
       { to: world.info.adjudicators[0]!.address, amount: { token: 'tUSD', amount: FEE }, why: expect.any(String) },
     ]);
-    expect(r.steps.map((s) => s.step)).toEqual(['commitment.offered', 'adjudicator.accepted', 'commitment.agreed', 'hold.funded', 'delivery.submitted', 'key.released', 'judgment.decided', 'settlement.released', 'key.released']);
+    expect(r.steps.map((s) => s.step)).toEqual(['commitment.offered', 'adjudicator.accepted', 'commitment.agreed', 'hold.funded', 'delivery.submitted', 'key.released', 'judgment.decided', 'settlement.released', 'key.released', 'appeal.expired']);
     expect(r.row).toMatchObject({ commitmentId: released.id, buyer: released.buyer.address, seller: released.seller.address, price: PRICE, adjudicationFee: { token: 'tUSD', amount: FEE }, operatorFee: { token: 'tUSD', amount: '0' }, outcome: 'Released', panelDecision: 'accept', transactions: [] });
     for (const at of ['offeredAt', 'agreedAt', 'fundedAt', 'deliveredAt', 'decidedAt', 'settledAt']) expect(r.row[at as keyof typeof r.row], at).toMatch(/^\d{4}-\d\d-\d\dT/);
     // The record holds no secret and no work.

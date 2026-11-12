@@ -66,6 +66,9 @@ contract RulesHandler is Base {
     error Refused();
 
     uint256 internal constant OP_PK = 0x0BE7;
+    /// T-358 (ADR-0033): the buyer's payment address and the seller's payout address of a deal whose money addresses
+    /// are apart from its signing addresses. The payment address signs only the funding; the payout address nothing.
+    uint256 internal constant PAY_PK = 0xBA1D;
     uint256 internal constant N = 7;
     // T-341 raised it from 8 (refinement plan, gate VG-2): more deals contend for timeouts and picks at once.
     uint256 public constant MAX_DEALS = 16;
@@ -133,6 +136,17 @@ contract RulesHandler is Base {
     bool public thirdPartyPayout;
     /// T-356 (SC-5): whether the terms the last `agreeAndFund` relayed had deadlines not in strict order.
     bool public fundOutOfOrder;
+    /// T-358 (ADR-0033 §2b): whether the terms the last `agreeAndFund` relayed had an appeal window other than 0.
+    bool public fundAppealWindow;
+
+    // ------------------------------------------------------------ T-358: money addresses apart (ADR-0033)
+
+    address public payAddr; // the payment address of the deals drawn apart
+    address public payoutAddr; // their payout address
+    /// A signing address (`buyer`, `seller`) changed balance in a call on a deal whose money addresses are apart.
+    uint256 public signerMoved;
+    uint256 internal _buyer0; // the signing addresses' balances when the action picked its deal
+    uint256 internal _seller0;
 
     constructor() {
         setUp();
@@ -143,6 +157,9 @@ contract RulesHandler is Base {
         tusd2.mint(seller, 1_000_000_000);
         usdc.mint(_actor[I_OP], 100_000_000);
         tusd2.mint(_actor[I_OTHER], 100_000_000);
+        payAddr = vm.addr(PAY_PK);
+        payoutAddr = makeAddr("payout address");
+        usdc.mint(payAddr, 1_000_000_000);
         _afterSetUp();
     }
 
@@ -189,7 +206,7 @@ contract RulesHandler is Base {
     /// Every address that can hold the tokens in this world. Conservation sums over exactly these. The vault's
     /// address is listed on both sides, so the two sides list the same holders.
     function holders() external view returns (address[] memory h) {
-        h = new address[](N + 9);
+        h = new address[](N + 11);
         for (uint256 i; i < N; i++) {
             h[i] = _actor[i];
         }
@@ -202,6 +219,24 @@ contract RulesHandler is Base {
         h[N + 6] = permit2;
         h[N + 7] = address(this);
         h[N + 8] = relayer;
+        h[N + 9] = payAddr;
+        h[N + 10] = payoutAddr;
+    }
+
+    /// T-358: whether this side's rules contract pays the terms' money addresses (ADR-0033). The pinned parent pays
+    /// the signing addresses, so its sides (`Sides.sol`) draw no deal with them apart.
+    function _paysMoneyAddresses() internal view virtual returns (bool) {
+        return true;
+    }
+
+    /// T-358: whether deal `i`'s money addresses are apart from its signing addresses.
+    function apart(uint256 i) public view returns (bool) {
+        return _terms_[i].buyerPaymentAddress != _terms_[i].buyer;
+    }
+
+    /// The key that signs deal `t`'s funding: its payment address's (ADR-0033 §3).
+    function _payPk(H.Terms memory t) internal view returns (uint256) {
+        return t.buyerPaymentAddress == buyer ? BUYER_PK : PAY_PK;
     }
 
     function dealCount() external view returns (uint256) {
@@ -269,7 +304,7 @@ contract RulesHandler is Base {
 
     function _violations() internal view returns (uint256) {
         return reopened + unauthorisedSuccess + unexpectedMovement + strangerSuccess + timeoutMismatch
-            + keyWithoutPayment + deliveryHashLost + deliverRefused;
+            + keyWithoutPayment + deliveryHashLost + deliverRefused + signerMoved;
     }
 
     /// Re-reverts a refused call so the metrics count it, unless the refusal itself was a violation. In trace mode
@@ -317,7 +352,8 @@ contract RulesHandler is Base {
 
     /// Three times in four, the first commitment (from a random start) whose stage `mask` matches; otherwise, or
     /// when none matches, a random commitment, so refusals in every stage stay covered.
-    function _pickFor(uint256 seed, uint256 mask) internal view returns (uint256) {
+    function _pickFor(uint256 seed, uint256 mask) internal returns (uint256) {
+        (_buyer0, _seller0) = (usdc.balanceOf(buyer), usdc.balanceOf(seller));
         uint256 i = _pick(seed >> 2);
         if (seed % 4 == 0) return i;
         for (uint256 k; k < _ids.length; k++) {
@@ -359,6 +395,13 @@ contract RulesHandler is Base {
 
     function _track(bytes32 id, HoldbackRules.Stage before) internal {
         HoldbackRules.Deal memory d = _dealOf(id);
+        // T-358 (ADR-0033): a deal whose money addresses are apart never moves its signing addresses' money.
+        if (_terms_.length > 0 && _terms_[_indexOf(id)].buyerPaymentAddress != buyer) {
+            if (usdc.balanceOf(buyer) != _buyer0 || usdc.balanceOf(seller) != _seller0) {
+                signerMoved++;
+                lastViolation = "a deal with its money addresses apart moved a signing address's balance";
+            }
+        }
         HoldbackRules.Stage s = d.stage;
         if (!_isClosed(before) && _isClosed(s)) {
             closings[id]++;
@@ -386,6 +429,12 @@ contract RulesHandler is Base {
                 deliveryHashLost++;
                 lastViolation = "a delivery landed but the chain does not store its hash";
             }
+        }
+    }
+
+    function _indexOf(bytes32 id) internal view returns (uint256 i) {
+        for (; i < _ids.length; i++) {
+            if (_ids[i] == id) return i;
         }
     }
 
@@ -454,8 +503,16 @@ contract RulesHandler is Base {
             t.timing.judgeBy = t.timing.deliverBy + _off(seed, 192, 1, 2 days);
             t.timing.fallbackBy = t.timing.judgeBy + _off(seed, 224, 1, 2 days);
         }
-        t.timing.appealWindowSec = _off(seed, 112, 1, 2 days);
+        // T-358 (ADR-0033 §2b): phase one requires an appeal window of 0. One offer in 32 states another window, which
+        // the contract refuses at funding, so the refusal stays exercised without diverging most harness seeds.
+        t.timing.appealWindowSec =
+            uint256(keccak256(abi.encode("appeal window", seed))) % 32 == 0 ? _off(seed, 112, 1, 2 days) : 0;
         t.timing.appealDecideSec = _off(seed, 144, 1, 2 days);
+        // T-358 (ADR-0033): in the invariant campaign one deal in four has its payment and payout addresses apart from
+        // its signing addresses. The side-by-side harness keeps them equal: its old side pays the signing addresses.
+        if (!traceMode && _paysMoneyAddresses() && uint256(keccak256(abi.encode("apart", seed))) % 4 == 0) {
+            (t.buyerPaymentAddress, t.sellerPayoutAddress) = (payAddr, payoutAddr);
+        }
         bytes32 id = hx.id(t);
         _terms_.push(t);
         _ids.push(id);
@@ -471,19 +528,20 @@ contract RulesHandler is Base {
         H.Timing memory tm = t.timing;
         fundOutOfOrder = tm.offerExpiresAt >= tm.fundBy || tm.fundBy >= tm.deliverBy || tm.deliverBy >= tm.judgeBy
             || tm.judgeBy >= tm.fallbackBy;
+        fundAppealWindow = tm.appealWindowSec != 0;
         bytes32 id = _ids[i];
         uint256 good = _rolePk[id][0];
         uint256 sk = _signer(signerSeed, SELLER_PK);
         uint256 ak = _signer(signerSeed >> 8, good);
         uint256 bk = _signer(signerSeed >> 16, BUYER_PK);
-        uint256 fk = _signer(signerSeed >> 24, BUYER_PK);
+        uint256 fk = _signer(signerSeed >> 24, _payPk(t));
         bytes memory ss = _sellerSig(t, sk);
         H.Acceptance memory acc = _acceptance(t, ak);
         H.Agree memory ag = _agree(t, bk);
         H.Funding memory f = _erc3009(t, fk);
         HoldbackRules.Stage before = _dealOf(id).stage;
         bool ok = _relay(_caller(callerSeed), _agreeAndFundCall(t, ss, acc, ag, f));
-        if (ok) _authorised("agreeAndFund", sk == SELLER_PK && ak == good && bk == BUYER_PK && fk == BUYER_PK);
+        if (ok) _authorised("agreeAndFund", sk == SELLER_PK && ak == good && bk == BUYER_PK && fk == _payPk(t));
         _track(id, before);
         _end(ok, v0);
     }
@@ -719,7 +777,7 @@ contract RulesHandler is Base {
         H.Mutual memory m = _mutual(t, id, before, splitSeed);
         thirdPartyPayout = false;
         for (uint256 k; k < m.payouts.length; k++) {
-            if (m.payouts[k].to != t.buyer && m.payouts[k].to != t.seller) thirdPartyPayout = true;
+            if (m.payouts[k].to != t.buyerPaymentAddress && m.payouts[k].to != t.sellerPayoutAddress) thirdPartyPayout = true;
         }
         (H.Delivery memory dv, H.KeyProof memory kp) = _delivery();
         bytes32 h = hx.mutual(id, t.token, m);
@@ -755,9 +813,13 @@ contract RulesHandler is Base {
         uint256 n = (a > 0 ? 1 : 0) + (b > 0 ? 1 : 0) + (c > 0 ? 1 : 0);
         m.payouts = new H.Payout[](n);
         uint256 j;
-        if (a > 0) m.payouts[j++] = H.Payout(seller, a);
-        if (b > 0) m.payouts[j++] = H.Payout(buyer, b);
-        if (c > 0) m.payouts[j++] = H.Payout(_actor[(seed >> 100) & 1 == 0 ? I_OP : I_OTHER], c);
+        // T-358 (ADR-0033): the parties' shares go to the payout and payment addresses. On a deal whose addresses are
+        // apart, the third share names a signing address half the time, a payee phase one refuses as any other.
+        address third = _actor[(seed >> 100) & 1 == 0 ? I_OP : I_OTHER];
+        if (t.buyerPaymentAddress != t.buyer && (seed >> 101) & 1 == 1) third = (seed >> 102) & 1 == 0 ? t.buyer : t.seller;
+        if (a > 0) m.payouts[j++] = H.Payout(t.sellerPayoutAddress, a);
+        if (b > 0) m.payouts[j++] = H.Payout(t.buyerPaymentAddress, b);
+        if (c > 0) m.payouts[j++] = H.Payout(third, c);
         m.hasDelivery = s != HoldbackRules.Stage.Held || (seed >> 130) & 1 == 1;
         m.releaseKey = m.hasDelivery && (seed >> 131) & 1 == 1;
         if (m.hasDelivery) {
@@ -941,11 +1003,11 @@ contract RulesHandler is Base {
 
     // ------------------------------------------------------------ actions: around the rules contract
 
-    /// The buyer's own CPP reclaim, possible only after authorizationExpiry (ADR-0003).
+    /// The payment address's own CPP reclaim, possible only after authorizationExpiry (ADR-0003, ADR-0033).
     function cppReclaim(uint256 dealSeed) external {
         uint256 i = _pickFor(dealSeed, M_OPEN);
         AuthCaptureEscrow.PaymentInfo memory pi = _pi(_terms_[i]);
-        vm.prank(buyer);
+        vm.prank(_terms_[i].buyerPaymentAddress);
         escrow.reclaim(pi);
         cppReclaimed[_ids[i]] = true;
     }

@@ -4,17 +4,18 @@
 import { tokenAmount } from './money/index.js';
 import type { CommitmentTerms, MutualSettlement, Rulebook } from './types.js';
 
-type Terms = Pick<CommitmentTerms, 'buyer' | 'seller' | 'price'>;
+type Terms = Pick<CommitmentTerms, 'buyerPaymentAddress' | 'sellerPayoutAddress' | 'price'>;
 type Rule = Pick<Rulebook['mutualSettlement'], 'allowed' | 'payoutsTo'>;
 
 /** Why a parsed MutualSettlement cannot settle these terms under this rule, or undefined if it can. */
 export function mutualSettlementProblem(m: MutualSettlement, terms: Terms, rule: Rule): string | undefined {
   if (!rule.allowed) return 'mutual settlement is not allowed by the rulebook';
-  const parties = new Set([terms.buyer.toLowerCase(), terms.seller.toLowerCase()]);
+  // ADR-0033: the parties' money is at the buyer's payment address and the seller's payout address.
+  const parties = new Set([terms.buyerPaymentAddress.toLowerCase(), terms.sellerPayoutAddress.toLowerCase()]);
   let sum = 0n;
   for (const p of m.payouts) {
     if (p.amount.token !== terms.price.token) return `payout to ${p.to} is in ${p.amount.token}, not the price token ${terms.price.token}`;
-    if (rule.payoutsTo === 'parties' && !parties.has(p.to.toLowerCase())) return `payout recipient ${p.to} is not a party, and the rulebook allows payouts to the parties only`;
+    if (rule.payoutsTo === 'parties' && !parties.has(p.to.toLowerCase())) return `payout recipient ${p.to} is not a party, and the rulebook allows payouts to the parties only (the buyer's payment address and the seller's payout address)`;
     const a = tokenAmount(p.amount.token, p.amount.amount);
     if (!a.ok) return `payout to ${p.to} is not a valid amount`;
     sum += BigInt(p.amount.amount);

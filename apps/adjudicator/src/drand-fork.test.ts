@@ -201,16 +201,18 @@ describe.skipIf(!forkReady)(`drand quicknet decisions on a Sepolia fork (T-217)$
     // Offer, acceptance, agreement and funding, and the sealed delivery; then the primary stays silent.
     const now = wholeSecond(Date.now());
     const terms: CommitmentTerms = {
-      schemaVersion: '0.7',
+      schemaVersion: '0.8',
       clubId: club.id,
       rulebookHash: club.rulebookHash,
       buyer: buyer.address,
       seller: seller.address,
+      buyerPaymentAddress: buyer.address,
+      sellerPayoutAddress: seller.address,
       deliverable: EXAMPLE.deliverable,
       acceptance: EXAMPLE.acceptance,
       price: amount(price),
       adjudication: { adjudicator: primary.address, fallbackAdjudicator: fallback.address, appealAdjudicator: appeal.address, policyId: p.service.policy.id, fee: amount(fee), registryHash: registry.hash, policyHash: policyHashOf(p.service.policy) },
-      timing: { offerExpiresAt: plusSeconds(now, 60), fundBy: plusSeconds(now, 70), deliverBy: plusSeconds(now, 80), judgeBy: plusSeconds(now, 90), fallbackBy: plusSeconds(now, 600), appealWindowSec: 300, appealDecideSec: 300, maxSubmissions: 1 },
+      timing: { offerExpiresAt: plusSeconds(now, 60), fundBy: plusSeconds(now, 70), deliverBy: plusSeconds(now, 80), judgeBy: plusSeconds(now, 90), fallbackBy: plusSeconds(now, 600), appealWindowSec: 0, appealDecideSec: 300, maxSubmissions: 1 },
       settlement: { mode: 'guaranteed_on_decision', token },
       remedy: { onReject: 'full_refund' },
       disclosure: { level: 'public' },

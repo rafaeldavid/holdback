@@ -175,7 +175,7 @@ contract SideBySideTest is Test {
     /// The Surface field sees the signing domain. The handler signs with the digest each side's contract computes,
     /// so the comparison of `eip712Domain()` and `typedDataHash` is what catches a changed domain (a planted
     /// version "9.9" failed at step 0 on every seed, measured 2026-11-11). Here: the old side's digest is the one
-    /// computed apart from the contract from ("Holdback", "0.7", chain ID, its address), and two deployments at
+    /// computed apart from the contract from ("Holdback", "0.8", chain ID, its address), and two deployments at
     /// different addresses differ in the field.
     function test_surfaceSeesTheSigningDomain() public {
         (HoldbackRules a,,) = new OldSide().system();
@@ -185,7 +185,7 @@ contract SideBySideTest is Test {
             abi.encode(
                 keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
                 keccak256("Holdback"),
-                keccak256("0.7"),
+                keccak256("0.8"),
                 block.chainid,
                 address(a)
             )
@@ -309,10 +309,10 @@ contract SideBySideTest is Test {
         bytes32[] memory nd = _digests(n);
         address served = b.tokens()[0];
         address funded = b.fundToken();
-        bool outOfOrder = b.fundOutOfOrder();
+        bool appealWindow = b.fundAppealWindow() && !b.fundOutOfOrder();
         for (uint256 f; f < Fields.COUNT; f++) {
             if (od[f] == nd[f]) continue;
-            AllowList.Verdict memory v = AllowList.allowed(Field(f), i, o, n, served, funded, outOfOrder);
+            AllowList.Verdict memory v = AllowList.allowed(Field(f), i, o, n, served, funded, appealWindow);
             if (bytes(v.change).length == 0) {
                 (r.differs, r.step, r.field, r.action) = (true, i, Field(f), n.action);
                 return;

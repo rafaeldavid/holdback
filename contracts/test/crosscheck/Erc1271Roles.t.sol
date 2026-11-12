@@ -81,6 +81,7 @@ contract Erc1271RolesTest is Base {
     function test_sellerWallet_signsTermsAndDelivery_andIsPaid() public {
         H.Terms memory t = _terms();
         t.seller = address(sellerWallet);
+        t.sellerPayoutAddress = address(sellerWallet); // ADR-0033: the wallet also holds the money
         bytes32 id = _fundAs(t, SW_PK, ADJ_PK);
         (H.Delivery memory d,) = _delivery();
         rules.deliver(t, d, _deliverySig(id, d, SW_PK));
@@ -93,6 +94,7 @@ contract Erc1271RolesTest is Base {
     function test_sellerWallet_wrongAnswer_refusesTheTerms() public {
         H.Terms memory t = _terms();
         t.seller = address(sellerWallet);
+        t.sellerPayoutAddress = address(sellerWallet); // ADR-0033: the wallet also holds the money
         bytes memory s = _sellerSig(t, SW_PK);
         H.Acceptance memory acc = _acceptance(t, ADJ_PK);
         H.Agree memory ag = _agree(t, BUYER_PK);
@@ -111,6 +113,7 @@ contract Erc1271RolesTest is Base {
     function test_sellerWallet_wrongAnswer_refusesTheDelivery() public {
         H.Terms memory t = _terms();
         t.seller = address(sellerWallet);
+        t.sellerPayoutAddress = address(sellerWallet); // ADR-0033: the wallet also holds the money
         bytes32 id = _fundAs(t, SW_PK, ADJ_PK);
         (H.Delivery memory d,) = _delivery();
         bytes memory sig = _deliverySig(id, d, SW_PK);

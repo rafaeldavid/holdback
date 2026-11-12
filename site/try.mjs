@@ -110,7 +110,7 @@ const SEPOLIA = {
 /** SimChain's domain, as `pnpm sim` prints it. Configure yours; never take it from an operator. */
 const SIMCHAIN_DOMAIN = {
 	name: "Holdback",
-	version: "0.7",
+	version: "0.8",
 	chainId: 31337,
 	verifyingContract: "0x00000000000000000000000000000000484f4c44"
 };
@@ -125,7 +125,7 @@ function pinOf(d, explorer) {
 	return {
 		domain: {
 			name: "Holdback",
-			version: "0.7",
+			version: "0.8",
 			chainId: d.chainId,
 			verifyingContract: lc(d.rules)
 		},
@@ -183,7 +183,7 @@ const ZERO_ADDRESS = `0x${"0".repeat(40)}`;
 const PAYMENT_INFO_TYPEHASH = keccak256(toBytes("PaymentInfo(address operator,address payer,address receiver,address token,uint120 maxAmount,uint48 preApprovalExpiry,uint48 authorizationExpiry,uint48 refundExpiry,uint16 minFeeBps,uint16 maxFeeBps,address feeReceiver,uint256 salt)"));
 /**
 * The funding nonce on a chain (ADR-0025): CPP's PaymentInfo hash with the payer zeroed. Every field comes from the
-* terms and the pinned deployment (operator = the rules contract, receiver = seller, maxAmount = price + fee,
+* terms and the pinned deployment (operator = the rules contract, receiver = the seller's payout address (ADR-0033), maxAmount = price + fee,
 * preApprovalExpiry = fundBy, both other expiries = fallbackBy + appealDecideSec + margin, salt = commitment ID).
 */
 function fundingNonceOf(t, id, c) {
@@ -193,7 +193,7 @@ function fundingNonceOf(t, id, c) {
 		PAYMENT_INFO_TYPEHASH,
 		c.rules,
 		ZERO_ADDRESS,
-		t.seller,
+		t.sellerPayoutAddress,
 		t.price.token,
 		total,
 		Number(secs(t.timing.fundBy)),
@@ -228,7 +228,7 @@ const f = (name, type) => ({
 	type
 });
 const exp = [f("nonce", "bytes32"), f("expiresAt", "uint64")];
-/** The EIP-712 types of schema 0.10, domain version 0.7 (packages/core/src/eip712.ts), pinned here. */
+/** The EIP-712 types of schema 0.11, domain version 0.8 (packages/core/src/eip712.ts), pinned here. */
 const TYPES = {
 	TokenAmount: [f("token", "string"), f("amount", "uint256")],
 	Adjudication: [
@@ -266,6 +266,8 @@ const TYPES = {
 		f("rulebookHash", "bytes32"),
 		f("buyer", "address"),
 		f("seller", "address"),
+		f("buyerPaymentAddress", "address"),
+		f("sellerPayoutAddress", "address"),
 		f("deliverableHash", "bytes32"),
 		f("acceptanceHash", "bytes32"),
 		f("price", "TokenAmount"),
@@ -433,7 +435,7 @@ const DEFAULT_TIMING = {
 	deliverWithinSec: 86400,
 	judgeWithinSec: 300,
 	fallbackWithinSec: 300,
-	appealWindowSec: 300,
+	appealWindowSec: 0,
 	appealDecideSec: 300
 };
 var Refusal = class extends Error {};
@@ -609,11 +611,13 @@ function expected(intent, op, now) {
 		}, createdAt = near(op.createdAt, 600, 60, "createdAt");
 		const deliverBy = plus(createdAt, timing["deliverWithinSec"]), judgeBy = plus(deliverBy, timing["judgeWithinSec"]);
 		const terms = {
-			schemaVersion: "0.7",
+			schemaVersion: "0.8",
 			clubId: r.clubId,
 			rulebookHash: intent.rulebookHash,
 			buyer: r.buyer.address.toLowerCase(),
 			seller: r.seller.toLowerCase(),
+			buyerPaymentAddress: r.buyer.address.toLowerCase(),
+			sellerPayoutAddress: r.seller.toLowerCase(),
 			deliverable: r.deliverable,
 			acceptance: {
 				deterministicChecks: r.checks ?? [],
@@ -694,7 +698,7 @@ function expected(intent, op, now) {
 			type: "FundingAuthorization",
 			scheme: "erc3009",
 			commitmentId: id,
-			from: t.buyer,
+			from: t.buyerPaymentAddress,
 			value: total.toString(),
 			token: t.price.token,
 			validAfter: c ? "1970-01-01T00:00:00Z" : t.createdAt,
@@ -703,7 +707,7 @@ function expected(intent, op, now) {
 			expiresAt: t.timing.fundBy
 		};
 		const fundTyped = c ? erc3009Typed("ReceiveWithAuthorization", c, {
-			from: t.buyer,
+			from: t.buyerPaymentAddress,
 			to: c.collector,
 			value: total,
 			validAfter: 0n,
@@ -718,7 +722,7 @@ function expected(intent, op, now) {
 		}, {
 			slot: "fund.signature",
 			primaryType: fundTyped ? "ReceiveWithAuthorization" : "FundingAuthorization",
-			signer: t.buyer,
+			signer: t.buyerPaymentAddress,
 			message: fund,
 			...fundTyped ? { typed: fundTyped } : {}
 		}];
@@ -742,7 +746,7 @@ function expected(intent, op, now) {
 			scheme: "erc3009",
 			purpose: "operator_fee",
 			commitmentId: id,
-			from: t.buyer,
+			from: t.buyerPaymentAddress,
 			to: intent.operatorFee.schedule.to,
 			value: due.toString(),
 			token: t.price.token,
@@ -752,7 +756,7 @@ function expected(intent, op, now) {
 			expiresAt: t.timing.fundBy
 		};
 		const feeTyped = c ? erc3009Typed("TransferWithAuthorization", c, {
-			from: t.buyer,
+			from: t.buyerPaymentAddress,
 			to: fee.to,
 			value: due,
 			validAfter: 0n,
@@ -776,7 +780,7 @@ function expected(intent, op, now) {
 			slots: [...slots, {
 				slot: "operatorFee.signature",
 				primaryType: feeTyped ? "TransferWithAuthorization" : "TransferAuthorization",
-				signer: t.buyer,
+				signer: t.buyerPaymentAddress,
 				message: fee,
 				...feeTyped ? { typed: feeTyped } : {}
 			}]
@@ -1041,11 +1045,13 @@ function privateOfferTerms(x) {
 	const createdAt = iso(Date.parse(x.createdAt));
 	const deliverBy = plus(createdAt, timing["deliverWithinSec"]), judgeBy = plus(deliverBy, timing["judgeWithinSec"]);
 	return {
-		schemaVersion: "0.7",
+		schemaVersion: "0.8",
 		clubId: x.clubId,
 		rulebookHash: x.rulebookHash,
 		buyer: x.buyer.address.toLowerCase(),
 		seller: x.seller.toLowerCase(),
+		buyerPaymentAddress: x.buyer.address.toLowerCase(),
+		sellerPayoutAddress: x.seller.toLowerCase(),
 		deliverable: {
 			...x.deliverable,
 			salt: x.salts.deliverable,
@@ -1706,7 +1712,7 @@ const CHECKS = [
 const TIMING = {
 	judgeWithinSec: 60,
 	fallbackWithinSec: 60,
-	appealWindowSec: 60,
+	appealWindowSec: 0,
 	appealDecideSec: 60
 };
 const CSV = "customer_id,email\n1,ada@example.com\n2,alan@example.com\n3,grace@example.com\n";
@@ -1754,7 +1760,7 @@ const SELLER_WINDOWS = {
 	deliverBy: 3600,
 	judge: 60,
 	fallback: 60,
-	appealWindow: 60,
+	appealWindow: 0,
 	appealDecide: 60
 };
 let step = "start";

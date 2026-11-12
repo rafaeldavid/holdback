@@ -1,14 +1,15 @@
 # Data Services Club, open rulebook v1 (docs/demo.md, Cast). Schema v0.6 (spec/schemas/club.schema.json).
 # The loader (packages/testkit/src/fixture-files.ts) computes rulebookHash; it is never written here.
 # Same rulebook as spec/examples/club.example.json, so the computed hash equals that example's rulebookHash
-# (0x140edd090559cb7dd3950b3a8b755b9cca7b81a37d11359738e1b9df7d0d971e).
+# (0xd9bc9c4961c67a80c4a1100bc5cb3345a70881b42725f7f84611d6a240f5492d). Its appeal-window minimum is 0 since v0.11 (T-358): a
+# phase-one deal states a window of 0 (ADR-0033 §2b), and the SimChain-only appeal fixtures state their own.
 id: data-services-v1
 name: Data Services Club
 operator: "0xc189bbabd7b55343a731ed82c5f80b5e5e354e88"
 rulebook:
   version: "1.0"
   open: true
-  minWindowsSec: { judge: 120, fallback: 120, appealWindow: 300, appealDecide: 300 }
+  minWindowsSec: { judge: 120, fallback: 120, appealWindow: 0, appealDecide: 300 }
   windowCoverageRatioBps: 2000
   appealBondRateBps: 500
   sealedChecksMaxWeightBps: 3000

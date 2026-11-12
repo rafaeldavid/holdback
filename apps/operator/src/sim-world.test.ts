@@ -82,8 +82,8 @@ const offerInput = (buyer: string, seller: string, price = '25000000') => ({
   checks,
 });
 
-async function heldDeal(buyer: string, seller: string, price?: string): Promise<Hex32> {
-  const offer = (await call<Prepared>('POST', '/v1/prepare/offer', offerInput(buyer, seller, price))).body;
+async function heldDeal(buyer: string, seller: string, price?: string, extra: Record<string, unknown> = {}): Promise<Hex32> {
+  const offer = (await call<Prepared>('POST', '/v1/prepare/offer', { ...offerInput(buyer, seller, price), ...extra })).body;
   expect((await submit(await sign(offer, seller))).body.escrowState).toBe('Offered');
   await waitFor(offer.commitmentId, ['AcceptedByAdjudicator']);
   const af = (await call<Prepared>('POST', '/v1/prepare/agree-and-fund', { commitmentId: offer.commitmentId, ...nonces() })).body;
@@ -166,7 +166,8 @@ describe('operator API: prepare, sign, submit', () => {
 
   it('refunds the price but not the fee when the checks fail', async () => {
     const before = BigInt((await call('GET', `/v1/balances/${acct('buyer-2').address}`)).body.amount);
-    const id = await heldDeal('buyer-2', 'seller-2');
+    // The seller appeals below: the full protocol's party appeal needs an appeal window (the default is phase one's 0).
+    const id = await heldDeal('buyer-2', 'seller-2', undefined, { timing: { appealWindowSec: 300 } });
     await deliver(id, 'seller-2', 'id,email\n');
     expect((await waitFor(id, ['Released', 'Refunded'])).escrowState).toBe('Refunded');
     expect(BigInt((await call('GET', `/v1/balances/${acct('buyer-2').address}`)).body.amount)).toBe(before - 1_000_000n);
@@ -340,7 +341,8 @@ describe('operator API: sim batch 1 friction', () => {
   });
 
   it('refuses to prepare early-accept, appeal and settlement in a state that cannot take them', async () => {
-    const id = await heldDeal('buyer-1', 'seller-1', '2000000');
+    // The full protocol's party appeal: the terms name an appeal window (the default is phase one's 0).
+    const id = await heldDeal('buyer-1', 'seller-1', '2000000', { timing: { appealWindowSec: 300 } });
     const early = await call('POST', '/v1/prepare/early-accept', { commitmentId: id, nonce: nonce() });
     expect([early.status, early.body.type]).toEqual([409, 'invalid_state']);
     expect(early.body.detail).toMatch(/is Held; early-accept needs Delivered/);

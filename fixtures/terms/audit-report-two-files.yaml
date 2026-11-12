@@ -6,7 +6,7 @@
 #
 # fixtures/data/audit-report/report.two-files.json passes these checks; report.two-files.missing-file.json
 # leaves out one file in scope, so the coverage check refuses it.
-schemaVersion: "0.7"
+schemaVersion: "0.8"
 clubId: data-services-v1
 deliverable:
   kind: document
@@ -133,7 +133,7 @@ timing:
   deliverWithinSec: 172800
   judgeWithinSec: 120
   fallbackWithinSec: 120
-  appealWindowSec: 300
+  appealWindowSec: 0
   appealDecideSec: 300
   maxSubmissions: 1
 settlement: { mode: guaranteed_on_decision, token: tUSD }

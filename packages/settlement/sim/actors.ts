@@ -61,7 +61,7 @@ export function simActor(name: string, label = 'sim'): SimActor {
 export const SIM_RULEBOOK: Rulebook = {
   version: '1.0', // club.schema.json: major.minor only
   open: true,
-  minWindowsSec: { judge: 120, fallback: 120, appealWindow: 300, appealDecide: 300 },
+  minWindowsSec: { judge: 120, fallback: 120, appealWindow: 0, appealDecide: 300 },
   windowCoverageRatioBps: 2000,
   appealBondRateBps: 500,
   sealedChecksMaxWeightBps: 3000,
@@ -170,11 +170,13 @@ export class Deal {
     const now = chain.now();
     const tag = options.tag ?? '0';
     this.terms = {
-      schemaVersion: '0.7',
+      schemaVersion: '0.8',
       clubId: options.club.id,
       rulebookHash: options.club.rulebookHash,
       buyer: cast.buyer.address,
       seller: cast.seller.address,
+      buyerPaymentAddress: cast.buyer.address,
+      sellerPayoutAddress: cast.seller.address,
       deliverable: { kind: 'dataset', description: `SimChain deal ${tag}`, format: 'text/csv' },
       acceptance: SIM_ACCEPTANCE,
       price: options.price ?? tusd('2000000000'),

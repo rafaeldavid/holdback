@@ -4,7 +4,7 @@
 // as before. Built from the spec's examples; the context is a stub with what the route reads.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseClub, parseCommitment, rulebookHash, ZERO_HOLD_PROBLEM, type TokenAmount } from '@holdback/core';
+import { APPEAL_WINDOW_PROBLEM, parseClub, parseCommitment, rulebookHash, ZERO_HOLD_PROBLEM, type TokenAmount } from '@holdback/core';
 import { describe, expect, it } from 'vitest';
 import { prepare, PrepareError, type PrepareContext } from './prepare.js';
 
@@ -20,7 +20,7 @@ const tusd = (amount: string) => ({ token: 'tUSD', amount }) as TokenAmount;
 const ctx = (phaseOne: boolean, minFee = '50000000'): PrepareContext =>
   ({
     ...(phaseOne ? { phaseOne: true } : {}),
-    domain: { name: 'Holdback', version: '0.7', chainId: 31337, verifyingContract: '0x00000000000000000000000000000000000000f1' },
+    domain: { name: 'Holdback', version: '0.8', chainId: 31337, verifyingContract: '0x00000000000000000000000000000000000000f1' },
     now: () => '2026-11-12T00:00:00Z',
     club: (id: string) => (id === club.id ? { ...club, rulebookHash: rulebookHash(club.rulebook) } : undefined),
     registration: async () => ({ policy: { id: 'bench-a/p1' }, policyHash: example['adjudication'].policyHash, registry: { hash: example['adjudication'].registryHash }, fee: { min: tusd(minFee) } }),
@@ -80,5 +80,24 @@ describe('prepare offer on the phase-one contracts (SC-5)', () => {
   it('refuses the hash-only offer that holds nothing too (it is built through the same route)', async () => {
     const hashOnly = body({ hashOnly: true, disclosure: 'private', template: undefined, deliverable: undefined, checks: undefined, deliverableHash: `0x${'11'.repeat(32)}`, acceptanceHash: `0x${'22'.repeat(32)}`, price: tusd('0'), fee: tusd('0') });
     expect(await outcome(true, hashOnly)).toMatchObject({ detail: ZERO_HOLD_PROBLEM });
+  });
+
+  // T-358 (ADR-0033 §2b): a phase-one deal states an appeal window of 0, the default. The route refuses any other
+  // value with core's reason, before the seller signs; an operator on the full protocol takes the window named.
+  it('fills an appeal window of 0 and refuses any other with APPEAL_WINDOW_PROBLEM', async () => {
+    const prepared = await prepare('offer', ctx(true), body());
+    expect((prepared.submit.body as { timing: { appealWindowSec: number } }).timing.appealWindowSec).toBe(0);
+    for (const appealWindowSec of [1, 300]) {
+      expect(await outcome(true, body({ timing: { appealWindowSec } }))).toMatchObject({ type: 'invalid_terms', field: 'timing.appealWindowSec', detail: APPEAL_WINDOW_PROBLEM });
+    }
+    expect(await outcome(true, body({ timing: { appealWindowSec: 0 } }))).toBeNull();
+    const full = await prepare('offer', ctx(false), body({ timing: { appealWindowSec: 300 } }));
+    expect((full.submit.body as { timing: { appealWindowSec: number } }).timing.appealWindowSec).toBe(300);
+  });
+
+  it('carries both money addresses, each equal to its signing address by default (ADR-0033 §7)', async () => {
+    const t = (await prepare('offer', ctx(true), body())).submit.body as { buyer: string; seller: string; buyerPaymentAddress: string; sellerPayoutAddress: string };
+    expect(t.buyerPaymentAddress).toBe(t.buyer);
+    expect(t.sellerPayoutAddress).toBe(t.seller);
   });
 });

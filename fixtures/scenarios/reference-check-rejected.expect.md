@@ -12,10 +12,10 @@ T-327. The terms of reference-check-accepted, and a delivery that drops 8% of ro
 | Prefix | none (normal flow: reaches a terminal state, invariants hold) |
 | Settlement | SimChain (T-006) driving @holdback/core `step` |
 | Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x8cb8…ea79 |
-| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
+| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0xd9bc…492d |
 | Buyer | atlas-buyer 0x00A6…3703 |
 | Seller | tidewater-seller 0xC546…456F |
-| Terms | fixtures/terms/clean-customers-reference.yaml (loaded) · commitment 0x9739…5623 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-reference.yaml (loaded) · commitment 0xd30e…4ec3 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0x3d5D…2cDC · fallback bench-b 0xCc3b…2d6b · appeal bench-c 0xe7E3…E0d4 |
 | Operators | op-1 · op-2 |
 
@@ -52,7 +52,7 @@ T-327. The terms of reference-check-accepted, and a delivery that drops 8% of ro
 
 ## Receipts and log
 
-- Events 0–7. Chain head 0x68c9…349e. Replay of 6 SimChain submissions from genesis matches the settlement state.
+- Events 0–7. Chain head 0x4990…013e. Replay of 6 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). The runner labels them without signing; the operator API signs real receipts.
 
 ## Invariants

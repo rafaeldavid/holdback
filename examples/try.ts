@@ -39,7 +39,7 @@ const CHECKS = [
   { id: 'uniq', type: 'unique_key', required: true, columns: ['customer_id'] },
 ];
 // The demo club's shortest judge, fallback and appeal windows: the deal is final a minute after the decision.
-const TIMING = { judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 60, appealDecideSec: 60 };
+const TIMING = { judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 0, appealDecideSec: 60 };
 const CSV = 'customer_id,email\n1,ada@example.com\n2,alan@example.com\n3,grace@example.com\n';
 /** What this script's own seller delivers when asked for a refund: 2 rows, which fail the rows check. */
 const BAD_CSV = 'customer_id,email\n1,ada@example.com\n2,alan@example.com\n';
@@ -83,7 +83,7 @@ const plain = (s: unknown) => String(s ?? '').replace(LINE_BREAKS, ' ').replace(
  * The windows this buyer accepts from the test seller, in seconds: the seller's published ones. Longer windows would
  * lock the buyer's hold longer if the seller stalled, since the buyer can reclaim only at deliverBy.
  */
-const SELLER_WINDOWS = { deliverBy: 3600, judge: 60, fallback: 60, appealWindow: 60, appealDecide: 60 };
+const SELLER_WINDOWS = { deliverBy: 3600, judge: 60, fallback: 60, appealWindow: 0, appealDecide: 60 };
 
 let step = 'start';
 const say = (text: string) => console.log(`${step.padEnd(9)} ${text}`);

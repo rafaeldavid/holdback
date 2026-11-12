@@ -62,7 +62,7 @@ import {
   TOKEN,
 } from './stub-terms.js';
 
-export type ActorRole = 'buyer' | 'seller' | 'primary' | 'fallback' | 'appeal' | 'operator';
+export type ActorRole = 'buyer' | 'seller' | 'payment' | 'payout' | 'primary' | 'fallback' | 'appeal' | 'operator';
 
 export interface Actor {
   name: string;
@@ -274,6 +274,9 @@ export class StubSettlement {
     };
     add(parties.buyer, 'buyer');
     add(parties.seller, 'seller');
+    // ADR-0033: a scenario may name the buyer's payment address and the seller's payout address apart.
+    if (parties.buyerPayment) add(parties.buyerPayment, 'payment');
+    if (parties.sellerPayout) add(parties.sellerPayout, 'payout');
     add(adjudicators.primary, 'primary');
     add(adjudicators.fallback, 'fallback');
     add(adjudicators.appeal, 'appeal');
@@ -459,6 +462,11 @@ export class StubSettlement {
 
   private address(name: string): Address {
     return this.actor(name).address;
+  }
+
+  /** The actor whose address funds the hold and receives every refund (ADR-0033): the buyer unless named apart. */
+  private payer(): string {
+    return this.scenario.parties.buyerPayment ?? this.scenario.parties.buyer;
   }
 
   /** The key that signs for `name` in the current step: its own, unless the step names an impersonating signer. */
@@ -650,6 +658,8 @@ export class StubSettlement {
           club: this.club!,
           buyer: this.address(this.scenario.parties.buyer),
           seller: this.address(seller),
+          buyerPaymentAddress: this.address(this.payer()),
+          sellerPayoutAddress: this.address(this.scenario.parties.sellerPayout ?? seller),
           adjudicator: this.address(adjudicators.primary),
           fallbackAdjudicator: this.address(adjudicators.fallback),
           appealAdjudicator: this.address(adjudicators.appeal),
@@ -675,11 +685,13 @@ export class StubSettlement {
   private stubTerms(seller: string, now: Timestamp): CommitmentTerms {
     const { adjudicators } = this.scenario;
     return {
-      schemaVersion: '0.7',
+      schemaVersion: '0.8',
       clubId: STUB_CLUB_ID,
       rulebookHash: rulebookHash(STUB_RULEBOOK),
       buyer: this.address(this.scenario.parties.buyer),
       seller: this.address(seller),
+      buyerPaymentAddress: this.address(this.payer()),
+      sellerPayoutAddress: this.address(this.scenario.parties.sellerPayout ?? seller),
       deliverable: STUB_DELIVERABLE,
       acceptance: STUB_ACCEPTANCE,
       price: STUB_PRICE,
@@ -755,6 +767,9 @@ export class StubSettlement {
     const c = this.needCommitment(buyer, 'agree', via);
     if (!c) return;
     const buyerAddress = this.address(buyer);
+    // ADR-0033: the payment address signs the funding; the buyer's signing address signed the agreement.
+    const payer = this.payer();
+    const payerAddress = this.address(payer);
 
     const agree = await this.sign(buyer, { type: 'Agree', commitmentId: c.id, buyer: buyerAddress, nonce: this.nonceFor(buyer, 'msg'), expiresAt: c.terms.timing.offerExpiresAt } as const);
     if (!(await this.submit(buyer, 'agree', via, { kind: 'agree', message: agree }))) return;
@@ -772,26 +787,26 @@ export class StubSettlement {
         type: 'FundingAuthorization',
         scheme: 'erc3009',
         commitmentId: c.id,
-        from: buyerAddress,
+        from: payerAddress,
         value: f.value.toString(),
         token: this.token,
         validAfter: f.validAfter,
         validBefore: f.validBefore,
         nonce: f.nonce,
         expiresAt: c.terms.timing.fundBy,
-        signature: await signDigest({ hash: f.digest, privateKey: this.keyFor(buyer), to: 'hex' }),
+        signature: await signDigest({ hash: f.digest, privateKey: this.keyFor(payer), to: 'hex' }),
       } as const;
     } else {
-      funding = await this.sign(buyer, {
+      funding = await this.sign(payer, {
         type: 'FundingAuthorization',
         scheme: 'erc3009',
         commitmentId: c.id,
-        from: buyerAddress,
+        from: payerAddress,
         value: total.toString(),
         token: TOKEN,
         validAfter: c.terms.createdAt,
         validBefore: c.terms.timing.fundBy,
-        nonce: this.nonceFor(buyer, 'msg'),
+        nonce: this.nonceFor(payer, 'msg'),
         expiresAt: c.terms.timing.fundBy,
       } as const);
     }
@@ -1201,7 +1216,8 @@ export class StubSettlement {
   private async result(): Promise<StubRun> {
     const replay = await this.replay();
     const { parties, adjudicators, operators } = this.scenario;
-    const ordered = [parties.buyer, ESCROW, APPEAL_HOLD, parties.seller, adjudicators.primary, adjudicators.fallback, adjudicators.appeal, ...operators];
+    const money = [parties.buyerPayment, parties.sellerPayout].filter((n): n is string => n !== undefined);
+    const ordered = [parties.buyer, ...money, ESCROW, APPEAL_HOLD, parties.seller, adjudicators.primary, adjudicators.fallback, adjudicators.appeal, ...operators];
     const touched = (name: string) => this.balanceRows.some((r) => (r.balances[name] ?? 0n) !== 0n) || name === ESCROW;
     const state = this.state;
     return {
