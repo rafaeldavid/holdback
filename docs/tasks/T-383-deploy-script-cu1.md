@@ -142,6 +142,7 @@ All measured on this Mac on 2026-11-12 unless marked. The harness, `reports/scra
 | after | the earlier record and world | | | run 2: the dated copy equals run 1's record byte for byte; a `LiveChain` on the earlier record still passes its start-up check (the rollback's world) |
 
 - **Whole runs:** 58 s and 43 s.
+- **Rerun on the lane's new tip.** At `690edfd` (main merged into the lane, PR 432, with the operators' deal guard), merged into this branch as `0d38499`, both runs passed again from a fresh start: every step as above, 48 s and 42 s. A third run on `e4e930c`, after the review's fixes, also passed.
 - **No hand edit** between the runs: run 2 started from run 1's files as left.
 - **The five creations used 8,674,078 gas** on anvil.
 - **`forge test` on the tip `e4e930c`:** 470 passed in 63 suites, which matches T-380. The 464 of part 1 was measured on a tree without PR 426, whose `ConstructorChecks.t.sol` adds 6 tests in 1 suite.
@@ -152,7 +153,7 @@ All measured on this Mac on 2026-11-12 unless marked. The harness, `reports/scra
 
 - **The real 29 s margin against drand:** the margin is deployed and checked, but no fallback or escalation round ran against real drand rounds.
 - **Explorer verification over the network,** Sourcify's answer included.
-- **The Workers' deploy,** wrangler, the Durable Object's restart and the rollback.
+- **The Workers' deploy,** wrangler, the Durable Object's restart and the rollback, and the deal guard, which reads the live nodes.
 - **The faucet and gas on Sepolia,** the escalation's real gas estimate (anvil's is replaced), and the 12 s blocks.
 - **The fork suites** (step 4): no fork RPC is configured here.
 - **The site's deploy and the stranger's one command** (step 9), and the founder console (step 10).
@@ -193,14 +194,22 @@ cd $W
 9. **Step 3.2.** `$W/contracts/script/deploy-sepolia.sh --check $R` prints `… matches the chain and the build at <frozen commit>`.
 10. **Step 3.3.** `$W/contracts/script/deploy-sepolia.sh --verify $R`, with `ETHERSCAN_API_KEY` unset, prints `the five contracts are verified on Sourcify (Etherscan needs a key and a newer forge; not run)`.
 11. **Step 3.4 to 3.8.** `node $W/site/check.mjs`; the page's guards; one commit; the pull request into `main`; Rafa's gitleaks lines; `pnpm -C $W verify`.
-12. **Step 4.** The three fork suites, with `SEPOLIA_FORK_RPC` set. Each runs and passes; a skip is a failure.
+12. **Step 4.** The two fork suites, each with `SEPOLIA_FORK_RPC` set, run one at a time; a skip is a failure.
+    - `apps/demo-cloud/src/live-fork.test.ts` shows one deal through the public world against the new contracts, on a fork.
+    - `apps/adjudicator/src/drand-fork.test.ts` shows an escalation and its decision from live drand rounds, both accepted by the new rules contract. It is the one check of the beacon and the 29 s margin against real rounds before the operators deploy.
 13. **Step 5.** The quiet again, within one minute of step 6.
-14. **Step 6.** `pnpm -C $W demo-cloud:deploy` ends `pass` with a smoke deal `Released`. Read `/v1/status` and `/.well-known/holdback.json` on both nodes: the new rules address and the new token.
+14. **Step 6.** Run `pnpm -C $W demo-cloud:deploy`. Before any upload it prints the deal guard's line: `Deal guard: <n> open deals at the demo adjudicators checked against the new build's kept-policies.json; none would lose its judge.`
+    - `<n>` must equal the deals recorded as left behind in step 1.5, normally 0. The guard checks policies, not worlds, so its pass is not the quiet's proof.
+    - **A `Refused:` with exit code 2** means an open old-world deal binds a policy the new build dropped. Nothing was uploaded. Do not set `HOLDBACK_DEPLOY_WITHDRAWN`; go back to step 1 for that deal.
+    - **A `WARNING:` that the deals could not be read** means the guard checked the policy files only. Read the deals by hand (step 1.3) before going on.
+    - The deploy then waits for both nodes to serve the new commit (about five minutes on 2026-11-12) and ends `pass` with a smoke deal `Released`.
+    - Read `/v1/status` and `/.well-known/holdback.json` on both nodes: the new rules address and the new token.
 15. **Step 7.** `node --env-file-if-exists=.env $W/examples/e2e-round.ts run 5b --t220 --no-homepage`, then `… run 12 --no-homepage`. Each prints `results: … pass`.
 16. **Step 8.** `node $W/apps/test-agents/scripts/deploy.mjs`; then the two `site/try.mjs --seller` deals and `sell-to-test-buyer.mjs`.
-17. **Step 9, point of no return 1.** `pnpm -C $W site:deploy` ends `pass`. Then run the one command from `https://crow.direct/llms.txt` in an empty folder: it ends `Released`.
-18. **Step 10.** The founder console.
-19. **Step 11, point of no return 2.** Merge the step-3 pull request into `main`. Then `$W/contracts/script/deploy-sepolia.sh --check $R` from `main`, the tag, `docs/audit/scope.md`, and the rehearsal cases.
+17. **Step 11.1, part of point of no return 2.** Merge the step-3 pull request into `main` (a revert only from here). The site deploys from `main`, because the lane's agent docs describe the phase-one deployment.
+18. **Step 9, point of no return 1.** Run `git -C $W fetch origin && git -C $W switch --detach origin/main`. Then `pnpm -C $W site:deploy` ends `pass`. Then run the one command from `https://crow.direct/llms.txt` in an empty folder: it ends `Released`.
+19. **Step 10.** The founder console.
+20. **The rest of step 11.** `$W/contracts/script/deploy-sepolia.sh --check $R` from `main`, the tag (the rest of point of no return 2), `docs/audit/scope.md`, and the rehearsal cases.
 
 **Rollback at each point:**
 

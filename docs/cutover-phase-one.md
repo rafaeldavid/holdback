@@ -27,7 +27,7 @@ This page moves the live test service from the contracts deployed on 2026-11-04 
 | 6 | The operators and the new world; one smoke deal | 5, 6 | Rafa | Safe only until an outside deal opens on the new world | `wrangler rollback`, both operators |
 | 7 | One escalation's gas on Sepolia | 2 | Rafa | As step 6 | As step 6 |
 | 8 | The test agents, one deal each way | 8 | Rafa | As step 6 | The agents with the operators |
-| 9 | The site and its one command | 8 | Rafa | **Point of no return 1** | The site with the operators |
+| 9 | The site and its one command, from `main` after step 11.1's merge | 8 | Rafa | **Point of no return 1** | The site with the operators |
 | 10 | The founder console | 8 | Rafa | Safe | Its own, kept privately |
 | 11 | The freeze: merge, tag, audit scope, rehearsal cases | 9 | Rafa | **Point of no return 2** | A revert only |
 
@@ -223,15 +223,19 @@ This page moves the live test service from the contracts deployed on 2026-11-04 
 ```sh
 SEPOLIA_FORK_RPC=https://ethereum-sepolia-rpc.publicnode.com pnpm -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one exec vitest run apps/demo-cloud/src/live-fork.test.ts --silent=false
 SEPOLIA_FORK_RPC=https://ethereum-sepolia-rpc.publicnode.com pnpm -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one exec vitest run apps/adjudicator/src/drand-fork.test.ts --silent=false
-SEPOLIA_FORK_RPC=https://ethereum-sepolia-rpc.publicnode.com pnpm -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one exec vitest run apps/demo-cloud/src/predeploy-fork.test.ts --silent=false
 ```
 
 Run them one at a time. If publicnode makes anvil exit, use `https://sepolia.gateway.tenderly.co` [documented, [`operations.md`](operations.md)].
 
-**Second pass:** the code-alignment package rewrites all three for the phase-one record. The drand suite still files a party appeal, which is not in phase one (T-349, Handoff). `predeploy-fork.test.ts` was written for an upgrade in place; whether it applies to a new world is open (gap 14 of T-363). These suites cannot pass before step 3: they read the record.
+**What each shows** [documented in each file's header]:
+
+- **`live-fork.test.ts`:** the public world, the Workers' code, runs one deal against the contracts the new record names, on a fork of Sepolia.
+- **`drand-fork.test.ts`:** the fallback adjudicator escalates from a live drand quicknet round, the appeal adjudicator decides the escalation from the next round, and the new rules contract, over its `DrandQuicknetBeacon`, accepts both decisions. A decision built from a bad proof is refused before any transaction. This is the one place before step 6 where the beacon and the margin meet real drand rounds. It also needs the network for the drand relays.
+
+AL-1 deleted the third suite of the first pass, `predeploy-fork.test.ts`, which was written for an upgrade in place (PR 404; gap 14 of T-363). Both suites need `SEPOLIA_FORK_RPC`, anvil and the new record, so they cannot pass before step 3. They were not run in T-383's rehearsal: no fork RPC was configured there.
 
 **It must show:** each suite runs, not skips, and passes. A skipped suite is a failure here.
-**Time:** about 10 minutes for the pre-deploy suite [documented, [`operations.md`](operations.md)]; the others not measured.
+**Time:** not measured for the phase-one record.
 **Rollback:** none. **Stopping here is safe.** A failure here means the build cannot settle on the new contracts: fix it on the branch and repeat from step 3.2. If the fix touches `contracts/src`, the deployment is void: go back to step 0 with a new frozen commit.
 
 ## Step 5. Check the quiet again (plan step 1)
@@ -252,7 +256,8 @@ Run them one at a time. If publicnode makes anvil exit, use `https://sepolia.gat
 
 **What the code says** [measured]:
 
-- **`pnpm demo-cloud:deploy` deploys both operators together** and checks itself: pre-flight, build, each Worker's live version, `holdback-op1` then `holdback-op2`, `/v1/status` 200 on both within 300 s, then one `examples/try.ts` deal that must end `Released` within 180 s. On a failure after an upload it rolls both back and exits 1 (`apps/demo-cloud/scripts/deploy.mjs`).
+- **`pnpm demo-cloud:deploy` deploys both operators together** and checks itself: pre-flight, build, the deal guard, each Worker's live version, `holdback-op1` then `holdback-op2`, `/v1/status` 200 on both within 300 s, a wait until both nodes' discovery names the deployed commit (the World Durable Object took about five minutes to move on 2026-11-12, T-370), then one `examples/try.ts` deal that must end `Released` within 180 s. On a failure after an upload it rolls both back and exits 1 (`apps/demo-cloud/scripts/deploy.mjs`, on the lane since main was merged into it, PR 432) [measured by reading].
+- **The deal guard** (ADR-0036 §4, T-377; [`operations.md`](operations.md), "The deal guard") runs after the build and before any upload. It reads the live build's commit from discovery, that commit's `apps/adjudicator/src/kept-policies.json`, and the open deals at the demo adjudicators through the public reads. It refuses, with exit code 2 and nothing uploaded, a deploy after which an open deal the live build can judge would lose a policy version or registry it needs. When it passes it prints `Deal guard: <n> open deals at the demo adjudicators checked against the new build's kept-policies.json; none would lose its judge.`; when it cannot read the deals it prints a `WARNING:` and goes on [measured by reading `scripts/deploy-lib.mjs`]. **At the cutover its pass is not the quiet's proof.** It checks policies, not worlds: an old-world deal whose policy the new build still carries passes the guard, yet no operator serves it after this step. Steps 1 and 5 protect open deals; the guard's count must equal the deals recorded as left behind in step 1.5, normally 0. **If it refuses,** an open deal on the old world binds a policy the new build dropped. Do not set `HOLDBACK_DEPLOY_WITHDRAWN`: that override is for a recorded withdrawal (ADR-0036 §2), not for a world change. Go back to step 1 for that deal: wait for it, settle it, or record it as left behind and decide with the coordinator.
 - **The first request creates the new world** under its new name. It draws a new secret, so the three demo adjudicators and the demo club get new addresses, and the club gets a new `rulebookHash` (`world.ts:503-532`).
 - **The new world's setup checks the chain and tops up the deal lanes, and nothing else.** It registers no bond and deposits none (`world.ts:912-925`, `:543`).
 - **The old world's storage stays.** Never delete it: a rollback of both Workers serves it again [documented, [`operations.md`](operations.md)].
@@ -356,14 +361,23 @@ It must print `results: 12 pass`: the price reaches the seller's payout address,
 
 **Who:** Rafa.
 
-1. Deploy. The script builds into `reports/site-out`, runs `site/check.mjs`, uploads, and for up to 120 s checks the live page, `llms.txt` and the SHA-256 of `try.mjs`; it rolls back on a failed check:
+**When: after step 11.1, from `main`.** The site is deployed from `main` only once the lane has merged there, because the agent docs on the lane describe the phase-one deployment (the coordinator, 2026-11-12). So the order on the day is steps 0 to 8, then step 11.1 (the merge), then this step, then step 10 and the rest of step 11. Until this step runs, the live site's one command fails against the new world, as step 6 says: keep the gap between step 6 and this step short.
+
+1. **Check out `main` in the cutover worktree,** at the merge commit of step 11.1:
+
+   ```sh
+   git -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one fetch origin
+   git -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one switch --detach origin/main
+   ```
+
+2. Deploy. The script builds into `reports/site-out`, runs `site/check.mjs`, uploads, and for up to 120 s checks the live page, `llms.txt` and the SHA-256 of `try.mjs`; it rolls back on a failed check:
 
    ```sh
    pnpm -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one site:deploy
    ```
 
-2. **Run the one command as a stranger would:** copy it from the section "Try it" of `https://crow.direct/llms.txt` into an empty folder and run it. It must end `Released`.
-3. Read `https://crow.direct/llms.txt`: the pinned domain and deployment are the new ones.
+3. **Run the one command as a stranger would:** copy it from the section "Try it" of `https://crow.direct/llms.txt` into an empty folder and run it. It must end `Released`.
+4. Read `https://crow.direct/llms.txt`: the pinned domain and deployment are the new ones.
 
 **It must show:** the script's line says `pass`; the stranger's deal ends `Released` with its Etherscan links.
 **Time:** the live check is at most 120 s [measured by reading].
@@ -383,7 +397,7 @@ It must show the new rules address, the new token and the new world's start bloc
 
 **Who:** Rafa.
 
-1. **Merge the pull request of step 3 into `main`.** `main` then holds the build that is live and the record it settles on.
+1. **Merge the pull request of step 3 into `main`.** `main` then holds the build that is live and the record it settles on. This runs right after step 8, before step 9: the site deploys from `main`.
 2. **Confirm once more, from `main`:** `contracts/script/deploy-sepolia.sh --check https://ethereum-sepolia-rpc.publicnode.com`.
 3. **Tag the frozen commit,** the `commit` field of `contracts/deployments/sepolia.json`. The repository has no tag today [measured], so the name is Rafa's to choose (gap 9 of T-363). Pushing a tag reaches outside the repository.
 4. **`docs/audit/scope.md` names the frozen commit,** the rules contract's size and the code-line count. The words package writes it. **Second pass.**
@@ -401,7 +415,7 @@ It must show the new rules address, the new token and the new world's start bloc
 - **Safe to stop, with the old world serving as before:** after steps 0, 1, 2, 3, 4 and 5. The new contracts on Sepolia are unused until step 6.
 - **Reversible, with a cost that grows:** steps 6, 7 and 8. A rollback of both operators restores the old world. Every deal an outside party opened on the new world meanwhile loses its operators.
 - **Point of no return 1, step 9:** the published one command and pins.
-- **Point of no return 2, step 11:** the merge to `main` and the pushed tag.
+- **Point of no return 2, step 11:** the merge to `main` (11.1, which now runs before step 9) and the pushed tag (11.3). A merge on `main` takes a revert only; the tag fixes the audited commit.
 - **Never reversible, and harmless:** every Sepolia transaction, the deploy and the old world's timeouts included.
 
 ## What the plan's nine steps miss
@@ -431,7 +445,7 @@ It must show the new rules address, the new token and the new world's start bloc
 | Step 3.3 | none for the pilot | Done by T-383: `deploy-sepolia.sh --verify`, Sourcify with no key, the pilot's verification. The Etherscan mode needs a key and a newer forge; not run. Not tried against the real explorer |
 | Step 3, the versions and the test rulebooks | T-358; an owner for the two test rulebooks | They land on the lane before the freeze, not in the cutover's commit |
 | Step 3, `WORLD_NAMES.sim` | none | Done: `holdback-public-demo-sim-2026-11-12` |
-| Step 4 | The code-alignment package | Three fork suites rewritten for the phase-one record; the pre-deploy suite's place decided |
+| Step 4 | none | Done: two fork suites for the phase-one record (AL-1 deleted the pre-deploy suite, PR 404). Not run yet: they need a fork RPC |
 | Step 6, the start-up check | none | Done: T-358's domain 0.8, and T-383's token check and old-record test |
 | Step 6.4, the club's minimum appeal window | T-358 | The rulebook and a required window of 0 agree |
 | Step 6, the world's fallback wake-up | R8 (ADR-0032) | The wake-up moves to the round's publishing time; the smoke deal does not exercise it |
