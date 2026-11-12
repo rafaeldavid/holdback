@@ -1,7 +1,7 @@
 // One test deal on the ’crow demo. Test tokens only (tUSD on SimChain, tUSDC on Sepolia): nothing here is real money.
 //
 // With --seller <intake URL>, this script is the buyer and Crow's test seller (apps/test-agents, D47) is the other
-// party: the buyer seals a proposal to the seller's intake, as site/llms.txt "Two agents, two people" describes,
+// party: the buyer seals a proposal to the seller's intake, as site/ref/intake.txt "Two agents, two people" describes,
 // reads the commitment ID back with its status token, checks the offer on both operators against its own intent and
 // the seller's published address, then agrees and funds; the seller delivers; the adjudicator's checks decide; the
 // buyer opens its copy. With --outcome refund the buyer asks for work that fails a check, to see a refund. When the
@@ -26,6 +26,7 @@ import nacl from 'tweetnacl';
 import { recoverTypedDataAddress, type Hex } from 'viem';
 import { generatePrivateKey } from 'viem/accounts';
 import { Agent } from './agent.ts';
+import { finality } from './finality.ts';
 import { commitmentIdOf, jcs, knownPins, operatorFeeOf, Refusal, sealKeyTo, typedOf } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -38,7 +39,7 @@ const CHECKS = [
   { id: 'rows', type: 'row_count_range', required: true, min: 3, max: 3 },
   { id: 'uniq', type: 'unique_key', required: true, columns: ['customer_id'] },
 ];
-// The demo club's shortest judge, fallback and appeal windows: the deal is final a minute after the decision.
+// The demo club's shortest judge, fallback and appeal-decision windows, and no appeal window (phase one): the decision is final.
 const TIMING = { judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 0, appealDecideSec: 60 };
 const CSV = 'customer_id,email\n1,ada@example.com\n2,alan@example.com\n3,grace@example.com\n';
 /** What this script's own seller delivers when asked for a refund: 2 rows, which fail the rows check. */
@@ -340,7 +341,7 @@ async function main() {
 
   step = 'final';
   const party = deal ? "with Crow's test seller as the other party" : SELLER ? 'with both sides played here, since the test seller was unavailable' : 'with both sides played here';
-  say(`${done.escrowState} in ${Math.round((Date.now() - started) / 1000)} s ${party}; final at ${done.deadlines?.appealBy ?? 'the end of the appeal window'}, when the 60 s appeal window closes, with nobody needing to act`);
+  say(`${done.escrowState} in ${Math.round((Date.now() - started) / 1000)} s ${party}; ${finality(terms.timing?.appealWindowSec, done.deadlines?.appealBy)}`);
   step = 'done';
   say(`commitment ${id} ${done.escrowState}`);
 }

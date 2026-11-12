@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { MemoryStorage, PublicWorld } from '@holdback/demo-cloud';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { finality } from './finality.ts';
 import { serveTwoOrigins } from './two-origins.ts';
 
 const here = (f: string) => fileURLToPath(new URL(f, import.meta.url));
@@ -45,6 +46,9 @@ function expectDeal(r: Run): string {
   expect(r.code, r.out).toBe(0);
   for (const step of ['keys', 'faucet', 'offer', 'accepted', 'check', 'fund', 'deliver', 'outcome', 'open', 'balances', 'final']) expect(r.out, step).toMatch(new RegExp(`^${step} +\\S`, 'm'));
   expect(r.out).toMatch(/^faucet +1000 tUSD each, both admitted to demo-club$/m);
+  // T-390: phase one's terms have no appeal window, so the closing line says the decision is final, and names no window.
+  expect(r.out).toMatch(/^final +\S.*; final at the decision, since the terms have no appeal window$/m);
+  expect(r.out).not.toMatch(/appeal window closes/);
   expect(r.out).toMatch(/^offer +0x[0-9a-f]{6}…[0-9a-f]{4} Offered: 3 rows of customer_id,email for 25 tUSD/m);
   expect(r.out).toMatch(/^fund +Held: 26 tUSD held \(25 price \+ 1 adjudication fee\), operator fee 0\.01 tUSD$/m);
   expect(r.out).toMatch(/^outcome +Released: checks cols pass, rows pass, uniq pass; decision accept$/m);
@@ -162,5 +166,13 @@ describe('try.ts', () => {
     expect(tryIt).not.toMatch(/before you ask|fetch https:\/\/crow\.direct\/try\.mjs/);
     expect(tryIt).toContain('runs it only if its SHA-256 matches the one in the command');
     expect(tryIt).toContain('`examples/try.ts`, `agent.ts` and `verify.ts` in https://github.com/rafaeldavid/holdback');
+  });
+});
+
+describe('the closing line\'s finality clause (T-390 part 3)', () => {
+  it('says the decision is final when the terms have no appeal window, and names the window, with its own length, only when they have one', () => {
+    for (const w of [0, '0', undefined]) expect(finality(w, '2026-11-12T20:00:00Z')).toBe('final at the decision, since the terms have no appeal window');
+    expect(finality('60', '2026-11-12T20:00:00Z')).toBe('final at 2026-11-12T20:00:00Z, when the 60 s appeal window closes, with nobody needing to act');
+    expect(finality(86_400)).toBe('final at the end of the appeal window, when the 86400 s appeal window closes, with nobody needing to act');
   });
 });

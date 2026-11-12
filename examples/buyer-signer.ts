@@ -18,7 +18,7 @@
 //                 readOffer and checkOffer refuse them unless they equal what the buyer expects (Options.expect) and
 //                 what every operator publishes (T-332).
 //   agreeAndFund  signs the agreement, the funding and the operator fee, each rebuilt from the approved terms and
-//                 checked against what the operator prepared (verify.ts; site/llms.txt section 4).
+//                 checked against what the operator prepared (verify.ts; site/ref/signing.txt, "Prepare, verify, sign, submit").
 //   watch         follows the funded deal until the operators confirm its outcome, and tells the buyer's agent
 //                 (onReport) when it is released, refunded, unconfirmed, or past deliverBy with nothing delivered.
 //                 Then it sends the reclaim itself (T-325). Its record is `<address>.watch.json` beside the key file.
@@ -27,19 +27,19 @@
 //
 // The operator only relays: every state-changing message is signed here, by the buyer's key. The one exception is the
 // reclaim: the protocol's timeout trigger takes no signature, since the deadline both parties signed is its authority,
-// and the settlement layer refuses it before deliverBy (site/llms.txt, "Your own trigger"). The protocol steps are
+// and the settlement layer refuses it before deliverBy (site/ref/after-funding.txt, "Your own trigger"). The protocol steps are
 // agent.ts and verify.ts; this file adds the key store and the comparison with what the buyer approved. A buyer who
-// wants no seller code in its path uses the HTTP API directly (site/llms.txt sections 1 to 8).
+// wants no seller code in its path uses the HTTP API directly (site/buy.txt and site/ref/http-buyer.txt).
 //
 // The work a seller delivers is untrusted data. This file returns it; it never prints it, runs it or reads
 // instructions from it. Neither should the client around it.
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import nacl from 'tweetnacl';
 import { recoverTypedDataAddress, type Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { Agent } from './agent.ts';
+import { command } from './entry.ts';
 import { dealRecord, type DealRecord } from './deal-record.ts';
 import { commitmentIdOf, CREATED_AT_BAND, deliveryHashOf, digestOfFile, isAddressText, jcs, knownPins, moneyAddressWarnings, openEnvelopeKey, operatorFeeOf, paymentSentence, Refusal, typedDataFile, typedOf, type Intent, type Pin } from './verify.ts';
 
@@ -940,7 +940,7 @@ export class BuyerSigner {
       const path = join(this.store, `${this.address}.${name}.typed.json`);
       const fee = name === 'operator-fee' ? ` --fee ${file.message.to} ${file.message.value}` : '';
       // From wherever the command runs, as buy-with-signer.ts builds its own lines.
-      const check = `node ${sh(relative(process.cwd(), fileURLToPath(new URL('./pay-from-wallet.ts', import.meta.url))))} check ${sh(path)} ${sh(termsPath)} ${this.address}${fee}${pin.chain ? '' : ' --sim'}`;
+      const check = `${command('pay-from-wallet', import.meta.url)} check ${sh(path)} ${sh(termsPath)} ${this.address}${fee}${pin.chain ? '' : ' --sim'}`;
       return { file, name, slot: s.slot, path, digest: s.digest, check, summary: `The ${name === 'funding' ? 'funding' : 'operator fee'} (digest ${s.digest}): ${paymentSentence(file, id, pin.token, checked.terms)}` };
     });
     // The record first, so a crash before the files leaves a record that writes the same files again (red team I-2).

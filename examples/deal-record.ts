@@ -19,9 +19,9 @@
 // Public deals only: a private or judgment-level deal's terms need a ReadToken, and the record marks them unreadable.
 // Transactions and balances are what the operators report; read the chain itself to check them.
 import { readFileSync, writeFileSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
 import nacl from 'tweetnacl';
 import { recoverMessageAddress, recoverTypedDataAddress, type Hex } from 'viem';
+import { isMain } from './entry.ts';
 import { commitmentIdOf, deliveryHashOf, jcs, jcsHash, knownPins, operatorFeeOf, typedOf, type Pin } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -524,7 +524,8 @@ async function main(argv: string[]): Promise<number> {
   return count(false) || r.disagreements.length ? 1 : 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// The program only when it is the one being run: not when buyer-signer.ts imports it, bundled or not (entry.ts).
+if (isMain(import.meta.url, 'deal-record')) {
   main(process.argv.slice(2)).then(
     (code) => process.exit(code),
     (e: unknown) => {

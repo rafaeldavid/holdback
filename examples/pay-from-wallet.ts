@@ -3,7 +3,7 @@
 //   node examples/pay-from-wallet.ts files <key store directory> <commitment ID>
 //       writes the two messages the payment address signs, as eth_signTypedData_v4 files beside the key file, and prints
 //       one sentence for each: who pays whom how much, until when, for which deal. buy-with-signer.ts runs this step
-//       when CROW_PAYMENT_ADDRESS is set. Sign each file in the wallet (see site/llms.txt, "Pay from your own wallet").
+//       when CROW_PAYMENT_ADDRESS is set. Sign each file in the wallet (see site/ref/http-buyer.txt, "Pay from your own wallet").
 //   node examples/pay-from-wallet.ts fund <key store directory> <commitment ID> <funding signature> [<operator-fee signature>]
 //       funds the deal with the wallet's signatures, as 0x and 130 hex characters, only if each recovers to the payment
 //       address over the message the signer rebuilt from the approved terms. Then follow it with buy-with-signer.ts resume.
@@ -15,6 +15,7 @@
 // Env: HOLDBACK_OPERATORS (files, fund); CROW_EXPECT as for buy-with-signer.ts. Exit status 0 when done, 3 on a refusal.
 import { readFileSync } from 'node:fs';
 import { loadKeys, printable } from './buyer-signer.ts';
+import { command as commandFor } from './entry.ts';
 import { checkPaymentFile, commitmentIdOf, knownPins, pinOf, Refusal } from './verify.ts';
 import { SEPOLIA } from './deployments.ts';
 
@@ -39,7 +40,7 @@ try {
     const signer = await loadKeys(a, b, expect());
     const paid = await signer.agreeAndFund(b, { funding: c, operatorFee: d });
     out({ funded: signer.commitmentId, paid: paid.total, from: signer.paymentAddress });
-    console.error(`Funded. Follow the deal with: node examples/buy-with-signer.ts resume ${a}`);
+    console.error(`Funded. Follow the deal with: ${commandFor('buy-with-signer', import.meta.url)} resume ${a}`);
   } else if (command === 'check' && a && b && c) {
     if (fee && !(/^0x[0-9a-fA-F]{40}$/.test(fee[0] ?? '') && /^(0|[1-9][0-9]*)$/.test(fee[1] ?? ''))) throw new Refusal('refusing to sign: --fee takes the fee\'s recipient (an address) and its amount (base units as a decimal string)');
     // The holder's own pinned settlement layer, never one an operator or the file names.
