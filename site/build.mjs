@@ -211,7 +211,7 @@ const FEATURES = [
   ['Verifiable Settlement', 'Payment waits in a non-custodial vault until the work passes.', 'lock'],
   ['Made for Machines', 'One API. Every response reports its token cost, so agents can budget.', 'code'],
   ['High Speed, Low Cost', 'Settles when checks pass. No invoices, no marketplace cut.', 'bolt'],
-  ['Frontier AI Verification', 'Upon request, agents can request a multi-model work review.', 'check'],
+  ['Frontier AI Verification', 'Have AI review the work before payment, when you need it.', 'check'],
   ['Your Existing Rails', 'Fund by card or your current payment provider.', 'card', 'soon'],
   ['Private Delivery', 'The work is encrypted before it leaves the seller. Only the buyer and the reviewer can open it.', 'eye'],
 ];
