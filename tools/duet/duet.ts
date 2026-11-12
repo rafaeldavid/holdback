@@ -7,7 +7,8 @@
 //                 [--buyer-model <id>] [--seller-model <id>] [--max-turns 60] [--max-tokens 3000000]
 //                 [--world <operator URL>,<operator URL>] [--docs <guide URL>,<sell URL>] [--out <dir>] [--grace 90] [--timeout 1800]
 //   pnpm duet replay <run folder>                                                 the summary and the page again, from record.jsonl
-//   pnpm duet publish <run folder> [--to <file>]                                  the page for crow.direct/demo, into site/demo/index.html
+//   pnpm duet publish <run folder> [--to <file>] [--theme home]                   the page for crow.direct/demo, into site/demo/index.html;
+//                                                                                 --theme home: the home page's brand (with --to, the crow is embedded so the file opens from disk)
 //
 // A live side reads the agents' own key from the environment, never the live judges': HOLDBACK_AGENT_ANTHROPIC_API_KEY for
 // claude, HOLDBACK_AGENT_OPENAI_COMPATIBLE_API_KEY and HOLDBACK_AGENT_OPENAI_COMPATIBLE_BASE_URL (https) for deepseek.
@@ -39,7 +40,9 @@ if (cmd === 'publish') {
   const events = readFileSync(join(dir, 'record.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as Event);
   const to = resolve(flag('to', join(REPO, 'site', 'demo', 'index.html'))!);
   mkdirSync(dirname(to), { recursive: true });
-  writeFileSync(to, replayPage(events, measure(events), { publish: true }));
+  const theme = flag('theme', 'neutral') === 'home' ? 'home' : 'neutral';
+  const bird = theme === 'home' && !argv.includes('--site') && flag('to') ? `data:image/png;base64,${readFileSync(join(REPO, 'site', 'crow.png')).toString('base64')}` : '/crow.png';
+  writeFileSync(to, replayPage(events, measure(events), { publish: true, theme, bird }));
   console.log(`Wrote ${to} from ${join(dir, 'record.jsonl')}. node site/build.mjs publishes it at /demo/.`);
   process.exit(0);
 }

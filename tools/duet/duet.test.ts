@@ -76,15 +76,17 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       expect(page.slice(page.indexOf('id="demo-view"'), page.indexOf('id="learn-more"'))).not.toMatch(/Exact call|test money|scripted stand-in/);
       // The opening comes from PITCH, so a change of its words breaks no test here.
       // The agents' names, each introduced once with its side; the record keeps the roles buyer and seller.
-      expect(page).toContain('Enterprise Procurement Agent</span><span class="value">Acting for the buyer.');
-      expect(page).toContain('Enterprise Sales Agent</span><span class="value">Acting for the seller.');
+      expect(page).toContain('<dt>Enterprise Procurement Agent</dt><dd>Acting for the buyer.');
+      expect(page).toContain('<dt>Enterprise Sales Agent</dt><dd>Acting for the seller.');
       expect(page).not.toMatch(/buying agent|selling agent/i);
       expect(events.some((e) => e.role === 'buyer') && events.some((e) => e.role === 'seller')).toBe(true);
       for (const b of PITCH.beats) expect(page).toContain(`<span class="beat-label">${b.label}</span>`);
       // The proof beat tells what this run did: Rafa's sentence when the work passed, what happened instead otherwise.
       const ending = name === 'paid' ? 'paid' : name === 'refund' ? 'refunded' : 'declined';
       expect(page).toContain(PITCH.proof(ending, 'a software security audit').replace(/'/g, '&#39;'));
-      expect(page.indexOf('beat-label">Proof')).toBeLessThan(page.indexOf('How the payment is held'));
+      expect(page.indexOf('beat-label">Proof')).toBeLessThan(page.indexOf('<h3 class="block-title">How the payment is held</h3>'));
+      // One accent: the filled button is the primary action; no chat bubble uses it.
+      expect(page).not.toMatch(/#007aff|#0a84ff/i);
       expect(page).toContain('This demo is a test run on a local test setup, with test money.');
       expect(page).toContain('This run used a local test setup, so it has no public payment records to link.');
       expect(page).not.toMatch(/href="http:\/\/(127\.0\.0\.1|localhost)/);
@@ -99,6 +101,12 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       expect(r.leaks(published)).toBe(false);
       expect(banned(readerText(published))).toEqual([]);
       expect(readerText(published)).not.toMatch(/\bowners?\b/i);
+      // The home page's brand, as a theme: its type, its paper and the crow above the headline; light only.
+      const branded = replayPage(events, s, { publish: true, theme: 'home' });
+      expect(branded).toContain('family=EB+Garamond');
+      expect(branded).toContain('--page:#faf7f0');
+      expect(branded).toContain('<img class="bird" src="/crow.png"');
+      expect(banned(readerText(branded))).toEqual([]);
       // The reader's text, outside the engineers' section and the "Exact call" disclosures, uses no protocol words.
       expect(banned(readerText(page))).toEqual([]);
       // Limits: one ticket when a measure is over, with the measure and its number; none otherwise.
