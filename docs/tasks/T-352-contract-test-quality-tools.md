@@ -3,7 +3,7 @@
 - **Lane:** test
 - **Phase:** 2
 - **Depends on:** T-341 (side-by-side harness), T-336 (delivery-hash invariant)
-- **Paths this task may touch:** `contracts/scripts/` (new), `docs/audit/test-quality.md` (new), new test files under `contracts/test/` only for gaps this task closes, this task file. Never `contracts/src/`, existing test files, `contracts/test/handlers/`, `contracts/test/invariant/`, `contracts/test/differential/`, `.github/`, `packages/`, `apps/`
+- **Paths this task may touch:** `contracts/scripts/` (new; the plan's package R10 names this folder), `docs/audit/test-quality.md` (new), new test files under `contracts/test/` only for gaps this task closes, this task file. Never `contracts/src/`, existing test files, `contracts/test/handlers/`, `contracts/test/invariant/`, `contracts/test/differential/`, `.github/`, `packages/`, `apps/`
 - **Human gate:** no
 - **Status:** in progress
 - **Agent/session:** T-352 session (Opus 5.5), change kind 7, a target of 200k tokens
@@ -38,12 +38,71 @@ Package R10 of the contract refinement plan (crow-private `roadmap/plans/2026-11
 
 ## Evidence
 
-Fill this in before review. Label each item measured, inferred or guessed.
+All on `main` at `5a90dc5`, 2026-11-11 and 2026-11-12. The full write-up is `docs/audit/test-quality.md`.
 
-- Commands run and results:
-- Snapshot diffs:
-- Metrics:
+- **Baseline `forge test`** (full build, every test): 364 tests passed in 483 s wall, of which 308 s compile and 172 s the side-by-side test [measured].
+- **`forge coverage` as configured fails** [measured]: it turns the optimizer off, and the contracts need the IR pipeline with it.
+- **`forge coverage --ir-minimum` builds** [measured]:
+  - It compiles in 52 s.
+  - `SideBySide.t.sol` does not compile under it (stack too deep at line 265).
+  - Two suites read `out/`, which coverage does not write.
+  - Eight drand tests fail only on their gas caps.
+  - With those left out, `node contracts/scripts/coverage.mjs` ran 342 tests, all passing, in 211 s.
+  - `HoldbackRules.sol`: 310/314 lines, 79/92 branches. The other four files: every line and branch.
+- **`node contracts/scripts/mutate.mjs`** (fast build, fuzz seed `0x352`) [measured]:
+  - The baseline passed 342 tests; it built in 99 s and tested in 47 s.
+  - 82 of the 179 mutants ran before a pause to free the machine for the contract lane (T-356): 71 killed, 11 survived, nothing stale and no errors.
+  - M001 (G-5, no delivery hash stored) is killed.
+  - A mutant takes 126 s on average.
+- **Survivors:** each has a new test or a written reason (`docs/audit/test-quality.md`, Mutation).
+  - M005 and M006 are killed by `AgreeAndFundExpiry.t.sol`, holdback PR 358, merged 2026-11-12 [measured: CI's contracts job passed on main with the tests].
+  - The tests in `MutationGaps.t.sol` have not run yet [not verified]. They need the machine, which the lane holds; CI runs them on this PR.
+- **The review of the mutation script** (one `reviewer`) found no false kill and no write to `contracts/src/`. It found eight Medium and Low items; all eight are fixed: the fixed fuzz seed, `--resume` bound to the source, tests, build and mutant text, one locked copy per run, build timeouts, mutant paths limited to `src/`, the archive by commit, a stricter test-name parser with `--color never`, and the report written before a stop.
+- **Lint:** `eslint` on the three scripts with the repo config passed [measured].
 
 ## Decisions
 
+- **No coverage profile in `foundry.toml`.** `deploy-sepolia.sh --check` requires `foundry.toml` to equal the deployed commit, so both tools change only the build config of their scratch copy.
+- **The mutation script lives in `contracts/scripts/`,** where the plan's package R10 puts it. It is Node, like the repo's other scripts.
+- **Mutation runs on a fast build** (forge coverage's `--ir-minimum` settings), which compiles about 3 times faster. Gas tests leave the fast pass; every survivor gets a second verdict on the full build with every test.
+- **The side-by-side test is out of the fast pass.** While `src/` equals the pinned copy, it fails on any behaviour change and would hide what the other suites assert.
+- **Tests that must survive the lane's cuts:** the gap tests use only what `Base.sol` offers both on `main` and on the phase-one lane, which has no bonds (D57). The M004 test was dropped for that reason (the lane's deadline-order cut changes its terms), and M004 keeps a written reason.
+
 ## Handoff
+
+**State.** The tools, the gap tests and the first results are in this PR. The mutation run is paused at 82 of 179 mutants. Its results are kept in `reports/scratch/t-352/mutation-5a90dc5-fast.json`, on this machine only.
+
+**To finish the run on `main`** (about 3.4 h for 97 mutants, then about 8 min per survivor on the full build) [inferred]:
+
+```bash
+node contracts/scripts/mutate.mjs --ref 5a90dc5 --resume
+```
+
+`--resume` reuses a verdict only when the source, the tests, the build, the seed and the mutant's text match. The paused results were recorded on a working-tree copy of `5a90dc5` before the script hashed tests. A one-off check confirmed the copy's tests equal `5a90dc5`'s and recorded their hash (`reports/scratch/t-352/adopt.mjs`).
+
+**To run both tools on the lane before the freeze** (package R10). The lane pins the same `commerce-payments` submodule as `main` [measured]:
+
+```bash
+git fetch origin contracts-audit-ready
+```
+
+```bash
+node contracts/scripts/coverage.mjs --ref origin/contracts-audit-ready
+```
+
+```bash
+node contracts/scripts/mutate.mjs --ref origin/contracts-audit-ready
+```
+
+- **Stale mutants on the lane.** The bonds and sim-beacon mutants (20) and 40 of the 139 `HoldbackRules.sol` mutants report stale there, because the cuts deleted their code [measured on the lane at 2026-11-12]. That is the intended behaviour.
+- **Before the freeze, add mutants for the lane's own new lines** to `mutants.json`, for example the refusal of a non-zero `acc.bondReserved` (`HoldbackRules.sol:184` on the lane).
+- **Survivors in code the cuts remove:** M030, M031 and M057.
+- **If the lane renames tests,** `GAS_CAP_TESTS` in `contracts/scripts/scratch.mjs` must follow, or coverage stops on the failing gas caps.
+- **The fast build's `foundry.toml` edit** expects the lines `optimizer = true` and `via_ir = true`; the script stops if they change.
+
+**CI (not this task's: `.github/`).** A nightly job could run `node contracts/scripts/mutate.mjs --quick` (about 1 h) and `node contracts/scripts/coverage.mjs` (about 4 min) on the lane. It needs the same three submodule commands as the contracts job and Foundry 1.0.0, and it should upload `reports/scratch/t-352/` as an artifact. Pull-request CI should not run either tool.
+
+**Open.**
+- The full-build pass over the survivors has not run.
+- `MutationGaps.t.sol` has not run locally; CI runs it.
+- After the run completes, the summary and tables in `docs/audit/test-quality.md` need the remaining 97 verdicts.

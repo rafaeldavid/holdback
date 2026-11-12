@@ -14,8 +14,8 @@
 // Reproducible: the list is fixed (mutants.json) and every forge test run uses the same fuzz seed (FUZZ_SEED), so two
 // runs on the same commit run the same mutants, in the same order, against the same fuzz inputs. Each mutant's `find`
 // must occur exactly once in its file; otherwise the mutant is reported "stale" and never applied, so the list cannot
-// silently mutate the wrong line after the source moves. --resume reuses a verdict only when the commit's source, the
-// build and that mutant's find/replace are the same as when it was recorded.
+// silently mutate the wrong line after the source moves. --resume reuses a verdict only when the source, the tests, the
+// build, the seed and that mutant's find/replace are all the same as when it was recorded.
 //
 // Verdicts, and what each requires:
 //   killed       the mutated copy compiled (forge build printed a compile of the changed file), forge test ran, and
@@ -91,6 +91,7 @@ const resultsPath = join(SCRATCH, `mutation-${run}.json`);
 const reportPath = join(SCRATCH, `mutation-${run}.md`);
 const sha = (s) => createHash('sha256').update(s).digest('hex');
 const srcHash = sha(JSON.stringify(hashTree(join(contracts, 'src'))));
+const testsHash = sha(JSON.stringify(hashTree(join(contracts, 'test'))));
 const mutantHash = (m) => sha(JSON.stringify([m.file, m.find, m.replace]));
 
 // The fast build (default): the IR pipeline with the minimum optimizer steps, the settings `forge coverage
@@ -167,12 +168,13 @@ const failures = (out) => ({
 const compiledSomething = (out) => /Compiling \d+ files? with/.test(out) && /Compiler run successful/.test(out);
 
 // Results and the report, written after every mutant and before any stop.
-const meta = { label, commit, srcHash, build, fuzzSeed: FUZZ_SEED };
+const meta = { label, commit, srcHash, testsHash, build, fuzzSeed: FUZZ_SEED };
 let previous = {};
 if (args.resume && existsSync(resultsPath)) {
   const old = JSON.parse(readFileSync(resultsPath, 'utf8'));
-  if (old.meta?.srcHash !== srcHash || old.meta?.build !== build || old.meta?.fuzzSeed !== FUZZ_SEED) {
-    fail(`--resume: ${resultsPath} was recorded on other source, another build or another seed; run without --resume`);
+  const same = ['srcHash', 'testsHash', 'build', 'fuzzSeed'].every((k) => old.meta?.[k] === meta[k]);
+  if (!same) {
+    fail(`--resume: ${resultsPath} was recorded on other source or tests, another build or another seed; run without --resume`);
   }
   previous = old.results ?? {};
 }
