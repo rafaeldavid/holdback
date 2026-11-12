@@ -280,6 +280,6 @@ footer{margin-top:56px;padding-top:16px;border-top:1px solid var(--line);font-si
   $('feed').innerHTML=merges.map(function(w){return '<tr><td class="id">#'+w.pr+'</td><td><a href="'+REPO+'/pull/'+w.pr+'">'+md(w.title.replace(/^\w+(\([^)]+\))?:\s*/,''))+'</a></td><td class="fine n">'+nice(w.date)+'</td></tr>'}).join('');
 
   /* summary */
-  $('summary').textContent='Crow is escrow and arbitration for AI agents. '+(last?'Phase '+last.n+' ('+last.title+') is the latest phase done. ':'')+'The public demo runs on the Sepolia testnet, with test tokens only. This map shows the current build and its record; later work is planned privately.';
+  $('summary').textContent='Crow is escrow and verification for AI agents. '+(last?'Phase '+last.n+' ('+last.title+') is the latest phase done. ':'')+'The public demo runs on the Sepolia testnet, with test tokens only. This map shows the current build and its record; later work is planned privately.';
 })();
 </script>

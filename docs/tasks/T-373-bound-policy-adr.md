@@ -5,7 +5,7 @@
 - **Depends on:** T-367 (PR 386: the finding, in its Handoff)
 - **Paths this task may touch:** `docs/decisions/ADR-0036-judging-under-the-bound-policy.md`, `docs/decisions-today.md` (one entry), this file
 - **Human gate:** no. The record is Proposed until Rafa accepts it
-- **Status:** review
+- **Status:** done (PR 390, merged 2026-11-12 at 07:06 UTC as `2454782`)
 - **Agent/session:** the T-373 author session, started by the coordinator on 2026-11-12
 
 ## Intent
