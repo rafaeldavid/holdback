@@ -15,17 +15,20 @@
 // --logs <dir>       keeps the SDK's raw messages as JSON lines, outside git (outside the repository, or under reports/).
 // --probe            asks only "Reply with the single word: ok", with no tools at all, touches no Crow site, and prints
 //                    the effort the hooks saw and the model; it writes no run file. With --effort unset it finds the default.
+// --unsandboxed     runs the assistant's Bash commands without Claude Code's OS sandbox. By default the sandbox
+//                    blocks reads of this user's folders, keys and logins, writes outside the run's folders, and any
+//                    network host but Crow's, npm's and Sepolia's.
 // --dry-run <file>   plays a script (tools/one-click/scripted.mjs) in place of the model: no SDK, no key, no network.
 //                    It writes a run file from the script, as CI's test does (tests/metrics/one-click.test.ts).
 import { spawn } from 'node:child_process';
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { check } from '../../scripts/metrics/check.mjs';
 import { DEFAULTS, ROOT, Sources, fetchCapped, gitCommit, iso, readEvents } from '../../scripts/metrics/lib.mjs';
-import { EFFORTS, HOMEPAGE, MODEL_ID, WORKERS, buildRunFile, childEnv, cloudflareOf, countTailEvent, deniedRequest, emptyTailCount, runIdOf, summaryOf } from './metrics.mjs';
+import { EFFORTS, HOMEPAGE, REQUESTED_MODEL_ID, WORKERS, buildRunFile, childEnv, cloudflareOf, countTailEvent, deniedRequest, emptyTailCount, runIdOf, summaryOf } from './metrics.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // The homepage prompt changes with the site (T-229 added the one command to it), so the harness records the prompt
@@ -38,10 +41,11 @@ const args = parseArgs({
     scenario: { type: 'string', default: 'buyer' },
     effort: { type: 'string', default: 'medium' },
     model: { type: 'string', default: 'claude-opus-5-5' },
-    out: { type: 'string', default: join(ROOT, 'reports/scratch/one-click') },
+    out: { type: 'string' },
     logs: { type: 'string' },
     tail: { type: 'boolean', default: false },
     probe: { type: 'boolean', default: false },
+    unsandboxed: { type: 'boolean', default: false },
     'dry-run': { type: 'string' },
     'max-replies': { type: 'string', default: '6' },
     'timeout-ms': { type: 'string', default: '600000' },
@@ -55,9 +59,11 @@ if (args.scenario === 'seller') {
   process.exit(3);
 }
 if (args.effort !== 'unset' && !EFFORTS.includes(args.effort)) fail(`--effort is one of ${EFFORTS.join(', ')}, or unset`);
-if (args.model !== 'unset' && !MODEL_ID.test(args.model)) fail('--model is a model ID (lower-case letters, digits, dots and dashes), or unset');
+if (args.model !== 'unset' && !REQUESTED_MODEL_ID.test(args.model)) fail('--model is a model ID (lower-case letters, digits, dots and dashes), or unset');
 const dryRun = args['dry-run'] ? resolve(args['dry-run']) : null;
 if (dryRun && (args.tail || args.probe)) fail('--dry-run takes neither --tail nor --probe');
+// A dry run's file is not a measurement, so it never lands where the console's run files are collected from.
+const outDir = resolve(args.out ?? join(ROOT, dryRun ? 'reports/scratch/one-click-dry' : 'reports/scratch/one-click'));
 const maxReplies = Number.parseInt(args['max-replies'], 10);
 const timeoutMs = Number.parseInt(args['timeout-ms'], 10);
 if (!Number.isSafeInteger(maxReplies) || maxReplies < 0 || !Number.isSafeInteger(timeoutMs) || timeoutMs < 10_000) fail('--max-replies and --timeout-ms take whole numbers');
@@ -102,13 +108,43 @@ if (script) {
   const m = page.ok ? /<span[^>]*id="prompt"[^>]*>([^<]{1,2000})<\/span>/.exec(page.text) : null;
   if (!m) fail(`no #prompt span on ${HOMEPAGE}`);
   prompt = decode(m[1]).trim();
-  note(`prompt (${prompt.startsWith(EXPECTED_PREFIX) ? 'the deal prompt' : 'NOT the deal prompt'}, ${prompt.length} characters)`);
+  // Every request the assistant makes is approved, so a page that does not carry the deal prompt drives nothing.
+  if (!prompt.startsWith(EXPECTED_PREFIX)) fail(`the #prompt span on ${HOMEPAGE} does not start "${EXPECTED_PREFIX}", so the harness stops`);
+  note(`prompt: the deal prompt, ${prompt.length} characters`);
 }
 
 // --- A clean environment (metrics.mjs, ENV_KEEP): no Claude, Anthropic, SSH agent or cloud variable of this machine.
 // Filtered by name only; no value is read or printed. Authentication comes from this machine's Claude Code login.
 const env = childEnv(process.env);
 const workdir = mkdtempSync(join(tmpdir(), 'crow-one-click-'));
+// A fresh machine's own temporary folder and npm cache, both writable, instead of this user's.
+const agentTmp = mkdtempSync(join(tmpdir(), 'crow-one-click-tmp-'));
+mkdirSync(join(agentTmp, 'npm-cache'), { recursive: true });
+env.TMPDIR = agentTmp;
+env.npm_config_cache = join(agentTmp, 'npm-cache');
+const sandboxed = !args.unsandboxed && !args.probe && !script;
+// Inside the sandbox all traffic goes through its proxy; Node's fetch uses it only with this flag (outsider.mjs, run s1).
+if (sandboxed) env.NODE_USE_ENV_PROXY = '1';
+const HOME = process.env.HOME ?? '/Users/unknown';
+const writable = [...new Set([workdir, realpathSync(workdir), agentTmp, realpathSync(agentTmp)])];
+// The same sandbox as outsider.mjs's --sandbox, with this user's dotfiles that hold logins added to the read denials.
+const sandbox = sandboxed
+  ? {
+      enabled: true,
+      failIfUnavailable: true,
+      autoAllowBashIfSandboxed: false,
+      allowUnsandboxedCommands: false,
+      filesystem: {
+        allowWrite: writable,
+        denyRead: ['Documents', 'Desktop', 'Downloads', 'Projects', '.ssh', '.aws', '.config', '.claude', '.npmrc', '.netrc', '.gitconfig', '.git-credentials', '.wrangler', '.docker', '.kube', '.gnupg', 'Library/Keychains', 'Library/Preferences', 'Library/Application Support', 'crow-costs-private', 'crow-costs', 'crow-data'].map((d) => join(HOME, d)),
+      },
+      network: {
+        strictAllowlist: true,
+        allowedDomains: ['crow.direct', '*.crow.direct', 'registry.npmjs.org', 'rpc.sepolia.org', 'ethereum-sepolia-rpc.publicnode.com', 'sepolia.drpc.org', '*.sepolia.org', 'sepolia.etherscan.io', 'api-sepolia.etherscan.io', 'api.drand.sh', 'drand.cloudflare.com'],
+      },
+    }
+  : undefined;
+if (!sandboxed && !args.probe && !script) note("--unsandboxed: the assistant's commands run with this user's reach; use a separate macOS user or a throwaway virtual machine");
 
 // --- Cloudflare counts from wrangler tail. Each event is read, counted and dropped; nothing of it is stored. A tail
 // counts only if it connected and was still running when the run ended (metrics.mjs, cloudflareOf).
@@ -118,7 +154,11 @@ function startTail() {
   const procs = [];
   let stopping = false;
   for (const w of WORKERS) {
-    const t = (tails[w] = { connected: false, exitedEarly: false, count: emptyTailCount() });
+    const t = (tails[w] = { connected: false, connectedAt: null, exitedEarly: false, count: emptyTailCount() });
+    const connected = () => {
+      if (!t.connected) t.connectedAt = Date.now();
+      t.connected = true;
+    };
     const p = spawn('npx', ['--yes', 'wrangler@4', 'tail', w, '--format', 'json'], { stdio: ['ignore', 'pipe', 'pipe'] });
     p.on('error', () => {
       t.exitedEarly = true;
@@ -128,7 +168,7 @@ function startTail() {
     });
     p.stderr.setEncoding('utf8');
     p.stderr.on('data', (chunk) => {
-      if (CONNECTED.test(chunk)) t.connected = true;
+      if (CONNECTED.test(chunk)) connected();
     });
     // wrangler prints each event as an indented JSON object, so the reader splits objects by brace depth.
     let depth = 0;
@@ -141,7 +181,7 @@ function startTail() {
       for (const ch of chunk) {
         if (depth === 0 && ch !== '{') {
           line = ch === '\n' ? '' : (line + ch).slice(-200);
-          if (CONNECTED.test(line)) t.connected = true;
+          if (CONNECTED.test(line)) connected();
           continue;
         }
         buf += ch;
@@ -154,7 +194,7 @@ function startTail() {
         else if (ch === '}' && --depth === 0) {
           try {
             countTailEvent(t.count, JSON.parse(buf));
-            t.connected = true;
+            connected();
           } catch {
             // Not an event: skipped.
           }
@@ -274,6 +314,7 @@ const q = query({
     mcpServers: {},
     systemPrompt: { type: 'preset', preset: 'claude_code' },
     ...(args.probe ? { tools: [] } : {}),
+    ...(sandbox ? { sandbox } : {}),
     canUseTool,
     env,
     ...(args.model === 'unset' ? {} : { model: args.model }),
@@ -368,6 +409,7 @@ if (new Set(effortSeen.map((e) => e.level)).size > 1) book.errors.push(`hooks re
 
 if (args.probe) {
   rmSync(workdir, { recursive: true, force: true });
+  rmSync(agentTmp, { recursive: true, force: true });
   const usage = Object.fromEntries(Object.entries(result?.modelUsage ?? {}).map(([k, u]) => [k, { input: u.inputTokens, output: u.outputTokens }]));
   console.log(JSON.stringify({ probe: true, sdkVersion, claudeCodeVersion: init?.claude_code_version ?? null, model: init?.model ?? null, effortRequested: args.effort, effortSeen, usage, errors: book.errors }, null, 2));
   process.exit(0);
@@ -391,7 +433,7 @@ if (tail) {
       otherDeals = others.size;
     }
   }
-  const cf = cloudflareOf({ tails: tail.tails, window: { from: iso(tailFrom - 10_000), to: iso(tailTo) }, otherDeals, commitmentId: book.commitmentId });
+  const cf = cloudflareOf({ tails: tail.tails, window: { from: iso(tailFrom - 10_000), to: iso(tailTo) }, otherDeals, commitmentId: book.commitmentId, promptAt: t0 });
   cloudflare = cf.cloudflare;
   harnessGaps.push(...cf.gaps);
 }
@@ -418,9 +460,9 @@ const run = buildRunFile({
   harnessGaps,
 });
 rmSync(workdir, { recursive: true, force: true });
+rmSync(agentTmp, { recursive: true, force: true });
 // The run file takes its name only after it passes its schema; a failing one stays as <runId>.json.invalid.
 const ok = check('one-click', run);
-const outDir = resolve(args.out);
 mkdirSync(outDir, { recursive: true });
 const outFile = join(outDir, `${run.runId}.json`);
 const tmpFile = `${outFile}.invalid`;

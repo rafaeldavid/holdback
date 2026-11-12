@@ -143,6 +143,27 @@ describe('helpers', () => {
     expect(scrub('curl http://[::1]:8787/')).toBe('curl http://<ip>:8787/');
   });
 
+  it('drops credentials and personal data from hostile commands (the T-370 review)', () => {
+    const KEY = `0x${'ab'.repeat(32)}`;
+    const hostile = [
+      `curl -H'x-api-key: S3CR3T' https://a.example/c`,
+      'curl -H "a\\"S3CR3T" https://a.example/',
+      'http POST https://api.crow.direct/x Authorization:"Bearer S3CR3T"',
+      `curl -d '{"k":"S3CR3T"}' https://a.example/`,
+      'API_KEY=S3CR3T node x.mjs',
+      `node x --private-key ${KEY}`,
+      'echo person@example.com',
+      'cat /USERS/someone/x ~/Projects/y',
+      'ping fe80::1',
+      'git clone ssh://user:S3CR3T@host.example/repo',
+      'curl --proxy-user u:S3CR3T https://a.example/',
+      'wget --password=S3CR3T https://a.example/',
+      'curl -E cert:S3CR3T https://a.example/',
+    ];
+    for (const c of hostile) for (const leak of ['S3CR3T', KEY, 'person@example.com', 'someone', 'Projects', 'fe80']) expect(scrub(c), c).not.toContain(leak);
+    expect(scrub('curl -fsSLO https://crow.direct/try.mjs && node try.mjs')).toBe('curl -fsSLO https://crow.direct/try.mjs && node try.mjs');
+  });
+
   it("shows a tool other than Bash, WebFetch or a file tool by its name only, never the assistant's input", () => {
     expect(summaryOf('Task', { prompt: 'secret plan' })).toBe('');
     expect(summaryOf('WebFetch', { url: 'https://crow.direct/llms.txt?x=1', prompt: 'text' })).toBe('https://crow.direct/llms.txt');
@@ -154,6 +175,11 @@ describe('helpers', () => {
     expect(deniedRequest('Bash', { command: 'cat .env.local' })).toBe(true);
     expect(deniedRequest('Bash', { command: 'security find-generic-password -s x' })).toBe(true);
     expect(deniedRequest('Bash', { command: 'curl -sS https://crow.direct/llms.txt' })).toBe(false);
+  });
+
+  it("denies commands that use this user's logins without naming a file (the T-370 review)", () => {
+    for (const c of ['gh auth token', 'cd /Users/someone && cat .ssh/id_ed25519', 'cd ~ && cat .npmrc', 'cat ~/.netrc', 'npx wrangler whoami', 'ls /private/tmp/com.apple.launchd.x', 'git push origin main', 'ssh host.example', 'env | grep KEY']) expect(deniedRequest('Bash', { command: c }), c).toBe(true);
+    for (const c of ['mkdir -p crow-try && cd crow-try && npm install --ignore-scripts viem@2.57.13 && node try.mjs', 'git clone https://github.com/x/y']) expect(deniedRequest('Bash', { command: c }), c).toBe(false);
   });
 
   it('passes the assistant no SSH agent, Anthropic, Claude or cloud variable', () => {
@@ -185,6 +211,12 @@ describe('the Cloudflare counts', () => {
     expect(Object.keys(r.cloudflare?.workers ?? {})).toEqual(['holdback-op1']);
     expect(r.cloudflare?.otherDealsInWindow).toBe(2);
     expect(r.gaps).toEqual(['wrangler tail on holdback-op2 exited before the run ended, so its counts are left out.']);
+  });
+
+  it('leaves out a tail that connected after the prompt was sent', () => {
+    const r = cloudflareOf({ tails: { 'holdback-op1': { ...live, connectedAt: 900 }, 'holdback-op2': { ...live, connectedAt: 1100 } }, window, otherDeals: 0, commitmentId: ONCE, promptAt: 1000 });
+    expect(Object.keys(r.cloudflare?.workers ?? {})).toEqual(['holdback-op1']);
+    expect(r.gaps).toEqual(['wrangler tail on holdback-op2 connected after the prompt was sent, so its counts are left out.']);
   });
 
   it('writes no count of other deals when the run found no commitment', () => {
@@ -232,9 +264,11 @@ describe('run.mjs --dry-run: the harness end to end, with no model, key or netwo
   });
 
   it('refuses a model ID the schema would refuse, before it starts', () => {
-    const { status, stderr, files } = harness('--model', 'Claude Opus');
-    expect(status).toBe(2);
-    expect(stderr).toMatch(/--model is a model ID/);
-    expect(files).toEqual([]);
+    for (const model of ['Claude Opus', 'claude-opus-5-5[1m]']) {
+      const { status, stderr, files } = harness('--model', model);
+      expect(status, model).toBe(2);
+      expect(stderr).toMatch(/--model is a model ID/);
+      expect(files).toEqual([]);
+    }
   });
 });

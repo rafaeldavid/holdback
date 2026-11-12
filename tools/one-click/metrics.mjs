@@ -16,6 +16,8 @@ export const WORKERS = ['holdback-op1', 'holdback-op2', 'crow-test-agents'];
 const MILLION = 1_000_000n;
 const PRICE_FIELDS = ['input', 'cacheWrite5m', 'cacheWrite1h', 'cacheRead', 'output'];
 export const MODEL_ID = /^[a-z0-9.@[\]-]{1,64}$/;
+/** The run file's `model.requested` pattern (one-click.schema.json): no brackets, unlike the IDs the SDK reports. */
+export const REQUESTED_MODEL_ID = /^[a-z0-9.@-]{1,64}$/;
 
 const count = (v) => (Number.isSafeInteger(v) && v >= 0 ? v : 0);
 
@@ -30,7 +32,7 @@ const HIDDEN = new RegExp(
 );
 
 const IPV4 = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
-const IPV6 = /\[[0-9A-Fa-f:.]{2,45}\]/g;
+const IPV6 = /\[[0-9A-Fa-f:.]{2,45}\]|\b(?:[0-9A-Fa-f]{1,4}:){2,7}[0-9A-Fa-f]{1,4}\b|\b(?:[0-9A-Fa-f]{1,4}:)+:(?:[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4})*)?(?![\w:])|::1\b/g;
 
 /** A URL as origin and path only: no user, password, query or fragment, and an IP host replaced. */
 function urlPart(href) {
@@ -43,21 +45,30 @@ function urlPart(href) {
   }
 }
 
+// An option whose value is a credential, a header or a request body: its value is dropped, joined or not.
+const VALUE_OPTIONS = /(^|\s)(-[HbdE]|--[A-Za-z0-9-]*(?:header|cookie|bearer|data|user|pass|password|token|secret|key|cert|auth|credential)[A-Za-z0-9-]*)(=|\s+|(?=['"]))("(?:[^"\\]|\\.)*"|'[^']*'|\S+)/gi;
+
 /**
- * A command or URL as the run file may keep it: one line, header and credential values dropped, URLs as origin and
- * path, IP addresses and local paths replaced, long opaque runs cut, at most 300 characters. The fresh assistant
- * writes these, so nothing in them is trusted.
+ * A command or URL as the run file may keep it: one line; quoted strings, option values that carry credentials,
+ * headers or bodies, KEY=VALUE pairs, 32-byte hex, emails, IP addresses and local paths replaced; URLs as origin and
+ * path; long opaque runs cut; at most 300 characters. The fresh assistant writes these, so nothing in them is trusted.
  */
 export function scrub(text) {
   return String(text ?? '')
     .slice(0, 4000)
     .replace(HIDDEN, ' ')
-    .replace(/(^|\s)(-H|--header|-b|--cookie|--oauth2-bearer)(\s+|=)("[^"]*"|'[^']*'|\S+)/g, '$1$2$3<value>')
-    .replace(/(^|\s)(-u|--user)(\s+|=)("[^"]*:[^"]*"|'[^']*:[^']*'|[^\s-]\S*:\S*)/g, '$1$2$3<value>')
-    .replace(/\bhttps?:\/\/[^\s'"`<>|;)]+/g, (m) => urlPart(m))
+    .replace(VALUE_OPTIONS, '$1$2$3<value>')
+    .replace(/(^|\s)(-u)(\s+)("[^"]*:[^"]*"|'[^']*:[^']*'|[^\s-]\S*:\S*)/g, '$1$2$3<value>')
+    .replace(/[a-z][a-z0-9+.-]*:\/\/[^\s'"`<>|;)]+/gi, (m) => urlPart(m))
+    .replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, (m) => (/^["'][a-z][a-z0-9+.-]*:\/\/[^\s]*["']$/i.test(m) ? m : `${m[0]}<text>${m[0]}`))
+    .replace(/\b([A-Za-z_][A-Za-z0-9_]*)=\S+/g, '$1=<value>')
     .replace(IPV6, '<ip>')
+    .replace(/(^|\s)([A-Za-z][\w-]*)(:=?|==)(?!\/\/)\S+/g, '$1$2$3<value>')
+    .replace(/[^\s@'"<>]+@[^\s@'"<>]+\.[A-Za-z]{2,}/g, '<email>')
+    .replace(/\b0x[0-9A-Fa-f]{64}\b/g, '<hex32>')
     .replace(IPV4, '<ip>')
-    .replace(/\/(?:Users|home|private|var|tmp|opt|root)\/[^\s'"`;|&)]*/g, '<local path>')
+    .replace(/(?:~|\$HOME)\/[^\s'"`;|&)]*/g, '<local path>')
+    .replace(/\/(?:Users|home|private|var|tmp|opt|root|Volumes)\/[^\s'"`;|&)]*/gi, '<local path>')
     .replace(/\b(sk-[A-Za-z0-9_-]{6,}|[A-Za-z0-9+/_=-]{120,})/g, '<redacted>')
     .slice(0, 300);
 }
@@ -72,9 +83,25 @@ export function summaryOf(tool, input) {
   return '';
 }
 
-// Requests that name this machine's user's own files or keychain are denied, not answered, as tools/one-click/
-// outsider.mjs does: an outside agent has no such files to reach.
-const DENY = [/\/Users\/[^/\s]+\/(Documents|Library|Desktop|Downloads|\.ssh|\.aws|\.config|\.claude|crow-)/i, /\/home\/[^/\s]+\/(\.ssh|\.aws|\.config|\.claude)/i, /\.env\b/, /~\/(\.ssh|\.aws|\.claude|\.config|crow-|Documents|Library)/, /\$HOME\/(\.ssh|\.aws|\.claude|\.config)/, /\bsecurity\s+find-/, /\bkeychain\b/i];
+// Requests that reach this machine's user's own files, keychain or logins are denied, not answered, as
+// tools/one-click/outsider.mjs does: an outside agent has none of them. The sandbox (run.mjs, on by default) blocks
+// the same reads at the OS level; this list also covers the commands that use a login without naming a file.
+const DENY = [
+  /\/Users\/[^/\s]+\/(Documents|Library|Desktop|Downloads|Projects|\.ssh|\.aws|\.config|\.claude|\.npmrc|\.netrc|\.git-credentials|\.gitconfig|\.wrangler|\.docker|\.kube|\.gnupg|crow-)/i,
+  /\/home\/[^/\s]+\/(\.ssh|\.aws|\.config|\.claude|\.npmrc|\.netrc|\.git-credentials)/i,
+  /(~|\$HOME|\$\{HOME\})\/?(\.ssh|\.aws|\.claude|\.config|\.npmrc|\.netrc|\.git-credentials|\.gitconfig|\.wrangler|\.docker|\.kube|\.gnupg|crow-|Documents|Library|Desktop|Downloads|Projects)/,
+  /\bcd\s+(~|\$HOME|\/Users\/[^/\s]+)\/?(\s|;|&|$)/i,
+  /(^|[\s;&|(])\.(npmrc|netrc|git-credentials|ssh|aws|gnupg)\b/,
+  /\.env\b/,
+  /\bsecurity\s+(find-|dump-|export)/,
+  /\bkeychain\b/i,
+  /\bgh\s+(auth|api|repo|secret|pr|release)\b/,
+  /\bwrangler\b/,
+  /\bgit\s+(push|credential|config\s+--global)\b/,
+  /(^|[\s;&|(])(ssh|scp|sftp|ssh-add)\s/,
+  /\/private\/tmp\/com\.apple\.launchd/,
+  /\bprintenv\b|(^|[\s;&|(])env(\s*$|\s*[;&|])/,
+];
 
 /** True when a tool request names a local path the harness refuses. */
 export function deniedRequest(tool, input) {
@@ -118,16 +145,18 @@ export function countTailEvent(c, e) {
 /**
  * The run file's `cloudflare` field from the tails. A Worker whose tail did not connect, or exited before the run
  * ended, is left out with a gap line, so a dead tail never reads as 0 requests; with none connected the field is
- * null. `otherDealsInWindow` is null when the run found no commitment, since its own deal cannot be told apart.
- * @param {{ tails: Record<string, { connected: boolean, exitedEarly: boolean, count: object }>, window: { from: string, to: string }, otherDeals: number|null, commitmentId: string|null }} input
+ * null. A tail that connected after the prompt was sent (`promptAt`) missed the deal's first requests and is left
+ * out too. `otherDealsInWindow` is null when the run found no commitment, since its own deal cannot be told apart.
+ * @param {{ tails: Record<string, { connected: boolean, connectedAt?: number|null, exitedEarly: boolean, count: object }>, window: { from: string, to: string }, otherDeals: number|null, commitmentId: string|null, promptAt?: number|null }} input
  */
-export function cloudflareOf({ tails, window, otherDeals, commitmentId }) {
+export function cloudflareOf({ tails, window, otherDeals, commitmentId, promptAt = null }) {
   const gaps = [];
   const workers = {};
   for (const [name, t] of Object.entries(tails)) {
     if (!WORKERS.includes(name)) continue;
-    if (t.connected && !t.exitedEarly) workers[name] = t.count;
-    else gaps.push(`wrangler tail on ${name} ${t.connected ? 'exited before the run ended' : 'never connected'}, so its counts are left out.`);
+    const late = t.connected && promptAt !== null && !(Number.isSafeInteger(t.connectedAt) && t.connectedAt <= promptAt);
+    if (t.connected && !t.exitedEarly && !late) workers[name] = t.count;
+    else gaps.push(`wrangler tail on ${name} ${!t.connected ? 'never connected' : late ? 'connected after the prompt was sent' : 'exited before the run ended'}, so its counts are left out.`);
   }
   if (!Object.keys(workers).length) return { cloudflare: null, gaps: [...gaps, 'No wrangler tail connected, so the Cloudflare counts read unknown.'] };
   return { cloudflare: { basis: 'tail', window, otherDealsInWindow: commitmentId ? otherDeals : null, workers }, gaps };
