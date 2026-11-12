@@ -443,7 +443,7 @@ describe('policy and registry binding', () => {
       delivery: {} as never,
       deadline: '2026-11-01T10:02:00Z',
     });
-    expect(!report.ok && report.error.detail).toMatch(/policy-hash-mismatch: first-instance template/);
+    expect(!report.ok && report.error.detail).toMatch(/this build does not carry the template pair 0xabababab/);
   });
 });
 
@@ -902,7 +902,7 @@ describe('review item 4: rules the mutation sweep found untested', () => {
       delivery: {} as never,
       deadline: '2026-11-01T10:02:00Z',
     });
-    expect(!r.ok && r.error.detail).toMatch(/policy-hash-mismatch: appeal template/);
+    expect(!r.ok && r.error.detail).toMatch(/this build does not carry the template pair 0xabb5ec9b\.\.\. \/ 0xabababab/);
   });
 
   it('decision nonces differ by role, so a primary and a fallback decision never share one', async () => {

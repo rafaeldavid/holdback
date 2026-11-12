@@ -1,0 +1,26 @@
+{
+  "about": "ADR-0036: every screen version, template pair, aggregation version and judge registry a released build registered. An entry is never deleted. It leaves the build only when marked retired (no open deal binds it) or withdrawn (running it would break a hard rule), each with its decision reference. The default is what a primary on this build accepts new deals under; a new default ships in two deploys, carried first and default second.",
+  "default": {
+    "screenVersion": "screen-1",
+    "promptTemplateHash": "0xabb5ec9b33cf9a936e140bf8530c217f6629fdf1e08a46fbdf6bd7363ce84dd2",
+    "appealPromptTemplateHash": "0xa0bb1a5d8fa8ac53294a41556df71c098f73220d24efd9522e922f9004248659",
+    "aggregationVersion": "agg-3"
+  },
+  "screens": [
+    { "version": "screen-0", "status": "kept", "since": "released before PR 386; restored from 00be274 by T-377" },
+    { "version": "screen-1", "status": "kept", "since": "ADR-0035, PR 386" }
+  ],
+  "templatePairs": [
+    {
+      "promptTemplateHash": "0xabb5ec9b33cf9a936e140bf8530c217f6629fdf1e08a46fbdf6bd7363ce84dd2",
+      "appealPromptTemplateHash": "0xa0bb1a5d8fa8ac53294a41556df71c098f73220d24efd9522e922f9004248659",
+      "status": "kept",
+      "since": "released before T-377"
+    }
+  ],
+  "aggregations": [{ "version": "agg-3", "status": "kept", "since": "released before T-377" }],
+  "registries": [
+    { "hash": "0x8aa41fa98b874dca122885418370c665a9ec04911d03dc7a877ccd2772274549", "file": "config/judges.yaml", "status": "kept", "since": "released before T-377" },
+    { "hash": "0x6dc7342b9458a837ec3df4b86b4cbca6e5ac9629aa11be17fbb24d4248e001fd", "file": "config/judges-live.yaml", "status": "kept", "since": "T-028, 2026-11-01" }
+  ]
+}
