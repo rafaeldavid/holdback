@@ -21,7 +21,8 @@ export type DeploymentFile = {
   };
   escrow: string;
   erc3009Collector: string;
-  permit2Collector: string;
+  /** The Permit2 collector of a deployment from before phase one; a phase-one record has none (ADR-0031 §3). */
+  permit2Collector?: string;
   permit2?: string;
   multicall: string;
   rules: string;
