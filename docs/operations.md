@@ -67,6 +67,8 @@ node apps/test-agents/scripts/sell-to-test-buyer.mjs
 2. It exits 0 on a pass. It exits 1 when an upload is refused or a later step fails, after it rolls back each Worker that changed.
 3. Paste the Markdown line it prints into this file, under a heading for the task. The line gives the date, the commit and its branch, each new version and its rollback target, the smoke deal's ID and time, and pass or fail.
 
+**Before an operator deploy that changes the screen version** (since PR 386, T-367): check that no deal is open first. The adjudicator then refuses every deal accepted before the deploy and still open, with `policy_mismatch`. Each such deal runs down to its default outcome with no judgment. Deploy only when no such deal is open. The three reads that list the open deals are in `docs/tasks/T-367-screen-audit-lines.md`, Handoff. This holds until the fix that T-373's decision record tracks is built.
+
 **To roll back by hand**, use the rollback targets the line names, both operators together:
 - `npx wrangler@4 rollback <holdback-op1 target> --name holdback-op1`
 - `npx wrangler@4 rollback <holdback-op2 target> --name holdback-op2`

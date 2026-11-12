@@ -144,7 +144,7 @@ Focus (Rafa, 2026-11-06; D53, narrowed the same day by D54 after his walkthrough
 - [x] T-364 (done: PRs 380 and 375, 2026-11-12) No running numbers in the standing docs: the rule in `docs/writing.md`, the sweep and a check. Task file `docs/tasks/T-364-no-running-numbers.md`.
 - [x] T-365 (done: PR 385, 2026-11-12; its CI job, PR 388, is open) `pnpm send-timeout` sends a deal's due timeout with no operator, cutover package CU-2.
 - [x] T-366 (done: PR 383, 2026-11-12) The seller adapter calls a seller API of another shape from its configuration.
-- [ ] T-367 (in progress: PR 386 open) The screen passes honest audit reports, and no judge reads past the limit.
+- [x] T-367 (done: PR 386, 2026-11-12) The screen passes honest audit reports, and no judge reads past the limit.
 - [x] T-368 (done: PR 384, 2026-11-12) The buyer's command stops for approval before it funds, and the simulator's faucet grants a mandate.
 - T-369 A task in the maintainers' private repository, with no file here.
 - [x] T-370 (done: PRs 217 and 216, 2026-11-12) The One-Click harness and the discovery fields of T-066, brought up to date, reviewed and merged. The live harness run and the deploys that make the fields live are Rafa's.
