@@ -13,8 +13,10 @@ import {RulesHandler} from "../handlers/RulesHandler.sol";
 
 // The pinned copies carry a suffix in their file names, so a lookup by "HoldbackRules.sol:HoldbackRules"
 // (`deployCodeTo`, `vm.getCode`) still finds only src/. Nothing imports them by name, so their bytes are unchanged.
-import {HoldbackRules as ParentRules} from "./parent/HoldbackRules.4f6cea0.sol";
+import {HoldbackRules as ParentRules} from "./parent/HoldbackRules.0786180.sol";
+import {HoldbackTypes as ParentH} from "./parent/HoldbackTypes.sol";
 import {IHoldbackBeacon as ParentBeacon} from "./parent/IHoldbackBeacon.sol";
+import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {HoldbackRules as PlantedRules} from "./planted/HoldbackRules.planted.sol";
 
 /// @title The sides of the side-by-side harness (T-341, refinement gate VG-1)
@@ -22,12 +24,14 @@ import {HoldbackRules as PlantedRules} from "./planted/HoldbackRules.planted.sol
 ///         - `NewSide`: the source under test, `contracts/src/`, deployed by `Base.setUp` unchanged;
 ///         - `OldSide`: the pinned copy of `contracts/src/` at the change's parent commit (`parent/`). Since T-356
 ///           each change on `contracts-audit-ready` is compared with its parent, not with the deployed commit
-///           (the refinement plan, R6c's harness row): the parent here is `4f6cea0`, the lane after SC-7;
+///           (the refinement plan, R6c's harness row): the parent here is `0786180`, the lane after SC-1;
 ///         - `PlantedSide`: the pinned copy with one planted behaviour change (`planted/`), for the tests that
 ///           prove the harness and the liveness invariant fail on a real change.
 ///         The handler drives every side through the new source's ABI (`HoldbackRules`, `HoldbackTypes`), so the
-///         sides receive the same calls. The parent's ABI equals the new one apart from the constructor and the
-///         `TOKEN()` getter SC-1 adds, so the pinned side needs no hook of its own.
+///         sides receive the same calls. The parent's ABI equals the new one apart from the constructor (it still
+///         takes the Permit2 collector), `PERMIT2_COLLECTOR()`, and the `Funding` struct, which still carries `method`
+///         (SC-2 cut both). So the pinned side encodes `agreeAndFund` in the parent's layout, with `method` 0 and the
+///         same ERC-3009 signature (`_agreeAndFundCall`): the two sides fund with the same bytes the buyer signed.
 /// @dev Same addresses on both sides. The harness creates each side from the same snapshot, so a side lands at
 ///      the same address, and every contract it creates lands at the same address as on the other side, as long as
 ///      the sides create the same number of contracts in the same order. That is why `PinnedSide.setUp` repeats
@@ -66,6 +70,19 @@ abstract contract PinnedSide is RulesHandler {
         usdc.mint(buyer, 1_000_000_000);
         usdc.mint(seller, 1_000_000_000);
     }
+
+    /// The parent's `agreeAndFund(Terms, bytes, Acceptance, Agree, Funding(uint8 method, bytes signature))`: the same
+    /// arguments, the funding as ERC-3009 (`method` 0). Every other struct has the same layout in both builds.
+    function _agreeAndFundCall(
+        H.Terms memory t,
+        bytes memory ss,
+        H.Acceptance memory acc,
+        H.Agree memory ag,
+        H.Funding memory f
+    ) internal pure override returns (bytes memory) {
+        ParentH.Funding memory pf = ParentH.Funding({method: 0, signature: f.signature});
+        return abi.encodeWithSelector(ParentRules.agreeAndFund.selector, t, ss, acc, ag, pf);
+    }
 }
 
 contract OldSide is PinnedSide {
@@ -77,7 +94,12 @@ contract OldSide is PinnedSide {
         return HoldbackRules(
             address(
                 new ParentRules(
-                    escrow, address(collector3009), address(collectorPermit2), MARGIN, ParentBeacon(address(beacon))
+                    escrow,
+                    address(collector3009),
+                    address(collectorPermit2),
+                    MARGIN,
+                    ParentBeacon(address(beacon)),
+                    address(usdc)
                 )
             )
         );
@@ -93,7 +115,12 @@ contract PlantedSide is PinnedSide {
         return HoldbackRules(
             address(
                 new PlantedRules(
-                    escrow, address(collector3009), address(collectorPermit2), MARGIN, ParentBeacon(address(beacon))
+                    escrow,
+                    address(collector3009),
+                    address(collectorPermit2),
+                    MARGIN,
+                    ParentBeacon(address(beacon)),
+                    address(usdc)
                 )
             )
         );
@@ -106,7 +133,12 @@ contract PlantedHandler is PinnedSide {
         return HoldbackRules(
             address(
                 new PlantedRules(
-                    escrow, address(collector3009), address(collectorPermit2), MARGIN, ParentBeacon(address(beacon))
+                    escrow,
+                    address(collector3009),
+                    address(collectorPermit2),
+                    MARGIN,
+                    ParentBeacon(address(beacon)),
+                    address(usdc)
                 )
             )
         );

@@ -261,7 +261,7 @@ contract Erc6492PrepareTest is Base {
         bytes memory sellerSig = _sellerSig(t, SELLER_PK);
         H.Acceptance memory acc = _acceptance(t, ADJ_PK);
         H.Agree memory ag = _agree(t, BUYER_PK);
-        H.Funding memory wrapped = H.Funding({method: 0, signature: _wrap(address(probe), _runProbe(), f.signature)});
+        H.Funding memory wrapped = H.Funding({signature: _wrap(address(probe), _runProbe(), f.signature)});
         vm.expectRevert();
         rules.agreeAndFund(t, sellerSig, acc, ag, wrapped);
         bytes32 id = rules.agreeAndFund(t, sellerSig, acc, ag, f);

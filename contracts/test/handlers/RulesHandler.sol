@@ -464,10 +464,22 @@ contract RulesHandler is Base {
         H.Agree memory ag = _agree(t, bk);
         H.Funding memory f = _erc3009(t, fk);
         HoldbackRules.Stage before = _dealOf(id).stage;
-        bool ok = _relay(_caller(callerSeed), abi.encodeCall(HoldbackRules.agreeAndFund, (t, ss, acc, ag, f)));
+        bool ok = _relay(_caller(callerSeed), _agreeAndFundCall(t, ss, acc, ag, f));
         if (ok) _authorised("agreeAndFund", sk == SELLER_PK && ak == good && bk == BUYER_PK && fk == BUYER_PK);
         _track(id, before);
         _end(ok, v0);
+    }
+
+    /// `agreeAndFund`'s calldata in this side's ABI. T-356 (SC-2): phase one's `Funding` has no `method`; the pinned
+    /// parent's still does, and its side encodes the same ERC-3009 signature with `method` 0 (`Sides.sol`).
+    function _agreeAndFundCall(
+        H.Terms memory t,
+        bytes memory ss,
+        H.Acceptance memory acc,
+        H.Agree memory ag,
+        H.Funding memory f
+    ) internal pure virtual returns (bytes memory) {
+        return abi.encodeCall(HoldbackRules.agreeAndFund, (t, ss, acc, ag, f));
     }
 
     function deliver(uint256 dealSeed, uint256 callerSeed, uint256 signerSeed) external {
