@@ -34,22 +34,45 @@
 // Exit code 2: the run could not start or stopped on an error, such as a terms file the commitment schema refuses.
 // Paths are read from the directory pnpm runs in, the repository's root.
 //
+// The pilot's cases (T-355), each one deal through the seller adapter, started from one configuration file the run
+// writes, and the buyer signer, which shows every signed field and the differences from the seller's defaults:
+//   pnpm audit-deal --case <case|all> [--report <file>] [--terms <file>] [--scope <JSON>] [--mapping <file>]
+//                   [--refused-report <file>] [--out <dir>]
+//   released         the report passes; Released, the seller paid
+//   redelivered      the seller's check run refuses a first report and alerts the seller, which fixes it and says so;
+//                    the fixed report is delivered before the deadline; Released
+//   rubric           the buyer's terms carry a rubric (a terms file without one gets the template's): the report passes
+//                    the checks and the panel; Released
+//   refunded         the same, and the panel rejects the report after delivery; Refunded. Local only: the world's judges
+//                    are a stand-in set to reject
+//   missed-deadline  the job never finishes; the buyer's signer reclaims the hold after the deadline; Refunded
+//   shown-mismatch   the operators raise their fee after the buyer saw the offer; the signer refuses before any
+//                    signature; Not funded. Local only: an operator front of the local world raises the fee
+//   resume           the buyer stops after funding, the seller's adapter restarts (with --mapping, a report mapping is
+//                    set), days pass, and the buyer resumes from its key store; Released
+// Each case prints its end state and the path of its deal record (deal-record.ts), in <out>/<case>/deal-record.json.
+// Exit code 0 when every case ends as expected, 1 when one does not, 2 when the run cannot start or stops on an error.
+// A live case: --live --case <case>, with HOLDBACK_OPERATORS, and optionally --keys <key store> --buyer <address> for
+// an unused key in an existing key store (one key, one deal). Live, every wait is real time and no step has a limit.
+//
 // The report is the seller's data. This file parses it as JSON inside the check library and counts its findings. It
 // prints none of its text and runs nothing from it. The terms file is data too: it is parsed as YAML with no custom
 // tags, checked against the commitment schema, and nothing in it runs.
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { preflightDelivery } from '@holdback/judgment';
+import { honestVerdict, preflightDelivery, type JudgeProvider } from '@holdback/judgment';
 import { parseTermsYaml, plain, type TermsTemplate } from '@holdback/testkit';
 import type { Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { Agent } from './agent.ts';
-import { makeKeys, type Approved, type Delivery, type Money, type Offer, type Paid } from './buyer-signer.ts';
-import { config as adapterConfig, fill, startSellerAdapter, type RunningAdapter, type Stage } from './seller-adapter.ts';
+import { loadKeys, makeKeys, openDeals, printable, type Approved, type BuyerSigner, type Delivery, type Difference, type Money, type Offer, type Paid, type Report } from './buyer-signer.ts';
+import { dealRecord, type Row } from './deal-record.ts';
+import { config as adapterConfig, fill, loadConfig, startSellerAdapter, type RunningAdapter, type Stage } from './seller-adapter.ts';
 import { startStubSellerApi, type StubSellerApi } from './seller-adapter-stub.ts';
 import { jcs, knownPins, operatorFeeOf, Refusal } from './verify.ts';
 
@@ -141,7 +164,7 @@ export interface SellerFiles {
  * commitment schema refuses). Refuses the terms the offer route cannot make, rather than offering other terms.
  * No amount or window is capped (D31): any value the schema takes is offered as written.
  */
-export function readSellerFiles(o: { reportFile?: string; termsFile?: string }): SellerFiles {
+export function readSellerFiles(o: { reportFile?: string | undefined; termsFile?: string | undefined }): SellerFiles {
   const read = (what: string, path: string): Buffer => {
     try {
       return readFileSync(path);
@@ -171,8 +194,8 @@ export function readSellerFiles(o: { reportFile?: string; termsFile?: string }):
   return files;
 }
 
-/** The adapter's template from a terms file: its deliverable, checks and rubric, in the shapes of an offer. */
-const templateOf = (t: TermsTemplate) => ({ deliverable: t.deliverable, checks: t.acceptance.deterministicChecks, rubric: t.acceptance.rubric });
+/** The adapter's template from a terms file: its deliverable, checks, rubric and adjudication fee, in the shapes of an offer. */
+const templateOf = (t: TermsTemplate) => ({ deliverable: t.deliverable, checks: t.acceptance.deterministicChecks, rubric: t.acceptance.rubric, fee: { token: t.adjudication.fee.token, amount: t.adjudication.fee.amount } });
 
 /** A window in whole days when it is one, in seconds otherwise. */
 const span = (sec: number) => (sec > 0 && sec % 86_400 === 0 ? `${sec / 86_400} day${sec === 86_400 ? '' : 's'}` : `${sec} s`);
@@ -182,19 +205,22 @@ const span = (sec: number) => (sec > 0 && sec % 86_400 === 0 ? `${sec / 86_400} 
  * started. The route sends no request. It compares the whole path with the paths of the jobs the stub holds in this
  * process, so nothing from the request is placed in a URL; any other path answers 404.
  */
-async function serveReport(stub: StubSellerApi, bytes: Uint8Array): Promise<{ result: string; close(): Promise<void> }> {
+async function serveReport(stub: StubSellerApi, bytes: Uint8Array | null): Promise<{ result: string; set(bytes: Uint8Array | null): void; close(): Promise<void> }> {
+  // null: the job still runs, and the route answers 202 as the seller's API does (T-355).
+  let current = bytes;
   const server = createServer((req, res) => {
     const path = new URL(req.url ?? '/', 'http://report').pathname;
     const job = req.method === 'GET' ? stub.jobs().find((j) => path === `/jobs/${encodeURIComponent(j.jobId)}/result`) : undefined;
     if (!job) return void res.writeHead(404, { 'content-type': 'application/json' }).end('{"detail":"not found"}');
-    res.writeHead(200, { 'content-type': 'application/octet-stream' }).end(bytes);
+    if (current === null) return void res.writeHead(202, { 'content-type': 'application/json' }).end('{"status":"running"}');
+    res.writeHead(200, { 'content-type': 'application/octet-stream' }).end(current);
   });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', resolve);
   });
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  return { result: `${url}/jobs/{jobId}/result`, close: () => new Promise<void>((resolve) => { server.closeAllConnections(); server.close(() => resolve()); }) };
+  return { result: `${url}/jobs/{jobId}/result`, set: (b) => void (current = b), close: () => new Promise<void>((resolve) => { server.closeAllConnections(); server.close(() => resolve()); }) };
 }
 
 /**
@@ -350,6 +376,7 @@ export async function runAuditDeal(o: AuditDealOptions): Promise<AuditDealResult
     if (!(windowSec > deliverWithinSec - 900 && windowSec <= deliverWithinSec + 60)) throw new Refusal(`refusing to sign: the delivery deadline ${plain(String(offer.deadlines.deliverBy))} is ${windowSec} s away, not the ${deliverWithinSec} s agreed`);
     const panel = Array.isArray(expected.rubric?.criteria) && expected.rubric.criteria.length > 0;
     const approved: Approved = {
+      commitmentId: quote.commitmentId, // the approval names the offer it approves (T-368)
       seller,
       price: { token: pin.token.id, amount: priceUnits },
       fees: offer.fees,
@@ -467,45 +494,570 @@ export interface LocalWorld {
   operators: string[];
   /** Moves this world's settlement time forward. */
   advanceClock(seconds: number): void;
+  /**
+   * What the judges decide on a rubric deal here (T-355). They stand in for the models: no model runs, each verdict's
+   * rationale reads "fake judge: pass" or "fake judge: fail", and they pass until this is set.
+   */
+  setPanel(verdict: 'pass' | 'fail'): void;
+  /**
+   * The same world on two more origins: an operator front that, once `raiseFeeBps` is called, publishes an operator
+   * fee that many basis points above this world's (T-355). What a buyer meets when the operators change their fee
+   * after it was shown an offer. It rewrites the discovery document's answer only, and sends no request.
+   */
+  front(): Promise<{ operators: string[]; raiseFeeBps(bps: number): void; close(): Promise<void> }>;
   close(): Promise<void>;
 }
 
 /**
  * The public demo's world on SimChain, served in this process as two operator nodes, with a clock this process can
  * move. The operators charge 1 basis point, at least 0.01 tUSD, so the deal pays an operator fee as the live one does.
+ * A rubric deal's judges are a stand-in this process sets (`setPanel`); a checks-only deal never meets them.
  */
 export async function startLocalWorld(): Promise<LocalWorld> {
   const { MemoryStorage, PublicWorld } = await import('@holdback/demo-cloud');
   const { serveTwoOrigins } = await import('./two-origins.ts');
   let aheadMs = 0;
-  const world = await PublicWorld.open({ storage: new MemoryStorage(), env: { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '10000' }, now: () => Date.now() + aheadMs, telemetryLog: () => {} });
+  let verdict: 'pass' | 'fail' = 'pass';
+  const judgeProvider: JudgeProvider = { complete: async (req) => honestVerdict(req, verdict) };
+  const world = await PublicWorld.open({ storage: new MemoryStorage(), env: { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '10000' }, now: () => Date.now() + aheadMs, telemetryLog: () => {}, judgeProvider, liveCallsPerDay: 1_000_000 });
   const served = await serveTwoOrigins(world, { tickMs: 100 });
-  return { operators: served.urls, advanceClock: (seconds) => void (aheadMs += seconds * 1000), close: served.close };
+  const fronts: Array<{ close(): Promise<void> }> = [];
+  return {
+    operators: served.urls,
+    advanceClock: (seconds) => void (aheadMs += seconds * 1000),
+    setPanel: (v) => void (verdict = v),
+    front: async () => {
+      let extra: number | null = null;
+      const rewrite = (_node: number, path: string, body: string): string | undefined => {
+        if (extra === null || new URL(path, 'http://front').pathname !== '/.well-known/holdback.json') return undefined;
+        const j = JSON.parse(body) as J;
+        const fee = j.fees?.operator;
+        if (!fee || !Number.isSafeInteger(fee.bps)) return undefined;
+        return JSON.stringify({ ...j, fees: { ...j.fees, operator: { ...fee, bps: fee.bps + extra } } });
+      };
+      const f = await serveTwoOrigins(world, { rewrite });
+      fronts.push(f);
+      return { operators: f.urls, raiseFeeBps: (bps) => void (extra = bps), close: f.close };
+    },
+    close: async () => {
+      for (const f of fronts) await f.close();
+      await served.close();
+    },
+  };
+}
+
+// ---- The pilot's cases (T-355) ----
+//
+// Each case is one deal through the seller adapter, started from one configuration file the run writes, and the
+// buyer signer, which shows the buyer every signed field and what differs from the seller's published defaults
+// before it approves. Each case leaves a deal record (deal-record.ts) in its directory.
+
+export const CASES = ['released', 'redelivered', 'rubric', 'refunded', 'missed-deadline', 'shown-mismatch', 'resume'] as const;
+export type CaseName = (typeof CASES)[number];
+/** `Not funded`: the buyer's signer refused before any signature, so the commitment never reached a hold. */
+export type EndState = 'Released' | 'Refunded' | 'Held' | 'Not funded';
+/** How each case should end. A case that ends otherwise makes the command exit 1. */
+export const EXPECTED: Record<CaseName, EndState> = { released: 'Released', redelivered: 'Released', rubric: 'Released', refunded: 'Refunded', 'missed-deadline': 'Refunded', 'shown-mismatch': 'Not funded', resume: 'Released' };
+/** The cases only the local world can rehearse, and why. */
+const LOCAL_ONLY: Partial<Record<CaseName, string>> = {
+  refunded: "it needs the local world's stand-in for the judges, set to reject",
+  'shown-mismatch': "it needs the local world's operator front, which raises the fee after the buyer saw the offer",
+};
+
+export interface RehearsalOptions {
+  case: CaseName;
+  /** Two or more operators at distinct origins. */
+  operators: string[];
+  /** The local world: its clock, its judges and its operator front. Without it (the live service) every wait is real time. */
+  world?: LocalWorld | undefined;
+  /** The case's directory: the seller's configuration file, template and journal, the buyer's key store, the deal record. */
+  dir: string;
+  reportFile?: string | undefined;
+  termsFile?: string | undefined;
+  /** redelivered: the seller's first report, which its check run refuses. Default: the seller's report cut to its first half. */
+  refusedReportFile?: string | undefined;
+  /** A mapping file (report-converter.ts): the report is in the seller's own shape, and the adapter converts it. */
+  mappingFile?: string | undefined;
+  /** The buyer's scope, as it sends it with the quote. Default SCOPE. */
+  scope?: J;
+  /** A key store and the address of an unused key in it (a rehearsal key), instead of fresh keys. One key serves one deal. */
+  keys?: { store: string; buyer: string } | undefined;
+  log?: (line: string) => void;
+  /** The longest wait for one step, in milliseconds. Default: none (D31); the deal's own deadlines end it. */
+  timeoutMs?: number | undefined;
+  /** How often the adapter and the signer read the operators, in milliseconds. Default 1,000. */
+  pollMs?: number | undefined;
+  /** Tests: the seller's signing key. Default: a fresh key that stays in memory. */
+  sellerKey?: Hex;
+}
+
+export interface RehearsalResult {
+  case: CaseName;
+  end: EndState;
+  /** Whether the case ended as `EXPECTED` says. */
+  expected: boolean;
+  commitmentId: Hex;
+  buyer: string;
+  seller: string;
+  dir: string;
+  /** The offer as both operators served it, as the buyer was shown it. */
+  offer: Offer;
+  /** What the buyer was shown before it approved: the seven signed fields of T-332 with maxSubmissions, and the differences from the defaults. */
+  shown: { signed: Record<string, J>; differences: Difference[] };
+  paid: Paid | null;
+  /** shown-mismatch: the signer's refusal. */
+  refusal: string | null;
+  delivery: Delivery | null;
+  /** Settlement refunded the hold on the signer's reclaim, after the delivery deadline. */
+  reclaimed: boolean;
+  /** The kinds of report the signer's watch made, in order. */
+  reports: Array<Report['kind']>;
+  /** The alerts the seller's callback received, each with whether its signature checked. The seller's data: never printed whole. */
+  alerts: Array<J & { type: string; signed: boolean }>;
+  sellerReceived: Money;
+  buyerHolds: Money;
+  /** The deal record's path, and its one-row summary. */
+  record: string;
+  row: Row;
+  steps: Array<{ step: string; ms: number }>;
+  elapsedMs: number;
+}
+
+type Alerts = Array<J & { type: string; signed: boolean }>;
+
+/**
+ * The seller's alert callback: it keeps each alert the adapter posts, with whether its HMAC-SHA256 signature checks
+ * against the secret the adapter signs with. It runs nothing from an alert and answers 204.
+ */
+async function alertSink(secret: string): Promise<{ url: string; alerts: Alerts; close(): Promise<void> }> {
+  const alerts: Alerts = [];
+  const server = createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on('data', (c: Buffer) => {
+      size += c.length;
+      if (size <= 1_048_576) chunks.push(c);
+    });
+    req.on('end', () => {
+      if (req.method !== 'POST' || size > 1_048_576) return void res.writeHead(400).end();
+      const text = Buffer.concat(chunks);
+      const want = Buffer.from(`sha256=${createHmac('sha256', secret).update(text).digest('hex')}`);
+      const got = Buffer.from(String(req.headers['x-crow-signature'] ?? ''));
+      let body: J = null;
+      try {
+        body = JSON.parse(text.toString('utf8'));
+      } catch {
+        // Not JSON: not an alert this adapter sends.
+      }
+      if (body && typeof body.type === 'string') alerts.push({ ...body, signed: got.length === want.length && timingSafeEqual(got, want) });
+      res.writeHead(204).end();
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/alerts`;
+  return { url, alerts, close: () => new Promise<void>((resolve) => { server.closeAllConnections(); server.close(() => resolve()); }) };
+}
+
+interface CaseSeller {
+  address: string;
+  /** The adapter's address: POST /quote, GET /defaults, POST /deals/<id>/ready. */
+  url(): string;
+  adapter(): RunningAdapter;
+  alerts: Alerts;
+  config: string;
+  /** What the seller's API returns from now on: the good report, or the one its check run refuses. Ends a running job. */
+  serve(which: 'good' | 'refused'): void;
+  /** The seller says its fixed report is ready: POST /deals/<id>/ready with its credential. Returns the status. */
+  ready(id: Hex): Promise<number>;
+  /** Closes the adapter and starts it again from the same configuration file and journal. */
+  restart(): Promise<void>;
+  close(): Promise<void>;
+}
+
+/**
+ * The seller's side of one case: the stub of its API (with the seller's own report served at a result route of this
+ * file when it gave one), an alert callback, and the adapter started from one configuration file written to `dir`.
+ * The configuration names environment variables only; the key and the two credentials reach the adapter as
+ * environment values and nothing here prints them.
+ */
+async function startCaseSeller(o: {
+  operators: string[]; dir: string; token: string; terms: TermsTemplate | undefined; template: J | null; report: { good: Uint8Array; refused: Uint8Array } | undefined;
+  mapping: string | undefined; initial: 'good' | 'refused' | 'running'; pollMs: number; log: (line: string) => void; sellerKey?: Hex | undefined;
+}): Promise<CaseSeller> {
+  const sellerKey = o.sellerKey ?? generatePrivateKey();
+  const address = privateKeyToAccount(sellerKey).address.toLowerCase();
+  const t = o.terms;
+  const builtIn = (which: 'good' | 'refused') => (which === 'refused' ? 'missing-file' : o.mapping ? 'own-shape' : 'ok') as 'ok' | 'missing-file' | 'own-shape';
+  // A job that runs until the case says it finished answers 202 until then.
+  const stub = await startStubSellerApi({
+    port: 0, token: o.token, report: builtIn(o.initial === 'refused' ? 'refused' : 'good'), pollsUntilComplete: o.initial === 'running' ? Number.MAX_SAFE_INTEGER : 0,
+    ...(t ? { quoteOverride: { price: { ...t.price }, deliverWithinSec: t.timing.deliverWithinSec } } : {}),
+  });
+  const closers: Array<() => Promise<void>> = [() => stub.close()];
+  const closeAll = async () => {
+    for (const close of closers.reverse()) await close();
+  };
+  try {
+    const served = o.report ? await serveReport(stub, o.initial === 'running' ? null : o.initial === 'refused' ? o.report.refused : o.report.good) : undefined;
+    if (served) closers.push(() => served.close());
+    const secret = randomBytes(32).toString('hex');
+    const readyCredential = randomBytes(32).toString('hex');
+    const sink = await alertSink(secret);
+    closers.push(() => sink.close());
+    if (o.template) writeFileSync(join(o.dir, 'seller-template.json'), `${JSON.stringify(o.template, null, 2)}\n`);
+    const w = t?.timing;
+    const config = join(o.dir, 'seller-adapter.config.json');
+    const settings = {
+      port: 0,
+      sellerApi: { ...stub.api, ...(served ? { result: served.result } : {}) },
+      ...(o.template ? { template: 'seller-template.json' } : {}),
+      ...(o.mapping ? { reportMapping: resolve(o.mapping) } : {}),
+      scope: adapterConfig.scope,
+      ...(w ? { timing: { offerExpiresInSec: w.offerExpiresInSec, fundWithinSec: w.fundWithinSec, deliverWithinSec: w.deliverWithinSec, judgeWithinSec: w.judgeWithinSec, fallbackWithinSec: w.fallbackWithinSec, appealWindowSec: w.appealWindowSec, appealDecideSec: w.appealDecideSec } } : {}),
+      journal: join(o.dir, 'seller-journal.json'),
+      pollMs: o.pollMs,
+      alerts: { callback: sink.url, secretEnv: 'HOLDBACK_ALERT_SECRET' },
+      // No scheduled refetch: the adapter fetches a fixed report when the seller says it is ready.
+      redelivery: { readyAuth: { kind: 'bearer', env: 'HOLDBACK_READY_CREDENTIALS' } },
+    };
+    writeFileSync(config, `${JSON.stringify(settings, null, 2)}\n`);
+    const env = { HOLDBACK_KEY: sellerKey, HOLDBACK_OPERATORS: o.operators.join(','), HOLDBACK_ALERT_SECRET: secret, HOLDBACK_READY_CREDENTIALS: readyCredential };
+    const start = () => startSellerAdapter({ ...loadConfig(config), log: o.log }, env);
+    let adapter = await start();
+    closers.push(() => adapter.close());
+    return {
+      address, config, alerts: sink.alerts, url: () => adapter.url, adapter: () => adapter,
+      serve: (which) => {
+        if (served) served.set(which === 'good' ? o.report!.good : o.report!.refused);
+        else stub.setReport(builtIn(which));
+        stub.completeAll();
+      },
+      ready: async (id) => {
+        const res = await fetch(`${adapter.url}/deals/${id}/ready`, { method: 'POST', headers: { authorization: `Bearer ${readyCredential}` } });
+        await res.body?.cancel();
+        return res.status;
+      },
+      restart: async () => {
+        await adapter.close();
+        adapter = await start();
+      },
+      close: closeAll,
+    };
+  } catch (e) {
+    await closeAll();
+    throw e;
+  }
+}
+
+/** A value from the seller or the operators in one line: JSON, at most 120 code points, with no hidden characters. */
+const brief = (v: J): string => printable([...JSON.stringify(v ?? null)].slice(0, 120).join(''));
+
+/**
+ * Runs one of the pilot's cases to its end and writes its deal record. Throws when a step fails, or when the buyer's
+ * signer refuses an offer outside the shown-mismatch case. The report, the mapping and the terms stay data: nothing in
+ * them runs, and no request's host comes from them.
+ */
+export async function rehearse(o: RehearsalOptions): Promise<RehearsalResult> {
+  const say = o.log ?? ((line: string) => console.log(line));
+  const name = o.case;
+  const timeoutMs = o.timeoutMs ?? Number.MAX_SAFE_INTEGER;
+  const pollMs = o.pollMs ?? 1000;
+  const started = Date.now();
+  const steps: RehearsalResult['steps'] = [];
+  let number = 0;
+  const step = (title: string, detail: string) => {
+    steps.push({ step: title, ms: Date.now() - started });
+    say(`${String(++number).padStart(2)}. ${title} (${((Date.now() - started) / 1000).toFixed(1)} s): ${detail}`);
+  };
+  if (!o.world && LOCAL_ONLY[name]) throw new UsageError(`--live cannot run ${name}: ${LOCAL_ONLY[name]}`);
+  mkdirSync(o.dir, { recursive: true });
+  // The seller's files are read and checked first: a terms file the schema refuses stops the case before anything starts.
+  const files = readSellerFiles(o);
+  const ownTerms = files.terms?.terms;
+  const scope = o.scope ?? SCOPE;
+  const panel = name === 'rubric' || name === 'refunded';
+  const shipped = JSON.parse(readFileSync(TEMPLATE, 'utf8')) as J;
+
+  // The deal's template. Built-in: the shipped one, and a buyer's option adds its rubric. With terms: the terms', and a
+  // rubric case adds the shipped template's optional rubric when the terms carry none.
+  let template: J | null = ownTerms ? templateOf(ownTerms) : null;
+  let options: J = undefined;
+  let addedRubric = false;
+  if (panel && !ownTerms) options = { panel: true };
+  if (panel && ownTerms && !(ownTerms.acceptance.rubric.criteria.length > 0)) {
+    template = { ...template, rubric: shipped.optionalRubric };
+    addedRubric = true;
+  }
+  // What the buyer expects, from its own scope and the terms both sides know, not read from the offer.
+  const theirs = template ?? { deliverable: shipped.deliverable, checks: shipped.checks, rubric: options?.panel ? shipped.optionalRubric : EMPTY_RUBRIC };
+  const expected = fill({ deliverable: theirs.deliverable, checks: theirs.checks, rubric: theirs.rubric ?? EMPTY_RUBRIC }, scope);
+  const hasRubric = Array.isArray(expected.rubric?.criteria) && expected.rubric.criteria.length > 0;
+
+  // The redelivered case's first report, which the seller's check run refuses.
+  let report: { good: Uint8Array; refused: Uint8Array } | undefined;
+  if (files.report) {
+    const given = o.refusedReportFile !== undefined ? readSellerFiles({ reportFile: o.refusedReportFile }).report! : undefined;
+    report = { good: files.report.bytes, refused: given?.bytes ?? files.report.bytes.slice(0, Math.floor(files.report.bytes.length / 2)) };
+    if (name === 'redelivered' && !o.mappingFile) {
+      const format = expected.deliverable.format;
+      const pre = preflightDelivery({ plaintext: report.refused, mime: format, format, acceptance: { deterministicChecks: expected.checks, rubric: expected.rubric } });
+      if (pre.result === 'accept' || pre.result === 'panel') throw new UsageError(`the seller's check run accepts the first report of the redelivered case too, so nothing would be refused: name one it refuses with --refused-report`);
+    }
+  }
+
+  const { reader, pin, adjudicators } = await discover(o.operators);
+  const money = (m: Money) => shown(m, pin.token.symbol, pin.token.decimals);
+  const balance = async (address: string): Promise<Money> => ({ token: pin.token.id, amount: String((await reader.trusted(`/v1/balances/${address}`, (x) => x.amount)) ?? '0') });
+  if (ownTerms && ownTerms.price.token.toLowerCase() !== pin.token.id.toLowerCase()) {
+    throw new UsageError(`refusing the terms file ${plain(basename(files.terms!.path))}, before any deal opens: price.token is ${plain(ownTerms.price.token)}; this settlement layer holds ${pin.token.id} (${pin.token.symbol})`);
+  }
+  say(`Case ${name}: an audit-report deal on ${o.operators.join(' and ')}, settling on ${pin.chain ? `chain ${pin.domain.chainId}` : 'SimChain'} in ${pin.token.symbol}. Test tokens only.`);
+  // The faucet is the only source of funds here: its largest grant is the most one deal can cost on this service.
+  const maxGrant = await reader.trusted<J>('/.well-known/holdback.json', (x) => x.demo?.faucet?.maxGrant ?? null);
+  if (maxGrant && typeof maxGrant.amount === 'string') say(`${o.world ? "This world's" : "The test service's"} faucet grants at most ${money({ token: pin.token.id, amount: maxGrant.amount })} a deal: a price plus both fees above that cannot be funded here. This tool adds no limit of its own (D31).`);
+  say(`The seller's report: ${files.report ? `${plain(files.report.path)}, ${files.report.bytes.length} bytes` : "the stub's built-in sample, for the buyer's scope"}${o.mappingFile ? `, in the seller's own shape, converted by ${plain(o.mappingFile)}` : ''}. The terms: ${files.terms ? plain(files.terms.path) : 'the built-in template, examples/seller-adapter.template.json'}.`);
+  if (addedRubric) say(`The terms carry no rubric: this case adds the template's optional rubric of ${shipped.optionalRubric.criteria.length} criteria, as a buyer's panel option would.`);
+  if (name === 'redelivered') say(`The first report: ${o.refusedReportFile !== undefined ? plain(o.refusedReportFile) : files.report ? `the seller's report cut to its first half, ${report!.refused.length} of ${report!.good.length} bytes` : "the stub's report with the last file in scope left out"}.`);
+  if (name === 'refunded') say("The judges: the local world's panel is a stand-in set to reject: no model runs, and each verdict reads \"fake judge: fail\".");
+
+  const initial = name === 'redelivered' ? 'refused' : name === 'missed-deadline' || name === 'resume' ? 'running' : 'good';
+  let selling: CaseSeller | undefined;
+  let front: Awaited<ReturnType<LocalWorld['front']>> | undefined;
+  if (name === 'refunded') o.world!.setPanel('fail');
+  try {
+    // ---- The seller: its API (a stub here), its alert callback, its adapter from one configuration file ----
+    selling = await startCaseSeller({
+      operators: o.operators, dir: o.dir, token: pin.token.id, terms: ownTerms, template, report, mapping: o.mappingFile, initial, pollMs,
+      log: (line) => say(`      seller adapter: ${line}`), sellerKey: o.sellerKey,
+    });
+    const seller = selling.address;
+    const sellerBefore = await balance(seller);
+    step('The seller starts', `its adapter started from one configuration file, ${selling.config}, and serves POST ${selling.url()}/quote and GET ${selling.url()}/defaults for seller ${seller}.`);
+
+    // ---- The buyer: keys, a quote, the offer shown with every signed field and the differences from the defaults ----
+    if (name === 'shown-mismatch') front = await o.world!.front();
+    const buyerOperators = front?.operators ?? o.operators;
+    const store = o.keys?.store ?? join(o.dir, 'buyer-keys');
+    let signer: BuyerSigner = o.keys ? await loadKeys(o.keys.store, o.keys.buyer, { operators: buyerOperators }) : await makeKeys(store, { operators: buyerOperators });
+    step(o.keys ? 'The buyer opens its key' : 'The buyer makes keys', `buyer ${signer.address}; the key file is in ${store}${o.keys ? '' : ' with mode 0600'}.`);
+    if (front) say(`    The buyer reads the operators through a front, ${front.operators.join(' and ')}, that serves this world unchanged until it raises the fee.`);
+
+    const quote = await signer.quote(`${selling.url()}/quote`, scope, options);
+    const id = quote.commitmentId;
+    step('The buyer asks for a quote', `commitment ${id}, price ${money(quote.price)}${options ? `, with the option ${brief(options)}` : ''}, offer open until ${plain(quote.expiresAt)}.`);
+
+    const offer = await signer.readOffer(id, { defaults: `${selling.url()}/defaults` });
+    const signed: Record<string, J> = {
+      'settlement.mode': offer.settlement.mode, 'disclosure.level': offer.disclosure.level, clubId: offer.clubId, rulebookHash: offer.rulebookHash,
+      policyId: offer.policyId, policyHash: offer.policyHash, registryHash: offer.registryHash, maxSubmissions: offer.maxSubmissions,
+    };
+    const differences = offer.differences ?? [];
+    const rubricSize = Array.isArray(offer.rubric?.criteria) ? offer.rubric.criteria.length : 0;
+    step('The buyer is shown the offer', `price ${money(offer.price)}, adjudication fee ${money(offer.fees.adjudication)}, operator fee ${money(offer.fees.operator)}, total ${money(offer.fees.total)}; delivery by ${plain(String(offer.deadlines.deliverBy))} (${span(offer.windows.deliverWithinSec)}); ${offer.checks.length} checks; ${rubricSize ? `a rubric of ${rubricSize} criteria` : 'no rubric'}; adjudicators ${offer.adjudicators.primary}, ${offer.adjudicators.fallback} and ${offer.adjudicators.appeal}.`);
+    say(`    Shown before approval: ${Object.entries(signed).map(([k, v]) => `${k} ${plain(String(v))}`).join(', ')}.`);
+    say(`    Differences from the seller's defaults: ${differences.length ? differences.map((d) => `${plain(d.field)} ${brief(d.old)} -> ${brief(d.new)}`).join('; ') : 'none'}.`);
+
+    // The approval: the buyer's own expectation, the fees it pays at most, and the differences and signed fields it saw.
+    const schedule = ownTerms ? await reader.operatorFeeSchedule() : null;
+    const maxFees = ownTerms ? BigInt(ownTerms.adjudication.fee.amount) + (schedule ? operatorFeeOf(offer.price, schedule) : 0n) : MAX_FEES_UNITS;
+    const fees = BigInt(offer.fees.total.amount) - BigInt(offer.price.amount);
+    if (fees > maxFees) throw new Refusal(`refusing to sign: the fees are ${money({ token: pin.token.id, amount: fees.toString() })}, above the ${money({ token: pin.token.id, amount: maxFees.toString() })} this buyer pays`);
+    if (ownTerms) {
+      const windowSec = Math.round((Date.parse(offer.deadlines.deliverBy) - (await reader.settlementNow())) / 1000);
+      const agreed = ownTerms.timing.deliverWithinSec;
+      if (!(windowSec > agreed - 900 && windowSec <= agreed + 60)) throw new Refusal(`refusing to sign: the delivery deadline ${plain(String(offer.deadlines.deliverBy))} is ${windowSec} s away, not the ${agreed} s agreed`);
+    }
+    const approved: Approved = {
+      commitmentId: id, // the approval names the offer it approves (T-368)
+      seller, price: { token: pin.token.id, amount: ownTerms?.price.amount ?? offer.price.amount }, fees: offer.fees,
+      deliverable: expected.deliverable, checks: expected.checks, ...(hasRubric ? { rubric: expected.rubric } : {}), deadlines: offer.deadlines, adjudicators, differences,
+      settlement: offer.settlement, disclosure: offer.disclosure, clubId: offer.clubId, rulebookHash: offer.rulebookHash, policyId: offer.policyId, policyHash: offer.policyHash, registryHash: offer.registryHash, maxSubmissions: offer.maxSubmissions,
+    };
+    step('The buyer approves', `${ownTerms ? 'the terms file it shares with the seller' : 'the built-in template filled with its scope, at the price it was shown'}, the ${differences.length} ${differences.length === 1 ? 'difference' : 'differences'} and the eight signed fields above.`);
+
+    const granted = await signer.testFunds(offer.fees.total.amount);
+    step('The buyer takes test funds', `the faucet granted ${money(granted)} and a mandate.`);
+
+    // The record and the result, once the case has ended.
+    let refusal: string | null = null;
+    let paid: Paid | null = null;
+    let delivery: Delivery | null = null;
+    let reclaimed = false;
+    const reports: Array<Report['kind']> = [];
+    const finish = async (end: EndState): Promise<RehearsalResult> => {
+      const sellerReceived = { token: pin.token.id, amount: (BigInt((await balance(seller)).amount) - BigInt(sellerBefore.amount)).toString() };
+      const buyerHolds = await balance(signer.address);
+      // The buyer's own record, read from every operator. Its x25519 key opens its released envelope; it never reaches the record.
+      const keyFile = JSON.parse(readFileSync(join(signer.store, `${signer.address}.json`), 'utf8')) as { encryptionSecretKey: string };
+      const record = await dealRecord(id, { operators: o.operators, party: 'buyer', encryptionSecretKey: keyFile.encryptionSecretKey });
+      const path = join(o.dir, 'deal-record.json');
+      writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`);
+      const count = (ok: boolean | null) => record.checks.filter((c) => c.ok === ok).length;
+      step('The buyer writes the deal record', `${path}: outcome ${plain(String(record.row.outcome))}, ${count(true)} checks passed, ${count(false)} failed, ${count(null)} not run${record.disagreements.length ? `; the operators differ on ${record.disagreements.map((d) => d.section).join(', ')}` : ''}.`);
+      const ok = end === EXPECTED[name];
+      say(`Case ${name}: ${end}, ${ok ? 'as expected' : `not the expected ${EXPECTED[name]}`}. Deal record: ${path}`);
+      return {
+        case: name, end, expected: ok, commitmentId: id, buyer: signer.address, seller, dir: o.dir, offer, shown: { signed, differences }, paid, refusal, delivery, reclaimed, reports,
+        alerts: [...selling!.alerts], sellerReceived, buyerHolds, record: path, row: record.row, steps, elapsedMs: Date.now() - started,
+      };
+    };
+
+    if (front) {
+      front.raiseFeeBps(100);
+      step('The operators raise their fee', 'the front now publishes an operator fee 100 basis points above the one the buyer was shown.');
+    }
+    // Refuses (throws Refusal, naming the field) unless the offer read again from every operator is the one shown and
+    // approved. The adjudicator takes a deal within seconds or declines it: wait at most 5 minutes for that.
+    try {
+      await signer.checkOffer(id, approved, { timeoutMs: Math.min(timeoutMs, 300_000) });
+    } catch (e) {
+      if (!(e instanceof Refusal) || name !== 'shown-mismatch') throw e;
+      refusal = e.message;
+      step('The signer refuses', `${plain(e.message)}. Nothing was signed: no agreement, no funding, no fee.`);
+      return await finish('Not funded');
+    }
+    if (name === 'shown-mismatch') throw new Error('the signer passed an offer whose operator fee changed after it was shown');
+    step('The buyer checks the offer', 'every operator serves the offer it was shown and approved, the seller\'s signature recovers, and the primary adjudicator took the deal.');
+
+    paid = await signer.agreeAndFund(id);
+    step('The buyer funds the hold', `paid ${money(paid.total)}: ${money(paid.hold)} into the hold (price and adjudication fee) and ${money(paid.operatorFee)} to the operator.`);
+    const deliverBy = String(offer.deadlines.deliverBy);
+
+    // ---- The seller's turn: the adapter sees the hold, starts the job, checks the result, delivers or holds it ----
+    const stage = () => selling!.adapter().deals().find((d) => d.id === id)?.stage;
+    const until = async (what: string, done: () => boolean) => {
+      for (const end = Date.now() + timeoutMs; !done(); await sleep(50)) if (Date.now() > end) throw new Error(`still waiting for ${what} after ${timeoutMs / 1000} s; the seller adapter is at ${stage()}`);
+    };
+    const alerted = (type: string) => selling!.alerts.some((a) => a.type === type);
+    if (name === 'redelivered') {
+      await until('the refusal and its alert', () => stage() === 'refused' && alerted('delivery.refused'));
+      step('The seller\'s check run refuses the first report', `nothing is delivered, and the hold of ${money(paid.hold)} stays funded until ${plain(deliverBy)}.`);
+      const a = selling.alerts.find((x) => x.type === 'delivery.refused')!;
+      const why = Array.isArray(a.checks) && a.checks.length ? `failed ${a.checks.map((c: J) => plain(String(c.checkId))).join(', ')}` : `intake refused it (${plain(String(a.refused?.code ?? a.result))})`;
+      step('The seller is alerted', `its callback got a ${a.signed ? 'signed' : 'NOT signed'} alert, delivery.refused, attempt ${Number(a.attempt)}: ${why}.`);
+      selling.serve('good');
+      const status = await selling.ready(id);
+      if (status !== 202) throw new Error(`the adapter answered ${status} to the seller's ready signal, not 202`);
+      step('The seller says the fixed report is ready', 'POST /deals/<id>/ready with its credential answered 202, and the adapter fetched the result again.');
+      await until('the fixed delivery and its alert', () => stage() === 'delivered' && alerted('delivery.fixed'));
+      step('The seller delivers the fixed report', `before the deadline ${plain(deliverBy)}; its callback got a second alert, delivery.fixed.`);
+    } else if (name === 'missed-deadline') {
+      await until('the job to start', () => stage() === 'started');
+      step('The seller never delivers', 'the adapter started the job, and the job never finishes.');
+      const waitSec = Math.ceil((Date.parse(deliverBy) - (await reader.settlementNow())) / 1000) + 2;
+      if (o.world) {
+        o.world.advanceClock(waitSec);
+        step('The delivery deadline passes', `this world's clock moved ${waitSec} s (${span(waitSec)}) forward, past ${plain(deliverBy)}; the buyer's signer reclaims the hold.`);
+      } else step('The buyer waits for the delivery deadline', `${waitSec} s in real time, to ${plain(deliverBy)}; then its signer reclaims the hold.`);
+    } else if (name === 'resume') {
+      await until('the job to start', () => stage() === 'started');
+      step('The buyer stops after funding', `its key store ${store} keeps the deal; the process keeps nothing of it.`);
+      await selling.restart();
+      step('The seller\'s adapter restarts', `from the same configuration file and journal${o.mappingFile ? ', with the report mapping set' : ''}; it finds the deal at ${stage()}.`);
+      const leftSec = Math.floor((Date.parse(deliverBy) - (await reader.settlementNow())) / 1000);
+      if (o.world) {
+        const sec = Math.max(0, Math.floor(leftSec / 2));
+        o.world.advanceClock(sec);
+        step('Days pass', `this world's clock moved ${sec} s (${span(sec)}) forward; the delivery deadline is still ${span(leftSec - sec)} ahead.`);
+      } else step('Days pass', 'on the live service no clock moves: the job finishes and the buyer resumes at once.');
+      selling.serve('good');
+      await until('the delivery', () => stage() === 'delivered' || stage() === 'refused');
+      if (stage() === 'refused') {
+        step('The seller does not deliver', "the report failed the adapter's check run (the lines above name the check); the hold stays funded.");
+        return await finish('Held');
+      }
+      step('The seller delivers', 'the job finished, the adapter checked the result and delivered the encrypted report.');
+      const open = await openDeals(store, { operators: o.operators });
+      signer = open.find((s) => s.commitmentId === id) ?? (() => { throw new Error(`the key store ${store} holds no open deal ${id}`); })();
+      step('The buyer resumes from its key store', `openDeals found ${open.length} open ${open.length === 1 ? 'deal' : 'deals'} in ${store}, ${id} among them, funded with ${money(signer.paid!.total)}.`);
+    } else {
+      selling.serve('good');
+      await until('the delivery', () => stage() === 'delivered' || stage() === 'refused');
+      if (stage() === 'refused') {
+        step('The seller does not deliver', "the report failed the adapter's check run (the lines above name the check); the hold stays funded.");
+        return await finish('Held');
+      }
+      step('The seller delivers', `the report passed the adapter's check run, and it delivered the encrypted report${hasRubric ? '; the panel judges it next' : ''}.`);
+    }
+
+    // ---- The outcome: the buyer's signer waits for every operator, reclaims after a missed deadline, opens the report ----
+    delivery = await signer.openDelivery(id, {
+      timeoutMs, pollMs,
+      onReport: (r) => {
+        reports.push(r.kind);
+        if (r.kind === 'refunded') reclaimed = r.reclaimed;
+      },
+    });
+    if (delivery.outcome === 'Released') step('The deal ends Released', `the buyer opened the report, ${delivery.plaintextSha256}; the seller's balance rose by the price.`);
+    else step('The deal ends Refunded', `${reclaimed ? `settlement refunded the hold of ${money(paid.hold)}, price and adjudication fee, on the signer's reclaim` : `the adjudicator rejected the report: the price of ${money(offer.price)} is back, and the adjudication fee paid for the judgment`}; the buyer's key holds ${money(await balance(signer.address))}, and the operator fee is not refundable.`);
+    return await finish(delivery.outcome);
+  } finally {
+    await front?.close();
+    await selling?.close();
+    if (name === 'refunded') o.world!.setPanel('pass');
+  }
 }
 
 export interface AuditDealArgs {
   live: boolean;
   reportFile?: string;
   termsFile?: string;
+  /** T-355: one case, or all of them. */
+  case?: CaseName | 'all';
+  refusedReportFile?: string;
+  mappingFile?: string;
+  scope?: J;
+  out?: string;
+  keys?: string;
+  buyer?: string;
 }
 
-export const USAGE = 'usage: pnpm audit-deal [--live]\n       pnpm audit-deal [--report <report file>] [--terms <terms file>]   (the local world only)';
+export const USAGE = [
+  'usage: pnpm audit-deal [--live]',
+  '       pnpm audit-deal [--report <report file>] [--terms <terms file>]   (the local world only)',
+  '       pnpm audit-deal --case <case|all> [--report <file>] [--terms <file>] [--scope <JSON>] [--mapping <file>] [--refused-report <file>] [--out <dir>]',
+  '       pnpm audit-deal --live --case <case> [--report <file>] [--terms <file>] [--scope <JSON>] [--keys <key store> --buyer <address>] [--out <dir>]',
+  `cases: ${CASES.join(', ')}`,
+].join('\n');
 
-/** The command line: `--live`, or a seller's own `--report` and `--terms` files. Anything else is refused. */
+const VALUE_OPTIONS: Record<string, keyof AuditDealArgs> = {
+  '--report': 'reportFile', '--terms': 'termsFile', '--case': 'case', '--refused-report': 'refusedReportFile', '--mapping': 'mappingFile', '--scope': 'scope', '--out': 'out', '--keys': 'keys', '--buyer': 'buyer',
+};
+
+/** The command line: `--live`, a seller's own files, and the cases of T-355. Anything else is refused. */
 export function parseArgs(argv: readonly string[]): AuditDealArgs {
   const args: AuditDealArgs = { live: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
-    if (a === '--live') args.live = true;
-    else if (a === '--report' || a === '--terms') {
-      const file = argv[++i];
-      if (file === undefined || file.startsWith('--')) throw new UsageError(`${a} needs a file`);
-      const key = a === '--report' ? 'reportFile' : 'termsFile';
-      if (args[key] !== undefined) throw new UsageError(`${a} is given twice`);
-      args[key] = file;
-    } else throw new UsageError(`unknown option ${plain(a)}`);
+    if (a === '--live') {
+      args.live = true;
+      continue;
+    }
+    const key = Object.hasOwn(VALUE_OPTIONS, a) ? VALUE_OPTIONS[a]! : undefined;
+    if (!key) throw new UsageError(`unknown option ${plain(a)}`);
+    const value = argv[++i];
+    if (value === undefined || value.startsWith('--')) throw new UsageError(`${a} needs a ${a === '--case' ? 'case' : a === '--scope' ? 'JSON value' : a === '--buyer' ? 'address' : a === '--out' || a === '--keys' ? 'directory' : 'file'}`);
+    if (args[key] !== undefined) throw new UsageError(`${a} is given twice`);
+    if (key === 'case') {
+      if (value !== 'all' && !(CASES as readonly string[]).includes(value)) throw new UsageError(`--case is one of ${CASES.join(', ')} or all`);
+      args.case = value as CaseName | 'all';
+    } else if (key === 'scope') {
+      try {
+        args.scope = JSON.parse(value);
+      } catch {
+        throw new UsageError('--scope is not JSON');
+      }
+    } else (args as unknown as Record<string, unknown>)[key] = value;
   }
-  if (args.live && (args.reportFile !== undefined || args.termsFile !== undefined)) throw new UsageError('--report and --terms run on the local world only: leave out --live');
+  if ((args.keys === undefined) !== (args.buyer === undefined)) throw new UsageError('--keys and --buyer go together: the key store and the address of the key in it');
+  if (args.case === undefined && [args.mappingFile, args.scope, args.refusedReportFile, args.out, args.keys, args.buyer].some((v) => v !== undefined)) throw new UsageError('--mapping, --scope, --refused-report, --out, --keys and --buyer need --case');
+  if (args.live && args.case === undefined && (args.reportFile !== undefined || args.termsFile !== undefined)) throw new UsageError('--report and --terms run on the local world only, or with --case: leave out --live, or name a case');
+  if (args.live && args.case === 'all') throw new UsageError('--live runs one case: a live deal takes a fresh or unused key, test tokens and real time');
+  const why = args.live && args.case && args.case !== 'all' ? LOCAL_ONLY[args.case] : undefined;
+  if (why) throw new UsageError(`--live cannot run ${args.case}: ${why}`);
   return args;
 }
 
@@ -532,7 +1084,28 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   };
   let code = 0;
   try {
-    const outcomes: Array<AuditDealOptions['outcome']> = custom ? [undefined] : live ? ['released'] : ['released', 'refused'];
+    if (args.case !== undefined) {
+      // T-355: the pilot's cases, each in its own directory under one output directory that stays.
+      const names: CaseName[] = args.case === 'all' ? [...CASES] : [args.case];
+      const out = args.out !== undefined ? resolve(args.out) : mkdtempSync(join(tmpdir(), live ? 'audit-deal-live-' : 'audit-deal-rehearsal-'));
+      console.log(`Each case's configuration, journal, key store and deal record go in ${out}.`);
+      let ended = 0;
+      for (const [i, name] of names.entries()) {
+        // The world's faucet grants 10 times a client in each hour of world time; a case takes about 4.
+        if (world && i > 0) world.advanceClock(3601);
+        console.log(`\n== Case: ${name} ==`);
+        const r = await rehearse({
+          case: name, operators, world, dir: join(out, name), reportFile: args.reportFile, termsFile: args.termsFile, refusedReportFile: args.refusedReportFile, mappingFile: args.mappingFile,
+          ...(args.scope !== undefined ? { scope: args.scope } : {}), keys: args.keys !== undefined ? { store: args.keys, buyer: args.buyer! } : undefined,
+          // A live deal waits for blocks: read every 3 s. No step has a time limit of its own (D31).
+          pollMs: world ? 200 : 3000,
+        });
+        if (r.expected) ended++;
+      }
+      console.log(`\n${ended} of ${names.length} ${names.length === 1 ? 'case' : 'cases'} ended as expected.`);
+      code = ended === names.length ? 0 : 1;
+    }
+    const outcomes: Array<AuditDealOptions['outcome']> = args.case !== undefined ? [] : custom ? [undefined] : live ? ['released'] : ['released', 'refused'];
     for (const outcome of outcomes) {
       console.log(outcome ? `\n== Outcome: ${outcome} ==` : '\n== The seller\'s own report and terms ==');
       // On the live service the key store stays, in case the buyer's key still holds test tokens; its path is printed.
@@ -548,8 +1121,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     }
   } catch (e) {
     console.error(`audit-deal: ${plain((e as Error).message)}${e instanceof UsageError ? `\n${USAGE}` : ''}`);
-    // The built-in run exits 1 on any failure, as before. With a seller's own files, 1 means the report does not settle.
-    code = custom ? 2 : 1;
+    // The built-in run exits 1 on any failure, as before. With a seller's own files or a case, 1 means a deal did not
+    // end as expected, and 2 that the run could not start or stopped on an error.
+    code = custom || args.case !== undefined ? 2 : 1;
   } finally {
     for (const line of refusedRequests) console.error(`  refused request: ${line}`);
     await world?.close();

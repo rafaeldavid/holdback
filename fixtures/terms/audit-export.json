@@ -1,0 +1,197 @@
+{
+  "schemaVersion": "0.8",
+  "clubId": "data-services-v1",
+  "deliverable": {
+    "kind": "document",
+    "description": "Security audit of the vault contracts at commit 9b1d4e7a3c5f20864d1e3b5a7c9f0e2d4b6a8c1e, run as one audit job on one target, vault-repo. Scope: src/Vault.sol, src/Oracle.sol and src/Fees.sol. Deliver the job's export as one JSON file: the job with its request and result, and its artifacts. Each finding names a title, a severity (critical, high, medium, low or info), one or more places in a file in scope with both lines, the cause, the impact, the fix and a status; a finding rated medium or higher also carries a proof-of-concept walkthrough. One scope artifact lists the three files. A public fixture in the shape of the pilot kit's terms (T-355): JSON, concrete values, checks written on a job export with no report mapping.",
+    "format": "application/json"
+  },
+  "acceptance": {
+    "deterministicChecks": [
+      {
+        "id": "report",
+        "type": "json_schema",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "required": ["job", "artifacts"],
+          "properties": {
+            "job": {
+              "type": "object",
+              "required": ["state", "result"],
+              "properties": {
+                "state": { "const": "completed" },
+                "result": { "type": "object", "required": ["state"], "properties": { "state": { "const": "completed" } } }
+              }
+            },
+            "artifacts": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "required": ["type", "data"],
+                    "properties": {
+                      "type": { "const": "finding" },
+                      "data": {
+                        "type": "object",
+                        "required": ["title", "severity", "where", "cause", "impact", "fix", "status"],
+                        "properties": {
+                          "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+                          "severity": { "enum": ["critical", "high", "medium", "low", "info"] },
+                          "where": {
+                            "type": "array",
+                            "minItems": 1,
+                            "items": {
+                              "type": "object",
+                              "required": ["path", "from", "to"],
+                              "properties": { "path": { "type": "string", "minLength": 1 }, "from": { "type": "integer", "minimum": 1 }, "to": { "type": "integer", "minimum": 1 } }
+                            }
+                          },
+                          "cause": { "type": "string", "minLength": 1 },
+                          "impact": { "type": "string", "minLength": 1 },
+                          "fix": { "type": "string", "minLength": 1 },
+                          "poc": { "type": ["string", "null"] },
+                          "status": { "enum": ["open", "fixed", "acknowledged", "duplicate"] }
+                        }
+                      }
+                    }
+                  },
+                  { "type": "object", "required": ["type", "paths"], "properties": { "type": { "const": "scope" }, "paths": { "type": "array", "items": { "type": "string", "minLength": 1 } } } },
+                  { "type": "object", "required": ["type", "text"], "properties": { "type": { "const": "note" }, "text": { "type": "string" } } }
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "proof",
+        "type": "json_schema",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "required": ["artifacts"],
+          "properties": {
+            "artifacts": {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  { "not": { "type": "object", "required": ["type"], "properties": { "type": { "const": "finding" } } } },
+                  { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["severity"], "properties": { "severity": { "enum": ["low", "info"] } } } } },
+                  { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["status"], "properties": { "status": { "const": "duplicate" } } } } },
+                  { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["poc"], "properties": { "poc": { "type": "string", "minLength": 1 } } } } }
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "scope",
+        "type": "json_schema",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "required": ["job", "artifacts"],
+          "properties": {
+            "job": {
+              "type": "object",
+              "required": ["result"],
+              "properties": {
+                "result": {
+                  "type": "object",
+                  "required": ["targets"],
+                  "properties": {
+                    "targets": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 1,
+                      "items": { "type": "object", "required": ["target", "commit"], "properties": { "target": { "const": "vault-repo" }, "commit": { "const": "9b1d4e7a3c5f20864d1e3b5a7c9f0e2d4b6a8c1e" } } }
+                    }
+                  }
+                }
+              }
+            },
+            "artifacts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["target", "commit"],
+                "properties": {
+                  "target": { "const": "vault-repo" },
+                  "commit": { "const": "9b1d4e7a3c5f20864d1e3b5a7c9f0e2d4b6a8c1e" },
+                  "data": {
+                    "type": "object",
+                    "properties": {
+                      "where": { "type": "array", "items": { "type": "object", "required": ["path"], "properties": { "path": { "enum": ["vault-repo/src/Vault.sol", "vault-repo/src/Oracle.sol", "vault-repo/src/Fees.sol"] } } } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "coverage",
+        "type": "json_schema",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "required": ["job", "artifacts"],
+          "properties": {
+            "job": {
+              "type": "object",
+              "required": ["request", "result"],
+              "properties": {
+                "request": {
+                  "type": "object",
+                  "required": ["target", "commit", "files"],
+                  "properties": {
+                    "target": { "const": "vault-repo" },
+                    "commit": { "const": "9b1d4e7a3c5f20864d1e3b5a7c9f0e2d4b6a8c1e" },
+                    "files": { "type": "array", "uniqueItems": true, "minItems": 3, "maxItems": 3, "items": { "enum": ["src/Vault.sol", "src/Oracle.sol", "src/Fees.sol"] } }
+                  }
+                },
+                "result": { "type": "object", "required": ["fileCount"], "properties": { "fileCount": { "const": 3 } } }
+              }
+            },
+            "artifacts": {
+              "not": {
+                "items": {
+                  "not": {
+                    "type": "object",
+                    "required": ["type", "paths"],
+                    "properties": {
+                      "type": { "const": "scope" },
+                      "paths": { "type": "array", "uniqueItems": true, "minItems": 3, "maxItems": 3, "items": { "enum": ["src/Vault.sol", "src/Oracle.sol", "src/Fees.sol"] } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      { "id": "hidden", "type": "hidden_characters_max", "required": true, "max": { "total": 0 } }
+    ],
+    "rubric": { "passThreshold": 0, "criteria": [] }
+  },
+  "price": { "token": "tUSD", "amount": "1500000000" },
+  "adjudication": { "policyId": "bench-a/p1", "fee": { "token": "tUSD", "amount": "50000000" } },
+  "timing": {
+    "offerExpiresInSec": 86400,
+    "fundWithinSec": 172800,
+    "deliverWithinSec": 604800,
+    "judgeWithinSec": 3600,
+    "fallbackWithinSec": 3600,
+    "appealWindowSec": 0,
+    "appealDecideSec": 86400,
+    "maxSubmissions": 1
+  },
+  "settlement": { "mode": "guaranteed_on_decision", "token": "tUSD" },
+  "remedy": { "onReject": "full_refund" },
+  "disclosure": { "level": "public" }
+}

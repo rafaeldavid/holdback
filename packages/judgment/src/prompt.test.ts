@@ -147,3 +147,57 @@ describe('appeal template (T-009)', () => {
     expect(APPEAL_PROMPT_TEMPLATE).not.toMatch(/\{\{(first|outcome|decision)/);
   });
 });
+
+// T-361 finding 2, fixed by T-367: the stride sample kept the first line whole, so a one-line delivery
+// over the limit reached every judge whole. Each line now costs its length plus a line break, and the
+// data never exceeds the limit.
+describe('prompt builder: no judge reads more than the limit', () => {
+  const MAX = 1_000;
+  const buildMax = (data: string) => {
+    const r = buildPrompt({ spec, criteria: RUBRIC.criteria, data: UntrustedData.wrap(data), nonces: NONCES, maxDataChars: MAX });
+    if (!r.ok) throw new Error(r.error);
+    return r.value;
+  };
+  /** The data section's lines with their datamarks removed. */
+  const shown = (p: ReturnType<typeof buildMax>) =>
+    p.user.split(`<<<BEGIN UNTRUSTED DATA ${NONCES.boundary}>>>\n`)[1]!.split(`\n<<<END UNTRUSTED DATA`)[0]!.split('\n').map((l) => l.slice(p.datamark.length));
+  const size = (lines: string[]) => lines.reduce((n, l) => n + l.length + 1, 0);
+
+  it('cuts a one-line delivery to the limit and tells the judges', () => {
+    const one = `{"findings":[${'"x",'.repeat(600)}"y"]}`;
+    const p = buildMax(one);
+    expect(p.truncated).toBe(true);
+    expect(p.sampling).toBe('stride');
+    expect(size(shown(p))).toBeLessThanOrEqual(MAX);
+    expect(shown(p)).toEqual([one.slice(0, MAX - 1)]);
+    expect(p.user).toContain(`The data section holds the first ${MAX - 1} of ${one.length} characters of the deliverable, which is one line; the rest is not shown.`);
+  });
+
+  it('cuts a long first line and a long sampled line, and says so', () => {
+    const longFirst = buildMax(`${'h'.repeat(5_000)}\nshort\nrow`);
+    expect(size(shown(longFirst))).toBeLessThanOrEqual(MAX);
+    expect(longFirst.user).toContain(`The first line is cut to its first ${MAX - 1} of 5000 characters, and no further line fits.`);
+    const longRow = buildMax(`header\n${'r'.repeat(5_000)}`);
+    expect(size(shown(longRow))).toBeLessThanOrEqual(MAX);
+    expect(shown(longRow)[0]).toBe('header');
+    expect(longRow.user).toContain(`The last line shown is cut to its first ${MAX - 8} of 5000 characters.`);
+  });
+
+  it('never ends a cut inside a surrogate pair', () => {
+    const p = buildMax('\u{1F600}'.repeat(2_000));
+    const [line] = shown(p);
+    expect(line!.length).toBe(MAX - 2);
+    expect(/[\uD800-\uDBFF]$/.test(line!)).toBe(false);
+  });
+
+  it('keeps every stride sample within the limit, whatever the line lengths', () => {
+    for (let seed = 1; seed <= 50; seed++) {
+      let x = seed;
+      const rand = () => ((x = (x * 1_103_515_245 + 12_345) % 2_147_483_648) / 2_147_483_648);
+      const lines = Array.from({ length: 1 + Math.floor(rand() * 40) }, () => 'z'.repeat(Math.floor(rand() * 3_000)));
+      const text = lines.join('\n');
+      if (text.length <= MAX) continue;
+      expect(size(shown(buildMax(text))), `seed ${seed}`).toBeLessThanOrEqual(MAX);
+    }
+  });
+});

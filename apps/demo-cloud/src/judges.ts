@@ -12,12 +12,24 @@ type Registry = NonNullable<TestAdjudicatorOptions['registry']>;
 export const DEFAULT_LIVE_CALLS_PER_DAY = 30;
 const PLACEHOLDER_REGISTRY_URI = 'file:///config/judges.yaml';
 
+/** One model's live calls and tokens for a day: counts only, never a prompt or a verdict (T-066). */
+export interface ModelDay {
+  calls: number;
+  input: number;
+  output: number;
+}
+
 interface Day {
   day: string;
   calls: number;
   inputTokens: number;
   outputTokens: number;
+  /** Per registry model ID; absent on days stored before T-066. */
+  byModel?: Record<string, ModelDay>;
 }
+
+/** A copy that shares no object with the live day, `byModel` included. */
+const copyDay = (d: Day): Day => ({ ...d, byModel: Object.fromEntries(Object.entries(d.byModel ?? {}).map(([k, v]) => [k, { ...v }])) });
 
 /** Today's live calls and tokens, kept in world storage under `lj:<UTC date>`. */
 export class JudgeBudget {
@@ -37,12 +49,12 @@ export class JudgeBudget {
   }
 
   async used(): Promise<Day> {
-    return { ...(await this.load()) };
+    return copyDay(await this.load());
   }
 
   /** A day's live calls and tokens: today's as counted so far, another day's from storage. */
   async on(day: string): Promise<Day> {
-    if (this.today?.day === day) return { ...this.today };
+    if (this.today?.day === day) return copyDay(this.today);
     return (await this.storage.get<Day>(`lj:${day}`)) ?? { day, calls: 0, inputTokens: 0, outputTokens: 0 };
   }
 
@@ -63,6 +75,12 @@ export class JudgeBudget {
     if (!this.today) return;
     this.today.inputTokens += u.inputTokens;
     this.today.outputTokens += u.outputTokens;
+    // T-066: the same counts split by the registry's model ID, so a rubric deal's judge cost can be priced by model.
+    const byModel = (this.today.byModel ??= {});
+    const m = (byModel[u.model] ??= { calls: 0, input: 0, output: 0 });
+    m.calls += 1;
+    m.input += u.inputTokens;
+    m.output += u.outputTokens;
     this.dirty = true;
   }
 

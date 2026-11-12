@@ -199,6 +199,18 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
     return r ? ({ ...r.record, pool: { ...(await base.pool!(address)), terms: r.record.pool.terms } } as AdjudicatorRegistration) : null;
   };
 
+  // The faucet admits the address as the test service's does (T-368): tokens, and a mandate in the sim club (buyer and
+  // seller, a year) signed by the world's faucet principal, so a fresh key such as buyer-signer.ts makes can agree.
+  const faucetPrincipal = worldAccount('sim-faucet-principal');
+  const faucet: NonNullable<typeof base.faucet> = async (address, o) => {
+    const now = chain.now();
+    const mandate = await mandateFor({ name: faucetPrincipal.label, key: faucetPrincipal.privateKey, address: faucetPrincipal.address }, address, club.id, wideScope(['buyer', 'seller'], wholeSecond(Date.parse(now) + 365 * 86_400_000)), now);
+    const refused = await chain.admit(mandate);
+    if (refused) return { ok: false, problem: refused };
+    const r = await base.faucet!(address, o);
+    return r.ok ? { ok: true, grant: { ...r.grant, clubId: club.id, mandate: { ...mandate, mandateHash: canonicalKeccak(mandate) } } } : r;
+  };
+
   const operators: RunningOperator[] = [];
   // ADR-0030 §4: the world's three adjudicators are its nodes' defaults, by role.
   const defaultAdjudicators = Object.fromEntries(adjKeys.map((a) => [a.role, a.keys.address])) as Record<AdjudicatorRole, Address>;
@@ -223,7 +235,7 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
       await startOperator({
         settlement: chain,
         // T-221 review: prepare fills in no default that would decline the terms, and notes one the parties named.
-        registry: { ...base, defaultAdjudicators, declines: declinesOf(() => Object.values(adjudicators)), judgment: (id) => latest.get(id) ?? null },
+        registry: { ...base, get mandates() { return chain.agentMandates(); }, faucet, defaultAdjudicators, declines: declinesOf(() => Object.values(adjudicators)), judgment: (id) => latest.get(id) ?? null },
         store,
         ...operatorFee,
         demo,

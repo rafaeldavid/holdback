@@ -34,6 +34,17 @@ A complete alert reads: "High · PR 151 touches `.github/CODEOWNERS`, a tier 3 c
 - **Label each claim** measured, documented, inferred or guessed (`CLAUDE.md`, "How to verify your work"). Put measured numbers next to the command or source that produced them.
 - **Link evidence:** a PR, a commit, an Etherscan transaction or a file path, not "see above".
 
+## Numbers that drift
+
+A standing doc says how things work, so it stays true without an edit each time something grows. Rafa set this rule on 2026-11-12.
+
+- **No hand-written count or range of something that grows.** Leave out decision or task ID ranges, counts of tests, rows, files, lines or bytes, and measured run times. Point to the source instead: write "`docs/decisions-today.md` records the decisions", not a range of decision IDs.
+- **A value that lives in code or config is a variable.** A cap, a window, a fee or a version is filled in by a build script and compared with its source by a check, as `site/build.mjs` and `site/check.mjs` do for `site/llms.txt`. Where a doc has no such mechanism, name the source file instead of copying the value.
+- **Dated records keep their numbers,** with units: decisions and ADRs, `docs/decisions-today.md`, task files, reviews, research, the deploy record lines in `docs/operations.md`, and audit docs pinned to a commit. Each is a measurement at a time.
+- **A rough duration may stay as an order of size,** such as "seconds" or "tens of minutes", where it tells an agent to run something in the background.
+
+`tests/design-map.test.ts` fails on the plainest cases in the standing docs: an ID range and a count of tests.
+
 ## Reports and reviews
 
 A review, audit or incident report has these parts, in this order:

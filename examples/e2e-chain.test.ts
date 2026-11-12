@@ -150,7 +150,7 @@ async function laggingRpc(last: bigint, misses: number, o: { receiptMisses?: num
       }
       const s = pinned ? AFTER : BEFORE;
       const stage = o.stages ? STAGES.indexOf(pinned ? o.stages.after : o.stages.before) : s.stage;
-      const result = { dealOf: { stage, attempt: 1, t1: 0, seedTag: 0n }, paymentState: [false, s.capturable, s.refundable], balanceOf: s.token, approve: true, deliveryHashOf: `0x${'d1'.repeat(32)}` }[functionName];
+      const result = { dealOf: { stage, attempt: 1, t1: 0, seedTag: 0n, reason: 0, decider: 0 }, paymentState: [false, s.capturable, s.refundable], balanceOf: s.token, approve: true, deliveryHashOf: `0x${'d1'.repeat(32)}` }[functionName];
       reply({ result: encodeFunctionResult({ abi, functionName, result } as never) });
     });
   });
