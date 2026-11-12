@@ -53,7 +53,7 @@ contract HoldbackRules is EIP712, IHoldbackRules {
     /// @inheritdoc IHoldbackRules
     uint64 public immutable EXPIRY_MARGIN;
     /// @inheritdoc IHoldbackRules
-    /// @dev It also owns the round arithmetic (`roundAt`).
+    /// @dev It also computes the rounds (`roundAt`).
     IHoldbackBeacon public immutable BEACON;
     /// @inheritdoc IHoldbackRules
     /// @dev A second token needs a second deployment, and so another signing domain.
@@ -142,7 +142,7 @@ contract HoldbackRules is EIP712, IHoldbackRules {
     // Agree and fund (transaction 1)
 
     /// @inheritdoc IHoldbackRules
-    /// @dev The deal's word is written before the one external call, the escrow's `authorize`.
+    /// @dev The deal's word is written before the one state-changing external call, the escrow's `authorize`.
     function agreeAndFund(
         H.Terms calldata t,
         bytes calldata sellerSignature,
@@ -472,9 +472,10 @@ contract HoldbackRules is EIP712, IHoldbackRules {
         return uint256(t1) + t.timing.appealDecideSec;
     }
 
-    /// @dev The escrow's expiry, its `authorizationExpiry` and `refundExpiry`: the last decision can come at
-    ///      `fallbackBy + appealDecideSec` (a fallback's escalation just before fallbackBy), and the margin follows it
-    ///      (ADR-0003). From it only the payment address's own reclaim on the escrow remains.
+    /// @dev The escrow's expiry, its `authorizationExpiry` and `refundExpiry`: every decision lands before
+    ///      `fallbackBy + appealDecideSec` (a fallback's escalation just before fallbackBy gives the latest), and the
+    ///      margin follows it (ADR-0003). From it the escrow refuses captures; voids still work, and the payment
+    ///      address may reclaim the hold on the escrow itself.
     function _escrowExpiry(H.Terms calldata t) internal view returns (uint256) {
         return uint256(t.timing.fallbackBy) + t.timing.appealDecideSec + EXPIRY_MARGIN;
     }

@@ -21,25 +21,29 @@ import {HoldbackTypes as H} from "./HoldbackTypes.sol";
 ///
 ///         **The stages.** None → Held (funded) → Delivered (the delivery landed). From Delivered to
 ///         FallbackJudging when the primary misses `judgeBy`, and from Delivered or FallbackJudging to Escalated when
-///         the primary or the fallback escalates. Every open stage closes into Released, Refunded or Settled; Held closes directly
-///         by an early accept, a mutual settlement or a reclaim. The closed stages are final: no call changes a deal
-///         after it reaches one of them.
+///         the primary or the fallback escalates. Every open stage closes into Released, Refunded or Settled. Held
+///         closes directly by an early accept, a mutual settlement or a reclaim, and a decision that carries the
+///         delivery moves a Held deal through Delivered in the same call. The closed stages are final: no call changes
+///         a deal after it reaches one of them.
 ///
 ///         **The deciders.** The primary adjudicator decides in Delivered; the fallback adjudicator in FallbackJudging;
 ///         the appeal adjudicator, which in phase one hears escalations only, in Escalated. The first decision that
 ///         accepts or rejects is final. Phase one has no party appeal and no bond.
 ///
-///         **The deadlines, in order.** Each is a Unix time in seconds; a step needs `now < deadline`, the matching
-///         timeout, where there is one, needs `now >= deadline`.
-///         - `offerExpiresAt`, then `fundBy`: the last moments to fund (`agreeAndFund`).
-///         - `deliverBy`: the last moment a delivery lands; from it, `reclaim` refunds an undelivered deal.
+///         **The deadlines.** Each is a Unix time in seconds. A step needs `now < deadline`; the matching timeout,
+///         where there is one, needs `now >= deadline`. The terms' five deadlines are strictly increasing, which
+///         `agreeAndFund` requires:
+///         - `offerExpiresAt` and `fundBy`: funding needs `now` before both (`agreeAndFund`).
+///         - `deliverBy`: a delivery must land before it; from it, `reclaim` refunds an undelivered deal.
 ///         - `judgeBy`: the primary's deadline; from it, `triggerFallback`.
 ///         - `fallbackBy`: the fallback's deadline; from it, `triggerDefault`.
-///         - The escalation's deadline, `t1 + appealDecideSec` (t1 is the escalation's block time); from it,
-///           `triggerDefault`.
-///         - The escrow's expiry, `fallbackBy + appealDecideSec + EXPIRY_MARGIN`: after the last moment a decision
-///           can land. From it, the buyer's payment address may also reclaim the hold on the escrow directly.
-///         `agreeAndFund` refuses terms whose first five deadlines are not strictly increasing.
+///         Two more follow from them:
+///         - The escalation's deadline, `t1 + appealDecideSec`, where `t1` is the escalation's block time; from it,
+///           `triggerDefault`. An escalation can come at any time before `judgeBy` or `fallbackBy`, so this deadline
+///           is ordered only against the bound `fallbackBy + appealDecideSec`, before which every decision lands.
+///         - The escrow's expiry, `fallbackBy + appealDecideSec + EXPIRY_MARGIN`. From it, the escrow refuses every
+///           capture, so no call that pays the seller or an adjudicator can land; the escrow's voids still work, and
+///           the buyer's payment address may also reclaim the hold on the escrow directly.
 ///
 ///         **Where the money moves.** The funds sit in Commerce Payments' AuthCaptureEscrow (CPP), with this contract
 ///         as the payment's operator. Each payment's payer is the buyer's payment address and its receiver the
@@ -61,7 +65,8 @@ interface IHoldbackRules {
     /// @dev `None`: not funded (nothing stored). `Held`: funded, nothing delivered on chain. `Delivered`: the
     ///      delivery landed; the primary's turn. `FallbackJudging`: the primary missed `judgeBy` and someone
     ///      triggered the fallback; the fallback's turn. `Escalated`: the primary or the fallback escalated; the appeal
-    ///      adjudicator's turn. `Released`: closed, the seller paid. `Refunded`: closed, the price back to the buyer.
+    ///      adjudicator's turn. `Released`: closed, the seller paid. `Refunded`: closed, the price back to the
+    ///      buyer's payment address, and the fee too on a reclaim or a default.
     ///      `Settled`: closed by a mutual settlement.
     enum Stage {
         None,
@@ -156,14 +161,14 @@ interface IHoldbackRules {
     /// @param jobId The commitment ID.
     event JobExpired(bytes32 indexed jobId);
 
-    /// @notice An amount was paid to the seller's payout address.
+    /// @notice An amount was paid to the seller's payout address (0 when the price is 0).
     /// @param jobId The commitment ID.
     /// @param provider The seller (its signing address; the money went to its payout address).
     /// @param amount The amount paid, in the token's base units: the price on an accept or an early accept, the
     ///        seller's share in a mutual settlement.
     event PaymentReleased(bytes32 indexed jobId, address indexed provider, uint256 amount);
 
-    /// @notice An amount went back to the buyer's payment address.
+    /// @notice An amount went back to the buyer's payment address (0 on a reject when the price is 0).
     /// @param jobId The commitment ID.
     /// @param client The buyer (its signing address; the money went to its payment address).
     /// @param amount The amount returned, in the token's base units: the price on a reject, the fee on an early
@@ -176,7 +181,7 @@ interface IHoldbackRules {
     /// @param amount The fee, in the token's base units.
     event FeePaid(bytes32 indexed id, address indexed adjudicator, uint256 amount);
 
-    /// @notice An adjudicator's signed decision was accepted, before any money moves. Emitted for an escalation too.
+    /// @notice An adjudicator's signed decision was applied, before any money moves. Emitted for an escalation too.
     /// @param id The commitment ID.
     /// @param adjudicator The adjudicator whose turn it was and who signed.
     /// @param role `H.ROLE_PRIMARY`, `H.ROLE_FALLBACK` or `H.ROLE_APPEAL`.
@@ -218,9 +223,9 @@ interface IHoldbackRules {
     /// @param keyReleased Whether the settlement released the buyer's key (`KeyReleased` follows when true).
     event MutuallySettled(bytes32 indexed id, bool keyReleased);
 
-    /// @notice Where this deal's money comes from and goes (ADR-0033): the escrow's payer and receiver. Every other
-    ///         event names the parties (`buyer`, `seller`), which sign; these two addresses hold the money. Emitted
-    ///         once, at funding.
+    /// @notice Where this deal's money comes from and goes (ADR-0033): the escrow's payer and receiver. Where
+    ///         another event names the buyer or the seller, it names the signing address; these two addresses hold
+    ///         the money. Emitted once, at funding.
     /// @param id The commitment ID.
     /// @param buyerPaymentAddress Funds the hold and receives every refund.
     /// @param sellerPayoutAddress Receives every payment to the seller.
@@ -251,7 +256,8 @@ interface IHoldbackRules {
     /// @notice The terms hold a value that settlement cannot represent: a `fallbackBy` after
     ///         9999-12-31T23:59:59-23:59 (the last instant an RFC 3339 timestamp can state; the deadlines are in order,
     ///         so it bounds them all), an `appealDecideSec` above 32 bits, price + fee above 120 bits, or an escrow
-    ///         expiry above 48 bits.
+    ///         expiry above 48 bits. A price + fee that does not fit 256 bits reverts with the compiler's overflow
+    ///         panic instead.
     error Unrepresentable();
 
     /// @notice A message is malformed, contradicts the terms, or names something other than the deal's state
@@ -271,9 +277,8 @@ interface IHoldbackRules {
     ///         deploy-time check on the deployer.
     error NoBeaconMargin();
 
-    /// @notice A constructor address of zero: the escrow, the collector, the beacon or the token. Every one is fixed
-    ///         for the deployment's life, and a zero address would leave every deal unfundable or unsettleable. A
-    ///         deploy-time check on the deployer.
+    /// @notice A constructor address of zero: the escrow, the collector, the beacon or the token. A deploy-time
+    ///         check on the deployer.
     error ZeroAddress();
 
     // Constants and deployment parameters
@@ -298,9 +303,9 @@ interface IHoldbackRules {
     /// @notice CPP's ERC-3009 payment collector, the one way a phase-one deal funds (ADR-0031 §3). Fixed at deploy.
     function ERC3009_COLLECTOR() external view returns (address);
 
-    /// @notice Seconds added after the last moment a decision can land (`fallbackBy + appealDecideSec`) to give the
-    ///         escrow's expiry, after which the buyer's payment address may reclaim the hold on the escrow directly
-    ///         (ADR-0003). Fixed at deploy; the constructor takes any value.
+    /// @notice Seconds added to the bound on every decision's time (`fallbackBy + appealDecideSec`) to give the
+    ///         escrow's expiry, from which the escrow refuses captures and the buyer's payment address may reclaim the
+    ///         hold on the escrow directly (ADR-0003). Fixed at deploy; the constructor takes any value.
     function EXPIRY_MARGIN() external view returns (uint64);
 
     /// @notice The beacon that proves the fallback's and the appeal adjudicator's panel rounds (ADR-0018): the drand
@@ -312,9 +317,8 @@ interface IHoldbackRules {
     function TOKEN() external view returns (address);
 
     /// @notice Seconds after the last moment a party can still make a choice, from which the fallback's and the
-    ///         appeal adjudicator's panel rounds are taken (ADR-0032), so that whoever builds the block that fixes a
-    ///         round does not know its value. Above 0 on every chain but the local one (ADR-0032 sets two block slots,
-    ///         29 s, on Ethereum mainnet and Sepolia). Fixed at deploy.
+    ///         appeal adjudicator's panel rounds are taken (ADR-0032). Above 0 on every chain but the local one; 29 s
+    ///         on Ethereum mainnet and Sepolia (ADR-0032 §4). Fixed at deploy.
     function BEACON_MARGIN() external view returns (uint64);
 
     // Views
@@ -346,7 +350,9 @@ interface IHoldbackRules {
     ///        `appealDecideSec` is 0, or `appealWindowSec` is not 0;
     ///      - `BadSignature` when the seller's, the primary's or the buyer's signature fails;
     ///      - `Unrepresentable` when a value is unrepresentable (see the error);
-    ///      - the escrow's and the collector's own errors when the ERC-3009 authorization fails.
+    ///      - the escrow's `ZeroAmount` when price + fee is 0, and the escrow's and the collector's own errors when
+    ///        the ERC-3009 authorization fails;
+    ///      - the compiler's overflow panic when price + fee does not fit 256 bits.
     ///      Emits `JobCreated`, `JobFunded` and `SettlementAddresses`.
     /// @param t The deal's settlement view.
     /// @param sellerSignature The seller's signature over the commitment ID (the terms' struct hash).
@@ -412,7 +418,9 @@ interface IHoldbackRules {
     ///      - in Held, the checks `deliver` makes on the delivery (`DeadlinePassed`, `InvalidMessage`, `BadSignature`);
     ///      - `InvalidMessage` when the message's attempt or delivery hash is not the carried delivery's, or the
     ///        carried delivery is not the posted one;
-    ///      - `BadKeyProof` when the key proof fails.
+    ///      - `BadKeyProof` when the key proof fails;
+    ///      - the escrow's `AfterAuthorizationExpiry` from the escrow's expiry when the price is above 0: the call has
+    ///        no deadline of its own, but the escrow refuses the capture.
     ///      Emits `JobSubmitted` (in Held), `JobCompleted`, `PaymentReleased`, `Refunded` (when the fee is above zero)
     ///      and `KeyReleased`.
     /// @param t The deal's settlement view.
@@ -440,7 +448,10 @@ interface IHoldbackRules {
     ///        after a delivery; when, after a delivery, it names another delivery than the posted one; when a payout
     ///        is zero or names another address; or when the payouts do not add up to the price;
     ///      - `BadSignature` when the buyer's or the seller's signature fails;
-    ///      - `BadKeyProof`, with `releaseKey`, when `dv` is not the named delivery or the key proof fails.
+    ///      - `BadKeyProof`, with `releaseKey`, when `dv` is not the named delivery or the key proof fails;
+    ///      - the escrow's `AfterAuthorizationExpiry` from the escrow's expiry when the seller's share is above 0, and
+    ///        its `ZeroAuthorization` when the payment address has already reclaimed the hold: the call has no
+    ///        deadline of its own.
     ///      Emits `PaymentReleased` (when the seller's share is above zero), `Refunded` (when anything is returned),
     ///      `MutuallySettled`, and `KeyReleased` with `releaseKey`.
     /// @param t The deal's settlement view.
@@ -452,8 +463,8 @@ interface IHoldbackRules {
 
     /// @notice Timeout: nothing was delivered on chain by `deliverBy`; price + fee go back to the buyer's payment
     ///         address. Stage Held → Refunded.
-    /// @dev Refuses with `WrongStage` outside Held and `TooEarly` before `deliverBy`. Emits `Refunded`, unless the
-    ///      payment address had already reclaimed the hold on the escrow after its expiry, then `JobExpired`.
+    /// @dev Refuses with `WrongStage` outside Held and `TooEarly` before `deliverBy`. Emits `Refunded` (unless the
+    ///      payment address had already reclaimed the hold on the escrow after its expiry), then `JobExpired`.
     /// @param t The deal's settlement view.
     function reclaim(H.Terms calldata t) external;
 
