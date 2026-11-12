@@ -503,6 +503,8 @@ export interface LocalWorld {
   operators: string[];
   /** Moves this world's settlement time forward. */
   advanceClock(seconds: number): void;
+  /** This world's settlement time now, in ms: the clock the buyer signer checks an offer against here (T-390). */
+  now(): number;
   /**
    * What the judges decide on a rubric deal here (T-355). They stand in for the models: no model runs, each verdict's
    * rationale reads "fake judge: pass" or "fake judge: fail", and they pass until this is set.
@@ -534,6 +536,7 @@ export async function startLocalWorld(): Promise<LocalWorld> {
   return {
     operators: served.urls,
     advanceClock: (seconds) => void (aheadMs += seconds * 1000),
+    now: () => Date.now() + aheadMs,
     setPanel: (v) => void (verdict = v),
     front: async () => {
       let extra: number | null = null;
@@ -866,7 +869,7 @@ export async function rehearse(o: RehearsalOptions): Promise<RehearsalResult> {
     const wallet = paymentKey ? privateKeyToAccount(paymentKey) : undefined;
     if (wallet && o.keys) throw new UsageError('--keys and a payment key do not go together: with a payment address every case makes a fresh signing key, which holds no money');
     const store = o.keys?.store ?? join(o.dir, 'buyer-keys');
-    const quiet = { operators: buyerOperators, log: (line: string) => say(`    ${line}`) };
+    const quiet = { operators: buyerOperators, log: (line: string) => say(`    ${line}`), ...(o.world ? { clock: o.world.now } : {}) };
     let signer: BuyerSigner = o.keys ? await loadKeys(o.keys.store, o.keys.buyer, quiet) : await makeKeys(store, { ...quiet, ...(wallet ? { paymentAddress: wallet.address } : {}) });
     step(o.keys ? 'The buyer opens its key' : 'The buyer makes keys', `buyer ${signer.address}; the key file is in ${store}${o.keys ? '' : ' with mode 0600'}${wallet ? `; the payment address ${signer.paymentAddress} funds the deal and receives every refund` : ''}.`);
     if (front) say(`    The buyer reads the operators through a front, ${front.operators.join(' and ')}, that serves this world unchanged until it raises the fee.`);
