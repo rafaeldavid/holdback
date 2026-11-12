@@ -162,7 +162,7 @@ describe('design map: the daily log', () => {
 // T-364: a standing doc carries no hand-written ID range or test count (docs/writing.md, "Numbers that drift").
 // Dated records keep their numbers, so plan.md, operations.md, decisions, tasks, reviews and audit docs are left out.
 describe('standing docs: no running numbers', () => {
-  const STANDING = ['README.md', 'contracts/README.md', 'formal/README.md', 'docs/PRD.md', 'docs/api.md', 'docs/architecture.md',
+  const STANDING = ['CLAUDE.md', 'README.md', 'contracts/README.md', 'formal/README.md', 'docs/PRD.md', 'docs/api.md', 'docs/architecture.md',
     'docs/demo.md', 'docs/judgment-and-defenses.md', 'docs/neutrality.md', 'docs/private-materials.md', 'docs/quickstart.md',
     'docs/team.md', 'docs/testing.md', 'docs/writing.md'];
   const DRIFT = [/\b(?:D|T-|ADR-)\d+ (?:to|through) (?:D|T-|ADR-)?\d+\b/, /\b\d[\d,]* of \d[\d,]* tests\b/, /\b\d[\d,]* tests in \d+ suites\b/];

@@ -5,7 +5,7 @@
 - **Depends on:** T-362
 - **Paths this task may touch:** the standing docs (`README.md`, `contracts/README.md`, `formal/README.md`, the top-level `docs/*.md`), `tests/design-map.test.ts` for the check, this file; a second pull request for `CLAUDE.md` and `AGENTS.md`
 - **Human gate:** no for pull request B; pull request A changes `CLAUDE.md`, a tier 3 file that Rafa merges
-- **Status:** done on the merge of pull request B; pull request A waits for Rafa
+- **Status:** done (PR 380, merged 2026-11-12 as `4623929`; PR 375, the `CLAUDE.md` part, merged 2026-11-12 at 05:43 UTC as `36030d7`; the check scans `CLAUDE.md` since the follow-up pull request)
 - **Agent/session:** the T-362 implementer session, 2026-11-12
 
 ## Intent
@@ -21,7 +21,7 @@ Non-goals: `site/` (its values are checked variables already), the dated records
 - [x] `docs/writing.md` has a section "Numbers that drift" with the rule.
 - [x] Every hand-written count or ID range in the standing docs is removed or points to its source; each kept number is a dated record, a target, a rule, a spec constant or an outside fact.
 - [x] A check fails on an ID range or a test count in the standing docs, in about 20 lines.
-- [ ] Pull request B merged with CI green; pull request A open with CI green.
+- [x] Pull request B merged with CI green (PR 380); pull request A merged (PR 375).
 
 ## Numbers removed, per file
 
@@ -58,7 +58,7 @@ The pages are pinned to a commit, so their counts are records today. When the la
 ## Decisions
 
 - **`docs/api.md` keeps its operator and demo values for now.** It is the agent-facing reference. Removing a default or a cap from it would send an integrator to the source code. The ciphertext cap is already a checked variable: `apps/demo-cloud/src/world.test.ts` compares the doc with the node's cap. The others are in the candidate list, to wire the same way.
-- **The check covers the two plainest patterns only** (an ID range, a count of tests) and leaves out `docs/plan.md` and `docs/operations.md`, whose rows and record lines are dated records with ranges in their titles. `CLAUDE.md` joins the list once pull request A merges.
+- **The check covers the two plainest patterns only** (an ID range, a count of tests) and leaves out `docs/plan.md` and `docs/operations.md`, whose rows and record lines are dated records with ranges in their titles. `CLAUDE.md` joined the list after pull request A merged.
 - **Rough durations become words** ("a few minutes"), as the rule allows.
 
 ## Handoff
