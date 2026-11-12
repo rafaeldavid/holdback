@@ -261,7 +261,7 @@ contract HandlerSmokeTest is Test {
     function _boundarySeed(uint256 kind) internal pure returns (uint256 s) {
         for (s = 1; s < 100_000; s++) {
             uint256 b = uint256(keccak256(abi.encode("boundary", s)));
-            if (b % 16 != 0 || (b >> 8) % 6 != kind) continue;
+            if (b % 16 != 0 || (b >> 8) % 8 != kind) continue;
             if (uint256(keccak256(abi.encode("other token", s))) % 64 == 0) continue;
             if (uint256(keccak256(abi.encode("appeal window", s))) % 32 == 0) continue;
             if (uint256(keccak256(abi.encode("any order", s))) % 32 == 0) continue;
@@ -271,20 +271,21 @@ contract HandlerSmokeTest is Test {
     }
 
     function test_boundaryOffers_sitOnTheirBounds() public {
-        for (uint256 kind; kind < 6; kind++) {
+        // T-380: eight kinds; 2 and 3 are the escalation window's 32 bits, 4 and 5 the year 9999 (fallbackBy).
+        for (uint256 kind; kind < 8; kind++) {
             RulesHandler x = new RulesHandler();
             x.offer(_boundarySeed(kind));
             H.Terms memory t = x.termsOf(0);
-            uint256 expiry = uint256(t.timing.fallbackBy) + t.timing.appealDecideSec + 1 days; // Base.MARGIN
             if (kind <= 1) assertEq(t.price + t.fee, uint256(type(uint120).max) + kind, "hold bound");
-            if (kind == 2 || kind == 3) assertEq(expiry, uint256(type(uint48).max) + kind - 2, "expiry bound");
-            if (kind >= 4) {
+            if (kind == 2 || kind == 3) assertEq(t.timing.appealDecideSec, uint256(type(uint32).max) + kind - 2, "window");
+            if (kind == 4 || kind == 5) assertEq(t.timing.fallbackBy, 253_402_387_139 + kind - 4, "year 9999");
+            if (kind >= 6) {
                 assertEq(t.timing.fallbackBy - t.timing.offerExpiresAt, 4, "deadlines one second apart");
-                assertEq(t.timing.appealDecideSec, kind - 3, "the smallest escalation windows");
+                assertEq(t.timing.appealDecideSec, kind - 5, "the smallest escalation windows");
             }
-            // Kinds 2 to 5 keep the drawn price and fee, so price 0 with fee 0, which the escrow cannot hold, is
+            // Kinds 2 to 7 keep the drawn price and fee, so price 0 with fee 0, which the escrow cannot hold, is
             // possible in the handler (about one offer in 40 million); the seeds found here fund.
-            bool lands = kind != 1 && kind != 3;
+            bool lands = kind != 1 && kind != 3 && kind != 5;
             if (!lands) vm.expectRevert(RulesHandler.Refused.selector);
             x.agreeAndFund(PICK, 0, 0);
             HoldbackRules.Stage s = x.word(x.dealId(0)).stage;

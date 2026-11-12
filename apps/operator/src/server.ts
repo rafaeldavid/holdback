@@ -450,9 +450,14 @@ export class Operator {
   /** Public base URL (no trailing slash); startOperator sets it to the listening address when not given. */
   baseUrl: string;
 
-  /** Every chain settlement runs the phase-one contracts: no bonds and no party appeals (ADR-0031 §8). SimChain keeps both. */
+  /**
+   * Every chain settlement runs the phase-one contracts: no bonds and no party appeals (ADR-0031 §8). A SimChain runs them
+   * when its genesis chose the `phase_one` profile (T-378), so the prepare routes refuse locally what the chain refuses.
+   * Otherwise SimChain keeps both.
+   */
   private get phaseOne(): boolean {
-    return this.o.settlement.kind !== 'sim';
+    const s = this.o.settlement as Settlement & { profile?: string };
+    return s.kind !== 'sim' || s.profile === 'phase_one';
   }
 
   /** Runs the startup guards: no Operator exists off a test chain or with a live Stripe key. */

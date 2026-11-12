@@ -48,7 +48,7 @@ function deploy() {
 const agent = () => new Agent(URLS, generatePrivateKey(), nacl.randomBytes(32));
 
 /** Two funded agents and a checks-only offer between them. */
-async function offered(timing: Record<string, number> = { judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 60, appealDecideSec: 60 }) {
+async function offered(timing: Record<string, number> = { judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 0, appealDecideSec: 60 }) {
   const d = ((await (await fetch(`${URLS[0]}/`)).json()) as J).demo;
   const [seller, buyer] = [agent(), agent()];
   for (const a of [seller, buyer]) await a.call('POST', '/v1/faucet', { address: a.address });
@@ -94,7 +94,7 @@ describe('the adjudicator alarm (T-057)', () => {
 
   it('a stuck case slows down; a write brings the alarm forward, and the fallback takes over at judgeBy', async () => {
     const dep = deploy();
-    const timing = { offerExpiresInSec: 30, fundWithinSec: 45, deliverWithinSec: 60, judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 60, appealDecideSec: 60 };
+    const timing = { offerExpiresInSec: 30, fundWithinSec: 45, deliverWithinSec: 60, judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 0, appealDecideSec: 60 };
     const { seller, buyer, offer, state } = await offered(timing);
     await dep.fire(Date.now() + 2000);
     await buyer.agreeAndFund(offer.terms, 30_000_000n);
