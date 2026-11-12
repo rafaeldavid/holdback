@@ -5,7 +5,7 @@
 - **Depends on:** T-379 (the buyer signer and the deal record with the two addresses, merged to `contracts-audit-ready` at `100cde3`), T-378 part 4 (the late-work settlement route, rafaeldavid/holdback#408), T-387 (the pilot kit's rehearsal, which found both defects)
 - **Paths this task may touch:** `examples/buyer-signer.ts`, `examples/buy-with-signer.ts`, `examples/deal-record.ts`, their tests, this task file. Never `packages/settlement`
 - **Human gate:** no
-- **Status:** done on the merge of this task's pull request
+- **Status:** done on the merge of its second pull request (part 2, the offer's clock)
 - **Agent/session:** the T-379 session, change kind 4: one reviewer
 
 ## Intent
@@ -31,6 +31,14 @@ Non-goals: no change to SimChain's or the EVM adapter's events (the record reads
 - [x] The deal record conserves the hold from a settlement's payouts, names `paidTo` and `refundedTo` from them, and marks the postings checks not run for an event with neither postings nor payouts. Tests on SimChain's shape and on the chain's shape.
 - [x] `pnpm typecheck`, `pnpm lint`, the touched tests and `pnpm snap` pass; CI passes.
 
+Part 2 (the coordinator, 2026-11-12, from T-388's review of the buyer signer, finding H1)
+
+- [x] `readOffer` compares the offer's `createdAt` with every configured operator's settlement time and lists a `createdAt` difference when it is outside the band `verifyPrepared` already holds a prepared offer to (600 s behind, 60 s ahead; one constant, `CREATED_AT_BAND` in `examples/verify.ts`), and a `settlementTime` difference when the operators' clocks are further apart than the band. `checkOffer` keeps the verdict made when the offer was shown.
+- [x] A difference stops the one-run buy (`--expect-terms`) for approval: nothing is refused (D31).
+- [x] Every approval stop shows `createdAt` and each deadline as a date and its distance from now (`timeline`).
+- [x] Tests, failing first: postdated five years and backdated beyond the band each stop with exit status 3 and fund nothing; inside the band funds as before; one end-to-end run on the local world.
+- [x] One reviewer and one red team on part 2, because it decides when an unattended buyer pays.
+
 ## Out of scope
 
 - SimChain's and the EVM adapter's event payloads.
@@ -52,7 +60,15 @@ Labels: measured, inferred, guessed.
 - **Review of PR 440** (reviewer subagent, Opus 5.5) [measured: its report]: PASS with three Lows. Fixed: "not run" applies only on a chain (Low 3); the late-work outcome names the handed-over delivery's `deliveryHash`, to compare with the settlement the buyer signed (Low 1). Left in the Handoff: Low 2 and the rest of Low 3.
 - **Where the shapes come from** [measured by reading]: SimChain's `commitment.settled` is `{payouts, keyReleased}` (`packages/settlement/sim/simchain.ts:967`), and its postings for the payouts and the fee are made but not put in the event. The EVM adapter writes every payload "as SimChain writes it for the same step (without postings)" (`packages/settlement/evm/evm-settlement.ts:1538`), and `commitment.settled` there is `{payouts, keyReleased}` too (`:1553`).
 
+### Part 2: the offer's clock
+
+- **Failing first** [measured]: before the fix, the postdated run funded and SimChain then refused the funding (exit status 1, "outside the authorization validity window"); the backdated run exited 1; the band constant did not exist. On a chain, whose funding is valid from 0, the postdated run would have funded [inferred, T-388].
+- **After the fix** [measured, `examples/buyer-signer-clock.test.ts`, 4 tests]: postdated five years and backdated by 720 s each stop with exit status 3, a `createdAt` difference, a `timeline` that reads "in 5 years …" or "… ago", and no hold; an offer 10 s old funds. On the lane at `690edfd` plus PR 440 plus this branch, `pnpm exec vitest run examples/ tests/cut-feature-alignment.test.ts` passed 402 tests in 33 files; `pnpm typecheck`, `npx eslint examples site tests` and `node site/build.mjs && node site/check.mjs` passed. `site/try.mjs` changes, because `verify.ts` holds the band (SHA-256 `fa6ec3dc…`).
+
 ## Decisions
+
+- **Part 2: the clock is judged when the offer is shown.** A `createdAt` grows older while an offer waits for an approval, so `checkOffer` keeps the shown verdict rather than judging again: a slow approval must not refuse a valid offer, and an approval cannot clear a difference the person was shown.
+- **Part 2: the band is the one prepared offers already meet,** read from one constant in `examples/verify.ts`: an honest operator's `createdAt` is settlement time, so any honest offer is inside it.
 
 - **The fix is in the record, not in SimChain's event.** Both settlements write the same `{payouts, keyReleased}`, and a chain writes no postings for any outcome, so the record reads the payouts for a settlement and marks the postings checks not run where an event carries neither.
 - **Late work opens from the delivery the seller handed over,** passed with `--delivery`, because no operator records it as a delivery. It opens only if the seller's signature recovers, the released envelope is the buyer's own in it, and both hashes match.

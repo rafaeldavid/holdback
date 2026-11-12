@@ -172,6 +172,11 @@ export const freshNonce = (): Hex => `0x${Buffer.from(crypto.getRandomValues(new
 const own = (mine: J, theirs: J, name: string) =>
   typeof mine !== 'string' || !HEX32.test(mine) ? refuse(`generate ${name} yourself (32 random bytes) and send it with the prepare request`) : String(theirs).toLowerCase() === mine.toLowerCase() ? mine : refuse(`${name} is not the one you sent`);
 /** An operator-chosen time must lie within [now - behind, now + ahead] seconds of settlement-layer time. */
+/**
+ * How far an offer's `createdAt` may sit from settlement-layer time, in seconds: a prepared offer outside it is refused
+ * (verifyPrepared), and the buyer signer lists one outside it as a difference to approve (T-390, T-388 H1).
+ */
+export const CREATED_AT_BAND = { behindSec: 600, aheadSec: 60 } as const;
 const nearTo = (now: number) => (ts: J, behind: number, ahead: number, name: string) => {
   const d = (Date.parse(ts) - now) / 1000;
   return typeof ts === 'string' && d >= -behind && d <= ahead ? ts : refuse(`${name} ${ts} is not within the expected window around settlement time`);
@@ -302,7 +307,7 @@ function expected(intent: Intent, op: J, now: number): Plan {
   const near = nearTo(now);
   if (intent.kind === 'offer') {
     const r = intent.request;
-    const terms = publicOfferTerms(r, intent.registration, intent.rulebookHash, near(op.createdAt, 600, 60, 'createdAt'), own(r.nonce, op.nonce, 'nonce') as Hex);
+    const terms = publicOfferTerms(r, intent.registration, intent.rulebookHash, near(op.createdAt, CREATED_AT_BAND.behindSec, CREATED_AT_BAND.aheadSec, 'createdAt'), own(r.nonce, op.nonce, 'nonce') as Hex);
     return { path: '/v1/commitments', body: { ...terms, id: commitmentIdOf(terms), signatures: { seller: null } }, slots: [{ slot: 'signatures.seller', primaryType: 'CommitmentTerms', signer: terms.seller, message: terms }] };
   }
   const t = intent.terms, id = commitmentIdOf(t);

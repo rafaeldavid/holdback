@@ -458,6 +458,14 @@ const freshNonce = () => `0x${Buffer.from(crypto.getRandomValues(/* @__PURE__ */
 /** The agent picks its nonces; the operator must echo exactly the one the agent sent. */
 const own = (mine, theirs, name) => typeof mine !== "string" || !HEX32.test(mine) ? refuse$1(`generate ${name} yourself (32 random bytes) and send it with the prepare request`) : String(theirs).toLowerCase() === mine.toLowerCase() ? mine : refuse$1(`${name} is not the one you sent`);
 /** An operator-chosen time must lie within [now - behind, now + ahead] seconds of settlement-layer time. */
+/**
+* How far an offer's `createdAt` may sit from settlement-layer time, in seconds: a prepared offer outside it is refused
+* (verifyPrepared), and the buyer signer lists one outside it as a difference to approve (T-390, T-388 H1).
+*/
+const CREATED_AT_BAND = {
+	behindSec: 600,
+	aheadSec: 60
+};
 const nearTo = (now) => (ts, behind, ahead, name) => {
 	const d = (Date.parse(ts) - now) / 1e3;
 	return typeof ts === "string" && d >= -behind && d <= ahead ? ts : refuse$1(`${name} ${ts} is not within the expected window around settlement time`);
@@ -684,7 +692,7 @@ function expected(intent, op, now) {
 	const near = nearTo(now);
 	if (intent.kind === "offer") {
 		const r = intent.request;
-		const terms = publicOfferTerms(r, intent.registration, intent.rulebookHash, near(op.createdAt, 600, 60, "createdAt"), own(r.nonce, op.nonce, "nonce"));
+		const terms = publicOfferTerms(r, intent.registration, intent.rulebookHash, near(op.createdAt, CREATED_AT_BAND.behindSec, CREATED_AT_BAND.aheadSec, "createdAt"), own(r.nonce, op.nonce, "nonce"));
 		return {
 			path: "/v1/commitments",
 			body: {
