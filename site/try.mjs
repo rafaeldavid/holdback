@@ -598,64 +598,84 @@ const typedOf = (primaryType, message, domain) => ({
 	primaryType,
 	message: ENCODE[primaryType](message)
 });
+const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+/**
+* A money address from the party's own request (ADR-0033 §6): the address given, lowercased, or the party's signing
+* address when none is given. Never from an operator's answer.
+*/
+const moneyAddress = (given, signer, field) => {
+	if (given === void 0 || given === null) return signer.toLowerCase();
+	return typeof given === "string" && ADDRESS.test(given) ? given.toLowerCase() : refuse$1(`${field} must be an address: 0x and 40 hex characters`);
+};
+/**
+* The public terms an offer request gives, field for field what POST /v1/prepare/offer builds (apps/operator/src/terms.ts),
+* from the agent's own request, the club and adjudicator it read from every operator, settlement-layer time in whole
+* seconds and its own nonce. `request.buyer.paymentAddress` and `request.sellerPayoutAddress` name the money
+* addresses (ADR-0033); each left out is its party's signing address. Pure: verifyPrepared rebuilds a prepared offer
+* with it, and Agent.offerDirect signs and submits it with no prepare call at all.
+*/
+function publicOfferTerms(r, registration, rulebookHash, createdAt, nonce) {
+	const reg = registration;
+	if (jcsHash(reg.policy) !== reg.policyHash) refuse$1("the adjudicator's policyHash does not match its policy");
+	const plus = (ts, s) => iso(Date.parse(ts) + s * 1e3);
+	const timing = {
+		...DEFAULT_TIMING,
+		...r.timing
+	};
+	const deliverBy = plus(createdAt, timing["deliverWithinSec"]), judgeBy = plus(deliverBy, timing["judgeWithinSec"]);
+	return {
+		schemaVersion: "0.8",
+		clubId: r.clubId,
+		rulebookHash,
+		buyer: r.buyer.address.toLowerCase(),
+		seller: r.seller.toLowerCase(),
+		buyerPaymentAddress: moneyAddress(r.buyer.paymentAddress, r.buyer.address, "buyer.paymentAddress"),
+		sellerPayoutAddress: moneyAddress(r.sellerPayoutAddress, r.seller, "sellerPayoutAddress"),
+		deliverable: r.deliverable,
+		acceptance: {
+			deterministicChecks: r.checks ?? [],
+			rubric: r.template === "checks-only" ? {
+				criteria: [],
+				passThreshold: 0
+			} : r.rubric
+		},
+		price: r.price,
+		adjudication: {
+			adjudicator: r.adjudicators.primary,
+			fallbackAdjudicator: r.adjudicators.fallback,
+			appealAdjudicator: r.adjudicators.appeal,
+			policyId: reg.policy.id,
+			fee: r.fee ?? reg.fee.min,
+			registryHash: reg.registry.hash,
+			policyHash: reg.policyHash
+		},
+		timing: {
+			offerExpiresAt: plus(createdAt, timing["offerExpiresInSec"]),
+			fundBy: plus(createdAt, timing["fundWithinSec"]),
+			deliverBy,
+			judgeBy,
+			fallbackBy: plus(judgeBy, timing["fallbackWithinSec"]),
+			appealWindowSec: timing["appealWindowSec"],
+			appealDecideSec: timing["appealDecideSec"],
+			maxSubmissions: 1
+		},
+		settlement: {
+			mode: "guaranteed_on_decision",
+			token: r.price.token
+		},
+		remedy: { onReject: "full_refund" },
+		disclosure: { level: "public" },
+		buyerEncryptionPublicKey: r.buyer.encryptionPublicKey,
+		nonce,
+		createdAt
+	};
+}
 /** Builds the body the agent expects, taking from the operator's proposal only times bounded around `now`. */
 function expected(intent, op, now) {
-	const plus = (ts, s) => iso(Date.parse(ts) + s * 1e3);
 	const near = nearTo(now);
 	if (intent.kind === "offer") {
-		const r = intent.request, reg = intent.registration;
-		if (jcsHash(reg.policy) !== reg.policyHash) refuse$1("the adjudicator's policyHash does not match its policy");
-		const timing = {
-			...DEFAULT_TIMING,
-			...r.timing
-		}, createdAt = near(op.createdAt, 600, 60, "createdAt");
-		const deliverBy = plus(createdAt, timing["deliverWithinSec"]), judgeBy = plus(deliverBy, timing["judgeWithinSec"]);
-		const terms = {
-			schemaVersion: "0.8",
-			clubId: r.clubId,
-			rulebookHash: intent.rulebookHash,
-			buyer: r.buyer.address.toLowerCase(),
-			seller: r.seller.toLowerCase(),
-			buyerPaymentAddress: r.buyer.address.toLowerCase(),
-			sellerPayoutAddress: r.seller.toLowerCase(),
-			deliverable: r.deliverable,
-			acceptance: {
-				deterministicChecks: r.checks ?? [],
-				rubric: r.template === "checks-only" ? {
-					criteria: [],
-					passThreshold: 0
-				} : r.rubric
-			},
-			price: r.price,
-			adjudication: {
-				adjudicator: r.adjudicators.primary,
-				fallbackAdjudicator: r.adjudicators.fallback,
-				appealAdjudicator: r.adjudicators.appeal,
-				policyId: reg.policy.id,
-				fee: r.fee ?? reg.fee.min,
-				registryHash: reg.registry.hash,
-				policyHash: reg.policyHash
-			},
-			timing: {
-				offerExpiresAt: plus(createdAt, timing["offerExpiresInSec"]),
-				fundBy: plus(createdAt, timing["fundWithinSec"]),
-				deliverBy,
-				judgeBy,
-				fallbackBy: plus(judgeBy, timing["fallbackWithinSec"]),
-				appealWindowSec: timing["appealWindowSec"],
-				appealDecideSec: timing["appealDecideSec"],
-				maxSubmissions: 1
-			},
-			settlement: {
-				mode: "guaranteed_on_decision",
-				token: r.price.token
-			},
-			remedy: { onReject: "full_refund" },
-			disclosure: { level: "public" },
-			buyerEncryptionPublicKey: r.buyer.encryptionPublicKey,
-			nonce: own(r.nonce, op.nonce, "nonce"),
-			createdAt
-		};
+		const r = intent.request;
+		const terms = publicOfferTerms(r, intent.registration, intent.rulebookHash, near(op.createdAt, 600, 60, "createdAt"), own(r.nonce, op.nonce, "nonce"));
 		return {
 			path: "/v1/commitments",
 			body: {
@@ -675,6 +695,8 @@ function expected(intent, op, now) {
 	if (intent.kind === "agree-and-fund") {
 		if (t.buyer.toLowerCase() !== intent.me.toLowerCase()) refuse$1("the terms name another buyer");
 		if (t.buyerEncryptionPublicKey !== intent.encryptionPublicKey) refuse$1("the terms seal the work to a key you do not hold");
+		const paying = (intent.paymentAddress ?? intent.me).toLowerCase();
+		if (String(t.buyerPaymentAddress).toLowerCase() !== paying) refuse$1(`the terms name ${t.buyerPaymentAddress} as the payment address, not your ${paying}`);
 		const want = intent.expectedPrice;
 		if (want && (typeof want.token !== "string" || typeof want.amount !== "string" || !/^(0|[1-9][0-9]*)$/.test(want.amount))) refuse$1("expectedPrice must be {\"token\", \"amount\"} with amount in base units as a decimal string, e.g. \"25000000\"");
 		if (want && (t.price.token !== want.token || t.price.amount !== want.amount)) refuse$1(`price ${t.price.amount} ${t.price.token} is not the ${want.amount} ${want.token} you agreed`);
@@ -1050,8 +1072,8 @@ function privateOfferTerms(x) {
 		rulebookHash: x.rulebookHash,
 		buyer: x.buyer.address.toLowerCase(),
 		seller: x.seller.toLowerCase(),
-		buyerPaymentAddress: x.buyer.address.toLowerCase(),
-		sellerPayoutAddress: x.seller.toLowerCase(),
+		buyerPaymentAddress: moneyAddress(x.buyer.paymentAddress, x.buyer.address, "buyer.paymentAddress"),
+		sellerPayoutAddress: moneyAddress(x.sellerPayoutAddress, x.seller, "sellerPayoutAddress"),
 		deliverable: {
 			...x.deliverable,
 			salt: x.salts.deliverable,
@@ -1345,6 +1367,28 @@ var Agent = class Agent {
 		};
 	}
 	/**
+	* Seller: the same public offer as `offer`, built here from the request with no prepare call (verify.ts
+	* publicOfferTerms): the club, the primary and settlement-layer time read from every operator, this agent's own
+	* nonce, signed and submitted to POST /v1/commitments. `buyer.paymentAddress` and `sellerPayoutAddress` name the money
+	* addresses (ADR-0033); each left out is its party's signing address.
+	*/
+	async offerDirect(given) {
+		const registration = await this.registration(given.adjudicators.primary);
+		const createdAt = (/* @__PURE__ */ new Date(Math.floor(await this.settlementNow() / 1e3) * 1e3)).toISOString().replace(".000Z", "Z");
+		const terms = publicOfferTerms(given, registration, await this.rulebookHash(given.clubId), createdAt, freshNonce().toLowerCase());
+		const id = commitmentIdOf(terms);
+		const signature = await this.account.signTypedData(typedOf("CommitmentTerms", terms, this.domain));
+		return {
+			id,
+			terms,
+			state: await this.call("POST", "/v1/commitments", {
+				...terms,
+				id,
+				signatures: { seller: signature }
+			})
+		};
+	}
+	/**
 	* The relaying operator's fee schedule (ADR-0023), as every configured operator serves it, or null when they
 	* publish none. They must agree: the public demo's two nodes are one operator with one schedule.
 	*/
@@ -1354,6 +1398,7 @@ var Agent = class Agent {
 	* publish a fee, the agent computes it from that schedule and pays it with the agreement; maxTotal covers it too.
 	*/
 	async agreeAndFund(terms, maxTotal) {
+		if (String(terms.buyerPaymentAddress).toLowerCase() !== this.address) throw new Error(`the terms name ${terms.buyerPaymentAddress} as the payment address: that address signs the funding and the operator fee, not this agent (${this.address})`);
 		const schedule = await this.operatorFeeSchedule();
 		const id = commitmentIdOf(terms);
 		const c = this.chain;
