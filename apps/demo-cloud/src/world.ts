@@ -509,7 +509,7 @@ function waitingNotice(s: EscrowState | null, w: WaitingTurn): string | null {
  * ADR-0036's "open": the roles that may still decide this deal, from the primary's signed acceptance until no adjudicator
  * can decide it again; empty for an offer and once the deal is closed. One function, so the notice and the guard agree.
  */
-export function rolesAhead(s: EscrowState): AdjudicatorRole[] {
+export function rolesAhead(s: EscrowState, now?: Timestamp): AdjudicatorRole[] {
   switch (s.kind) {
     case 'AcceptedByAdjudicator':
     case 'Agreed':
@@ -522,7 +522,10 @@ export function rolesAhead(s: EscrowState): AdjudicatorRole[] {
       return ['appeal'];
     case 'Released':
     case 'Refunded':
-      return s.via.kind === 'first_instance' && s.via.appeal.kind === 'open' ? ['appeal'] : [];
+      // An open appeal, or one a party may still file before appealBy (T-377 red team M2).
+      if (s.via.kind !== 'first_instance') return [];
+      if (s.via.appeal.kind === 'open') return ['appeal'];
+      return s.via.appeal.kind === 'none' && (now === undefined || Date.parse(now) < Date.parse(s.via.appeal.appealBy)) ? ['appeal'] : [];
     default:
       return [];
   }
@@ -541,8 +544,9 @@ export async function cannotJudgeNotice(
   s: EscrowState,
   ours: (address: Address) => { name: string; cannotJudge: (terms: EscrowState['terms'], role: AdjudicatorRole) => Promise<Problem | null> } | undefined,
   pays: string,
+  now?: Timestamp,
 ): Promise<string | null> {
-  const ahead = rolesAhead(s);
+  const ahead = rolesAhead(s, now);
   if (!ahead.length) return null;
   const a = s.terms.adjudication;
   const t = s.terms.timing;
@@ -567,17 +571,26 @@ export async function cannotJudgeNotice(
     const why = answers.get(role)!.problem!.detail;
     if (role === 'primary') {
       const fb = next('fallback');
-      out.push(`${label('primary')} cannot judge this deal: ${why}. What follows: ${fb}; it can take over from judgeBy ${t.judgeBy} and decide until fallbackBy ${t.fallbackBy}. If no adjudicator decides by fallbackBy, the default outcome applies: ${pays}. ${settle}`);
+      out.push(`${label('primary')} cannot judge this deal: ${why}. What follows: ${fb}; it can take over from judgeBy ${t.judgeBy} and decide until fallbackBy ${t.fallbackBy}. If no adjudicator decides by fallbackBy, anyone can then apply the default outcome: ${pays}. ${settle}`);
     } else if (role === 'fallback') {
-      const first = ahead.includes('primary') && !answers.get('primary')?.problem ? 'The primary can judge it; if it does not decide by judgeBy, ' : 'If ';
-      out.push(`${label('fallback')} cannot judge this deal: ${why}. What follows: ${first}${first.startsWith('If') ? 'no other adjudicator decides by' : 'no fallback will decide, and at'} fallbackBy ${t.fallbackBy} the default outcome applies: ${pays}. ${settle}`);
+      // The primary's answer is known only when this operator runs it (T-377 red team M5).
+      const p = ahead.includes('primary') ? answers.get('primary') : undefined;
+      const primary = !ahead.includes('primary')
+        ? 'No other adjudicator decides the first instance'
+        : !p
+          ? `Whether the primary adjudicator ${who.primary} can judge it is unknown: this operator does not run it. If it does not decide by judgeBy, no fallback will decide`
+          : p.problem
+            ? 'The primary cannot judge it either, so no adjudicator will decide the first instance'
+            : 'The primary can judge it; if it does not decide by judgeBy, no fallback will decide';
+      out.push(`${label('fallback')} cannot judge this deal: ${why}. What follows: ${primary}, and from fallbackBy ${t.fallbackBy} anyone can apply the default outcome: ${pays}. ${settle}`);
     } else if (s.kind === 'Escalated') {
-      out.push(`${label('appeal')} cannot judge this deal's escalation: ${why}. What follows: at appealDecideBy ${s.escalation.appealDecideBy} the default outcome applies: ${pays}. ${settle}`);
-    } else if (s.kind === 'Released' || s.kind === 'Refunded') {
-      const by = s.via.kind === 'first_instance' && s.via.appeal.kind === 'open' ? s.via.appeal.appealDecideBy : undefined;
-      out.push(`${label('appeal')} cannot judge this deal's appeal: ${why}. What follows: the appeal expires at ${by}, and the first decision stands.`);
+      out.push(`${label('appeal')} cannot judge this deal's escalation: ${why}. What follows: from appealDecideBy ${s.escalation.appealDecideBy} anyone can apply the default outcome: ${pays}. ${settle}`);
+    } else if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance') {
+      const a = s.via.appeal;
+      if (a.kind === 'open') out.push(`${label('appeal')} cannot judge this deal's appeal: ${why}. What follows: the appeal expires at ${a.appealDecideBy}, and the first decision stands.`);
+      else if (a.kind === 'none') out.push(`${label('appeal')} cannot judge an appeal of this deal: ${why}. What follows: a party may still appeal until appealBy ${a.appealBy}, but the appeal would go unheard and expire at ${a.appealDecideBy}, and the first decision would stand.`);
     } else {
-      out.push(`${label('appeal')} cannot judge this deal: ${why}. What follows: if a first decision escalates, the default outcome applies when the escalation's appealDecideBy passes: ${pays}; a party appeal would expire, and the first decision would stand. ${settle}`);
+      out.push(`${label('appeal')} cannot judge this deal: ${why}. What follows: if a first decision escalates, anyone can apply the default outcome once the escalation's appealDecideBy passes: ${pays}; a party appeal would expire, and the first decision would stand. ${settle}`);
     }
   }
   return out.join(' ');
@@ -888,7 +901,7 @@ export class PublicWorld {
         // adjudicator it does not trust, another registry, a bound policy or a panel it cannot run).
         const turn = turnsDeclined.get(about.commitmentId);
         // ADR-0036 section 5: computed now from the terms, for every role still ahead, the primary's included.
-        const cannot = state ? await cannotJudgeNotice(state, oursFor, defaultPays) : null;
+        const cannot = state ? await cannotJudgeNotice(state, oursFor, defaultPays, chain.now()) : null;
         if (cannot) return [cannot];
         const said = turn ? declinedTurnNotice(state, turn) : null;
         if (said) return [said];

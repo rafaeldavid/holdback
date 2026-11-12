@@ -185,8 +185,8 @@ export async function waitForCommit({ nodes, commit, deadline, fetchImpl = fetch
 // restricts only the operator: it refuses nothing a party sends, and a party cannot block a deploy through it, since
 // it refuses only what the new build dropped.
 
-/** The escrow states from the primary's acceptance until the first decision; Released and Refunded count while an appeal is open. */
-export const OPEN_STATES = ['AcceptedByAdjudicator', 'Agreed', 'Held', 'Delivered', 'Disputed', 'FallbackJudging', 'Escalated'];
+/** The escrow states from the primary's acceptance until the first decision; Released and Refunded count while an appeal is open or may still be filed. */
+export const OPEN_STATES = ['AcceptedByAdjudicator', 'Agreed', 'Held', 'Delivered', 'FallbackJudging', 'Escalated'];
 export const APPEALABLE_STATES = ['Released', 'Refunded'];
 
 const VERSION_FIELDS = ['screenVersion', 'promptTemplateHash', 'appealPromptTemplateHash', 'aggregationVersion'];
@@ -238,6 +238,10 @@ export function missingFrom(carried, versions, registryHash) {
  */
 export function policyIndex({ registrations, files, hashOf }) {
   const screens = new Set(), pairs = new Set(), aggregations = new Set();
+  // Every set of the other policy fields a released default used (kept-policies.json `policyParams`), so a deal accepted
+  // before a change of, say, judgeTimeoutSec is still indexed (T-377 red team M6).
+  const params = new Map();
+  for (const f of files.filter(Boolean)) for (const p of f.policyParams ?? []) params.set(JSON.stringify(p.params), p.params);
   for (const f of files.filter(Boolean)) {
     for (const s of f.screens) screens.add(s.version);
     for (const p of f.templatePairs) pairs.add(`${p.promptTemplateHash}/${p.appealPromptTemplateHash}`);
@@ -250,13 +254,14 @@ export function policyIndex({ registrations, files, hashOf }) {
   }
   const index = new Map();
   for (const r of registrations)
-    for (const screenVersion of screens)
-      for (const pair of pairs)
-        for (const aggregationVersion of aggregations) {
-          const [promptTemplateHash, appealPromptTemplateHash] = pair.split('/');
-          const versions = { screenVersion, promptTemplateHash, appealPromptTemplateHash, aggregationVersion };
-          index.set(hashOf({ ...r.policy, ...versions }), versions);
-        }
+    for (const p of [r.policy, ...params.values()])
+      for (const screenVersion of screens)
+        for (const pair of pairs)
+          for (const aggregationVersion of aggregations) {
+            const [promptTemplateHash, appealPromptTemplateHash] = pair.split('/');
+            const versions = { screenVersion, promptTemplateHash, appealPromptTemplateHash, aggregationVersion };
+            index.set(hashOf({ ...r.policy, ...p, id: r.policy.id, ...versions }), versions);
+          }
   return index;
 }
 
@@ -273,27 +278,39 @@ export function guardDecision({ live, next, deals, readError, hashOf, override =
   const warnings = [];
   const liveCarries = carriedBy(live.kept, live.registrations);
   const nextCarries = carriedBy(next);
+  // A build judges only under a registry it has a provider for, and a deploy keeps the Worker's secrets: so both builds
+  // reach exactly the registries the live adjudicators use now, less what the file marks out (T-377 red team M3).
+  const reached = new Set(live.registrations.map((r) => r.registryHash));
+  if (reached.size) for (const c of [liveCarries, nextCarries]) c.registries = new Set([...c.registries].filter((h) => reached.has(h)));
   const refuse = (why) => ({ refused: `Refused: ${why}`, warnings, orphans: [], withdrawnOrphans: [] });
+  const blind = (why) => {
+    warnings.push(`WARNING: the open deals could not be read (${why}); the guard checked the kept-policies files only. Check the deals by hand if this deploy is not the fix for that outage (docs/operations.md, The deal guard).`);
+    return { refused: null, warnings, orphans: [], withdrawnOrphans: [] };
+  };
   // The override names one recorded withdrawal and nothing else.
   if (override !== null && !nextCarries.withdrawn.has(override)) {
     return refuse(`HOLDBACK_DEPLOY_WITHDRAWN names ${JSON.stringify(override)}, which kept-policies.json does not mark withdrawn with a decision; record the withdrawal first (ADR-0036 section 2), or unset it.`);
   }
+  // Without the live build's kept file or its registrations, what it carries is unknown: warn, never refuse on a guess
+  // (T-377 red team M4).
+  if (deals === null && !live.kept && !live.registrations.length) return blind(readError ?? 'no reason given');
   // A new default ships in two deploys: carried first, default second. So a rollback always lands on a build that can
   // judge every deal accepted under the new default.
   const lacking = missingFrom(liveCarries, next.default, [...liveCarries.registries][0] ?? '').filter((m) => !m.startsWith('registry '));
   if (lacking.length) {
     return refuse(`the new default names ${lacking.join(', ')}, which the live build does not carry, so a rollback could not judge a deal accepted under it. Ship it in two deploys: first a build that carries it, then one that makes it the default (ADR-0036 section 4).`);
   }
-  if (deals === null) {
-    warnings.push(`WARNING: the open deals could not be read (${readError ?? 'no reason given'}); the guard checked the kept-policies files only. Check the deals by hand if this deploy is not the fix for that outage (docs/operations.md, The deploy guard).`);
-    return { refused: null, warnings, orphans: [], withdrawnOrphans: [] };
-  }
+  if (deals === null) return blind(readError ?? 'no reason given');
   const index = policyIndex({ registrations: live.registrations, files: [live.kept, next], hashOf });
-  const orphans = [], withdrawnOrphans = [];
+  const orphans = [], withdrawnOrphans = [], unknown = [];
+  const ours = new Set(live.registrations.map((r) => String(r.address ?? '').toLowerCase()).filter(Boolean));
   for (const d of deals) {
     const versions = index.get(d.policyHash);
     if (!versions) {
-      warnings.push(`WARNING: deal ${d.id} (${d.state}) binds policy ${d.policyHash}, which neither build registered; not checked.`);
+      // A deal this operator's own primary accepted must bind a policy the index names; if it does not, the guard cannot
+      // tell what it binds, so it refuses rather than guess (T-377 red team M6). An outside primary's policy is reported.
+      if (d.primary && ours.has(String(d.primary).toLowerCase())) unknown.push(d);
+      else warnings.push(`WARNING: deal ${d.id} (${d.state}) binds policy ${d.policyHash}, which an adjudicator this operator does not run registered; not checked.`);
       continue;
     }
     if (missingFrom(liveCarries, versions, d.registryHash).length) continue; // the live build cannot judge it either
@@ -305,6 +322,10 @@ export function guardDecision({ live, next, deals, readError, hashOf, override =
     // Under the override, a deal orphaned only by that withdrawal goes through; every other orphan still refuses.
     const onlyOverride = override !== null && marked.length === missing.length && marked.every((k) => k === override);
     (onlyOverride ? withdrawnOrphans : orphans).push(row);
+  }
+  if (unknown.length) {
+    const lines = unknown.map((o) => `  ${o.id} ${o.state}, next deadline ${o.nextDeadline ?? 'unknown'}: binds policy ${o.policyHash}`);
+    return { refused: `Refused: ${unknown.length} open deal${unknown.length === 1 ? '' : 's'} this operator's primary accepted bind${unknown.length === 1 ? 's' : ''} a policy no kept version and no released policyParams entry in kept-policies.json produce, so the guard cannot tell what ${unknown.length === 1 ? 'it binds' : 'they bind'}:\n${lines.join('\n')}\nAdd the released policy's other fields to policyParams (ADR-0036 section 4).`, warnings, orphans: unknown, withdrawnOrphans };
   }
   if (orphans.length) {
     const lines = orphans.map((o) => `  ${o.id} ${o.state}, next deadline ${o.nextDeadline ?? 'unknown'}: the new build does not carry ${o.missing.join(', ')}`);
@@ -329,15 +350,15 @@ export async function readOpenDeals(node, fetchImpl = fetch) {
   };
   const pages = async (path) => {
     const items = [];
-    for (let cursor = null, n = 0; n < 100; n++) {
+    for (let cursor = null, n = 0; n < 1000; n++) {
       const page = await get(`${path}${cursor ? `${path.includes('?') ? '&' : '?'}cursor=${encodeURIComponent(cursor)}` : ''}`);
       items.push(...(page.items ?? []));
       if (!page.nextCursor) return items;
       cursor = page.nextCursor;
     }
-    throw new Error(`${path} has more than 100 pages`);
+    throw new Error(`${path} has more than 1000 pages`);
   };
-  const listing = await pages('/v1/adjudicators');
+  const listing = await pages('/v1/adjudicators?limit=200');
   const discovery = await get('/');
   const ours = new Set(Object.values(discovery?.demo?.adjudicators ?? []).map((a) => String(a.address).toLowerCase()));
   const registrations = listing
@@ -346,8 +367,10 @@ export async function readOpenDeals(node, fetchImpl = fetch) {
   const seen = new Map();
   for (const a of registrations) {
     const states = [...OPEN_STATES, ...APPEALABLE_STATES].map((s) => `escrowState=${s}`).join('&');
-    for (const v of await pages(`/v1/commitments?party=${a.address}&role=adjudicator&${states}`)) {
-      if (APPEALABLE_STATES.includes(v.escrowState) && v.appealState !== 'open') continue;
+    for (const v of await pages(`/v1/commitments?party=${a.address}&role=adjudicator&limit=200&${states}`)) {
+      // Released or Refunded: open while an appeal is open, or may still be filed before appealBy (T-377 red team M2).
+      const appealable = v.appealState === 'open' || (v.appealState === 'none' && Date.parse(v.deadlines?.appealBy ?? '') > Date.now());
+      if (APPEALABLE_STATES.includes(v.escrowState) && !appealable) continue;
       seen.set(v.commitmentId, v);
     }
   }
@@ -356,7 +379,7 @@ export async function readOpenDeals(node, fetchImpl = fetch) {
     const terms = await get(`/v1/commitments/${v.commitmentId}/terms`);
     const adjudication = terms.adjudication ?? terms.terms?.adjudication ?? {};
     const next = Object.entries(v.deadlines ?? {}).map(([k, t]) => [k, t]).filter(([, t]) => Date.parse(t) > Date.now()).sort((x, y) => Date.parse(x[1]) - Date.parse(y[1]))[0];
-    deals.push({ id: v.commitmentId, state: v.escrowState, nextDeadline: next ? `${next[0]} ${next[1]}` : undefined, policyHash: adjudication.policyHash, registryHash: adjudication.registryHash });
+    deals.push({ id: v.commitmentId, state: v.escrowState, nextDeadline: next ? `${next[0]} ${next[1]}` : undefined, policyHash: adjudication.policyHash, registryHash: adjudication.registryHash, primary: adjudication.adjudicator });
   }
   return { registrations, deals };
 }

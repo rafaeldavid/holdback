@@ -314,6 +314,13 @@ describe('the kept-policies data file and the code agree (the static check, ADR-
     expect(KEPT_POLICIES.registries.map((r) => r.file)).toEqual(expect.arrayContaining(['config/judges.yaml', 'config/judges-live.yaml']));
   });
 
+  it("the default policy's other fields are listed in policyParams, so the deploy guard can index deals accepted under it", async () => {
+    const file = (await import('./kept-policies.json', { with: { type: 'json' } })).default as { policyParams: Array<{ params: Record<string, unknown> }> };
+    const rest: Record<string, unknown> = { ...defaultPolicy('any/p1') };
+    for (const k of ['id', 'screenVersion', 'promptTemplateHash', 'appealPromptTemplateHash', 'aggregationVersion']) delete rest[k];
+    expect(file.policyParams.map((x) => x.params)).toContainEqual(rest);
+  });
+
   it('refuses a withdrawn or retired mark without its decision reference and reason', () => {
     const doc = JSON.parse(JSON.stringify({ ...KEPT_POLICIES, screens: [{ version: 'screen-0', status: 'withdrawn' }] }));
     expect(() => parseKeptPolicies(doc)).toThrow(/a withdrawn mark needs its decision reference and reason/);

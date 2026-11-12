@@ -96,9 +96,11 @@ export interface PanelConfig {
   registry: Registry;
   registryUri: string;
   /**
-   * ADR-0036: the other registry this world carries, with the provider that reaches it: with live judges, the
-   * placeholder registry and the scripted judges, so a deal bound to it before the live keys were set is still judged.
-   * Without live judges, none: no provider reaches the live registry, so a deal bound to it cannot be judged here.
+   * ADR-0036: the other registries this world carries, each with a provider that reaches its models. None: the live
+   * world never carries the placeholder registry, whose "judges" are scripted fakes, or a seller could bind a deal to it
+   * through its own primary and have a live Crow fallback accept the work with no model run (T-377 red team H1). And
+   * without the live keys no provider reaches the live models. So a deal bound to the other registry cannot be judged
+   * here, and the state read says so.
    */
   kept: KeptRegistry[];
   /** The live-judging variables that are missing, by name (empty when live). */
@@ -133,7 +135,7 @@ export function panelConfig(o: PanelOptions): PanelConfig {
     live: true,
     registry: liveRegistry(),
     registryUri: LIVE_REGISTRY_URI,
-    kept: [{ registry: placeholderRegistry(), uri: PLACEHOLDER_REGISTRY_URI, provider: scripted }],
+    kept: [],
     missing: [],
     budget,
     allowLive: false,

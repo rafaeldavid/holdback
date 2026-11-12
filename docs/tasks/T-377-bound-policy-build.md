@@ -64,6 +64,18 @@ PR 1 merged on 2026-11-12 as PR 395, merge commit `c842495`, after one review (P
 - **Three existing tests changed, with no change of intent** [measured]: `worker.test.ts` "a stuck case slows down …" and "an overdue alarm …", and `world.test.ts` "a pass that changes nothing …", made a stuck deal by restarting the world with live judges, which changed the registry. With this change the restarted world carries the earlier registry and judges the deal, so the deal was Released. They now accept the deal under the live registry and restart without its keys, which no provider then reaches. "a stuck case" also checks that the notice shows before judgeBy, where it used to check for the fallback's declined turn after it.
 - **Suite** [measured]: `pnpm test` 3,404 passed, 184 skipped, 0 failed; `pnpm snap` 44 passed; `pnpm typecheck`, `pnpm lint` and `node site/build.mjs && node site/check.mjs` pass.
 
+**Red team** (one pass on the whole T-377 diff, 2026-11-12, without my conclusions): 1 High, 6 Medium, 7 Low. All High and Medium findings are fixed in this PR:
+- **H1, fixed:** a seller's own primary could bind a deal to the placeholder registry, and a live Crow fallback would accept the work with scripted judges and no model run (measured by the red team). The live world now carries no registry but its own (`judges.ts`); `attack.live-world-binds-scripted-registry` checks it.
+- **M1, fixed:** the replay's deliveries were ASCII, so a change to shared normalization (the red team widened `EMOJI_TAG_SEQUENCE` to 64 tag characters) left every check green. Two read paths were added: `unicode` (tag-smuggled text, zero-width and bidi marks, fullwidth, variation selectors, confusables, combining marks) and `cells` (CSV formula cells). With the red team's mutation applied, the replay now fails on both screens' `unicode` path [measured: 2 failed; 19 of 19 pass after reverting].
+- **M2, fixed:** a Released or Refunded deal still inside its appeal window counted as closed. `rolesAhead` and `readOpenDeals` now count it, and the notice says an appeal would go unheard.
+- **M3, fixed:** the guard counted every registry the data file keeps. It now counts only the registries the live adjudicators use, since a deploy keeps the secrets.
+- **M4, fixed:** on the first deploy, a failed read refused with a false "new default" reason. It now warns and goes on.
+- **M5, fixed:** the notice called an outside primary able to judge. It now says that is unknown.
+- **M6, fixed:** a deal accepted under an earlier set of non-version policy fields was "not checked". `kept-policies.json` now lists every released set (`policyParams`), with a static test that the current default's is listed. The guard indexes them and refuses a deal at this operator's primary that it still cannot index.
+- **Lows, partly fixed:** the notice now says anyone can apply the default outcome from the deadline, rather than that it "applies" then; `Disputed`, not a core state, left the guard's list. The rest are in the Handoff.
+- **One anvil test changed its expected text** (`registration.anvil.test.ts`): the read-time notice replaced the declined-turn notice for an appeal under another registry, and it says the same with the adjudicator's name.
+- **Checks after the fixes** [measured]: `pnpm typecheck`, `pnpm lint` and `pnpm snap` (44 passed) pass. In the full `pnpm test`, 7 tests timed out at a load average of about 100 (`uptime`); each of their files passes alone (262 of 262, and `packages/judgment` 576).
+
 ## Decisions
 
 1. **A template pair is carried whole.** The two hashes must name one kept pair; a first-instance template from one pair and an appeal template from another is not carried. Only one pair exists today.
@@ -72,7 +84,7 @@ PR 1 merged on 2026-11-12 as PR 395, merge commit `c842495`, after one review (P
 4. **A registry is carried when the build is given it with a provider** (`keptRegistries`) and the data file does not mark it retired or withdrawn. The data file lists each registry by hash and file, and a test checks each file still hashes to its recorded hash, so editing a registry file in place fails CI.
 5. **The runner models one build for all three adjudicators,** as Crow's three ship in one build (ADR-0036 section 3), and records a restart as an outage of each, so a `neutrality.*` fixture can name the restarted adjudicator as the actor that fails.
 6. **The notice comes before the declined-turn and waiting notices** in the state read, since it is computed from the terms and says what follows for every role still ahead.
-7. **With live judges, the world also carries the placeholder registry with the scripted judges;** without them it carries only the placeholder one, since no provider reaches the live models. Removing the live judges' keys therefore still orphans a deal bound to the live registry; the guard cannot see the Worker's secrets, so `docs/api.md` says when to remove them.
+7. **The world carries only the registry it has real judges for** (red team H1). A live world that carried the placeholder registry with its scripted judges let a seller bind a deal to it through its own primary and have a Crow fallback accept the work with no model run. So adding or removing the live judges' keys still orphans a deal bound to the other registry; the guard assumes a deploy keeps the secrets, and `docs/api.md` says when to change them.
 8. **The guard runs after the build,** which compiles core's `policyHash`, and before any upload. It reads the live build's kept file with `git show <commit>:apps/adjudicator/src/kept-policies.json`; for a commit from before the file it takes the live registrations' versions as what that build carries.
 
 ## Handoff
@@ -92,6 +104,7 @@ PR 1 merged on 2026-11-12 as PR 395, merge commit `c842495`, after one review (P
 **Later default changes** ship in two deploys: first a build that adds the version to the code and to `kept-policies.json`, then one that changes `default`. The guard refuses the second one if the live build does not carry the new default yet.
 
 **Lows, not fixed** (review and red team; for the triage file):
+- Red team: the prepare notice for a policy naming a superseded version (ADR-0036 §3) is not built; `cannotJudge` errors show as "can judge"; `cannotJudge` leaves out the consent checks `declines` runs (untrusted appeal adjudicator, windows, fee); the SimChain payout wording uses the current club's rate, not the deal's club; the guard reads only the first node's commit.
 1. `packages/testkit/src/render.ts`: the Input row names `config/judges.yaml` for any registry hash, so `neutrality.deploy-changes-registry.expect.md` labels the live registry's hash with that file name (review Low 1).
 2. The scenario fixtures deliver a file both screens pass, so their "judged under screen-0" line shows the bound policy, not a screen-0-only result; the service test with a delivery only `screen-0` flags proves it ran (review Low 2).
 3. The runner models retired and withdrawn marks only for registries; the service tests cover withdrawn versions (review Low 5).

@@ -70,7 +70,7 @@ describe('neutrality.notice-before-delivery: the state read names an adjudicator
       const said = (await notices(url, id)).join(' ');
       expect(said).toMatch(/^The primary adjudicator .* \(0x[0-9a-f]{40}\) cannot judge this deal: this build withdrew screen screen-1 \(D-test: it would put deliverable text in an instruction position\)/);
       expect(said).toMatch(/What follows: the fallback adjudicator .* cannot judge it either \(this build withdrew screen screen-1/);
-      expect(said).toMatch(/it can take over from judgeBy 20\d\d-[0-9T:-]+Z and decide until fallbackBy 20\d\d-[0-9T:-]+Z\. If no adjudicator decides by fallbackBy, the default outcome applies: the buyer gets the price and the fee back, and the seller is paid \d+(\.\d+)?% of the price from the bonds of the adjudicators that missed their turns\. The parties can settle by mutual agreement before then\./);
+      expect(said).toMatch(/it can take over from judgeBy 20\d\d-[0-9T:-]+Z and decide until fallbackBy 20\d\d-[0-9T:-]+Z\. If no adjudicator decides by fallbackBy, anyone can then apply the default outcome: the buyer gets the price and the fee back, and the seller is paid \d+(\.\d+)?% of the price from the bonds of the adjudicators that missed their turns\. The parties can settle by mutual agreement before then\./);
       expect(said).toMatch(/The appeal adjudicator .* cannot judge this deal: this build withdrew screen screen-1/);
     }
     await next.close();
@@ -103,7 +103,7 @@ describe('the notice text (ADR-0036 section 5)', () => {
   it('the primary cannot, the fallback can: names both and the deadlines', async () => {
     const n = await cannotJudgeNotice(state('Delivered'), ours({ [A]: 'cannot', [B]: 'can', [C]: 'can' }), PAYS);
     expect(n).toBe(
-      `The primary adjudicator bench-aa (${A}) cannot judge this deal: this build does not carry screen screen-0. What follows: the fallback adjudicator bench-bb can judge it; it can take over from judgeBy 2026-11-20T10:00:00Z and decide until fallbackBy 2026-11-21T10:00:00Z. If no adjudicator decides by fallbackBy, the default outcome applies: ${PAYS}. The parties can settle by mutual agreement before then.`,
+      `The primary adjudicator bench-aa (${A}) cannot judge this deal: this build does not carry screen screen-0. What follows: the fallback adjudicator bench-bb can judge it; it can take over from judgeBy 2026-11-20T10:00:00Z and decide until fallbackBy 2026-11-21T10:00:00Z. If no adjudicator decides by fallbackBy, anyone can then apply the default outcome: ${PAYS}. The parties can settle by mutual agreement before then.`,
     );
   });
 
@@ -115,13 +115,27 @@ describe('the notice text (ADR-0036 section 5)', () => {
   it('the fallback cannot while the primary can: the default outcome follows only if the primary misses judgeBy', async () => {
     const n = await cannotJudgeNotice(state('Delivered'), ours({ [A]: 'can', [B]: 'cannot', [C]: 'can' }), PAYS);
     expect(n).toBe(
-      `The fallback adjudicator bench-bb (${B}) cannot judge this deal: this build does not carry screen screen-0. What follows: The primary can judge it; if it does not decide by judgeBy, no fallback will decide, and at fallbackBy 2026-11-21T10:00:00Z the default outcome applies: ${PAYS}. The parties can settle by mutual agreement before then.`,
+      `The fallback adjudicator bench-bb (${B}) cannot judge this deal: this build does not carry screen screen-0. What follows: The primary can judge it; if it does not decide by judgeBy, no fallback will decide, and from fallbackBy 2026-11-21T10:00:00Z anyone can apply the default outcome: ${PAYS}. The parties can settle by mutual agreement before then.`,
     );
+  });
+
+  it('an outside primary is unknown, never "can judge" (red team M5)', async () => {
+    const n = await cannotJudgeNotice(state('Delivered'), ours({ [B]: 'cannot', [C]: 'can' }), PAYS);
+    expect(n).toMatch(new RegExp(`What follows: Whether the primary adjudicator ${A} can judge it is unknown: this operator does not run it\\. If it does not decide by judgeBy, no fallback will decide`));
+    expect(n).not.toMatch(/The primary can judge it/);
+  });
+
+  it('a deal still inside its appeal window is open, and the notice says an appeal would go unheard (red team M2)', async () => {
+    const released = state('Released', { via: { kind: 'first_instance', appeal: { kind: 'none', appealBy: '2099-01-01T00:00:00Z', appealDecideBy: '2099-01-02T00:00:00Z' } } });
+    expect(rolesAhead(released, '2026-11-20T00:00:00Z')).toEqual(['appeal']);
+    expect(rolesAhead(released, '2099-01-01T00:00:01Z')).toEqual([]);
+    expect(await cannotJudgeNotice(released, ours({ [C]: 'cannot' }), PAYS, '2026-11-20T00:00:00Z')).toMatch(/cannot judge an appeal of this deal: .*a party may still appeal until appealBy 2099-01-01T00:00:00Z, but the appeal would go unheard and expire at 2099-01-02T00:00:00Z, and the first decision would stand\./);
+    expect(await cannotJudgeNotice(released, ours({ [C]: 'cannot' }), PAYS, '2099-01-01T00:00:01Z')).toBeNull();
   });
 
   it('an escalation the appeal adjudicator cannot judge defaults at appealDecideBy; an open appeal expires and the first decision stands', async () => {
     const esc = await cannotJudgeNotice(state('Escalated', { escalation: { by: 'primary', at: '2026-11-20T09:00:00Z', appealDecideBy: '2026-11-22T10:00:00Z' } }), ours({ [C]: 'cannot' }), PAYS);
-    expect(esc).toMatch(/cannot judge this deal's escalation: .*at appealDecideBy 2026-11-22T10:00:00Z the default outcome applies/);
+    expect(esc).toMatch(/cannot judge this deal's escalation: .*from appealDecideBy 2026-11-22T10:00:00Z anyone can apply the default outcome/);
     const appeal = await cannotJudgeNotice(state('Released', { via: { kind: 'first_instance', appeal: { kind: 'open', appealDecideBy: '2026-11-23T10:00:00Z' } } }), ours({ [C]: 'cannot' }), PAYS);
     expect(appeal).toMatch(/cannot judge this deal's appeal: .*the appeal expires at 2026-11-23T10:00:00Z, and the first decision stands\./);
   });
@@ -151,5 +165,18 @@ describe('the guard reads the open deals through the public reads (ADR-0036 sect
     expect(lib.guardDecision({ ...facts, next: KEPT_POLICIES }).refused).toBeNull();
     const dropped = { ...KEPT_POLICIES, screens: KEPT_POLICIES.screens.filter((s) => s.version !== 'screen-1'), default: { ...KEPT_POLICIES.default, screenVersion: 'screen-0' } };
     expect(lib.guardDecision({ ...facts, next: dropped }).refused).toMatch(new RegExp(`${id} Held, next deadline \\w+ .*: the new build does not carry screen-1`));
+  });
+});
+
+describe('attack.live-world-binds-scripted-registry (red team H1)', () => {
+  it('a live world carries no registry but the live one, so no deal is judged there by scripted judges', async () => {
+    const { panelConfig } = await import('./judges.js');
+    const { markerFake, liveRegistry } = await import('@holdback/adjudicator');
+    const live = panelConfig({ env: {}, storage: new MemoryStorage(), now: Date.now, judgeProvider: markerFake() });
+    expect(live.live).toBe(true);
+    expect(live.registry.hash).toBe(liveRegistry().hash);
+    expect(live.kept).toEqual([]);
+    const scripted = panelConfig({ env: {}, storage: new MemoryStorage(), now: Date.now });
+    expect(scripted.kept).toEqual([]);
   });
 });

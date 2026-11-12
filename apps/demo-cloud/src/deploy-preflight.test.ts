@@ -214,7 +214,7 @@ import { guardDecision as guardDecisionUntyped } from '../../../scripts/deploy-l
 import { defaultPolicy, KEPT_POLICIES, type KeptPolicies } from '@holdback/adjudicator';
 import { policyHash, type AdjudicatorPolicy } from '@holdback/core';
 
-type Deal = { id: string; state: string; nextDeadline?: string; policyHash: string; registryHash: string };
+type Deal = { id: string; state: string; nextDeadline?: string; policyHash: string; registryHash: string; primary?: string };
 type Guarded = { refused: string | null; warnings: string[]; orphans: Deal[]; withdrawnOrphans: Deal[]; checked?: number };
 const guardDecision = guardDecisionUntyped as (facts: {
   live: { kept: KeptPolicies | null; registrations: Array<{ policy: AdjudicatorPolicy; registryHash: string }> };
@@ -249,7 +249,9 @@ describe('the deal guard (ADR-0036 section 4)', () => {
 
   it('refuses a deploy that drops a registry an open deal binds', () => {
     const next = { ...KEPT_POLICIES, registries: KEPT_POLICIES.registries.filter((x) => x.hash !== OTHER_REG) };
-    const r = guardDecision({ ...facts, next, deals: [deal('0x03', 'screen-1', OTHER_REG)] });
+    // The live adjudicators reach both registries here (one of them uses the other).
+    const both = { ...live, registrations: [...registrations, { policy: primary, registryHash: OTHER_REG }] };
+    const r = guardDecision({ ...facts, live: both, next, deals: [deal('0x03', 'screen-1', OTHER_REG)] });
     expect(r.refused).toMatch(/0x03 Held.*does not carry registry 0x6dc7342b/);
   });
 
@@ -275,7 +277,8 @@ describe('the deal guard (ADR-0036 section 4)', () => {
     expect(ok.withdrawnOrphans.map((o) => o.id)).toEqual(['0x01']);
     // A deal orphaned for another reason still refuses under the override.
     const both = { ...next, registries: next.registries.filter((x) => x.hash !== OTHER_REG) };
-    expect(guardDecision({ ...facts, next: both, deals: [deal('0x01', 'screen-0'), deal('0x04', 'screen-1', OTHER_REG)], override: 'screen-0' }).refused).toMatch(/0x04 Held.*registry 0x6dc7342b/);
+    const reachesBoth = { ...live, registrations: [...registrations, { policy: primary, registryHash: OTHER_REG }] };
+    expect(guardDecision({ ...facts, live: reachesBoth, next: both, deals: [deal('0x01', 'screen-0'), deal('0x04', 'screen-1', OTHER_REG)], override: 'screen-0' }).refused).toMatch(/0x04 Held.*registry 0x6dc7342b/);
     // An override naming a version the file does not mark withdrawn is refused outright.
     expect(guardDecision({ ...facts, override: 'screen-1' }).refused).toMatch(/^Refused: HOLDBACK_DEPLOY_WITHDRAWN names "screen-1", which kept-policies\.json does not mark withdrawn/);
   });
@@ -288,7 +291,36 @@ describe('the deal guard (ADR-0036 section 4)', () => {
   it('a policy neither build registered is reported, not checked', () => {
     const r = guardDecision({ ...facts, deals: [{ ...deal('0x05', 'screen-1'), policyHash: `0x${'ee'.repeat(32)}` }] });
     expect(r.refused).toBeNull();
-    expect(r.warnings).toEqual([expect.stringMatching(/^WARNING: deal 0x05 \(Held\) binds policy 0xeeee.*which neither build registered; not checked\./)]);
+    expect(r.warnings).toEqual([expect.stringMatching(/^WARNING: deal 0x05 \(Held\) binds policy 0xeeee.*which an adjudicator this operator does not run registered; not checked\./)]);
+  });
+
+  it("refuses, rather than guess, a deal this operator's primary accepted under a policy it cannot index (red team M6)", () => {
+    const ours = [{ ...registrations[0]!, address: '0x00000000000000000000000000000000000000aa' }];
+    const r = guardDecision({ ...facts, live: { ...live, registrations: ours }, deals: [{ ...deal('0x08', 'screen-1'), policyHash: `0x${'ee'.repeat(32)}`, primary: '0x00000000000000000000000000000000000000AA' } as Deal] });
+    expect(r.refused).toMatch(/^Refused: 1 open deal this operator's primary accepted binds a policy no kept version and no released policyParams entry in kept-policies\.json produce/);
+  });
+
+  it('indexes a deal accepted under an earlier released policyParams entry, so dropping its screen still refuses (red team M6)', () => {
+    const earlier = { ...primary, judgeTimeoutSec: 120, screenVersion: 'screen-0' };
+    const params: Record<string, unknown> = { ...earlier };
+    for (const k of ['id', 'screenVersion', 'promptTemplateHash', 'appealPromptTemplateHash', 'aggregationVersion']) delete params[k];
+    const withParams = (k: KeptPolicies) => ({ ...k, policyParams: [...((k as unknown as { policyParams?: unknown[] }).policyParams ?? []), { since: 'test', params }] }) as KeptPolicies;
+    const d = { ...deal('0x09', 'screen-0'), policyHash: policyHash(earlier) };
+    const r = guardDecision({ ...facts, live: { ...live, kept: withParams(KEPT_POLICIES) }, next: withParams(without(KEPT_POLICIES, 'screen-0')), deals: [d] });
+    expect(r.refused).toMatch(/0x09 Held.*does not carry screen-0/);
+  });
+
+  it('counts only the registries the live adjudicators reach, since a deploy keeps the secrets (red team M3)', () => {
+    // The live build reaches only REG; a deal bound to OTHER_REG cannot be judged by it, so it is not the deploy's to orphan,
+    // and the new build, which reaches the same registries, cannot judge it either.
+    const r = guardDecision({ ...facts, deals: [deal('0x0a', 'screen-1', OTHER_REG)] });
+    expect(r).toMatchObject({ refused: null, orphans: [] });
+  });
+
+  it('on the first deploy, a failed read warns and goes on instead of refusing on an empty guess (red team M4)', () => {
+    const r = guardDecision({ live: { kept: null, registrations: [] }, next: KEPT_POLICIES, deals: null, readError: 'GET /v1/adjudicators answered 503', hashOf: policyHash as (p: AdjudicatorPolicy) => string });
+    expect(r.refused).toBeNull();
+    expect(r.warnings).toEqual([expect.stringMatching(/^WARNING: the open deals could not be read \(GET \/v1\/adjudicators answered 503\)/)]);
   });
 
   it('the first deploy carrying both screens: a live build from before kept-policies.json carries exactly its registered defaults', () => {
@@ -297,5 +329,25 @@ describe('the deal guard (ADR-0036 section 4)', () => {
     expect(guardDecision({ ...first, deals: [deal('0x06', 'screen-1')] })).toEqual({ refused: null, warnings: [], orphans: [], withdrawnOrphans: [], checked: 1 });
     // A deal still bound to screen-0 cannot be judged by the live build; the new build can, so nothing is orphaned.
     expect(guardDecision({ ...first, deals: [deal('0x07', 'screen-0')] }).refused).toBeNull();
+  });
+});
+
+describe('the guard reads a deal inside its appeal window as open (red team M2)', () => {
+  it('lists a Released deal whose appeal may still be filed, and skips one whose window has closed', async () => {
+    // @ts-expect-error -- a plain ESM script without type declarations
+    const { readOpenDeals } = (await import('../../../scripts/deploy-lib.mjs')) as { readOpenDeals: (node: string, f: typeof fetch) => Promise<{ deals: Array<{ id: string }> }> };
+    const A = '0x00000000000000000000000000000000000000aa';
+    const view = (id: string, appealBy: string) => ({ commitmentId: id, escrowState: 'Released', appealState: 'none', deadlines: { appealBy, appealDecideBy: appealBy } });
+    const answers: Record<string, unknown> = {
+      '/v1/adjudicators?limit=200': { items: [{ address: A, policy: {}, registry: { hash: '0x01' } }], nextCursor: null },
+      '/': { demo: { adjudicators: [{ role: 'primary', address: A }] } },
+    };
+    const fake = (async (url: string) => {
+      const path = url.replace('https://node.test', '');
+      const body = path.startsWith('/v1/commitments?') ? { items: [view('0xopen', '2099-01-01T00:00:00Z'), view('0xclosed', '2001-01-01T00:00:00Z')], nextCursor: null } : path.endsWith('/terms') ? { adjudication: { policyHash: '0xp', registryHash: '0x01', adjudicator: A } } : answers[path];
+      return { ok: body !== undefined, status: body === undefined ? 404 : 200, json: async () => body } as Response;
+    }) as unknown as typeof fetch;
+    const read = await readOpenDeals('https://node.test', fake);
+    expect(read.deals.map((d) => d.id)).toEqual(['0xopen']);
   });
 });
