@@ -224,6 +224,15 @@ export class RoundChain {
     return getAddress(this.deployment.token.address);
   }
 
+  /**
+   * The rules contract's `BEACON_MARGIN()` in seconds (ADR-0032): 29 on Sepolia and mainnet, 0 on a local chain. It
+   * fixes the fallback's and the appeal adjudicator's beacon rounds, so the round reads it from the deployment and
+   * never assumes it (T-386).
+   */
+  async beaconMarginSec(): Promise<number> {
+    return Number(await this.read<bigint>('rules', this.deployment.rules, 'BEACON_MARGIN', []));
+  }
+
   /** `dealOf(id)`: the stage and the attempt, at the latest block or after block `at`. */
   async deal(id: Hex, at?: bigint): Promise<{ stage: string; attempt: number }> {
     const d = await this.read<{ stage: number; attempt: number }>('rules', this.deployment.rules, 'dealOf', [id], at);
