@@ -277,7 +277,8 @@ describe('one timestamp format (Simplify 8, F5)', () => {
 describe('notices in the body (Simplify 5)', () => {
   it('adds a node\'s notices to prepare, write and state answers', async () => {
     const p = (await http('POST', `${api}/v1/prepare/offer`, offerInput())).body as Prepared & { notices?: string[] };
-    expect(p.notices).toBeUndefined(); // the sim nodes have nothing to say
+    // The sim nodes have nothing of their own to say; the route itself names the two money addresses it filled (ADR-0033 §7).
+    expect(p.notices).toEqual([expect.stringMatching(/^Payment address: not set/), expect.stringMatching(/^Payout address: not set/)]);
     const w = await http('POST', `${noticing.url}${p.submit.path}`, (await sign(p, acct('seller-1').privateKey)).submit.body);
     expect([w.body.escrowState, w.body.notices]).toEqual(['Offered', ['notice for write']]);
     expect((await http('GET', `${noticing.url}/v1/commitments/${p.commitmentId}`)).body.notices).toEqual(['notice for state']);

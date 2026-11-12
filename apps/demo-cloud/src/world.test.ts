@@ -40,6 +40,8 @@ async function serve(options: Partial<PublicWorldOptions> = {}, storage = new Me
 }
 
 const freshAgent = (urls: string[]) => new Agent(urls, generatePrivateKey(), nacl.randomBytes(32));
+/** The offer route's two lines for money addresses it filled with the signing addresses (ADR-0033 §7, T-378). */
+const DEFAULTED = [expect.stringMatching(/^Payment address: not set/), expect.stringMatching(/^Payout address: not set/)];
 const post = (url: string, body: unknown, key?: string) =>
   fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...(key ? { 'idempotency-key': key } : {}) }, body: JSON.stringify(body) });
 
@@ -68,6 +70,23 @@ describe('public mode', () => {
     // Malformed input and a missing Idempotency-Key are refused.
     expect((await post(`${urls[0]}/v1/faucet`, { address: 'nope' }, 'k-5')).status).toBe(400);
     expect((await post(`${urls[0]}/v1/faucet`, { address: freshAgent(urls).address })).status).toBe(400);
+  });
+
+  it('sends the tokens to a payment address and the mandate to the signing address (ADR-0033 §5, T-378)', async () => {
+    const { urls } = await serve();
+    const [signing, payment] = [freshAgent(urls), freshAgent(urls)];
+    const r = await post(`${urls[0]}/v1/faucet`, { address: signing.address, paymentAddress: payment.address }, 'k-pay-1');
+    expect(r.status).toBe(200);
+    const grant = (await r.json()) as J;
+    expect(grant).toMatchObject({ address: signing.address, paymentAddress: payment.address, granted: { amount: '1000000000' }, balance: { amount: '1000000000' } });
+    expect(grant.mandate.agent).toBe(signing.address);
+    const held = async (a: string) => ((await (await fetch(`${urls[1]}/v1/balances/${a}`)).json()) as J).amount;
+    expect([await held(signing.address), await held(payment.address)]).toEqual(['0', '1000000000']);
+    // The window counts the signing address: a second per-deal key funds from the same standing payment address.
+    const next = freshAgent(urls);
+    expect((await post(`${urls[0]}/v1/faucet`, { address: next.address, paymentAddress: payment.address }, 'k-pay-2')).status).toBe(200);
+    expect(await held(payment.address)).toBe('2000000000');
+    expect((await post(`${urls[0]}/v1/faucet`, { address: next.address, paymentAddress: 'nope' }, 'k-pay-3')).status).toBe(400);
   });
 
   it('grants once when two requests for one address arrive together', async () => {
@@ -232,10 +251,11 @@ describe('public mode', () => {
     const d = await discovery(urls);
     const [seller, buyer] = [freshAgent(urls), freshAgent(urls)];
     const r = (await (await post(`${urls[0]}/v1/prepare/offer`, offerRequest(d, seller, buyer, RUBRIC_OFFER))).json()) as J;
-    expect(r.notices).toEqual([expect.stringMatching(/scripted/)]);
+    // The route's own two lines for the money addresses it filled (ADR-0033 §7) come first; this world adds the panel's.
+    expect(r.notices).toEqual([...DEFAULTED, expect.stringMatching(/scripted/)]);
     const c = (await (await post(`${urls[0]}/v1/prepare/offer`, offerRequest(d, seller, buyer))).json()) as J;
     expect(c.kind).toBe('offer');
-    expect(c.notices).toBeUndefined();
+    expect(c.notices).toEqual(DEFAULTED);
   });
 
   it('declines a private offer it cannot open, and says so before the offer and on the state read (F1)', async () => {
@@ -604,7 +624,7 @@ describe('live judges (T-028), with a stand-in for the models', () => {
     expect(notes).toMatch(/7 live judge calls a day/);
     const d = await discovery(urls);
     const r = (await (await post(`${urls[0]}/v1/prepare/offer`, offerRequest(d, freshAgent(urls), freshAgent(urls), RUBRIC_OFFER))).json()) as J;
-    expect(r.notices).toEqual([expect.stringMatching(/live judge panel/)]);
+    expect(r.notices).toEqual([...DEFAULTED, expect.stringMatching(/live judge panel/)]);
   });
 
   it('judges a rubric deal live within the daily budget, then falls back to marked scripted judges', async () => {

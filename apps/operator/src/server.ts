@@ -161,6 +161,8 @@ export interface OperatorOptions {
   fee?: OperatorFeeSchedule;
   /** On an EVM settlement layer: the ERC-3009 messages the buyer signs to fund and to pay the fee (ADR-0025). */
   erc3009?: Erc3009Signing;
+  /** This deployment's own contracts by name, for the money-address warnings of prepare (ADR-0033 §7). Absent: none. */
+  contracts?: ReadonlyArray<{ name: string; address: Address }>;
   /** Advisory notices this node adds to prepare, write and state answers (NoticeSubject). Absent: none. */
   notices?: (about: NoticeSubject) => readonly string[] | Promise<readonly string[]>;
   /** A demo world's facts for discovery (DemoFacts). Absent: this node is not a demo. */
@@ -1091,13 +1093,16 @@ export class Operator {
    */
   private async faucet(ctx: Ctx, raw: unknown): Promise<StoredResponse> {
     const faucet = this.o.registry.faucet ?? fail('not_found', 'this node has no faucet: it does not serve a test network');
-    const b = (raw && typeof raw === 'object' ? raw : {}) as { address?: unknown; amount?: unknown };
+    const b = (raw && typeof raw === 'object' ? raw : {}) as { address?: unknown; amount?: unknown; paymentAddress?: unknown };
     if (!isAddress(b.address as string)) fail('invalid_terms', 'the faucet takes {"address": "0x<40 hex>"}: your own address; make your own keys', { field: 'address' });
     if (b.amount !== undefined && (typeof b.amount !== 'string' || !/^[1-9][0-9]{0,30}$/.test(b.amount))) fail('invalid_terms', 'amount, when given, is base units as a decimal string', { field: 'amount' });
+    // ADR-0033 §5: a per-deal signing key holds no tokens. The tokens go to the payment address, the mandate to `address`.
+    if (b.paymentAddress !== undefined && !isAddress(b.paymentAddress as string)) fail('invalid_terms', 'paymentAddress, when given, is the address that funds your holds ("0x<40 hex>"): the faucet sends the tokens there and the mandate to address', { field: 'paymentAddress' });
     const address = lc(b.address as string) as Address;
-    const r = await faucet(address, { ...(typeof b.amount === 'string' ? { amount: BigInt(b.amount) } : {}), client: this.client(ctx) });
+    const paymentAddress = b.paymentAddress === undefined ? undefined : (lc(b.paymentAddress as string) as Address);
+    const r = await faucet(address, { ...(typeof b.amount === 'string' ? { amount: BigInt(b.amount) } : {}), ...(paymentAddress ? { paymentAddress } : {}), client: this.client(ctx) });
     if (!r.ok) fail(r.problem.type, r.problem.detail, { ...(r.retryAfterSec !== undefined ? { retryAfterSec: r.retryAfterSec } : {}), ...(r.field !== undefined ? { field: r.field } : {}) });
-    return this.ok({ address, ...(r as Extract<typeof r, { ok: true }>).grant });
+    return this.ok({ address, ...(paymentAddress ? { paymentAddress } : {}), ...(r as Extract<typeof r, { ok: true }>).grant });
   }
 
   // Prepare, ciphertext
@@ -1143,6 +1148,7 @@ export class Operator {
       state: (id) => this.o.settlement.state(id),
       ...(this.o.fee ? { operatorFee: this.o.fee } : {}),
       ...(this.o.erc3009 ? { erc3009: this.o.erc3009 } : {}),
+      ...(this.o.contracts ? { contracts: this.o.contracts } : {}),
     };
   }
 
