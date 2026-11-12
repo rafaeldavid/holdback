@@ -171,6 +171,11 @@ describe('sendTimeout: refusals before any chain read', () => {
     const e = await run({ deployment: file('ok.json', record(31337)), dryRun: false }, { TIMEOUT_SENDER_KEY: bad }).catch((x: Error) => x);
     expect(String(e)).toContain('is not a 32-byte hex private key');
     expect(String(e)).not.toContain(bad);
+    // Right shape, out of range: zero is no secp256k1 key, and the refusal must not carry it either (review of T-374).
+    const zero = `0x${'0'.repeat(64)}`;
+    const z = await run({ deployment: file('ok.json', record(31337)), dryRun: false }, { TIMEOUT_SENDER_KEY: zero }).catch((x: Error) => x);
+    expect(String(z)).toContain('is not a valid secp256k1 private key');
+    expect(String(z)).not.toMatch(/got|0x0{64}/);
   });
 });
 
@@ -221,11 +226,41 @@ describe.skipIf(!anvilReady)(`send-timeout on anvil against the phase-one contra
     genesis = { ...genesis, simSeed: `0x${'00'.repeat(32)}` };
     await chain.mint(cast.buyer.address, 10n ** 12n);
     await chain.mint(cast.seller.address, 10n ** 10n);
-    s = await live.EvmSettlement.restore(chain, genesis, undefined, wall);
+    s = await live.EvmSettlement.restore(shimmed(chain), genesis, undefined, wall);
   }, 180_000);
   afterAll(async () => {
     await anvil?.stop();
   });
+
+  /**
+   * `base` behind a shim for one anvil 1.0.0 bug (T-217 Decision 11, as packages/settlement/evm/timeouts.test.ts):
+   * anvil cannot estimate a call whose EIP-7623 calldata floor exceeds its execution gas, and answers "gas floor
+   * exceeds the gas limit". On the phase-one contracts the primary's escalation is such a call. The shim answers only
+   * that error, from eth_call, so a revert stays a revert. Only the adapter that opens the deals uses it; this
+   * command's own sends do not.
+   */
+  function shimmed(base: J): J {
+    const client = new Proxy(base.publicClient, {
+      get(target, prop) {
+        if (prop === 'estimateGas') {
+          return async (a: J) => {
+            try {
+              return await target.estimateGas(a);
+            } catch (e) {
+              if (!/gas floor exceeds the gas limit/.test(String((e as Error).message))) throw e;
+              await target.call(a);
+              return 1_000_000n;
+            }
+          };
+        }
+        const v = Reflect.get(target, prop);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    });
+    const c = Object.create(base);
+    Object.defineProperty(c, 'publicClient', { value: client });
+    return c;
+  }
 
   const ok = async (sub: J) => {
     const r = await s.submit(sub, { via: 'op-1' });

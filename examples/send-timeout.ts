@@ -274,6 +274,12 @@ function senderKey(env: Io['env']): Hex {
   const k = env[SENDER_KEY_VAR];
   if (!k) throw new Refusal(`refusing to send: ${SENDER_KEY_VAR} is not set. Any key with gas can send a timeout; run with --dry-run to see the plan without one`);
   if (!isHex(k) || k.length !== 66) throw new Refusal(`refusing to send: ${SENDER_KEY_VAR} is not a 32-byte hex private key (0x and 64 hex digits)`);
+  // A key of the right shape can still be out of the curve's range; viem's error would print it, so it is replaced.
+  try {
+    privateKeyToAccount(k);
+  } catch {
+    throw new Refusal(`refusing to send: ${SENDER_KEY_VAR} is not a valid secp256k1 private key`);
+  }
   return k;
 }
 

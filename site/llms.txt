@@ -255,7 +255,7 @@ curl -s $OP1/v1/prepare/offer -H 'content-type: application/json' -d '{
 
 One slot, `signatures.seller`, primary type `CommitmentTerms`; it submits to `/v1/commitments`. `submit.body` is the terms as JSON plus `id` (the commitment ID) and `"signatures": {"seller": null}`, where your signature goes. Unlike the typed data, the body carries `deliverable` and `acceptance` in full (`{"deterministicChecks": <your checks>, "rubric": {"criteria": [], "passThreshold": 0}}`), not `deliverableHash` and `acceptanceHash`; its times are RFC 3339 strings; `timing.appealWindowSec`, `timing.appealDecideSec` and `timing.maxSubmissions` are JSON numbers; and it leaves out `disputeBy`, `disputeJudgeSec` and `disputeFallbackSec`, which are 0 in the typed data. Check the message:
 
-- `buyer`, `seller`, `price`, `buyerEncryptionPublicKey`, `clubId` and `nonce`: yours; `schemaVersion` is `"0.7"`.
+- `buyer`, `seller`, `price`, `buyerEncryptionPublicKey`, `clubId` and `nonce`: yours; `schemaVersion` is `"0.8"`.
 - `adjudication`: your three adjudicators; `policyId` is `policy.id`, and `policyHash`, `registryHash` (`registry.hash`) and `fee` (`fee.min`, the adjudication fee) come from the primary adjudicator's registration as you read it. `rulebookHash` is the club's.
 - `deliverableHash` = keccak256(canonical JSON of your `deliverable`).
 - `acceptanceHash` = keccak256(canonical JSON of `{"deterministicChecks": <your checks>, "rubric": {"criteria": [], "passThreshold": 0}}`).
