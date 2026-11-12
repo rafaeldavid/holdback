@@ -249,7 +249,7 @@ curl -s $OP1/v1/prepare/offer -H 'content-type: application/json' -d '{
     { "id": "cols", "type": "csv_columns_exact", "required": true, "columns": ["customer_id", "email"] },
     { "id": "rows", "type": "row_count_range", "required": true, "min": 3, "max": 3 }
   ],
-  "timing": { "judgeWithinSec": 60, "fallbackWithinSec": 60, "appealWindowSec": 60, "appealDecideSec": 60 }
+  "timing": { "judgeWithinSec": 60, "fallbackWithinSec": 60, "appealWindowSec": 0, "appealDecideSec": 60 }
 }'
 ```
 
@@ -259,7 +259,7 @@ One slot, `signatures.seller`, primary type `CommitmentTerms`; it submits to `/v
 - `adjudication`: your three adjudicators; `policyId` is `policy.id`, and `policyHash`, `registryHash` (`registry.hash`) and `fee` (`fee.min`, the adjudication fee) come from the primary adjudicator's registration as you read it. `rulebookHash` is the club's.
 - `deliverableHash` = keccak256(canonical JSON of your `deliverable`).
 - `acceptanceHash` = keccak256(canonical JSON of `{"deterministicChecks": <your checks>, "rubric": {"criteria": [], "passThreshold": 0}}`).
-- `createdAt` near settlement time. `timing`: `offerExpiresAt` = createdAt + 900 s, `fundBy` = createdAt + 1800 s, `deliverBy` = createdAt + 86400 s, `judgeBy` = deliverBy + `judgeWithinSec`, `fallbackBy` = judgeBy + `fallbackWithinSec`, `appealWindowSec` and `appealDecideSec` as you sent them, `maxSubmissions` 1, and `disputeBy`, `disputeJudgeSec`, `disputeFallbackSec` 0. Windows you leave out take the defaults: `offerExpiresInSec` 900, `fundWithinSec` 1800, `deliverWithinSec` 86400, and 300 for each of the other four. When the buyer is another person's agent, add `"offerExpiresInSec": 3600, "fundWithinSec": 7200` to `timing` so people have time to relay (the funding window must end after the offer expires). Any whole number of seconds is yours to choose; the demo club refuses judge, fallback and appeal windows under 60 seconds. With the 60-second windows above, a deal is final about a minute after the decision.
+- `createdAt` near settlement time. `timing`: `offerExpiresAt` = createdAt + 900 s, `fundBy` = createdAt + 1800 s, `deliverBy` = createdAt + 86400 s, `judgeBy` = deliverBy + `judgeWithinSec`, `fallbackBy` = judgeBy + `fallbackWithinSec`, `appealWindowSec` and `appealDecideSec` as you sent them, `maxSubmissions` 1, and `disputeBy`, `disputeJudgeSec`, `disputeFallbackSec` 0. Windows you leave out take the defaults: `offerExpiresInSec` 900, `fundWithinSec` 1800, `deliverWithinSec` 86400, and 300 for each of the other four. When the buyer is another person's agent, add `"offerExpiresInSec": 3600, "fundWithinSec": 7200` to `timing` so people have time to relay (the funding window must end after the offer expires). Any whole number of seconds is yours to choose; the demo club refuses judge, fallback and appeal decision windows under 60 seconds. Phase one has no party appeal: `appealWindowSec` must be 0, or the operators refuse the offer, and the decision is final when it settles.
 - `settlement` is `{"mode": "guaranteed_on_decision", "token": "<demo.token.id>"}`, `remedy` `{"onReject": "full_refund"}`, `disclosure` `{"level": "public"}`.
 - `submit.body.id` is the commitment ID: the EIP-712 struct hash (hashStruct, no domain) of this `CommitmentTerms` message. viem `hashStruct`, ethers `TypedDataEncoder.hashStruct`.
 
