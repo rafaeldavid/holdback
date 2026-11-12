@@ -408,6 +408,10 @@ export class BuyerSigner {
   get commitmentId(): Hex | undefined {
     return this.#saved.commitmentId;
   }
+  /** The offer readOffer last showed with this key, differences included: what an approval given in a later run names (T-368). */
+  get shownOffer(): Offer | undefined {
+    return this.#saved.shown ? structuredClone(this.#saved.shown.offer) : undefined;
+  }
   /** What agreeAndFund took, once it funded the hold: what a resumed client reports. */
   get paid(): Paid | undefined {
     return this.#saved.paid;

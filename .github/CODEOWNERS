@@ -2,3 +2,6 @@
 /spec/           @rafaeldavid
 /docs/decisions/ @rafaeldavid
 /contracts/      @rafaeldavid
+/.github/        @rafaeldavid
+/.claude/        @rafaeldavid
+/CLAUDE.md       @rafaeldavid

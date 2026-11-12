@@ -320,11 +320,11 @@ describe('seller adapter: one configuration file (T-331)', () => {
   });
 
   it('stops when the seller holds no mandate in the club, and says why', async () => {
-    const fresh = generatePrivateKey(); // no genesis mandate; the SimChain faucet grants tokens only
+    const fresh = generatePrivateKey(); // no genesis mandate; the sim's faucet grants one, as the test service's does (T-368)
     const start = (over: Partial<SellerAdapterConfig>) =>
       startSellerAdapter({ ...shipped, port: 0, sellerApi: { quote: 'http://127.0.0.1:1/q', start: 'http://127.0.0.1:1/s', result: 'http://127.0.0.1:1/{jobId}' }, journal: join(mkdtempSync(join(tmpdir(), 't331-')), 'journal.json'), log: () => {}, ...over }, { HOLDBACK_KEY: fresh, HOLDBACK_OPERATORS: world.info.operators.join(',') });
-    await expect(start({})).rejects.toThrow(/holds no mandate in club sim-club, and the faucet granted none/);
     await expect(start({ mandate: { fromFaucet: false } })).rejects.toThrow(/holds no mandate in club sim-club: ask the club's principal for one/);
+    await (await start({})).close(); // the faucet's mandate lets it start
   });
 
   it('on the test service, takes its mandate from the faucet and renews it when the clock moves 30 days', async () => {

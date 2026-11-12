@@ -112,9 +112,9 @@ afterAll(async () => {
 const balance = async (address: string) => ((await (await fetch(`${demo.urls[1]}/v1/balances/${address}`)).json()) as { amount: string }).amount;
 
 describe('buyer-signer.ts', () => {
-  it('a 20-line script imports the file, funds a deal and stops, and a later run resumes it from the key store', async () => {
+  it('a script of at most 50 lines imports the file, stops for approval, funds the approved deal and stops, and a later run resumes it from the key store', async () => {
     const script = here('./buy-with-signer.ts');
-    expect(readFileSync(script, 'utf8').trimEnd().split('\n').length).toBeLessThanOrEqual(20);
+    expect(readFileSync(script, 'utf8').trimEnd().split('\n').length).toBeLessThanOrEqual(50);
     const dir = store();
     const node = (args: string[]) => new Promise<{ code: number | null; out: string; err: string }>((resolve) => {
       const child = spawn(process.execPath, [script, ...args], { env: { ...process.env, HOLDBACK_OPERATORS: demo.urls.join(',') } });
@@ -123,16 +123,18 @@ describe('buyer-signer.ts', () => {
       child.stderr.on('data', (d: Buffer) => (err += d.toString()));
       child.on('exit', (code) => resolve({ code, out, err }));
     });
-    // T-332: the first run stops once the hold is funded; the process ends with the deal open.
-    const funding = await node([seller.quoteUrl, dir, JSON.stringify('3 rows of customer_id,email'), TOTAL, '--stop-after-funding']);
+    // T-368: the first run stops for approval, before it signs or pays anything, with exit status 3. It shows the
+    // seven signed fields of T-332 and maxSubmissions with the rest of the offer.
+    const stop = await node([seller.quoteUrl, dir, JSON.stringify('3 rows of customer_id,email'), TOTAL, '--stop-after-funding']);
+    expect(stop.code, stop.err).toBe(3);
+    const approval = JSON.parse(stop.out) as J;
+    expect(approval).toMatchObject({ approval: 'needed', settlement: { mode: 'guaranteed_on_decision' }, disclosure: { level: 'public' }, clubId: expect.any(String), rulebookHash: expect.any(String), policyId: expect.any(String), policyHash: expect.any(String), registryHash: expect.any(String), maxSubmissions: 1, fees: { total: { token: 'tUSD', amount: TOTAL } } });
+    expect(approval.approve).toMatch(new RegExp(` approve ${dir} ${approval.commitmentId} ${TOTAL} --stop-after-funding$`));
+    // T-332: the approval stops once the hold is funded; the process ends with the deal open.
+    const funding = await node(['approve', dir, approval.commitmentId, TOTAL, '--stop-after-funding']);
     expect(funding.code, funding.err).toBe(0);
     expect(funding.out).toBe('');
-    const [approvalLine, fundedLine] = funding.err.trimEnd().split('\n');
-    // At the approval the script shows the seven signed fields of T-332 and maxSubmissions, before it funds anything.
-    const approval = JSON.parse(approvalLine!) as J;
-    expect(Object.keys(approval)).toEqual(['settlement', 'disclosure', 'clubId', 'rulebookHash', 'policyId', 'policyHash', 'registryHash', 'maxSubmissions']);
-    expect(approval).toMatchObject({ settlement: { mode: 'guaranteed_on_decision' }, disclosure: { level: 'public' }, clubId: expect.any(String), policyId: expect.any(String), maxSubmissions: 1 });
-    const funded = JSON.parse(fundedLine!) as { funded: string; paid: J };
+    const funded = JSON.parse(funding.err.trimEnd().split('\n').at(-1)!) as { funded: string; paid: J };
     expect(funded.paid).toEqual({ token: 'tUSD', amount: TOTAL });
     // A second process with only the key store follows the deal to its outcome and opens the work.
     const r = await node(['resume', dir]);
