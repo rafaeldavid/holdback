@@ -397,8 +397,9 @@ describe('examples/audit-deal.ts rehearses the pilot\'s cases (T-355)', () => {
     expect(r.paymentAddress).not.toBe(r.buyer);
     expect(r.signingKeyMoved).toBe('0');
     expect(r.sellerReceived).toEqual({ token: 'tUSD', amount: PRICE_UNITS });
-    expect(out).toMatch(/The signer writes the payment messages .*\.funding\.typed\.json: The funding: 0x[0-9a-f]{40} pays /);
-    expect(out).toMatch(/The payment address signs them in its wallet .*2 signatures by 0x[0-9a-f]{40}, each over its file alone\./);
+    expect(out).toMatch(/The signer writes the payment messages .*\.funding\.typed\.json: The funding \(digest 0x[0-9a-f]{64}\): 0x[0-9a-f]{40} pays /);
+    expect(out).toMatch(/The payment address checks each file .*funding: digest 0x[0-9a-f]{64}; operator-fee: digest 0x[0-9a-f]{64}/);
+    expect(out).toMatch(/The payment address signs them in its wallet .*2 signatures by 0x[0-9a-f]{40}, each over the file it checked\./);
     expect(record.row).toMatchObject({ buyer: r.buyer, buyerPaymentAddress: r.paymentAddress, paidTo: r.seller, refundedTo: null });
   }, 60_000);
 

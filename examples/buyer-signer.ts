@@ -160,7 +160,7 @@ export type Difference = { field: string; old: J; new: J };
  * One message the payment address signs, written as an `eth_signTypedData_v4` file (ADR-0033 §3). `name` is
  * `funding` or `operator-fee`; `slot` the body field its signature fills; `summary` the one sentence that says what it does.
  */
-export type PaymentFile = { name: 'funding' | 'operator-fee'; slot: string; path: string; digest: Hex; summary: string };
+export type PaymentFile = { name: 'funding' | 'operator-fee'; slot: string; path: string; digest: Hex; summary: string; check: string };
 /** The signatures the payment address made elsewhere, as hex, and optionally the files it signed, for a refusal that names what differs. */
 export type PaymentSignatures = { funding: string; operatorFee?: string | undefined; signed?: { funding?: J; operatorFee?: J } | undefined };
 /** What agreeAndFund took from the buyer: the hold (price plus adjudication fee) and the operator fee. */
@@ -439,7 +439,8 @@ function signedFileDiffers(name: string, got: J, mine: J): string | null {
   const g = isRecord(got?.message) ? got.message : {}, m = mine.message;
   const lc = (v: J) => String(v).toLowerCase();
   if (lc(g.from) !== lc(m.from)) return `the signed ${name} message pays from ${shown(g.from ?? null)}, not the payment address ${m.from}`;
-  if (lc(g.nonce) !== lc(m.nonce) || (m.commitmentId !== undefined && lc(g.commitmentId) !== lc(m.commitmentId))) return `the signed ${name} message is for another deal: its nonce ${shown(g.nonce ?? null)}${m.commitmentId !== undefined ? ` and deal ${shown(g.commitmentId ?? null)}` : ''} are not this deal's`;
+  if (m.commitmentId !== undefined && lc(g.commitmentId) !== lc(m.commitmentId)) return `the signed ${name} message is for another deal: ${shown(g.commitmentId ?? null)}, not ${m.commitmentId}`;
+  if (lc(g.nonce) !== lc(m.nonce)) return m.commitmentId !== undefined ? `the signed ${name} message has the nonce ${shown(g.nonce ?? null)}, not the ${m.nonce} the signer wrote for this deal: sign the file it wrote last` : `the signed ${name} message is for another deal: its nonce ${shown(g.nonce ?? null)} is not this deal's ${m.nonce}`;
   if (DEC.test(String(g.value)) && BigInt(g.value) > BigInt(m.value)) return `the signed ${name} message pays ${g.value} base units, more than the approved ${m.value}`;
   return `the signed ${name} message is not the one the signer wrote (its domain, types, recipient, amount or dates differ)`;
 }
@@ -618,10 +619,18 @@ export class BuyerSigner {
     }
     // ADR-0033 §5 (T-378): one grant, the tokens to the payment address and the mandate to the signing key, which gets
     // no tokens. The faucet mints nothing to a payment address that already holds the amount.
-    const grant = await agent.call('POST', '/v1/faucet', { address: this.address, amount, paymentAddress: this.paymentAddress });
-    const held = String((await agent.trusted(`/v1/balances/${this.paymentAddress}`, (x) => x.amount)) ?? '0');
+    const heldNow = async () => String((await agent.trusted(`/v1/balances/${this.paymentAddress}`, (x) => x.amount)) ?? '0');
+    let grant: J = null;
+    try {
+      grant = await agent.call('POST', '/v1/faucet', { address: this.address, amount, paymentAddress: this.paymentAddress });
+    } catch (e) {
+      // A second run within the hour (an approve after a stop): the first grant stands when the payment address holds the total.
+      const h = await heldNow();
+      if (!/: rate_limited: /.test((e as Error).message) || !DEC.test(h) || BigInt(h) < BigInt(amount)) throw e;
+    }
+    const held = await heldNow();
     if (!DEC.test(held) || BigInt(held) < BigInt(amount)) throw new Error(`the faucet did not fund the payment address ${this.paymentAddress} (it holds ${held} base units): these operators predate the faucet's payment address (T-378)`);
-    return { token: grant.granted?.token ?? pin.token.id, amount: grant.granted?.amount ?? '0' };
+    return { token: grant?.granted?.token ?? pin.token.id, amount: grant?.granted?.amount ?? '0' };
   }
 
   /** The terms of `id` as both operators serve them, with the ID recomputed and the seller's signature recovered. */
@@ -796,9 +805,11 @@ export class BuyerSigner {
    * file in the standard typed-data form `eth_signTypedData_v4` takes, `<address>.funding.typed.json` and, when the
    * operators charge a fee, `<address>.operator-fee.typed.json`, beside the key file. Each message is rebuilt from the
    * approved terms and checked against what the operators prepared (verify.ts), so the two cannot take more than the
-   * approved total. It returns, and logs, one sentence for each: which address pays which address how much, until
-   * when, for which deal. Sign each file in the wallet that holds the payment address, then give the signatures to
-   * agreeAndFund. Calling it again writes the same messages. It signs and sends nothing.
+   * approved total. It returns one sentence for each (who pays whom how much, until when, for which deal, and the
+   * offer's expiry), its digest, and the check the wallet's holder runs before signing (pay-from-wallet.ts check),
+   * with the terms written beside the files for it. The holder should run that check where the wallet is: a file
+   * replaced on the way would fund another deal (red team M-1). Then give the signatures to agreeAndFund. Calling it
+   * again writes the same messages. It signs and sends nothing, and it refuses once the offer has expired.
    */
   async fundingFiles(commitmentId: string): Promise<PaymentFile[]> {
     const id = commitmentId.toLowerCase() as Hex;
@@ -806,22 +817,32 @@ export class BuyerSigner {
     if (!checked) return refuse(`checkOffer has not passed for ${id} with this key`);
     if (this.paymentAddress === this.address) throw new Error('this key is its own payment address: agreeAndFund signs the funding itself');
     if (this.#saved.paid) throw new Error(`${id} is funded already`);
-    const { pin } = await this.#connect();
+    const { agent, pin } = await this.#connect();
+    const expires = Date.parse(String(checked.terms.timing.offerExpiresAt));
+    if ((await agent.settlementNow()) >= expires) throw new Error(`the offer ${id} expired at ${checked.terms.timing.offerExpiresAt}: nothing can fund it now, so no files are written`);
     const saved = this.#saved.funding?.commitmentId === id ? this.#saved.funding : undefined;
     const { intent, slots } = await this.#prepareFunding(checked, saved?.nonces);
-    const files: PaymentFile[] = [];
-    for (const s of slots.filter((x) => x.signer === this.paymentAddress)) {
+    const termsPath = join(this.store, `${this.address}.terms.json`);
+    const sh = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
+    const out: Array<{ file: J } & PaymentFile> = slots.filter((x) => x.signer === this.paymentAddress).map((s) => {
       const name = s.slot === 'fund.signature' ? 'funding' : 'operator-fee';
       const file = typedDataFile(s.typed);
       const path = join(this.store, `${this.address}.${name}.typed.json`);
-      writeFileSync(`${path}.tmp`, `${JSON.stringify(file, null, 2)}\n`, { mode: 0o600 });
-      renameSync(`${path}.tmp`, path);
-      files.push({ name, slot: s.slot, path, digest: s.digest, summary: `The ${name === 'funding' ? 'funding' : 'operator fee'}: ${paymentSentence(file, id, pin.token)}` });
-    }
+      const fee = name === 'operator-fee' ? ` --fee ${file.message.to} ${file.message.value}` : '';
+      const check = `node examples/pay-from-wallet.ts check ${sh(path)} ${sh(termsPath)} ${this.address}${fee}${pin.chain ? '' : ' --sim'}`;
+      return { file, name, slot: s.slot, path, digest: s.digest, check, summary: `The ${name === 'funding' ? 'funding' : 'operator fee'} (digest ${s.digest}): ${paymentSentence(file, id, pin.token, checked.terms)}` };
+    });
+    // The record first, so a crash before the files leaves a record that writes the same files again (red team I-2).
     const i = intent as Extract<Intent, { kind: 'agree-and-fund' }>;
+    const files: PaymentFile[] = out.map(({ file: _f, ...f }) => f); // eslint-disable-line @typescript-eslint/no-unused-vars
     this.#saved.funding = { commitmentId: id, nonces: { agreeNonce: i.agreeNonce, fundingNonce: i.fundingNonce, ...(i.operatorFee ? { operatorFeeNonce: i.operatorFee.nonce } : {}) }, files };
     save(this.store, this.#saved);
-    for (const f of files) this.#log(`${f.summary} Sign ${f.path} with the wallet that holds ${this.paymentAddress}.`);
+    const write = (path: string, v: J) => {
+      writeFileSync(`${path}.tmp`, `${JSON.stringify(v, null, 2)}\n`, { mode: 0o600 });
+      renameSync(`${path}.tmp`, path);
+    };
+    write(termsPath, checked.terms);
+    for (const f of out) write(f.path, f.file);
     return files.map((f) => ({ ...f }));
   }
 
@@ -888,6 +909,14 @@ export class BuyerSigner {
     const keys = written.files.map((f) => (f.name === 'funding' ? 'funding' : 'operatorFee'));
     for (const k of ['funding', 'operatorFee'] as const) if (given?.[k] !== undefined && !keys.includes(k)) refuse(`there is no ${k === 'funding' ? 'funding' : 'operator-fee'} message for the payment address to sign in this deal`);
     for (const f of written.files) {
+      // Red team M-1: a file replaced after it was written leads the wallet to sign another deal's message. Name it.
+      let onDisk: string | null = null;
+      try {
+        onDisk = digestOfFile(JSON.parse(readFileSync(f.path, 'utf8')));
+      } catch {
+        onDisk = existsSync(f.path) ? 'unreadable' : null;
+      }
+      if (onDisk !== null && onDisk !== f.digest) refuse(`${f.path} is not the file the signer wrote: it now hashes to ${onDisk}, not ${f.digest}. Someone replaced it; a signature over it pays for another message. Write the files again with fundingFiles, run the check where the wallet is, and sign the new ones`);
       const key = f.name === 'funding' ? 'funding' : 'operatorFee';
       const sig = given?.[key];
       if (typeof sig !== 'string' || !/^0x[0-9a-fA-F]{130}$/.test(sig.trim())) refuse(`the ${f.name} signature is missing or not 65 bytes as 0x and 130 hex characters: sign ${f.path} with the wallet that holds ${this.paymentAddress}`);

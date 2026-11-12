@@ -448,14 +448,55 @@ export function digestOfFile(file: J): Hex {
  * which address how much, until when, and for which deal. `token` names the token; with `decimals` above 0 the
  * amount is also shown in whole units.
  */
-export function paymentSentence(file: J, commitmentId: Hex, token: { id: string; symbol?: string; decimals?: number }): string {
+export function paymentSentence(file: J, commitmentId: Hex, token: { id: string; symbol?: string; decimals?: number }, terms?: J): string {
   const m = file.message;
   const units = BigInt(m.value);
   const d = BigInt(token.decimals ?? 0);
   const whole = d > 0n ? ` (${units / 10n ** d}.${(units % 10n ** d).toString().padStart(Number(d), '0')} ${token.symbol ?? token.id})` : '';
   const until = /^[0-9]+$/.test(String(m.validBefore)) ? new Date(Number(m.validBefore) * 1000).toISOString().replace('.000Z', 'Z') : String(m.validBefore);
   const what = file.primaryType === 'TransferWithAuthorization' || file.primaryType === 'TransferAuthorization' ? `to ${m.to}, the operator's fee` : file.primaryType === 'ReceiveWithAuthorization' ? `to ${m.to}, the escrow's collector, into the hold` : 'into the hold';
-  return `${m.from} pays ${units} base units of ${token.id}${whole} ${what}, valid until ${until}, for deal ${commitmentId} only.`;
+  // With the terms: who the deal binds (ADR-0033 §10), and the deadline that ends the offer, which comes before validBefore.
+  const who = terms ? ` The terms: buyer ${String(terms.buyer).toLowerCase()} agrees, seller ${String(terms.seller).toLowerCase()} delivers, and ${String(terms.sellerPayoutAddress).toLowerCase()} is paid on a release. Sign before the offer expires at ${terms.timing?.offerExpiresAt}: after that nothing can fund it.` : '';
+  return `${m.from} pays ${units} base units of ${token.id}${whole} ${what}, valid until ${until}, for deal ${commitmentId} only.${who}`;
+}
+
+const CANONICAL = /^(0|[1-9][0-9]*)$/;
+/**
+ * Refuses a typed-data file that is not exactly one EIP-712 message (red team L-1): the four keys and no others,
+ * `EIP712Domain` equal to the domain's own fields in the standard order, no unused type, each message (and nested
+ * struct) holding exactly its type's fields, and every integer a canonical decimal string. A wallet that hashes the
+ * file as written then hashes the digest the check names.
+ */
+export function strictTypedDataFile(file: J): void {
+  if (!file || typeof file !== 'object' || Array.isArray(file)) refuse('the file is not a JSON object');
+  if (jcs(Object.keys(file).sort()) !== jcs(['domain', 'message', 'primaryType', 'types'])) refuse('the file must hold exactly domain, types, primaryType and message');
+  const { types, domain, primaryType, message } = file;
+  if (!types || typeof types !== 'object' || !domain || typeof domain !== 'object' || typeof primaryType !== 'string') refuse('the file\'s types, domain or primaryType is malformed');
+  const known = ['name', 'version', 'chainId', 'verifyingContract', 'salt'];
+  if (Object.keys(domain).some((k) => !known.includes(k))) refuse('the file\'s domain has a field EIP712Domain does not');
+  if (jcs(types.EIP712Domain ?? null) !== jcs(domainType(domain))) refuse('the file\'s EIP712Domain type is not the domain\'s own fields in the standard order');
+  const used = new Set<string>();
+  const walk = (t: string) => {
+    const base = t.replace(/\[\]$/, '');
+    if (!Array.isArray(types[base]) || used.has(base)) return;
+    used.add(base);
+    for (const f of types[base]) walk(f.type);
+  };
+  walk(primaryType);
+  if (!used.has(primaryType)) refuse(`the file has no type ${primaryType}`);
+  if (jcs(Object.keys(types).filter((k) => k !== 'EIP712Domain').sort()) !== jcs([...used].sort())) refuse('the file has a type its primary type does not use');
+  const exact = (type: string, v: J, at: string): void => {
+    if (type.endsWith('[]')) {
+      if (!Array.isArray(v)) refuse(`${at} is not a list`);
+      return v.forEach((x: J, i: number) => exact(type.slice(0, -2), x, `${at}[${i}]`));
+    }
+    if (types[type]) {
+      if (!v || typeof v !== 'object' || Array.isArray(v) || jcs(Object.keys(v).sort()) !== jcs(types[type].map((f: J) => f.name).sort())) refuse(`${at} does not hold exactly the fields of ${type}`);
+      return types[type].forEach((f: J) => exact(f.type, v[f.name], `${at}.${f.name}`));
+    }
+    if (/^u?int\d*$/.test(type) && !(typeof v === 'string' && CANONICAL.test(v))) refuse(`${at} is not an integer as a canonical decimal string`);
+  };
+  exact(primaryType, message, 'message');
 }
 
 /**
@@ -468,7 +509,11 @@ export function paymentSentence(file: J, commitmentId: Hex, token: { id: string;
  */
 export function checkPaymentFile(file: J, terms: J, o: { kind: 'funding' | 'operator-fee'; domain: Domain; chain?: ChainPin | undefined; buyer: string; operatorFee?: { to: string; amount: string }; token?: Pin['token'] }): { digest: Hex; summary: string } {
   const id = commitmentIdOf(terms), c = o.chain, t = terms;
+  strictTypedDataFile(file);
   if (String(t.buyer).toLowerCase() !== o.buyer.toLowerCase()) refuse(`the terms name ${t.buyer} as the buyer's signing key, not the ${o.buyer} you expect`);
+  // The terms' token is the pinned layer's (plan section 2c): on a chain, the token whose domain the funding is signed under.
+  const pinnedToken = c ? c.tokenDomain.verifyingContract : o.token?.id;
+  if (pinnedToken !== undefined && String(t.price.token).toLowerCase() !== pinnedToken.toLowerCase()) refuse(`the terms are in ${t.price.token}, and your pinned settlement layer holds ${pinnedToken}`);
   const payer = String(t.buyerPaymentAddress).toLowerCase();
   const m = file?.message ?? {};
   if (String(m.from).toLowerCase() !== payer) refuse(`the message pays from ${m.from}, not the payment address ${payer} the terms name`);
@@ -501,7 +546,7 @@ export function checkPaymentFile(file: J, terms: J, o: { kind: 'funding' | 'oper
   if (digest !== hashTypedData(want)) refuse('the file is not the message these terms give on your pinned settlement layer (its domain, types or another field differ)');
   // The pinned token formats the amount, and only when it is the terms' own token.
   const token = o.token && o.token.id.toLowerCase() === String(t.price.token).toLowerCase() ? o.token : { id: t.price.token };
-  return { digest, summary: paymentSentence(file, id, token) };
+  return { digest, summary: paymentSentence(file, id, token, t) };
 }
 
 /** The delivery hash the settlement layer records (EIP-712 struct hash of the delivery without its signature). */

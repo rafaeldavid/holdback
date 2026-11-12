@@ -80,7 +80,7 @@ import { loadKeys, makeKeys, openDeals, printable, type Approved, type BuyerSign
 import type { Row } from './deal-record.ts';
 import { config as adapterConfig, fill, loadConfig, startSellerAdapter, type RunningAdapter, type Stage } from './seller-adapter.ts';
 import { startStubSellerApi, type StubSellerApi } from './seller-adapter-stub.ts';
-import { jcs, knownPins, operatorFeeOf, Refusal } from './verify.ts';
+import { checkPaymentFile, jcs, knownPins, operatorFeeOf, Refusal } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -955,8 +955,18 @@ export async function rehearse(o: RehearsalOptions): Promise<RehearsalResult> {
       // The person's wallet, as a test key: it reads each file the signer wrote and signs it as it is (eth_signTypedData_v4).
       const files = await signer.fundingFiles(id);
       step('The signer writes the payment messages', files.map((f) => `${f.path}: ${f.summary}`).join(' '));
-      const signed = Object.fromEntries(await Promise.all(files.map(async (f) => [f.name === 'funding' ? 'funding' : 'operatorFee', await wallet.signTypedData(JSON.parse(readFileSync(f.path, 'utf8')))])));
-      step('The payment address signs them in its wallet', `${files.length} ${files.length === 1 ? 'signature' : 'signatures'} by ${wallet.address.toLowerCase()}, each over its file alone.`);
+      // The holder's own check first, as a person runs it before signing (red team M-1): the terms as every operator
+      // serves them, this tool's pinned layer, the fee from the schedule every operator publishes. Never the file's word.
+      const { id: _i, signatures: _s, ...served } = await reader.trusted(`/v1/commitments/${id}/terms`); // eslint-disable-line @typescript-eslint/no-unused-vars
+      const feeSchedule = await reader.operatorFeeSchedule();
+      const checks = files.map((f) => {
+        const file = JSON.parse(readFileSync(f.path, 'utf8'));
+        const fee = f.name === 'operator-fee' && feeSchedule ? { to: feeSchedule.to, amount: operatorFeeOf(served.price, feeSchedule).toString() } : undefined;
+        return { f, file, r: checkPaymentFile(file, served, { kind: f.name, domain: pin.domain, chain: pin.chain, buyer: signer.address, token: pin.token, ...(fee ? { operatorFee: fee } : {}) }) };
+      });
+      step('The payment address checks each file', checks.map(({ f, r }) => `${f.name}: digest ${r.digest}`).join('; '));
+      const signed = Object.fromEntries(await Promise.all(checks.map(async ({ f, file }) => [f.name === 'funding' ? 'funding' : 'operatorFee', await wallet.signTypedData(file)])));
+      step('The payment address signs them in its wallet', `${files.length} ${files.length === 1 ? 'signature' : 'signatures'} by ${wallet.address.toLowerCase()}, each over the file it checked.`);
       paid = await signer.agreeAndFund(id, { funding: signed['funding'], operatorFee: signed['operatorFee'] });
     } else paid = await signer.agreeAndFund(id);
     step('The buyer funds the hold', `paid ${money(paid.total)}${wallet ? ` from ${signer.paymentAddress}` : ''}: ${money(paid.hold)} into the hold (price and adjudication fee) and ${money(paid.operatorFee)} to the operator.`);

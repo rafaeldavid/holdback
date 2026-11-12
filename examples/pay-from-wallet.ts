@@ -33,13 +33,15 @@ const usage = 'usage: pay-from-wallet.ts files <store> <id> | fund <store> <id> 
 try {
   if (command === 'files' && a && b) {
     const signer = await loadKeys(a, b, { ...expect(), log: () => {} });
-    for (const f of await signer.fundingFiles(b)) out({ sign: f.path, summary: f.summary });
+    for (const f of await signer.fundingFiles(b)) out({ sign: f.path, digest: f.digest, check: f.check, summary: f.summary });
+    console.error('Where the wallet is, run each check above and sign only a file it passes, whose digest the wallet shows.');
   } else if (command === 'fund' && a && b && c) {
     const signer = await loadKeys(a, b, expect());
     const paid = await signer.agreeAndFund(b, { funding: c, operatorFee: d });
     out({ funded: signer.commitmentId, paid: paid.total, from: signer.paymentAddress });
     console.error(`Funded. Follow the deal with: node examples/buy-with-signer.ts resume ${a}`);
   } else if (command === 'check' && a && b && c) {
+    if (fee && !(/^0x[0-9a-fA-F]{40}$/.test(fee[0] ?? '') && /^(0|[1-9][0-9]*)$/.test(fee[1] ?? ''))) throw new Refusal('refusing to sign: --fee takes the fee\'s recipient (an address) and its amount (base units as a decimal string)');
     // The holder's own pinned settlement layer, never one an operator or the file names.
     const env = process.env['HOLDBACK_DEPLOYMENT'];
     const pin = sim ? knownPins()[0]! : env ? pinOf(JSON.parse(env)) : SEPOLIA ? pinOf(SEPOLIA) : (() => { throw new Error('no deployment pinned: set HOLDBACK_DEPLOYMENT, or pass --sim'); })();

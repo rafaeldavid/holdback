@@ -15,7 +15,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Agent } from './agent.ts';
 import { makeKeys } from './buyer-signer.ts';
 import { serveTwoOrigins, type TwoOrigins } from './two-origins.ts';
-import { Refusal } from './verify.ts';
+import { checkPaymentFile, Refusal, SIMCHAIN_DOMAIN } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -91,8 +91,10 @@ async function serveSeller(operators: string[]): Promise<Seller> {
 }
 
 let seller: Seller;
+/** How far this world's clock runs ahead of the wall clock, in ms: a test moves it to pass an offer's expiry. */
+let aheadMs = 0;
 beforeAll(async () => {
-  const world = await PublicWorld.open({ storage: new MemoryStorage(), env: { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '10000' }, faucetPerClient: 100 });
+  const world = await PublicWorld.open({ storage: new MemoryStorage(), env: { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '10000' }, faucetPerClient: 100, now: () => Date.now() + aheadMs });
   demo = await serveTwoOrigins(world, { tickMs: 100 });
   seller = await serveSeller(demo.urls);
 });
@@ -325,7 +327,7 @@ describe('a wallet outside the signer pays (ADR-0033 §3)', () => {
     const buyerAddress = readdirSync(dir).find((f) => /^0x[0-9a-f]{40}\.json$/.test(f))!.slice(0, 42); // the signing key the holder expects
     const checked = await node([here('./pay-from-wallet.ts'), 'check', signs[0]!.sign, termsFile, buyerAddress, '--sim']);
     expect(checked.code, checked.err).toBe(0);
-    expect(JSON.parse(checked.out)).toMatchObject({ ok: true, kind: 'funding', summary: signs[0]!.summary.replace(/^The funding: /, '') });
+    expect(JSON.parse(checked.out)).toMatchObject({ ok: true, kind: 'funding', summary: signs[0]!.summary.replace(/^The funding \(digest 0x[0-9a-f]{64}\): /, '') });
     const wrongBuyer = await node([here('./pay-from-wallet.ts'), 'check', signs[0]!.sign, termsFile, pay.address, '--sim']);
     expect(wrongBuyer.code).toBe(3);
     // The wallet signs each file as it is; the signatures fund the deal; resume follows it to the work.
@@ -337,6 +339,59 @@ describe('a wallet outside the signer pays (ADR-0033 §3)', () => {
     expect(JSON.parse(done.out)).toMatchObject({ outcome: 'Released', work: CSV });
     expect(await balance(pay.address)).toBe('0');
   }, 90_000);
+
+  it('red team M-1: a file replaced on disk after the signer wrote it is named, and its signature funds nothing; the holder\'s check refuses it first', async () => {
+    const pay = wallet(generatePrivateKey());
+    const { signer, id } = await readyToFund(pay);
+    const other = await readyToFund(pay); // another deal this payment address could be led to pay
+    const [funding, fee] = await signer.fundingFiles(id);
+    const [otherFunding] = await other.signer.fundingFiles(other.id);
+    expect(funding!.check).toMatch(new RegExp(`^node examples/pay-from-wallet\\.ts check \\S+\\.funding\\.typed\\.json \\S+\\.terms\\.json ${signer.address} --sim$`));
+    writeFileSync(funding!.path, readFileSync(otherFunding!.path)); // the attacker's file, same payer and amounts
+    const terms = JSON.parse(readFileSync(join(signer.store, `${signer.address}.terms.json`), 'utf8'));
+    expect(() => checkPaymentFile(JSON.parse(readFileSync(funding!.path, 'utf8')), terms, { kind: 'funding', domain: SIMCHAIN_DOMAIN, buyer: signer.address })).toThrow(/^refusing to sign: the message is for deal /);
+    const e = await refusal(signer.agreeAndFund(id, { funding: await pay.sign(funding!.path), operatorFee: await pay.sign(fee!.path) }));
+    expect(e!.message).toMatch(new RegExp(`^refusing to sign: ${funding!.path.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')} is not the file the signer wrote: it now hashes to 0x[0-9a-f]{64}, not ${funding!.digest}`));
+    expect(await stateOf(id)).toBe('AcceptedByAdjudicator');
+    expect(await stateOf(other.id)).toBe('AcceptedByAdjudicator');
+  }, 60_000);
+
+  it('red team L-6: a signature with v of 0 or 1 is sent as 27 or 28, the form the token on a chain takes', async () => {
+    const pay = wallet(generatePrivateKey());
+    const { signer, id } = await readyToFund(pay);
+    const [funding, fee] = await signer.fundingFiles(id);
+    const v01 = (sig: string) => `${sig.slice(0, 130)}${(parseInt(sig.slice(130), 16) - 27).toString(16).padStart(2, '0')}`;
+    const sent: string[] = [];
+    const watch = (url: string) => url.endsWith('/agree');
+    const real = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      if (watch(String(input instanceof Request ? input.url : input)) && typeof init?.body === 'string') sent.push(init.body);
+      return real(input, init);
+    };
+    try {
+      await signer.agreeAndFund(id, { funding: v01(await pay.sign(funding!.path)), operatorFee: v01(await pay.sign(fee!.path)) });
+    } finally {
+      globalThis.fetch = real;
+    }
+    const body = JSON.parse(sent[0]!);
+    for (const sig of [body.fund.signature, body.operatorFee.signature]) expect(['1b', '1c']).toContain(sig.slice(130));
+    expect(await stateOf(id)).toBe('Held');
+  }, 60_000);
+
+  it('red team L-3: once the offer has expired, the signer writes no files, and the sentence names the offer\'s expiry', async () => {
+    const pay = wallet(generatePrivateKey());
+    const { signer, id } = await readyToFund(pay);
+    const [funding] = await signer.fundingFiles(id);
+    const expires = JSON.parse(readFileSync(join(signer.store, `${signer.address}.terms.json`), 'utf8')).timing.offerExpiresAt;
+    expect(funding!.summary).toContain(`Sign before the offer expires at ${expires}: after that nothing can fund it.`);
+    aheadMs += Date.parse(expires) - Date.now() + 5_000;
+    try {
+      await new Promise((r) => setTimeout(r, 300)); // the world's next tick
+      await expect(signer.fundingFiles(id)).rejects.toThrow(new RegExp(`^the offer ${id} expired at ${expires}: nothing can fund it now, so no files are written$`));
+    } finally {
+      aheadMs = 0;
+    }
+  }, 60_000);
 
   it('a rejected delivery refunds the price to the payment address, and the signing key holds nothing', async () => {
     const pay = wallet(generatePrivateKey());

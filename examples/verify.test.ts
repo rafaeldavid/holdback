@@ -420,7 +420,7 @@ describe('the holder of a payment address checks the funding file alone, from th
 
   it('passes the file the terms give, and says in one sentence who pays whom how much, until when, for which deal', () => {
     const r = check(fileFor(terms, chain));
-    expect(r.summary).toBe(`${payer} pays 26000000 base units of ${at(0x70)} to ${at(0xc0)}, the escrow's collector, into the hold, valid until 2026-11-12T10:30:00Z, for deal ${commitmentIdOf(terms)} only.`);
+    expect(r.summary).toBe(`${payer} pays 26000000 base units of ${at(0x70)} to ${at(0xc0)}, the escrow's collector, into the hold, valid until 2026-11-12T10:30:00Z, for deal ${commitmentIdOf(terms)} only. The terms: buyer ${buyerKey} agrees, seller ${at(0x51)} delivers, and ${at(0x52)} is paid on a release. Sign before the offer expires at 2026-11-12T10:15:00Z: after that nothing can fund it.`);
   });
 
   it('refuses a nonce built with another operator, receiver, buyer, chain ID or margin', () => {
@@ -451,6 +451,27 @@ describe('the holder of a payment address checks the funding file alone, from th
     expect(() => checkPaymentFile(fileFor(terms, chain), terms, { kind: 'funding', domain, chain, buyer: at(0xb2) })).toThrow(/the terms name 0x0{38}b1 as the buyer's signing key, not the 0x0{38}b2 you expect/);
   });
 
+  it('red team L-1: refuses a file that is not exactly one EIP-712 message, and terms in another token than the pinned one', () => {
+    const edit = (f: (x: J) => void) => {
+      const file = fileFor(terms, chain);
+      f(file);
+      return file;
+    };
+    const cases: Array<[string, (x: J) => void, RegExp]> = [
+      ['an EIP712Domain with fields cut', (x) => (x.types.EIP712Domain = x.types.EIP712Domain.slice(0, 2)), /EIP712Domain type is not the domain's own fields/],
+      ['an EIP712Domain reordered', (x) => x.types.EIP712Domain.reverse(), /EIP712Domain type is not the domain's own fields/],
+      ['a second top-level message', (x) => (x.Message = { ...x.message, value: '99000000000' }), /exactly domain, types, primaryType and message/],
+      ['an extra message field', (x) => (x.message.Value = '1'), /does not hold exactly the fields of ReceiveWithAuthorization/],
+      ['an unused type', (x) => (x.types.Spare = [{ name: 'a', type: 'uint256' }]), /a type its primary type does not use/],
+      ['an extra domain key', (x) => (x.domain.extra = 'x'), /domain has a field EIP712Domain does not/],
+      ['an integer in hex', (x) => (x.message.validBefore = `0x${BigInt(x.message.validBefore).toString(16)}`), /message\.validBefore is not an integer as a canonical decimal string/],
+      ['an integer padded', (x) => (x.message.value = ` ${x.message.value}`), /message\.value is not an integer as a canonical decimal string/],
+    ];
+    for (const [name, f, why] of cases) expect(() => check(edit(f)), name).toThrow(why);
+    const other = { ...terms, price: { token: at(0x7777), amount: '25000000' }, adjudication: { ...terms.adjudication, fee: { token: at(0x7777), amount: '1000000' } }, settlement: { ...terms.settlement, token: at(0x7777) } };
+    expect(() => checkPaymentFile(fileFor(other, chain), other, { kind: 'funding', domain, chain, buyer: buyerKey })).toThrow(/the terms are in 0x0{36}7777, and your pinned settlement layer holds 0x0{38}70/);
+  });
+
   it('on SimChain, passes the funding file the signer writes and refuses one for another deal', async () => {
     const payerAgent = await fresh();
     const offer = await seller.offerDirect(request({ buyer: { address: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey, paymentAddress: payerAgent.address } }));
@@ -458,7 +479,7 @@ describe('the holder of a payment address checks the funding file alone, from th
     const { slots } = await buyer.prepareAgreeAndFund(offer.terms, 100_000_000n, { paymentAddress: payerAgent.address });
     const file = typedDataFile(slots.find((s) => s.slot === 'fund.signature')!.typed);
     const opts = { kind: 'funding' as const, domain: SIMCHAIN_DOMAIN, buyer: buyer.address };
-    expect(checkPaymentFile(file, offer.terms, opts).summary).toMatch(new RegExp(`^${payerAgent.address} pays 26000000 base units of tUSD into the hold, valid until .*, for deal ${offer.id} only\\.$`));
+    expect(checkPaymentFile(file, offer.terms, opts).summary).toMatch(new RegExp(`^${payerAgent.address} pays 26000000 base units of tUSD into the hold, valid until .*, for deal ${offer.id} only\\. The terms: buyer ${buyer.address} agrees, `));
     const other = structuredClone(file);
     other.message.commitmentId = `0x${'cd'.repeat(32)}`;
     expect(() => checkPaymentFile(other, offer.terms, opts)).toThrow(/^refusing to sign: the message is for deal 0x(cd){32}, not /);

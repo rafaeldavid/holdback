@@ -184,9 +184,12 @@ export class Agent {
       if (s.signer === this.address) continue;
       const sig = outside[s.slot] as Hex;
       if (typeof sig !== 'string' || !/^0x[0-9a-fA-F]{130}$/.test(sig)) refusal(`the ${s.slot} slot needs a 65-byte signature by ${s.signer}, as 0x and 130 hex characters`);
-      const by = (await recoverTypedDataAddress({ ...s.typed, signature: sig }).catch(() => '')).toLowerCase();
+      // A raw signer may give v as 0 or 1; the token's ecrecover takes only 27 or 28 (red team L-6), so send that form.
+      const v27 = parseInt(sig.slice(130), 16);
+      const normal = (v27 === 0 || v27 === 1 ? `${sig.slice(0, 130)}${(v27 + 27).toString(16)}` : sig) as Hex;
+      const by = (await recoverTypedDataAddress({ ...s.typed, signature: normal }).catch(() => '')).toLowerCase();
       if (by !== s.signer) refusal(`the ${s.slot} signature recovers to ${by || 'nothing'} over this deal's message, not to ${s.signer}: it was made by another address or over another message (another deal, another amount)`);
-      put(v.body, s.slot, sig);
+      put(v.body, s.slot, normal);
     }
     for (const s of v.toSign) put(v.body, s.slot, await this.account.signTypedData(s.typed));
     for (const slot of Object.keys(outside)) if (!v.slots.some((s) => s.slot === slot && s.signer !== this.address)) refusal(`there is no ${slot} slot for another signer in this funding`);
