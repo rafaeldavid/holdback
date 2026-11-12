@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getAddress, hashTypedData, verifyTypedData, type Hex } from 'viem';
-import { generatePrivateKey } from 'viem/accounts';
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { MemoryStorage, PublicWorld } from '@holdback/demo-cloud';
 import { startSimWorld, type SimWorld } from '@holdback/operator';
 import { loadTermsFile } from '@holdback/testkit';
@@ -446,6 +446,33 @@ describe('seller adapter: one configuration file (T-331)', () => {
       expect(lines.join('\n')).toMatch(/renewed its mandate in club \S+ from the test service's faucet, until /);
     } finally {
       await running?.close();
+      await served.close();
+    }
+  }, 30_000);
+
+  it('asks the faucet first only for a seller the journal has not seen hold a mandate, so a fresh address draws no 404 (T-396)', async () => {
+    const own = await PublicWorld.open({ storage: new MemoryStorage(), env: {}, now: () => Date.now(), telemetryLog: () => {} });
+    const served = await serveTwoOrigins(own, { tickMs: 100 });
+    const discovery = (await (await fetch(`${served.urls[0]}/.well-known/holdback.json`)).json()) as J;
+    stub = await startStubSellerApi({ port: 0, token: discovery.demo.token.id });
+    const journal = join(mkdtempSync(join(tmpdir(), 't396-')), 'journal.json');
+    const a = generatePrivateKey(), b = generatePrivateKey();
+    const startAs = async (key: Hex) => {
+      const lines: string[] = [];
+      const running = await startSellerAdapter({ ...shipped, port: 0, sellerApi: stub!.api, journal, pollMs: 50, log: (l) => lines.push(l) }, { HOLDBACK_KEY: key, HOLDBACK_OPERATORS: served.urls.join(',') });
+      await running.close();
+      return lines.join('\n');
+    };
+    const seenOf = () => (JSON.parse(readFileSync(journal, 'utf8')) as J).mandatesSeen as string[];
+    try {
+      const club = discovery.demo.clubId;
+      const addr = (k: Hex) => privateKeyToAccount(k).address.toLowerCase();
+      expect(await startAs(a)).toMatch(/took a mandate in club \S+ from the test service's faucet/); // a fresh journal: the faucet first
+      expect(seenOf()).toEqual([`${addr(a)} ${club}`]);
+      expect(await startAs(a)).not.toMatch(/mandate in club \S+ from the test service's faucet/); // seen: it reads, and the mandate holds
+      expect(await startAs(b)).toMatch(/took a mandate in club \S+ from the test service's faucet/); // another key, the same journal: the faucet first
+      expect(seenOf()).toEqual([`${addr(a)} ${club}`, `${addr(b)} ${club}`]);
+    } finally {
       await served.close();
     }
   }, 30_000);
