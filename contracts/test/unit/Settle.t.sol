@@ -62,8 +62,6 @@ contract EarlyAcceptTest is Base {
 }
 
 contract MutualSettleTest is Base {
-    address internal constant THIRD = address(0x9999);
-
     function _mutual(H.Terms memory t, bytes32 id, H.Payout[] memory payouts, bool releaseKey, bytes32 dh)
         internal
         view
@@ -80,24 +78,22 @@ contract MutualSettleTest is Base {
         m.sellerSignature = _sign(SELLER_PK, h);
     }
 
-    function _split(uint256 toSeller, uint256 toThird, uint256 toBuyer) internal view returns (H.Payout[] memory p) {
-        p = new H.Payout[](3);
-        p[0] = H.Payout(seller, toSeller);
-        p[1] = H.Payout(THIRD, toThird);
-        p[2] = H.Payout(buyer, toBuyer);
-    }
-
+    /// Any split of the price between the parties, a payee named twice included. Since SC-3 (ADR-0031 §4) the payees
+    /// are the buyer and the seller only; `PartiesOnlyPayout.t.sol` shows a third address refused.
     function test_paysAnySplit_feeBackToBuyer_releasesKey() public {
         (H.Terms memory t, bytes32 id) = _funded();
         (H.Delivery memory d, H.KeyProof memory k) = _deliver(t, id);
         uint256 b0 = usdc.balanceOf(buyer);
         uint256 s0 = usdc.balanceOf(seller);
-        H.Mutual memory m = _mutual(t, id, _split(13_000_000, 3_000_000, 10_000_000), true, hx.delivery(id, d));
+        H.Payout[] memory p = new H.Payout[](3);
+        p[0] = H.Payout(seller, 13_000_000);
+        p[1] = H.Payout(buyer, 3_000_000);
+        p[2] = H.Payout(buyer, 10_000_000);
+        H.Mutual memory m = _mutual(t, id, p, true, hx.delivery(id, d));
         vm.prank(relayer);
         rules.mutualSettle(t, m, d, k);
         assertEq(usdc.balanceOf(seller), s0 + 13_000_000);
-        assertEq(usdc.balanceOf(THIRD), 3_000_000);
-        assertEq(usdc.balanceOf(buyer), b0 + 10_000_000 + FEE);
+        assertEq(usdc.balanceOf(buyer), b0 + 13_000_000 + FEE);
         assertEq(_held(t), 0);
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Settled));
     }

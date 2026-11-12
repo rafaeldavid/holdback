@@ -13,7 +13,7 @@ import {RulesHandler} from "../handlers/RulesHandler.sol";
 
 // The pinned copies carry a suffix in their file names, so a lookup by "HoldbackRules.sol:HoldbackRules"
 // (`deployCodeTo`, `vm.getCode`) still finds only src/. Nothing imports them by name, so their bytes are unchanged.
-import {HoldbackRules as ParentRules} from "./parent/HoldbackRules.b5d198c.sol";
+import {HoldbackRules as ParentRules} from "./parent/HoldbackRules.f47a96a.sol";
 import {IHoldbackBeacon as ParentBeacon} from "./parent/IHoldbackBeacon.sol";
 import {HoldbackRules as PlantedRules} from "./planted/HoldbackRules.planted.sol";
 
@@ -22,15 +22,12 @@ import {HoldbackRules as PlantedRules} from "./planted/HoldbackRules.planted.sol
 ///         - `NewSide`: the source under test, `contracts/src/`, deployed by `Base.setUp` unchanged;
 ///         - `OldSide`: the pinned copy of `contracts/src/` at the change's parent commit (`parent/`). Since T-356
 ///           each change on `contracts-audit-ready` is compared with its parent, not with the deployed commit
-///           (the refinement plan, R6c's harness row): the parent here is `b5d198c`, the lane after SC-2;
+///           (the refinement plan, R6c's harness row): the parent here is `f47a96a`, the lane after SC-6;
 ///         - `PlantedSide`: the pinned copy with one planted behaviour change (`planted/`), for the tests that
 ///           prove the harness and the liveness invariant fail on a real change.
 ///         The handler drives every side through the new source's ABI (`HoldbackRules`, `HoldbackTypes`), so the
-///         sides receive the same calls. The parent's ABI equals the new one apart from `expireOffer`, which the
-///         handler calls by selector (`IDeployedOffers`), and the stage `Expired` (8), which the new enum lacks: the
-///         pinned side reads an offer the parent recorded as expired as `None`, the stage the new side holds for it,
-///         so both sides choose their next steps alike (`_dealOf`). The raw stored word still shows the 8, and the
-///         allow-list names exactly that difference.
+///         sides receive the same calls. The parent's ABI equals the new one apart from the `Paid` event, which SC-3
+///         removes with the payouts to a third address, so the pinned side needs no hook of its own.
 /// @dev Same addresses on both sides. The harness creates each side from the same snapshot, so a side lands at
 ///      the same address, and every contract it creates lands at the same address as on the other side, as long as
 ///      the sides create the same number of contracts in the same order. That is why `PinnedSide.setUp` repeats
@@ -46,9 +43,6 @@ contract NewSide is RulesHandler {
 
 /// The old side's world, the pinned parent contracts deployed exactly as `Base.setUp` deploys the new ones.
 abstract contract PinnedSide is RulesHandler {
-    /// The parent's `Stage.Expired`, which phase one no longer has (SC-6).
-    uint8 internal constant PARENT_EXPIRED = 8;
-
     function _rulesWith(SimBeacon beacon) internal virtual returns (HoldbackRules);
 
     function setUp() public override {
@@ -71,20 +65,6 @@ abstract contract PinnedSide is RulesHandler {
         relayer = makeAddr("relayer");
         usdc.mint(buyer, 1_000_000_000);
         usdc.mint(seller, 1_000_000_000);
-    }
-
-    /// The parent's word, decoded by hand: its stage 8 (`Expired`) reads as `None`, the stage the new side holds for
-    /// the same unfunded offer. Every other field is the parent's own.
-    function _dealOf(bytes32 id) internal view override returns (HoldbackRules.Deal memory d) {
-        (bool ok, bytes memory ret) = address(rules).staticcall(abi.encodeCall(HoldbackRules.dealOf, (id)));
-        require(ok && ret.length == 128, "the pinned side's dealOf is not the parent's four-field word");
-        (uint8 stage, uint8 attempt, uint40 t1, uint144 tag) = abi.decode(ret, (uint8, uint8, uint40, uint144));
-        if (stage == PARENT_EXPIRED) stage = 0;
-        d = HoldbackRules.Deal({stage: HoldbackRules.Stage(stage), attempt: attempt, t1: t1, seedTag: tag});
-    }
-
-    function _hasExpireOffer() internal pure override returns (bool) {
-        return true;
     }
 }
 

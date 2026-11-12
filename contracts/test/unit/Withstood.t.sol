@@ -18,8 +18,16 @@ contract HookToken is MockERC3009Token {
         hook = h;
     }
 
+    /// T-356 (SC-3): a settlement pays the parties only, so the hook also fires when a watched party (the seller) is
+    /// paid, and the re-entry runs during a party's payout.
+    address public watched;
+
+    function setWatched(address w) external {
+        watched = w;
+    }
+
     function _afterTokenTransfer(address, address to, uint256) internal override {
-        if (to == hook && hook != address(0)) Reenterer(hook).onTokens();
+        if (hook != address(0) && (to == hook || (to == watched && watched != address(0)))) Reenterer(hook).onTokens();
     }
 }
 
@@ -72,7 +80,8 @@ contract WithstoodTest is Base {
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
     }
 
-    /// A mutual payout to the zero address reverts the whole settlement (CPP ZeroFeeReceiver): nothing is lost.
+    /// A mutual payout to the zero address reverts the whole settlement: nothing is lost. Since SC-3 the rules
+    /// contract refuses it itself, as a payout to neither party, before CPP's ZeroFeeReceiver could.
     function test_defense_mutual_payout_to_zero_address_reverts() public {
         (H.Terms memory t, bytes32 id) = _funded();
         H.Payout[] memory p = new H.Payout[](2);
@@ -81,33 +90,37 @@ contract WithstoodTest is Base {
         H.Mutual memory m = _mutual(t, id, p);
         H.Delivery memory none;
         H.KeyProof memory k;
-        vm.expectRevert(AuthCaptureEscrow.ZeroFeeReceiver.selector);
+        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, m, none, k);
         assertEq(_held(t), PRICE + FEE);
     }
 
-    /// Info, not a defense (D31, D32): the buyer and the seller co-sign a payout to the rules contract itself, the
-    /// contract accepts it, and no function can move those tokens again. The parties own that choice, so the contract
-    /// stays as it is; this test pins the behaviour so a change to it is deliberate.
-    function test_info_mutual_payout_to_rules_strands_tokens() public {
+    /// Before SC-3 the buyer and the seller could co-sign a payout to the rules contract itself, and no function could
+    /// move those tokens again (an Info this test pinned). Since SC-3 that payout is to neither party and is refused:
+    /// nothing is stranded.
+    function test_mutual_payout_to_rules_isRefused() public {
         (H.Terms memory t, bytes32 id) = _funded();
         H.Payout[] memory p = new H.Payout[](1);
         p[0] = H.Payout(address(rules), PRICE);
         H.Mutual memory m = _mutual(t, id, p);
         H.Delivery memory none;
         H.KeyProof memory k;
+        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, m, none, k);
-        assertEq(usdc.balanceOf(address(rules)), PRICE, "no function can move these again");
+        assertEq(usdc.balanceOf(address(rules)), 0, "nothing stranded");
+        assertEq(_held(t), PRICE + FEE);
     }
 
-    /// Reentrancy through a hook token: the payee of a mutual settlement re-enters during its payout. The deal is
+    /// Reentrancy through a hook token: a call re-enters while a mutual settlement pays the seller. The deal is
     /// already Settled (effects before interactions) and CPP's transient guard refuses nested operator calls. Since
     /// SC-1 a deployment serves one token and assumes it has no hook (ADR-0031 §2); this test deploys one for a hook
-    /// token anyway, so the ordering defense stays proven if that assumption is ever broken.
+    /// token anyway, so the ordering defense stays proven if that assumption is ever broken. Since SC-3 the payee is a
+    /// party (the seller), not a third address.
     function test_defense_reentrant_payee_cannot_move_funds_again() public {
         HookToken hook = new HookToken();
         Reenterer r = new Reenterer();
         hook.setHook(address(r));
+        hook.setWatched(seller);
         hook.mint(buyer, 1_000_000_000);
         rules = new HoldbackRules(escrow, address(collector3009), MARGIN, sim, address(hook));
 
@@ -115,7 +128,7 @@ contract WithstoodTest is Base {
         t.token = address(hook);
         bytes32 id = _fund(t);
         H.Payout[] memory p = new H.Payout[](2);
-        p[0] = H.Payout(address(r), 1_000_000);
+        p[0] = H.Payout(seller, 1_000_000);
         p[1] = H.Payout(buyer, PRICE - 1_000_000);
         H.Mutual memory m = _mutual(t, id, p);
         H.Delivery memory none;
@@ -127,7 +140,7 @@ contract WithstoodTest is Base {
         assertTrue(r.called(), "the hook fired during the payout");
         assertFalse(r.succeeded(), "the nested settlement was refused");
         assertEq(bytes4(r.revertData()), HoldbackRules.WrongStage.selector);
-        assertEq(hook.balanceOf(address(r)), 1_000_000, "paid exactly once");
+        assertEq(hook.balanceOf(seller), 1_000_000, "paid exactly once");
         assertEq(hook.balanceOf(escrow.getTokenStore(address(rules))), 0);
 
         // 2. Re-enter CPP directly with the operator's PaymentInfo, on a fresh deal: CPP's transient reentrancy
