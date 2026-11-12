@@ -96,9 +96,11 @@ export function settledChecks(r: Run, deal: Deal, stage: string): void {
   r.check(`dealOf reads ${stage}`, rec.chain.stage === stage, rec.chain.stage);
   cppCheck(r, deal);
   const to = lc(r.round.demo.feeSchedule?.to ?? '');
-  const fees = logsOf(rec, 'Transfer').filter((l) => lc(l.args.from) === deal.buyer.address && lc(l.args.to) === to);
+  // ADR-0033: the payment address pays the operator fee; it is the buyer's signing address unless the terms name another.
+  const payer = lc(deal.terms.buyerPaymentAddress ?? deal.buyer.address);
+  const fees = logsOf(rec, 'Transfer').filter((l) => lc(l.args.from) === payer && lc(l.args.to) === to);
   if (deal.operatorFee !== undefined) {
-    r.check('the operator fee is paid once', fees.length === 1 && BigInt(fees[0]!.args.amount) === deal.operatorFee, `${fees.length} transfer(s) from the buyer to the fee address ${short(to)}: ${fees.map((f) => r.round.amount(f.args.amount)).join(', ') || 'none'}`);
+    r.check('the operator fee is paid once', fees.length === 1 && BigInt(fees[0]!.args.amount) === deal.operatorFee, `${fees.length} transfer(s) from the payment address to the fee address ${short(to)}: ${fees.map((f) => r.round.amount(f.args.amount)).join(', ') || 'none'}`);
   }
 }
 
