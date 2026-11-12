@@ -28,6 +28,8 @@ import {
   type AnyCommitment,
   type AnyCommitmentTerms,
   type Deliverable,
+  type Delivery,
+  type MutualSettlement,
   type DisclosureLevel,
   type SettlementProjection,
   type CommitmentStateView,
@@ -297,6 +299,7 @@ function checkShape(op: Operation): void {
       return;
     case 'settle':
       message(op.message, 'MutualSettlement');
+      if (op.delivery) parsed(parseDelivery(op.delivery), 'delivery');
       return;
     case 'trigger':
       return;
@@ -703,6 +706,7 @@ export class Operator {
     const op = (parsedOp as Extract<typeof parsedOp, { ok: true }>).value;
     if ((op.kind === 'offer' || op.kind === 'hold') && (op.commitment as { id?: unknown }).id === undefined) fail('invalid_terms', MISSING_ID, { field: 'id' });
     checkShape(dryRun ? placeholderSigned(op) : op);
+    if (op.kind === 'settle' && op.delivery) await this.lateDeliveryRule(op.message, op.delivery);
     const signer = signerOf(op);
     const signerBucket = signer ? `w:${lc(signer)}` : undefined;
     if (signerBucket) this.admit(signerBucket, budget);
@@ -726,6 +730,19 @@ export class Operator {
       if (r.status < 300 && signerBucket) this.transfer(client, signerBucket);
       return r;
     });
+  }
+
+  /**
+   * SC-5b (T-357, T-378): a settlement carries a delivery only for the late work, the case it exists for: nothing is
+   * posted, the settlement releases the key, and the delivery is the one both signatures name (core checks its hash and
+   * the buyer's envelope again). Any other carried delivery is refused here with the field named, as prepare refuses it,
+   * so a body that would be accepted for the wrong reason never reaches the settlement layer.
+   */
+  private async lateDeliveryRule(m: MutualSettlement, d: Delivery): Promise<void> {
+    if (!m.releaseKey) fail('invalid_terms', 'delivery travels with a settlement only to release its key: leave delivery out when releaseKey is false; the settlement names the delivery by deliveryHash alone', { field: 'delivery' });
+    if (lc(d.commitmentId) !== lc(m.commitmentId)) fail('invalid_terms', `delivery is for ${d.commitmentId}, not ${m.commitmentId}`, { field: 'delivery.commitmentId' });
+    const posted = await this.prepareContext().delivery(m.commitmentId);
+    if (posted) fail('invalid_terms', `a delivery is posted for ${m.commitmentId} (${posted.deliveryHash}); the settlement names that one, so leave delivery out`, { field: 'delivery' });
   }
 
   /**

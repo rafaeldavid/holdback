@@ -818,7 +818,9 @@ async function settlement(ctx: PrepareContext, input: Record<string, unknown>): 
       { slot: 'buyerSignature', signer: c.buyer, ...signed },
       { slot: 'sellerSignature', signer: c.seller, ...signed },
     ],
-    submit: { method: 'POST', path: `/v1/commitments/${c.id}/settlements`, body: { ...m, buyerSignature: null, sellerSignature: null } },
+    // SC-5b (T-378): the late delivery travels in the body when the settlement releases its key, as the contract call
+    // mutualSettle(terms, settlement, delivery, keyProof) takes it; the route checks it and the settlement layer settles it.
+    submit: { method: 'POST', path: `/v1/commitments/${c.id}/settlements`, body: { ...m, buyerSignature: null, sellerSignature: null, ...(late && releaseKey ? { delivery: late } : {}) } },
     check: [
       `payouts: ${payouts.map((p) => `${amountText(p.amount)} to ${p.to}${payeeLabel(c, p.to)}`).join('; ')} (they must sum to the price ${amountText(c.price)})`,
       `the fee ${amountText(c.adjudication.fee)} returns to the buyer's payment address ${c.buyerPaymentAddress}`,
@@ -830,7 +832,7 @@ async function settlement(ctx: PrepareContext, input: Record<string, unknown>): 
             releaseKey
               ? "the settlement layer releases the buyer's first envelope in that delivery with the payment, and no appeal follows a settlement. The buyer already holds that envelope in the delivery it was handed, so the exchange rests on the ciphertext: as seller, hand over the delivery but keep the ciphertext at its uri until the settlement lands; as buyer, check the ciphertext's sha256 and the hashes before you sign"
               : 'the key stays with the seller: the settlement names the delivery and pays for it, and the work changes hands outside the protocol',
-            ...(releaseKey ? ['the settlement must travel with that delivery, as the contract call mutualSettle(terms, settlement, delivery, keyProof) takes it; POST /settlements does not carry a delivery yet, so submit this one to the settlement layer directly'] : []),
+            ...(releaseKey ? ['submit.body carries that delivery as delivery: the settlement travels with it, and the settlement layer checks that it hashes to deliveryHash and holds the buyer\'s envelope before it releases the key'] : []),
           ]
         : []),
     ],

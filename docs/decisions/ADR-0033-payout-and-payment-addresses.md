@@ -113,6 +113,7 @@ The referenced types and their sorted concatenation do not change: `Adjudication
 - `commitment.schema.json`: `timing.appealWindowSec` takes a `minimum` of 0 (section 2b).
 - `messages.schema.json`: the descriptions of `FundingAuthorization.from` and of the operator fee's `from` say "the buyer's payment address". Their shapes do not change.
 - The prepare routes' request bodies take both fields as optional inputs (section 7). That is the operator package's change and joins v0.11.
+- `POST /v1/commitments/{id}/settlements` takes the late work's seller-signed delivery as `delivery` beside the settlement, so a settlement in `Held` that releases the key goes through an operator (SC-5b; T-378, 2026-11-12). This is a change to the API contract only, in v0.11; no file in `spec/schemas/` changes.
 - `spec/README.md` gains the v0.11 entry.
 
 **What happens to every commitment ID, hash vector and recording.**

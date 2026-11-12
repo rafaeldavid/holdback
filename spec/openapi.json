@@ -1904,7 +1904,7 @@
           "commitments"
         ],
         "summary": "Submit a mutual settlement",
-        "description": "A `MutualSettlement` with a buyer and a seller signature over the identical struct (the `submit.body` of `prepareSettlement`, signed by both). The commitment becomes `Settled`: each payout is paid, the fee returns to the buyer, and the key is released if agreed.",
+        "description": "A `MutualSettlement` both parties signed (`submit.body` of `prepareSettlement`); the deal becomes `Settled`. Late work: in `Held` the body carries the unposted delivery as `delivery`. Its record: `commitment.settled` and `key.released`, no `delivery.submitted`, `deliveryHash` naming it.",
         "parameters": [
           {
             "$ref": "#/components/parameters/CommitmentId"
@@ -1921,7 +1921,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/MutualSettlement"
+                "$ref": "#/components/schemas/SettlementSubmission"
               }
             }
           }
@@ -9806,6 +9806,89 @@
             "$ref": "#/components/schemas/Notices"
           }
         }
+      },
+      "SettlementSubmission": {
+        "type": "object",
+        "description": "Each payout is paid, the fee returns to the buyer's payment address, and the key is released if agreed. Late work (SC-5b): in `Held`, a settlement that releases the key may name a delivery that was never posted; the body then carries that seller-signed delivery as `delivery`, and the settlement layer checks that it hashes to `deliveryHash` and holds the buyer's envelope. A carried delivery is refused (400 `invalid_terms`, field `delivery`) when `releaseKey` is false or a delivery is posted. A reader recognises a late-work settlement in the event log: `commitment.settled` with `keyReleased: true` and a `key.released` for the mutual settlement, with no `delivery.submitted` before them, and the settlement's `deliveryHash` naming the delivery it carried.",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "commitmentId",
+          "deliveryHash",
+          "payouts",
+          "releaseKey",
+          "nonce",
+          "expiresAt",
+          "buyerSignature",
+          "sellerSignature"
+        ],
+        "properties": {
+          "type": {
+            "const": "MutualSettlement"
+          },
+          "commitmentId": {
+            "$ref": "#/components/schemas/Hex32"
+          },
+          "deliveryHash": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Hex32"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "EIP-712 struct hash of the delivery being settled, or null before any delivery"
+          },
+          "payouts": {
+            "$ref": "#/components/schemas/Payouts",
+            "description": "Who receives the held price and how much. Any addresses both parties sign for, unless the rulebook restricts payouts to the parties"
+          },
+          "releaseKey": {
+            "type": "boolean",
+            "description": "Whether the seller-supplied key is released to the buyer with the payment; must be false when deliveryHash is null (ADR-0019)"
+          },
+          "nonce": {
+            "$ref": "#/components/schemas/Hex32"
+          },
+          "expiresAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "buyerSignature": {
+            "$ref": "#/components/schemas/Signature"
+          },
+          "sellerSignature": {
+            "$ref": "#/components/schemas/Signature"
+          },
+          "delivery": {
+            "$ref": "#/components/schemas/Delivery",
+            "description": "Late work only (SC-5b): in Held, with releaseKey true, the seller-signed delivery that was never posted and that deliveryHash names. Its signature is carried, not checked: both parties' signatures over deliveryHash endorse it. Leave it out otherwise"
+          }
+        },
+        "if": {
+          "type": "object",
+          "properties": {
+            "deliveryHash": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "deliveryHash"
+          ]
+        },
+        "then": {
+          "type": "object",
+          "properties": {
+            "releaseKey": {
+              "const": false
+            }
+          },
+          "required": [
+            "releaseKey"
+          ]
+        },
+        "x-holdback-extends": "MutualSettlement",
+        "title": "A mutual settlement as POST /v1/commitments/{commitmentId}/settlements takes it"
       },
       "PrepareOfferInput": {
         "type": "object",
