@@ -82,7 +82,14 @@ export function overLimits(s: Summary, events: readonly Event[], l: Limits): Ove
   const docSites = new Set(fetches().filter((e) => pathOf(String(e.url)) === '/llms.txt').map((e) => { try { return new URL(String(e.url)).origin; } catch { return ''; } }));
   const onDocSite = (url: string) => { try { return docSites.has(new URL(url).origin); } catch { return false; } };
   const beyond = (role?: Side) => uniq(fetches(role).filter((e) => e.status === 200 && onDocSite(String(e.url)) && !(role ? FIRST_PATH[role] : [...FIRST_PATH.buyer, ...FIRST_PATH.seller]).includes(pathOf(String(e.url))) && !pathOf(String(e.url)).startsWith('/sellers/')).map((e) => pathOf(String(e.url))));
-  const probes = (role?: Side) => fetches(role).filter((e) => e.status === 404).map((e) => pathOf(String(e.url)));
+  // A guide read again (the same page, from any address): each copy is carried on every later turn.
+  const twice = (role?: Side) => {
+    const seen = new Map<string, number>();
+    for (const e of fetches(role).filter((x) => x.status === 200 && /\.txt$|^\/$|^\/index\.html$/.test(pathOf(String(x.url))) && !pathOf(String(x.url)).startsWith('/sellers/'))) seen.set(`${e.role}:${pathOf(String(e.url))}`, (seen.get(`${e.role}:${pathOf(String(e.url))}`) ?? 0) + 1);
+    return uniq([...seen.entries()].filter(([, c]) => c > 1).map(([k]) => k.slice(k.indexOf(':') + 1)));
+  };
+  // A probe off the docs' site names its host too, so a job API's root does not read as the site's.
+  const probes = (role?: Side) => fetches(role).filter((e) => e.status === 404).map((e) => { const u = String(e.url); if (onDocSite(u)) return pathOf(u); try { const x = new URL(u); return `${x.host}${x.pathname}`; } catch { return u; } });
   const list = (xs: string[], k = 6) => (xs.length > k ? `${xs.slice(0, k).join(', ')} and ${xs.length - k} more` : xs.join(', '));
   const usd = (micro: number | null) => (micro === null ? '' : `, about $${(micro / 1e6).toFixed(4)} at list price`);
   const split = (role: Side) => {
@@ -95,9 +102,11 @@ export function overLimits(s: Summary, events: readonly Event[], l: Limits): Ove
     const who = role ? `the ${AGENT_NAME[role]}` : 'the agents';
     const read = extra.length ? `${who} read ${extra.length} ${extra.length === 1 ? 'page' : 'pages'} beyond the first-deal path (${list(extra)})` : `${who} read nothing beyond the first-deal path`;
     const probed = miss.length ? `${miss.length} ${miss.length === 1 ? 'fetch' : 'fetches'} found nothing (404: ${list(uniq(miss))})` : 'no fetch answered 404';
-    const sellerProbes = miss.filter((x) => x.startsWith('/sellers/')).length;
-    const owner = miss.length && sellerProbes * 2 >= miss.length ? "the runner (tools/duet): the probes were for the seller's page" : extra.length || miss.length ? 'the docs' : 'a client tool, or the runner (tools/duet)';
-    return { cause: `From the record: ${read}, and ${probed}. ${extra.length || miss.length ? 'Each page read stays in the context for every later turn.' : 'The work itself grew the context: long tool outputs or many steps.'}`, owner };
+    const again = twice(role);
+    const reread = again.length ? `; ${who} read ${again.length} ${again.length === 1 ? 'page' : 'pages'} more than once (${list(again)})` : '';
+    const sellerProbes = miss.filter((x) => x.includes('/sellers/')).length;
+    const owner = miss.length && sellerProbes * 2 >= miss.length ? "the runner (tools/duet): the probes were for the seller's page" : extra.length || miss.length || again.length ? 'the docs' : 'a client tool, or the runner (tools/duet)';
+    return { cause: `From the record: ${read}${reread}, and ${probed}. ${extra.length || miss.length || again.length ? 'Each page read stays in the context for every later turn.' : 'The work itself grew the context: long tool outputs or many steps.'}`, owner };
   };
   const agentLimit = s.guides.tokens + l.workTokensPerAgent;
   for (const role of ['buyer', 'seller'] as const) {
