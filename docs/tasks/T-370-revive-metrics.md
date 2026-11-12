@@ -5,7 +5,7 @@
 - **Depends on:** T-066 (its slices 1 and 3), T-328 (`tools/one-click/outsider.mjs`, which landed beside the harness)
 - **Paths this task may touch:** the files PR 217 adds (`tools/one-click/run.mjs`, `metrics.mjs`, `README.md`, and the new `scripted.mjs`; `tests/metrics/one-click.test.ts` and its fixtures), the files PR 216 changes (`apps/demo-cloud/scripts/deploy.mjs`, `apps/demo-cloud/src/judges.ts`, `world.ts`, `world.test.ts`, `docs/api.md`, `site/build.mjs`), and this file. Anything else goes to Handoff and to the coordinator.
 - **Human gate:** no for the merges. Yes for what follows them: a live harness run (it spends model tokens and approves tools as Rafa) and the operator and site deploys that make PR 216's fields live.
-- **Status:** done once PR 216 merges (PR 217 merged as e1e8df2)
+- **Status:** done (PR 217 merged 2026-11-12 as `e1e8df2`, PR 216 merged 2026-11-12 at 06:47 UTC as `5fedd21`)
 - **Agent/session:** T-370 implementer, a Claude Code side session of the coordinator, 2026-11-12. Change kind 4 (tooling). Worktrees `.worktrees/t-370-one-click` and `.worktrees/t-370-discovery`.
 
 ## Intent

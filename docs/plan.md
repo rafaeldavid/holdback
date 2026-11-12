@@ -142,6 +142,15 @@ Focus (Rafa, 2026-11-06; D53, narrowed the same day by D54 after his walkthrough
 - [ ] T-363 (merged to `contracts-audit-ready`: PR 379, 2026-11-12; waits for the freeze) The phase-one cutover checklist, first pass. Its task file is on that branch.
 - [x] T-362 (done: PR 374, 2026-11-12; its `CLAUDE.md` change became T-364's PR 375) The docs batch: the doc follow-ups from T-329 to T-361 that describe `main`. Task file `docs/tasks/T-362-docs-batch.md`.
 - [x] T-364 (done: PRs 380 and 375, 2026-11-12) No running numbers in the standing docs: the rule in `docs/writing.md`, the sweep and a check. Task file `docs/tasks/T-364-no-running-numbers.md`.
+- [x] T-365 (done: PR 385, 2026-11-12; its CI job, PR 388, is open) `pnpm send-timeout` sends a deal's due timeout with no operator, cutover package CU-2.
+- [x] T-366 (done: PR 383, 2026-11-12) The seller adapter calls a seller API of another shape from its configuration.
+- [ ] T-367 (in progress: PR 386 open) The screen passes honest audit reports, and no judge reads past the limit.
+- [x] T-368 (done: PR 384, 2026-11-12) The buyer's command stops for approval before it funds, and the simulator's faucet grants a mandate.
+- T-369 A task in the maintainers' private repository, with no file here.
+- [x] T-370 (done: PRs 217 and 216, 2026-11-12) The One-Click harness and the discovery fields of T-066, brought up to date, reviewed and merged. The live harness run and the deploys that make the fields live are Rafa's.
+- T-371 A task in the maintainers' private repository, with no file here.
+- [ ] T-372 (in progress: PR 389 open) A hung store read never stalls the adjudicator; refusals show, declines clear, and the relay checks the store.
+- [ ] T-373 (in progress) No task file or pull request on `main` yet.
 - D4 decided: the target is Ethereum mainnet (2026-11-01), built and tested on a local chain, then on Sepolia, the public testnet the demo settles on since D41 (2026-11-03). Mainnet deployment is a separate gate for Rafa after an audit. Record gas per deal in the evidence.
 
 Out of Phase 2 by D54 (Rafa's walkthrough, 2026-11-06): T-212, for the contract redeploy before mainnet; the scenario 11 redesign, as T-310; and T-221, paused until the centralized adjudicator is stable. All three moved to later phases (Future work, below). Phase 2 closes on Sepolia without a contract redeploy, because a new rules contract needs a new demo world (D49).

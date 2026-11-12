@@ -546,7 +546,8 @@ Builder 1, 2026-11-05, after PR 215's review (eight findings, all fixed):
 
 - **State (2026-11-06):** paused, partly done. Rafa moved all work that does not finish stable EVM operations to a later phase (2026-11-06).
   - **Live:** slice 2, the metrics scripts (PR 215, merged as c85147d); scope B, the console's new sections and headline metrics (crow-private PRs 2 and 3, merged as e1e30bb and 7911cb3), deployed as crow-console `91ae8a90` with rollback target `c8fe44c5` (Evidence).
-  - **Deferred until after stable EVM operations:**
+  - **Merged on 2026-11-12 through T-370:** PR 217, the One-Click harness (`e1e8df2`), and PR 216, the discovery fields (`5fedd21`), with their review findings fixed there (`docs/tasks/T-370-revive-metrics.md`). The two PR items below are history. Still not done: a live run of the harness (it spends model tokens and approves tools as Rafa), the daily measurement (T-068, planned privately), and the operator and site deploys that make PR 216's fields live (Gates item 6). Each is Rafa's.
+  - **Deferred until after stable EVM operations** (as written on 2026-11-06):
     - PR 217, the One-Click harness (`t-066-one-click`, draft). It merged main at a5e9c00 and passes CI. Fix its 11 review findings (below) before it leaves draft.
     - PR 216, the discovery fields (`t-066-discovery-fields`, draft). It merged main at 480ca77 and passes CI. Fix its 7 review findings (below), the High one first, before it leaves draft. After it merges, it reaches the live demo only with Rafa's operator deploy (holdback-op1, holdback-op2) and site deploy (crow-site), Gates item 6.
     - Where the harness runs (Gates item 1): on the Mac, or in CI with a capped Anthropic key. The harness's schedule, the push of its run files and `wrangler tail` (items 2 to 4) follow from that choice.
