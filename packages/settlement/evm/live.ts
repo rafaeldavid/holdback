@@ -57,7 +57,8 @@ export interface DeploymentFile {
   token: { address: string; name: string; version: string; symbol: string; decimals: number };
   escrow: string;
   erc3009Collector: string;
-  permit2Collector: string;
+  /** The Permit2 collector of a deployment from before phase one (ADR-0031 §3). Read by nothing: phase one funds by ERC-3009 only. */
+  permit2Collector?: string;
   multicall: string;
   rules: string;
   /** The bond vault of a deployment from before phase one (ADR-0031 §8). Read by nothing: phase one has no vault. */
@@ -93,7 +94,6 @@ export function deploymentOf(f: DeploymentFile): Deployment {
     token: getAddress(f.token.address),
     escrow: getAddress(f.escrow),
     erc3009Collector: getAddress(f.erc3009Collector),
-    permit2Collector: getAddress(f.permit2Collector),
     multicall: getAddress(f.multicall),
     rules: getAddress(f.rules),
     beacon: getAddress(f.beacon),

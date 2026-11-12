@@ -60,6 +60,9 @@ contract HoldbackRules is EIP712 {
     /// @notice The beacon that fixes fallback and escalation panel seeds (ADR-0018): the drand quicknet verifier
     ///         on shared chains, the sim beacon on anvil. Fixed at deploy; it also owns the round arithmetic.
     IHoldbackBeacon public immutable BEACON;
+    /// @notice The one settlement token this deployment serves, fixed at deploy (ADR-0031 §2, SC-1). Terms that name
+    ///         another token never fund here; a second token needs a second deployment, and so another signing domain.
+    address public immutable TOKEN;
 
     mapping(bytes32 commitmentId => Deal) internal _deals;
     /// @notice The posted delivery's hash (the EIP-712 struct hash of the seller's Delivery, as `JobSubmitted` emits
@@ -115,13 +118,15 @@ contract HoldbackRules is EIP712 {
         address erc3009Collector,
         address permit2Collector,
         uint64 expiryMargin,
-        IHoldbackBeacon beacon
+        IHoldbackBeacon beacon,
+        address token
     ) {
         ESCROW = escrow;
         ERC3009_COLLECTOR = erc3009Collector;
         PERMIT2_COLLECTOR = permit2Collector;
         EXPIRY_MARGIN = expiryMargin;
         BEACON = beacon;
+        TOKEN = token;
     }
 
     // Views
@@ -152,7 +157,7 @@ contract HoldbackRules is EIP712 {
             operator: address(this),
             payer: t.buyer,
             receiver: t.seller,
-            token: t.token,
+            token: TOKEN, // equal to t.token for every funded deal: agreeAndFund refuses any other
             maxAmount: uint120(hold),
             preApprovalExpiry: uint48(t.timing.fundBy),
             authorizationExpiry: uint48(expiry),
@@ -180,8 +185,9 @@ contract HoldbackRules is EIP712 {
         if (d.stage != Stage.None) revert WrongStage(d.stage);
         if (block.timestamp >= t.timing.offerExpiresAt || block.timestamp >= t.timing.fundBy) revert DeadlinePassed();
         if (block.timestamp >= acc.expiresAt || block.timestamp >= ag.expiresAt) revert MessageExpired();
-        // Phase one has no bond (ADR-0031 §8, point 2): the acceptance must say that nothing is reserved.
-        if (acc.bondReserved != 0 || f.method > 1) revert InvalidMessage();
+        // Phase one has no bond (ADR-0031 §8, point 2): the acceptance must say that nothing is reserved. The terms
+        // must name this deployment's token (§2, SC-1); every later step finds the deal by the ID that hashes it.
+        if (acc.bondReserved != 0 || f.method > 1 || t.token != TOKEN) revert InvalidMessage();
         _requireSigned(t.seller, id, sellerSignature);
         _requireSigned(t.adjudicator, H.acceptanceHash(id, t, acc), acc.signature);
         _requireSigned(t.buyer, H.agreeHash(id, t.buyer, ag), ag.signature);

@@ -26,7 +26,7 @@ contract DrandDecideTest is Base {
     function setUp() public override {
         super.setUp();
         drand = new DrandQuicknetBeacon();
-        rules = new HoldbackRules(escrow, address(collector3009), address(collectorPermit2), MARGIN, drand, address(usdc));
+        rules = new HoldbackRules(escrow, address(collector3009), MARGIN, drand, address(usdc));
     }
 
     function _drandDecision(bytes32 id, uint8 role, uint8 outcome, uint64 round, bytes memory sig)

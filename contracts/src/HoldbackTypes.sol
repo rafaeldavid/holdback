@@ -70,9 +70,9 @@ library HoldbackTypes {
         bytes signature;
     }
 
-    /// @notice The buyer's funding: a CPP collector signature (ADR-0025).
+    /// @notice The buyer's funding: its ERC-3009 ReceiveWithAuthorization signature for CPP's ERC-3009 collector
+    ///         (ADR-0025). Phase one funds by ERC-3009 only (ADR-0031 §3, SC-2).
     struct Funding {
-        uint8 method; // 0 = ERC-3009 ReceiveWithAuthorization, 1 = Permit2 PermitTransferFrom
         bytes signature;
     }
 

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {HoldbackRules} from "../../src/HoldbackRules.sol";
-import {RulesHandler} from "../handlers/RulesHandler.sol";
 import {Field, Obs} from "./Observation.sol";
 
 /// @title The side-by-side harness's allow-list (T-341, refinement gate VG-1)
@@ -21,94 +19,51 @@ import {Field, Obs} from "./Observation.sol";
 ///        `test_sideBySide_reachesEveryRow` fails when more than a quarter of its seeds diverge, so an entry cannot
 ///        quietly switch the gate off.
 ///
-///      T-356, SC-1 (ADR-0031 §2): one settlement token per deployment. Exactly these differences, and no other:
-///      1. Surface: `TOKEN()` is new. The old side's call fails with empty data; the new side returns the token it
-///         was deployed for. Every other view and immutable is equal.
-///      2. `agreeAndFund` on terms in another token (`RulesHandler.fundToken` is not the deployment's): the old side
-///         funds them; the new side refuses with exactly `InvalidMessage()` and emits nothing. The sides then hold
-///         different deals by design: diverged. The handler offers such terms once in 64 offers
-///         (`RulesHandler.offer`), so the refusal stays exercised.
-///      3. The same call, refused on both sides: the old side for another reason (a wrong key, a passed deadline,
-///         the escrow's refusal), the new side first for the token. Only the refusal reason (Calls) and the events the
-///         old side's reverted call recorded (Events) differ; every state field must still be equal.
-///      The planted mutant is built from the parent and has no `TOKEN()`, so no entry fires against it except for a
-///      new side that has one.
+///      T-356, SC-2 (ADR-0031 §3): ERC-3009 funding only. Exactly this difference, and no other:
+///      1. Surface: `PERMIT2_COLLECTOR()` is gone. The old side returns its Permit2 collector; the new side's call
+///         fails with empty data. Every other view and immutable is equal.
+///      `Funding.method` left too, which changes `agreeAndFund`'s selector. The handler funds by ERC-3009 only and the
+///      pinned side encodes the parent's layout with `method` 0 (`Sides.sol`), so both sides receive the same ERC-3009
+///      signature and every call, event and balance must stay equal. The refusal of a Permit2 signature is proven in
+///      `test/unit/Erc3009Only.t.sol`: the handler never funded through Permit2, on either side.
 library AllowList {
     struct Verdict {
         string change; // the change that allows the difference; "" when none does
         bool diverged; // the sides now differ in shared state by design: stop comparing this seed
     }
 
-    /// Index of `TOKEN()` in `SideBySide._surface`.
-    uint256 internal constant SURFACE_TOKEN = 12;
+    /// Index of `PERMIT2_COLLECTOR()` in `SideBySide._surface`.
+    uint256 internal constant SURFACE_PERMIT2_COLLECTOR = 3;
 
-    /// The verdict for field `f` differing between `o` (old) and `n` (new) at step `step`, with the new side's
-    /// deployment token `served` (the handler's first token) and `funded`, the token of the terms the step's
-    /// `agreeAndFund` relayed (`RulesHandler.fundToken`; the same deal on both sides, picked from shared state).
+    /// The verdict for field `f` differing between `o` (old) and `n` (new) at step `step`. `served` and `funded` are
+    /// the new side's token and the token of the step's `agreeAndFund` terms; no SC-2 entry reads them.
     function allowed(Field f, uint256 step, Obs memory o, Obs memory n, address served, address funded)
         internal
         pure
         returns (Verdict memory v)
     {
-        step;
-        if (f == Field.Surface && _surfaceApartFromToken(o.surface, n.surface, served)) {
-            return Verdict("SC-1: TOKEN() added", false);
-        }
-        // The surface goes through entry 1 only, so entries 2 and 3 cannot hide a surface difference.
-        if (f == Field.Surface || o.action != RulesHandler.agreeAndFund.selector || funded == served) return v;
-        if (!_refusedForToken(n)) return v;
-        // Entry 2: the old side funded the other-token terms; the new side refused them.
-        if (_landed(o.calls)) return Verdict("SC-1: other token refused", true);
-        // Entry 3: both sides refused the same terms, the old side for another reason (a wrong key, a deadline), so
-        // only the step's refusal reason, and the events the old side's reverted call recorded, differ.
-        if ((f == Field.Calls || f == Field.Events) && _refused(o.calls)) {
-            return Verdict("SC-1: refused for its token first", false);
+        (step, served, funded);
+        if (f == Field.Surface && _surfaceApartFromPermit2(o.surface, n.surface)) {
+            return Verdict("SC-2: PERMIT2_COLLECTOR() gone", false);
         }
         return v;
     }
 
-    // ------------------------------------------------------------ the entries' exact tests
-
-    /// Entry 1: every view's raw return is equal, except `TOKEN()`, which the old side does not have (its call fails
-    /// with empty data) and the new side answers with `served`.
-    function _surfaceApartFromToken(bytes memory os, bytes memory ns, address served) private pure returns (bool) {
+    /// Entry 1: every view's raw return is equal, except `PERMIT2_COLLECTOR()`, which the old side answers with a
+    /// nonzero address and the new side does not have (its call fails with empty data).
+    function _surfaceApartFromPermit2(bytes memory os, bytes memory ns) private pure returns (bool) {
         bytes[] memory o = abi.decode(os, (bytes[]));
         bytes[] memory n = abi.decode(ns, (bytes[]));
         if (o.length != n.length) return false;
         for (uint256 i; i < o.length; i++) {
-            if (i == SURFACE_TOKEN) {
-                if (keccak256(o[i]) != keccak256(abi.encode(false, bytes("")))) return false;
-                if (keccak256(n[i]) != keccak256(abi.encode(true, abi.encode(served)))) return false;
+            if (i == SURFACE_PERMIT2_COLLECTOR) {
+                (bool ok, bytes memory ret) = abi.decode(o[i], (bool, bytes));
+                if (!ok || ret.length != 32 || abi.decode(ret, (address)) == address(0)) return false;
+                if (keccak256(n[i]) != keccak256(abi.encode(false, bytes("")))) return false;
             } else if (keccak256(o[i]) != keccak256(n[i])) {
                 return false;
             }
         }
         return true;
-    }
-
-    /// Entries 2 and 3: the new side made one checked call, it reverted with exactly `InvalidMessage()`, and the new
-    /// side emitted nothing.
-    function _refusedForToken(Obs memory n) private pure returns (bool) {
-        return n.events.length == 0 && _onlyRefused(n.calls, abi.encodeWithSelector(HoldbackRules.InvalidMessage.selector));
-    }
-
-    /// The step made exactly one checked call, and it reverted.
-    function _refused(bytes[] memory calls) private pure returns (bool) {
-        if (calls.length != 1) return false;
-        (bool ok,) = abi.decode(calls[0], (bool, bytes));
-        return !ok;
-    }
-
-    /// The step made exactly one checked call, and it reverted with exactly `data`.
-    function _onlyRefused(bytes[] memory calls, bytes memory data) private pure returns (bool) {
-        if (calls.length != 1) return false;
-        (bool ok, bytes memory ret) = abi.decode(calls[0], (bool, bytes));
-        return !ok && keccak256(ret) == keccak256(data);
-    }
-
-    function _landed(bytes[] memory calls) private pure returns (bool) {
-        if (calls.length != 1) return false;
-        (bool ok,) = abi.decode(calls[0], (bool, bytes));
-        return ok;
     }
 }

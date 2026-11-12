@@ -983,6 +983,22 @@ describe('phase_one profile', () => {
     if (!r.ok) expect(r.error.type).toBe('acceptance_mismatch');
   });
 
+  // T-356 (SC-2, ADR-0031 §3): the phase-one contracts fund by ERC-3009 only.
+  it('refuses a Permit2 funding authorization, which the full protocol takes', () => {
+    const agreed = phaseOne([ev.accept(zeroBond, T.accept, tusd('0')), ev.agree()]);
+    const permit2 = ev.fund(T.fund, { message: { scheme: 'permit2' } });
+    const r = step(agreed, fill(agreed, permit2), 'phase_one');
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.type).toBe('invalid_terms');
+      expect(r.error.detail).toContain('ERC-3009 only');
+    }
+    expect(phaseOne([ev.fund()], agreed).kind).toBe('Held');
+    const base = run([ev.accept(), ev.agree()]);
+    const full = step(base, fill(base, permit2));
+    expect(full.ok ? full.value.kind : full.error.type).toBe('Held');
+  });
+
   it('keeps the full rule by default: an acceptance reserving 0 is below the price', () => {
     const r = step(offered(), ev.accept(zeroBond));
     expect(r.ok).toBe(false);

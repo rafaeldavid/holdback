@@ -39,7 +39,7 @@ contract NoAdminFuzzTest is Base {
             address(rules),
             address(escrow),
             address(collector3009),
-            address(collectorPermit2),
+            address(collectorPermit2), // no longer deployed by the settlement (SC-2); the test world still has it
             escrow.tokenStoreImplementation(),
             store,
             address(new DrandQuicknetBeacon()),
@@ -71,7 +71,8 @@ contract NoAdminFuzzTest is Base {
         if (i == 0) {
             // T-346 (ADR-0031 §8): BONDS(), KEY_APPEAL(), expireAppeal( and fileAppeal( left with the phase-one cut.
             // T-356 (ADR-0031 §2, SC-1): TOKEN(), the deployment's one token, an immutable set at deploy.
-            s = new string[](23);
+            // T-356 (ADR-0031 §3, SC-2): PERMIT2_COLLECTOR() left with the Permit2 path; TOKEN() takes its index.
+            s = new string[](22);
             s[0] = "BEACON()";
             s[1] = "ERC3009_COLLECTOR()";
             s[2] = "ESCROW()";
@@ -80,7 +81,7 @@ contract NoAdminFuzzTest is Base {
             s[5] = "KEY_EARLY_ACCEPT()";
             s[6] = "KEY_MUTUAL()";
             s[7] = "MUTUAL_FEE_SHARE_BPS()";
-            s[8] = "PERMIT2_COLLECTOR()";
+            s[8] = "TOKEN()";
             s[9] = "agreeAndFund(";
             s[10] = "dealOf(bytes32)";
             s[11] = "decide(";
@@ -94,7 +95,6 @@ contract NoAdminFuzzTest is Base {
             s[19] = "triggerFallback(";
             s[20] = "typedDataHash(bytes32)";
             s[21] = "deliveryHashOf(bytes32)"; // a read: the posted delivery every signature names (ADR-0029)
-            s[22] = "TOKEN()";
         } else if (i == 1) {
             s = new string[](11);
             s[0] = "PAYMENT_INFO_TYPEHASH()";

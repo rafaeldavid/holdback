@@ -58,7 +58,7 @@ export async function anvilWorld(): Promise<AnvilWorld> {
   const deployment = {
     chainId: anvil.chainId, fromBlock: Number(d.fromBlock),
     token: { address: d.token, name: anvil.tokenDomain.name, version: anvil.tokenDomain.version, symbol: 'tUSDC', decimals: 6 },
-    escrow: d.escrow, erc3009Collector: d.erc3009Collector, permit2Collector: d.permit2Collector, multicall: d.multicall, rules: d.rules, beacon: d.beacon, expiryMarginSec: Number(anvil.expiryMargin),
+    escrow: d.escrow, erc3009Collector: d.erc3009Collector, multicall: d.multicall, rules: d.rules, beacon: d.beacon, expiryMarginSec: Number(anvil.expiryMargin),
   };
   // anvil's second dev account (from its public default mnemonic; guards no value): the world's relayer funding lane.
   const relayerKey = toHex(mnemonicToAccount(ANVIL_MNEMONIC, { addressIndex: 1 }).getHdKey().privateKey!);

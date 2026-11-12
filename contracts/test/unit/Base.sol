@@ -59,6 +59,9 @@ contract TypesHarness {
 
 /// Shared fixture: CPP v1.1.0 (vendored, unmodified), both collectors, Permit2, a mock USDC with ERC-3009, and
 /// HoldbackRules (phase one: no bond vault, ADR-0031 §8) and the sim beacon (T-209: the drand verifier has its own suites). Local EVM only (chain id 31337); no RPC.
+/// Since SC-2 (ADR-0031 §3) the rules contract funds by ERC-3009 only and takes no Permit2 collector. The world still
+/// deploys Permit2 and its collector: the pinned contracts the side-by-side harness and `PhaseOneNoBonds.t.sol` deploy
+/// take one, and `Erc3009Only.t.sol` shows a valid Permit2 signature is refused.
 abstract contract Base is Test, DeployPermit2 {
     bytes32 internal constant RECEIVE_WITH_AUTHORIZATION_TYPEHASH =
         0xd099cc98ef71107a616c4f0f941f04c322d8e254fe26b3c6668db87aae413de8;
@@ -109,7 +112,7 @@ abstract contract Base is Test, DeployPermit2 {
         collectorPermit2 = new Permit2PaymentCollector(address(escrow), permit2, MULTICALL3);
         usdc = new MockERC3009Token("Mock USDC", "mUSDC", 6);
         sim = new SimBeacon(SIM_SEED);
-        rules = new HoldbackRules(escrow, address(collector3009), address(collectorPermit2), MARGIN, sim, address(usdc));
+        rules = new HoldbackRules(escrow, address(collector3009), MARGIN, sim, address(usdc));
         hx = new TypesHarness();
 
         buyer = vm.addr(BUYER_PK);
@@ -219,10 +222,12 @@ abstract contract Base is Test, DeployPermit2 {
             )
         );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", IERC3009(pi.token).DOMAIN_SEPARATOR(), structHash));
-        return H.Funding({method: 0, signature: _signRaw(pk, digest)});
+        return H.Funding({signature: _signRaw(pk, digest)});
     }
 
-    function _permit2(H.Terms memory t, uint256 pk) internal view returns (H.Funding memory) {
+    /// A Permit2 PermitTransferFrom signature for the deal's hold, for the Permit2 collector. Phase one has no
+    /// Permit2 path (SC-2): it is the pinned contracts' funding, and the input `Erc3009Only.t.sol` shows refused.
+    function _permit2(H.Terms memory t, uint256 pk) internal view returns (bytes memory) {
         AuthCaptureEscrow.PaymentInfo memory pi = _pi(t);
         bytes32 permitHash = keccak256(
             abi.encode(
@@ -234,7 +239,7 @@ abstract contract Base is Test, DeployPermit2 {
             )
         );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", IPermit2(permit2).DOMAIN_SEPARATOR(), permitHash));
-        return H.Funding({method: 1, signature: _signRaw(pk, digest)});
+        return _signRaw(pk, digest);
     }
 
     function _acceptance(H.Terms memory t, uint256 pk) internal view returns (H.Acceptance memory a) {

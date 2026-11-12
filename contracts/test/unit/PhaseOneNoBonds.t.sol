@@ -48,13 +48,30 @@ contract PhaseOneNoBondsTest is Base {
         a.signature = _sign(ADJ_PK, hx.acceptance(hx.id(t), t, a));
     }
 
+    /// Set while `rules` is the pinned contract: since SC-2 (T-356) the current `Funding` has no `method`, and the
+    /// pinned contract's still does, so its `agreeAndFund` is encoded in its own layout, as ERC-3009 (`method` 0).
+    bool internal pinned;
+
+    /// Relays `agreeAndFund` in the layout of whichever contract `rules` is; returns the call's outcome.
+    function _fundCall(H.Terms memory t, bytes memory s, H.Acceptance memory a, H.Agree memory g, H.Funding memory f)
+        internal
+        returns (bool ok, bytes memory ret)
+    {
+        bytes memory data = pinned
+            ? abi.encodeWithSelector(OldRules.agreeAndFund.selector, t, s, a, g, OldH.Funding(0, f.signature))
+            : abi.encodeCall(HoldbackRules.agreeAndFund, (t, s, a, g, f));
+        vm.prank(relayer);
+        (ok, ret) = address(rules).call(data);
+    }
+
     function _agreeAndFund(H.Terms memory t, uint256 bondReserved) internal returns (bytes32 id) {
         bytes memory s = _sellerSig(t, SELLER_PK);
         H.Acceptance memory a = _acceptanceWith(t, bondReserved);
         H.Agree memory g = _agree(t, BUYER_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
-        vm.prank(relayer);
-        id = rules.agreeAndFund(t, s, a, g, f);
+        (bool ok, bytes memory ret) = _fundCall(t, s, a, g, f);
+        assertTrue(ok, "agreeAndFund reverted");
+        id = abi.decode(ret, (bytes32));
     }
 
     /// `agreeAndFund` with `bondReserved` reverts InvalidMessage and leaves no trace: no deal, no hold, the buyer's
@@ -66,9 +83,9 @@ contract PhaseOneNoBondsTest is Base {
         H.Agree memory g = _agree(t, BUYER_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
         uint256 b0 = usdc.balanceOf(buyer);
-        vm.prank(relayer);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
-        rules.agreeAndFund(t, s, a, g, f);
+        (bool ok, bytes memory ret) = _fundCall(t, s, a, g, f);
+        assertFalse(ok, "agreeAndFund funded");
+        assertEq(ret, abi.encodeWithSelector(HoldbackRules.InvalidMessage.selector), "refused with InvalidMessage");
         assertEq(uint8(_stage(hx.id(t))), uint8(HoldbackRules.Stage.None), "no deal");
         assertEq(_held(t), 0, "no hold");
         assertEq(usdc.balanceOf(buyer), b0, "the buyer's balance is unchanged");
@@ -118,6 +135,7 @@ contract PhaseOneNoBondsTest is Base {
         vault.deposit(address(usdc), 2 * PRICE);
         vm.stopPrank();
         rules = HoldbackRules(address(old)); // Base's signing and hold helpers now target the pinned contract
+        pinned = true;
 
         _assertRefused(0);
         _assertRefused(1);

@@ -185,7 +185,7 @@ contract DrandRedTeamTest is Base {
         drand = new DrandQuicknetBeacon();
         harness = new BeaconHarness();
         filer = new SeedGatedFiler();
-        rules = new HoldbackRules(escrow, address(collector3009), address(collectorPermit2), MARGIN, drand, address(usdc));
+        rules = new HoldbackRules(escrow, address(collector3009), MARGIN, drand, address(usdc));
     }
 
     // ------------------------------------------------------------ helpers

@@ -72,20 +72,6 @@ contract WithstoodTest is Base {
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
     }
 
-    /// A relayer cannot swap the funding method: the collector signature is bound to its own domain.
-    function test_defense_funding_method_swap_refused() public {
-        H.Terms memory t = _terms();
-        H.Funding memory f = _erc3009(t, BUYER_PK);
-        f.method = 1; // claim it is a Permit2 signature
-        vm.prank(buyer);
-        usdc.approve(permit2, type(uint256).max);
-        bytes memory s = _sellerSig(t, SELLER_PK);
-        H.Acceptance memory a = _acceptance(t, ADJ_PK);
-        H.Agree memory g = _agree(t, BUYER_PK);
-        vm.expectRevert();
-        rules.agreeAndFund(t, s, a, g, f);
-    }
-
     /// A mutual payout to the zero address reverts the whole settlement (CPP ZeroFeeReceiver): nothing is lost.
     function test_defense_mutual_payout_to_zero_address_reverts() public {
         (H.Terms memory t, bytes32 id) = _funded();
@@ -123,7 +109,7 @@ contract WithstoodTest is Base {
         Reenterer r = new Reenterer();
         hook.setHook(address(r));
         hook.mint(buyer, 1_000_000_000);
-        rules = new HoldbackRules(escrow, address(collector3009), address(collectorPermit2), MARGIN, sim, address(hook));
+        rules = new HoldbackRules(escrow, address(collector3009), MARGIN, sim, address(hook));
 
         H.Terms memory t = _terms();
         t.token = address(hook);
@@ -167,7 +153,7 @@ contract WithstoodTest is Base {
         H.Agree memory g = _agree(t, BUYER_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
         HoldbackRules other =
-            new HoldbackRules(escrow, address(collector3009), address(collectorPermit2), MARGIN, sim, address(usdc));
+            new HoldbackRules(escrow, address(collector3009), MARGIN, sim, address(usdc));
         vm.expectRevert(HoldbackRules.BadSignature.selector);
         other.agreeAndFund(t, s, a, g, f);
         // The genuine deployment still accepts the same messages.

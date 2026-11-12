@@ -170,7 +170,6 @@ describe.skipIf(!ready)(`LiveChain's in-flight rows on anvil (T-219)${ready ? ''
       token: { address: d.token, name: anvil.tokenDomain.name, version: anvil.tokenDomain.version, symbol: 'tUSDC', decimals: 6 },
       escrow: d.escrow,
       erc3009Collector: d.erc3009Collector,
-      permit2Collector: d.permit2Collector,
       multicall: d.multicall,
       rules: d.rules,
       beacon: d.beacon,

@@ -272,9 +272,13 @@ function agree(s: Extract<EscrowState, { kind: 'AcceptedByAdjudicator' }>, e: Ex
   return ok({ kind: 'Agreed', id: s.id, terms, beaconSource: s.beaconSource, acceptance: s.acceptance, agree: m });
 }
 
-function fund(s: Extract<EscrowState, { kind: 'Agreed' }>, e: Extract<EscrowEvent, { type: 'fund' }>): R {
+function fund(s: Extract<EscrowState, { kind: 'Agreed' }>, e: Extract<EscrowEvent, { type: 'fund' }>, profile: SettlementProfile): R {
   const m = e.message;
   const { terms } = s;
+  // ADR-0031 §3 (SC-2): the phase-one contracts fund by ERC-3009 only.
+  if (profile === 'phase_one' && m.scheme !== 'erc3009') {
+    return fail('invalid_terms', `the phase-one contracts fund by ERC-3009 only, not ${m.scheme} (ADR-0031 §3)`);
+  }
   if (!sameAddress(m.from, terms.buyer)) return fail('invalid_signature', 'funding authorization is not from the buyer');
   if (m.commitmentId !== s.id) return fail('invalid_terms', 'funding authorization is for another commitment');
   if (!before(e.at, terms.timing.fundBy)) return fail('deadline_passed', `fundBy passed at ${terms.timing.fundBy}`);
@@ -606,7 +610,7 @@ export function step(s: EscrowState, e: EscrowEvent, profile: SettlementProfile 
       if (e.type === 'agree') return agree(s, e);
       break;
     case 'Agreed':
-      if (e.type === 'fund') return fund(s, e);
+      if (e.type === 'fund') return fund(s, e, profile);
       if (e.type === 'expire') {
         if (!reached(e.at, s.terms.timing.fundBy)) return tooEarly(s.terms.timing.fundBy);
         return ok({ kind: 'Expired', id: s.id, terms: s.terms, beaconSource: s.beaconSource, from: s.kind, expiredAt: e.at });

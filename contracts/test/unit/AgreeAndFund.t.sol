@@ -17,17 +17,6 @@ contract AgreeAndFundTest is Base {
         assertEq(usdc.balanceOf(address(rules)), 0, "the rules contract never holds funds");
     }
 
-    function test_permit2_funds() public {
-        H.Terms memory t = _terms();
-        vm.prank(buyer);
-        usdc.approve(permit2, type(uint256).max);
-        bytes32 id = rules.agreeAndFund(
-            t, _sellerSig(t, SELLER_PK), _acceptance(t, ADJ_PK), _agree(t, BUYER_PK), _permit2(t, BUYER_PK)
-        );
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held));
-        assertEq(_held(t), PRICE + FEE);
-    }
-
     function test_refuses_sellerSignatureFromAnotherKey() public {
         H.Terms memory t = _terms();
         H.Acceptance memory a = _acceptance(t, ADJ_PK);
