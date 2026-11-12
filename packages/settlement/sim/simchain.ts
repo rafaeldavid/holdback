@@ -1048,7 +1048,9 @@ export class SimChain implements Settlement {
     const t = s.terms.timing;
     const deadlines: Record<string, Timestamp> = { offerExpiresAt: t.offerExpiresAt, fundBy: t.fundBy, deliverBy: t.deliverBy, judgeBy: t.judgeBy, fallbackBy: t.fallbackBy };
     let appealState: CommitmentStateView['appealState'] = 'none';
-    if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance') {
+    // Phase one has no party appeal: the API reports appealState `none`, as the EVM adapter does (core, firstInstance; PR 416
+    // review M1), though core closes the appeal state at once.
+    if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance' && this.profile !== 'phase_one') {
       const a = s.via.appeal;
       appealState = a.kind;
       if (a.kind === 'none') {

@@ -100,6 +100,10 @@ describe('public mode', () => {
     await storage.put({ meta });
     const again = await serve({}, storage);
     expect((again.world.chain as unknown as { profile: string }).profile).toBe('full');
+    await again.close();
+    running.splice(running.indexOf(again), 1);
+    // Asking a stored world for another protocol is an error, as asking it for another settlement is (PR 416 review L4).
+    await expect(PublicWorld.open({ storage, env: {}, simProfile: 'phase_one' })).rejects.toThrow(/runs the full protocol; it cannot open as phase_one/);
   });
 
   it('sends the tokens to a payment address and the mandate to the signing address (ADR-0033 §5, T-378)', async () => {

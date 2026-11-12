@@ -558,6 +558,8 @@ export class PublicWorld {
       await storage.put({ meta });
     }
     if ((meta.settlement ?? 'sim') !== settlement) throw new Error(`this world settles on ${meta.settlement ?? 'sim'}; it cannot open as ${settlement} (name another world)`);
+    // PR 416 review L4: a SimChain world keeps the protocol it was created with; asking for another is an error, not ignored.
+    if (!o.live && o.simProfile && o.simProfile !== (meta.profile ?? 'full')) throw new Error(`this world runs the ${meta.profile ?? 'full'} protocol; it cannot open as ${o.simProfile} (name another world)`);
     if (o.live && meta.rules !== lc(o.live.chain.deployment.rules)) throw new Error(`this world settles on the rules contract ${meta.rules}, not ${o.live.chain.deployment.rules} (a new deployment needs a new world)`);
     const secret = meta.secret;
     const key = (label: string): TestAccount => ({ ...testAccount(`${label}/${secret}`), label });

@@ -3,6 +3,7 @@
 // own problem (core's APPEAL_WINDOW_PROBLEM, which the contract enforces as InvalidMessage), at prepare and at a direct
 // submission of signed terms. The full protocol, the default for every other world, still takes it.
 import { readFileSync } from 'node:fs';
+import { seal, wrapKeyForRecipients } from '@holdback/core/crypto';
 import { APPEAL_WINDOW_PROBLEM, ZERO_HOLD_PROBLEM } from '@holdback/core';
 import { privateKeyToAccount } from 'viem/accounts';
 import { hashTypedData } from 'viem';
@@ -84,6 +85,53 @@ describe('pnpm sim runs the phase-one rules (T-378)', () => {
     const nothing = (w: SimWorld) => ({ ...offerInput(w, {}), price: { token: 'tUSD', amount: '0' }, fee: { token: 'tUSD', amount: '0' } });
     expect(await post(phaseOne, '/v1/prepare/offer', nothing(phaseOne))).toMatchObject({ status: 400, body: { type: 'invalid_terms', field: 'price', detail: ZERO_HOLD_PROBLEM } });
     expect((await post(full, '/v1/prepare/offer', nothing(full))).status).toBe(200);
+  });
+
+  // PR 416 review M1 and L5: one whole deal on the phase-one world reads as it does on the chain. The primary reserves no
+  // bond, the decision is final when it settles, the appeal state reads none, and the appeal-expiry trigger is refused.
+  it('a deal on the phase-one world: no bond reserved, final at the decision, appealState none, no appeal expiry', async () => {
+    const w = phaseOne;
+    const acct = (l: string) => w.info.accounts.find((a) => a.label === l)!;
+    const signAs = async (p: Prepared, label: string) => {
+      const account = privateKeyToAccount(acct(label).privateKey);
+      for (const s of p.sign.filter((x) => x.signer.toLowerCase() === account.address.toLowerCase())) {
+        const typed = { ...s.typedData, message: ints(s.typedData.types, s.typedData.primaryType, s.typedData.message) } as Parameters<typeof hashTypedData>[0];
+        const path = s.slot.split('.');
+        const parent = path.slice(0, -1).reduce<Record<string, unknown>>((o, k) => o[k] as Record<string, unknown>, p.submit.body);
+        parent[path.at(-1)!] = await account.signTypedData(typed as Parameters<typeof account.signTypedData>[0]);
+      }
+      return p;
+    };
+    const get = async (path: string) => (await fetch(`${w.info.operators[0]}${path}`)).json() as Promise<Record<string, any>>; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const until = async (id: string, states: string[]) => {
+      for (let i = 0; i < 200; i++) {
+        const s = await get(`/v1/commitments/${id}`);
+        if (states.includes(s['escrowState'])) return s;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      throw new Error(`${id} never reached ${states.join('|')}`);
+    };
+    const offer = (await post(w, '/v1/prepare/offer', offerInput(w, {}))).body as Prepared;
+    await post(w, offer.submit.path, (await signAs(offer, 'seller-1')).submit.body);
+    const id = offer.commitmentId;
+    await until(id, ['AcceptedByAdjudicator']);
+    const nonce = () => `0x${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('hex')}`;
+    const af = (await post(w, '/v1/prepare/agree-and-fund', { commitmentId: id, agreeNonce: nonce(), fundingNonce: nonce() })).body as Prepared;
+    expect((await post(w, af.submit.path, (await signAs(af, 'buyer-1')).submit.body)).body['escrowState']).toBe('Held');
+    const sealed = await seal(new TextEncoder().encode('a\nb\n'));
+    const stored = (await (await fetch(`${w.info.operators[0]}/v1/ciphertext`, { method: 'POST', headers: { 'content-type': 'application/octet-stream', 'idempotency-key': crypto.randomUUID() }, body: sealed.ciphertext })).json()) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { recipients } = await get(`/v1/commitments/${id}/recipients`);
+    const encryptedKeys = wrapKeyForRecipients(sealed.key, recipients.map((r: { address: string; encryptionPublicKey: string }) => ({ recipient: r.address, publicKey: r.encryptionPublicKey })));
+    const dv = (await post(w, '/v1/prepare/delivery', { commitmentId: id, ciphertext: { uri: stored['uri'], sha256: stored['id'], bytes: stored['bytes'] }, plaintextSha256: sealed.plaintextSha256, encryptedKeys })).body as Prepared;
+    await post(w, dv.submit.path, (await signAs(dv, 'seller-1')).submit.body);
+    const s = await until(id, ['Released', 'Refunded']);
+    expect(s).toMatchObject({ appealState: 'none' });
+    expect(s['finalAt']).toBe(s['settledAt']);
+    const events = (await get(`/v1/commitments/${id}/events?limit=200`))['items'] as Array<{ type: string; payload: Record<string, unknown> }>;
+    expect(events.find((e) => e.type === 'adjudicator.accepted')?.payload['bondReserved']).toMatchObject({ amount: '0' });
+    // The appeal window's expiry is not in phase one: the route refuses the trigger here, as on the chain.
+    const trigger = await post(w, `/v1/commitments/${id}/triggers/appeal-expiry`, {});
+    expect([trigger.status, trigger.body['type']]).toEqual([409, 'invalid_state']);
   });
 
   // A party appeal is not in phase one: the route refuses it on this world, as on the chain.
