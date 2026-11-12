@@ -50,6 +50,10 @@ contract UntestedRevertsTest is Base {
     function test_refuses_fundByAboveUint48_unrepresentable() public {
         H.Terms memory t = _terms();
         t.timing.fundBy = uint64(type(uint48).max) + 1;
+        // SC-5 (T-356): the later deadlines follow, so the terms are in strict order and only representability fails.
+        t.timing.deliverBy = t.timing.fundBy + 1;
+        t.timing.judgeBy = t.timing.fundBy + 2;
+        t.timing.fallbackBy = t.timing.fundBy + 3;
         _fundExpectingRevert(t, HoldbackRules.Unrepresentable.selector);
     }
 }

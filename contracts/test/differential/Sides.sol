@@ -13,7 +13,7 @@ import {RulesHandler} from "../handlers/RulesHandler.sol";
 
 // The pinned copies carry a suffix in their file names, so a lookup by "HoldbackRules.sol:HoldbackRules"
 // (`deployCodeTo`, `vm.getCode`) still finds only src/. Nothing imports them by name, so their bytes are unchanged.
-import {HoldbackRules as ParentRules} from "./parent/HoldbackRules.f47a96a.sol";
+import {HoldbackRules as ParentRules} from "./parent/HoldbackRules.ebb77da.sol";
 import {IHoldbackBeacon as ParentBeacon} from "./parent/IHoldbackBeacon.sol";
 import {HoldbackRules as PlantedRules} from "./planted/HoldbackRules.planted.sol";
 
@@ -22,12 +22,12 @@ import {HoldbackRules as PlantedRules} from "./planted/HoldbackRules.planted.sol
 ///         - `NewSide`: the source under test, `contracts/src/`, deployed by `Base.setUp` unchanged;
 ///         - `OldSide`: the pinned copy of `contracts/src/` at the change's parent commit (`parent/`). Since T-356
 ///           each change on `contracts-audit-ready` is compared with its parent, not with the deployed commit
-///           (the refinement plan, R6c's harness row): the parent here is `f47a96a`, the lane after SC-6;
+///           (the refinement plan, R6c's harness row): the parent here is `ebb77da`, the lane after SC-3;
 ///         - `PlantedSide`: the pinned copy with one planted behaviour change (`planted/`), for the tests that
 ///           prove the harness and the liveness invariant fail on a real change.
 ///         The handler drives every side through the new source's ABI (`HoldbackRules`, `HoldbackTypes`), so the
-///         sides receive the same calls. The parent's ABI equals the new one apart from the `Paid` event, which SC-3
-///         removes with the payouts to a third address, so the pinned side needs no hook of its own.
+///         sides receive the same calls. The parent's ABI equals the new one, so the pinned side needs no hook of its
+///         own.
 /// @dev Same addresses on both sides. The harness creates each side from the same snapshot, so a side lands at
 ///      the same address, and every contract it creates lands at the same address as on the other side, as long as
 ///      the sides create the same number of contracts in the same order. That is why `PinnedSide.setUp` repeats

@@ -8,7 +8,7 @@ import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 import {IHoldbackBeacon} from "../parent/IHoldbackBeacon.sol";
 import {HoldbackTypes as H, Money} from "../parent/HoldbackTypes.sol";
 
-// T-341, PLANTED BEHAVIOUR CHANGE. A test fixture, never deployed: the pinned copy `../parent/HoldbackRules.f47a96a.sol`
+// T-341, PLANTED BEHAVIOUR CHANGE. A test fixture, never deployed: the pinned copy `../parent/HoldbackRules.ebb77da.sol`
 // with two edits, these imports and one deleted line in `_acceptDelivery` (`deliveryHashOf[id] = dh;`). It is the
 // "stores no delivery hash" mutant of known issue G-5. `SideBySide.t.sol` and `StateOracle.t.sol` prove that the
 // side-by-side harness and the delivery liveness invariant both fail on it. T-356 re-based it on each change's parent.
@@ -90,7 +90,6 @@ contract HoldbackRules is EIP712 {
 
     // Holdback.
     event FeePaid(bytes32 indexed id, address indexed adjudicator, uint256 amount);
-    event Paid(bytes32 indexed id, address indexed to, uint256 amount);
     event Decided(
         bytes32 indexed id,
         address indexed adjudicator,
@@ -362,8 +361,9 @@ contract HoldbackRules is EIP712 {
 
     // Mutual settlement
 
-    /// @notice A settlement both parties signed closes a funded, undecided commitment (ADR-0019, D23): the payouts
-    ///         split the price; the fee goes back to the buyer (fee share 0 bps). With `releaseKey`, the buyer's
+    /// @notice A settlement both parties signed closes a funded, undecided commitment (ADR-0019): the payouts split the
+    ///         price between the buyer and the seller (D23's payouts to other addresses are deferred past phase one,
+    ///         ADR-0031 §4); the fee goes back to the buyer (fee share 0 bps). With `releaseKey`, the buyer's
     ///         envelope from the named delivery is released in the same transaction.
     function mutualSettle(H.Terms calldata t, H.Mutual calldata m, H.Delivery calldata dv, H.KeyProof calldata k)
         external
@@ -395,23 +395,17 @@ contract HoldbackRules is EIP712 {
         if (m.releaseKey) _releaseKey(id, t.buyer, KEY_MUTUAL, k.scheme, k.ciphertext);
     }
 
+    /// @dev Phase one pays a settlement to the buyer and the seller only (ADR-0031 §4, SC-3): a payout to any other
+    ///      address reverts. So a settlement makes at most one capture, to the seller, and one void, to the buyer.
     function _payOut(bytes32 id, H.Terms calldata t, H.Payout[] calldata payouts) internal {
         AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(id, t);
         uint256 total;
         uint256 toSeller;
-        uint256 captured;
         for (uint256 i; i < payouts.length; ++i) {
             H.Payout calldata p = payouts[i];
-            if (p.amount == 0) revert InvalidMessage();
+            if (p.amount == 0 || (p.to != t.seller && p.to != t.buyer)) revert InvalidMessage();
             total += p.amount;
-            if (p.to == t.seller) {
-                toSeller += p.amount;
-            } else if (p.to != t.buyer) {
-                // An all-fee capture pays any address (maxFeeBps = 10000, feeReceiver = 0).
-                captured += p.amount;
-                _capture(pi, p.amount, p.amount, p.to);
-                emit Paid(id, p.to, p.amount);
-            }
+            if (p.to == t.seller) toSeller += p.amount;
         }
         if (total != t.price) revert InvalidMessage();
         if (toSeller > 0) {
@@ -420,7 +414,7 @@ contract HoldbackRules is EIP712 {
         }
         // Everything still held (the buyer's payouts and the whole fee, MUTUAL_FEE_SHARE_BPS being 0) goes back to
         // the buyer.
-        uint256 rest = pi.maxAmount - captured - toSeller;
+        uint256 rest = pi.maxAmount - toSeller;
         if (rest > 0) {
             _void(pi);
             emit Refunded(id, t.buyer, rest);

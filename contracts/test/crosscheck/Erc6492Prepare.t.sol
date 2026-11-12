@@ -221,17 +221,16 @@ contract Erc6492PrepareTest is Base {
         assertLt(submittedAt, usedAt, "JobSubmitted was logged before the buyer's authorization was spent");
     }
 
-    /// With D31 timing (judgeBy at or before the funding time, which the contract accepts), the prepare call takes
-    /// the deal from None to Escalated in one transaction: deliver, trigger the fallback, and relay the fallback's
-    /// signed escalation, before CPP has pulled a single token. The deal still closes on its normal paths afterwards
-    /// (here: default after appealDecideSec).
-    function test_attack_prepareCallWithD31Timing_fundsStraightIntoEscalated() public {
+    /// Before SC-5, D31 timing (judgeBy at or before the funding time) let the prepare call take the deal from None to
+    /// Escalated in one transaction: deliver, trigger the fallback, and relay the fallback's signed escalation, before
+    /// CPP had pulled a single token. Such terms put judgeBy before fundBy, so since SC-5 (T-356, ADR-0031 §6) the
+    /// funding is refused before the prepare call runs: nothing it would relay happens, and nothing is held.
+    function test_defense_prepareCallWithD31Timing_refusedBeforeThePrepareCall() public {
         H.Terms memory t = _terms();
-        t.timing.judgeBy = uint64(block.timestamp); // triggerFallback is open at once (now >= judgeBy)
+        t.timing.judgeBy = uint64(block.timestamp); // triggerFallback would be open at once (now >= judgeBy)
         bytes32 id = hx.id(t);
         (H.Delivery memory dv,) = _delivery();
         bytes memory dSig = _deliverySig(id, dv, SELLER_PK);
-        // The fallback's round is roundAt(judgeBy) = now on the sim beacon, so its seed is computable right now.
         H.Decision memory m = _beaconDecision(id, H.ROLE_FALLBACK, H.OUTCOME_ESCALATE, t.timing.judgeBy);
         m = _signDecision(t, id, m, fallbackAdj, FB_PK);
 
@@ -239,17 +238,18 @@ contract Erc6492PrepareTest is Base {
         probe.add(address(rules), abi.encodeCall(HoldbackRules.triggerFallback, (t)));
         probe.add(address(rules), abi.encodeCall(HoldbackRules.decide, (t, m, _noDelivery(), "")));
 
-        _fundWrapped(t, address(probe), _runProbe());
+        H.Funding memory f = _erc3009(t, BUYER_PK);
+        f.signature = _wrap(address(probe), _runProbe(), f.signature);
+        bytes memory ss = _sellerSig(t, SELLER_PK);
+        H.Acceptance memory acc = _acceptance(t, ADJ_PK);
+        H.Agree memory ag = _agree(t, BUYER_PK);
+        vm.prank(relayer);
+        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        rules.agreeAndFund(t, ss, acc, ag, f);
 
-        assertTrue(probe.ok(0) && probe.ok(1) && probe.ok(2), "deliver, triggerFallback and escalate all ran");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Escalated), "Escalated at the end of agreeAndFund");
-        assertEq(_held(t), PRICE + FEE, "the hold was still collected");
-
-        // Liveness is intact: the escalation defaults after appealDecideSec and the buyer is refunded.
-        vm.warp(block.timestamp + t.timing.appealDecideSec);
-        uint256 b0 = usdc.balanceOf(buyer);
-        rules.triggerDefault(t);
-        assertEq(usdc.balanceOf(buyer), b0 + PRICE + FEE);
+        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.None), "no deal");
+        assertEq(_held(t), 0, "nothing held");
+        assertEq(rules.deliveryHashOf(id), bytes32(0), "the prepare call's delivery never landed");
     }
 
     /// Without the canonical Multicall3 code (the unit fixture's default, and PA-I4's local world), a wrapped

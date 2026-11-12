@@ -131,6 +131,8 @@ contract RulesHandler is Base {
     mapping(bytes32 => bool) public offerExpired;
     /// T-356 (SC-3): whether the last `mutualSettle` relayed named a payee other than the buyer and the seller.
     bool public thirdPartyPayout;
+    /// T-356 (SC-5): whether the terms the last `agreeAndFund` relayed had deadlines not in strict order.
+    bool public fundOutOfOrder;
 
     constructor() {
         setUp();
@@ -436,8 +438,10 @@ contract RulesHandler is Base {
         t.fallbackAdjudicator = vm.addr(r[1]);
         t.appealAdjudicator = vm.addr(r[2]);
         uint64 now_ = uint64(block.timestamp);
-        if ((seed >> 88) % 4 == 0) {
-            // Any order (D31): the contract accepts any representable timing.
+        // T-356 (SC-5): the contract refuses deadlines not in strict order, as core does. One offer in 32 still draws them
+        // in any order (it was one in four), so the refusal stays exercised; the ordered ones are strictly ordered.
+        if (uint256(keccak256(abi.encode("any order", seed))) % 32 == 0) {
+            // Any order, equal pairs included: refused at funding since SC-5.
             t.timing.offerExpiresAt = now_ + _off(seed, 96, 1, 6 days);
             t.timing.fundBy = now_ + _off(seed, 128, 1, 6 days);
             t.timing.deliverBy = now_ + _off(seed, 160, 1, 6 days);
@@ -445,7 +449,7 @@ contract RulesHandler is Base {
             t.timing.fallbackBy = now_ + _off(seed, 224, 1, 6 days);
         } else {
             t.timing.offerExpiresAt = now_ + _off(seed, 96, 1, 2 days);
-            t.timing.fundBy = t.timing.offerExpiresAt + _off(seed, 128, 0, 1 days);
+            t.timing.fundBy = t.timing.offerExpiresAt + _off(seed, 128, 1, 1 days);
             t.timing.deliverBy = t.timing.fundBy + _off(seed, 160, 1, 2 days);
             t.timing.judgeBy = t.timing.deliverBy + _off(seed, 192, 1, 2 days);
             t.timing.fallbackBy = t.timing.judgeBy + _off(seed, 224, 1, 2 days);
@@ -464,6 +468,9 @@ contract RulesHandler is Base {
         uint256 i = _pickFor(dealSeed, M_NONE);
         H.Terms memory t = _terms_[i];
         fundToken = t.token;
+        H.Timing memory tm = t.timing;
+        fundOutOfOrder = tm.offerExpiresAt >= tm.fundBy || tm.fundBy >= tm.deliverBy || tm.deliverBy >= tm.judgeBy
+            || tm.judgeBy >= tm.fallbackBy;
         bytes32 id = _ids[i];
         uint256 good = _rolePk[id][0];
         uint256 sk = _signer(signerSeed, SELLER_PK);
