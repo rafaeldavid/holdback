@@ -122,7 +122,7 @@ describe('buyer-signer.ts and the two money addresses (ADR-0033)', () => {
     expect(JSON.parse(readFileSync(join(dir, `${signer.address}.json`), 'utf8')).paymentAddress).toBe(payment);
     const quote = await signer.quote(seller.quoteUrl, 'rows');
     expect(seller.asked.at(-1).buyerPaymentAddress).toBe(payment);
-    expect(lines[0]).toBe(`Payment address: ${payment} funds the hold and the operator fee, and refunds return to it. The signing address ${signer.address} holds nothing.`);
+    expect(lines[0]).toBe(`Payment address: ${payment} funds the hold and the operator fee, and refunds return to it. The signing address ${signer.address} receives none of the deal's money.`);
     const offer = await signer.readOffer(quote.commitmentId);
     expect(offer).toMatchObject({
       buyerPaymentAddress: payment, sellerPayoutAddress: payout, seller: seller.address, schemaVersion: '0.8', remedy: { onReject: 'full_refund' },

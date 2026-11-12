@@ -40,7 +40,7 @@ import { recoverTypedDataAddress, type Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { Agent } from './agent.ts';
 import { dealRecord, type DealRecord } from './deal-record.ts';
-import { commitmentIdOf, jcs, knownPins, moneyAddressWarnings, operatorFeeOf, Refusal, typedOf, type Pin } from './verify.ts';
+import { commitmentIdOf, isAddressText, jcs, knownPins, moneyAddressWarnings, operatorFeeOf, Refusal, typedOf, type Pin } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -547,7 +547,7 @@ export class BuyerSigner {
     if (name !== undefined && !credential) throw new Error(`quoteCredentialEnv names ${name}, which is not set: set it to the seller's quote credential`);
     // ADR-0033 §7: the one line that says where the money comes from when no payment address is set.
     if (this.#saved.paymentAddress === undefined) this.#log(`Payment address: not set. The signing address ${this.address} funds the hold, and refunds return to it.`);
-    else this.#log(`Payment address: ${this.paymentAddress} funds the hold and the operator fee, and refunds return to it. The signing address ${this.address} holds nothing.`);
+    else this.#log(`Payment address: ${this.paymentAddress} funds the hold and the operator fee, and refunds return to it. The signing address ${this.address} receives none of the deal's money.`);
     this.#saved.quoteKey ??= crypto.randomUUID();
     this.#saved.scope = scope;
     if (options === undefined) delete this.#saved.options;
@@ -975,7 +975,7 @@ export async function openDeals(store: string, options: Options = {}): Promise<B
  */
 export async function makeKeys(store: string, options: KeyOptions = {}): Promise<BuyerSigner> {
   const { paymentAddress, ...rest } = options;
-  if (paymentAddress !== undefined && !/^0x[0-9a-fA-F]{40}$/.test(paymentAddress)) throw new Error('paymentAddress must be an address: 0x and 40 hex characters');
+  if (paymentAddress !== undefined && !isAddressText(paymentAddress)) throw new Error('paymentAddress must be an address: 0x and 40 hex characters, with a valid checksum if in mixed case');
   const privateKey = generatePrivateKey();
   const address = privateKeyToAccount(privateKey).address.toLowerCase();
   const paying = paymentAddress?.toLowerCase();

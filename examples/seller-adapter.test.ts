@@ -9,7 +9,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { hashTypedData, verifyTypedData, type Hex } from 'viem';
+import { getAddress, hashTypedData, verifyTypedData, type Hex } from 'viem';
 import { generatePrivateKey } from 'viem/accounts';
 import { MemoryStorage, PublicWorld } from '@holdback/demo-cloud';
 import { startSimWorld, type SimWorld } from '@holdback/operator';
@@ -19,7 +19,7 @@ import { Agent } from './agent.ts';
 import { config as shipped, loadConfig, startSellerAdapter, type RunningAdapter, type SellerAdapterConfig } from './seller-adapter.ts';
 import { startStubSellerApi, type StubSellerApi, type StubOptions } from './seller-adapter-stub.ts';
 import { serveTwoOrigins } from './two-origins.ts';
-import { knownPins, typedOf } from './verify.ts';
+import { commitmentIdOf, knownPins, typedOf } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 const here = (f: string) => fileURLToPath(new URL(f, import.meta.url));
@@ -209,7 +209,8 @@ describe('seller adapter: the settlement layer', () => {
  * A proxy in front of one operator that rewrites the sellerPayoutAddress of every prepared offer, in the body and in
  * the typed data, and recomputes the digest: a consistent lie (attack.prepare-substitutes-payout-address).
  */
-async function payoutLiar(upstream: string, to: string): Promise<{ url: string; close(): Promise<void> }> {
+async function payoutLiar(upstream: string, first: string): Promise<{ url: string; rewriteTo(to: string): void; close(): Promise<void> }> {
+  let to = first;
   const server = createHttpServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const c of req) chunks.push(c as Buffer);
@@ -219,6 +220,7 @@ async function payoutLiar(upstream: string, to: string): Promise<{ url: string; 
       const p = JSON.parse(out) as J;
       p.submit.body.sellerPayoutAddress = to;
       const { id: _id, signatures: _s, ...terms } = p.submit.body; // eslint-disable-line @typescript-eslint/no-unused-vars
+      p.submit.body.id = commitmentIdOf(terms);
       for (const s of p.sign) {
         s.typedData.message.sellerPayoutAddress = to;
         s.digest = hashTypedData(typedOf('CommitmentTerms', terms, s.typedData.domain));
@@ -228,7 +230,7 @@ async function payoutLiar(upstream: string, to: string): Promise<{ url: string; 
     res.writeHead(r.status, { 'content-type': r.headers.get('content-type') ?? 'application/json' }).end(out);
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, close: () => new Promise<void>((resolve) => { server.closeAllConnections(); server.close(() => resolve()); }) };
+  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, rewriteTo: (x) => void (to = x), close: () => new Promise<void>((resolve) => { server.closeAllConnections(); server.close(() => resolve()); }) };
 }
 
 describe('seller adapter: the payout address (ADR-0033)', () => {
@@ -247,6 +249,10 @@ describe('seller adapter: the payout address (ADR-0033)', () => {
     writeFileSync(file, JSON.stringify({ sellerApi: { quote: 'http://127.0.0.1:1/q', start: 'http://127.0.0.1:1/s', result: 'http://127.0.0.1:1/{jobId}' }, payoutAddress: `0x${'ab'.repeat(20)}` }));
     expect(loadConfig(file).payoutAddress).toBe(`0x${'ab'.repeat(20)}`);
     await expect(adapter({ payoutAddress: '0x1234' })).rejects.toThrow('payoutAddress must be an address: 0x and 40 hex characters');
+    // A mixed-case address whose EIP-55 checksum fails is a typo: money sent there is lost. The checksummed one passes.
+    const good = getAddress(`0x${'ab'.repeat(20)}`), typo = good.replace(/[a-f]/, (c) => c.toUpperCase());
+    await expect(adapter({ payoutAddress: typo })).rejects.toThrow(/with a valid checksum if in mixed case/);
+    await expect(adapter({ payoutAddress: good })).resolves.toBeTruthy();
     const primary = world.info.adjudicators[0]!.address.toLowerCase();
     const { lines } = await adapter({ payoutAddress: primary });
     expect(lines.some((l) => l.includes(`Payout address: ${primary}. Payments go there; the signing address`))).toBe(true);
@@ -255,7 +261,9 @@ describe('seller adapter: the payout address (ADR-0033)', () => {
 
   it('refuses to sign prepared terms that carry another payout address than its configuration (attack.prepare-substitutes-payout-address)', async () => {
     const payout = `0x${'a1'.repeat(20)}`, attacker = `0x${'de'.repeat(20)}`;
-    const liar = await payoutLiar(world.info.operators[0]!, attacker);
+    // First the control: the proxy answers with the configured payout address, as a prepare route that takes the
+    // input does (T-378), and the offer goes through with it. Then the lie: the attacker's address, refused.
+    const liar = await payoutLiar(world.info.operators[0]!, payout);
     try {
       stub ??= await startStubSellerApi({ port: 0 });
       const lines: string[] = [];
@@ -265,11 +273,15 @@ describe('seller adapter: the payout address (ADR-0033)', () => {
         { HOLDBACK_KEY: acct('seller-1').privateKey, HOLDBACK_OPERATORS: [liar.url, world.info.operators[1]!].join(',') },
       );
       adapters.push(running);
-      const q = await quoteFor(running, agent('buyer-1'));
+      const honest = await quoteFor(running, agent('buyer-1'));
+      expect(honest.status, JSON.stringify(honest.body)).toBe(200);
+      expect((await termsOf(agent('buyer-1'), honest.body.commitmentId)).sellerPayoutAddress).toBe(payout);
+      liar.rewriteTo(attacker);
+      const q = await quoteFor(running, agent('buyer-2'));
       expect(q.status).toBe(502);
       expect(q.body).toMatchObject({ type: 'offer_failed' });
-      expect(lines.some((l) => / Offer failed: refusing to sign: body\.(sellerPayoutAddress|id) differs from what you asked for\.$/.test(l))).toBe(true);
-      expect(running.deals()).toEqual([]);
+      expect(lines.some((l) => / Offer failed: refusing to sign: body\.sellerPayoutAddress differs from what you asked for\.$/.test(l))).toBe(true);
+      expect(running.deals().map((d) => d.id)).toEqual([honest.body.commitmentId]);
     } finally {
       await liar.close();
     }

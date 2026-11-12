@@ -5,7 +5,7 @@
 // test seller you name, keeps its keys in memory and writes no files. Node 20 or later, with npm install viem@2.57.13 tweetnacl@1.0.3.
 
 import nacl from "tweetnacl";
-import { encodeAbiParameters, hashStruct, hashTypedData, keccak256, parseAbiParameters, recoverTypedDataAddress, toBytes } from "viem";
+import { encodeAbiParameters, getAddress, hashStruct, hashTypedData, keccak256, parseAbiParameters, recoverTypedDataAddress, toBytes } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 // examples/deployments.ts
@@ -600,12 +600,21 @@ const typedOf = (primaryType, message, domain) => ({
 });
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 /**
+* An address as a person may type it: 0x and 40 hex characters, all lowercase, all uppercase, or mixed case with a
+* valid EIP-55 checksum. A mixed-case address whose checksum fails is a typo, and money sent there is lost.
+*/
+const isAddressText = (a) => {
+	if (typeof a !== "string" || !ADDRESS.test(a)) return false;
+	const hex = a.slice(2);
+	return hex === hex.toLowerCase() || hex === hex.toUpperCase() || getAddress(a) === a;
+};
+/**
 * A money address from the party's own request (ADR-0033 §6): the address given, lowercased, or the party's signing
 * address when none is given. Never from an operator's answer.
 */
 const moneyAddress = (given, signer, field) => {
 	if (given === void 0 || given === null) return signer.toLowerCase();
-	return typeof given === "string" && ADDRESS.test(given) ? given.toLowerCase() : refuse$1(`${field} must be an address: 0x and 40 hex characters`);
+	return isAddressText(given) ? given.toLowerCase() : refuse$1(`${field} must be an address: 0x and 40 hex characters, with a valid checksum if in mixed case`);
 };
 /**
 * The public terms an offer request gives, field for field what POST /v1/prepare/offer builds (apps/operator/src/terms.ts),

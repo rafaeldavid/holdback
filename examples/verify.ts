@@ -5,7 +5,7 @@
 // refuses. The agent then signs its own typed data and submits its own body. Standard libraries only (viem), and
 // tweetnacl with Web Crypto to open the buyer's own envelope before an early accept (openOwnEnvelope).
 import nacl from 'tweetnacl';
-import { encodeAbiParameters, hashStruct, hashTypedData, keccak256, parseAbiParameters, recoverTypedDataAddress, toBytes, type Hex } from 'viem';
+import { encodeAbiParameters, getAddress, hashStruct, hashTypedData, keccak256, parseAbiParameters, recoverTypedDataAddress, toBytes, type Hex } from 'viem';
 import { SEPOLIA, type DeploymentFile } from './deployments.ts';
 
 export type Domain = { name: 'Holdback'; version: string; chainId: number; verifyingContract: Hex };
@@ -249,12 +249,21 @@ type Plan = { path: string; body: J; slots: Array<{ slot: string; primaryType: s
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 /**
+ * An address as a person may type it: 0x and 40 hex characters, all lowercase, all uppercase, or mixed case with a
+ * valid EIP-55 checksum. A mixed-case address whose checksum fails is a typo, and money sent there is lost.
+ */
+export const isAddressText = (a: unknown): a is string => {
+  if (typeof a !== 'string' || !ADDRESS.test(a)) return false;
+  const hex = a.slice(2);
+  return hex === hex.toLowerCase() || hex === hex.toUpperCase() || getAddress(a) === a;
+};
+/**
  * A money address from the party's own request (ADR-0033 §6): the address given, lowercased, or the party's signing
  * address when none is given. Never from an operator's answer.
  */
 const moneyAddress = (given: J, signer: string, field: string): string => {
   if (given === undefined || given === null) return signer.toLowerCase();
-  return typeof given === 'string' && ADDRESS.test(given) ? given.toLowerCase() : refuse(`${field} must be an address: 0x and 40 hex characters`);
+  return isAddressText(given) ? given.toLowerCase() : refuse(`${field} must be an address: 0x and 40 hex characters, with a valid checksum if in mixed case`);
 };
 
 /**

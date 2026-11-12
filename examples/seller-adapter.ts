@@ -61,7 +61,7 @@ import { plain } from '@holdback/testkit';
 import { Agent } from './agent.ts';
 import { convertReport, loadReportMapping, ReportNotConverted } from './report-converter.ts';
 import { FilesNotAdded, sellerApiClient, type SellerApiConfig } from './seller-adapter-api.ts';
-import { jcs, knownPins, moneyAddressWarnings, operatorFeeOf } from './verify.ts';
+import { isAddressText, jcs, knownPins, moneyAddressWarnings, operatorFeeOf } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -732,7 +732,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   const operators = (env['HOLDBACK_OPERATORS'] ?? '').split(',').filter(Boolean);
   const { seller, pin, discovered } = await pinnedSeller(operators, env['HOLDBACK_KEY']);
   const token = pin.token; // the one token this settlement layer holds
-  if (c.payoutAddress !== undefined && (typeof c.payoutAddress !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(c.payoutAddress))) throw new Error('payoutAddress must be an address: 0x and 40 hex characters');
+  if (c.payoutAddress !== undefined && !isAddressText(c.payoutAddress)) throw new Error('payoutAddress must be an address: 0x and 40 hex characters, with a valid checksum if in mixed case');
   const payout = (c.payoutAddress ?? seller.address).toLowerCase();
 
   // The club and the adjudicators: the configuration's, or the ones discovery names (T-331).
@@ -855,6 +855,8 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   /** `buyerPaymentAddress`: the address the buyer's quote named, lowercase, or undefined for its signing address. */
   async function offerFor(buyer: string, buyerEncryptionPublicKey: string, buyerPaymentAddress: string | undefined, scope: J, options: J): Promise<J> {
     refusalFor(c, template, scope, options); // the seller's own exclusions, before its API is asked
+    // ADR-0033 §6: the buyer's money address against the deal's adjudicators and this deployment. Advisory only.
+    for (const w of moneyAddressWarnings('payment', buyerPaymentAddress ?? buyer, pin, adjudicators)) log(`Quote from ${buyer}: ${w}`);
     // The mandate before the price: a seller that cannot offer now costs its API no call. This renews a test
     // mandate that ran out while the adapter waited.
     try {
@@ -933,7 +935,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     const body = await readJson(req);
     const { buyer, buyerEncryptionPublicKey, buyerPaymentAddress, scope, options } = body ?? {};
     if (typeof buyer !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(buyer)) throw new Refused(400, 'invalid_request', 'buyer must be an address: 0x and 40 hex characters');
-    if (buyerPaymentAddress !== undefined && (typeof buyerPaymentAddress !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(buyerPaymentAddress))) throw new Refused(400, 'invalid_request', 'buyerPaymentAddress must be an address: 0x and 40 hex characters, or left out for the buyer\'s own');
+    if (buyerPaymentAddress !== undefined && !isAddressText(buyerPaymentAddress)) throw new Refused(400, 'invalid_request', 'buyerPaymentAddress must be an address: 0x and 40 hex characters, or left out for the buyer\'s own');
     const paying: string | undefined = buyerPaymentAddress?.toLowerCase();
     if (typeof buyerEncryptionPublicKey !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(buyerEncryptionPublicKey)) throw new Refused(400, 'invalid_request', 'buyerEncryptionPublicKey must be an x25519 public key, base64url, 43 characters');
     const wrong = fieldsError('scope', scope, c.scope) ?? (options === undefined ? null : fieldsError('options', options, c.options ?? {}));
