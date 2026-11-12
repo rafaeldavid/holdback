@@ -614,7 +614,7 @@ export class StubSettlement {
       case 'appeal':
         return this.appeal(s.by, s.grounds, s.bond, s.via);
       case 'mutual_settle':
-        return this.mutualSettle(s.payouts, s.releaseKey, s.via);
+        return this.mutualSettle(s.payouts, s.releaseKey, s.via, s.carry, s.names);
       case 'advance_clock':
         this.ctx.clock.advanceSeconds(s.seconds);
         return;
@@ -1055,21 +1055,32 @@ export class StubSettlement {
     this.balanceRows.push({ after: this.label('appeal'), balances: await this.snapshotBalances() });
   }
 
-  /** ADR-0019, D23: both parties sign one settlement; the payouts split the price, the fee returns to the buyer. */
-  private async mutualSettle(payouts: Record<string, string>, releaseKey: boolean, via: string): Promise<void> {
+  /**
+   * ADR-0019, D23: both parties sign one settlement; the payouts split the price, the fee returns to the buyer. With
+   * `carry` (late work, ADR-0031 SC-5b), the seller signed a delivery of that file and handed it to the buyer off chain,
+   * never posted; the settlement names it and carries it. `names` signs the hash of a delivery of another file instead,
+   * so the carried delivery is not the one both signed.
+   */
+  private async mutualSettle(payouts: Record<string, string>, releaseKey: boolean, via: string, carry?: string, names?: string): Promise<void> {
     const { buyer, seller } = this.scenario.parties;
-    const call = 'mutual_settle';
-    const c = this.needCommitment(buyer, call, via);
+    const c = this.needCommitment(buyer, 'mutual_settle', via);
     if (!c) return;
+    const call = carry === undefined ? 'mutual_settle' : `mutual_settle (carries the unposted delivery of fixtures/${carry}${names ? `, names fixtures/${names}` : ''})`;
     if (this.offline.has(seller)) {
       this.outages.push({ step: this.stepNo, actor: seller, kind: 'offline' });
       return this.row(seller, call, via, 'offline (no call)');
     }
     const delivered = 'delivery' in c.state ? c.state.delivery : null;
+    let carried: Awaited<ReturnType<typeof this.signedDelivery>> | undefined;
+    let named = delivered ? deliveryHash(delivered) : null;
+    if (carry !== undefined) {
+      carried = await this.signedDelivery(seller, c, carry, false, 1);
+      named = deliveryHash(names === undefined ? carried.message : (await this.signedDelivery(seller, c, names, false, 1)).message);
+    }
     const unsigned = {
       type: 'MutualSettlement' as const,
       commitmentId: c.id,
-      deliveryHash: delivered ? deliveryHash(delivered) : null,
+      deliveryHash: named,
       payouts: Object.entries(payouts).map(([name, amount]) => ({ to: this.address(name), amount: this.money(amount) })),
       releaseKey,
       nonce: this.ctx.rng.hex32(),
@@ -1077,8 +1088,9 @@ export class StubSettlement {
     };
     const buyerSignature = await signMessage(this.keyFor(buyer), this.domain, unsigned);
     const sellerSignature = await signMessage(this.keyFor(seller), this.domain, unsigned);
-    if (!(await this.submit(`${buyer} + ${seller}`, call, via, { kind: 'mutual_settle', message: { ...unsigned, buyerSignature, sellerSignature } }))) return;
-    this.receipt(via, call);
+    if (!(await this.submit(`${buyer} + ${seller}`, call, via, { kind: 'mutual_settle', message: { ...unsigned, buyerSignature, sellerSignature }, ...(carried ? { delivery: carried.message } : {}) }))) return;
+    if (carried) this.delivery = carried; // the buyer holds it, so verify_key_release opens its envelope
+    this.receipt(via, 'mutual_settle');
     this.row(`${buyer} + ${seller}`, call, via, 'ok');
     this.balanceRows.push({ after: this.label(call), balances: await this.snapshotBalances() });
   }
