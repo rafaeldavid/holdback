@@ -1,0 +1,174 @@
+// One duet run (T-391): a world, two agents that meet only through Crow, the record, the summary and the replay.
+import { execFileSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:net';
+import { join } from 'node:path';
+import { runAgent, type AgentEnd, type Caps } from './loop.ts';
+import { measure, type Summary } from './measures.ts';
+import { scripted, type Provider } from './providers.ts';
+import { Recorder, Secrets } from './record.ts';
+import { replayPage } from './replay.ts';
+import { buyerBrief, scenario, sellerBrief, type ScenarioName } from './scenarios.ts';
+import { buyerScript, sellerScript } from './scripted.ts';
+import { Toolbox, type Allow } from './tools.ts';
+import { startWorld } from './world.ts';
+
+type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+export const REPO = realpathSync(new URL('../../', import.meta.url).pathname);
+const SELLER_NAME = 'audit-reports';
+
+/** A side's model: a live provider, or `scripted`, which plays the scenario's fixed calls. */
+export type Side = Provider | 'scripted';
+
+export interface RunOptions {
+  scenario: ScenarioName;
+  buyer: Side;
+  seller: Side;
+  /** Where the run's folder goes: the record, the summary, the page, and the agents' and owners' folders. */
+  out: string;
+  caps: Caps;
+  /** Operators of a running world; left out, a local phase-one world starts in this process. */
+  world?: string[];
+  docs?: { guide: string; sell: string };
+  /** Seconds the other agent may go on after one finishes. Default 90. */
+  graceSec?: number;
+  /** The whole run's limit in seconds. Default 1,800. */
+  timeoutSec?: number;
+  /** Command time limits in ms: quotes and checks, and the funded watch. */
+  commandTimeoutMs?: { short: number; long: number };
+  /** Secrets to scrub everywhere besides those the run makes: the model API keys. */
+  secrets?: string[];
+  log?: (line: string) => void;
+}
+
+export interface RunResult {
+  dir: string;
+  record: string;
+  summary: Summary;
+  page: string;
+  ends: AgentEnd[];
+  /** Whether any secret the run knew (keys, the world's secret, the model keys) appears in a text: for the tests' final scan. */
+  leaks(text: string): boolean;
+}
+
+const freePort = (): Promise<number> =>
+  new Promise((ok, fail) => {
+    const s = createServer();
+    s.once('error', fail);
+    s.listen(0, '127.0.0.1', () => {
+      const p = (s.address() as { port: number }).port;
+      s.close(() => ok(p));
+    });
+  });
+
+const originOf = (u: string) => new URL(u).origin;
+
+function checkout(): { commit: string; dirty: boolean } {
+  try {
+    const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).trim();
+    const dirty = execFileSync('git', ['status', '--porcelain', '--', 'examples', 'apps', 'packages'], { cwd: REPO, encoding: 'utf8' }).trim() !== '';
+    return { commit, dirty };
+  } catch {
+    return { commit: 'unknown', dirty: true };
+  }
+}
+
+export async function runDuet(o: RunOptions): Promise<RunResult> {
+  const say = o.log ?? (() => undefined);
+  const s = scenario(o.scenario);
+  const dir = o.out;
+  const paths = {
+    buyerWork: join(dir, 'buyer', 'work'),
+    buyerOwner: join(dir, 'buyer', 'owner'),
+    sellerWork: join(dir, 'seller', 'work'),
+    sellerOwner: join(dir, 'seller', 'owner'),
+  };
+  for (const p of Object.values(paths)) mkdirSync(p, { recursive: true, mode: 0o700 });
+  mkdirSync(join(paths.sellerWork, 'public'), { recursive: true });
+  const real = Object.fromEntries(Object.entries(paths).map(([k, v]) => [k, realpathSync(v)])) as typeof paths;
+  const keyStore = join(real.buyerOwner, 'keys');
+
+  const secrets = new Secrets();
+  for (const v of o.secrets ?? []) secrets.add(v);
+  const sellerKey = `0x${randomBytes(32).toString('hex')}`;
+  secrets.add(sellerKey);
+  const rec = new Recorder(join(dir, 'record.jsonl'), secrets);
+  const vendorOf = (x: Side) => (x === 'scripted' ? { vendor: 'scripted', model: 'scripted' } : { vendor: x.vendor, model: x.model });
+  rec.add('runner', 'run.start', { scenario: s.name, title: s.title, expect: s.expect, endState: s.endState, buyer: vendorOf(o.buyer), seller: vendorOf(o.seller), caps: o.caps, world: o.world ? 'running' : 'local phase-one world', checkout: checkout(), policy: s.policy, sellerRule: s.sellerRule ?? null, buyerRule: s.buyerRule ?? null });
+
+  say(`Starting ${o.world ? `against ${o.world.join(', ')}` : 'the local phase-one world'}.`);
+  const world = await startWorld({ repo: REPO, rec, ...(o.world ? { world: o.world } : {}), ...(o.docs ? { docs: o.docs } : {}), sellerPublic: join(real.sellerWork, 'public'), sellerName: SELLER_NAME, report: s.report, onSecret: (v) => secrets.add(v) });
+  const adapterPort = await freePort();
+  const sellerPage = `${world.web}/sellers/${SELLER_NAME}/`;
+  const adapter = `http://127.0.0.1:${adapterPort}`;
+  rec.add('runner', 'world', { local: world.local, chainId: world.chainId, token: world.token, operators: world.operators, docs: world.docs, sellerPage, jobApi: world.jobApi.api, adapter });
+
+  const ops: Allow[] = world.operators.map((u) => ({ origin: originOf(u) }));
+  const problems: Allow = { origin: 'https://crow.direct', paths: ['/problems/'] };
+  const docAllow = (d: { guide: string; sell: string }): Allow[] => [d.guide, d.sell].map((u) => ({ origin: originOf(u), paths: [new URL(u).pathname] }));
+  const page: Allow = { origin: originOf(world.web), paths: [`/sellers/${SELLER_NAME}/`] };
+  const buyerAllow: Allow[] = [...ops, ...docAllow(world.docs), page, { origin: adapter, paths: ['/defaults', '/quote'] }, problems];
+  const sellerAllow: Allow[] = [...ops, ...docAllow(world.docs), page, { origin: originOf(world.jobApi.url) }, { origin: adapter, paths: ['/defaults', '/quote'] }, problems];
+
+  const timeouts = o.commandTimeoutMs ?? { short: 180_000, long: 1_200_000 };
+  const buyerTools = new Toolbox({ role: 'buyer', work: real.buyerWork, owner: real.buyerOwner, repo: REPO, operators: world.operators, allow: buyerAllow, secrets, rec, keyStore, policy: s.policy, timeoutMs: timeouts });
+  const sellerTools = new Toolbox({ role: 'seller', work: real.sellerWork, owner: real.sellerOwner, repo: REPO, operators: world.operators, allow: sellerAllow, secrets, rec, sellerKey, adapterPort, jobApi: world.jobApi.url, timeoutMs: timeouts });
+  const facts = (role: 'buyer' | 'seller') => ({ docs: world.docs, sellerPage, jobApi: world.jobApi.api, adapterPort, keyStore, token: world.token, local: world.local });
+  const briefs = { buyer: buyerBrief(s, facts('buyer')), seller: sellerBrief(s, facts('seller')) };
+  const scriptFacts = () => ({ docs: world.docs, sellerPage, jobApi: { ...world.jobApi.api, url: world.jobApi.url }, adapterPort, keyStore, operator: world.operators[0]! });
+  const providerOf = (role: 'buyer' | 'seller', side: Side): Provider => (side !== 'scripted' ? side : scripted(role === 'buyer' ? buyerScript(s.name, scriptFacts()) : sellerScript(s.name, scriptFacts())));
+
+  // Both agents run at once. When one finishes, the other has graceSec more; the whole run has timeoutSec.
+  const stops = { buyer: new AbortController(), seller: new AbortController() };
+  const whole = setTimeout(() => { for (const c of Object.values(stops)) c.abort(`the run's limit of ${o.timeoutSec ?? 1800} s`); }, (o.timeoutSec ?? 1800) * 1000);
+  const grace = (other: 'buyer' | 'seller') => setTimeout(() => stops[other].abort(`its counterparty finished ${o.graceSec ?? 90} s earlier`), (o.graceSec ?? 90) * 1000);
+  const timers: NodeJS.Timeout[] = [];
+  const play = (role: 'buyer' | 'seller', tools: Toolbox) =>
+    runAgent({ role, provider: providerOf(role, role === 'buyer' ? o.buyer : o.seller), brief: briefs[role], tools, caps: o.caps, rec, signal: stops[role].signal }).then((end) => {
+      say(`The ${role} ${end.status}: ${end.outcome}`);
+      timers.push(grace(role === 'buyer' ? 'seller' : 'buyer'));
+      return end;
+    });
+  say('Both agents start.');
+  let ends: AgentEnd[];
+  try {
+    ends = await Promise.all([play('seller', sellerTools), play('buyer', buyerTools)]);
+  } finally {
+    clearTimeout(whole);
+    for (const t of timers) clearTimeout(t);
+    await sellerTools.close();
+  }
+
+  // The chain's own account of each deal either side opened: state and events from every operator.
+  const ids = new Set<string>();
+  const journal = join(real.sellerWork, 'seller-adapter.journal.json');
+  if (existsSync(journal)) for (const id of Object.keys(JSON.parse(readFileSync(journal, 'utf8'))?.deals ?? {})) ids.add(id.toLowerCase());
+  if (existsSync(keyStore)) for (const n of readdirSync(keyStore)) if (/^0x[0-9a-f]{40}\.json$/.test(n)) { const id = JSON.parse(readFileSync(join(keyStore, n), 'utf8'))?.commitmentId; if (id) ids.add(String(id).toLowerCase()); }
+  const tx = (h: string) => (world.chainId === 11155111 ? `https://sepolia.etherscan.io/tx/${h}` : null);
+  for (const id of ids) {
+    for (const op of world.operators) {
+      try {
+        const st: J = await (await fetch(`${op}/v1/commitments/${id}`, { signal: AbortSignal.timeout(30_000) })).json();
+        const tr: J = await (await fetch(`${op}/v1/commitments/${id}/terms`, { signal: AbortSignal.timeout(30_000) })).json().catch(() => ({}));
+        const terms = tr?.terms ?? tr;
+        const addr = (p: J) => (String(p?.address ?? p ?? '').toLowerCase().match(/^0x[0-9a-f]{40}$/)?.[0] ?? null);
+        rec.add('runner', 'chain.state', { commitmentId: id, operator: op, escrowState: st?.escrowState ?? null, price: terms?.price ?? null, buyer: addr(terms?.buyer), seller: addr(terms?.seller), finalAt: st?.finalAt ?? null });
+        if (op !== world.operators[0]) continue;
+        const ev: J = await (await fetch(`${op}/v1/commitments/${id}/events?limit=200`, { signal: AbortSignal.timeout(30_000) })).json();
+        const items: J[] = Array.isArray(ev?.items) ? [...ev.items].sort((a, b) => a.seq - b.seq) : [];
+        for (const e of items) rec.add('runner', 'chain.event', { commitmentId: id, seq: e.seq, type: e.type, at: e.at, actor: e.actor ?? null, tx: e.payload?.tx ?? null, link: e.payload?.tx ? tx(e.payload.tx) : null, amount: e.payload?.amount ?? e.payload?.price ?? null, recipient: e.payload?.recipient ?? null, outcome: e.payload?.outcome ?? e.payload?.decision ?? null });
+      } catch (e) {
+        rec.add('runner', 'chain.error', { commitmentId: id, operator: op, error: (e as Error).message });
+      }
+    }
+  }
+  await world.close();
+  rec.add('runner', 'run.end', { ends: ends.map((e) => ({ role: e.role, status: e.status, outcome: e.outcome })) });
+  const summary = measure(rec.events);
+  writeFileSync(join(dir, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
+  const pagePath = join(dir, 'replay.html');
+  writeFileSync(pagePath, replayPage(rec.events, summary));
+  return { dir, record: rec.file, summary, page: pagePath, ends, leaks: (text) => secrets.leaks(text) };
+}
