@@ -24,6 +24,8 @@ export const MOMENTS = {
   delivered: ['delivery.submitted'],
   decided: ['judgment.decided'],
   settled: ['settlement.released', 'settlement.refunded'],
+  // appeal.expired is not in phase one: it reads the logs of the 0.7 deployment, where the appeal window closed a
+  // deal. A phase-one decision is final at once, so its deals have no `final` moment apart from a mutual settlement.
   final: ['appeal.expired', 'commitment.settled'],
 };
 
@@ -42,6 +44,7 @@ export const STEP_OF = [
   ['hold.funded', 'fund'],
   ['delivery.submitted', 'deliver'],
   ['judgment.decided', 'decide'],
+  // Not in phase one: party appeals and the appeal window, named so the 0.7 deployment's logs still read.
   ['appeal.filed', 'appeal'],
   ['appeal.decided', 'appeal decision'],
   ['appeal.expired', 'appeal expiry'],

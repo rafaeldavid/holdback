@@ -29,6 +29,7 @@ function synthDeal(n: number, startMs: number, ms: { accept: number; agree: numb
   t += ms.settle;
   out.push({ seq: seq + 6, type: 'settlement.released', commitmentId: id, at: at(), payload: { tx: tx(3), sender: LANE, gasUsed: '166808' } });
   t += ms.final;
+  // Not in phase one: the 0.7 deployment's appeal window closed the deal, as the recorded logs show.
   out.push({ seq: seq + 7, type: 'appeal.expired', commitmentId: id, at: at(), payload: { tx: tx(4), sender: '0x00000000000000000000000000000000000000aa', gasUsed: '80792' } });
   return out;
 }
@@ -151,6 +152,7 @@ describe('deal-timing helpers', () => {
   it('names a transaction by its primary event', () => {
     expect(primaryEvent(['fee.operator', 'hold.funded'])).toBe('hold.funded');
     expect(primaryEvent(['key.released', 'settlement.released', 'judgment.decided'])).toBe('judgment.decided');
+    // Not in phase one: the 0.7 deployment's appeal and bond events, which its recorded logs carry.
     expect(stepOf('appeal.expired')).toBe('appeal expiry');
     expect(stepOf('bond.paid')).toBe('other');
   });

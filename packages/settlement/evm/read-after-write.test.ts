@@ -274,6 +274,22 @@ describe.skipIf(!ready)(`T-232: reads after a write on a node that trails it${re
     }, 30_000);
   });
 
+  // T-349 review: with ensureBond's test gone, nothing showed that an estimate after a send from the same key names a
+  // block with that send in it. A relay that sends twice from one key (an approval, then the call it allows) needs it.
+  it("a relay's estimate right after a send from the same key names a block at or after that send", async () => {
+    const t = newTrail();
+    const chain = trailing(base, t);
+    const spender = testActor('t374-spender');
+    const approve = (v: bigint) => encodeFunctionData({ abi: base.abis.token, functionName: 'approve', args: [spender.address, v] });
+    const mined = await chain.send({ key: cast.buyer.key, to: deployment.token.address as Address, data: approve(7n) });
+    expect(mined.status).toBe('success');
+    t.reads.length = 0;
+    await chain.simulate({ from: cast.buyer.address, to: deployment.token.address as Address, data: approve(8n) });
+    const estimates = t.reads.filter((r) => r.method === 'eth_estimateGas');
+    expect(estimates.length).toBeGreaterThan(0);
+    for (const r of estimates) expect(r.block !== 'latest' && r.block >= mined.blockNumber, `eth_estimateGas at ${r.block}, the send at ${mined.blockNumber}`).toBe(true);
+  }, 30_000);
+
   it('a balance read before a pass applied the chain is not served after it (try.mjs: two operators answer the same balance)', async () => {
     const t = newTrail();
     const chain = trailing(base, t);

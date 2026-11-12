@@ -28,7 +28,8 @@ export type StepBody =
   // `opened`: the buyer names a second delivery of that file, which the seller signed and handed it off chain, not
   // the posted one (seller equivocation, ADR-0029); settlement refuses it.
   | { kind: 'early_accept'; by: 'buyer'; via: Via; signer?: string; opened?: string }
-  // A party appeals a first-instance decision, posting the rulebook's appeal bond (or `bond`) and fee.
+  // A party appeals a first-instance decision, posting the rulebook's appeal bond (or `bond`) and fee. SimChain only:
+  // the phase-one contracts have no party appeal, and the EVM adapter refuses the step (ADR-0031 §8).
   | { kind: 'appeal'; by: 'buyer' | 'seller'; via: Via; grounds: string; bond?: string; signer?: string }
   // ADR-0019, D23: both parties sign payouts (actor name to amount) that sum to the price.
   // `carry` (late work, ADR-0031 SC-5b): the settlement carries a seller-signed delivery of that file that was never

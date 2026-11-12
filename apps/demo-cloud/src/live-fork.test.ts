@@ -97,7 +97,7 @@ describe.skipIf(!forkReady)(`the public world on a Sepolia fork${forkReady ? '' 
       const [, fallback, appeal] = d.demo.adjudicators.map((a: J) => a.address as string);
       const outsider = new Outsider(world, demo.urls, 't-221/fork-outsider', { trusted: [fallback, appeal] });
       expect((await outsider.register(wholeSecond(Date.now() - 60_000))).status).toBe(200);
-      const deal = await outsideDeal(demo.urls, deployment, outsider, { work: CSV, timing: { judgeWithinSec: 120, fallbackWithinSec: 120, appealWindowSec: 60, appealDecideSec: 120 } });
+      const deal = await outsideDeal(demo.urls, deployment, outsider, { work: CSV, timing: { judgeWithinSec: 120, fallbackWithinSec: 120, appealWindowSec: 0, appealDecideSec: 120 } }); // phase one: no party appeal, so the window is 0 (ADR-0033 §2b)
       expect((await outsider.runOnce()).decided).toEqual([{ commitmentId: deal.id, role: 'primary', outcome: 'accept' }]);
       await untilBoth(deal.buyer, deal.id, ['Released'], 120_000);
       expect(await deal.buyer.openDelivery(deal.id)).toBe(CSV);

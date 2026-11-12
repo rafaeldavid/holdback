@@ -250,7 +250,7 @@ describe('pnpm snap', () => {
     await main(['--settlement=local', '_example'], { root, contractsRoot: repo, out: (l) => out.push(l) });
     const text = out.join('\n');
     expect(text).toMatch(/pass {2}_example on the contract/);
-    expect(text).toMatch(/excluded until Phase 4/);
+    expect(text).toMatch(/excluded, not in phase one/);
     expect(text).toMatch(/gas \d/);
   }, 120_000);
 

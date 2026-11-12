@@ -224,6 +224,8 @@ describe("Crow's test buyer", () => {
     expect(checkTerms(id, { ...terms, price: { ...terms.price, amount: '1' } }, ctx)?.rule).toBe('commitmentId');
     expect(check({ ...terms, acceptance: { ...terms.acceptance, deterministicChecks: [{ id: 'x', type: 'run_script', required: true, script: 'rm -rf /' }] } })).toBe('accepts.checks.types');
     expect(check({ ...terms, acceptance: { ...terms.acceptance, deterministicChecks: [] } })).toBe('accepts.checks.min');
+    // ADR-0033 §6 (T-378): the test buyer pays from its signing address and refuses terms that name another payer.
+    expect(check({ ...terms, buyerPaymentAddress: `0x${'a1'.repeat(20)}` })).toBe('buyerPaymentAddress');
     expect(check({ ...terms, acceptance: { ...terms.acceptance, rubric: { criteria: [{ id: 'q', text: 'is it good' }], passThreshold: 1 } } })).toBe('accepts.template');
     await s.stop();
   });

@@ -272,9 +272,11 @@ describe('beats 2-4: deliver encrypted, defended judgment, settle, open the work
     expect(await w.balance('tidewater')).toBe(2_000n * TUSD);
     expect(await w.balance('bench-a')).toBe(50n * TUSD);
     expect(r.vias).toEqual([w.operatorUrl('op-1'), w.operatorUrl('op-1'), w.operatorUrl('op-1'), 'direct']);
-    // Clearfield's bond backs its decision through the 300 s appeal window, then anyone can release it.
+    // Clearfield's bond backs its decision through the 300 s appeal window, then anyone can release it. SimChain only:
+    // the phase-one contracts have no bonds and no appeal window (ADR-0031 §8).
     expect(w.chain.pool(w.cast.benchA.address).reserved).toBe(2_000n * TUSD);
     w.advance(301);
+    // SimChain only: the trigger that closes the appeal window.
     const after = await w.sdk().trigger(r.commitmentId, 'appeal_expiry', w.call());
     expect(after.state.finalAt).not.toBeNull();
     expect(w.chain.pool(w.cast.benchA.address).reserved).toBe(0n);
