@@ -17,7 +17,7 @@ type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 let n = 0;
 const fresh = (old: string) => `0x${(++n).toString(16).padStart(old.length - 2, 'e')}`;
 
-/** A phase-one record made up from the 2026-11-04 one: new addresses and hashes, no vault, no Permit2 collector. */
+/** A phase-one record made up from the 2026-11-04 one: new addresses and hashes, no vault, no second collector. */
 function madeUp(old: J): J {
   const map = new Map<string, string>();
   const swap = (v: string) => {
@@ -34,11 +34,11 @@ function madeUp(old: J): J {
   r.commit = 'f'.repeat(40);
   r.beaconMarginSec = 29;
   delete r.bonds;
-  delete r.permit2Collector;
-  delete r.permit2;
-  delete r.checks.permit2CodeHash;
-  delete r.contracts.Permit2PaymentCollector;
-  delete r.contracts.HoldbackBonds;
+  delete r.permit2Collector; // not in phase one
+  delete r.permit2; // not in phase one
+  delete r.checks.permit2CodeHash; // not in phase one
+  delete r.contracts.Permit2PaymentCollector; // not in phase one
+  delete r.contracts.HoldbackBonds; // not in phase one
   for (const c of Object.values(r.contracts) as J[]) {
     c.address = swap(c.address);
     c.tx = swap(c.tx);
@@ -59,9 +59,9 @@ describe('the pieces', () => {
     expect(pairs.get(old.token.address.toLowerCase())).toBe(neu.token.address);
     expect(pairs.has(old.multicall.toLowerCase())).toBe(false);
     expect(retired.has(old.bonds.toLowerCase())).toBe(true);
-    expect(retired.has(old.permit2Collector.toLowerCase())).toBe(true);
-    // Permit2 is an outside contract the old record named; it is not this deployment's to retire.
-    expect(retired.has(old.permit2.toLowerCase())).toBe(false);
+    expect(retired.has(old.permit2Collector.toLowerCase())).toBe(true); // not in phase one
+    // The token-approval contract is an outside contract the old record named; it is not this deployment's to retire.
+    expect(retired.has(old.permit2.toLowerCase())).toBe(false); // not in phase one
   });
 
   it('writes each replacement in the letter case it found', () => {
