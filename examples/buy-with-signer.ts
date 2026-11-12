@@ -1,19 +1,45 @@
 // What a seller's client runs for a buyer, with buyer-signer.ts beside it: one deal, on test tokens only. A seller whose quote route takes a bearer credential: put it in CROW_QUOTE_CREDENTIAL. It is sent, never printed.
-//   node examples/buy-with-signer.ts <quote URL> <key store directory> <scope, as JSON> <the most you pay, base units> [<defaults URL> [<options, as JSON>]] [--stop-after-funding]
+//   node examples/buy-with-signer.ts <quote URL> <key store directory> <scope, as JSON> <the most you pay, base units> [<defaults URL> [<options, as JSON>]] [--expect-terms <file>] [--stop-after-funding]
+//       quotes, reads the offer from every operator, prints all of it on stdout with each difference from the seller's defaults, and stops with exit status 3: nothing is signed or paid. Its last line on stderr is the approve command.
+//       With --expect-terms, the buyer's own terms (the defaults' format: deliverable, checks, rubric, every window in timing, fee, the three adjudicators, maxSubmissions; price and seller optional) take the defaults' place, and an offer that differs from them in nothing is funded in this run: the file is the approval.
+//   node examples/buy-with-signer.ts approve <key store directory> <commitment ID> <the most you pay, base units> [--stop-after-funding]    funds the offer a stop showed, only if every operator still serves exactly that offer
 //   node examples/buy-with-signer.ts resume <key store directory> [<commitment ID>]    days later, or after a restart: follows each open deal in the store, all at once, to its outcome; with an ID, that deal again, outcome saved or not. One deal's error is reported and holds up no other; the exit code is 1 when any failed
-import { loadKeys, makeKeys, openDeals, printable, type BuyerSigner } from './buyer-signer.ts';
-const stop = process.argv.includes('--stop-after-funding'), [quoteUrl, store, scope, budget, defaults, options] = process.argv.slice(2).filter((a) => a !== '--stop-after-funding');
+// CROW_EXPECT: what you expect of the club, policy and mode, as JSON; give it to the approve run too. HOLDBACK_OPERATORS: the operators (on `pnpm sim`, its two).
+import { readFileSync } from 'node:fs';
+import { relative } from 'node:path';
+import { loadKeys, makeKeys, openDeals, printable, type BuyerSigner, type Offer } from './buyer-signer.ts';
+import { jcs } from './verify.ts';
+const args = process.argv.slice(2), stop = args.includes('--stop-after-funding'), at = args.indexOf('--expect-terms'), termsFile = at >= 0 ? args[at + 1] : undefined;
+const [first, store, third, fourth, defaults, options] = args.filter((a, i) => a !== '--stop-after-funding' && (at < 0 || (i !== at && i !== at + 1)));
 const say = (x: unknown) => console.error(printable(JSON.stringify(x))); // seller text, with no hidden or reordering characters
+const expect = () => ({ expect: JSON.parse(process.env['CROW_EXPECT'] || '{}') });
+const sh = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
 // Waits, reports each step, reclaims the hold if deliverBy passes undelivered, decrypts, checks the hash. The work is the seller's data: printed as JSON, never run.
 const finish = async (s: BuyerSigner) => { const done = await s.openDelivery(s.commitmentId!, { onReport: say }); console.log(printable(JSON.stringify({ commitmentId: s.commitmentId, buyer: s.address, paid: s.paid?.total, outcome: done.outcome, work: done.work, transactions: done.transactions }))); };
-if (quoteUrl === 'resume') { const failed = (await Promise.allSettled((scope ? [await loadKeys(store!, scope)] : await openDeals(store!)).map(finish))).filter((r): r is PromiseRejectedResult => r.status === 'rejected'); for (const f of failed) say({ error: String(f.reason?.message ?? f.reason) }); process.exitCode = failed.length > 0 ? 1 : 0; } else {
-  const signer = await makeKeys(store!, { quoteCredentialEnv: process.env['CROW_QUOTE_CREDENTIAL'] ? 'CROW_QUOTE_CREDENTIAL' : undefined, expect: JSON.parse(process.env['CROW_EXPECT'] || '{}') }); // fresh keys, mode 0600; CROW_EXPECT: what you expect of the club, policy and mode, as JSON
-  const quote = await signer.quote(quoteUrl!, JSON.parse(scope!), options ? JSON.parse(options) : undefined); // the address, the public key, the scope
-  const offer = await signer.readOffer(quote.commitmentId, defaults ? { defaults } : {}); // both operators' offer, checked against discovery, and what differs from the defaults
-  // The buyer's agent approves here, once: the price, the fees, the deliverable, the checks, the deadlines, the adjudicators, each difference, and these signed fields.
-  say({ settlement: offer.settlement, disclosure: offer.disclosure, clubId: offer.clubId, rulebookHash: offer.rulebookHash, policyId: offer.policyId, policyHash: offer.policyHash, registryHash: offer.registryHash, maxSubmissions: offer.maxSubmissions, ...(offer.differences ? { differences: offer.differences } : {}) });
-  if (BigInt(offer.fees.total.amount) > BigInt(budget!)) throw new Error(`the offer costs ${offer.fees.total.amount} base units, above ${budget}`);
-  await signer.testFunds(offer.fees.total.amount); await signer.checkOffer(quote.commitmentId, offer); // the faucet's total and mandate; then the offer read again and checked
-  say({ funded: quote.commitmentId, paid: (await signer.agreeAndFund(quote.commitmentId)).total }); // three signatures, each rebuilt from the approved terms
-  if (!stop) await finish(signer); // with --stop-after-funding the key store keeps the deal: run resume later
+// The approved offer: read again from every operator and refused, naming the field, unless it equals what was shown; then the faucet's total and mandate, and three signatures, each rebuilt from the approved terms.
+const pay = async (s: BuyerSigner, offer: Offer, budget: string) => {
+  if (BigInt(offer.fees.total.amount) > BigInt(budget)) throw new Error(`the offer costs ${offer.fees.total.amount} base units, above ${budget}`);
+  if (!s.paid) { await s.checkOffer(offer.commitmentId, offer); await s.testFunds(offer.fees.total.amount); say({ funded: offer.commitmentId, paid: (await s.agreeAndFund(offer.commitmentId)).total }); }
+  if (!stop) await finish(s); // with --stop-after-funding the key store keeps the deal: run resume later
+};
+if (first === 'resume') { const failed = (await Promise.allSettled((third ? [await loadKeys(store!, third, expect())] : await openDeals(store!, expect())).map(finish))).filter((r): r is PromiseRejectedResult => r.status === 'rejected'); for (const f of failed) say({ error: String(f.reason?.message ?? f.reason) }); process.exitCode = failed.length > 0 ? 1 : 0; } else if (first === 'approve') {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(third ?? '') || !/^[0-9]+$/.test(fourth ?? '')) throw new Error('usage: approve <key store directory> <commitment ID> <the most you pay, base units>');
+  const signer = await loadKeys(store!, third!, expect()), shown = signer.shownOffer; // the approval names the offer the stop showed, by its ID
+  if (shown?.commitmentId !== third!.toLowerCase()) throw new Error(`no stop showed ${third} with a key in ${store}: nothing is approved`);
+  await pay(signer, shown, fourth!);
+} else {
+  const own = termsFile ? JSON.parse(readFileSync(termsFile, 'utf8')) : undefined, missing = own && ['offerExpiresInSec', 'fundWithinSec', 'deliverWithinSec', 'judgeWithinSec', 'fallbackWithinSec', 'appealWindowSec', 'appealDecideSec'].map((w) => `timing.${w}`).concat(['fee', 'adjudicators.primary', 'adjudicators.fallback', 'adjudicators.appeal', 'maxSubmissions']).filter((f) => f.split('.').reduce((o: any, k) => o?.[k], own) === undefined); // eslint-disable-line @typescript-eslint/no-explicit-any
+  if (missing?.length) throw new Error(`the expected terms in ${termsFile} do not name ${missing.join(', ')}: a file that approves in one run states every term but the price`);
+  const signer = await makeKeys(store!, { quoteCredentialEnv: process.env['CROW_QUOTE_CREDENTIAL'] ? 'CROW_QUOTE_CREDENTIAL' : undefined, ...expect() }); // fresh keys, mode 0600
+  const quote = await signer.quote(first!, JSON.parse(third!), options ? JSON.parse(options) : undefined); // the address, the public key, the scope
+  const offer = await signer.readOffer(quote.commitmentId, own ? { defaults: own } : defaults ? { defaults } : {}); // every operator's offer, checked against discovery, and what differs from the defaults or your terms
+  const differences = [...(offer.differences ?? []), ...(['price', 'seller'] as const).filter((f) => own?.[f] !== undefined && jcs(own[f]).toLowerCase() !== jcs(offer[f]).toLowerCase()).map((f) => ({ field: f, old: own[f], new: offer[f] }))];
+  if (BigInt(offer.fees.total.amount) > BigInt(fourth!)) throw new Error(`the offer costs ${offer.fees.total.amount} base units, above ${fourth}: nothing is signed or paid`);
+  if (own && differences.length === 0) await pay(signer, offer, fourth!);
+  else { // the approval stop: every signed field, the total, the deadlines with their times, the adjudicators, each difference named
+    const approve = [...['HOLDBACK_OPERATORS', 'CROW_EXPECT'].filter((k) => process.env[k]).map((k) => `${k}=${sh(process.env[k]!)}`), 'node', sh(relative(process.cwd(), process.argv[1]!)), 'approve', sh(store!), offer.commitmentId, fourth!, ...(stop ? ['--stop-after-funding'] : [])].join(' ');
+    console.log(printable(JSON.stringify({ approval: 'needed', budget: fourth, ...offer, differences, approve })));
+    console.error(printable(`Stopped before funding: nothing is signed or paid. ${differences.length} ${differences.length === 1 ? 'difference' : 'differences'} from ${own ? 'your terms' : defaults ? "the seller's defaults" : 'no defaults (none given)'}${differences.length ? `: ${differences.map((d) => d.field).join(', ')}` : ''}. To fund exactly this offer, run:`)); console.error(printable(approve));
+    process.exitCode = 3;
+  }
 }
