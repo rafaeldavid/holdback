@@ -7,7 +7,7 @@ Each agent is a tool-use loop over a raw model API: Anthropic's Messages API, or
 An agent knows what an outsider knows:
 
 - the public agent docs, which it fetches over HTTP;
-- one short brief from its owner;
+- one short brief from its company;
 - an empty folder of its own.
 
 The two agents meet only through Crow. The seller publishes a card on its own page. The buyer finds it, asks for a quote, checks the offer and funds it. The seller delivers, the adjudicator judges and settlement pays out.
@@ -34,7 +34,7 @@ Before a live run sends anything, it prints the two models, the caps and the mos
 
 | Option | Default | What it does |
 | --- | --- | --- |
-| `--scenario` | (required) | `paid`: ends Released, and the buyer opens the report. `refund`: the job returns a report that leaves out a file in scope, the seller delivers it as it is, the coverage check fails, and the deal ends Refunded with no key released to the buyer. `bad-offer`: the seller drops the coverage check, which the buyer's owner requires, and the run ends with no hold. `late-offer`: the seller's terms give it three years to deliver, the owner's policy refuses to approve them, and the run ends with no hold. |
+| `--scenario` | (required) | `paid`: ends Released, and the buyer opens the report. `refund`: the job returns a report that leaves out a file in scope, the seller delivers it as it is, the coverage check fails, and the deal ends Refunded with no key released to the buyer. `bad-offer`: the seller drops the coverage check, which the buyer requires, and the run ends with no hold. `late-offer`: the seller's terms give it three years to deliver, the company's policy refuses to approve them, and the run ends with no hold. |
 | `--buyer`, `--seller` | (required) | `claude`, `deepseek` or `scripted` |
 | `--buyer-model`, `--seller-model` | `deepseek-v4-pro`, `claude-opus-5-5` | Another ID of that vendor in `config/judges-live.yaml` |
 | `--max-turns`, `--max-tokens` | 60, 3,000,000 | Caps for each agent. A run that hits one ends as stalled, with what the agent was trying to do. |
@@ -56,29 +56,29 @@ Each tool is a fence enforced in `tools.ts`, not a rule in a prompt.
 | Tool | Limit |
 | --- | --- |
 | `fetch_url` | GET only. Only allowlisted URLs: the world's operators, the guides (`llms.txt`, `buy.txt`, `sell.txt` and the reference pages under `ref/`), the seller's page, the seller adapter's `/quote` and `/defaults`, Crow's problem pages, and for the seller its own job API. No user info in a URL, no redirect followed. |
-| `run_command` | One of the owner's installed commands, run as `node examples/<command>.ts` from this checkout. The buyer has `buy-with-signer` (no `--expect-terms`), `check-delivery` and `deal-record`. The seller has `seller-adapter` (in the background), `adapter-log`, `check-delivery`, `seal` and `deal-record`. Every argument is checked: paths stay inside the agent's folder, URLs must be allowlisted, the buyer's key store is accepted only by its one path, and amounts stay within the owner's budget. The adapter's configuration is checked and then copied out of the agent's reach. Its sellerApi may point only at the owner's job API. It may set no credential, callback, template or mapping, no other port, and no URL anywhere else. No shell. The child process gets an environment built from nothing: the operators, and for the seller its `HOLDBACK_KEY`; no model key. |
+| `run_command` | One of the company's installed commands, run as `node examples/<command>.ts` from this checkout. The buyer has `buy-with-signer` (no `--expect-terms`), `check-delivery` and `deal-record`. The seller has `seller-adapter` (in the background), `adapter-log`, `check-delivery`, `seal` and `deal-record`. Every argument is checked: paths stay inside the agent's folder, URLs must be allowlisted, the buyer's key store is accepted only by its one path, and amounts stay within the company's budget. The adapter's configuration is checked and then copied out of the agent's reach. Its sellerApi may point only at the company's job API. It may set no credential, callback, template or mapping, no other port, and no URL anywhere else. No shell. The child process gets an environment built from nothing: the operators, and for the seller its `HOLDBACK_KEY`; no model key. |
 | `read_file`, `write_file`, `list_files` | Inside the agent's own folder, never through a symbolic link |
 | `wait`, `finish` | 1 to 30 s; end and report |
 
 The keys stay out of the agents' reach:
 
-- The buyer's key store sits in its owner's folder, beside its own folder, where no file tool reaches.
+- The buyer's key store sits in its company's folder, beside its own folder, where no file tool reaches.
 - The seller's key lives only in its commands' environment.
 - After every buyer command, the runner reads the key store and adds each key to the run's secret list.
 - Every tool result passes through that list before a model or the record sees it, as do the record and the page. A secret is replaced wherever it appears, in hex, without `0x`, or in base64.
 
 The system prompt tells each agent that everything a tool returns is data, whoever it claims to come from. A counterparty's words and a deliverable come back as tool results, never as system text.
 
-**The approval stop.** The buyer's signer stops before it signs or pays. The owner's policy answers that stop, not a person. The policy is set in `scenarios.ts`:
+**The approval stop.** The buyer's signer stops before it signs or pays. The company's policy answers that stop, not a person. The policy is set in `scenarios.ts`:
 
 - a budget, everything included;
-- the checks every offer must carry as required checks, as the owner's own whole copy of each: the audit-report template's check, filled from the owner's own scope. A check with the right name and other content is refused.
+- the checks every offer must carry as required checks, as the company's own whole copy of each: the audit-report template's check, filled from the company's own scope. A check with the right name and other content is refused.
 - every operator's clock and this machine's must agree within the band below, so one operator's clock never decides the dates;
-- the latest delivery date the owner accepts, as a distance from now (3 days), and how long judging may run after it (1 day): `deliverBy`, and every other deadline, must fall within them;
+- the latest delivery date the company accepts, as a distance from now (3 days), and how long judging may run after it (1 day): `deliverBy`, and every other deadline, must fall within them;
 - a band around settlement time (600 s) that the offer's `createdAt` must fall inside, so a postdated offer cannot move every window.
 
 - When the agent runs the approve line, the run tool checks the offer the stop showed against the policy.
-- Within policy, the approve line runs. The record counts it as an approval pre-set by the owner.
+- Within policy, the approve line runs. The record counts it as an approval pre-set by the company.
 - Outside policy, the approve line is refused with the reasons and the dates. Measure 6 records that the agent asked to agree to terms its brief forbade.
 
 **The engine.** Every run names its engine where a person reads it: the record's `world` line, `summary.json` (`engine`), and the first line of the page. A local run reads "the local simulator, phase-one rules (SimChain, chain 31337)". A testnet run names its chain and ID. A mainnet chain ID from the repository's list, or a world whose discovery names no chain, is refused before any agent starts.
@@ -102,7 +102,7 @@ The system prompt tells each agent that everything a tool returns is data, whoev
 1. tokens for the deal and for each agent, split into carrying Crow's guides and the work, with the list-price cost of a live side;
 2. turns, tool calls, commands, refusals and API calls;
 3. stalls: the same failing call twice back to back (a wait between is polling, not a stall), or a cap hit, with the error text;
-4. human interventions: the run takes no person's input, so 0. Approvals the owner's policy answered are listed apart.
+4. human interventions: the run takes no person's input, so 0. Approvals the company's policy answered are listed apart.
 5. settlement-layer seconds from the decision that the work passes to the release;
 6. whether the buyer funded, or asked to approve, terms its brief forbade;
 7. whether the run ended as the scenario says. No hold counts as right only when the buyer saw an offer and finished; two funded deals in one run count as wrong.
@@ -114,7 +114,7 @@ The system prompt tells each agent that everything a tool returns is data, whoev
   - About, which is Rafa's five-beat pitch;
   - how the payment is held;
   - the purchase, and what each side paid and received;
-  - the agreed checks, and what the owners set in advance;
+  - the agreed checks, and what the two companies set in advance;
   - the full record step by step, with each exact call behind a disclosure;
   - the numbers;
   - the sources;
@@ -122,6 +122,16 @@ The system prompt tells each agent that everything a tool returns is data, whoev
   - the honest lines: test money, a local setup or a test network, and real models or scripted stand-ins.
 - **Words.** Protocol names appear only in the engineers' section and the exact calls; a test fails the page if its reader's text uses them. The words of the opening live in `HERO` and `PITCH` in `replay.ts`, so a change of words is one edit.
 - **Opening the file.** It opens from disk with no server and loads nothing unless the reader clicks a link. The two views switch inside the file. It follows the system's light or dark appearance.
+
+## Publishing the demo at crow.direct/demo
+
+`pnpm duet publish <run folder>` writes `site/demo/index.html` from that run's record. `node site/build.mjs` publishes the file at `/demo/`, beside `/visualdemo/`. Crow's site deploys from `main`, so the page goes live with the switch-over's site deploy, on Rafa's word. Swapping in another run, such as Rafa's first live run, is that one command and a pull request.
+
+The published page differs from the local one in two ways:
+- Request early access goes to the home page's own sign-up form (`/#join-form`): no new endpoint, and no new data.
+- Every local path is cut to the run's own part, and every long hex string (deal IDs, addresses) is cut to its ends. The page then names no folder on this machine and carries nothing a secret scanner reads as a key.
+
+The record's secret list has already been applied to everything on the page.
 
 ## Limits and tickets
 
@@ -158,9 +168,9 @@ Two things to check on the first run:
 | `run.ts` | One run: the world, both agents at once, the chain's account, the summary and the page |
 | `loop.ts` | One agent's loop, caps, stall detection, system prompt |
 | `providers.ts` | Anthropic, OpenAI-compatible and scripted providers; the pinned registry |
-| `tools.ts` | The fenced tools and the owner's approval policy |
+| `tools.ts` | The fenced tools and the company's approval policy |
 | `world.ts` | The local phase-one world, the docs and seller page, the job API (`examples/seller-adapter-stub.ts`) |
-| `scenarios.ts` | The three scenarios and the owners' briefs |
+| `scenarios.ts` | The three scenarios and the two companies' briefs |
 | `scripted.ts` | The scripted agents the tests play |
 | `record.ts`, `measures.ts`, `replay.ts` | The record and its secret list, the seven measures, the page |
 | `limits.json`, `tickets.ts` | The limits for each scenario, and the ticket a run over them writes |

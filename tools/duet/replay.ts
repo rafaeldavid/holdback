@@ -16,7 +16,7 @@ type Lane = 'buyer' | 'crow' | 'seller';
 export interface Step {
   lane: Lane;
   t: number;
-  /** say: an agent's own words. act: something it did. note: a refusal, a stall, the owner's rule. chain: the order's record. money: money moves. end: it reported back. */
+  /** say: an agent's own words. act: something it did. note: a refusal, a stall, the company's rule. chain: the order's record. money: money moves. end: it reported back. */
   kind: 'say' | 'act' | 'note' | 'chain' | 'money' | 'end';
   title: string;
   detail?: string;
@@ -51,7 +51,7 @@ function act(name: string, input: J): { title: string; key: string } {
     const c = String(input?.command ?? '');
     const first = args[0] ?? '';
     const t =
-      c === 'buy-with-signer' ? (first === 'approve' ? 'Asked its owner to approve the order and pay' : first === 'resume' ? 'Followed up on its paid order' : 'Asked the seller for a price; its buying tool read the offer and paused for approval')
+      c === 'buy-with-signer' ? (first === 'approve' ? 'Asked its company to approve the order and pay' : first === 'resume' ? 'Followed up on its paid order' : 'Asked the seller for a price; its buying tool read the offer and paused for approval')
       : c === 'seller-adapter' ? 'Started its selling tool, which sends offers and delivers the work'
       : c === 'adapter-log' ? 'Checked its selling tool for news'
       : c === 'check-delivery' ? 'Ran the agreed checks on a file'
@@ -95,7 +95,7 @@ export function steps(events: readonly Event[]): Step[] {
     const side = e.role === 'buyer' || e.role === 'seller' ? (e.role as 'buyer' | 'seller') : null;
     if (side && e.kind === 'model.turn' && typeof e.text === 'string' && e.text.trim()) lanes[side].push({ lane: side, t: e.t, kind: 'say', title: cut(e.text.trim(), 900) });
     else if (side && e.kind === 'tool') {
-      if (e.name === 'finish') { lanes[side].push({ lane: side, t: e.t, kind: 'end', title: `Reported back to its owner: ${cut(String(e.input?.outcome ?? ''), 200)}`, ...(e.input?.report ? { detail: cut(String(e.input.report), 900) } : {}) }); continue; }
+      if (e.name === 'finish') { lanes[side].push({ lane: side, t: e.t, kind: 'end', title: `Reported back to its company: ${cut(String(e.input?.outcome ?? ''), 200)}`, ...(e.input?.report ? { detail: cut(String(e.input.report), 900) } : {}) }); continue; }
       if (e.name === 'wait') { const s = Number(e.input?.seconds ?? 0) || 0; lanes[side].push({ lane: side, t: e.t, kind: 'act', title: '', key: 'wait', count: s }); continue; }
       const a = act(e.name, e.input);
       const text = String(e.result ?? '');
@@ -103,8 +103,8 @@ export function steps(events: readonly Event[]): Step[] {
     } else if (e.kind === 'approval') {
       const reasons: string[] = e.reasons ?? [];
       lanes.buyer.push(e.granted
-        ? { lane: 'buyer', t: e.t, kind: 'note', title: "The owner's standing rule approved the payment", detail: `Within the budget of ${tokens(e.policy?.budget)}, with the checks the owner requires, and the report due within ${Math.round(Number(e.policy?.latestDeliverySec ?? 0) / 86_400)} days.` }
-        : { lane: 'buyer', t: e.t, kind: 'note', title: "The owner's standing rule refused to pay", detail: cut(reasons[0] ?? '', 300), ...(reasons.length > 1 ? { exact: reasons.join('\n') } : {}) });
+        ? { lane: 'buyer', t: e.t, kind: 'note', title: "The company's standing rule approved the payment", detail: `Within the budget of ${tokens(e.policy?.budget)}, with the checks the company requires, and the report due within ${Math.round(Number(e.policy?.latestDeliverySec ?? 0) / 86_400)} days.` }
+        : { lane: 'buyer', t: e.t, kind: 'note', title: "The company's standing rule refused to pay", detail: cut(reasons[0] ?? '', 300), ...(reasons.length > 1 ? { exact: reasons.join('\n') } : {}) });
     } else if (side && e.kind === 'stall') lanes[side].push({ lane: side, t: e.t, kind: 'note', title: 'The agent got stuck', detail: /cap/.test(String(e.reason)) ? `It used up its allowance: ${String(e.reason).replace(/^the /, '')}.` : 'It tried the same thing again and it failed the same way.', exact: cut(String(e.error ?? e.trying ?? ''), 900) });
     else if (side && e.kind === 'agent.end' && e.status !== 'finished') lanes[side].push({ lane: side, t: e.t, kind: 'end', title: e.status === 'ended' ? 'Stopped: the run was over' : e.status === 'error' ? 'Stopped: its model provider refused a request' : 'Stopped before it finished', ...(e.trying ? { exact: cut(String(e.trying), 600) } : {}) });
     else if (e.kind === 'chain.event') {
@@ -247,9 +247,28 @@ export interface PageExtras {
   /** Measures over their limits, and the ticket written for them. */
   over?: readonly Over[];
   ticket?: string | null;
+  /**
+   * For crow.direct/demo: early access goes to the home page's own sign-up form (same site), and every local path
+   * and every long hex string (deal IDs, addresses) is shortened, so the published page names no folder on this
+   * machine and carries nothing a secret scanner reads as a key.
+   */
+  publish?: boolean;
+}
+
+/** The published page's text: local paths cut to the run's own part, long hex strings to their ends. */
+export function forPublishing(html: string): string {
+  return html
+    .replace(/\/(?:Users|home|private|var|tmp)\/[^\s"'<>&]+/g, (p) => { const tail = /(\/(?:buyer|seller)\/.*)$/.exec(p)?.[1]; return `…${tail ?? `/${p.split('/').pop() ?? ''}`}`; })
+    .replace(/0x([0-9a-fA-F]{6})[0-9a-fA-F]{30,}([0-9a-fA-F]{4})(?![0-9a-fA-F])/g, '0x$1…$2');
 }
 
 export function replayPage(events: readonly Event[], s: Summary, extras: PageExtras = {}): string {
+  const html = page(events, s, extras);
+  return extras.publish ? forPublishing(html) : html;
+}
+
+function page(events: readonly Event[], s: Summary, extras: PageExtras): string {
+  const EARLY = extras.publish ? '/#join-form' : EARLY_ACCESS;
   const start = events.find((e) => e.kind === 'run.start') as J;
   const world = events.find((e) => e.kind === 'world') as J;
   const states = events.filter((e) => e.kind === 'chain.state') as J[];
@@ -309,7 +328,7 @@ export function replayPage(events: readonly Event[], s: Summary, extras: PageExt
   const tiles = [
     tile('The right outcome', ok ? 'Yes' : 'No', ok ? outcome : `Not what this test expected: ${s.why}.`, ok ? 'good' : 'bad'),
     tile('Time from the work passing to the seller being paid', s.workPassesToPaidSec === null ? '—' : `${s.workPassesToPaidSec} s`, s.workPassesToPaidSec === null ? 'Nobody was paid in this run.' : 'Counted on the order record, in whole seconds.'),
-    tile('People involved during the run', String(s.humanInterventions), approvals.length ? `The buyer's owner set one standing rule in advance; it answered ${approvals.length} approval ${approvals.length === 1 ? 'request' : 'requests'}.` : 'Nobody acted during the run.'),
+    tile('People involved during the run', String(s.humanInterventions), approvals.length ? `The buyer set one standing rule in advance; it answered ${approvals.length} approval ${approvals.length === 1 ? 'request' : 'requests'}.` : 'Nobody acted during the run.'),
     tile('Tokens used', n(s.tokens.deal), `The ${AGENT_NAME.buyer} used ${n(tok('buyer'))}: ${n(s.tokens.buyer.guides)} to read Crow's guides and keep them in mind, ${n(s.tokens.buyer.work)} for the purchase itself. The ${AGENT_NAME.seller} used ${n(tok('seller'))}: ${n(s.tokens.seller.guides)} for the guides, ${n(s.tokens.seller.work)} for the sale. The two guides come to about ${n(s.guides.tokens)} tokens; an agent pays for them again on every step once it has read them.${scripted ? ' Scripted stand-ins count text length divided by four.' : ''}${s.costMicroUsd.buyer !== null || s.costMicroUsd.seller !== null ? ` At list prices, about ${usd((s.costMicroUsd.buyer ?? 0) + (s.costMicroUsd.seller ?? 0))}.` : ''}`),
     tile('Steps the agents took', n(s.calls.buyer.turns + s.calls.seller.turns), `${n(s.calls.buyer.toolCalls + s.calls.seller.toolCalls)} actions; ${n(s.calls.buyer.refused + s.calls.seller.refused)} were stopped by the agents' own tools.`),
     tile('Times an agent got stuck', String(s.stalls.length), s.stalls.length ? s.stalls.map((x) => `The ${AGENT_NAME[x.role as 'buyer' | 'seller'] ?? x.role}: ${x.reason}.`).join(' ') : 'Neither agent repeated a failing step or ran out of allowance.', s.stalls.length ? 'bad' : ''),
@@ -418,13 +437,13 @@ footer{font-size:12px;color:var(--ink3);margin:28px 12px 0;max-width:680px}
 </style>
 </head>
 <body>
-<div class="toolbar"><div class="toolbar-inner"><a class="app" href="#">${esc(PITCH.title)}<small>${esc(PITCH.descriptor)}</small></a><div class="spacer"></div><a class="navlink" href="#learn-more">Learn more</a><a class="button small" href="${esc(EARLY_ACCESS)}" rel="noopener">Request early access</a></div></div>
+<div class="toolbar"><div class="toolbar-inner"><a class="app" href="#">${esc(PITCH.title)}<small>${esc(PITCH.descriptor)}</small></a><div class="spacer"></div><a class="navlink" href="#learn-more">Learn more</a><a class="button small" href="${esc(EARLY)}" rel="noopener">Request early access</a></div></div>
 
 <main id="demo-view">
 <div class="hero">
 <h1 class="headline">${esc(HERO.headline)}</h1>
 <p class="intro">${esc(HERO.intro)}</p>
-<div class="cta"><a class="button" href="${esc(EARLY_ACCESS)}" rel="noopener">Request early access</a><a class="button plain" href="#learn-more">Learn more ›</a></div>
+<div class="cta"><a class="button" href="${esc(EARLY)}" rel="noopener">Request early access</a><a class="button plain" href="#learn-more">Learn more ›</a></div>
 </div>
 
 <section class="demo" aria-label="${esc(HERO.demoLabel)}">
@@ -476,11 +495,11 @@ ${fee !== null ? row('Independent reviewer', `Received ${tokens(fee)} for checki
 <div class="section">The agreed checks</div>
 ${checkList}
 
-<div class="section">Set in advance by the owners</div>
+<div class="section">Set in advance by the two companies</div>
 <div class="group">
-${row("Buyer's owner", `Gave the ${AGENT_NAME.buyer} the job and a budget of ${tokens(policy.budget)}, required the checks that every file is reviewed and every finding stays in scope, and wanted the report within ${days} days.`)}
-${row('Standing approval rule', `Instead of a person approving the payment, the buyer's owner set a rule: approve only within the budget, with the required checks, the report due within ${days} days, and an offer dated now.${approvals.length ? ` It answered ${approvals.length} ${approvals.length === 1 ? 'request' : 'requests'}: ${approvals.filter((x) => x.granted).length} approved, ${approvals.filter((x) => !x.granted).length} refused.` : ' It was never asked.'}`)}
-${row("Seller's owner", `Gave the ${AGENT_NAME.seller} its order system and asked it to sell reports.${start?.sellerRulePlain ? ` One extra instruction: ${cut(String(start.sellerRulePlain), 260)}` : ''}`)}
+${row("The buyer", `Gave the ${AGENT_NAME.buyer} the job and a budget of ${tokens(policy.budget)}, required the checks that every file is reviewed and every finding stays in scope, and wanted the report within ${days} days.`)}
+${row('Standing approval rule', `Instead of a person approving the payment, the buyer set a rule: approve only within the budget, with the required checks, the report due within ${days} days, and an offer dated now.${approvals.length ? ` It answered ${approvals.length} ${approvals.length === 1 ? 'request' : 'requests'}: ${approvals.filter((x) => x.granted).length} approved, ${approvals.filter((x) => !x.granted).length} refused.` : ' It was never asked.'}`)}
+${row("The seller", `Gave the ${AGENT_NAME.seller} its order system and asked it to sell reports.${start?.sellerRulePlain ? ` One extra instruction: ${cut(String(start.sellerRulePlain), 260)}` : ''}`)}
 </div>
 ${start?.note ? `<div class="callout">${icon('note')}<p>${esc(String(start.note))}</p></div>` : ''}
 <p class="footnote">What a person had to do during the run: nothing. Every other choice, each agent made itself.</p>

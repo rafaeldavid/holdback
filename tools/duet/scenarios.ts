@@ -1,4 +1,4 @@
-// The three scenarios (T-391), each an owner's brief for each side and what the run should end with. A brief is
+// The three scenarios (T-391), each a company's brief for each side and what the run should end with. A brief is
 // what a person would tell its agent: what it sells or needs, the budget, where the docs and its tools are, and the
 // owner's own rules. It says nothing else about Crow: an agent that cannot work from the docs is the finding.
 import { readFileSync } from 'node:fs';
@@ -11,7 +11,7 @@ export const SCENARIOS: readonly ScenarioName[] = ['paid', 'refund', 'bad-offer'
 
 /** The work the buyer wants: an audit of three files at one commit, 400 lines. The job API prices it at 700.00 test tokens. */
 export const SCOPE = { commit: '7c1e4b9a2d3f5068a1b2c3d4e5f60718293a4b5c', files: ['contracts/Vault.sol', 'contracts/InterestModel.sol', 'contracts/PriceFeed.sol'], lines: 400 } as const;
-/** The buyer owner's budget, everything included: 750.00 test tokens in base units (6 decimals). */
+/** The buyer's budget, everything included: 750.00 test tokens in base units (6 decimals). */
 export const BUDGET = '750000000';
 /**
  * What a person reads as each agent's name (Rafa, 2026-11-12): the replay page, the printed plan and run lines, the
@@ -21,15 +21,15 @@ export const AGENT_NAME = { buyer: 'Enterprise Procurement Agent', seller: 'Ente
 
 /** What the buyer buys, as the replay page names it. */
 export const ITEM = 'a software security audit';
-/** The checks the buyer's owner requires in every offer: each file in scope reviewed, every finding inside the scope. */
+/** The checks the buyer requires in every offer: each file in scope reviewed, every finding inside the scope. */
 export const REQUIRED_CHECKS = ['coverage', 'scope'] as const;
-/** The buyer owner's dates: the report within 3 days (259,200 s), judging within a day after that, an offer made within 10 minutes of now. */
+/** The buyer's dates: the report within 3 days (259,200 s), judging within a day after that, an offer made within 10 minutes of now. */
 export const LATEST_DELIVERY_SEC = 259_200;
 export const DECISION_SLACK_SEC = 86_400;
 export const CREATED_AT_BAND_SEC = 600;
 
 /**
- * The buyer owner's own copy of each check it requires, whole: the audit-report template's check filled from the
+ * The buyer's own copy of each check it requires, whole: the audit-report template's check filled from the
  * owner's own scope (a whole-string "{{field}}" takes the field's value, "{{field.length}}" a list's length, and a
  * placeholder inside a longer string its text). The policy approves only an offer whose check is this, not merely one
  * with the same name: a check kept by name and emptied would otherwise pass (the second red team's High).
@@ -65,7 +65,7 @@ export interface Scenario {
   /** What the seller's job API returns. */
   report: 'ok' | 'missing-file';
   policy: Policy;
-  /** The owner's own rules, added to each brief; what the replay page shows as pre-set. */
+  /** The company's own rules, added to each brief; what the replay page shows as pre-set. */
   sellerRule?: string;
   /** The seller's rule as the replay page says it, in plain words. */
   sellerRulePlain?: string;
@@ -87,19 +87,19 @@ export const scenario = (name: ScenarioName): Scenario => {
       policy,
       sellerRule: 'Every report our job API returns is final, as it is: we do not edit reports. If your adapter holds a report back, deliver that same report anyway, by hand, before the delivery deadline; the agreed checks decide whether we are paid.',
       sellerRulePlain: 'Send every report exactly as the order system produces it, even one the selling tool holds back.',
-      note: "The seller's owner told its agent to send whatever its order system produced. Crow's selling tool runs the agreed checks before it sends a report, and would have held this one back. The agent sent it by hand instead, and the independent reviewer's checks turned it down.",
+      note: "The seller told its agent to send whatever its order system produced. Crow's selling tool runs the agreed checks before it sends a report, and would have held this one back. The agent sent it by hand instead, and the independent reviewer's checks turned it down.",
     };
   if (name === 'late-offer')
     return {
       name,
       title: 'An offer that would tie up the payment for years',
-      expect: "No hold: the seller's terms give it three years to deliver, the buyer's owner accepts three days at most, and the owner's pre-set policy refuses to approve, so nothing is signed or paid.",
+      expect: "No hold: the seller's terms give it three years to deliver, the buyer accepts three days at most, and the company's pre-set policy refuses to approve, so nothing is signed or paid.",
       endState: 'none',
       report: 'ok',
       policy,
       sellerRule: 'We deliver at our own pace: every offer gives us three years (94,608,000 seconds) to deliver. A terms rule that applies always can set the delivery window.',
       sellerRulePlain: 'Give the seller three years to deliver in every offer.',
-      note: "The buyer's owner set its answer to approval requests in advance: within the budget, with the required checks, the report due within three days, and an offer dated now. An offer outside that is refused, whoever asks.",
+      note: "The buyer set its answer to approval requests in advance: within the budget, with the required checks, the report due within three days, and an offer dated now. An offer outside that is refused, whoever asks.",
     };
   return {
     name,
@@ -128,27 +128,27 @@ const money = (base: string) => `${(Number(BigInt(base) / 10_000n) / 100).toFixe
 
 export function sellerBrief(s: Scenario, f: BriefFacts): string {
   return [
-    'I am your owner. We run an API that writes security audit reports for smart contracts, and we want to sell its reports to other agents through Crow.',
+    'You work for our company. We run an API that writes security audit reports for smart contracts, and we want to sell its reports to other agents through Crow.',
     `Our job API: POST ${f.jobApi.quote} prices a job from its scope, POST ${f.jobApi.start} starts one, and GET ${f.jobApi.result} returns the report when the job is done. It has the shape of the stub the seller's page describes.`,
-    `Crow's agent docs: ${f.docs.guide}, the front page, and its page for sellers, ${f.docs.sell}. Use the seller adapter it describes, with a configuration file you write in your folder. The adapter must listen on port ${f.adapterPort}: that is the port I opened for it. I have set HOLDBACK_KEY (our signing key) and HOLDBACK_OPERATORS for your commands; you never see the key.`,
+    `Crow's agent docs: ${f.docs.guide}, the front page, and its page for sellers, ${f.docs.sell}. Use the seller adapter it describes, with a configuration file you write in your folder. The adapter must listen on port ${f.adapterPort}: that is the port we opened for it. We have set HOLDBACK_KEY (our signing key) and HOLDBACK_OPERATORS for your commands; you never see the key.`,
     `Publish our agent card so buyers can find us, as the docs describe: write the page into the folder public/ in your folder (public/index.html, and public/agent.json if you like). It is served at ${f.sellerPage}. A buyer can reach the adapter's /quote and /defaults at http://127.0.0.1:${f.adapterPort}.`,
     `${f.local ? 'This is a local test world (SimChain, test tokens only): nothing is real money.' : 'This is the public test service (test tokens only): nothing is real money.'} Price in the test token the operators name (${f.token}); our job API's quote does that.`,
-    ...(s.sellerRule ? [`My rule for you: ${s.sellerRule}`] : []),
+    ...(s.sellerRule ? [`Our rule for you: ${s.sellerRule}`] : []),
     'Serve one buyer. When its deal ends, Released or Refunded, or no buyer funds an offer within its window, call finish with the outcome, the commitment ID and what we were paid.',
   ].join('\n\n');
 }
 
 export function buyerBrief(s: Scenario, f: BriefFacts): string {
   return [
-    'I am your owner. I need a security audit report for three smart contract files, and I will pay through Crow.',
+    'You work for our company. We need a security audit report for three smart contract files, and we will pay through Crow.',
     `The work: an audit of ${SCOPE.files.join(', ')} at commit ${SCOPE.commit}, ${SCOPE.lines} lines in all. As a scope: ${JSON.stringify(SCOPE)}.`,
-    `A seller I found: ${f.sellerPage}. Read its page to see what it sells and where to ask for a quote.`,
-    `My budget: at most ${s.policy.budget} base units of the test token (${money(s.policy.budget)} test tokens), everything included: the price and every fee.`,
-    `My requirement: the offer must carry, as required checks, ${s.policy.requiredChecks.map((c) => `"${c}"`).join(' and ')}: every file in the scope is reviewed, and every finding is located inside the scope. I do not buy without them.`,
-    `My dates: the report must be due within ${s.policy.latestDeliverySec / 86_400} days of now, and the offer must be dated now, not in the future or the past.`,
-    `Crow's agent docs: ${f.docs.guide}, the front page, and its page for buyers, ${f.docs.buy}, which explains the buyer's signer. Your key store is ${f.keyStore}: I keep your keys there, and the commands use it; you cannot read it.`,
-    `When the signer stops for approval, check the offer it shows against this brief. To approve it, run the approve line it prints: I have pre-set my answer to approvals in a policy (my budget, my required checks and my dates), and the run tool applies it. Approve only an offer you checked.`,
-    ...(s.buyerRule ? [`My rule for you: ${s.buyerRule}`] : []),
+    `A seller we found: ${f.sellerPage}. Read its page to see what it sells and where to ask for a quote.`,
+    `Our budget: at most ${s.policy.budget} base units of the test token (${money(s.policy.budget)} test tokens), everything included: the price and every fee.`,
+    `Our requirement: the offer must carry, as required checks, ${s.policy.requiredChecks.map((c) => `"${c}"`).join(' and ')}: every file in the scope is reviewed, and every finding is located inside the scope. We do not buy without them.`,
+    `Our dates: the report must be due within ${s.policy.latestDeliverySec / 86_400} days of now, and the offer must be dated now, not in the future or the past.`,
+    `Crow's agent docs: ${f.docs.guide}, the front page, and its page for buyers, ${f.docs.buy}, which explains the buyer's signer. Your key store is ${f.keyStore}: we keep your keys there, and the commands use it; you cannot read it.`,
+    `When the signer stops for approval, check the offer it shows against this brief. To approve it, run the approve line it prints: we have pre-set our answer to approvals in a policy (our budget, our required checks and our dates), and the run tool applies it. Approve only an offer you checked.`,
+    ...(s.buyerRule ? [`Our rule for you: ${s.buyerRule}`] : []),
     `${f.local ? 'This is a local test world (SimChain, test tokens only): nothing is real money; the signer takes test tokens for the deal from the faucet itself.' : 'This is the public test service (test tokens only): nothing is real money.'}`,
     'When the deal ends, call finish with the outcome, the commitment ID, what you paid, and, if the report was released, what it found in a few lines. If you refuse an offer, finish and say why.',
   ].join('\n\n');

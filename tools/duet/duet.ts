@@ -7,6 +7,7 @@
 //                 [--buyer-model <id>] [--seller-model <id>] [--max-turns 60] [--max-tokens 3000000]
 //                 [--world <operator URL>,<operator URL>] [--docs <guide URL>,<sell URL>] [--out <dir>] [--grace 90] [--timeout 1800]
 //   pnpm duet replay <run folder>                                                 the summary and the page again, from record.jsonl
+//   pnpm duet publish <run folder> [--to <file>]                                  the page for crow.direct/demo, into site/demo/index.html
 //
 // A live side reads the agents' own key from the environment, never the live judges': HOLDBACK_AGENT_ANTHROPIC_API_KEY for
 // claude, HOLDBACK_AGENT_OPENAI_COMPATIBLE_API_KEY and HOLDBACK_AGENT_OPENAI_COMPATIBLE_BASE_URL (https) for deepseek.
@@ -15,9 +16,10 @@
 // Before a live run sends anything it prints the two models, the caps and the most the run can cost at list prices,
 // then waits 10 s (Ctrl-C stops it). A missing key stops it with one line, before anything is sent.
 // Exit code: 0 when the run ended as the scenario says, 1 when it did not, 2 when it could not start.
-import { readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { inputPrice } from './measures.ts';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { inputPrice, measure } from './measures.ts';
+import { replayPage } from './replay.ts';
 import { JUDGE_KEY_ENV, KEY_ENV, liveProvider, MAX_OUTPUT_TOKENS, pinnedModel, type Provider } from './providers.ts';
 import type { Event } from './record.ts';
 import { finish, REPO, runDuet, type Side } from './run.ts';
@@ -31,6 +33,16 @@ const usd = (micro: number) => `USD ${(micro / 1_000_000).toFixed(2)}`;
 const vendorOf = (v: string): 'anthropic' | 'deepseek' | 'scripted' => (v === 'claude' || v === 'anthropic' ? 'anthropic' : v === 'deepseek' ? 'deepseek' : v === 'scripted' ? 'scripted' : fail(`${v} is not a vendor: claude, deepseek or scripted`));
 
 const cmd = argv[0];
+if (cmd === 'publish') {
+  // The page for crow.direct/demo, from one run's record: written to site/demo/index.html, which site/build.mjs publishes.
+  const dir = resolve(argv[1] ?? fail('publish takes the run folder whose record the page shows'));
+  const events = readFileSync(join(dir, 'record.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as Event);
+  const to = resolve(flag('to', join(REPO, 'site', 'demo', 'index.html'))!);
+  mkdirSync(dirname(to), { recursive: true });
+  writeFileSync(to, replayPage(events, measure(events), { publish: true }));
+  console.log(`Wrote ${to} from ${join(dir, 'record.jsonl')}. node site/build.mjs publishes it at /demo/.`);
+  process.exit(0);
+}
 if (cmd === 'replay') {
   const dir = resolve(argv[1] ?? fail('replay takes the run folder'));
   const events = readFileSync(join(dir, 'record.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as Event);
@@ -39,7 +51,7 @@ if (cmd === 'replay') {
   if (done.ticket) console.log(`Ticket: ${done.ticket}\nSend this ticket to the coordinator.`);
   process.exit(0);
 }
-if (cmd !== 'run' && cmd !== 'list') fail('usage: duet list | run --scenario <paid|refund|bad-offer|late-offer> --buyer <claude|deepseek|scripted> --seller <…> | replay <run folder>');
+if (cmd !== 'run' && cmd !== 'list') fail('usage: duet list | publish <run folder> | run --scenario <paid|refund|bad-offer|late-offer> --buyer <claude|deepseek|scripted> --seller <…> | replay <run folder>');
 
 const caps = { turns: Number(flag('max-turns', '60')), tokens: Number(flag('max-tokens', '3000000')) };
 if (!Number.isSafeInteger(caps.turns) || caps.turns < 1 || !Number.isSafeInteger(caps.tokens) || caps.tokens < 1) fail('--max-turns and --max-tokens are whole numbers above 0');

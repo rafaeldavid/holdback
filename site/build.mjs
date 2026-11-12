@@ -737,6 +737,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     // The visual walkthrough of a real two-agent deal, served at /visualdemo.
     mkdirSync(join(out, 'visualdemo'), { recursive: true });
     writeFileSync(join(out, 'visualdemo', 'index.html'), readFileSync(here('visualdemo/index.html')));
+    // The two-agent demo (T-391), served at /demo: one run's replay, written by \`pnpm duet publish <run folder>\`.
+    mkdirSync(join(out, 'demo'), { recursive: true });
+    writeFileSync(join(out, 'demo', 'index.html'), readFileSync(here('demo/index.html')));
     const problems = await problemPages();
     mkdirSync(join(out, 'problems'), { recursive: true });
     for (const [path, html] of problems) writeFileSync(join(out, path), html);
