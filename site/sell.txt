@@ -2,7 +2,7 @@
 
 > ’crow. Verifiable settlement for AI commerce
 
-This page is for a seller's engineer or agent: you run an API that does paid work, and you want agents to buy it through Crow. It is the first hour, from a clone of the public repository to a first delivered deal on a local chain and then on the test service. It needs `OP1` and `OP2` from the front door, https://crow.direct/llms.txt; a step that needs more names a reference file there. The local tools (`pnpm sim` and the rehearsal's world) run the rules the chain runs, phase one: no party appeal and no bond, and they refuse what the chain refuses. Test tokens only: nothing here is real money.
+This page is for a seller's engineer or agent: you run an API that does paid work, and you want agents to buy it through Crow. It is the first hour, from a clone of the public repository to a first delivered deal on a local chain and then on the test service. It needs `OP1` and `OP2` from the front door, https://crow.direct/llms.txt; a step that needs more names a reference file there. Nothing requires the adapter: a seller that signs for itself follows `ref/http-seller.txt` and `ref/signing.txt`. The local tools (`pnpm sim` and the rehearsal's world) run the rules the chain runs, phase one: no party appeal and no bond, and they refuse what the chain refuses. Test tokens only: nothing here is real money.
 
 ## First hour
 
@@ -32,4 +32,3 @@ When something on this page is wrong or unclear, `ref/limits.txt`, "Reporting a 
 - The seller adapter in full: your API's shape, terms per quote, report mappings, alerts, redelivery and running it as a service: `ref/seller-adapter.txt`.
 - Checks for a JSON report, with four recipes: `ref/checks.txt`.
 - Shipping the buyer's side in your own client: `ref/buyer-signer.txt`.
-- Offering and delivering over HTTP alone, as Crow's test buyer expects: `ref/http-seller.txt`.

@@ -25,12 +25,12 @@
 // 11. The guides together (T-393): the front door lists exactly the reference files in site/ref/, every reference a
 //    guide names exists, every crow.direct link resolves, no sentence is in two guides, every call a guide names is a
 //    route in docs/api.md, every file under examples/, fixtures/ or spec/ and every pnpm script a guide names exists,
-//    and the deployment's addresses are in ref/signing.txt alone. A publish build writes every guide.
+//    and the deployment's addresses are in llms.txt alone (scripts/record-copies.mjs rewrites them there). A publish build writes every guide.
 // 12. The budget (T-393): each role's first-deal path, the front door plus its page, is within FIRST_DEAL_BUDGET
 //    (site/guides.mjs). With HOLDBACK_AGENT_ANTHROPIC_API_KEY set it counts with Anthropic's count_tokens for the
 //    pinned model; without it, bytes divided by four. It says which.
 import { existsSync, readFileSync } from 'node:fs';
-import { BASE, BUY_URL, filled, page, pins, problemPages, publishedGuides, SELL_URL, SITE_URL, strip, TEST_SELLER_URL, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
+import { ASSETS, BASE, BUY_URL, filled, page, pins, problemPages, publishedGuides, SELL_URL, SITE_URL, strip, TEST_SELLER_URL, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
 import { apiRoutes, duplicateSentences, FIRST_DEAL_BUDGET, guideFiles, guideSource, measurePaths, namedCalls, namedReferences, referenceFiles, routeKnown } from './guides.mjs';
 
 const here = (p) => new URL(p, import.meta.url);
@@ -116,8 +116,8 @@ const deployment = Object.fromEntries(Object.entries(sepolia?.chain ?? {}).filte
 const signing = ref('signing.txt');
 const types = jsonBlock(signing, '## EIP-712 types');
 expect(JSON.stringify(Object.fromEntries(Object.keys(types).map((k) => [k, TYPES[k]]))) === JSON.stringify(types), 'the EIP-712 types differ from examples/verify.ts');
-expect(JSON.stringify(jsonBlock(signing, 'Pin this EIP-712 domain')) === JSON.stringify(sepolia?.domain), 'the pinned domain in ref/signing.txt differs from the Sepolia pin in examples/verify.ts');
-expect(JSON.stringify(jsonBlock(signing, 'Pin this deployment too')) === JSON.stringify(deployment), 'the pinned deployment in ref/signing.txt differs from the Sepolia pin in examples/verify.ts');
+expect(JSON.stringify(jsonBlock(md, 'Pin this EIP-712 domain')) === JSON.stringify(sepolia?.domain), 'the pinned domain in llms.txt differs from the Sepolia pin in examples/verify.ts');
+expect(JSON.stringify(jsonBlock(md, 'Pin this deployment too')) === JSON.stringify(deployment), 'the pinned deployment in llms.txt differs from the Sepolia pin in examples/verify.ts');
 expect(JSON.stringify(jsonBlock(signing, "USDC's ERC-3009 types")) === JSON.stringify(ERC3009_TYPES), 'the ERC-3009 types in ref/signing.txt differ from examples/verify.ts');
 const vectors = (src) => [...src.slice(src.indexOf('| recipient secret key')).matchAll(/^\| ([^|]+) \| (.+) \|$/gm)].slice(0, 11).map((m) => `${m[1].trim()}=${m[2].trim()}`);
 const seller = ref('http-seller.txt');
@@ -229,6 +229,7 @@ const roles = sectionOf(md, 'Read one page for your role');
 expect(roles.includes(BUY_URL) && roles.includes(SELL_URL), `llms.txt has a "Read one page for your role" section that links ${BUY_URL} and ${SELL_URL}`);
 
 // 11. The guides together (T-393).
+const published = new Set(['index.html', 'try.mjs', 'version.json', ...ASSETS]);
 const scripts = JSON.parse(read('../package.json')).scripts;
 const refs = referenceFiles();
 const listed = [...sectionOf(md, 'Reference').matchAll(/^- `([a-z0-9-]+\.txt)`/gm)].map((m) => `ref/${m[1]}`).sort();
@@ -238,9 +239,9 @@ for (const [p, text] of guides) {
   for (const u of links(text)) {
     if (u.host !== new URL(SITE_URL).host) continue;
     const path = u.pathname.slice(BASE.length);
-    // Served by the operators' test agents (apps/test-agents) and the problem pages the build writes, not site files.
-    const served = path.startsWith('agents/') || path === 'problems/' || /^problems\/[a-z_]+(\.html)?$/.test(path) || path === 'ref/';
-    expect(served || guides.has(path) || existsSync(here(path)), `${p} links ${u.href}, which the site does not publish`);
+    // What a publish build writes, and the two test agents, which apps/test-agents serves on routes of this host.
+    const ok = guides.has(path) || published.has(path) || ['', 'problems/', 'visualdemo/'].includes(path) || problems.has(`${path.replace(/\.html$/, '')}.html`) || /^agents\/test-(seller|buyer)(\/agent\.json)?$/.test(path);
+    expect(ok, `${p} links ${u.href}, which neither the publish build nor the test agents serve`);
   }
   for (const [, f] of text.matchAll(/`((?:examples|fixtures|spec)\/[A-Za-z0-9_./-]+\.[a-z]+)`/g)) expect(existsSync(here(`../${f}`)), `${p} names ${f}, which is not in the repository`);
   for (const [, f] of text.matchAll(/\bnode (examples\/[A-Za-z0-9_-]+\.ts)\b/g)) expect(existsSync(here(`../${f}`)), `${p} runs ${f}, which is not in the repository`);
@@ -250,10 +251,10 @@ for (const [p, text] of guides) {
 }
 for (const { sentence, files } of duplicateSentences(guides)) expect(false, `one sentence is in ${files.join(' and ')}: "${sentence.slice(0, 120)}"`);
 const pinned = [...new Set(Object.values(deployment).flatMap((v) => (typeof v === 'object' ? Object.values(v) : [v])).filter((v) => /^0x[0-9a-f]{40}$/i.test(String(v))).map((v) => String(v).toLowerCase()))];
-for (const [p, text] of guides) if (p !== 'ref/signing.txt') for (const a of pinned) expect(!text.toLowerCase().includes(a), `${p} names the deployment address ${a}: the pins live in ref/signing.txt alone, which the cutover's copies step rewrites`);
-let published = new Map();
+for (const [p, text] of guides) if (p !== 'llms.txt') for (const a of pinned) expect(!text.toLowerCase().includes(a), `${p} names the deployment address ${a}: the pins live in llms.txt alone, which the cutover's copies step (scripts/record-copies.mjs) rewrites`);
+let filledGuides = new Map();
 try {
-  published = publishedGuides(sample);
+  filledGuides = publishedGuides(sample);
 } catch (e) {
   expect(false, `the guides cannot be published: ${e.message}`);
 }
@@ -269,7 +270,7 @@ if (existsSync(here('../reports/site-out/llms.txt'))) {
 // 12. The budget (T-393).
 let measured = [];
 try {
-  measured = await measurePaths(published);
+  measured = await measurePaths(filledGuides);
 } catch (e) {
   expect(false, `the guides could not be counted: ${e.message}`);
 }
@@ -279,5 +280,5 @@ if (failures.length) {
   for (const f of failures) console.error(`FAIL ${f}`);
   process.exit(1);
 }
-for (const m of measured) console.log(`first-deal path, ${m.role}: ${m.files.join(' + ')}, ${m.bytes} bytes, ${m.tokens} of ${FIRST_DEAL_BUDGET.tokens} tokens (${m.method})`);
+for (const m of measured) console.log(`first-deal path, ${m.role}: ${m.files.join(' + ')}, ${m.bytes} bytes, ${m.tokens} of ${FIRST_DEAL_BUDGET.tokens} tokens (${m.method})${m.counted === null ? '' : `; the estimate, bytes divided by four, is ${m.estimate}`}`);
 console.log(`site check PASS: one source, placeholders in place, links resolve under ${BASE}, content agrees with docs/api.md and examples/verify.ts, try.mjs current and its command in llms.txt, the test seller and the test buyer as apps/test-agents runs them, the role pages, the guides together, and each role's first-deal path within its budget`);

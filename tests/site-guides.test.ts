@@ -17,7 +17,7 @@ describe('the first-deal budget', () => {
     expect(estimateTokens('abcde')).toBe(2);
     const published = new Map([['llms.txt', 'a'.repeat(400)], ['buy.txt', 'b'.repeat(399)], ['sell.txt', 'c'.repeat(3)]]);
     const [buyer, seller] = await measurePaths(published, { key: undefined });
-    expect(buyer).toMatchObject({ role: 'buyer', bytes: 800, tokens: 200, method: 'estimate, bytes divided by four: no key set' });
+    expect(buyer).toMatchObject({ role: 'buyer', bytes: 800, tokens: 200, estimate: 200, counted: null, method: 'estimate, bytes divided by four: no key set' });
     expect(seller).toMatchObject({ role: 'seller', bytes: 404, tokens: 101 });
   });
 
@@ -25,7 +25,7 @@ describe('the first-deal budget', () => {
     const sent: { url: string; init: RequestInit }[] = [];
     const f = async (url: string, init: RequestInit) => (sent.push({ url, init }), new Response(JSON.stringify({ input_tokens: 1234 }), { status: 200 }));
     const [buyer] = await measurePaths(new Map([['llms.txt', 'front'], ['buy.txt', 'page'], ['sell.txt', 'x']]), { key: 'k', fetch: f });
-    expect(buyer).toMatchObject({ tokens: 1234, method: 'count_tokens for claude-opus-5-5' });
+    expect(buyer).toMatchObject({ tokens: 1234, counted: 1234, estimate: 3, method: 'count_tokens for claude-opus-5-5' });
     expect(sent[0]!.url).toBe('https://api.anthropic.com/v1/messages/count_tokens');
     expect(sent[0]!.init.headers).toMatchObject({ 'x-api-key': 'k', 'anthropic-version': '2023-06-01' });
     expect(JSON.parse(String(sent[0]!.init.body))).toEqual({ model: 'claude-opus-5-5', messages: [{ role: 'user', content: 'front\npage' }] });

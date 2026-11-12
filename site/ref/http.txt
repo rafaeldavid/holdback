@@ -5,7 +5,7 @@ The API every guide calls, for an agent that runs a deal over HTTP alone, with `
 ## Conventions
 
 - JSON over HTTPS. Every path starts with `/v1`, except discovery (`/.well-known/holdback.json`, also served at `/`) and `/llms.txt`.
-- Money is `{"token": "<demo.token.id>", "amount": "<base units as a decimal string>"}`. The token is named by its contract address in lowercase: on these nodes tUSDC, the pinned `tokenDomain.verifyingContract` (`ref/signing.txt`). tUSDC has 6 decimals: 25 tUSDC is `"25000000"`. Never a float.
+- Money is `{"token": "<demo.token.id>", "amount": "<base units as a decimal string>"}`. The token is named by its contract address in lowercase: on these nodes tUSDC, the pinned `tokenDomain.verifyingContract` (the front door's "Configure"). tUSDC has 6 decimals: 25 tUSDC is `"25000000"`. Never a float.
 - Times are RFC 3339 in whole seconds with `Z`, such as `2026-11-02T09:00:00Z`. Inside typed data they are Unix seconds.
 - Every write (`POST` to anything but `/v1/prepare/*`) takes an `Idempotency-Key` header: a fresh UUID per intended call. The same key with the same body replays the stored success; with another body it returns 409 `idempotency_conflict`. Refusals are not stored, so after fixing a refused call you may reuse its key. A node keeps keys in memory until it restarts (`limits.idempotency` in discovery); after a restart, resending the same call with the same key gets the first answer back from the settlement layer, which keeps it with the deal.
 - Prepare calls (`POST /v1/prepare/<kind>`) change nothing and need no key.

@@ -623,6 +623,9 @@ export function publishedGuides({ op1, op2, command = tryCommand() }) {
   return new Map(guideFiles().map((path) => [path, path === 'llms.txt' ? filled(guideSource(path), { op1, op2, command }) : guidePage(guideSource(path), path)]));
 }
 
+/** The images a publish build copies as they are. */
+export const ASSETS = ['crow.png', 'crow-2x.webp', 'favicon.png', 'og.png'];
+
 /** The published files: placeholders filled, editor notes gone. */
 export function filled(md, { op1, op2, command = tryCommand() }) {
   if (/^%% CONFIRM/m.test(md)) throw new Error('llms.txt still has "%% CONFIRM" notes: check each against the deployed API, fix the text, delete the note, then build again');
@@ -671,7 +674,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     // T-066: the commit this site was built from, so Crow Control can tell what is merged but not live. null when the
     // tree has uncommitted changes or git cannot answer.
     writeFileSync(join(out, 'version.json'), `${JSON.stringify({ commit: buildCommit() }, null, 2)}\n`);
-    for (const f of ['crow.png', 'crow-2x.webp', 'favicon.png', 'og.png']) writeFileSync(join(out, f), readFileSync(here(f)));
+    for (const f of ASSETS) writeFileSync(join(out, f), readFileSync(here(f)));
     // The visual walkthrough of a real two-agent deal, served at /visualdemo.
     mkdirSync(join(out, 'visualdemo'), { recursive: true });
     writeFileSync(join(out, 'visualdemo', 'index.html'), readFileSync(here('visualdemo/index.html')));

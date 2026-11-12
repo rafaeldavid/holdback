@@ -51,16 +51,18 @@ export async function countTokens(text, { key, model = FIRST_DEAL_BUDGET.model, 
 }
 
 /**
- * Each role's first-deal path, measured: `{role, files, bytes, tokens, method}`. With a key, the provider's count;
- * without one, the estimate, and `method` says which.
+ * Each role's first-deal path, measured: `{role, files, bytes, estimate, counted, tokens, method}`. `estimate` is
+ * always bytes divided by four; `counted` is the provider's count when a key is set, else null. `tokens` is what the
+ * budget holds: the provider's count when there is one, the estimate otherwise; `method` says which.
  */
 export async function measurePaths(published, { key = process.env[FIRST_DEAL_BUDGET.keyEnv], fetch: f } = {}) {
   const out = [];
   for (const [role, files] of Object.entries(FIRST_DEAL_BUDGET.paths)) {
     const text = files.map((p) => published.get(p)).join('\n');
     const bytes = Buffer.byteLength(text, 'utf8');
-    const tokens = key ? await countTokens(text, { key, ...(f ? { fetch: f } : {}) }) : estimateTokens(text);
-    out.push({ role, files, bytes, tokens, method: key ? `count_tokens for ${FIRST_DEAL_BUDGET.model}` : 'estimate, bytes divided by four: no key set' });
+    const estimate = estimateTokens(text);
+    const counted = key ? await countTokens(text, { key, ...(f ? { fetch: f } : {}) }) : null;
+    out.push({ role, files, bytes, estimate, counted, tokens: counted ?? estimate, method: key ? `count_tokens for ${FIRST_DEAL_BUDGET.model}` : 'estimate, bytes divided by four: no key set' });
   }
   return out;
 }

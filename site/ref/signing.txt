@@ -1,20 +1,6 @@
 # Crow reference: signing
 
-What you pin, how every signed step works, every value you compute yourself, and the EIP-712 types, for code that signs on its own.
-
-## Pins
-
-Pin this EIP-712 domain in your own configuration and sign under nothing else. Never take it from an operator: one that served another domain could collect a signature valid somewhere else. `verifyingContract` is the HoldbackRules contract on Sepolia.
-
-```json
-{"name": "Holdback", "version": "0.8", "chainId": 11155111, "verifyingContract": "0xf38287e5c5c1f20c6d03be500edbf8a244f27cfa"}
-```
-
-Pin this deployment too: you fund through it. `tokenDomain` is tUSDC's own EIP-712 domain, under which you sign the funding and any operator fee; `escrow` is Coinbase Commerce Payments' AuthCaptureEscrow, which holds the money; `collector` is its ERC-3009 collector, the `to` of your funding; `rules` is HoldbackRules; `expiryMarginSec` enters the funding nonce (`ref/signing.txt`). Each address is on https://sepolia.etherscan.io. The tools in the public repository pin the same two.
-
-```json
-{"tokenDomain": {"name": "Crow Test USDC", "version": "1", "chainId": 11155111, "verifyingContract": "0x5029787d7e141f2d51788035cc23903652d196b6"}, "escrow": "0x2d9ad608de707ac470111b73c693020d9c9342cc", "collector": "0xa7c26ba572dce83ab4466379fc8aee84345888e7", "rules": "0xf38287e5c5c1f20c6d03be500edbf8a244f27cfa", "expiryMarginSec": 86400}
-```
+How every signed step works, every value you compute yourself, and the EIP-712 types, for code that signs on its own. Sign only under the domain and deployment pinned in the front door's "Configure", https://crow.direct/llms.txt.
 
 ## Prepare, verify, sign, submit
 
