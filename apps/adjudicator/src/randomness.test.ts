@@ -46,7 +46,7 @@ describe('ADR-0018 encodings', () => {
   });
   // ADR-0032 §3.6, the test that catches a service left without the margin (red team RT-1): the service's roundFor and
   // core's beaconRoundFor give the same round for every second of 300, for both panels and for margins of 0 and 29 s
-  // on the drand clock. The contract's side of the same rule is `DrandRounds.t.sol`'s delay property.
+  // on the drand clock. The contract's side of the same rule is the delay property in `contracts/test/unit/BeaconMargin.t.sol`.
   it("roundFor agrees with core's beaconRoundFor over 300 seconds of drand clock, for margins of 0 and 29 s", () => {
     for (const margin of [0, 29]) {
       for (let t = 1_790_000_000; t < 1_790_000_300; t++) {

@@ -262,7 +262,13 @@ export class LiveChain implements EvmChain {
     this.token = o.deployment.token;
     this.tokenDomain = { name: o.deployment.token.name, version: o.deployment.token.version };
     this.expiryMargin = BigInt(o.deployment.expiryMarginSec ?? 86_400);
-    this.beaconMarginSec = o.deployment.beaconMarginSec ?? 0;
+    // A margin that is not whole non-negative seconds (a string, a fraction) would pass the BEACON_MARGIN() check by
+    // BigInt and then throw in every round computation (T-380 red team, L-1): refuse it here.
+    const beaconMargin: unknown = o.deployment.beaconMarginSec ?? 0;
+    if (typeof beaconMargin !== 'number' || !Number.isSafeInteger(beaconMargin) || beaconMargin < 0) {
+      throw new RangeError(`the deployment file's beaconMarginSec must be whole non-negative seconds, got ${JSON.stringify(beaconMargin)}`);
+    }
+    this.beaconMarginSec = beaconMargin;
     this.keys = [o.relayerKey, ...Array.from({ length: DEAL_LANES }, (_, i) => laneKey(o.relayerKey, i + 1))];
     this.lanes = this.keys.map((k) => privateKeyToAccount(k));
     this.maxFee = parseGwei(String(o.maxFeeGwei ?? 20));
