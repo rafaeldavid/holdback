@@ -21,6 +21,7 @@ import { inputPrice } from './measures.ts';
 import { JUDGE_KEY_ENV, KEY_ENV, liveProvider, MAX_OUTPUT_TOKENS, pinnedModel, type Provider } from './providers.ts';
 import type { Event } from './record.ts';
 import { finish, REPO, runDuet, type Side } from './run.ts';
+import { AGENT_NAME } from './scenarios.ts';
 import { SCENARIOS, scenario, type ScenarioName } from './scenarios.ts';
 
 const argv = process.argv.slice(2);
@@ -56,7 +57,7 @@ const ceiling = (model: string | undefined) => {
   return p ? Math.round((caps.tokens * p.input + caps.turns * MAX_OUTPUT_TOKENS * p.output) / 1_000_000) : 0;
 };
 const plan = () => {
-  const lines = (['buyer', 'seller'] as const).map((r) => `  ${r.padEnd(6)} ${sides[r] === 'scripted' ? 'scripted (no model, no key)' : `${sides[r]} ${models[r]!.model}, key ${KEY_ENV[sides[r] as 'anthropic' | 'deepseek']}`}`);
+  const lines = (['buyer', 'seller'] as const).map((r) => `  ${`${AGENT_NAME[r]} (${r})`.padEnd(38)} ${sides[r] === 'scripted' ? 'scripted (no model, no key)' : `${sides[r]} ${models[r]!.model}, key ${KEY_ENV[sides[r] as 'anthropic' | 'deepseek']}`}`);
   const total = ceiling(models.buyer?.id) + ceiling(models.seller?.id);
   return [
     `Duet: ${scenarios.map((s) => `${s} (${scenario(s).expect})`).join('\n       ')}`,
