@@ -18,14 +18,17 @@
 //    show the command (One-Click Escrow, D51). The clipboard fallback keeps the command's spaces (pre-wrap).
 // 8. Crow's test seller (D47): the one command buys from it, and "Try it" states its catalog, limits and windows as
 //    apps/test-agents/src/catalog.ts runs them.
-// 9. Crow's test buyer (T-239): "Sell to Crow's test buyer" states its card, caps, windows and limits as
-//    apps/test-agents/src/buyer-rules.ts runs them.
+// 9. Crow's test buyer (T-239): "Sell to Crow's test buyer" (in site/sell.txt since T-359) states its card, caps,
+//    windows and limits as apps/test-agents/src/buyer-rules.ts runs them.
+// 10. The seller's page (T-359): site/sell.txt opens with the first hour, holds the seller sections that llms.txt no
+//    longer copies, links both ways with llms.txt, names only files and pnpm scripts that exist, keeps local addresses
+//    to the first hour, and is what a publish build writes.
 import { existsSync, readFileSync } from 'node:fs';
-import { BASE, filled, page, pins, problemPages, SITE_URL, strip, TEST_SELLER_URL, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
+import { BASE, filled, page, pins, problemPages, SELL_URL, sellerPage, SITE_URL, strip, TEST_SELLER_URL, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
 
 const here = (p) => new URL(p, import.meta.url);
 const read = (p) => readFileSync(here(p), 'utf8');
-const md = read('llms.txt'), html = read('index.html'), apiMd = read('../docs/api.md');
+const md = read('llms.txt'), sell = read('sell.txt'), html = read('index.html'), apiMd = read('../docs/api.md');
 const failures = [];
 const expect = (ok, what) => {
   if (!ok) failures.push(what);
@@ -178,8 +181,8 @@ expect(tryIt.includes('`--outcome refund`') && testSeller.includes('"test": {"ou
 //    apps/test-agents/src/buyer-rules.ts runs them.
 const TEST_BUYER_URL = 'https://crow.direct/agents/test-buyer';
 const rules = await import(here('../apps/test-agents/src/buyer-rules.ts'));
-const start = md.indexOf("## Sell to Crow's test buyer");
-const testBuyer = start < 0 ? '' : md.slice(start, md.indexOf('\n## ', start + 3));
+const start = sell.indexOf("## Sell to Crow's test buyer");
+const testBuyer = start < 0 ? '' : sell.slice(start, sell.indexOf('\n## ', start + 3));
 const tusdc = (u) => `${Number(BigInt(u) / 1_000_000n)} tUSDC`;
 const bl = rules.BUYER_LIMITS, w = rules.WINDOWS, cr = rules.CHECKS_RULE;
 // Whole sentences, matched as text: the URL is the buyer's address in the guide, not a value being sanitized.
@@ -189,8 +192,39 @@ expect(testBuyer.includes(`${cr.min} to ${cr.max} deterministic checks`) && test
 expect(testBuyer.includes(`at most ${w.maxDeliverWithinSec.toLocaleString('en-US')} s (a day) after the offer`) && testBuyer.includes(`at most ${w.maxJudgingSec.toLocaleString('en-US')} s`) && testBuyer.includes(`at least ${w.minFundingLeftSec} s left to agree and fund`), 'llms.txt states other windows for the test buyer than apps/test-agents/src/buyer-rules.ts');
 expect(testBuyer.includes(`${bl.perSellerPerHour} deals per seller address an hour and ${bl.perSellerPerDay} a day; ${bl.perDay} a day in all; ${bl.open} in progress at once`), 'llms.txt states other limits for the test buyer than apps/test-agents/src/buyer-rules.ts');
 
+// 10. The seller's page (T-359).
+const sections = (src) => [...src.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
+const sellSections = sections(sell);
+expect(sell.startsWith('# Crow for sellers\n') && sellSections[0] === 'First hour', 'site/sell.txt must open with its title and then "## First hour"');
+const sectionOf = (src, title) => {
+  const at = src.indexOf(`\n## ${title}\n`);
+  if (at < 0) return '';
+  const end = src.indexOf('\n## ', at + 4);
+  return src.slice(at + 1, end < 0 ? undefined : end + 1);
+};
+const firstHour = sectionOf(sell, 'First hour');
+// A step runs from its numbered line to the next one, its indented code block included.
+const hourSteps = firstHour.split(/\n(?=\d+\. \*\*)/).slice(1);
+expect(hourSteps.length >= 5 && hourSteps.every((l, i) => l.startsWith(`${i + 1}. `) && l.includes('Worked')), 'each "First hour" step is numbered in order and says what you see when it Worked');
+for (const t of ["Sell a priced API service", "A seller's client can carry the buyer's side", "Sell to Crow's test buyer", 'Writing checks for a report']) expect(sellSections.includes(t), `site/sell.txt has no section "${t}"`);
+const llmsSections = new Set(sections(md));
+for (const t of sellSections) expect(!llmsSections.has(t), `"${t}" is in both llms.txt and sell.txt: one source`);
+expect(md.includes(SELL_URL) && sectionOf(md, 'Sell on Crow').includes(SELL_URL), `llms.txt has a "Sell on Crow" section that links ${SELL_URL}`);
+expect(sell.includes(`${SITE_URL}llms.txt`) && sell.includes('https://github.com/rafaeldavid/holdback'), 'sell.txt links the agent guide and the public repo');
+for (const [, p] of sell.matchAll(/`((?:examples|fixtures|spec)\/[A-Za-z0-9_./-]+\.[a-z]+)`/g)) expect(existsSync(here(`../${p}`)), `sell.txt names ${p}, which is not in the repository`);
+const scripts = JSON.parse(read('../package.json')).scripts;
+for (const [, name] of sell.matchAll(/\bpnpm ([a-z][a-z:-]*)/g)) expect(name === 'install' || name in scripts, `sell.txt runs pnpm ${name}, which is not a script in package.json`);
+expect(!/127\.0\.0\.1|localhost/.test(sell.replace(firstHour, '')), 'sell.txt has a local address outside "First hour"');
+let sellOut = '';
+try {
+  sellOut = sellerPage(sell);
+} catch (e) {
+  expect(false, `sell.txt cannot be published: ${e.message}`);
+}
+if (existsSync(here('../reports/site-out/llms.txt'))) expect(existsSync(here('../reports/site-out/sell.txt')) && read('../reports/site-out/sell.txt') === sellOut, 'reports/site-out/sell.txt is missing or stale against site/sell.txt: build with --out again');
+
 if (failures.length) {
   for (const f of failures) console.error(`FAIL ${f}`);
   process.exit(1);
 }
-console.log(`site check PASS: one source, placeholders in place, links resolve under ${BASE}, content agrees with docs/api.md and examples/verify.ts, try.mjs current and its command in llms.txt, the test seller and the test buyer as apps/test-agents runs them`);
+console.log(`site check PASS: one source, placeholders in place, links resolve under ${BASE}, content agrees with docs/api.md and examples/verify.ts, try.mjs current and its command in llms.txt, the test seller and the test buyer as apps/test-agents runs them, the seller's page in sell.txt`);
