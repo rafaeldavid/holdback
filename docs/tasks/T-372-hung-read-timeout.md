@@ -7,7 +7,7 @@
 - **Roadmap:** "A delivery with no stored ciphertext can't stall the adjudicator for other deals", reopened
 - **Paths this task may touch:** `apps/adjudicator/src/`; in `apps/demo-cloud/src/world.ts` only the declined-offer and refusal bookkeeping (the `DeclinedTurn` block, the state read's notices, `look()`'s skip of a declined offer, and the pass in `work()`), and its tests; the operator's delivery relay in `apps/operator/src/server.ts` and its tests; the fixtures this task adds; `docs/neutrality.md` for the fixtures' lines; this file.
 - **Human gate:** no. The fix reaches the live adjudicators and operators only with a deploy, which waits for Rafa.
-- **Status:** review
+- **Status:** done (PR 389)
 - **Agent/session:** the T-372 session, 2026-11-12, branch `t-372-hung-read-timeout`
 
 ## Intent
