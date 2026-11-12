@@ -5,7 +5,7 @@
 // `panelSeed` is core's. `roundFor` computes core's `beaconRoundFor` from the time the port reports, on
 // the clock of the commitment's source, since the service sees tasks, not escrow states; `simBeacon` is the
 // SimChain beacon for the unit-test settlement. randomness.test.ts pins both against core and SimChain.
-import { beaconRoundAt, SIM_BEACON, type AdjudicatorRole, type BeaconClock, type Hex32, type RandomnessSource as RandomnessSourceKind, type Timestamp } from '@holdback/core';
+import { roundAfter, SIM_BEACON, type AdjudicatorRole, type BeaconClock, type Hex32, type RandomnessSource as RandomnessSourceKind, type Timestamp } from '@holdback/core';
 import { concat, keccak256, numberToBytes, toBytes, type Hex } from 'viem';
 
 export { panelSeed } from '@holdback/core';
@@ -23,6 +23,8 @@ export interface BeaconRound {
 export interface RandomnessSource {
   readonly kind: RandomnessSourceKind;
   readonly clock: BeaconClock;
+  /** The rules contract's `BEACON_MARGIN()` in seconds (ADR-0032), which `roundFor` adds. Absent: 0. */
+  readonly marginSec?: number;
   value(round: number): Promise<BeaconRound | null>;
 }
 
@@ -30,14 +32,22 @@ export interface RandomnessSource {
 export const simRoundAt = (ts: Timestamp): number => Math.floor(Date.parse(ts) / 1000);
 
 /**
- * The round fixed by settlement state (ADR-0018 §2), on `clock`: the round at judgeBy for the fallback; the first
- * round strictly after the escalation or the appeal filing was applied for the appeal adjudicator.
+ * The round fixed by settlement state (ADR-0018 §2, ADR-0032), on `clock`, through core's `roundAfter`, the rule the
+ * rules contract runs: for the fallback (`fixedAt` = judgeBy), the first round published strictly after
+ * `judgeBy − 1 + marginSec`; for the appeal adjudicator (`fixedAt` = when the escalation or the appeal filing was
+ * applied), the first strictly after `fixedAt + marginSec`. `marginSec` is the rules contract's `BEACON_MARGIN()`,
+ * which the settlement port carries on the source (`RandomnessSource.marginSec`); 0 on SimChain and a local chain.
  */
-export function roundFor(role: Exclude<AdjudicatorRole, 'primary'>, fixedAt: Timestamp, clock: BeaconClock): number {
+export function roundFor(role: Exclude<AdjudicatorRole, 'primary'>, fixedAt: Timestamp, clock: BeaconClock, marginSec = 0): number {
   const t = simRoundAt(fixedAt);
   if (!Number.isSafeInteger(t)) throw new RangeError(`not a timestamp: ${fixedAt}`);
-  const r = beaconRoundAt(clock, Math.max(0, t));
-  return role === 'fallback' ? r : r + 1;
+  return roundAfter(clock, Math.max(0, role === 'fallback' ? t - 1 : t), marginSec);
+}
+
+/** `source` with the settlement layer's beacon margin (ADR-0032) on it, for `roundFor`; the same source when it has it. */
+export function withMargin(source: RandomnessSource | null, marginSec: number): RandomnessSource | null {
+  if (!source || (source.marginSec ?? 0) === marginSec) return source;
+  return { kind: source.kind, clock: source.clock, marginSec, value: (round) => source.value(round) };
 }
 
 /** ADR-0018 phase 1: value(round) = keccak256(simSeed || uint64 round), published once the sim clock reaches it. */

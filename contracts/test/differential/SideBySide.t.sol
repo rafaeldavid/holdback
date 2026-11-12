@@ -451,7 +451,7 @@ contract SideBySideTest is Test {
 
     /// The rules contract's views and immutables, each as its raw return (a call that fails records its failure).
     function _surface(address rules) internal view returns (bytes memory) {
-        string[14] memory views = [
+        string[15] memory views = [
             string("eip712Domain()"),
             "ESCROW()",
             "ERC3009_COLLECTOR()",
@@ -465,6 +465,7 @@ contract SideBySideTest is Test {
             "KEY_APPEAL()",
             "MUTUAL_FEE_SHARE_BPS()",
             "TOKEN()",
+            "BEACON_MARGIN()", // T-380 (ADR-0032)
             "typedDataHash(bytes32)"
         ];
         bytes[] memory out = new bytes[](views.length);

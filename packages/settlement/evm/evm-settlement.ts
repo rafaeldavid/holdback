@@ -375,6 +375,10 @@ const decidedBy = (m: Decision) => ({
 
 export class EvmSettlement implements Settlement {
   readonly kind: 'local' | 'testnet';
+  /** ADR-0032: the rules contract's BEACON_MARGIN(), as the chain read it (`EvmChain.beaconMarginSec`). */
+  get beaconMarginSec(): number {
+    return this.world.beaconMarginSec;
+  }
   readonly domain;
   readonly token: string;
   private readonly books = new Map<Hex32, Book>();
@@ -876,7 +880,7 @@ export class EvmSettlement implements Settlement {
 
   private stepped(state: EscrowState, e: EscrowEvent): EscrowState {
     // ADR-0031 §8: every chain runs the phase-one contracts, so core steps their profile.
-    const r = step(state, e, 'phase_one');
+    const r = step(state, e, 'phase_one', this.world.beaconMarginSec);
     return r.ok ? r.value : refuse(r.error.type, r.error.detail);
   }
 
@@ -1377,7 +1381,7 @@ export class EvmSettlement implements Settlement {
   private mirrored(state: EscrowState, events: readonly EscrowEvent[], fn: string): EscrowState {
     let next = state;
     for (const e of events) {
-      const r = step(next, e, 'phase_one');
+      const r = step(next, e, 'phase_one', this.world.beaconMarginSec);
       if (!r.ok) throw new Error(`EVM/core divergence: the contract accepts ${fn} but core refuses ${e.type} in ${next.kind}: ${r.error.type}: ${r.error.detail}`);
       next = r.value;
     }
@@ -1553,7 +1557,7 @@ export class EvmSettlement implements Settlement {
         return { from: before.kind };
       case 'fallback.triggered':
         // The contract's round, from its FallbackTriggered log, so it stays right for any beacon (drand, T-217).
-        return { beaconRound: log ? Number(log.args['beaconRound']) : beaconRoundFor(after, 'fallback') };
+        return { beaconRound: log ? Number(log.args['beaconRound']) : beaconRoundFor(after, 'fallback', this.world.beaconMarginSec) };
       default:
         return {};
     }

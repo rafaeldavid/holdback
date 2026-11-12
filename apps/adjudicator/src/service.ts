@@ -746,7 +746,7 @@ export class Adjudicator {
     if (!source) {
       return err(problem('adjudicator_unavailable', `${this.#cfg.name} has no source for the randomness this commitment's rulebook names (a drand-quicknet rulebook needs a drand source); it does not decide rather than seed the panel from another (ADR-0018 §5)`));
     }
-    const round = roundFor(role, fixedAt, source.clock);
+    const round = roundFor(role, fixedAt, source.clock, source.marginSec ?? 0);
     const got = await source.value(round);
     if (!got) return err(problem('seed_mismatch', `beacon round ${round} is not published or not proven yet; waiting (no substitute source)`));
     // A bad proof burns up to 250,000 gas in the contract's pairing check: this service signs only a proof it checked.
