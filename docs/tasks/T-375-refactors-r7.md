@@ -81,7 +81,7 @@ The coordinator relayed on 2026-11-12 that an earlier sync of `main` into the la
 
 - **Compiled code unchanged** [measured, one `forge build`]: `HoldbackRules`' runtime is 19,914 bytes on both sides. Without the metadata hash at its end, the new code equals, byte for byte, the code compiled from `parent/HoldbackRules.a37a48d.sol`, the lane's source at `a37a48d`: 19,861 bytes each. (A first comparison against a saved artifact differed by 2 bytes; that artifact came from the planted build of PR 1's proof, so the parent's artifact in the same build is the baseline used.)
 - **The harness's old side is re-seated** to `a37a48d`: `parent/` holds its three files unchanged (same git blob ids), the planted copy is rebuilt from it, `PinnedSource.t.sol` pins the new hashes, and the allow list is empty. The parent pays the money addresses, so the harness now draws deals with those addresses apart as the invariant campaign does.
-- **Gates** (`--match-path 'test/{invariant,differential,fuzz}/*.t.sol'`): 61 passed, 1 failed, in 412 s. `testFuzz_sideBySide` passed 257 runs with the empty allow list; the 11 invariants passed 256 runs of 100 calls each; `test_planted_failsTheHarness` passed. The one failure was the harness's own reach floor: `test_sideBySide_reachesEveryRow` counted 571 landed calls over its 48 seeds against a floor of 576. It passed the run before, without deals drawn apart. The floor went from 12 to 10 a seed, with the reason beside it; every row and stage is still reached.
+- **Gates** (`--match-path 'test/{invariant,differential,fuzz}/*.t.sol'`): 61 passed, 1 failed, in 412 s. `testFuzz_sideBySide` passed 257 runs with the empty allow list; the 11 invariants passed 256 runs of 100 calls each; `test_planted_failsTheHarness` passed. The one failure was the harness's own reach floor: `test_sideBySide_reachesEveryRow` counted 571 landed calls over its 48 seeds against a floor of 576. It passed the run before, without deals drawn apart. The floor went from 12 to 11 a seed (528 of 571), after the review; every row and stage is still reached. Why deals drawn apart land fewer calls is not measured.
 - **Removed with the functions:** `test/fuzz/Rounding.fuzz.t.sol` (7 fuzz tests, all of them on the three functions), their 7 lines in `.gas-snapshot`, and the `Rounding` entry in `contracts/README.md`. `Postings.fuzz.t.sol` now asserts the fee share of 0 directly.
 
 ## Review
@@ -100,9 +100,28 @@ One reviewer pass (Opus 5.5, the `reviewer` role) on commit `9b0bf6c`, with CLAU
 | Info | Two comments inaccurate | Reworded |
 | Info | The mints, the clock cap and the boundary offers hide nothing it could find | None needed |
 
+### PR 1b
+
+One reviewer pass on the port: PASS. No assertion weaker than main's for the same outcome, no outcome phase one keeps left uncovered, no vacuous check. Two Info notes on wording; the one about the deadline that refuses an expired offer (`offerExpiresAt`, before `fundBy`) is fixed.
+
+### PR 2
+
+One reviewer pass on commit `318b8e4`: PASS, three Low and three Info. It measured that no caller of the three functions remains, that `parent/` has `a37a48d`'s git blob ids, that `planted/` differs from it by exactly the stated edits, and that the compiled code is equal without its metadata.
+
+| Severity | Finding | Done |
+| --- | --- | --- |
+| Low | A stale comment on `_paysMoneyAddresses`, now overridden nowhere | The hook and its check are removed |
+| Low | The new reach floor was loose (480 against 571) and its cause unmeasured | Floor 11 a seed (528); the comment says the cause is not measured |
+| Low | `docs/audit/` names the removed test and import | Handoff, for AL-2 |
+| Info | `contracts/README.md` and `.gas-snapshot` are outside the listed paths | Both follow from the removal; kept |
+| Info | Rounding is no longer fuzzed on chain | Phase one has no rate arithmetic on chain; `Postings` asserts the fee share of 0 |
+
 ## Decisions
 
 - **The clock stays below 2^40 s in the handler.** The word stores times in 40 bits, and bounding them is R8's fix. Without the cap, a warp to a boundary offer's far deadline would let `t1` wrap and fail the oracle for a known, out-of-scope reason.
 - **The boundary deal that holds the largest `uint120` funds.** The handler mints that amount to the buyer and the payment address at construction, so the capture and void at the top of the range run too. Conservation reads the supply after construction, so it counts them.
 
 ## Handoff
+
+- **For AL-2 (`docs/audit/`), from PR 2:** `docs/audit/invariants.md` still lists `test/fuzz/Rounding.fuzz.t.sol`, which PR 2 removed; `docs/audit/scope.md` says the Holdback contracts import `FixedPointMathLib`, and since PR 2 no file in `contracts/src` does [measured by PR 2's reviewer].
+- **For R8, from PR 1's review:** the clause `t.timing.fundBy > type(uint48).max` in `_paymentInfo` cannot be reached since SC-5, because `fundBy < fallbackBy <= expiry` [inferred]. R8 may drop it or keep it as a guard, and when it adds its own bounds it removes the handler's clock cap (`CLOCK_CAP`) and adds those bounds to `_boundary`.

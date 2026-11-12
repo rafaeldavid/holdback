@@ -230,12 +230,6 @@ contract RulesHandler is Base {
         h[N + 10] = payoutAddr;
     }
 
-    /// T-358: whether this side's rules contract pays the terms' money addresses (ADR-0033). The pinned parent pays
-    /// the signing addresses, so its sides (`Sides.sol`) draw no deal with them apart.
-    function _paysMoneyAddresses() internal view virtual returns (bool) {
-        return true;
-    }
-
     /// T-358: whether deal `i`'s money addresses are apart from its signing addresses.
     function apart(uint256 i) public view returns (bool) {
         return _terms_[i].buyerPaymentAddress != _terms_[i].buyer;
@@ -526,7 +520,7 @@ contract RulesHandler is Base {
         if (b % 16 == 0) _boundary(t, b >> 8);
         // T-358 (ADR-0033): one deal in four has its payment and payout addresses apart from its signing addresses. Since
         // T-375 the side-by-side harness draws them too: its old side, the lane after T-358, pays the money addresses.
-        if (_paysMoneyAddresses() && uint256(keccak256(abi.encode("apart", seed))) % 4 == 0) {
+        if (uint256(keccak256(abi.encode("apart", seed))) % 4 == 0) {
             (t.buyerPaymentAddress, t.sellerPayoutAddress) = (payAddr, payoutAddr);
         }
         bytes32 id = hx.id(t);
