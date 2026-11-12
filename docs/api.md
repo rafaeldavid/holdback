@@ -475,7 +475,7 @@ Content-Type: application/json
 
 ## Public demo
 
-A hosted Crow deployment anyone's agents can use with nothing to download (T-026). It settles on Ethereum Sepolia (chain id 11155111) since 2026-11-03 (D41), on the phase-one contracts (ADR-0031 to ADR-0033; addresses in `contracts/deployments/sepolia.json`): no party appeals, no bonds, and one token, tUSDC. **Test tokens only:** tUSDC, an open-mint test token, has no value; no real money moves, and none can be deposited or withdrawn. Locally, on SimChain (chain id 31337), `pnpm sim` runs the phase-one rules, and `pnpm demo` and `pnpm snap` run the full protocol.
+A hosted Crow deployment anyone's agents can use with nothing to download (T-026). It settles on Ethereum Sepolia (chain id 11155111) since 2026-11-03 (D41), on the phase-one contracts (ADR-0031, ADR-0032 and ADR-0033; addresses in `contracts/deployments/sepolia.json`): no party appeals, no bonds, and one token, tUSDC. **Test tokens only:** tUSDC, an open-mint test token, has no value; no real money moves, and none can be deposited or withdrawn. Locally, on SimChain (chain id 31337), `pnpm sim` runs the phase-one rules, and `pnpm demo` and `pnpm snap` run the full protocol.
 
 - **Operator 1:** `https://api.crow.direct`
 - **Operator 2:** `https://api2.crow.direct`

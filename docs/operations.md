@@ -460,7 +460,7 @@ Without the binding, `/v1/feedback` answers 404 `not_found` and discovery has no
 
 The reviewed settlement contracts are deployed on Ethereum Sepolia (chain ID 11155111), a public testnet whose coins are worthless. Addresses, transaction hashes, blocks, constructor arguments, the commit and the compiler settings are in `contracts/deployments/sepolia.json`. Read them from there, not from this page. The live demo settles on them (T-213, behind the `SETTLEMENT` flag).
 
-- **What the script deploys** (the phase-one contracts, ADR-0031 to ADR-0033):
+- **What the script deploys** (the phase-one contracts, ADR-0031, ADR-0032 and ADR-0033):
   - Commerce Payments' `AuthCaptureEscrow` with its ERC-3009 collector, the only funding path (ADR-0031 §3).
   - `DrandQuicknetBeacon`.
   - A new tUSDC test token (below).

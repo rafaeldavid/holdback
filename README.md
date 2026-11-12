@@ -4,7 +4,7 @@ Crow is escrow and verification for deals between AI agents. The website writes 
 
 Agents can already pay each other, but they cannot safely commit money against work from an agent at another firm. With Crow, the buyer's money sits in escrow while the seller delivers its work encrypted. Declarative checks (rules written as data, with no code to run) run first, then a panel of AI models. Together they decide whether the work meets the agreed terms. The panel uses pinned models (exact model versions) from at least two model families. If the work passes, the settlement layer releases the payment and the work's decryption key together. If not, it refunds the buyer.
 
-By design, no single party can stop a valid deal from settling on its terms or move held funds outside them. That includes Crow's own operators and maintainers. Since 2026-11-03 the public demo settles on contracts on Ethereum Sepolia, an Ethereum public test network. Models from two families reviewed Crow's own contracts; no one has audited them. Anyone with Sepolia ETH, the network's test currency, can call them directly, past every operator. Some properties are not in place yet; for one, both operator nodes run as one process (see Status).
+By design, no single party can stop a valid deal from settling on its terms or move held funds outside them. That includes Crow's own operators and maintainers. Since 2026-11-03 the public demo settles on contracts on Ethereum Sepolia, an Ethereum public test network. It runs the phase-one contracts: no party appeals, no bonds, and one token per deployment, so the first decision by the primary or the fallback adjudicator is final (ADR-0031). Models from two families reviewed Crow's earlier contracts; no one has audited Crow's contracts yet, and the phase-one contracts are prepared for an audit (`docs/audit/`). Anyone with Sepolia ETH, the network's test currency, can call them directly, past every operator. Some properties are not in place yet; for one, both operator nodes run as one process (see Status).
 
 ## Try it
 
@@ -23,9 +23,9 @@ You need Node 22 and pnpm 12, through corepack.
 ```sh
 corepack enable
 pnpm install
-pnpm demo                      # the narrated demo with scripted judges; no keys; writes demo/out/index.html
+pnpm demo                      # the narrated demo with scripted judges, on SimChain's full protocol; no keys; writes demo/out/index.html
 pnpm example buy-dataset       # one deal over HTTP against a local sim: a CSV for 25 tUSD, judged by checks
-pnpm sim                       # a local world to call yourself: SimChain, two operator nodes, three test adjudicators
+pnpm sim                       # a local world to call yourself: SimChain with the phase-one rules, two operator nodes, three test adjudicators
 ```
 
 [docs/quickstart.md](docs/quickstart.md) runs the same deal step by step with curl and a standard EIP-712 signer. To check the build:
@@ -52,7 +52,7 @@ flowchart LR
 
 A deal is a commitment both agents sign. It runs in five steps:
 
-1. The seller offers terms. They name the acceptance checks and three adjudicators, the judging services the parties choose: a primary, a fallback and an appeal adjudicator.
+1. The seller offers terms. They name the acceptance checks and three adjudicators, the judging services the parties choose: a primary, a fallback and an appeal adjudicator, which in phase one decides escalations only.
 2. The buyer agrees and funds a hold: the money goes into escrow.
 3. The seller delivers encrypted work.
 4. The adjudicator judges the work against the terms.
@@ -62,25 +62,25 @@ A deal is a commitment both agents sign. It runs in five steps:
 | --- | --- | --- |
 | Buyer and seller agents | Sign every state-changing message (EIP-712) with their own keys, and seal each content key with NaCl box encryption. An operator prepares a message as typed data; the agent checks it against its own intent before signing | `examples/` |
 | Operator nodes | Serve the HTTP API, relay signed messages, index events and issue receipts. They never author a message. Any node will do: an agent fails over to another node. An agent can also submit straight to the settlement layer, past every node: on SimChain locally, and on the contracts, including the public demo's on Sepolia. The operators' view shows such a call within a minute (T-218) | `apps/operator/` |
-| Settlement layer | Holds the funds and enforces the rules. Anyone can trigger every timeout. The `HoldbackRules` contract settles the public demo on Ethereum Sepolia (D41, the decision to settle the demo on Sepolia; addresses in `contracts/deployments/sepolia.json`). It has no admin keys, and it acts as the operator of `AuthCaptureEscrow`, the Commerce Payments Protocol's escrow contract. SimChain, an in-process simulation of the same rules, runs locally and in tests | `packages/settlement/`, `contracts/` |
-| Adjudicators | The parties choose them in the signed terms. Each runs declarative checks first, then a panel of pinned models from at least two families, drawn by commit-reveal. The primary commits to a secret seed before funding; the fallback and appeal adjudicators take their seed from a public randomness beacon. So neither party, nor an adjudicator after it sees the work, can steer which models judge. The adjudicator then signs the decision. If the primary misses its deadline, the fallback decides. If both miss it, anyone can trigger the default outcome | `apps/adjudicator/`, `packages/judgment/` |
-| Bonds | Each adjudicator posts its own bond, a deposit meant to pay the wronged party when an appeal overturns its decision (ADR-0007, the architecture decision record on bonded adjudicators). The contract holds bonds today. An overturn pays the wronged party from the decider's bond (the overturn payout, D43). On-chain coverage ratios (the minimum bond as a share of the value at stake in an adjudicator's open deals) are not built yet. ADR-0014 proposes third-party backers; none are built | `contracts/src/HoldbackBonds.sol` |
+| Settlement layer | Holds the funds and enforces the rules. Anyone can trigger every timeout. The `HoldbackRules` contract settles the public demo on Ethereum Sepolia (D41, the decision to settle the demo on Sepolia; addresses in `contracts/deployments/sepolia.json`). It has no admin keys, and it acts as the operator of `AuthCaptureEscrow`, the Commerce Payments Protocol's escrow contract. Each deployment settles one token, fixed at deploy, and the buyer funds the hold with one ERC-3009 signature. A settlement pays only the buyer's payment address and the seller's payout address. SimChain, an in-process simulation of the same rules, runs locally and in tests; it keeps the full protocol as its reference | `packages/settlement/`, `contracts/` |
+| Adjudicators | The parties choose them in the signed terms. Each runs declarative checks first, then a panel of pinned models from at least two families, drawn by commit-reveal. The primary commits to a secret seed before funding; the fallback and appeal adjudicators take their seed from a public randomness beacon. So neither party, nor an adjudicator after it sees the work, can steer which models judge. The adjudicator then signs the decision. If the primary misses its deadline, the fallback decides. If both miss it, anyone can trigger the default outcome, which refunds the buyer | `apps/adjudicator/`, `packages/judgment/` |
+| Bonds and appeals | Not in phase one: the phase-one contracts hold no bonds and take no party appeal, so the first decision is final (ADR-0031). SimChain keeps both as the full protocol's reference: each adjudicator posts a bond, a deposit that pays the wronged party when an appeal overturns its decision (ADR-0007, the architecture decision record on bonded adjudicators; the overturn payout, D43). ADR-0014 proposes third-party backers; none are built | `packages/settlement/sim/` |
 
 Every change must pass three litmus tests (`CLAUDE.md`):
 
 1. **Neutrality** (ADR-0001). No single party can stop a valid commitment from settling according to its terms, or move held funds outside them. That holds for an operator, the rules contract, an adjudicator, a club, an on-ramp, a model provider and the maintainers.
 2. **The hold** (ADR-0002). The settlement layer locks the funds so neither party can take them alone. Holds expire, and no one can spend the same funds twice. Operations are idempotent: repeating one has no further effect. Cards and fiat money only fund deals and pay out; custody stays on the settlement layer.
-3. **Defended multi-model judgment** (ADR-0006). Deterministic checks run first. A panel of pinned models from at least two families follows, drawn by commit-reveal. The judgment pipeline defends the panel against prompt injection, gaming, drift (a model's behaviour changing over time) and correlated error (judges failing the same way). The adjudicator's bond backs appeals.
+3. **Defended multi-model judgment** (ADR-0006). Deterministic checks run first. A panel of pinned models from at least two families follows, drawn by commit-reveal. The judgment pipeline defends the panel against prompt injection, gaming, drift (a model's behaviour changing over time) and correlated error (judges failing the same way). The adjudicator's bond backs appeals; phase one sets that line aside, since its contracts have no party appeals and no bonds (D57, ADR-0031).
 
 ## Why trust it
 
 - **No admin keys.** No key holds admin powers over the contracts: they have no owner, pause, freeze, blacklist or upgrade proxy. `contracts/test/fuzz/NoAdmin.fuzz.t.sol` holds every deployed contract to a reviewed list of allowed functions. It also fails on known admin function selectors, and scans the bytecode for `SELFDESTRUCT`, `CALLCODE` and `DELEGATECALL`.
 - **Invariants.** `contracts/test/invariant/RulesInvariants.t.sol` fuzzes the rules contract, calling it with random inputs, to check three properties (T-203, the invariant and fuzz suites). Conservation: no step creates or destroys a token. Settle-once: no deal settles more than once. No admin path.
 - **A formal model.** TLC, a model checker, checks `formal/Holdback.tla`, a TLA+ model of the deal's states (T-204). It checks that every funded commitment reaches a final state when anyone may trigger timeouts, even if any one named actor halts. It also checks that no step moves funds without a valid signature, decision or expired timeout.
-- **Neutrality fixtures.** Nine `neutrality.*` scenarios in `fixtures/scenarios/` each take one actor offline or make it refuse. Each checks that the deal still ends as its terms say. The actors are the operators, the primary and fallback adjudicators, the appeal adjudicator after an escalation, the buyer and the seller. [docs/neutrality.md](docs/neutrality.md) lists, per actor, the fixture that exists or the one still planned (clubs, on-ramps, the beacon, model providers, the maintainers' registry).
-- **Differential testing.** The scenarios run on SimChain and again against the contract on a local chain (`pnpm snap --settlement=local`), and a report compares the results. All but three pass on both. Those three need bond rules that are not on chain yet, so the test runner excludes them. [reports/differential-local.md](reports/differential-local.md) lists the exclusions and every difference.
+- **Neutrality fixtures.** The `neutrality.*` scenarios in `fixtures/scenarios/` each take one actor offline or make it refuse. Each checks that the deal still ends as its terms say. The actors are the operators, the primary and fallback adjudicators, the appeal adjudicator after an escalation, the buyer and the seller. [docs/neutrality.md](docs/neutrality.md) lists, per actor, the fixture that exists or the one still planned (clubs, on-ramps, the beacon, model providers, the maintainers' registry).
+- **Differential testing.** The scenarios run on SimChain and again against the contract on a local chain (`pnpm snap --settlement=local`), and a report compares the results. Every scenario runs on both except the SimChain-only fixtures, which use party appeals or bonds and so are not in phase one. `LOCAL_EXCLUSIONS` in `packages/testkit/src/runner.ts` lists them, and [reports/differential-local.md](reports/differential-local.md) lists every difference.
 
-The contract review (T-206) is done: models from two families reviewed the contracts, including the drand verifier, the contract code that checks the drand randomness beacon, and Rafa confirmed the review on 2026-11-06. No one has audited Crow. An external audit and legal advice come before any mainnet deployment (D4).
+The contract review (T-206) is done for the 0.7 contracts: models from two families reviewed them, including the drand verifier, the contract code that checks the drand randomness beacon, and Rafa confirmed the review on 2026-11-06. No one has audited Crow. An external audit and legal advice come before any mainnet deployment (D4).
 
 ## Status
 
@@ -90,15 +90,16 @@ As of 2026-11-06:
 - **In progress: Phase 2, settlement on EVM (the Ethereum virtual machine).** The public demo settles on Ethereum Sepolia, and `docs/plan.md` lists Phase 2's seven exit criteria.
   - **Merged:** the rules contract on `AuthCaptureEscrow` (T-202); the invariant and fuzz suites (T-203); the TLA+ model (T-204); EVM settlement with the SimChain differential (T-205); on-chain verification of the drand beacon (T-209); the first slice of private deals, schema v0.8 (T-207).
   - **Reviewed and deployed:** models from two families reviewed the contracts, and Rafa confirmed the review on 2026-11-06 (T-206, the contract review). The contracts and tUSDC are on Sepolia, and the public demo settles there (T-213, the Sepolia cutover; D41).
-  - **Redeployed on 2026-11-04 as the 0.7 contracts** (EIP-712 domain 0.7): an overturning appeal pays the wronged party from the first decider's bond (D43), and each decision and early accept names the delivery it settles (ADR-0029).
+  - **Redeployed on 2026-11-04 as the 0.7 contracts** (EIP-712 domain 0.7): an overturning appeal pays the wronged party from the first decider's bond (D43, not in phase one), and each decision and early accept names the delivery it settles (ADR-0029).
   - **Deployed on 2026-11-05 (T-220):** drand proofs for fallback and appeal decisions (T-217), direct contract calls in the operators' view (T-218), restart-safe relays (T-219) and adjudicator registration through the API (T-221). They went live in one deploy, in the same Sepolia world (D49).
   - **Deployed on 2026-11-06:** the operators join a delivery that is already on chain (T-230), and they send each due timeout on their own, at their own gas (T-231).
   - **Round 1, the full end-to-end test on Sepolia (T-216):** 15 of 16 scenarios passed live, and scenario 11, a restart mid-step, counts by its coverage (D54).
   - **Done on 2026-11-07:** the read-after-write audit (T-232). Contract hardening (T-212) waits for the contract redeploy before mainnet (D54).
+  - **Phase one** (branch `contracts-audit-ready`; ADR-0031, ADR-0032 and ADR-0033): the contracts drop what is not in phase one (party appeals, bonds, Permit2 funding, other tokens and payouts to third addresses), and add the buyer's payment address and the seller's payout address (EIP-712 domain 0.8, schema v0.11). The operators, SimChain's phase-one profile and the docs follow them. They are prepared for an audit, then a redeploy on Sepolia (`docs/cutover-phase-one.md`).
   - **Blocked until an audit:** Ethereum mainnet, the target chain (D4, the chain decision).
 - **Measured:**
   - A deal with no dispute (the happy path) costs 440,005 gas in two transactions on a local chain (T-209). The deal pays the operator fee, which the demo charges, as part of funding. Gas is the chain's unit of computation, paid for in ETH.
-  - The same deal on Sepolia took 1,636,242 gas in three transactions on the 0.7 contracts (T-215, 2026-11-04). On 2026-11-05 the median deal used 1,261,428 gas, its appeal expiry included, from per-step medians over 15 and 16 deals (T-066's metrics). The demo's minimum operator fee, 4.71 tUSDC, prices the first figure: 4.70 for the gas, at a fixed and fictional rate, and 0.01 for relaying (T-215, the gas share on small deals).
+  - The same deal on Sepolia took 1,636,242 gas in three transactions on the 0.7 contracts (T-215, 2026-11-04). On 2026-11-05 the median deal used 1,261,428 gas, its appeal expiry included (phase one sends none), from per-step medians over 15 and 16 deals (T-066's metrics). The demo's operator fee comes from its configuration (`OPERATOR_FEE_*`, `docs/operations.md`) and is published in `fees.operator`; its gas part priced the first figure at a fixed and fictional rate (T-215, the gas share on small deals).
   - `pnpm snap` runs every scenario in `fixtures/scenarios/`, and `forge test` every contract test, in CI on each pull request; the CI log gives today's counts.
 - **Limits,** as "Honest limits" in https://crow.direct/llms.txt lists them:
   - test tokens only;
@@ -121,7 +122,7 @@ As of 2026-11-06:
 | `packages/judgment/` | Intake, declarative checks, the screen, providers, panel selection, aggregation |
 | `packages/sdk/` | The internal SDK: used by the operator, the demo and the tests (failover, direct submit); not published |
 | `packages/testkit/` | The `pnpm snap` scenario runner |
-| `contracts/` | Foundry: `HoldbackRules`, `HoldbackBonds`, the drand beacon verifier, and their tests |
+| `contracts/` | Foundry: `contracts/src/` holds `DrandQuicknetBeacon.sol` (the drand beacon verifier), `HoldbackRules.sol`, `HoldbackTypes.sol` and `IHoldbackBeacon.sol`<!-- T-385: add IHoldbackRules.sol (descriptions, no logic) when T-384 merges -->; plus their tests |
 | `formal/` | The TLA+ model of the commitment state machine |
 | `spec/` | JSON Schemas (the API contract), examples and the OpenAPI document |
 | `fixtures/` | Scenario fixtures, recordings, demo clubs, terms and data |

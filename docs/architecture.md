@@ -2,7 +2,7 @@
 
 Reflects the ADRs and the reviews it cites. `docs/decisions-today.md` and `docs/decisions/` record every decision and ADR; this page has not been revised for each decision after D40.
 
-Every chain deployment runs the phase-one contracts: no party appeals, no bonds, one token, and two money addresses per deal (ADR-0031 to ADR-0033). SimChain keeps the full protocol, party appeals and bonds included, as its reference; a SimChain world may also run the phase-one rules (`pnpm sim` does). Text marked "SimChain only" describes the full protocol.
+Every chain deployment runs the phase-one contracts: no party appeals, no bonds, one token, and two money addresses per deal (ADR-0031, ADR-0032 and ADR-0033). SimChain keeps the full protocol, party appeals and bonds included, as its reference; a SimChain world may also run the phase-one rules (`pnpm sim` does). Text marked "SimChain only" describes the full protocol.
 
 ## Shape of the system
 
