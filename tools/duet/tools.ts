@@ -11,7 +11,7 @@
 // seller's key is the child's HOLDBACK_KEY. Every tool result passes through the run's secret list before a model or
 // the record sees it. The buyer's approval stop is answered by the owner's policy file, not by a person.
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ToolSpec } from './providers.ts';

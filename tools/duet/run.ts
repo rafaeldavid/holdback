@@ -115,8 +115,8 @@ export async function runDuet(o: RunOptions): Promise<RunResult> {
   const timeouts = o.commandTimeoutMs ?? { short: 180_000, long: 1_200_000 };
   const buyerTools = new Toolbox({ role: 'buyer', work: real.buyerWork, owner: real.buyerOwner, repo: REPO, operators: world.operators, allow: buyerAllow, secrets, rec, keyStore, policy: s.policy, timeoutMs: timeouts });
   const sellerTools = new Toolbox({ role: 'seller', work: real.sellerWork, owner: real.sellerOwner, repo: REPO, operators: world.operators, allow: sellerAllow, secrets, rec, sellerKey, adapterPort, jobApi: world.jobApi.url, timeoutMs: timeouts });
-  const facts = (role: 'buyer' | 'seller') => ({ docs: world.docs, sellerPage, jobApi: world.jobApi.api, adapterPort, keyStore, token: world.token, local: world.local });
-  const briefs = { buyer: buyerBrief(s, facts('buyer')), seller: sellerBrief(s, facts('seller')) };
+  const facts = () => ({ docs: world.docs, sellerPage, jobApi: world.jobApi.api, adapterPort, keyStore, token: world.token, local: world.local });
+  const briefs = { buyer: buyerBrief(s, facts()), seller: sellerBrief(s, facts()) };
   const scriptFacts = () => ({ docs: world.docs, sellerPage, jobApi: { ...world.jobApi.api, url: world.jobApi.url }, adapterPort, keyStore, operator: world.operators[0]! });
   const providerOf = (role: 'buyer' | 'seller', side: Side): Provider => (side !== 'scripted' ? side : scripted(role === 'buyer' ? buyerScript(s.name, scriptFacts()) : sellerScript(s.name, scriptFacts())));
 

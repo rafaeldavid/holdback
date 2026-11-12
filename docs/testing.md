@@ -20,6 +20,7 @@ The goal is fast, deterministic feedback that agents can trust, plus readable ev
 | Calibration and red team | Judge accuracy, injection resistance, drift | `pnpm calibrate` | No (on demand, before registry promotion) |
 | Demo dry run | The experience works for a newcomer | Manual checklist (T-013) | No |
 | Agent simulation | Model agents of different sizes, given only outsider knowledge and a behaviour profile, use the HTTP API as buyers and sellers; `sim:check` recomputes conservation, terms-compliance, terminal-or-explained and matching records from the settlement log | `pnpm sim:world`, subagents, `pnpm sim:check` (`tools/sim/README.md`, T-021) | No (exploration; its unit tests run in CI, and findings become fixtures) |
+| Two-agent run | A buyer and a seller, each a raw tool-use loop over a model API from a different vendor (Anthropic, DeepSeek), make one deal through Crow with only the docs, an owner's brief and fenced tools; the run leaves a record, the seven measures and a replay page | `pnpm duet run` (`tools/duet/README.md`, T-391); live runs need both keys | Its scripted runs, yes: they prove the harness, not the models |
 
 ## Scenario fixtures
 

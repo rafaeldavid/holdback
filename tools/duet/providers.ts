@@ -73,7 +73,10 @@ export function registry(file = new URL('../../config/judges-live.yaml', import.
     if (!m) continue;
     if (m[1] === 'id' && cur.id) cur = {};
     (cur as J)[m[1]!] = m[2];
-    if (cur.id && cur.provider && cur.model) out.push(cur as RegistryModel), (cur = {});
+    if (cur.id && cur.provider && cur.model) {
+      out.push(cur as RegistryModel);
+      cur = {};
+    }
   }
   return out;
 }
@@ -112,7 +115,7 @@ async function post(url: string, headers: Record<string, string>, body: unknown,
       throw new VendorError(0, `network error: ${(e as Error).name}`);
     }
     if ((res.status === 429 || res.status >= 500) && attempt < 3) { await new Promise((r) => setTimeout(r, 2000 * 2 ** attempt)); continue; }
-    const json = await res.json().catch(() => undefined);
+    const json: J = await res.json().catch(() => undefined);
     if (!res.ok) {
       const e = json?.error;
       const detail = [e?.type, typeof e?.message === 'string' ? e.message.slice(0, 300) : undefined].filter(Boolean).join(': ');

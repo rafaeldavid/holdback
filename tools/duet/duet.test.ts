@@ -46,7 +46,7 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       // The page: one file, from the record, with no script loaded from anywhere and no key in it.
       const page = readFileSync(r.page, 'utf8');
       expect(page).toContain('Two agents, one deal');
-      expect(page).toContain('both sides here are scripted');
+      expect(page).toContain("Both sides are scripted");
       expect(page).not.toMatch(/<script[^>]+src=/i);
       for (const text of [readFileSync(r.record, 'utf8'), page, readFileSync(join(r.dir, 'summary.json'), 'utf8')]) expect(r.leaks(text)).toBe(false);
       // The buyer's keys exist, in the owner's folder only.
