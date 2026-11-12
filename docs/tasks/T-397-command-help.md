@@ -5,7 +5,7 @@
 - **Depends on:** T-393 (`site/buy.mjs`), T-396 (the usage lines in the buyer's order), T-390 part 3 (`examples/entry.ts`)
 - **Paths this task may touch:** `examples/` (the client commands and a shared help module), `site/buy.txt`, `site/buy.mjs` as the build writes it, their tests, this file. Off limits: `site/build.mjs`, `site/check.mjs`, `site/index.html`, `tools/duet/` (T-391's).
 - **Human gate:** no. Rafa approved the task (2026-11-12, "Yes, all three"). Nothing deploys.
-- **Status:** in progress
+- **Status:** done
 - **Agent/session:** T-393's session, kind 1
 
 ## Intent
@@ -27,7 +27,7 @@ Limits:
 - [x] The example that `node buy.mjs --help` prints is a line of the published `buy.txt` [measured, the same test].
 - [x] `buy-with-signer.ts` is 50 lines; both paths are within budget; the site check passes; `buy.mjs` is rebuilt.
 - [x] One reviewer; findings fixed (below).
-- [ ] Merged by hand into `contracts-audit-ready` once `check` and `gitleaks` pass.
+- [x] Merged by hand into `contracts-audit-ready` once `check` and `gitleaks` passed (PR 468, 8c4b3b9).
 
 ## Out of scope
 
@@ -74,4 +74,12 @@ Left, as before this task: `buy-with-signer`'s other wrong calls end in a thrown
 
 ## Handoff
 
-To be completed at the merge.
+**Done.** PR 468 merged as 8c4b3b9. Every client command answers `--help` and `-h` as the first argument, with exit 0. Help asked for anywhere else is a wrong call and exits 2.
+
+**For the next deploy.** `site/buy.mjs` changed. Its SHA-256 is d2cfeef32d2e0815426d8c9dc1116e3e6a9572394099f853d192bad4d4cc37e6, which `buy.txt`'s install line carries. The first deploy from main must publish it, and https://crow.direct/buy.mjs must hash to that value. `site/try.mjs` is unchanged (182042421b68…).
+
+**Left for others.**
+- `tools/duet/` (T-391): the run tool's wrapper should pass `--help` through to the command, as the commands now answer it. `adapter-log` is the run tool's own command.
+- Triage: `buy-with-signer`'s other wrong calls end in a thrown error, so Node prints a source line and a stack trace above the help. Catching them needs room the 50-line cap does not leave.
+
+**How to resume.** `examples/help.ts` holds the text. `tests/site-guides.test.ts` checks that `buy.mjs`'s help answers, and that its example is a line of `buy.txt`.
