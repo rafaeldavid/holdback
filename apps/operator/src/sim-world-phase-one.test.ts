@@ -88,7 +88,7 @@ describe('pnpm sim runs the phase-one rules (T-378)', () => {
   });
 
   // PR 416 review M1 and L5: one whole deal on the phase-one world reads as it does on the chain. The primary reserves no
-  // bond, the decision is final when it settles, the appeal state reads none, and the appeal-expiry trigger is refused.
+  // bond, the decision is final when it settles, the appeal state reads none, and the trigger for the appeal window's expiry, not in phase one, is refused.
   it('a deal on the phase-one world: no bond reserved, final at the decision, appealState none, no appeal expiry', async () => {
     const w = phaseOne;
     const acct = (l: string) => w.info.accounts.find((a) => a.label === l)!;
