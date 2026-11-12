@@ -2,7 +2,7 @@
 // set as Worker secrets, within a daily cap on live judge calls; scripted fake judges otherwise. The cap is the
 // spending limit for the public faucet: past it, panels are scripted for the rest of the UTC day, and their
 // verdicts carry the fake-judge mark, so a record never passes scripted output for a model's.
-import { liveJudges, liveRegistry, LIVE_REGISTRY_URI, markedFake, markerFake, missingLiveEnv, placeholderRegistry, type JudgeUsage, type TestAdjudicatorOptions } from '@holdback/adjudicator';
+import { liveJudges, liveRegistry, LIVE_REGISTRY_URI, markedFake, markerFake, missingLiveEnv, placeholderRegistry, type JudgeUsage, type KeptRegistry, type TestAdjudicatorOptions } from '@holdback/adjudicator';
 import type { WorldStorage } from './storage.js';
 
 export type JudgeProvider = NonNullable<TestAdjudicatorOptions['provider']>;
@@ -95,6 +95,12 @@ export interface PanelConfig {
   live: boolean;
   registry: Registry;
   registryUri: string;
+  /**
+   * ADR-0036: the other registry this world carries, with the provider that reaches it: with live judges, the
+   * placeholder registry and the scripted judges, so a deal bound to it before the live keys were set is still judged.
+   * Without live judges, none: no provider reaches the live registry, so a deal bound to it cannot be judged here.
+   */
+  kept: KeptRegistry[];
   /** The live-judging variables that are missing, by name (empty when live). */
   missing: string[];
   /** What every adjudicator calls: live while `allowLive` is set and the budget lasts, scripted otherwise. */
@@ -121,12 +127,13 @@ export function panelConfig(o: PanelOptions): PanelConfig {
   const scripted = markedFake(markerFake());
   const live = o.judgeProvider ? { ok: true as const, value: o.judgeProvider } : liveJudges(o.env, { onUsage: (u) => budget.usage(u) });
   if (!live.ok) {
-    return { live: false, registry: placeholderRegistry(), registryUri: PLACEHOLDER_REGISTRY_URI, missing: missingLiveEnv(o.env), provider: scripted, budget, allowLive: false };
+    return { live: false, registry: placeholderRegistry(), registryUri: PLACEHOLDER_REGISTRY_URI, kept: [], missing: missingLiveEnv(o.env), provider: scripted, budget, allowLive: false };
   }
   const cfg: PanelConfig = {
     live: true,
     registry: liveRegistry(),
     registryUri: LIVE_REGISTRY_URI,
+    kept: [{ registry: placeholderRegistry(), uri: PLACEHOLDER_REGISTRY_URI, provider: scripted }],
     missing: [],
     budget,
     allowLive: false,

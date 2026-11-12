@@ -765,7 +765,10 @@ describe('adjudicator passes (T-057)', () => {
     const storage = new MemoryStorage();
     let t = Date.now();
     const now = () => t;
-    const first = await serve({ now }, storage, undefined, { passes: false });
+    // Accepted under the live registry (a stand-in for the models), then restarted without live judges: no provider
+    // reaches the registry the deal bound, so the primary refuses the delivery (registry_mismatch, ADR-0036) on every
+    // pass until judgeBy, two hours away: a case no pass can finish.
+    const first = await serve({ now, judgeProvider: markerFake() }, storage, undefined, { passes: false });
     const d = await discovery(first.urls);
     const [seller, buyer] = [freshAgent(first.urls), freshAgent(first.urls)];
     for (const a of [seller, buyer]) await a.call('POST', '/v1/faucet', { address: a.address });
@@ -777,9 +780,7 @@ describe('adjudicator passes (T-057)', () => {
     await first.close();
     running.splice(running.indexOf(first), 1);
 
-    // Restarted with live judges, the primary refuses the delivery (registry_mismatch, backlog) on every
-    // pass until judgeBy, two hours away: a case no pass can finish.
-    const stuck = await wake(storage, { now, judgeProvider: markerFake() });
+    const stuck = await wake(storage, { now });
     expect(stuck.nextPass()).toBe(t + 1000);
     const waits: number[] = [];
     for (let i = 0; i < 8; i++) {
