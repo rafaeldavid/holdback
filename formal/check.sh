@@ -1,17 +1,26 @@
 #!/usr/bin/env bash
-# Model-check the commitment state machine (docs/neutrality.md "How neutrality is tested").
+# Model-check the commitment state machine (docs/neutrality.md "How neutrality is tested"), in both profiles of
+# formal/Holdback.tla: full (the whole protocol, which SimChain runs) and phase one (what the contracts run).
 #
 # Exits 0 iff
-#   - every formal/*.cfg passes (TLC finds no violation), and
-#   - every formal/broken/*.cfg fails, with TLC output matching the "\* expect:" line in that config,
-#     so each property is shown to bite.
+#   - every formal/full/*.cfg and formal/phase-one/*.cfg passes (TLC finds no violation),
+#   - every formal/broken/<profile>/*.cfg fails, with TLC output matching the "\* expect:" line in that config,
+#     so each property is shown to bite, and
+#   - every witness in formal/reach.list is reached (TLC violates "this state is never reached"), so no config
+#     passes for want of behaviour.
 # Prints distinct states, depth and wall time per config. Logs go to reports/formal/ (gitignored).
 #
 # Tools: TLC from tla2tools.jar (pinned release, sha256-checked) and a Java 11+ runtime. If no working
 # java is on PATH, a pinned Eclipse Temurin JRE is fetched from its official GitHub release into
 # formal/.tools/ (gitignored). Nothing is installed system-wide.
 #
-# Usage: formal/check.sh [name-filter]   e.g. formal/check.sh live-   or   formal/check.sh broken/
+# Usage: formal/check.sh [name-filter]
+#   formal/check.sh              every config and every witness
+#   formal/check.sh safety       the safety configs of both profiles, and the reach witnesses
+#   formal/check.sh broken/      every broken variant
+#   formal/check.sh live-        the liveness configs of both profiles (tens of minutes: run it in the background)
+#   formal/check.sh phase-one/   everything of the phase-one profile; full/ likewise
+#   formal/check.sh reach/       the reach witnesses alone
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -42,7 +51,8 @@ fetch() { # url dest sha
   mv "$tmp" "$2"
 }
 
-mkdir -p "$tools" "$logs"
+reach="$here/.reach" # generated witness configs (gitignored); TLC reads a config only from under the spec's folder
+mkdir -p "$tools" "$logs" "$reach"
 
 jar="$tools/tla2tools-$TLA_VERSION.jar"
 if [ ! -f "$jar" ]; then
@@ -78,12 +88,23 @@ else
 fi
 
 failures=0
-printf '%-28s %-6s %12s %6s %10s\n' config result distinct depth wall
-run() { # cfg expect-pass(1|0)
-  local cfg="$1" want_pass="$2"
-  local name="${cfg#"$here"/}"
-  name="${name%.cfg}"
-  case "$name" in *"$filter"*) ;; *) return 0 ;; esac
+ran=0
+printf '%-46s %-7s %12s %6s %10s\n' config result distinct depth wall
+
+# A config runs when its name contains the filter. The filter "safety" also runs the reach witnesses: they are what
+# shows a passing safety config still has the behaviour it is about.
+selected() { # name
+  case "$1" in
+    *"$filter"*) return 0 ;;
+    reach/*) [ "$filter" = safety ] ;;
+    *) return 1 ;;
+  esac
+}
+
+run() { # name cfg mode(pass|bites|reached) [expect]
+  local name="$1" cfg="$2" mode="$3" expect="${4:-}"
+  selected "$name" || return 0
+  ran=$((ran + 1))
   local log="$logs/${name//\//-}.log"
   local meta="$logs/states/${name//\//-}"
   rm -rf "$meta"
@@ -96,33 +117,64 @@ run() { # cfg expect-pass(1|0)
   set -e
   end="$(date +%s)"
   rm -rf "$meta"
-  local distinct depth result
+  local distinct depth result ok
   distinct="$(sed -n 's/.* \([0-9][0-9]*\) distinct states found.*/\1/p' "$log" | tail -n 1)"
   depth="$(sed -n 's/.*depth of the complete state graph search is \([0-9][0-9]*\).*/\1/p' "$log" | tail -n 1)"
-  if [ "$want_pass" = 1 ]; then
-    if [ "$rc" = 0 ] && grep -q 'Model checking completed. No error has been found.' "$log"; then result=pass; else result=FAIL; failures=$((failures + 1)); fi
+  if [ "$mode" = pass ]; then
+    ok=pass
+    if [ "$rc" = 0 ] && grep -q 'Model checking completed. No error has been found.' "$log"; then result=pass; else result=FAIL; fi
   else
-    local expect
-    expect="$(sed -n 's/^\\\* expect: //p' "$cfg" | head -n 1)"
+    ok="$mode"
+    if [ "$mode" = bites ]; then expect="$(sed -n 's/^\\\* expect: //p' "$cfg" | head -n 1)"; fi
     if [ -z "$expect" ]; then
-      result=NOEXP; failures=$((failures + 1))
+      result=NOEXP
     elif [ "$rc" != 0 ] && grep -Eq "$expect" "$log"; then
-      result=bites
+      result="$mode"
     else
-      result=MISSED; failures=$((failures + 1))
+      result=MISSED
     fi
   fi
-  printf '%-28s %-6s %12s %6s %9ss\n' "$name" "$result" "${distinct:--}" "${depth:--}" "$((end - start))"
-  if [ "$result" != pass ] && [ "$result" != bites ]; then
+  printf '%-46s %-7s %12s %6s %9ss\n' "$name" "$result" "${distinct:--}" "${depth:--}" "$((end - start))"
+  if [ "$result" != "$ok" ]; then
+    failures=$((failures + 1))
     echo "  see $log" >&2
   fi
 }
 
-for cfg in "$here"/*.cfg; do run "$cfg" 1; done
-for cfg in "$here"/broken/*.cfg; do run "$cfg" 0; done
+named() { # cfg -> its name: the path under formal/, without .cfg
+  local name="${1#"$here"/}"
+  printf '%s' "${name%.cfg}"
+}
 
-if [ "$failures" -ne 0 ]; then
-  echo "formal: $failures config(s) did not meet expectations" >&2
+for cfg in "$here"/full/*.cfg "$here"/phase-one/*.cfg; do run "$(named "$cfg")" "$cfg" pass; done
+for cfg in "$here"/broken/full/*.cfg "$here"/broken/phase-one/*.cfg; do run "$(named "$cfg")" "$cfg" bites; done
+
+# Reach witnesses: one generated config each, in formal/.reach/.
+while read -r profile addresses witness _; do
+  case "$profile" in ''|'#'*) continue ;; esac
+  case "$profile" in
+    full) constant=full ;;
+    phase-one) constant=phase_one ;;
+    *) echo "reach.list: unknown profile $profile" >&2; exit 2 ;;
+  esac
+  case "$addresses" in
+    equal) apart='{}' ;;
+    apart) apart='{"buyer", "seller"}' ;;
+    *) echo "reach.list: unknown addresses $addresses" >&2; exit 2 ;;
+  esac
+  name="reach/$profile-$addresses/$witness"
+  cfg="$reach/${name//\//-}.cfg"
+  printf 'SPECIFICATION Spec\nCONSTANTS\n  C = {c1, c2}\n  Halted = "none"\n  Bug = "none"\n  Profile = "%s"\n  Apart = %s\nINVARIANTS\n  %s\n' \
+    "$constant" "$apart" "$witness" >"$cfg"
+  run "$name" "$cfg" reached "Invariant $witness is violated"
+done <"$here/reach.list"
+
+if [ "$ran" -eq 0 ]; then
+  echo "formal: no config matches \"$filter\"" >&2
   exit 1
 fi
-echo "formal: all configs met expectations"
+if [ "$failures" -ne 0 ]; then
+  echo "formal: $failures of $ran config(s) did not meet expectations" >&2
+  exit 1
+fi
+echo "formal: all $ran config(s) met expectations"

@@ -1,0 +1,38 @@
+# Reach witnesses: states the model must reach. One per line: profile, addresses, witness.
+#   profile    full | phase-one
+#   addresses  equal | apart   (each money address equal to its signing address, or both apart)
+#   witness    an operator W_... of Holdback.tla, which says "this state is never reached"
+# formal/check.sh runs each witness as an invariant and requires TLC to violate it, so a safety config cannot pass
+# because the model lost the behaviour it is about. Rows P06 to P17 are docs/audit/state-model.md, section 9.3.
+
+# Phase one: every closing row of the state model.
+phase-one apart W_ReleasedByPrimary            # P06
+phase-one apart W_RefundedByPrimary            # P07
+phase-one apart W_ReleasedByFallback           # P08
+phase-one apart W_RefundedByFallback           # P09
+phase-one apart W_ReleasedOnEscalation         # P10
+phase-one apart W_RefundedOnEscalation         # P11
+phase-one apart W_DefaultedAfterFallback       # P12, the fallback missed fallbackBy
+phase-one apart W_DefaultedAfterEscalation     # P12, an escalated case went undecided
+phase-one apart W_AcceptedEarlyAfterDelivery   # P13
+phase-one apart W_AcceptedEarlyInHeld          # P13, the early accept carried the delivery
+phase-one apart W_Reclaimed                    # P14
+phase-one apart W_SettledInHeld                # P15, no key released
+phase-one apart W_SettledLateWorkWithKey       # P15, late work: after deliverBy, with the key
+phase-one apart W_SettledAfterDelivery         # P16
+phase-one apart W_SettledUnderFallback         # P17
+phase-one apart W_SettledUnderEscalation       # P17
+phase-one apart W_DecidedCarryingDelivery      # the primary's decision carried the delivery
+phase-one apart W_ClosedAfterEscrowReclaim     # the payment address reclaimed on the escrow, then a timeout closed the deal
+phase-one apart W_BothClosed                   # both commitments end in one behaviour
+
+# Full: what phase one cuts is still reached here, and the shared rows too.
+full equal W_AppealOverturned
+full equal W_AppealUpheld
+full equal W_AppealUndecided
+full equal W_OfferExpired
+full equal W_DefaultedState
+full equal W_FallbackBondEncumbered
+full equal W_DefaultedAfterEscalation
+full equal W_ClosedAfterEscrowReclaim
+full apart W_AppealOverturned
