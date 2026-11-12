@@ -43,6 +43,10 @@ cf536f839477a83bc9f9f98a2aa4700033cb6a60:site/llms.txt:generic-api-key:161
 # the binding test (ADR-0029, T-212 item 3).
 86baa2ef42228f936655056d40adfa2cb3d3f000:packages/core/src/eip712.binding.test.ts:generic-api-key:239
 86baa2ef42228f936655056d40adfa2cb3d3f000:packages/core/src/eip712.binding.test.ts:generic-api-key:241
+# False positives: the same two public EIP-712 digests, pinned again under domain 0.8 after the two money addresses
+# joined the signed terms (T-358, ADR-0033).
+fbe8fecb144241db61945b09ef1165178c014fd7:packages/core/src/eip712.binding.test.ts:generic-api-key:257
+fbe8fecb144241db61945b09ef1165178c014fd7:packages/core/src/eip712.binding.test.ts:generic-api-key:259
 # False positives: public Sepolia contract addresses of the domain 0.7 redeploy (T-212, 2026-11-04): CPP's token store
 # implementation in the deployment record, its archived 0.6 copy and their two pinned copies, and the tUSDC address in
 # llms.txt's faucet examples. The same lines as c33af95's and cf536f8's entries above, with the new addresses.
