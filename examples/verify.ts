@@ -374,7 +374,7 @@ const ints = (types: J, type: string, v: J): J =>
  * Checks a prepared message against the agent's intent and pinned domain. Returns the body to submit and the
  * typed data the agent built itself for each slot `me` signs. Throws Refusal on any difference.
  */
-export function verifyPrepared(prepared: J, intent: Intent, me: string, domain: Domain, settlementNowMs: number): { path: string; body: J; toSign: Array<{ slot: string; typed: J }> } {
+export function verifyPrepared(prepared: J, intent: Intent, me: string, domain: Domain, settlementNowMs: number): { path: string; body: J; toSign: Array<{ slot: string; typed: J }>; slots: Array<{ slot: string; signer: string; typed: J; digest: Hex }> } {
   if (prepared?.kind !== intent.kind) refuse(`expected a ${intent.kind}, got ${prepared?.kind}`);
   if (!Number.isFinite(settlementNowMs)) refuse('settlement-layer time is unknown');
   const plan = expected(intent, prepared.submit?.body ?? {}, settlementNowMs);
@@ -383,6 +383,8 @@ export function verifyPrepared(prepared: J, intent: Intent, me: string, domain: 
   if (where) refuse(`${where} differs from what you asked for`);
   if (!Array.isArray(prepared.sign) || prepared.sign.length !== plan.slots.length) refuse(`expected ${plan.slots.length} signature slot(s), got ${prepared.sign?.length}`);
   const toSign = [];
+  // Every slot, with the typed data the agent built itself: what another signer (a payment address, ADR-0033) signs.
+  const slots: Array<{ slot: string; signer: string; typed: J; digest: Hex }> = [];
   for (const [i, want] of plan.slots.entries()) {
     const got = prepared.sign[i];
     if (got.slot !== want.slot || got.typedData?.primaryType !== want.primaryType || got.signer.toLowerCase() !== want.signer.toLowerCase()) refuse(`slot ${i} is ${got.slot}/${got.typedData?.primaryType}, expected ${want.slot}/${want.primaryType}`);
@@ -398,8 +400,153 @@ export function verifyPrepared(prepared: J, intent: Intent, me: string, domain: 
     }
     if (theirs !== mine || got.digest !== mine) refuse(`the typed data for ${want.slot} (domain, types or message) is not the message you intend`);
     if (want.signer.toLowerCase() === me.toLowerCase()) toSign.push({ slot: want.slot, typed });
+    slots.push({ slot: want.slot, signer: want.signer.toLowerCase(), typed, digest: mine });
   }
-  return { path: plan.path, body: plan.body, toSign };
+  return { path: plan.path, body: plan.body, toSign, slots };
+}
+
+// ---- A message another wallet signs (ADR-0033 §3): the typed-data file, and the holder's own check ----
+
+/** The EIP712Domain type for a domain object, in the standard field order, with only the fields it holds. */
+const domainType = (d: J) => ['name:string', 'version:string', 'chainId:uint256', 'verifyingContract:address', 'salt:bytes32'].map((s) => s.split(':')).filter(([n]) => d[n!] !== undefined).map(([name, type]) => ({ name: name!, type: type! }));
+/** The message as plain JSON: only the fields its type declares, integers as decimal strings. */
+const asJson = (types: J, type: string, v: J): J =>
+  type.endsWith('[]') ? v.map((x: J) => asJson(types, type.slice(0, -2), x)) : types[type] ? Object.fromEntries(types[type].map((x: J) => [x.name, asJson(types, x.type, v?.[x.name])])) : typeof v === 'bigint' ? v.toString() : /^u?int\d*$/.test(type) ? String(v) : v;
+
+/**
+ * Typed data as the standard file `eth_signTypedData_v4` takes: `types` (with `EIP712Domain`, and only the types the
+ * primary type uses), `domain`, `primaryType` and `message`, integers as decimal strings. Any wallet that signs typed
+ * data signs it, and its signature is the one over `typed`.
+ */
+export function typedDataFile(typed: J): J {
+  const used = new Set<string>();
+  const walk = (t: string) => {
+    const base = t.replace(/\[\]$/, '');
+    if (!typed.types[base] || used.has(base)) return;
+    used.add(base);
+    for (const f of typed.types[base]) walk(f.type);
+  };
+  walk(typed.primaryType);
+  const types = Object.fromEntries([...used].sort((a, b) => (a === typed.primaryType ? -1 : b === typed.primaryType ? 1 : a.localeCompare(b))).map((t) => [t, typed.types[t]]));
+  const domain = Object.fromEntries(Object.entries(typed.domain).map(([k, v]) => [k, typeof v === 'bigint' ? Number(v) : v]));
+  return { types: { EIP712Domain: domainType(domain), ...types }, domain, primaryType: typed.primaryType, message: asJson(typed.types, typed.primaryType, typed.message) };
+}
+
+/** The digest of a typed-data file as a wallet hashes it. Throws Refusal when it is not one. */
+export function digestOfFile(file: J): Hex {
+  try {
+    const types = { ...file.types };
+    delete types.EIP712Domain;
+    return hashTypedData({ domain: file.domain, types, primaryType: file.primaryType, message: ints(types, file.primaryType, file.message) });
+  } catch {
+    return refuse('the file is not EIP-712 typed data: domain, types, primaryType and message');
+  }
+}
+
+/**
+ * What a funding or operator-fee message does, in one sentence, read from the message itself: which address pays
+ * which address how much, until when, and for which deal. `token` names the token; with `decimals` above 0 the
+ * amount is also shown in whole units.
+ */
+export function paymentSentence(file: J, commitmentId: Hex, token: { id: string; symbol?: string; decimals?: number }, terms?: J): string {
+  const m = file.message;
+  const units = BigInt(m.value);
+  const d = BigInt(token.decimals ?? 0);
+  const whole = d > 0n ? ` (${units / 10n ** d}.${(units % 10n ** d).toString().padStart(Number(d), '0')} ${token.symbol ?? token.id})` : '';
+  const until = /^[0-9]+$/.test(String(m.validBefore)) ? new Date(Number(m.validBefore) * 1000).toISOString().replace('.000Z', 'Z') : String(m.validBefore);
+  const what = file.primaryType === 'TransferWithAuthorization' || file.primaryType === 'TransferAuthorization' ? `to ${m.to}, the operator's fee` : file.primaryType === 'ReceiveWithAuthorization' ? `to ${m.to}, the escrow's collector, into the hold` : 'into the hold';
+  // With the terms: who the deal binds (ADR-0033 §10), and the deadline that ends the offer, which comes before validBefore.
+  const who = terms ? ` The terms: buyer ${String(terms.buyer).toLowerCase()} agrees, seller ${String(terms.seller).toLowerCase()} delivers, and ${String(terms.sellerPayoutAddress).toLowerCase()} is paid on a release. Sign before the offer expires at ${terms.timing?.offerExpiresAt}: after that nothing can fund it.` : '';
+  return `${m.from} pays ${units} base units of ${token.id}${whole} ${what}, valid until ${until}, for deal ${commitmentId} only.${who}`;
+}
+
+const CANONICAL = /^(0|[1-9][0-9]*)$/;
+/**
+ * Refuses a typed-data file that is not exactly one EIP-712 message (red team L-1): the four keys and no others,
+ * `EIP712Domain` equal to the domain's own fields in the standard order, no unused type, each message (and nested
+ * struct) holding exactly its type's fields, and every integer a canonical decimal string. A wallet that hashes the
+ * file as written then hashes the digest the check names.
+ */
+export function strictTypedDataFile(file: J): void {
+  if (!file || typeof file !== 'object' || Array.isArray(file)) refuse('the file is not a JSON object');
+  if (jcs(Object.keys(file).sort()) !== jcs(['domain', 'message', 'primaryType', 'types'])) refuse('the file must hold exactly domain, types, primaryType and message');
+  const { types, domain, primaryType, message } = file;
+  if (!types || typeof types !== 'object' || !domain || typeof domain !== 'object' || typeof primaryType !== 'string') refuse('the file\'s types, domain or primaryType is malformed');
+  const known = ['name', 'version', 'chainId', 'verifyingContract', 'salt'];
+  if (Object.keys(domain).some((k) => !known.includes(k))) refuse('the file\'s domain has a field EIP712Domain does not');
+  if (jcs(types.EIP712Domain ?? null) !== jcs(domainType(domain))) refuse('the file\'s EIP712Domain type is not the domain\'s own fields in the standard order');
+  const used = new Set<string>();
+  const walk = (t: string) => {
+    const base = t.replace(/\[\]$/, '');
+    if (!Array.isArray(types[base]) || used.has(base)) return;
+    used.add(base);
+    for (const f of types[base]) walk(f.type);
+  };
+  walk(primaryType);
+  if (!used.has(primaryType)) refuse(`the file has no type ${primaryType}`);
+  if (jcs(Object.keys(types).filter((k) => k !== 'EIP712Domain').sort()) !== jcs([...used].sort())) refuse('the file has a type its primary type does not use');
+  const exact = (type: string, v: J, at: string): void => {
+    if (type.endsWith('[]')) {
+      if (!Array.isArray(v)) refuse(`${at} is not a list`);
+      return v.forEach((x: J, i: number) => exact(type.slice(0, -2), x, `${at}[${i}]`));
+    }
+    if (types[type]) {
+      if (!v || typeof v !== 'object' || Array.isArray(v) || jcs(Object.keys(v).sort()) !== jcs(types[type].map((f: J) => f.name).sort())) refuse(`${at} does not hold exactly the fields of ${type}`);
+      return types[type].forEach((f: J) => exact(f.type, v[f.name], `${at}.${f.name}`));
+    }
+    if (/^u?int\d*$/.test(type) && !(typeof v === 'string' && CANONICAL.test(v))) refuse(`${at} is not an integer as a canonical decimal string`);
+  };
+  exact(primaryType, message, 'message');
+}
+
+/**
+ * The check the holder of a payment address runs alone before it signs (ADR-0033 §3 and §10): it rebuilds the
+ * message from the terms it approves and its own pinned settlement layer (`domain` and, on a chain, `chain`: the
+ * rules contract, the escrow, the collector, the token's domain and the expiry margin), never from the file it checks,
+ * and refuses the file unless it is exactly that message. `buyer` is the signing key the holder expects the terms to
+ * name. For the operator fee, `operatorFee` is the recipient and amount the holder read from the operators.
+ * Returns the one-sentence summary to show before signing. Throws Refusal naming what differs.
+ */
+export function checkPaymentFile(file: J, terms: J, o: { kind: 'funding' | 'operator-fee'; domain: Domain; chain?: ChainPin | undefined; buyer: string; operatorFee?: { to: string; amount: string }; token?: Pin['token'] }): { digest: Hex; summary: string } {
+  const id = commitmentIdOf(terms), c = o.chain, t = terms;
+  strictTypedDataFile(file);
+  if (String(t.buyer).toLowerCase() !== o.buyer.toLowerCase()) refuse(`the terms name ${t.buyer} as the buyer's signing key, not the ${o.buyer} you expect`);
+  // The terms' token is the pinned layer's (plan section 2c): on a chain, the token whose domain the funding is signed under.
+  const pinnedToken = c ? c.tokenDomain.verifyingContract : o.token?.id;
+  if (pinnedToken !== undefined && String(t.price.token).toLowerCase() !== pinnedToken.toLowerCase()) refuse(`the terms are in ${t.price.token}, and your pinned settlement layer holds ${pinnedToken}`);
+  const payer = String(t.buyerPaymentAddress).toLowerCase();
+  const m = file?.message ?? {};
+  if (String(m.from).toLowerCase() !== payer) refuse(`the message pays from ${m.from}, not the payment address ${payer} the terms name`);
+  let want: J;
+  if (o.kind === 'funding') {
+    const total = BigInt(t.price.amount) + BigInt(t.adjudication.fee.amount);
+    if (BigInt(m.value ?? -1) !== total) refuse(`the message pays ${m.value} base units, not the ${total} the terms hold (price plus adjudication fee)`);
+    if (c) {
+      const nonce = fundingNonceOf(t, id, c);
+      if (String(m.nonce).toLowerCase() !== nonce.toLowerCase()) refuse(`the message's nonce ${m.nonce} is not the ${nonce} these terms give on your pinned deployment: it is for another deal, another rules contract, receiver, chain or margin`);
+      want = erc3009Typed('ReceiveWithAuthorization', c, { from: payer, to: c.collector, value: total, validAfter: 0n, validBefore: secs(t.timing.fundBy), nonce });
+    } else {
+      if (String(m.commitmentId).toLowerCase() !== id) refuse(`the message is for deal ${m.commitmentId}, not ${id}`);
+      want = typedOf('FundingAuthorization', { scheme: 'erc3009', commitmentId: id, from: payer, value: total.toString(), token: t.price.token, validAfter: t.createdAt, validBefore: t.timing.fundBy, nonce: m.nonce, expiresAt: t.timing.fundBy }, o.domain);
+    }
+  } else {
+    const fee = o.operatorFee ?? refuse('give the operator fee you read from the operators: its recipient and amount');
+    if (String(m.to).toLowerCase() !== fee.to.toLowerCase()) refuse(`the message pays the fee to ${m.to}, not the operator ${fee.to}`);
+    if (BigInt(m.value ?? -1) !== BigInt(fee.amount)) refuse(`the message pays a fee of ${m.value} base units, not the ${fee.amount} you read`);
+    if (c) {
+      const nonce = operatorFeeNonceOf(id);
+      if (String(m.nonce).toLowerCase() !== nonce.toLowerCase()) refuse(`the message's nonce ${m.nonce} is not this deal's operator-fee nonce ${nonce}: it is for another deal`);
+      want = erc3009Typed('TransferWithAuthorization', c, { from: payer, to: fee.to, value: BigInt(fee.amount), validAfter: 0n, validBefore: secs(t.timing.fundBy), nonce });
+    } else {
+      if (String(m.commitmentId).toLowerCase() !== id) refuse(`the message is for deal ${m.commitmentId}, not ${id}`);
+      want = typedOf('TransferAuthorization', { scheme: 'erc3009', purpose: 'operator_fee', commitmentId: id, from: payer, to: fee.to, value: fee.amount, token: t.price.token, validAfter: t.createdAt, validBefore: t.timing.fundBy, nonce: m.nonce, expiresAt: t.timing.fundBy }, o.domain);
+    }
+  }
+  const digest = digestOfFile(file);
+  if (digest !== hashTypedData(want)) refuse('the file is not the message these terms give on your pinned settlement layer (its domain, types or another field differ)');
+  // The pinned token formats the amount, and only when it is the terms' own token.
+  const token = o.token && o.token.id.toLowerCase() === String(t.price.token).toLowerCase() ? o.token : { id: t.price.token };
+  return { digest, summary: paymentSentence(file, id, token, t) };
 }
 
 /** The delivery hash the settlement layer records (EIP-712 struct hash of the delivery without its signature). */

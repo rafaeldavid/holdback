@@ -50,10 +50,16 @@
 //                    signature; Not funded. Local only: an operator front of the local world raises the fee
 //   resume           the buyer stops after funding, the seller's adapter restarts (with --mapping, a report mapping is
 //                    set), days pass, and the buyer resumes from its key store; Released
+//   two-addresses    the buyer's payment address is apart from its signing key (ADR-0033): a test key standing in for
+//                    a person's wallet signs the signer's two typed-data files as it reads them; the payment address
+//                    funds the deal, and the signing key's balance does not move; Released
 // Each case prints its end state and the path of its deal record (deal-record.ts), in <out>/<case>/deal-record.json.
 // Exit code 0 when every case ends as expected, 1 when one does not, 2 when the run cannot start or stops on an error.
 // A live case: --live --case <case>, with HOLDBACK_OPERATORS, and optionally --keys <key store> --buyer <address> for
 // an unused key in an existing key store (one key, one deal). Live, every wait is real time and no step has a limit.
+// CROW_REHEARSAL_PAYMENT_KEY (live, a test key): its address pays for every case, as a person's wallet would, from the
+// signer's typed-data files, and each case makes a fresh signing key that holds no deal money (item 81). Without it the
+// two-addresses case makes a payment key of its own.
 //
 // The report is the seller's data. This file parses it as JSON inside the check library and counts its findings. It
 // prints none of its text and runs nothing from it. The terms file is data too: it is parsed as YAML with no custom
@@ -74,7 +80,7 @@ import { loadKeys, makeKeys, openDeals, printable, type Approved, type BuyerSign
 import type { Row } from './deal-record.ts';
 import { config as adapterConfig, fill, loadConfig, startSellerAdapter, type RunningAdapter, type Stage } from './seller-adapter.ts';
 import { startStubSellerApi, type StubSellerApi } from './seller-adapter-stub.ts';
-import { jcs, knownPins, operatorFeeOf, Refusal } from './verify.ts';
+import { checkPaymentFile, jcs, knownPins, operatorFeeOf, Refusal } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -555,12 +561,12 @@ export async function startLocalWorld(): Promise<LocalWorld> {
 // buyer signer, which shows the buyer every signed field and what differs from the seller's published defaults
 // before it approves. Each case leaves a deal record (deal-record.ts) in its directory.
 
-export const CASES = ['released', 'redelivered', 'rubric', 'refunded', 'missed-deadline', 'shown-mismatch', 'resume'] as const;
+export const CASES = ['released', 'redelivered', 'rubric', 'refunded', 'missed-deadline', 'shown-mismatch', 'resume', 'two-addresses'] as const;
 export type CaseName = (typeof CASES)[number];
 /** `Not funded`: the buyer's signer refused before any signature, so the commitment never reached a hold. */
 export type EndState = 'Released' | 'Refunded' | 'Held' | 'Not funded';
 /** How each case should end. A case that ends otherwise makes the command exit 1. */
-export const EXPECTED: Record<CaseName, EndState> = { released: 'Released', redelivered: 'Released', rubric: 'Released', refunded: 'Refunded', 'missed-deadline': 'Refunded', 'shown-mismatch': 'Not funded', resume: 'Released' };
+export const EXPECTED: Record<CaseName, EndState> = { released: 'Released', redelivered: 'Released', rubric: 'Released', refunded: 'Refunded', 'missed-deadline': 'Refunded', 'shown-mismatch': 'Not funded', resume: 'Released', 'two-addresses': 'Released' };
 /** The cases only the local world can rehearse, and why. */
 const LOCAL_ONLY: Partial<Record<CaseName, string>> = {
   refunded: "it needs the local world's stand-in for the judges, set to reject",
@@ -585,6 +591,13 @@ export interface RehearsalOptions {
   scope?: J;
   /** A key store and the address of an unused key in it (a rehearsal key), instead of fresh keys. One key serves one deal. */
   keys?: { store: string; buyer: string } | undefined;
+  /**
+   * The key of a payment address apart from the buyer's signing key (ADR-0033), standing in for a person's own wallet:
+   * it signs the signer's typed-data files as it reads them, and nothing else. With it every case makes a fresh signing
+   * key, which holds no deal money, and reuses this payment address (item 81). Test keys only. The two-addresses case
+   * makes one when none is given.
+   */
+  paymentKey?: Hex | undefined;
   log?: (line: string) => void;
   /** The longest wait for one step, in milliseconds. Default: none (D31); the deal's own deadlines end it. */
   timeoutMs?: number | undefined;
@@ -618,7 +631,11 @@ export interface RehearsalResult {
   /** The alerts the seller's callback received, each with whether its signature checked. The seller's data: never printed whole. */
   alerts: Array<J & { type: string; signed: boolean }>;
   sellerReceived: Money;
+  /** What the buyer's payment address holds at the end: its signing key's, when the two are one. */
   buyerHolds: Money;
+  /** The buyer's payment address, and how much the signing key's balance moved after the test funds (0 when they are apart). */
+  paymentAddress: string;
+  signingKeyMoved: string;
   /** The deal record's path, and its one-row summary. */
   record: string;
   row: Row;
@@ -843,9 +860,15 @@ export async function rehearse(o: RehearsalOptions): Promise<RehearsalResult> {
     // ---- The buyer: keys, a quote, the offer shown with every signed field and the differences from the defaults ----
     if (name === 'shown-mismatch') front = await o.world!.front();
     const buyerOperators = front?.operators ?? o.operators;
+    // A payment address apart from the signing key (ADR-0033): a test key standing in for a person's own wallet, which
+    // only ever signs the typed-data files the signer writes. With it the signing key is fresh for every case (item 81).
+    const paymentKey = o.paymentKey ?? (name === 'two-addresses' ? generatePrivateKey() : undefined);
+    const wallet = paymentKey ? privateKeyToAccount(paymentKey) : undefined;
+    if (wallet && o.keys) throw new UsageError('--keys and a payment key do not go together: with a payment address every case makes a fresh signing key, which holds no money');
     const store = o.keys?.store ?? join(o.dir, 'buyer-keys');
-    let signer: BuyerSigner = o.keys ? await loadKeys(o.keys.store, o.keys.buyer, { operators: buyerOperators }) : await makeKeys(store, { operators: buyerOperators });
-    step(o.keys ? 'The buyer opens its key' : 'The buyer makes keys', `buyer ${signer.address}; the key file is in ${store}${o.keys ? '' : ' with mode 0600'}.`);
+    const quiet = { operators: buyerOperators, log: (line: string) => say(`    ${line}`) };
+    let signer: BuyerSigner = o.keys ? await loadKeys(o.keys.store, o.keys.buyer, quiet) : await makeKeys(store, { ...quiet, ...(wallet ? { paymentAddress: wallet.address } : {}) });
+    step(o.keys ? 'The buyer opens its key' : 'The buyer makes keys', `buyer ${signer.address}; the key file is in ${store}${o.keys ? '' : ' with mode 0600'}${wallet ? `; the payment address ${signer.paymentAddress} funds the deal and receives every refund` : ''}.`);
     if (front) say(`    The buyer reads the operators through a front, ${front.operators.join(' and ')}, that serves this world unchanged until it raises the fee.`);
 
     const quote = await signer.quote(`${selling.url()}/quote`, scope, options);
@@ -883,7 +906,8 @@ export async function rehearse(o: RehearsalOptions): Promise<RehearsalResult> {
     step('The buyer approves', `${ownTerms ? 'the terms file it shares with the seller' : 'the built-in template filled with its scope, at the price it was shown'}, the ${differences.length} ${differences.length === 1 ? 'difference' : 'differences'} and the eight signed fields above.`);
 
     const granted = await signer.testFunds(offer.fees.total.amount);
-    step('The buyer takes test funds', `the faucet granted ${money(granted)} and a mandate.`);
+    step('The buyer takes test funds', wallet ? `the faucet granted the payment address ${money(granted)} (nothing when it already held the total), and the signing key a mandate.` : `the faucet granted ${money(granted)} and a mandate.`);
+    const signingKeyBefore = await balance(signer.address);
 
     // The record and the result, once the case has ended.
     let refusal: string | null = null;
@@ -893,18 +917,20 @@ export async function rehearse(o: RehearsalOptions): Promise<RehearsalResult> {
     const reports: Array<Report['kind']> = [];
     const finish = async (end: EndState): Promise<RehearsalResult> => {
       const sellerReceived = { token: pin.token.id, amount: (BigInt((await balance(seller)).amount) - BigInt(sellerBefore.amount)).toString() };
-      const buyerHolds = await balance(signer.address);
+      const buyerHolds = await balance(signer.paymentAddress);
+      const signingKeyMoved = (BigInt((await balance(signer.address)).amount) - BigInt(signingKeyBefore.amount)).toString();
       // The buyer's own record, read from every operator by its signer, whose x25519 key opens its released envelope; the key never reaches the record.
       const record = await signer.record(o.operators);
       const path = join(o.dir, 'deal-record.json');
       writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`);
       const count = (ok: boolean | null) => record.checks.filter((c) => c.ok === ok).length;
       step('The buyer writes the deal record', `${path}: outcome ${plain(String(record.row.outcome))}, ${count(true)} checks passed, ${count(false)} failed, ${count(null)} not run${record.disagreements.length ? `; the operators differ on ${record.disagreements.map((d) => d.section).join(', ')}` : ''}.`);
+      if (wallet) say(`    The payment address ${signer.paymentAddress} holds ${money(buyerHolds)}; the signing key's balance moved by ${signingKeyMoved} base units after the test funds.`);
       const ok = end === EXPECTED[name];
       say(`Case ${name}: ${end}, ${ok ? 'as expected' : `not the expected ${EXPECTED[name]}`}. Deal record: ${path}`);
       return {
         case: name, end, expected: ok, commitmentId: id, buyer: signer.address, seller, dir: o.dir, offer, shown: { signed, differences }, paid, refusal, delivery, reclaimed, reports,
-        alerts: [...selling!.alerts], sellerReceived, buyerHolds, record: path, row: record.row, steps, elapsedMs: Date.now() - started,
+        alerts: [...selling!.alerts], sellerReceived, buyerHolds, paymentAddress: signer.paymentAddress, signingKeyMoved, record: path, row: record.row, steps, elapsedMs: Date.now() - started,
       };
     };
 
@@ -925,8 +951,25 @@ export async function rehearse(o: RehearsalOptions): Promise<RehearsalResult> {
     if (name === 'shown-mismatch') throw new Error('the signer passed an offer whose operator fee changed after it was shown');
     step('The buyer checks the offer', 'every operator serves the offer it was shown and approved, the seller\'s signature recovers, and the primary adjudicator took the deal.');
 
-    paid = await signer.agreeAndFund(id);
-    step('The buyer funds the hold', `paid ${money(paid.total)}: ${money(paid.hold)} into the hold (price and adjudication fee) and ${money(paid.operatorFee)} to the operator.`);
+    if (wallet) {
+      // The person's wallet, as a test key: it reads each file the signer wrote and signs it as it is (eth_signTypedData_v4).
+      const files = await signer.fundingFiles(id);
+      step('The signer writes the payment messages', files.map((f) => `${f.path}: ${f.summary}`).join(' '));
+      // The holder's own check first, as a person runs it before signing (red team M-1): the terms as every operator
+      // serves them, this tool's pinned layer, the fee from the schedule every operator publishes. Never the file's word.
+      const { id: _i, signatures: _s, ...served } = await reader.trusted(`/v1/commitments/${id}/terms`); // eslint-disable-line @typescript-eslint/no-unused-vars
+      const feeSchedule = await reader.operatorFeeSchedule();
+      const checks = files.map((f) => {
+        const file = JSON.parse(readFileSync(f.path, 'utf8'));
+        const fee = f.name === 'operator-fee' && feeSchedule ? { to: feeSchedule.to, amount: operatorFeeOf(served.price, feeSchedule).toString() } : undefined;
+        return { f, file, r: checkPaymentFile(file, served, { kind: f.name, domain: pin.domain, chain: pin.chain, buyer: signer.address, token: pin.token, ...(fee ? { operatorFee: fee } : {}) }) };
+      });
+      step('The payment address checks each file', checks.map(({ f, r }) => `${f.name}: digest ${r.digest}`).join('; '));
+      const signed = Object.fromEntries(await Promise.all(checks.map(async ({ f, file }) => [f.name === 'funding' ? 'funding' : 'operatorFee', await wallet.signTypedData(file)])));
+      step('The payment address signs them in its wallet', `${files.length} ${files.length === 1 ? 'signature' : 'signatures'} by ${wallet.address.toLowerCase()}, each over the file it checked.`);
+      paid = await signer.agreeAndFund(id, { funding: signed['funding'], operatorFee: signed['operatorFee'] });
+    } else paid = await signer.agreeAndFund(id);
+    step('The buyer funds the hold', `paid ${money(paid.total)}${wallet ? ` from ${signer.paymentAddress}` : ''}: ${money(paid.hold)} into the hold (price and adjudication fee) and ${money(paid.operatorFee)} to the operator.`);
     const deliverBy = String(offer.deadlines.deliverBy);
 
     // ---- The seller's turn: the adapter sees the hold, starts the job, checks the result, delivers or holds it ----
@@ -995,7 +1038,7 @@ export async function rehearse(o: RehearsalOptions): Promise<RehearsalResult> {
       },
     });
     if (delivery.outcome === 'Released') step('The deal ends Released', `the buyer opened the report, ${delivery.plaintextSha256}; the seller's balance rose by the price.`);
-    else step('The deal ends Refunded', `${reclaimed ? `settlement refunded the hold of ${money(paid.hold)}, price and adjudication fee, on the signer's reclaim` : `the adjudicator rejected the report: the price of ${money(offer.price)} is back, and the adjudication fee paid for the judgment`}; the buyer's key holds ${money(await balance(signer.address))}, and the operator fee is not refundable.`);
+    else step('The deal ends Refunded', `${reclaimed ? `settlement refunded the hold of ${money(paid.hold)}, price and adjudication fee, on the signer's reclaim` : `the adjudicator rejected the report: the price of ${money(offer.price)} is back, and the adjudication fee paid for the judgment`}; the buyer's payment address holds ${money(await balance(signer.paymentAddress))}, and the operator fee is not refundable.`);
     return await finish(delivery.outcome);
   } finally {
     await front?.close();
@@ -1074,6 +1117,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   }
   const { live } = args;
   const custom = args.reportFile !== undefined || args.termsFile !== undefined;
+  // Live: a test key whose address pays for every case, standing in for a person's wallet (item 81). Read, never printed.
+  const paymentKey = live ? process.env['CROW_REHEARSAL_PAYMENT_KEY'] || undefined : undefined;
+  if (paymentKey !== undefined && !/^0x[0-9a-fA-F]{64}$/.test(paymentKey)) {
+    console.error(`audit-deal: CROW_REHEARSAL_PAYMENT_KEY is not a private key: 0x and 64 hex characters\n${USAGE}`);
+    process.exit(2);
+  }
+  if (paymentKey && args.keys !== undefined) {
+    console.error(`audit-deal: --keys and CROW_REHEARSAL_PAYMENT_KEY do not go together: with a payment address every case makes a fresh signing key\n${USAGE}`);
+    process.exit(2);
+  }
   const world = live ? undefined : await startLocalWorld();
   const operators = world?.operators ?? (process.env['HOLDBACK_OPERATORS'] || LIVE_OPERATORS).split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean);
   // Every request an operator refuses, with its Request-Id: the operators keep one log line per request under that ID.
@@ -1099,7 +1152,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         console.log(`\n== Case: ${name} ==`);
         const r = await rehearse({
           case: name, operators, world, dir: join(out, name), reportFile: args.reportFile, termsFile: args.termsFile, refusedReportFile: args.refusedReportFile, mappingFile: args.mappingFile,
-          ...(args.scope !== undefined ? { scope: args.scope } : {}), keys: args.keys !== undefined ? { store: args.keys, buyer: args.buyer! } : undefined,
+          ...(args.scope !== undefined ? { scope: args.scope } : {}), keys: args.keys !== undefined ? { store: args.keys, buyer: args.buyer! } : undefined, paymentKey: paymentKey as Hex | undefined,
           // A live deal waits for blocks: read every 3 s. No step has a time limit of its own (D31).
           pollMs: world ? 200 : 3000,
         });
