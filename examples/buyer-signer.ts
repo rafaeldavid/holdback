@@ -40,7 +40,7 @@ import { recoverTypedDataAddress, type Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { Agent } from './agent.ts';
 import { dealRecord, type DealRecord } from './deal-record.ts';
-import { commitmentIdOf, isAddressText, jcs, knownPins, moneyAddressWarnings, operatorFeeOf, Refusal, typedOf, type Pin } from './verify.ts';
+import { commitmentIdOf, digestOfFile, isAddressText, jcs, knownPins, moneyAddressWarnings, operatorFeeOf, paymentSentence, Refusal, typedDataFile, typedOf, type Intent, type Pin } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -156,6 +156,13 @@ export type Defaults = {
  * price and the rest of the offer are shown whole, not as differences.
  */
 export type Difference = { field: string; old: J; new: J };
+/**
+ * One message the payment address signs, written as an `eth_signTypedData_v4` file (ADR-0033 §3). `name` is
+ * `funding` or `operator-fee`; `slot` the body field its signature fills; `summary` the one sentence that says what it does.
+ */
+export type PaymentFile = { name: 'funding' | 'operator-fee'; slot: string; path: string; digest: Hex; summary: string };
+/** The signatures the payment address made elsewhere, as hex, and optionally the files it signed, for a refusal that names what differs. */
+export type PaymentSignatures = { funding: string; operatorFee?: string | undefined; signed?: { funding?: J; operatorFee?: J } | undefined };
 /** What agreeAndFund took from the buyer: the hold (price plus adjudication fee) and the operator fee. */
 export type Paid = { total: Money; hold: Money; operatorFee: Money; receipt: J | null };
 export type Delivery = {
@@ -249,6 +256,11 @@ type Saved = {
   shown?: { commitmentId: Hex; offer: Offer; defaults: Defaults | null };
   /** The terms checkOffer passed, and the offer the buyer approved. */
   checked?: { terms: J; offer: Offer };
+  /**
+   * With a separate payment address: the funding as fundingFiles prepared it. The nonces repeat the preparation,
+   * so the messages stay the ones written to the files; each file's digest is the one its signature must be over.
+   */
+  funding?: { commitmentId: Hex; nonces: { agreeNonce: Hex; fundingNonce: Hex; operatorFeeNonce?: Hex }; files: PaymentFile[] };
   paid?: Paid;
 };
 
@@ -410,6 +422,26 @@ function expectOf(e: unknown): Expect {
     if (typeof v !== 'string') throw new Error(`expect.${k} is not a string`);
   }
   return { ...(e as Expect) };
+}
+
+/**
+ * Why a file a wallet signed is not the message the signer wrote, by name: another payer, another deal, more than the
+ * approved amount, or anything else (the domain, the types, the recipient, the dates). Null when they are the same.
+ */
+function signedFileDiffers(name: string, got: J, mine: J): string | null {
+  let digest: string;
+  try {
+    digest = digestOfFile(got);
+  } catch {
+    return `the signed ${name} file is not EIP-712 typed data`;
+  }
+  if (digest === digestOfFile(mine)) return null;
+  const g = isRecord(got?.message) ? got.message : {}, m = mine.message;
+  const lc = (v: J) => String(v).toLowerCase();
+  if (lc(g.from) !== lc(m.from)) return `the signed ${name} message pays from ${shown(g.from ?? null)}, not the payment address ${m.from}`;
+  if (lc(g.nonce) !== lc(m.nonce) || (m.commitmentId !== undefined && lc(g.commitmentId) !== lc(m.commitmentId))) return `the signed ${name} message is for another deal: its nonce ${shown(g.nonce ?? null)}${m.commitmentId !== undefined ? ` and deal ${shown(g.commitmentId ?? null)}` : ''} are not this deal's`;
+  if (DEC.test(String(g.value)) && BigInt(g.value) > BigInt(m.value)) return `the signed ${name} message pays ${g.value} base units, more than the approved ${m.value}`;
+  return `the signed ${name} message is not the one the signer wrote (its domain, types, recipient, amount or dates differ)`;
 }
 
 /** Writes one key file: a temporary file with mode 0600, then a rename, so a crash leaves the old file or the new one. */
@@ -575,15 +607,21 @@ export class BuyerSigner {
   /**
    * Test service only: asks the faucet for `amount` base units of the test token (the deal's total) for the payment
    * address, and a mandate in the demo club for the signing key, which a fresh key needs before it can agree. With
-   * the two addresses apart that is two grants: the total to the payment address, and the mandate with the faucet's
-   * smallest grant, 1 base unit, to the signing key. The faucet serves an address once an hour.
+   * the two addresses apart the signing key gets the mandate and no tokens. The faucet serves a signing key once an hour.
    */
   async testFunds(amount: string): Promise<Money> {
     if (!DEC.test(amount) || amount === '0') throw new Error('amount is base units as a decimal string, above 0');
-    const { agent } = await this.#connect();
-    const grant = await agent.call('POST', '/v1/faucet', { address: this.paymentAddress, amount });
-    if (this.paymentAddress !== this.address) await agent.call('POST', '/v1/faucet', { address: this.address, amount: '1' });
-    return { token: grant.granted.token, amount: grant.granted.amount };
+    const { agent, pin } = await this.#connect();
+    if (this.paymentAddress === this.address) {
+      const grant = await agent.call('POST', '/v1/faucet', { address: this.address, amount });
+      return { token: grant.granted.token, amount: grant.granted.amount };
+    }
+    // ADR-0033 §5 (T-378): one grant, the tokens to the payment address and the mandate to the signing key, which gets
+    // no tokens. The faucet mints nothing to a payment address that already holds the amount.
+    const grant = await agent.call('POST', '/v1/faucet', { address: this.address, amount, paymentAddress: this.paymentAddress });
+    const held = String((await agent.trusted(`/v1/balances/${this.paymentAddress}`, (x) => x.amount)) ?? '0');
+    if (!DEC.test(held) || BigInt(held) < BigInt(amount)) throw new Error(`the faucet did not fund the payment address ${this.paymentAddress} (it holds ${held} base units): these operators predate the faucet's payment address (T-378)`);
+    return { token: grant.granted?.token ?? pin.token.id, amount: grant.granted?.amount ?? '0' };
   }
 
   /** The terms of `id` as both operators serve them, with the ID recomputed and the seller's signature recovered. */
@@ -743,12 +781,62 @@ export class BuyerSigner {
     return offer;
   }
 
+  /** The prepared funding for the checked terms, with the payment address apart; `nonces` repeat an earlier preparation. */
+  async #prepareFunding(checked: { terms: J; offer: Offer }, nonces?: { agreeNonce: Hex; fundingNonce: Hex; operatorFeeNonce?: Hex }) {
+    const { agent } = await this.#connect();
+    const { price, fees } = checked.offer;
+    const schedule = await agent.operatorFeeSchedule();
+    const fee = schedule ? operatorFeeOf(price, schedule) : 0n;
+    if (fee.toString() !== fees.operator.amount) refuse(`the operator fee is now ${fee} base units, not the approved ${fees.operator.amount}`);
+    return agent.prepareAgreeAndFund(checked.terms, BigInt(fees.total.amount), { paymentAddress: this.paymentAddress, ...(nonces ? { nonces } : {}) });
+  }
+
+  /**
+   * With a payment address apart from this key (ADR-0033): writes each message the payment address must sign as a
+   * file in the standard typed-data form `eth_signTypedData_v4` takes, `<address>.funding.typed.json` and, when the
+   * operators charge a fee, `<address>.operator-fee.typed.json`, beside the key file. Each message is rebuilt from the
+   * approved terms and checked against what the operators prepared (verify.ts), so the two cannot take more than the
+   * approved total. It returns, and logs, one sentence for each: which address pays which address how much, until
+   * when, for which deal. Sign each file in the wallet that holds the payment address, then give the signatures to
+   * agreeAndFund. Calling it again writes the same messages. It signs and sends nothing.
+   */
+  async fundingFiles(commitmentId: string): Promise<PaymentFile[]> {
+    const id = commitmentId.toLowerCase() as Hex;
+    const checked = this.#saved.commitmentId === id ? this.#saved.checked : undefined;
+    if (!checked) return refuse(`checkOffer has not passed for ${id} with this key`);
+    if (this.paymentAddress === this.address) throw new Error('this key is its own payment address: agreeAndFund signs the funding itself');
+    if (this.#saved.paid) throw new Error(`${id} is funded already`);
+    const { pin } = await this.#connect();
+    const saved = this.#saved.funding?.commitmentId === id ? this.#saved.funding : undefined;
+    const { intent, slots } = await this.#prepareFunding(checked, saved?.nonces);
+    const files: PaymentFile[] = [];
+    for (const s of slots.filter((x) => x.signer === this.paymentAddress)) {
+      const name = s.slot === 'fund.signature' ? 'funding' : 'operator-fee';
+      const file = typedDataFile(s.typed);
+      const path = join(this.store, `${this.address}.${name}.typed.json`);
+      writeFileSync(`${path}.tmp`, `${JSON.stringify(file, null, 2)}\n`, { mode: 0o600 });
+      renameSync(`${path}.tmp`, path);
+      files.push({ name, slot: s.slot, path, digest: s.digest, summary: `The ${name === 'funding' ? 'funding' : 'operator fee'}: ${paymentSentence(file, id, pin.token)}` });
+    }
+    const i = intent as Extract<Intent, { kind: 'agree-and-fund' }>;
+    this.#saved.funding = { commitmentId: id, nonces: { agreeNonce: i.agreeNonce, fundingNonce: i.fundingNonce, ...(i.operatorFee ? { operatorFeeNonce: i.operatorFee.nonce } : {}) }, files };
+    save(this.store, this.#saved);
+    for (const f of files) this.#log(`${f.summary} Sign ${f.path} with the wallet that holds ${this.paymentAddress}.`);
+    return files.map((f) => ({ ...f }));
+  }
+
   /**
    * Signs the agreement, the funding authorisation and the operator fee authorisation for the terms checkOffer
    * passed, and returns what the buyer paid. Each prepared message is rebuilt from those terms and compared before it
    * is signed, and the three together cannot take more than the approved total (verify.ts).
+   *
+   * With a payment address apart from this key, that address signs the funding and the fee elsewhere, from the files
+   * fundingFiles wrote, and `signatures` brings them back as hex. This key signs only the agreement. Nothing is sent
+   * unless each signature recovers to the payment address over the message this signer rebuilt from the approved
+   * terms, which is the one in its file. With `signatures.signed` (the files the wallet signed), a file that differs
+   * is refused by name: another payer, another deal, or more than the approved amount.
    */
-  async agreeAndFund(commitmentId: string): Promise<Paid> {
+  async agreeAndFund(commitmentId: string, signatures?: PaymentSignatures): Promise<Paid> {
     const id = commitmentId.toLowerCase() as Hex;
     const checked = this.#saved.commitmentId === id ? this.#saved.checked : undefined;
     if (!checked) return refuse(`checkOffer has not passed for ${id} with this key`);
@@ -757,12 +845,25 @@ export class BuyerSigner {
     const { price, fees } = checked.offer;
     const hold = BigInt(price.amount) + BigInt(fees.adjudication.amount);
     const paid: Paid = { total: fees.total, hold: { token: price.token, amount: hold.toString() }, operatorFee: fees.operator, receipt: null };
+    const apart = this.paymentAddress !== this.address;
+    const written = this.#saved.funding?.commitmentId === id ? this.#saved.funding : undefined;
+    if (apart && !written) throw new Error(`the payment address ${this.paymentAddress} signs the funding: call fundingFiles, sign its files with that wallet, and pass the signatures here`);
+    if (!apart && signatures) throw new Error('this key is its own payment address: it signs the funding itself, and takes no signatures');
     const state = (await agent.trusted(`/v1/commitments/${id}`, (x) => x.escrowState)) as string;
     if (state === 'AcceptedByAdjudicator') {
-      const schedule = await agent.operatorFeeSchedule();
-      const fee = schedule ? operatorFeeOf(price, schedule) : 0n;
-      if (fee.toString() !== fees.operator.amount) refuse(`the operator fee is now ${fee} base units, not the approved ${fees.operator.amount}`);
-      const held = await agent.agreeAndFund(checked.terms, BigInt(fees.total.amount));
+      let held: J;
+      if (apart) {
+        const { prepared, intent, slots } = await this.#prepareFunding(checked, written!.nonces);
+        for (const f of written!.files) {
+          if (slots.find((s) => s.slot === f.slot)?.digest !== f.digest) refuse(`the operators now prepare another ${f.name} message than the one in ${f.path}: call fundingFiles again, and sign the new file`);
+        }
+        held = await agent.submitAgreeAndFund(prepared, intent, this.#outsideSignatures(written!, signatures, slots));
+      } else {
+        const schedule = await agent.operatorFeeSchedule();
+        const fee = schedule ? operatorFeeOf(price, schedule) : 0n;
+        if (fee.toString() !== fees.operator.amount) refuse(`the operator fee is now ${fee} base units, not the approved ${fees.operator.amount}`);
+        held = await agent.agreeAndFund(checked.terms, BigInt(fees.total.amount));
+      }
       if (held.escrowState !== 'Held' || held.hold?.amount?.amount !== paid.hold.amount) throw new Error(`expected Held with ${paid.hold.amount} base units, got ${held.escrowState} ${shown(held.hold?.amount ?? null)}`);
       paid.receipt = held.receipt ?? null;
     } else {
@@ -775,6 +876,29 @@ export class BuyerSigner {
     this.#saved.paid = paid;
     save(this.store, this.#saved);
     return paid;
+  }
+
+  /**
+   * The outside signatures by slot, after the checks that name what is wrong: one for each file written, as hex,
+   * and each signed file given compared with the file written. Agent.submitAgreeAndFund then recovers each signature
+   * over this signer's own message, which is what makes a wrong one fail.
+   */
+  #outsideSignatures(written: NonNullable<Saved['funding']>, given: PaymentSignatures | undefined, slots: Array<{ slot: string; typed: J }>): Record<string, Hex> {
+    const out: Record<string, Hex> = {};
+    const keys = written.files.map((f) => (f.name === 'funding' ? 'funding' : 'operatorFee'));
+    for (const k of ['funding', 'operatorFee'] as const) if (given?.[k] !== undefined && !keys.includes(k)) refuse(`there is no ${k === 'funding' ? 'funding' : 'operator-fee'} message for the payment address to sign in this deal`);
+    for (const f of written.files) {
+      const key = f.name === 'funding' ? 'funding' : 'operatorFee';
+      const sig = given?.[key];
+      if (typeof sig !== 'string' || !/^0x[0-9a-fA-F]{130}$/.test(sig.trim())) refuse(`the ${f.name} signature is missing or not 65 bytes as 0x and 130 hex characters: sign ${f.path} with the wallet that holds ${this.paymentAddress}`);
+      const signed = given?.signed?.[key];
+      if (signed !== undefined) {
+        const why = signedFileDiffers(f.name, signed, typedDataFile(slots.find((s) => s.slot === f.slot)!.typed));
+        if (why) refuse(why);
+      }
+      out[f.slot] = String(sig).trim() as Hex;
+    }
+    return out;
   }
 
   /**

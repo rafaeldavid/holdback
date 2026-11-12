@@ -4,7 +4,7 @@
 //       With --expect-terms, the buyer's own terms (the defaults' format: deliverable, checks, rubric, every window in timing, fee, the three adjudicators, maxSubmissions; price and seller optional) take the defaults' place, and an offer that differs from them in nothing is funded in this run: the file is the approval.
 //   node examples/buy-with-signer.ts approve <key store directory> <commitment ID> <the most you pay, base units> [--stop-after-funding]    funds the offer a stop showed, only if every operator still serves exactly that offer
 //   node examples/buy-with-signer.ts resume <key store directory> [<commitment ID>]    days later, or after a restart: follows each open deal in the store, all at once, to its outcome; with an ID, that deal again, outcome saved or not. One deal's error is reported and holds up no other; the exit code is 1 when any failed
-// CROW_EXPECT: what you expect of the club, policy and mode, as JSON; give it to the approve run too. HOLDBACK_OPERATORS: the operators (on `pnpm sim`, its two). CROW_PAYMENT_ADDRESS: your own address that funds the hold and receives every refund (saved in the key file; left out, the fresh signing key's own; its wallet's signatures arrive in T-379's second pull request: until then a run with it stops at funding).
+// CROW_EXPECT: what you expect of the club, policy and mode, as JSON; give it to the approve run too. HOLDBACK_OPERATORS: the operators (on `pnpm sim`, its two). CROW_PAYMENT_ADDRESS: your own address that funds the hold and receives every refund (saved in the key file; left out, the fresh signing key's own). With it the run stops before funding, with exit status 4: it writes the two messages that address signs as typed-data files, and pay-from-wallet.ts funds with the signatures.
 import { readFileSync } from 'node:fs';
 import { relative } from 'node:path';
 import { loadKeys, makeKeys, openDeals, printable, type BuyerSigner, type Offer } from './buyer-signer.ts';
@@ -13,13 +13,13 @@ const args = process.argv.slice(2), stop = args.includes('--stop-after-funding')
 const [first, store, third, fourth, defaults, options] = args.filter((a, i) => a !== '--stop-after-funding' && (at < 0 || (i !== at && i !== at + 1)));
 if (at >= 0 && (!termsFile || termsFile.startsWith('--'))) throw new Error('--expect-terms takes the path of your terms file'); else if (first !== 'resume' && !/^[0-9]+$/.test(fourth ?? '')) throw new Error('the most you pay is base units as a decimal string');
 const say = (x: unknown) => console.error(printable(JSON.stringify(x))); // seller text, with no hidden or reordering characters
-const expect = () => ({ expect: JSON.parse(process.env['CROW_EXPECT'] || '{}') });
-const sh = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
+const expect = () => ({ expect: JSON.parse(process.env['CROW_EXPECT'] || '{}') }), sh = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
 // Waits, reports each step, reclaims the hold if deliverBy passes undelivered, decrypts, checks the hash. The work is the seller's data: printed as JSON, never run.
 const finish = async (s: BuyerSigner) => { const done = await s.openDelivery(s.commitmentId!, { onReport: say }); console.log(printable(JSON.stringify({ commitmentId: s.commitmentId, buyer: s.address, paid: s.paid?.total, outcome: done.outcome, work: done.work, transactions: done.transactions }))); };
 // The approved offer: read again from every operator and refused, naming the field, unless it equals what was shown; then the faucet's total and mandate, and three signatures, each rebuilt from the approved terms.
 const pay = async (s: BuyerSigner, offer: Offer, budget: string) => {
   if (BigInt(offer.fees.total.amount) > BigInt(budget)) throw new Error(`the offer costs ${offer.fees.total.amount} base units, above ${budget}`);
+  if (!s.paid && s.paymentAddress !== s.address) { await s.checkOffer(offer.commitmentId, offer); await s.testFunds(offer.fees.total.amount); for (const f of await s.fundingFiles(offer.commitmentId)) say({ sign: f.path, summary: f.summary }); console.error(printable(`Stopped for the payment address's signatures: nothing is paid. Sign each file above in the wallet that holds ${s.paymentAddress}, then run: node ${sh(relative(process.cwd(), new URL('./pay-from-wallet.ts', import.meta.url).pathname))} fund ${sh(store!)} ${offer.commitmentId} <funding signature> [<operator-fee signature>]`)); return void (process.exitCode = 4); }
   if (!s.paid) { await s.checkOffer(offer.commitmentId, offer); await s.testFunds(offer.fees.total.amount); say({ funded: offer.commitmentId, paid: (await s.agreeAndFund(offer.commitmentId)).total }); }
   if (!stop) await finish(s); // with --stop-after-funding the key store keeps the deal: run resume later
 };
