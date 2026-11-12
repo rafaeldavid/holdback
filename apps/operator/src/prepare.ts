@@ -723,12 +723,14 @@ async function settlement(ctx: PrepareContext, input: Record<string, unknown>): 
     if (!split.ok) return bad('cannot split the price');
     // ADR-0033: the money goes to the seller's payout address and back to the buyer's payment address; with the two
     // equal, one payout of the whole price (the parser refuses a recipient named twice).
-    payouts = lc(c.sellerPayoutAddress) === lc(c.buyerPaymentAddress)
-      ? [{ to: c.sellerPayoutAddress, amount: c.price }]
-      : [
-          { to: c.sellerPayoutAddress, amount: split.value.share },
-          { to: c.buyerPaymentAddress, amount: split.value.remainder },
-        ].filter((p) => p.amount.amount !== '0');
+    payouts = (
+      lc(c.sellerPayoutAddress) === lc(c.buyerPaymentAddress)
+        ? [{ to: c.sellerPayoutAddress, amount: c.price }]
+        : [
+            { to: c.sellerPayoutAddress, amount: split.value.share },
+            { to: c.buyerPaymentAddress, amount: split.value.remainder },
+          ]
+    ).filter((p) => p.amount.amount !== '0');
   }
   // ADR-0031 §4 (SC-3), ADR-0033: the phase-one contracts pay a settlement to the buyer's payment address and the
   // seller's payout address only. Said here, before either party signs a settlement the contract would refuse.

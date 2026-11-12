@@ -5,7 +5,7 @@
 - **Depends on:** ADR-0033 (Proposed, with D60 and D62; on `main` at `387c934`), ADR-0031 (D57, D58), T-356 (package R5, merged to `contracts-audit-ready` at `02ddb24`), T-341 (the side-by-side harness), T-354 (the alignment test)
 - **Paths this task may touch:** `contracts/src/HoldbackTypes.sol`, `contracts/src/HoldbackRules.sol` and `contracts/test/`; `spec/schemas/`, `spec/examples/`, `spec/openapi.json`, `spec/openapi/paths.json`, `spec/README.md`; `packages/core`; `packages/settlement/sim` and `packages/settlement/evm` (with `abis.json`); `packages/testkit` where the fields must be carried; `fixtures/` and their recordings; `apps/operator` only for the appeal-window refusal and to carry the two fields with their defaults; any other package only where the two required fields or the schema version break its build or tests; `tests/cut-feature-alignment.known.json`; this task file. Never `site/`, `docs/api.md`, `docs/audit/`, the vendored escrow, the separate-payment-address funding flow, the faucet, or the client tools (R6c-2 and R6c-3)
 - **Human gate:** no for the branch. The freeze, the merge to `main` and the redeploy are Rafa's
-- **Status:** in progress
+- **Status:** review (rafaeldavid/holdback#387)
 - **Agent/session:** implementer session, change kind 7 (smart contracts): `forge test`, one reviewer and one red team on Fable at max effort, a target of 300k tokens
 
 ## Intent
@@ -51,7 +51,7 @@ Non-goals: no refund to a third address (roadmap N81); no change to the vendored
 Labels: measured, inferred, guessed. All runs on the branch in this worktree, 2026-11-12.
 
 - **Runtime size** [measured, artifact runtime length of `HoldbackRules`]: 19,651 bytes at the lane tip `02ddb24` (as T-356 measured), 19,914 bytes with this change: **263 bytes added** (two hashed words, the payout comparison, the event, the appeal-window check). The limit is 24,576 bytes.
-- **`forge test`** [measured]: 58 suites, 419 passed, 0 failed, 0 skipped. New: `test/unit/TwoAddresses.t.sol` (28 tests, numbered by ADR-0033 section 10), three appeal-window tests in `StrictTerms.t.sol` (one old test that said the field was unchecked replaced), `invariant_signingAddressesMoveNoMoney` in `RulesInvariants.t.sol`. 419 − 31 = 388 at the tip, as T-356 counted [inferred].
+- **`forge test`** [measured]: 58 suites, 419 passed, 0 failed, 0 skipped, at `5657db2` after both reviews' fixes. New: `test/unit/TwoAddresses.t.sol` (28 tests, numbered by ADR-0033 section 10), three appeal-window tests in `StrictTerms.t.sol` (one old test that said the field was unchecked replaced), `invariant_signingAddressesMoveNoMoney` in `RulesInvariants.t.sol`. 419 − 31 = 388 at the tip, as T-356 counted [inferred].
 - **The side-by-side harness** [measured]: `SideBySide.t.sol` 5 passed, `testFuzz_sideBySide` 257 runs; the planted mutant still fails it.
 - **Hash vectors** [measured]: `Vectors.t.sol` and `packages/core/src/eip712.vectors.test.ts` pin the same 11 values, recomputed from `spec/examples/commitment.example.json`, whose payout address now differs from its seller. `eip712.binding.test.ts`'s second, hand-written EIP-712 implementation agrees with core under domain 0.8.
 - **`pnpm validate:spec`** [measured]: 35/35 examples valid; `spec/openapi.json` fresh.
@@ -62,6 +62,16 @@ Labels: measured, inferred, guessed. All runs on the branch in this worktree, 20
 - **The alignment test** [measured]: the known list has 115 files before and after; `-u` rewrote nothing.
 - **`pnpm typecheck`** [measured]: no error.
 - **`pnpm test`** [measured]: see the final run below.
+
+## Review
+
+- **Reviewer** (one `reviewer` subagent with CLAUDE.md, ADR-0031, ADR-0033 and the threat model): ISSUES, no Critical or High. M-1 (a direct funding named the signing buyer as its actor; no direct-route test with the addresses apart), M-2 (the site bundle is outside the paths), M-3 (no recorded evidence): all fixed in `6072211` and this file. L-2 (vectors could not tell `buyer` from `buyerPaymentAddress`) and L-3 (the allow-list did not check the new event's address topics): fixed in `6072211`. L-1 (agree-and-fund prepared from the signing key): fixed in `5657db2`. L-4 (ADR-0033 §10 tests not built): open, below.
+- **Red team** (`red-teamer` on Fable at max effort, same inputs): the change holds; no Critical, High or Medium; 6 Low, 8 Info; 17 Solidity and 25 TypeScript scratch attacks, all deleted afterwards. Fixed in `5657db2`: L-1 (the payment address funds and pays the fee in the prepared agree-and-fund), L-2 (the adapter refuses a funding whose `from` is not the payment address), L-3 (one payout when the two money addresses are one), L-4's text (`payoutsTo: parties` names the money addresses), L-6 (a stale spec test). I-8 (no payout of 0 in that one-address case): fixed after `5657db2`.
+- **Open Lows, for later packages:**
+  - Six ADR-0033 §10 tests are not in the suite: 16 (an undeployed ERC-6492 wallet as the payment address), 17 (EIP-7702), 18 (a wallet that turns hostile after funding, addresses apart), 24 (a token that refuses the payout address), 34 (SimChain: appeal stakes and an overturn with the addresses apart), and 35's SimChain side (one address for both money roles). The red team wrote and passed each; the sources are in its report (kept privately in the session's scratch folder, not committed). Test 15 on `LocalUSDC` and a test of the fee slot's signer and of the adapter's new refusal are not committed either.
+  - A rulebook cannot bound which addresses fund or receive a deal: membership and mandates bind the signing addresses only (red team L-4). A rulebook field ("money addresses equal the signers", for example) is a roadmap row for Rafa.
+  - The prepare routes' check lines (`apps/operator/src/prepare.ts`, agree-and-fund, early accept, settlement) still describe money by the signing addresses (R6c-2).
+- **Info for others:** the operator API takes 65-byte signatures only, so a multisig of two or more cannot be a payment address through an operator; the direct route works (residual 13, T-227). `tools/sim/check.ts` and `examples/deal-record.ts` derive postings from the signing addresses and would report a deal with the addresses apart as a mismatch (R6c-3; `tools/sim/check.ts` is in no package yet). A payout address equal to the deciding adjudicator funds, and nothing warns until R6c-2. The invariant campaign reverts on about 86% of its calls. The full protocol's default appeal window of 0 (decision 3) is for Rafa to confirm and for `docs/decisions-today.md`.
 
 ## Decisions
 
