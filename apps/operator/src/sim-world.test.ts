@@ -270,9 +270,16 @@ describe('operator API: prepare, sign, submit', () => {
     const late = await unposted(id, 'seller-1');
     const p = (await call<Prepared>('POST', '/v1/prepare/settlement', { commitmentId: id, nonce: nonce(), toSellerBps: 5000, delivery: late })).body;
     await sign(await sign(p, 'buyer-1'), 'seller-1');
-    // The seller posts the same delivery after both signed; the decision has not come yet.
-    expect((await call('POST', `/v1/commitments/${id}/deliveries`, late)).body.escrowState).toBe('Delivered');
-    expect((await call('POST', p.submit.path, p.submit.body)).body.escrowState).toBe('Settled');
+    // The seller posts the same delivery after both signed. The primary is silenced first, so no decision can land before
+    // the settlement does (in CI one did, and the deal was Released before the settlement arrived).
+    const silence = (silent: boolean) => fetch(`${world.url}/adjudicators/primary`, { method: 'POST', body: JSON.stringify({ silent }) });
+    expect((await silence(true)).ok).toBe(true);
+    try {
+      expect((await call('POST', `/v1/commitments/${id}/deliveries`, late)).body.escrowState).toBe('Delivered');
+      expect((await call('POST', p.submit.path, p.submit.body)).body.escrowState).toBe('Settled');
+    } finally {
+      await silence(false);
+    }
   });
 
   it('POST /settlements refuses a carried delivery that does not name the late work, and keys its idempotency on the delivery too', async () => {
