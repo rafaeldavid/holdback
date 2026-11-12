@@ -11,7 +11,7 @@ import { startSimWorld, type SimWorld } from '@holdback/operator';
 import type { Hex } from 'viem';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Agent } from './agent.ts';
-import { dealRecord, type DealRecord } from './deal-record.ts';
+import { dealRecord, lateWorkLine, lateWorkOf, type DealRecord } from './deal-record.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -109,6 +109,7 @@ describe('deal-record.ts writes one verified record of a finished deal (T-333)',
       { to: released.seller.address, amount: PRICE, why: 'price to the seller' },
       { to: world.info.adjudicators[0]!.address, amount: { token: 'tUSD', amount: FEE }, why: expect.any(String) },
     ]);
+    // The last step, `appeal.expired`, is SimChain only: this world runs the full protocol, whose appeal window closes (ADR-0031 §8).
     expect(r.steps.map((s) => s.step)).toEqual(['commitment.offered', 'adjudicator.accepted', 'commitment.agreed', 'hold.funded', 'delivery.submitted', 'key.released', 'judgment.decided', 'settlement.released', 'key.released', 'appeal.expired']);
     expect(r.row).toMatchObject({ commitmentId: released.id, buyer: released.buyer.address, seller: released.seller.address, price: PRICE, adjudicationFee: { token: 'tUSD', amount: FEE }, operatorFee: { token: 'tUSD', amount: '0' }, outcome: 'Released', panelDecision: 'accept', transactions: [] });
     for (const at of ['offeredAt', 'agreedAt', 'fundedAt', 'deliveredAt', 'decidedAt', 'settledAt']) expect(r.row[at as keyof typeof r.row], at).toMatch(/^\d{4}-\d\d-\d\dT/);
@@ -246,3 +247,30 @@ async function proxy(target: string, lie: { state?: string; tamperPrice?: string
     }),
   };
 }
+
+describe('deal-record.ts shows late work accepted by a mutual settlement (SC-5b)', () => {
+  // The event log as T-378's route writes it (rafaeldavid/holdback#408): no delivery.submitted, a settlement that
+  // released the key, then the key released by "mutual settlement". Newest last here, as the record sorts by seq.
+  const buyer = `0x${'b1'.repeat(20)}`, hash = `0x${'de'.repeat(32)}`;
+  const log = (over: { delivered?: boolean; keyReleased?: boolean; deliveryHash?: string | undefined } = {}) => [
+    { seq: 1, type: 'commitment.offered', payload: {} },
+    { seq: 4, type: 'hold.funded', payload: {} },
+    ...(over.delivered ? [{ seq: 5, type: 'delivery.submitted', payload: {} }] : []),
+    { seq: 6, type: 'commitment.settled', payload: { payouts: [], keyReleased: over.keyReleased ?? true, ...(over.deliveryHash === undefined ? {} : { deliveryHash: over.deliveryHash }) } },
+    ...((over.keyReleased ?? true) ? [{ seq: 7, type: 'key.released', payload: { recipient: buyer, envelope: {}, path: 'mutual settlement' } }] : []),
+  ];
+
+  it('names late work, with the settlement\'s delivery hash when the settled event carries it, in one line', () => {
+    const late = lateWorkOf(log({ deliveryHash: hash.toUpperCase().replace('0X', '0x') }));
+    expect(late).toEqual({ deliveryHash: hash, keyReleasedTo: buyer });
+    expect(lateWorkLine(late!)).toBe(`The work was delivered late and accepted by a mutual settlement, which released its key to ${buyer}; delivery hash ${hash}.`);
+    expect(lateWorkLine(lateWorkOf(log())!)).toMatch(/; delivery hash not in the events\.$/);
+  });
+
+  it('does not call a settlement late work when a delivery was posted, or when it released no key', () => {
+    expect(lateWorkOf(log({ delivered: true }))).toBeNull();
+    expect(lateWorkOf(log({ keyReleased: false }))).toBeNull();
+    // A key released before the settlement is another path's, not this one.
+    expect(lateWorkOf([{ seq: 2, type: 'key.released', payload: { path: 'mutual settlement', recipient: buyer } }, { seq: 6, type: 'commitment.settled', payload: { keyReleased: true } }])).toBeNull();
+  });
+});

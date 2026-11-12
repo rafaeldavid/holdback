@@ -23,10 +23,11 @@ const here = (f: string) => fileURLToPath(new URL(f, import.meta.url));
 const at = (n: number) => `0x${n.toString(16).padStart(40, '0')}`;
 /** A made-up test deployment: its token is an address, as on every chain. Chain ID 31338, a local test chain. */
 const TOKEN = at(0x70);
-const DEPLOYMENT: DeploymentFile = {
+/** Only the fields a pin reads (verify.ts pinOf); a phase-one record has no second collector or bond vault. */
+const DEPLOYMENT = {
   chainId: 31_338, fromBlock: 0, token: { address: TOKEN, name: 'Test USDC', version: '1', symbol: 'tUSDC', decimals: 6 },
-  escrow: at(0xe5), erc3009Collector: at(0xc0), permit2Collector: at(0xc1), multicall: '0xca11bde05977b3631167028862be2a173976ca11', rules: at(0x91), beacon: at(0xbe), expiryMarginSec: 86_400,
-};
+  escrow: at(0xe5), erc3009Collector: at(0xc0), multicall: '0xca11bde05977b3631167028862be2a173976ca11', rules: at(0x91), beacon: at(0xbe), expiryMarginSec: 86_400,
+} as unknown as DeploymentFile;
 const DISCOVERY = {
   domain: { name: 'Holdback', version: '0.8', chainId: 31_338, verifyingContract: at(0x91) },
   settlementTime: new Date().toISOString(), settlementModes: ['guaranteed_on_decision'],

@@ -33,7 +33,10 @@ export type Row = {
   /** The money addresses the terms name (ADR-0033), and which of them received money out of escrow: paidTo the price or the seller's share, refundedTo the rest. */
   buyerPaymentAddress: string | null; sellerPayoutAddress: string | null; paidTo: string | null; refundedTo: string | null;
   price: Money | null; adjudicationFee: Money | null; operatorFee: Money | null;
-  outcome: string | null; reclaimed: boolean | null; offeredAt: string | null; agreedAt: string | null; fundedAt: string | null; deliveredAt: string | null;
+  outcome: string | null; reclaimed: boolean | null;
+  /** Late work accepted by a mutual settlement that carried it (lateWorkOf). */
+  lateWork: boolean | null;
+  offeredAt: string | null; agreedAt: string | null; fundedAt: string | null; deliveredAt: string | null;
   decidedAt: string | null; settledAt: string | null; panelDecision: string | null; transactions: string[] | null;
 };
 export type DealRecord = {
@@ -75,6 +78,25 @@ const lc = (s: unknown) => String(s).toLowerCase();
 const sha256 = async (b: Uint8Array) => `sha256:${Buffer.from(await crypto.subtle.digest('SHA-256', new Uint8Array(b))).toString('hex')}`;
 const sum = (xs: Money[]) => xs.reduce((a, x) => a + BigInt(x.amount), 0n);
 const isMoney = (m: J): m is Money => typeof m?.token === 'string' && typeof m?.amount === 'string' && /^(0|[1-9][0-9]*)$/.test(m.amount);
+
+/**
+ * Late work accepted by settlement (SC-5b, T-378's route): the work was never posted as a delivery, and the parties'
+ * mutual settlement carried it and released its key. No event marks it; the record derives it from the log:
+ * `commitment.settled` with `keyReleased: true`, a `key.released` with path "mutual settlement" after it, and no
+ * `delivery.submitted` at all. `deliveryHash` is the settlement's, when the settled event carries it; null when not.
+ */
+export function lateWorkOf(events: J[]): { deliveryHash: string | null; keyReleasedTo: string | null } | null {
+  if (events.some((e) => e.type === 'delivery.submitted')) return null;
+  const settled = events.filter((e) => e.type === 'commitment.settled' && e.payload?.keyReleased === true).at(-1);
+  if (!settled) return null;
+  const key = events.find((e) => e.type === 'key.released' && e.payload?.path === 'mutual settlement' && Number(e.seq) > Number(settled.seq));
+  if (!key) return null;
+  const hash = String(settled.payload?.deliveryHash ?? '');
+  return { deliveryHash: ID.test(lc(hash)) ? lc(hash) : null, keyReleasedTo: ADDRESS.test(String(key.payload?.recipient)) ? lc(key.payload.recipient) : null };
+}
+/** The one line the record prints for late work accepted by settlement. */
+export const lateWorkLine = (w: NonNullable<ReturnType<typeof lateWorkOf>>): string =>
+  `The work was delivered late and accepted by a mutual settlement, which released its key${w.keyReleasedTo ? ` to ${w.keyReleasedTo}` : ''}; delivery hash ${w.deliveryHash ?? 'not in the events'}.`;
 
 /** GET from one operator: the parsed body on 2xx, the status otherwise, null when it does not answer in 15 s. */
 async function get(api: string, path: string): Promise<{ status: number; body: J } | null> {
@@ -203,7 +225,7 @@ async function view(a: Answers, id: Hex, o: Options, cache: Map<string, Uint8Arr
 
   // Outcome and steps.
   const s = a.state;
-  const outcome = { escrowState: s.escrowState, appealState: s.appealState, reclaimed: of('settlement.reclaimed').length > 0, settledAt: s.settledAt ?? null, finalAt: s.finalAt ?? null };
+  const outcome = { escrowState: s.escrowState, appealState: s.appealState, reclaimed: of('settlement.reclaimed').length > 0, settledAt: s.settledAt ?? null, finalAt: s.finalAt ?? null, lateWork: lateWorkOf(events) };
   const steps = events.map((e) => ({ step: e.type, at: e.at, actor: e.actor ?? null }));
 
   // Delivery: the ciphertext's hash from the bytes, the plaintext's for the buyer, the delivery hash from the body.
@@ -269,8 +291,10 @@ async function view(a: Answers, id: Hex, o: Options, cache: Map<string, Uint8Arr
     const signer = lc(await recoverMessageAddress({ message: { raw: recordHash }, signature }).catch(() => ''));
     const named = t ? [t.adjudication?.adjudicator, t.adjudication?.fallbackAdjudicator, t.adjudication?.appealAdjudicator].map(lc) : [];
     add("adjudicator's record signature", signer === lc(j.adjudicator) && named.includes(signer), `recovered to ${signer || 'nothing'}; the record names ${lc(j.adjudicator)}; the terms name ${named.join(', ') || 'no adjudicators (terms unread)'}`);
+    // `appeal.decided`: SimChain only, where the full protocol's party appeal is decided (ADR-0031 §8); no chain emits it.
     const decided = [...of('judgment.decided'), ...of('appeal.decided')].map((e) => lc(e.payload?.recordHash));
     add('judgment names the delivery', decided.includes(lc(recordHash)) && lc(j.deliveryHash) === lc(d?.payload?.deliveryHash), 'a decided event carries this recordHash, and the record names the recorded deliveryHash');
+    // SimChain only: as above.
     const ev = [...of('judgment.decided'), ...of('appeal.decided')].find((e) => lc(e.payload?.recordHash) === lc(recordHash));
     judgment = {
       adjudicator: lc(j.adjudicator), role: j.role, attempt: j.attempt, deliveryHash: lc(j.deliveryHash), outcome: ev?.payload?.outcome ?? null, decision: j.aggregate?.decision ?? null,
@@ -374,7 +398,7 @@ export async function dealRecord(id: Hex, o: Options): Promise<DealRecord> {
     buyerPaymentAddress: t ? lc(t.buyerPaymentAddress) : null, sellerPayoutAddress: t ? lc(t.sellerPayoutAddress) : null,
     paidTo: t && received(t.sellerPayoutAddress) ? lc(t.sellerPayoutAddress) : null, refundedTo: t && received(t.buyerPaymentAddress) ? lc(t.buyerPaymentAddress) : null,
     price: t?.price ?? null, adjudicationFee: t?.adjudication?.fee ?? null, operatorFee: st?.operatorFee ?? null,
-    outcome: agreed.outcome ? merged.outcome.escrowState : null, reclaimed: agreed.outcome ? merged.outcome.reclaimed : null,
+    outcome: agreed.outcome ? merged.outcome.escrowState : null, reclaimed: agreed.outcome ? merged.outcome.reclaimed : null, lateWork: agreed.outcome ? merged.outcome.lateWork !== null : null,
     offeredAt: at('commitment.offered'), agreedAt: at('commitment.agreed'), fundedAt: at('hold.funded'), deliveredAt: at('delivery.submitted'), decidedAt: at('judgment.decided'), settledAt,
     panelDecision: agreed.judgment ? (merged.judgment?.decision ?? null) : null, transactions: st ? st.transactions.map((x: J) => x.url ?? x.tx) : null,
   };
@@ -410,6 +434,8 @@ async function main(argv: string[]): Promise<number> {
   if (out) writeFileSync(out, text);
   else process.stdout.write(text);
   const count = (ok: boolean | null) => r.checks.filter((c) => c.ok === ok).length;
+  const late = (r.outcome as J)?.lateWork;
+  if (late) process.stderr.write(`${lateWorkLine(late)}\n`);
   process.stderr.write(
     `Record of ${r.commitmentId} written${out ? ` to ${out}` : ''}: ${count(true)} checks passed, ${count(null)} not run, ${count(false)} failed. ` +
       `${r.disagreements.length ? `Operators differ on ${r.disagreements.map((d) => d.section).join(', ')}.` : `The ${r.operators.filter((x) => x.answered).length} answering operators agree.`}\n`,
