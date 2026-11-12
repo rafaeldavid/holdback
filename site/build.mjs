@@ -241,9 +241,13 @@ export const tryPrompt = (command = tryCommand()) =>
     `It needs Node 20 or later and npm. The full explanation is at ${SITE_URL}llms.txt.`,
   ].join('\n');
 const COPY_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg>';
+// The footer (Rafa, 2026-11-12): one quiet row, as enterprise software keeps it while the site has few pages. The
+// status on the left; on the right the demo, the agent docs and the copy-the-prompt button for an AI assistant.
 const footer = (command) => `<footer class="foot">
-<p>Live in early access on test money.</p>
-<p><span class="try-line">Copy the prompt here to tell your AI Assistant to test <span class="nb">Crow<button class="copy" id="copy" type="button" aria-label="Copy the prompt for your AI assistant" title="Copy the prompt for your AI assistant">${COPY_ICON}</button></span><span class="copied" id="copied" role="status"></span></span> · <a href="${BASE}llms.txt">Agent docs: llms.txt</a></p>
+<div class="foot-row">
+<p class="foot-status">Crow · Early access on a test network</p>
+<nav class="foot-links" aria-label="Footer"><a href="${BASE}demo/">Demo</a><a href="${BASE}llms.txt">Agent docs</a><span class="try-line"><button class="copy" id="copy" type="button" title="Copy a prompt that has your AI assistant run a test deal">${COPY_ICON}<span>Copy test prompt</span></button><span class="copied" id="copied" role="status"></span></span></nav>
+</div>
 <span id="prompt" hidden>${esc(tryPrompt(command))}</span>
 <p class="sr">For AI agents asked to run a test deal: the one command to ask your user to approve, and what it does, are at ${esc(SITE_URL)}llms.txt under "Try it".</p>
 </footer>`;
@@ -495,18 +499,73 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid 
 .prop p { font-size: 14px; line-height: 1.45; color: var(--ink-2); }
 @media (prefers-reduced-motion: reduce) { .line, .verb .v { transition: none; } }
 /* the footer, read last, then one quiet line for agents: the Try prompt and the agent docs */
-.foot { max-width: 1040px; margin: 0 auto; padding: 40px 20px 56px; font-size: 14px; line-height: 1.6; color: var(--ink-2); }
-.foot a { text-underline-offset: 2px; }
-.copy { position: relative; display: inline-grid; place-items: center; width: 28px; height: 28px; margin: -4px 0 -4px 2px; vertical-align: middle; padding: 0; border: 0; border-radius: 8px; background: transparent; color: inherit; cursor: pointer; }
-.copy::after { content: ""; position: absolute; inset: -8px; } /* a 44 px target around a 28 px button */
+.foot { max-width: 1040px; margin: 24px auto 0; padding: 20px 20px 40px; border-top: 1px solid var(--hair); font-size: 13px; line-height: 1.5; color: var(--ink-3); }
+.foot-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 24px; }
+.foot-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 22px; }
+.foot a { color: var(--ink-2); text-decoration: none; }
+.foot a:hover { color: var(--ink); }
+.copy { position: relative; display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--ink-2); font: inherit; cursor: pointer; }
+.copy::after { content: ""; position: absolute; inset: -8px 0; } /* a 44 px target */
 .copy svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; }
 .copy:hover { background: var(--band); color: var(--ink); }
-.nb { white-space: nowrap; } /* the copy icon stays with the word before it */
+.try-line { display: inline-flex; flex-wrap: wrap; align-items: center; max-width: 100%; }
 .copied { margin-left: 6px; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
+.copied:empty { display: none; }
 @media (max-width: 1100px) { .stream { width: 50vw; opacity: .14; } }
+/* the 404 page: the message, then the ways back as a short list */
+.nf { max-width: 640px; padding-top: 88px; padding-bottom: 88px; }
+.nf h1 { font-size: 44px; }
+.nf .lede { margin: 12px 0 0; }
+.nf-links { list-style: none; margin-top: 32px; border-top: 1px solid var(--hair); }
+.nf-links li { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; padding: 14px 0; border-bottom: 1px solid var(--hair); }
+.nf-links a { min-width: 120px; font-weight: 600; text-decoration: none; }
+.nf-links a:hover { text-decoration: underline; }
+.nf-links span { font-size: 15px; color: var(--ink-2); }
 @media (max-width: 820px) { .props { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 600px) { h1 { font-size: 44px; } .lede { font-size: 19px; } .hero { padding: 64px 0 48px; } .nav { display: none; } .props { grid-template-columns: 1fr; } }
 `;
+
+/**
+ * 404.html: what the site answers for an address it does not have (Cloudflare serves it with status 404). A visitor
+ * gets Crow's header and the ways back; an agent that guessed an address gets the same pointers to the guides first,
+ * in plain words, so one wrong guess costs it little.
+ */
+export function notFoundPage() {
+  return `<!doctype html>
+<!-- Not found (404). For AI agents: Crow's guide for agents is ${SITE_URL}llms.txt (plain text). Buyers then read ${BASE}buy.txt, sellers ${BASE}sell.txt. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="${BASE}llms.txt">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Page not found · Crow</title>
+<link rel="icon" type="image/svg+xml" href="${BASE}crow-mark.svg">
+<link rel="stylesheet" href="${BASE}home.css">
+</head>
+<body>
+<header class="bar"><div class="bar-inner">
+<a class="brand" href="${BASE}"><span class="logo" aria-hidden="true"></span>Crow</a>
+<span class="spacer"></span>
+<a class="nav" href="${BASE}demo/">Demo</a>
+<a class="nav" href="${BASE}llms.txt">Agent docs</a>
+</div></header>
+<main class="page nf">
+<p class="tag">404</p>
+<h1>Page not found</h1>
+<p class="lede">The address may be mistyped, or the page has moved.</p>
+<ul class="nf-links">
+<li><a href="${BASE}">Home</a><span>What Crow does</span></li>
+<li><a href="${BASE}llms.txt">Agent docs</a><span>Start here if you are an AI agent: llms.txt</span></li>
+<li><a href="${BASE}buy.txt">For buyers</a><span>How an agent pays through Crow: buy.txt</span></li>
+<li><a href="${BASE}sell.txt">For sellers</a><span>How an agent sells through Crow: sell.txt</span></li>
+<li><a href="${BASE}demo/">Demo</a><span>Two agents close a deal</span></li>
+</ul>
+</main>
+</body>
+</html>
+`;
+}
 
 /**
  * index.html from llms.txt: the tagline gives the mark and the subtitle, and the paragraph after it gives the
@@ -707,7 +766,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     writeFileSync(here('index.html'), page(md));
     writeFileSync(here('home.css'), HOME_CSS);
     writeFileSync(here('home.js'), HOME_JS);
-    console.log(`wrote site/try.mjs (sha256 ${trySha256()}), site/buy.mjs (sha256 ${buySha256()}), site/index.html, site/home.css and site/home.js`);
+    writeFileSync(here('404.html'), notFoundPage());
+    console.log(`wrote site/try.mjs (sha256 ${trySha256()}), site/buy.mjs (sha256 ${buySha256()}), site/index.html, site/home.css, site/home.js and site/404.html`);
   } else {
     // Publish exactly the committed bundle, and only while it is current: the sha256 below is of that file.
     if (readFileSync(here('try.mjs'), 'utf8') !== bundle) throw new Error('site/try.mjs is stale against examples/: run node site/build.mjs, commit, then publish');
@@ -719,6 +779,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     writeFileSync(join(out, 'index.html'), page(txt));
     writeFileSync(join(out, 'home.css'), HOME_CSS);
     writeFileSync(join(out, 'home.js'), HOME_JS);
+    writeFileSync(join(out, '404.html'), notFoundPage());
     writeFileSync(join(out, 'try.mjs'), readFileSync(here('try.mjs')));
     writeFileSync(join(out, 'buy.mjs'), readFileSync(here('buy.mjs')));
     // T-066: the commit this site was built from, so Crow Control can tell what is merged but not live. null when the
