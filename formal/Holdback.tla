@@ -95,9 +95,11 @@ Named == Parties \cup Adjs \cup {"operator", "beacon", PayAddr}
 SharedBugs == {"none", "second_capture", "operator_authors", "early_reclaim", "key_separate", "buyer_only_timeout",
                "double_refund", "late_judge_by", "capture_after_expiry", "refund_to_signer", "pay_signer",
                "fund_from_signer", "early_accept_keeps_fee", "reject_releases_key", "reject_refunds_fee",
-               "settle_alone", "fund_without_payer", "early_fallback", "late_delivery", "wrong_decider"}
+               "settle_alone", "fund_without_payer", "early_fallback", "late_delivery", "wrong_decider",
+               "fee_to_other", "reason_not_written"}
 FullBugs == {"mint", "keep_bond_after_cpp", "slash_keeps_enc", "overturn_pays_signer"}
-P1Bugs == {"default_pays_fee", "late_early_accept", "fund_after_expiry", "expire_recorded"}
+P1Bugs == {"default_pays_fee", "late_early_accept", "fund_after_expiry", "expire_recorded",
+           "default_recorded_decided", "default_recorded_reclaimed"}
 
 ASSUME Profile \in {"full", "phase_one"}
 ASSUME Apart \subseteq Parties
@@ -118,6 +120,8 @@ MoneyDone == {"Released", "Refunded", "Settled"}
 \* via: how the escrow was settled. primary / fallback = first instance (appealable in the full profile).
 Vias == {"na", "primary", "fallback", "early", "escalation", "reclaim", "default_fb", "default_esc", "mutual"}
 ApStates == {"na", "none", "open", "upheld", "overturned", "expired"}
+\* Deal.reason in HoldbackRules.sol (docs/audit/state-model.md, section 9.2): why a deal closed.
+Reasons == {"open", "decided", "accepted_early", "settled", "reclaimed", "defaulted"}
 
 VARIABLES
   esc,        \* escrow state per commitment (state.ts EscrowState.kind; "None" = not yet offered)
@@ -130,6 +134,8 @@ VARIABLES
   key,        \* the buyer can read the delivery (content key released to it)
   moves,      \* steps that debited escrow[c]
   out,        \* the ledger: what escrow[c] paid to PayAddr, to PayoutAddr and to each fee account (an observer)
+  reason,     \* the contract's stored closing reason (Deal.reason): "open" until the deal closes
+  decider,    \* the contract's stored decider (Deal.decider): the adjudicator whose decision closed the deal, or "none"
   down,       \* the actor that has crashed, or "none"
   wallet, escrow, fees, bond, apBond, apFee,  \* accounts
   cppExp,     \* CPP's authorizationExpiry has passed (tracked while the commitment is funded)
@@ -139,30 +145,20 @@ VARIABLES
   act         \* history: the last step's name, signers and commitment, and that commitment's state before it
 
 (***************************************************************************)
-(* RF-4, the marked place (T-376 second pass; waits for T-375's refactor).  *)
-(* Once HoldbackRules.sol stores a closing reason and a decider in the     *)
-(* deal's word (docs/audit/state-model.md, section 9.2), this model gains  *)
-(*   reason[c]  \in {"open", "decided", "accepted_early", "settled",       *)
-(*                   "reclaimed", "defaulted"}                             *)
-(*   decider[c] \in {"none"} \cup Adjs                                     *)
-(* written in the step that closes the deal, and two properties:           *)
-(*   ReasonRules: reason = "open" exactly while esc \notin MoneyDone;      *)
-(*     decider # "none" exactly when reason = "decided"; neither changes   *)
-(*     after the close.                                                    *)
-(*   ReasonMatchesMoney: the reason matches the money that moved.          *)
-(*     "decided": out = the price to PayoutAddr (accept) or to PayAddr     *)
-(*       (reject), and the fee to the decider's account and no other.      *)
-(*     "accepted_early": the price to PayoutAddr, the fee to PayAddr.      *)
-(*     "settled": the seller's share to PayoutAddr, the rest and the fee   *)
-(*       to PayAddr, no fee account paid.                                  *)
-(*     "reclaimed", "defaulted": the whole hold to PayAddr.                *)
-(* PaidAsClosed below already states that table over via, the model's own  *)
-(* record of how a deal closed. Until the contract stores the two fields,  *)
-(* they are not modelled.                                                  *)
+(* The closing reason and the decider (RF-4, T-376 second pass).            *)
+(* HoldbackRules.sol stores both in the deal's word and writes them in the  *)
+(* storage write that closes the deal. The model writes reason[c] and      *)
+(* decider[c] in the same step, in both profiles; SimChain keeps the same  *)
+(* fact as the via of its Released or Refunded state. ReasonRules states   *)
+(* the rules of docs/audit/state-model.md, section 9.2. ReasonMatchesMoney *)
+(* states that the stored reason and decider match the money that moved,   *)
+(* read from the ledger. AuthorizedSteps ties both to the step that closed *)
+(* the deal, and FirstDecisionFinal says they never change after it.       *)
 (***************************************************************************)
 
 money == <<wallet, escrow, fees, bond, apBond, apFee>>
-led == <<moves, out>>
+\* What a closing step writes, beside the stage: the ledger and the contract's closing reason and decider.
+led == <<moves, out, reason, decider>>
 cppv == <<cppExp, cppRec>>
 bondv == <<enc, flags>>
 vars == <<esc, via, ap, appellant, clk, escClk, apClk, key, led, down, money, cppv, bondv, act>>
@@ -228,6 +224,11 @@ Debit(c, amount, fromBonds) ==
                                 payout |-> @.payout + (wallet'[PayoutAddr] - wallet[PayoutAddr]) - fromBonds,
                                 fee |-> [a \in Adjs |-> @.fee[a] + (fees'[a] - fees[a])]]]
 
+\* The closing write: the contract stores why the deal closed and, for a decision, whose it was.
+Close(c, r, d) ==
+  /\ reason' = [reason EXCEPT ![c] = r]
+  /\ decider' = [decider EXCEPT ![c] = d]
+
 \* _refundAll releases the deal's bonds whether or not the payer reclaimed on CPP. The keep_bond_after_cpp bug
 \* forgets them after a CPP reclaim (the shape of T-206 M-1 before its fix: the deal closes, the bond stays locked).
 CloseBonds(c) == IF Bug = "keep_bond_after_cpp" /\ cppRec[c] THEN UNCHANGED bondv ELSE ReleaseAll(c)
@@ -245,6 +246,8 @@ Init ==
   /\ key = [c \in C |-> FALSE]
   /\ moves = [c \in C |-> 0]
   /\ out = [c \in C |-> [pay |-> 0, payout |-> 0, fee |-> NoFees]]
+  /\ reason = [c \in C |-> "open"]
+  /\ decider = [c \in C |-> "none"]
   /\ down = "none"
   /\ wallet = [h \in Holders |-> (IF h = PayAddr THEN N * Hold ELSE 0)
                                  + (IF h \in Parties /\ ~P1 THEN N * (ApBond + ApFee) ELSE 0)]
@@ -317,12 +320,14 @@ Deliver(c) ==
 \* (ADR-0012), except under the key_separate bug. Accept: escrow -> PayoutAddr (price). Reject: escrow -> PayAddr
 \* (price). Either way escrow -> the deciding adjudicator (fee). The pay_signer bug pays the seller's signing
 \* address; reject_refunds_fee returns the fee to the buyer as well as paying it; reject_releases_key hands the
-\* buyer the key of a refunded deal.
+\* buyer the key of a refunded deal; fee_to_other pays the fee to an adjudicator other than the one recorded as the
+\* decider. The closing write records the decision and the role that made it.
 Settle(c, accept, adj) ==
   /\ wallet' = [wallet EXCEPT ![IF accept THEN (IF Bug = "pay_signer" THEN "seller" ELSE PayoutAddr) ELSE PayAddr]
                                  = @ + Price + (IF ~accept /\ Bug = "reject_refunds_fee" THEN Fee ELSE 0)]
-  /\ fees' = [fees EXCEPT ![adj] = @ + Fee]
+  /\ fees' = [fees EXCEPT ![IF Bug = "fee_to_other" THEN (IF adj = "primary" THEN "fallback" ELSE "primary") ELSE adj] = @ + Fee]
   /\ Debit(c, Hold, 0)
+  /\ Close(c, "decided", adj)
   /\ key' = [key EXCEPT ![c] = @ \/ (accept /\ Bug # "key_separate") \/ (~accept /\ Bug = "reject_releases_key")]
 
 \* A first-instance decision (state.ts firstInstance): accept, reject or escalate.
@@ -398,6 +403,7 @@ EarlyAcceptEffect(c) ==
        ELSE /\ wallet' = [wallet EXCEPT ![PayoutAddr] = @ + Price, ![PayAddr] = @ + Fee]
             /\ UNCHANGED fees
   /\ Debit(c, Hold, 0)
+  /\ Close(c, "accepted_early", "none")
   /\ key' = [key EXCEPT ![c] = TRUE]
   /\ ReleaseAll(c)
   /\ UNCHANGED <<ap, appellant, clk, escClk, apClk, down, bond, apBond, apFee, cppv>>
@@ -446,6 +452,7 @@ MutualSettle(c, s, releaseKey) ==
   /\ wallet' = [wallet EXCEPT ![PayoutAddr] = @ + s, ![PayAddr] = @ + (Price - s) + Fee]
   /\ UNCHANGED fees
   /\ Debit(c, Hold, 0)
+  /\ Close(c, IF Bug = "reason_not_written" THEN "open" ELSE "settled", "none")
   /\ key' = [key EXCEPT ![c] = releaseKey]
   /\ ReleaseAll(c)
   /\ Act("mutual_settle", Parties, c)
@@ -526,6 +533,7 @@ Reclaim(c) ==
   /\ wallet' = [wallet EXCEPT ![IF Bug = "refund_to_signer" THEN "buyer" ELSE PayAddr] = @ + Refunds(c)]
   /\ UNCHANGED fees
   /\ Debit(c, Refunds(c), 0)
+  /\ Close(c, "reclaimed", "none")
   /\ CloseBonds(c)
   /\ Act("reclaim", TrigSigners, c)
   /\ UNCHANGED <<ap, appellant, clk, escClk, apClk, key, down, bond, apBond, apFee, cppv>>
@@ -554,6 +562,9 @@ TriggerDefault(c) ==
                /\ wallet' = [wallet EXCEPT ![PayAddr] = @ + r - toAdj]
                /\ fees' = [fees EXCEPT !["fallback"] = @ + toAdj]
                /\ Debit(c, r, 0)
+               /\ Close(c, IF Bug = "default_recorded_decided" THEN "decided"
+                           ELSE IF Bug = "default_recorded_reclaimed" THEN "reclaimed" ELSE "defaulted",
+                        IF Bug = "default_recorded_decided" THEN "fallback" ELSE "none")
                /\ UNCHANGED <<bond, apBond, apFee>>
        ELSE /\ esc' = [esc EXCEPT ![c] = "Defaulted"]
             /\ UNCHANGED <<led, money>>
@@ -575,6 +586,7 @@ ApplyDefault(c) ==
         /\ wallet' = [wallet EXCEPT ![PayAddr] = @ + Refunds(c), ![PayoutAddr] = @ + comp]
         /\ UNCHANGED fees
         /\ Debit(c, Refunds(c), comp)
+        /\ Close(c, "defaulted", "none")
   /\ esc' = [esc EXCEPT ![c] = "Refunded"]
   /\ CloseBonds(c)
   /\ Act("apply_default", TrigSigners, c)
@@ -657,6 +669,7 @@ CppReclaim(c) ==
   /\ wallet' = [wallet EXCEPT ![PayAddr] = @ + Hold]
   /\ UNCHANGED fees
   /\ Debit(c, Hold, 0)
+  /\ UNCHANGED <<reason, decider>>
   /\ Act("cpp_reclaim", {PayAddr}, c)
   /\ UNCHANGED <<esc, via, ap, appellant, clk, escClk, apClk, key, down, bond, apBond, apFee, cppExp, bondv>>
 
@@ -703,6 +716,7 @@ TypeOK ==
   /\ clk \in [C -> 0..5] /\ escClk \in [C -> 0..1] /\ apClk \in [C -> 0..2]
   /\ key \in [C -> BOOLEAN] /\ moves \in [C -> Nat] /\ down \in Named \cup {"none"}
   /\ out \in [C -> [pay : Int, payout : Int, fee : [Adjs -> Int]]]
+  /\ reason \in [C -> Reasons] /\ decider \in [C -> {"none"} \cup Adjs]
   /\ wallet \in [Holders -> Int] /\ escrow \in [C -> Int] /\ fees \in [Adjs -> Int]
   /\ bond \in [Adjs -> Int] /\ apBond \in [C -> Int] /\ apFee \in [C -> Int]
   /\ cppExp \in [C -> BOOLEAN] /\ cppRec \in [C -> BOOLEAN]
@@ -768,6 +782,41 @@ PaidAsClosed ==
 DefaultRefundsBuyer ==
   \A c \in C : (esc[c] = "Refunded" /\ via[c] \in {"default_fb", "default_esc"})
                  => out[c] = [pay |-> Hold, payout |-> 0, fee |-> NoFees]
+
+\* The stored closing reason and decider keep the rules of the state model (section 9.2). The reason is "open"
+\* exactly while the deal is not closed. A decider is named exactly when the reason is "decided". The reason fixes
+\* the stage: a decision gives Released or Refunded, an early accept Released, a settlement Settled, a reclaim and a
+\* default Refunded.
+ReasonRules ==
+  \A c \in C :
+    /\ reason[c] = "open" <=> esc[c] \notin MoneyDone
+    /\ decider[c] # "none" <=> reason[c] = "decided"
+    /\ reason[c] = "decided" => esc[c] \in {"Released", "Refunded"}
+    /\ reason[c] = "accepted_early" => esc[c] = "Released"
+    /\ reason[c] = "settled" => esc[c] = "Settled"
+    /\ reason[c] \in {"reclaimed", "defaulted"} => esc[c] = "Refunded"
+
+\* The stored reason matches the money that moved, read from the ledger and not from via. Decided: the price went
+\* to the payout address on a release and to the payment address on a refund, and the fee went to the stored
+\* decider's account and to no other. Accepted early: the price to the payout address, the fee back to the payment
+\* address. Settled: the price split between the two, the fee back, no fee account paid. Reclaimed or defaulted: the
+\* whole hold back to the payment address. A deal whose hold the payment address reclaimed on the escrow is open, or
+\* closed by a timeout, and that address has the whole hold.
+ReasonMatchesMoney ==
+  \A c \in C :
+    LET o == out[c]
+        r == reason[c]
+        d == decider[c]
+    IN IF cppRec[c]
+         THEN r \in {"open", "reclaimed", "defaulted"} /\ o = [pay |-> Hold, payout |-> 0, fee |-> NoFees]
+         ELSE /\ r = "open" => o = [pay |-> 0, payout |-> 0, fee |-> NoFees]
+              /\ r = "decided" => /\ d \in Adjs
+                                  /\ o = IF esc[c] = "Released"
+                                           THEN [pay |-> 0, payout |-> Price, fee |-> OnlyFee(d)]
+                                           ELSE [pay |-> Price, payout |-> 0, fee |-> OnlyFee(d)]
+              /\ r = "accepted_early" => o = [pay |-> Fee, payout |-> Price, fee |-> NoFees]
+              /\ r = "settled" => o.fee = NoFees /\ o.payout \in 0..Price /\ o.pay = Hold - o.payout
+              /\ r \in {"reclaimed", "defaulted"} => o = [pay |-> Hold, payout |-> 0, fee |-> NoFees]
 
 \* A signing address that is apart from its money address holds nothing in phase one, at any step.
 SignersHoldNothing == P1 => \A p \in Apart : wallet[p] = 0
@@ -870,6 +919,11 @@ AuthorizedMoves == [][Authorized]_vars
 \* whose turn it was.
 Loser(c) == IF esc[c] = "Released" THEN "buyer" ELSE "seller"
 
+DeciderOfTurn(c) == CASE esc[c] \in {"Held", "Delivered"} -> "primary"
+                      [] esc[c] = "FallbackJudging" -> "fallback"
+                      [] esc[c] = "Escalated" -> "appeal"
+                      [] OTHER -> "none"
+
 DecidedVia(c) == CASE esc[c] \in {"Held", "Delivered"} -> "primary"
                    [] esc[c] = "FallbackJudging" -> "fallback"
                    [] esc[c] = "Escalated" -> "escalation"
@@ -899,6 +953,14 @@ StageChangeOK(c) ==
         \/ ~P1 /\ a = "Defaulted" /\ b = "Refunded" /\ n = "apply_default" /\ via'[c] = via[c]
         \/ /\ ~P1 /\ b = "Expired" /\ n = "expire" /\ via'[c] = via[c]
            /\ (a \in {"Offered", "AcceptedByAdjudicator"} /\ clk[c] >= 1) \/ (a = "Agreed" /\ clk[c] >= 2)
+     \* The stored reason and decider are written by the step that closes the deal, and say which step it was.
+     /\ b \notin MoneyDone => reason'[c] = "open" /\ decider'[c] = "none"
+     /\ b \in MoneyDone =>
+          \/ n = "decide" /\ reason'[c] = "decided" /\ decider'[c] = DeciderOfTurn(c)
+          \/ n = "early_accept" /\ reason'[c] = "accepted_early" /\ decider'[c] = "none"
+          \/ n = "mutual_settle" /\ reason'[c] = "settled" /\ decider'[c] = "none"
+          \/ n = "reclaim" /\ reason'[c] = "reclaimed" /\ decider'[c] = "none"
+          \/ n \in {"trigger_default", "apply_default"} /\ reason'[c] = "defaulted" /\ decider'[c] = "none"
 
 \* The appeal state: opened and closed at once by a first-instance decision (phase one), or opened by it and then
 \* moved by the losing party's filing, the appeal adjudicator's decision or an expiry (full profile).
@@ -918,6 +980,7 @@ AuthorizedSteps ==
   [][/\ Signed
      /\ \A c \in C : /\ esc'[c] # esc[c] => StageChangeOK(c)
                      /\ via'[c] # via[c] => esc'[c] # esc[c]
+                     /\ (reason'[c] # reason[c] \/ decider'[c] # decider[c]) => esc'[c] # esc[c]
                      /\ ap'[c] # ap[c] => AppealChangeOK(c)]_vars
 
 \* Full profile (ADR-0033 section 4): a stake made by a later signature stays with the signer, and what a bond
@@ -962,6 +1025,7 @@ FirstDecisionFinal ==
        esc[c] \in MoneyDone
          => /\ esc'[c] = esc[c] /\ via'[c] = via[c] /\ key'[c] = key[c]
             /\ escrow'[c] = escrow[c] /\ out'[c] = out[c]
+            /\ reason'[c] = reason[c] /\ decider'[c] = decider[c]
             /\ P1 => /\ ap'[c] = ap[c]
                      /\ act'.c = c => (wallet' = wallet /\ fees' = fees)]_vars
 

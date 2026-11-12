@@ -53,6 +53,14 @@ describe('paymentHashOf', () => {
     expect(paymentHashOf(terms, id, SEPOLIA!, '0x0000000000000000000000000000000000000000')).toBe(nonce);
     expect(paymentHashOf(terms, id, SEPOLIA!)).not.toBe(nonce);
   });
+  it('takes the payment address as the payer and the payout address as the receiver, as the contract and fundingNonceOf do (ADR-0033, T-381)', () => {
+    const apart = { ...terms, buyerPaymentAddress: '0x7777777777777777777777777777777777777777', sellerPayoutAddress: '0x8888888888888888888888888888888888888888' };
+    const id = commitmentIdOf(apart);
+    expect(paymentHashOf(apart, id, SEPOLIA!, '0x0000000000000000000000000000000000000000')).toBe(fundingNonceOf(apart, id, pinOf(SEPOLIA!).chain!));
+    // The default payer is the payment address: the same hash as naming it, and not the one with the signing address.
+    expect(paymentHashOf(apart, id, SEPOLIA!)).toBe(paymentHashOf(apart, id, SEPOLIA!, '0x7777777777777777777777777777777777777777'));
+    expect(paymentHashOf(apart, id, SEPOLIA!)).not.toBe(paymentHashOf(apart, id, SEPOLIA!, apart.buyer as `0x${string}`));
+  });
 });
 
 describe('termsTuple', () => {

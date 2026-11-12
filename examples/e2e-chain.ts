@@ -110,11 +110,11 @@ const PAYMENT_INFO_TYPEHASH = keccak256(toBytes('PaymentInfo(address operator,ad
  * The key of CPP's `paymentState` for a deal (AuthCaptureEscrow.getHash), from the terms and the pinned deployment
  * alone, as HoldbackRules derives its PaymentInfo (ADR-0025). With `payer` zeroed it is the buyer's funding nonce.
  */
-export function paymentHashOf(t: J, id: Hex, d: DeploymentFile, payer: Address = getAddress(t.buyer)): Hex {
+export function paymentHashOf(t: J, id: Hex, d: DeploymentFile, payer: Address = getAddress(t.buyerPaymentAddress)): Hex {
   const expiry = Number(secs(t.timing.fallbackBy)) + Number(t.timing.appealDecideSec) + (d.expiryMarginSec ?? 86_400);
   const inner = keccak256(
     encodeAbiParameters(parseAbiParameters('bytes32, address, address, address, address, uint120, uint48, uint48, uint48, uint16, uint16, address, uint256'), [
-      PAYMENT_INFO_TYPEHASH, getAddress(d.rules), payer, getAddress(t.seller), getAddress(t.price.token), BigInt(t.price.amount) + BigInt(t.adjudication.fee.amount),
+      PAYMENT_INFO_TYPEHASH, getAddress(d.rules), payer, getAddress(t.sellerPayoutAddress), getAddress(t.price.token), BigInt(t.price.amount) + BigInt(t.adjudication.fee.amount),
       Number(secs(t.timing.fundBy)), expiry, expiry, 0, 10_000, ZERO_ADDRESS, BigInt(id),
     ]),
   );

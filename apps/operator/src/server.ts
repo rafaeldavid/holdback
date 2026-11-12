@@ -28,6 +28,8 @@ import {
   type AnyCommitment,
   type AnyCommitmentTerms,
   type Deliverable,
+  type Delivery,
+  type MutualSettlement,
   type DisclosureLevel,
   type SettlementProjection,
   type CommitmentStateView,
@@ -50,6 +52,7 @@ import { MAX_CIPHERTEXT_BYTES, StoreError, type CiphertextStore } from '@holdbac
 import { ENVELOPE_SPEC } from './envelope-spec.js';
 import { FeedbackDesk, FeedbackError, MAX_REPORT_BYTES, parseReport, type FeedbackOptions, type Report } from './feedback.js';
 import { startupGuards } from './guards.js';
+import { tokenRefusal, type AcceptedToken } from './token.js';
 import { amountText, bondNotices, fallbackBondRefusal, operatorFeeText, prepare, PrepareError, turnNotices, type Erc3009Signing, type PrepareContext } from './prepare.js';
 import { firstStored, hasBond, MAX_REGISTRATION_BYTES, register, RegistrationError, type Bond, type StoredRegistration } from './registrations.js';
 import { IdempotencyStore, fingerprint, type StoredResponse } from './idempotency.js';
@@ -163,6 +166,11 @@ export interface OperatorOptions {
   erc3009?: Erc3009Signing;
   /** This deployment's own contracts by name, for the money-address warnings of prepare (ADR-0033 §7). Absent: none. */
   contracts?: ReadonlyArray<{ name: string; address: Address }>;
+  /**
+   * The one token this deployment settles in (the plan's 2c; SC-1). Every route that takes terms refuses another before
+   * it prepares or relays anything, and discovery states it as `token`. Absent: no check, and discovery names none.
+   */
+  token?: AcceptedToken;
   /** Advisory notices this node adds to prepare, write and state answers (NoticeSubject). Absent: none. */
   notices?: (about: NoticeSubject) => readonly string[] | Promise<readonly string[]>;
   /** A demo world's facts for discovery (DemoFacts). Absent: this node is not a demo. */
@@ -297,6 +305,7 @@ function checkShape(op: Operation): void {
       return;
     case 'settle':
       message(op.message, 'MutualSettlement');
+      if (op.delivery) parsed(parseDelivery(op.delivery), 'delivery');
       return;
     case 'trigger':
       return;
@@ -703,6 +712,13 @@ export class Operator {
     const op = (parsedOp as Extract<typeof parsedOp, { ok: true }>).value;
     if ((op.kind === 'offer' || op.kind === 'hold') && (op.commitment as { id?: unknown }).id === undefined) fail('invalid_terms', MISSING_ID, { field: 'id' });
     checkShape(dryRun ? placeholderSigned(op) : op);
+    if (op.kind === 'settle' && op.delivery) await this.lateDeliveryRule(op.message, op.delivery);
+    // The plan's 2c: terms in another token than this deployment's are refused before any relay, dry runs included.
+    if (op.kind === 'offer' || op.kind === 'hold') {
+      // A hold's body carries the terms under `commitment`; an offer's body is the terms.
+      const otherToken = tokenRefusal(this.o.token, op.commitment, op.kind === 'hold' ? 'commitment.' : '');
+      if (otherToken) fail(otherToken.type, otherToken.detail, { field: otherToken.field! });
+    }
     const signer = signerOf(op);
     const signerBucket = signer ? `w:${lc(signer)}` : undefined;
     if (signerBucket) this.admit(signerBucket, budget);
@@ -726,6 +742,21 @@ export class Operator {
       if (r.status < 300 && signerBucket) this.transfer(client, signerBucket);
       return r;
     });
+  }
+
+  /**
+   * SC-5b (T-357, T-378): a settlement carries a delivery only for the late work, the case it exists for: the settlement
+   * releases the key and names the delivery both signatures cover (core checks its hash and the buyer's envelope again).
+   * A carried delivery is refused here with the field named when the key is not released, when it is for another
+   * commitment, or when a different delivery is posted. When the same delivery was posted since, the body still settles.
+   */
+  private async lateDeliveryRule(m: MutualSettlement, d: Delivery): Promise<void> {
+    if (!m.releaseKey) fail('invalid_terms', 'delivery travels with a settlement only to release its key: leave delivery out when releaseKey is false; the settlement names the delivery by deliveryHash alone', { field: 'delivery' });
+    if (lc(d.commitmentId) !== lc(m.commitmentId)) fail('invalid_terms', `delivery is for ${d.commitmentId}, not ${m.commitmentId}`, { field: 'delivery.commitmentId' });
+    // PR 408 review, Low 2: once the same delivery is posted, the settlement layer uses the posted one and ignores the
+    // carried copy, so the body still settles (D31). Only a body that names another delivery than the posted one is refused.
+    const posted = await this.prepareContext().delivery(m.commitmentId);
+    if (posted && lc(posted.deliveryHash) !== lc(m.deliveryHash ?? '')) fail('invalid_terms', `a delivery is posted for ${m.commitmentId} (${posted.deliveryHash}) and the settlement names ${m.deliveryHash}; prepare the settlement again, naming the posted delivery, and leave delivery out`, { field: 'delivery' });
   }
 
   /**
@@ -1149,6 +1180,7 @@ export class Operator {
       ...(this.o.fee ? { operatorFee: this.o.fee } : {}),
       ...(this.o.erc3009 ? { erc3009: this.o.erc3009 } : {}),
       ...(this.o.contracts ? { contracts: this.o.contracts } : {}),
+      ...(this.o.token ? { token: this.o.token } : {}),
     };
   }
 
@@ -1372,6 +1404,8 @@ export class Operator {
       ...(this.desk ? { feedback: this.desk.discovery() } : {}),
       // ADR-0030 §4: who this node names for a role an offer leaves out. Naming others is the parties' choice.
       ...(this.o.registry.defaultAdjudicators ? { defaultAdjudicators: { ...this.o.registry.defaultAdjudicators } } : {}),
+      // The plan's 2c: the one token this deployment settles in, the same one every refusal of another token names.
+      ...(this.o.token ? { token: { ...this.o.token } } : {}),
       ...(this.o.demo ? { demo: await this.o.demo() } : {}),
       ...(this.o.notes ? { notes: [...this.o.notes] } : {}),
     };

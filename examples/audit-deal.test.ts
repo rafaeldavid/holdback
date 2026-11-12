@@ -386,9 +386,35 @@ describe('examples/audit-deal.ts rehearses the pilot\'s cases (T-355)', () => {
   const state = async (id: string) => Promise.all([0, 1].map(async (node) => (await get(node, `/v1/commitments/${id}`)).escrowState));
   const check = (record: J, name: string) => (record.checks as J[]).find((c) => c.check === name)?.ok;
 
-  it('names seven cases', () => {
-    expect(CASES).toEqual(['released', 'redelivered', 'rubric', 'refunded', 'missed-deadline', 'shown-mismatch', 'resume']);
+  it('names eight cases', () => {
+    expect(CASES).toEqual(['released', 'redelivered', 'rubric', 'refunded', 'missed-deadline', 'shown-mismatch', 'resume', 'two-addresses']);
   });
+
+  it('two-addresses: a payment key standing in for a wallet signs the signer\'s typed-data files; the payment address funds the deal, the signing key\'s balance does not move, and the record names who was paid', async () => {
+    const { r, out, record } = await rehearsal('two-addresses');
+    expect(r.end).toBe('Released');
+    expect(r.expected).toBe(true);
+    expect(r.paymentAddress).not.toBe(r.buyer);
+    expect(r.signingKeyMoved).toBe('0');
+    expect(r.sellerReceived).toEqual({ token: 'tUSD', amount: PRICE_UNITS });
+    expect(out).toMatch(/The signer writes the payment messages .*\.funding\.typed\.json: The funding \(digest 0x[0-9a-f]{64}\): 0x[0-9a-f]{40} pays /);
+    expect(out).toMatch(/The payment address checks each file .*funding: digest 0x[0-9a-f]{64}; operator-fee: digest 0x[0-9a-f]{64}/);
+    expect(out).toMatch(/The payment address signs them in its wallet .*2 signatures by 0x[0-9a-f]{40}, each over the file it checked\./);
+    expect(record.row).toMatchObject({ buyer: r.buyer, buyerPaymentAddress: r.paymentAddress, paidTo: r.seller, refundedTo: null });
+  }, 60_000);
+
+  it('item 81: one payment key for several cases, a fresh signing key for each; a refund returns to the payment address', async () => {
+    const paymentKey = generatePrivateKey();
+    const first = await rehearsal('released', { paymentKey });
+    world.advanceClock(3601);
+    const second = await rehearsal('missed-deadline', { paymentKey });
+    expect(second.r.paymentAddress).toBe(first.r.paymentAddress);
+    expect(second.r.buyer).not.toBe(first.r.buyer);
+    expect([first.r.end, second.r.end]).toEqual(['Released', 'Refunded']);
+    expect([first.r.signingKeyMoved, second.r.signingKeyMoved]).toEqual(['0', '0']);
+    expect(second.record.row).toMatchObject({ refundedTo: second.r.paymentAddress, reclaimed: true });
+    await expect(rehearse({ case: 'released', operators: world.operators, world, dir: mkdtempSync(join(tmpdir(), 't379-')), paymentKey, keys: { store: first.dir, buyer: first.r.buyer } })).rejects.toThrow(/--keys and a payment key do not go together/);
+  }, 90_000);
 
   it('released: the report passes, the deal ends Released, the seller is paid, and the record shows it', async () => {
     const { r, out, record } = await rehearsal('released');
@@ -519,7 +545,7 @@ describe('examples/audit-deal.ts rehearses the pilot\'s cases (T-355)', () => {
     expect(parseArgs(['--case', 'all'])).toEqual({ live: false, case: 'all' });
     expect(parseArgs(['--case', 'resume', '--mapping', 'm.json', '--scope', '{"commit":"a"}', '--out', 'o', '--refused-report', 'x.json'])).toEqual({ live: false, case: 'resume', mappingFile: 'm.json', scope: { commit: 'a' }, out: 'o', refusedReportFile: 'x.json' });
     expect(parseArgs(['--live', '--case', 'released', '--report', 'r.json', '--terms', 't.json', '--keys', 'k', '--buyer', '0x15c01fd0877f748f72a572aac5f2d5579af76044'])).toEqual({ live: true, case: 'released', reportFile: 'r.json', termsFile: 't.json', keys: 'k', buyer: '0x15c01fd0877f748f72a572aac5f2d5579af76044' });
-    expect(() => parseArgs(['--case', 'colour'])).toThrow(/--case is one of released, redelivered, rubric, refunded, missed-deadline, shown-mismatch, resume or all/);
+    expect(() => parseArgs(['--case', 'colour'])).toThrow(/--case is one of released, redelivered, rubric, refunded, missed-deadline, shown-mismatch, resume, two-addresses or all/);
     expect(() => parseArgs(['--scope', 'three files'])).toThrow('--scope is not JSON');
     expect(() => parseArgs(['--live', '--case', 'all'])).toThrow('--live runs one case');
     expect(() => parseArgs(['--live', '--case', 'refunded'])).toThrow(/--live cannot run refunded/);
@@ -537,7 +563,7 @@ describe('examples/audit-deal.ts rehearses the pilot\'s cases (T-355)', () => {
     expect(all.code, all.err).toBe(0);
     for (const name of CASES) expect(all.out).toMatch(new RegExp(`Case ${name}: (Released|Refunded|Not funded), as expected\\. Deal record: \\S+deal-record\\.json`));
     expect(all.out).toMatch(/This world's faucet grants at most 1,000,000\.00 tUSD a deal/);
-    expect(all.out).toContain('7 of 7 cases ended as expected.');
+    expect(all.out).toContain('8 of 8 cases ended as expected.');
     expect(plainRun.code, plainRun.err).toBe(0);
     expect(plainRun.out).toContain('== Outcome: released ==');
     expect(plainRun.out).toContain('== Outcome: refused ==');

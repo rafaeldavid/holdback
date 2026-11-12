@@ -66,8 +66,11 @@ Each pull request re-seats the side-by-side harness's parent to the lane's tip a
 
 Fill this in before review. Label each item measured, inferred or guessed.
 
-- Baseline at `2ef35b3`: `HoldbackRules` runtime 20,526 bytes, initcode 21,120 bytes (`forge build --sizes`) [measured].
+- Baseline at `2ef35b3`: `HoldbackRules` runtime 20,526 bytes, initcode 21,120 bytes (`forge build --sizes`) [measured]. `forge test`: 442 passed, 0 failed, 190 s [measured].
+- **PR 1, L-4 (holdback PR 414).** `SeedTag.t.sol` fails 3 of 4 on the parent's `HoldbackRules.sol` and passes 4 of 4 on the fix [measured]. `forge test`: 444 passed and 2 failed in `PhaseOneRedTeam.t.sol`, which compared two deals' tags for equality; after its fix that suite passed 14 of 14 [measured], so 446 of 446 [inferred: the two runs together]. Runtime 20,526 → 20,387 bytes [measured]. Reviewer: no Critical, High or Medium; the Low (two mutants in `contracts/scripts/mutants.json`, M013 and M040, searched for the old lines) and the stray `@notice` above `panelSeed` are fixed on the branch.
 
 ## Decisions
 
 ## Handoff
+
+- **For AL-2 (docs), once PR 414 merges:** known issue L-4 (`docs/audit/known-issues.md`) and the state model's row 13 of section 9 (`docs/audit/state-model.md:396`) and its acceptance row (`:344`) can say the tag binds the whole commitment and the commitment ID. One residual stays and should be stated, not called closed: the primary knows the commitment ID before it signs, so about 2^72 hash attempts still buy a two-way seed choice on that one deal; the primary already chooses its own seed (DS-1), so it gains nothing it lacked [inferred; the reviewer's Info 4].
