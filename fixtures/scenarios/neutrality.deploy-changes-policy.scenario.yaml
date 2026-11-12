@@ -1,0 +1,43 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 41
+name: neutrality.deploy-changes-policy
+description: >-
+  ADR-0036. The maintainers deploy a build with another default screen while a deal is open. The adjudicators run a
+  build whose default is screen-0 when Tidewater offers, Bench A accepts and Atlas funds; after the delivery the
+  operators deploy a build whose default is screen-1. Bench A judges under screen-0, the screen the terms bound, and
+  $2,000 releases to Tidewater. Before ADR-0036 the new build refused the deal and it ended Refunded.
+fails: bench-a
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - restart_adjudicators: { screen: screen-0 }      # the build the deal is accepted on
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.csv }
+  - restart_adjudicators: { screen: screen-1 }      # the deploy
+  - advance_clock:      { seconds: 5 }
+  - judge:              { adjudicator: bench-a }
+  - settle:             { trigger: anyone }
+  - verify_key_release: { by: buyer, via: op-1 }
+expect:
+  terminal: Released
+  balances:
+    atlas-buyer: "7950000000"
+    tidewater-seller: "2000000000"
+    bench-a: "25050000000"
+    bench-b: "25000000000"
+    bench-c: "25000000000"
+    escrow: "0"

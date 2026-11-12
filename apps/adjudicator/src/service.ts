@@ -41,11 +41,11 @@ import {
   type TokenAmount,
 } from '@holdback/core';
 import { ContentKey, decodePublicKey, encodePublicKey, encryptionKeyPairFromSecretKey, open as openContent, unwrapKey, wrapKey, wrapKeyForRecipients } from '@holdback/core/crypto';
-import { describeUnavailable, intake, loadReferences, panelPlan, runPipeline, signedOutcome, type IntakeError, type JudgeProvider, type JudgmentDraft, type LoadedRegistry } from '@holdback/judgment';
+import { describeUnavailable, intake, loadReferences, panelPlan, runPipeline, type IntakeError, type JudgeProvider, type JudgmentDraft, type LoadedRegistry, type PolicyImpl } from '@holdback/judgment';
 import { concat, keccak256, stringToBytes, toBytes, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { quicknetValue } from './drand.js';
-import { checkPolicyBinding, policyHashOf } from './policy.js';
+import { checkPolicyBinding, KEPT_POLICIES, policyHashOf, registryMarkProblem, withdrawnProblem, type KeptPolicies } from './policy.js';
 import { panelSeed, roundFor } from './randomness.js';
 import type { AdjudicatorSettlement, DecisionTask } from './settlement-port.js';
 
@@ -101,9 +101,18 @@ export interface AdjudicatorConfig {
   encryptionSecretKey: Uint8Array;
   /** 32 bytes from the environment; the primary's seeds are derived from it, so they survive restarts. */
   seedSecret: Hex32;
+  /** Its default: the one policy it accepts new deals under as primary (ADR-0036 section 1). */
   policy: AdjudicatorPolicy;
+  /** Its default registry, which `provider` reaches; the one it accepts new deals under as primary. */
   registry: LoadedRegistry;
   registryUri: string;
+  /**
+   * ADR-0036: the earlier registries this build still carries, each with the provider that reaches its models. A deal
+   * bound to one is judged under it, never under the default in its place.
+   */
+  keptRegistries?: ReadonlyArray<KeptRegistry>;
+  /** The kept-policies data (ADR-0036): which versions and registries it carries, retired or withdrew. Default: this build's file. */
+  kept?: KeptPolicies;
   fee: { min: TokenAmount };
   domain: HoldbackDomain;
   /** Already routed by provider and wrapped with the judge timeout. */
@@ -141,6 +150,13 @@ export interface AdjudicatorConfig {
   storeReadTimeoutMs?: number;
 }
 
+/** A registry a build carries, with the provider that reaches its models. */
+export interface KeptRegistry {
+  registry: LoadedRegistry;
+  uri: string;
+  provider: JudgeProvider;
+}
+
 export interface RunReport {
   accepted: Hex32[];
   declined: Array<{ commitmentId: Hex32; reason: string }>;
@@ -159,6 +175,10 @@ type Outcome = { decision: Decision; record: Judgment } | { decision: null; reco
 
 interface Preflight {
   policy: AdjudicatorPolicy;
+  /** The implementations the bound policy names (ADR-0036). */
+  impl: PolicyImpl;
+  /** The bound registry and the provider that reaches it. */
+  judges: KeptRegistry;
   envelope: EncryptedKey;
   seed: Hex32;
   beacon?: NonNullable<Decision['beacon']>;
@@ -459,8 +479,17 @@ export class Adjudicator {
       const untrusted = this.#untrusted(role, who, 'offer');
       if (untrusted) return untrusted;
     }
-    if (adjudication.policyHash !== policyHashOf(this.policy)) return problem('policy_mismatch', 'policy-hash-mismatch: the offer binds another policy');
-    if (adjudication.registryHash !== this.#cfg.registry.hash) return problem('registry_mismatch', 'the offer binds another registry');
+    // ADR-0036: as primary it accepts only its current default, so no new deal binds an older kept version, and only a
+    // default it can run (a withdrawn default is never offered: the deploy that withdraws one moves the default).
+    if (adjudication.policyHash !== policyHashOf(this.policy)) {
+      return problem('policy_mismatch', `policy-hash-mismatch: the offer binds policy ${adjudication.policyHash}; as primary ${this.#cfg.name} accepts new deals only under its current policy ${policyHashOf(this.policy)}`);
+    }
+    if (adjudication.registryHash !== this.#cfg.registry.hash) {
+      return problem('registry_mismatch', `the offer binds registry ${adjudication.registryHash}; as primary ${this.#cfg.name} accepts new deals only under its current registry ${this.#cfg.registry.hash}`);
+    }
+    // A withdrawn version is declined at once (ADR-0036 section 2); the static check keeps the default carried.
+    const own = withdrawnProblem(this.policy, this.#kept) ?? registryMarkProblem(this.#cfg.registry.hash, this.#kept);
+    if (own) return own;
     return this.#termsMismatch(c) ?? this.#windowsProblem(c) ?? this.#feeProblem(c);
   }
 
@@ -555,7 +584,7 @@ export class Adjudicator {
    * (T-221 review: the primary can register a new policy after agreement, so its latest registration is read only when
    * the port keeps no policy by hash, and then only a policy that still hashes to the terms passes).
    */
-  async #boundPolicy(c: DecisionTask['commitment']): Promise<Result<AdjudicatorPolicy, Problem>> {
+  async #boundPolicy(c: DecisionTask['commitment']): Promise<Result<{ policy: AdjudicatorPolicy; impl: PolicyImpl }, Problem>> {
     const bound = c.adjudication.policyHash;
     let policy = this.policy;
     if (policyHashOf(policy) !== bound) {
@@ -563,24 +592,37 @@ export class Adjudicator {
       const primary = kept ? null : await this.#port.registration(c.adjudication.adjudicator);
       policy = kept ?? primary?.policy ?? policy;
     }
-    const check = checkPolicyBinding(policy, bound);
-    return check.ok ? ok(policy) : err(check.error);
+    // ADR-0036: carried, not equal to this build's default; a withdrawn version is declined, never replaced.
+    const check = checkPolicyBinding(policy, bound, this.#kept);
+    return check.ok ? ok({ policy, impl: check.value }) : err(check.error);
   }
 
-  #registryProblem(c: DecisionTask['commitment']): Problem | null {
-    if (this.#cfg.registry.hash === c.adjudication.registryHash) return null;
-    return problem('registry_mismatch', `this adjudicator's registry hashes to ${this.#cfg.registry.hash}; the commitment binds ${c.adjudication.registryHash}`);
+  /** The kept-policies data this build runs under. */
+  get #kept(): KeptPolicies {
+    return this.#cfg.kept ?? KEPT_POLICIES;
+  }
+
+  /** The registry the commitment binds, by its hash, with the provider that reaches its models (ADR-0036). */
+  #boundRegistry(c: DecisionTask['commitment']): Result<KeptRegistry, Problem> {
+    const hash = c.adjudication.registryHash;
+    const marked = registryMarkProblem(hash, this.#kept);
+    if (marked) return err(marked);
+    if (this.#cfg.registry.hash === hash) return ok({ registry: this.#cfg.registry, uri: this.#cfg.registryUri, provider: this.#cfg.provider });
+    const kept = this.#cfg.keptRegistries?.find((k) => k.registry.hash === hash);
+    if (kept) return ok(kept);
+    const carried = [this.#cfg.registry.hash, ...(this.#cfg.keptRegistries ?? []).map((k) => k.registry.hash)];
+    return err(problem('registry_mismatch', `this build does not carry registry ${hash}; it carries ${carried.join(', ')}`));
   }
 
   /**
    * Whether the panel the role convenes can be seated from its registry and reach a result (as `selectPanel` and the
    * aggregation would find out): enough active judges and families, and a valid-verdict minimum the panel can reach.
    */
-  #seatProblem(policy: AdjudicatorPolicy, role: DecisionTask['role']): Problem | null {
+  #seatProblem(policy: AdjudicatorPolicy, role: DecisionTask['role'], registry: LoadedRegistry): Problem | null {
     const appeal = role === 'appeal';
     const size = appeal ? policy.appealPanelSize : policy.panelSize;
     const minValid = appeal ? policy.minValidAppeal : policy.minValid;
-    const { active } = this.#cfg.registry;
+    const { active } = registry;
     const families = new Set(active.map((e) => e.family)).size;
     const minFamilies = appeal ? Math.max(policy.minFamilies, Math.min(policy.minFamiliesAppeal, families)) : policy.minFamilies;
     if (size > active.length || minFamilies > families || minFamilies > size) {
@@ -597,7 +639,9 @@ export class Adjudicator {
   async #runnable(c: DecisionTask['commitment'], role: DecisionTask['role']): Promise<Problem | null> {
     const policy = await this.#boundPolicy(c);
     if (!policy.ok) return policy.error;
-    return this.#registryProblem(c) ?? this.#seatProblem(policy.value, role) ?? (await this.#referenceProblem(c));
+    const judges = this.#boundRegistry(c);
+    if (!judges.ok) return judges.error;
+    return this.#seatProblem(policy.value.policy, role, judges.value.registry) ?? (await this.#referenceProblem(c));
   }
 
   /**
@@ -693,8 +737,10 @@ export class Adjudicator {
     }
     const policyR = await this.#boundPolicy(commitment);
     if (!policyR.ok) return policyR;
+    const judges = this.#boundRegistry(commitment);
+    if (!judges.ok) return judges;
     // T-221 review: a panel that cannot be seated or reach a result is refused before any judge is called.
-    const unrunnable = this.#registryProblem(commitment) ?? (rerelease ? null : this.#seatProblem(policyR.value, role));
+    const unrunnable = rerelease ? null : this.#seatProblem(policyR.value.policy, role, judges.value.registry);
     if (unrunnable) return err(unrunnable);
     // ADR-0029: judge only this commitment's delivery, signed by its seller. The decision names this delivery's hash, so a
     // body the seller never signed (an operator's mistake or forgery) is refused here, not judged and then refused by
@@ -729,7 +775,8 @@ export class Adjudicator {
       return err(problem('invalid_state', role === 'primary' ? 'no envelope for this adjudicator in the delivery' : `no key released to the ${role} adjudicator; it does not read the work before takeover`));
     }
     // The seed for the role (ADR-0018).
-    if (role === 'primary') return ok({ policy: policyR.value, envelope, seed: this.seedFor(id), buyerKey, ...(appealKey ? { appealKey } : {}) });
+    const bound = { policy: policyR.value.policy, impl: policyR.value.impl, judges: judges.value };
+    if (role === 'primary') return ok({ ...bound, envelope, seed: this.seedFor(id), buyerKey, ...(appealKey ? { appealKey } : {}) });
     const fixedAt = task.roundFixedAt ?? (role === 'fallback' ? commitment.timing.judgeBy : undefined);
     if (!fixedAt) return err(problem('seed_mismatch', 'no settlement time fixes the beacon round for this appeal'));
     // T-217: the source the commitment's rulebook names, on its clock; never another in its place (ADR-0018 §5).
@@ -744,14 +791,15 @@ export class Adjudicator {
     const proven = source.kind === 'sim' || (source.kind === 'drand-quicknet' && got.signature !== undefined && (await quicknetValue(round, got.signature)) === got.value);
     if (!proven) return err(problem('seed_mismatch', `the beacon answer does not prove drand quicknet round ${round}; refusing to sign a proof the rules contract would refuse, and waiting (no substitute source)`));
     const beacon = { source: source.kind, round, value: got.value, ...(got.signature ? { signature: got.signature } : {}) };
-    return ok({ policy: policyR.value, envelope, seed: panelSeed(id, role, attempt, got.value), beacon, buyerKey, ...(appealKey ? { appealKey } : {}) });
+    return ok({ ...bound, envelope, seed: panelSeed(id, role, attempt, got.value), beacon, buyerKey, ...(appealKey ? { appealKey } : {}) });
   }
 
   /** Intake and the panel. The only step that calls judges; its result is cached by the caller. */
   async #judge(task: DecisionTask, pre: Preflight): Promise<Result<Judged, Problem>> {
     const { commitment, role } = task;
     const id = commitment.id;
-    const { policy, seed, beacon } = pre;
+    const { policy, seed, beacon, impl } = pre;
+    const { registry, provider } = pre.judges;
     let contentKey: ContentKey | undefined;
     // T-347: a ciphertext no store returns follows the rule for one that does not match its delivery (mapIntakeError).
     // The seller may never have uploaded it, or the store lost or withholds it, and this service cannot tell which.
@@ -804,10 +852,10 @@ export class Adjudicator {
       };
     } else {
       const size = appeal ? policy.appealPanelSize : policy.panelSize;
-      const familiesAvailable = new Set(this.#cfg.registry.active.map((e) => e.family)).size;
+      const familiesAvailable = new Set(registry.active.map((e) => e.family)).size;
       // Appeal: minFamiliesAppeal where the registry has them, else the first-instance minimum.
       const minFamilies = appeal ? Math.max(policy.minFamilies, Math.min(policy.minFamiliesAppeal, familiesAvailable)) : policy.minFamilies;
-      const plan = panelPlan({ registry: this.#cfg.registry, seed, commitmentId: id, size, minFamilies, criteria: commitment.acceptance.rubric.criteria });
+      const plan = panelPlan({ registry, seed, commitmentId: id, size, minFamilies, criteria: commitment.acceptance.rubric.criteria });
       if (!plan.ok) return err(problem('invalid_terms', `panel: ${plan.error}`));
       // T-327: reference files come from the same content store as the delivery, by the hash the terms commit to.
       // One the store does not return, or returns with other bytes, is the store's fault, like a ciphertext that
@@ -833,7 +881,9 @@ export class Adjudicator {
         },
         seats: plan.value.seats,
         registry: plan.value.registry,
-        provider: this.#cfg.provider,
+        provider,
+        // ADR-0036: the screen, templates and aggregation the bound policy names.
+        versions: impl.versions,
         nonces: plan.value.nonces,
         criteriaFor: plan.value.criteriaFor,
         sampleSeed: plan.value.sampleSeed,
@@ -848,7 +898,7 @@ export class Adjudicator {
 
     // Map the panel's decision onto what the role may sign.
     // Party appeal: an undecided appeal panel leaves the first decision standing; after an escalation: no decision.
-    const outcome: DecisionOutcome | null = signedOutcome(draft.aggregate.decision, { appeal, ...(task.firstOutcome ? { firstOutcome: task.firstOutcome } : {}) });
+    const outcome: DecisionOutcome | null = impl.aggregation.signedOutcome(draft.aggregate.decision, { appeal, ...(task.firstOutcome ? { firstOutcome: task.firstOutcome } : {}) });
     const record = await this.#record(task, { ...draft, panel: { ...panelBase, ran: draft.panel.ran, members: draft.panel.members } });
     return ok({ record, outcome, published: false, ...(contentKey ? { contentKey } : {}) });
   }

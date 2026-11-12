@@ -19,7 +19,8 @@ export interface StepProblem {
 export interface Outage {
   step: number;
   actor: string;
-  kind: 'offline' | 'operator_refused' | 'timeout';
+  /** restarted: a deploy restarted the adjudicators on a build with another default (ADR-0036). */
+  kind: 'offline' | 'operator_refused' | 'timeout' | 'restarted';
   /**
    * The buyer reclaimed after deliverBy because the seller never delivered. A seller may simply not deliver;
    * the terms provide for it, so a normal (no-prefix) fixture may end this way.
@@ -107,7 +108,7 @@ export function evaluate(prefix: Prefix, run: RunSummary, expect: ScenarioExpect
     case 'neutrality':
       if (fails === undefined) reasons.push('neutrality. fixtures must name the failing actor with fails:');
       else if (!run.outages.some((o) => o.actor === fails) && !run.problems.some((p) => p.actor === fails)) {
-        reasons.push(`the fixture names ${fails} as the failing actor, but no step shows ${fails} offline, refusing, refused or timed out`);
+        reasons.push(`the fixture names ${fails} as the failing actor, but no step shows ${fails} offline, refusing, refused, timed out or restarted`);
       }
       if (!terminal) reasons.push(`expected a terms-compliant terminal state despite the failure, ended in ${run.finalState ?? 'no commitment'}`);
       break;
