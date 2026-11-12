@@ -252,19 +252,19 @@ describe('deal-record.ts shows late work accepted by a mutual settlement (SC-5b)
   // The event log as T-378's route writes it (rafaeldavid/holdback#408): no delivery.submitted, a settlement that
   // released the key, then the key released by "mutual settlement". Newest last here, as the record sorts by seq.
   const buyer = `0x${'b1'.repeat(20)}`, hash = `0x${'de'.repeat(32)}`;
-  const log = (over: { delivered?: boolean; keyReleased?: boolean; deliveryHash?: string | undefined } = {}) => [
+  const log = (over: { delivered?: boolean; keyReleased?: boolean } = {}) => [
     { seq: 1, type: 'commitment.offered', payload: {} },
     { seq: 4, type: 'hold.funded', payload: {} },
     ...(over.delivered ? [{ seq: 5, type: 'delivery.submitted', payload: {} }] : []),
-    { seq: 6, type: 'commitment.settled', payload: { payouts: [], keyReleased: over.keyReleased ?? true, ...(over.deliveryHash === undefined ? {} : { deliveryHash: over.deliveryHash }) } },
+    { seq: 6, type: 'commitment.settled', payload: { payouts: [], keyReleased: over.keyReleased ?? true } },
     ...((over.keyReleased ?? true) ? [{ seq: 7, type: 'key.released', payload: { recipient: buyer, envelope: {}, path: 'mutual settlement' } }] : []),
   ];
 
-  it('names late work, with the settlement\'s delivery hash when the settled event carries it, in one line', () => {
-    const late = lateWorkOf(log({ deliveryHash: hash.toUpperCase().replace('0X', '0x') }));
+  it('names late work in one line, with the delivery hash from the party\'s own signed settlement, since no event carries it', () => {
+    const late = lateWorkOf(log(), { commitmentId: `0x${'11'.repeat(32)}`, deliveryHash: hash.toUpperCase().replace('0X', '0x') });
     expect(late).toEqual({ deliveryHash: hash, keyReleasedTo: buyer });
     expect(lateWorkLine(late!)).toBe(`The work was delivered late and accepted by a mutual settlement, which released its key to ${buyer}; delivery hash ${hash}.`);
-    expect(lateWorkLine(lateWorkOf(log())!)).toMatch(/; delivery hash not in the events\.$/);
+    expect(lateWorkLine(lateWorkOf(log())!)).toMatch(/; delivery hash not in the events \(pass your signed settlement with --settlement <file>\)\.$/);
   });
 
   it('does not call a settlement late work when a delivery was posted, or when it released no key', () => {
