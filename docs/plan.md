@@ -1,6 +1,6 @@
 # Plan
 
-Iterative. Demo first, then harden one layer per phase. Each phase ends with evidence, a plan update and ADRs closed or deferred. This public plan covers the current build and its record: Phases 0 to 2, whose tasks have files in `docs/tasks/`. Later phases are planned privately (Future work, below).
+Iterative. Demo first, then harden one layer per phase. Each phase ends with evidence, a plan update and ADRs closed or deferred. This public plan covers the current build and its record: the phases below, whose tasks have files in `docs/tasks/`. Later phases are planned privately (Future work, below).
 
 ## Phase 0: Setup and research
 
@@ -162,7 +162,7 @@ Started work from the later phases keeps its file here: T-052, T-059, T-060, T-0
 
 ## Scenario index
 
-Status (2026-11-12, counted against `fixtures/scenarios/` by T-362; `pnpm snap` last checked every row on 2026-11-06, and CI runs it on every pull request): **exists** is a fixture file that passes; **todo** is a `todo.` fixture that records a known gap and passes as a todo; **planned** has no file yet. The 38 fixtures on disk, besides `_example`, are 37 that exist plus 1 todo. Fixtures run on SimChain; Phase 2 also runs them on the contract (below).
+Status (`pnpm snap` runs every fixture in `fixtures/scenarios/` in CI on each pull request): **exists** is a fixture file that passes; **todo** is a `todo.` fixture that records a known gap and passes as a todo; **planned** has no file yet. Fixtures run on SimChain; Phase 2 also runs them on the contract (below).
 
 | Fixture | Beat | Phase | Status |
 | --- | --- | --- | --- |

@@ -158,3 +158,22 @@ describe('design map: the daily log', () => {
     expect(NO_LOG_NOTE).toMatch(/^This build has no daily log/);
   });
 });
+
+// T-364: a standing doc carries no hand-written ID range or test count (docs/writing.md, "Numbers that drift").
+// Dated records keep their numbers, so plan.md, operations.md, decisions, tasks, reviews and audit docs are left out.
+describe('standing docs: no running numbers', () => {
+  const STANDING = ['README.md', 'contracts/README.md', 'formal/README.md', 'docs/PRD.md', 'docs/api.md', 'docs/architecture.md',
+    'docs/demo.md', 'docs/judgment-and-defenses.md', 'docs/neutrality.md', 'docs/private-materials.md', 'docs/quickstart.md',
+    'docs/team.md', 'docs/testing.md', 'docs/writing.md'];
+  const DRIFT = [/\b(?:D|T-|ADR-)\d+ (?:to|through) (?:D|T-|ADR-)?\d+\b/, /\b\d[\d,]* of \d[\d,]* tests\b/, /\b\d[\d,]* tests in \d+ suites\b/];
+  const hits = (text: string) => text.split('\n').flatMap((line, i) => (DRIFT.some((p) => p.test(line)) ? [i + 1] : []));
+
+  it('finds the plainest patterns and leaves a dated sentence about one decision alone', () => {
+    expect(hits('Decisions D1 to D9 are in the log.\nT-10 to T-12 merged.\n7 of 9 tests passed.\n9 tests in 3 suites')).toEqual([1, 2, 3, 4]);
+    expect(hits('D4 was settled by D41.\n2 of 16 mutants survived.')).toEqual([]);
+  });
+
+  it.each(STANDING)('%s has no ID range or test count', (path) => {
+    expect(hits(readFileSync(new URL(`../${path}`, import.meta.url), 'utf8'))).toEqual([]);
+  });
+});

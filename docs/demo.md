@@ -12,7 +12,7 @@ The first product priority. The demo exists to describe the experience to a firs
 
 ```
 pnpm demo                 # scripted judges: deterministic, no keys, a few seconds
-pnpm demo --live          # live judges from two families, ~3 minutes, about $3 a run (see below)
+pnpm demo --live          # live judges from two families, a few minutes and a few dollars a run (see below)
 pnpm demo --beat 4        # run one beat
 open demo/out/index.html  # timeline viewer
 ```
