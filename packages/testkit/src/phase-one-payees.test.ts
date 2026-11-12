@@ -1,4 +1,4 @@
-// A club whose rulebook says `payoutsTo: any` on a phase-one world (T-386). The phase-one contracts pay a mutual
+// A club whose rulebook says `payoutsTo: any`, which is not in phase one, on a phase-one world (T-386). The phase-one contracts pay a mutual
 // settlement to the buyer's payment address and the seller's payout address only, whatever the club says (ADR-0031 §4,
 // ADR-0033). SimChain on the `phase_one` profile, which `pnpm sim` and the local public world run (T-378), must refuse
 // a payout to a third address as the chain's adapter does, with `invalid_terms`. On the `full` profile, which the
@@ -14,6 +14,7 @@ const THIRD = simActor('t-386/third-party').address;
 /** A funded deal in Held on a SimChain of `profile`, in a club whose rulebook lets settlements pay any address. */
 async function heldDeal(profile: SettlementProfile): Promise<{ chain: SimChain; deal: Deal }> {
   const cast = simCast();
+  // The club asks for payouts to any address, which is not in phase one: the phase_one profile must refuse it.
   const club = simClub(simActor('club-operator').address, { ...SIM_RULEBOOK, mutualSettlement: { ...SIM_RULEBOOK.mutualSettlement, payoutsTo: 'any' } });
   const BOND = 25_000_000_000n;
   const genesis = { ...(await simGenesis({ cast, club, start: START, balances: { buyer: 10_000_000_000n }, bonds: { primary: BOND, fallback: BOND, appeal: BOND } })), profile };
@@ -51,7 +52,7 @@ const toThird = (deal: Deal, share: bigint): Payout[] => {
   ] as Payout[];
 };
 
-describe("a club's payoutsTo: any on the phase-one profile (T-386)", () => {
+describe("a club's payoutsTo: any, not in phase one, on the phase-one profile (T-386)", () => {
   it('refuses a settlement that pays a third address, with the chain adapter\'s problem type and reason', async () => {
     const { chain, deal } = await heldDeal('phase_one');
     const r = await chain.submit(await deal.mutual({ payouts: toThird(deal, 1_000_000n), deliveryHash: null }));
