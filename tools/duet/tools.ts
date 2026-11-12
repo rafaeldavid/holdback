@@ -240,6 +240,12 @@ export class Toolbox {
     if (!COMMANDS[role].includes(command)) throw new Refused(`${JSON.stringify(command).slice(0, 80)} is not one of your company's installed commands: ${COMMANDS[role].join(', ')}`);
     if (args.length > 12 || args.some((a) => a.length > 20_000)) throw new Refused('at most 12 arguments of at most 20,000 characters each');
     if (args.some((a) => a.includes('\0'))) throw new Refused('an argument with a NUL character is refused');
+    // An agent that asks a command for its usage gets the command's own answer: each client command answers --help
+    // itself (T-397), so the runner keeps no second copy of its usage. adapter-log is the runner's own tool.
+    if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) {
+      if (command === 'adapter-log') return { content: 'adapter-log: the seller adapter\'s latest output lines. It takes no arguments.', isError: false };
+      return this.exec(command, ['--help'], 'short');
+    }
     if (command === 'adapter-log') return this.adapterLog();
     const checked = await this.check(command, args);
     if (command === 'seller-adapter') return this.startAdapter(checked);
