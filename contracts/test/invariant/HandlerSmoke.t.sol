@@ -199,6 +199,69 @@ contract HandlerSmokeTest is Test {
         assertEq(rules.deliveryHashOf(h.dealId(0)), bytes32(0));
     }
 
+    // T-375 (triage item 43): the decision counter moves on every path that decides after a delivery, so
+    // `invariant_timelyDecisionsLand` cannot pass vacuously; an untimely refusal is not a violation.
+
+    function test_decisionCounter_everyRole() public {
+        _funded();
+        h.decide(PICK, 0, 0, H.OUTCOME_ESCALATE); // the primary, carrying the delivery
+        _warpTo(block.timestamp + 1); // the escalation's beacon round is public from t1 + 1
+        h.decide(PICK, 0, 0, H.OUTCOME_ACCEPT); // the appeal adjudicator
+        assertEq(h.decisions(), 2);
+        h.offer(OFFER ^ (uint256(1) << 9)); // a second deal (another price), for the fallback
+        h.agreeAndFund(PICK, 0, 0);
+        h.decideFallback(PICK, 0, H.OUTCOME_REJECT);
+        assertEq(h.decisions(), 3);
+        assertEq(h.decideRefused(), 0);
+    }
+
+    function test_decisionCounter_lateDecisionIsRefusedWithoutAViolation() public {
+        _funded();
+        h.deliver(PICK, 5, 0);
+        _warpTo(h.termsOf(0).timing.judgeBy);
+        vm.expectRevert(RulesHandler.Refused.selector);
+        h.decide(PICK, 0, 0, H.OUTCOME_ACCEPT);
+        assertEq(h.decisions(), 0);
+        assertEq(h.decideRefused(), 0);
+    }
+
+    // T-375 (triage item 46): the boundary offers (`RulesHandler._boundary`) are drawn, sit exactly on their bound,
+    // and fund or are refused as the bound says. The search repeats the handler's draw, and skips offers that another
+    // rare draw (another token, an appeal window, deadlines out of order) would refuse first.
+
+    function _boundarySeed(uint256 kind) internal pure returns (uint256 s) {
+        for (s = 1; s < 100_000; s++) {
+            uint256 b = uint256(keccak256(abi.encode("boundary", s)));
+            if (b % 16 != 0 || (b >> 8) % 5 != kind) continue;
+            if (uint256(keccak256(abi.encode("other token", s))) % 64 == 0) continue;
+            if (uint256(keccak256(abi.encode("appeal window", s))) % 32 == 0) continue;
+            if (uint256(keccak256(abi.encode("any order", s))) % 32 == 0) continue;
+            return s;
+        }
+        revert("no seed draws this boundary");
+    }
+
+    function test_boundaryOffers_sitOnTheirBounds() public {
+        for (uint256 kind; kind < 5; kind++) {
+            RulesHandler x = new RulesHandler();
+            x.offer(_boundarySeed(kind));
+            H.Terms memory t = x.termsOf(0);
+            uint256 expiry = uint256(t.timing.fallbackBy) + t.timing.appealDecideSec + 1 days; // Base.MARGIN
+            if (kind <= 1) assertEq(t.price + t.fee, uint256(type(uint120).max) + kind, "hold bound");
+            if (kind == 2 || kind == 3) assertEq(expiry, uint256(type(uint48).max) + kind - 2, "expiry bound");
+            if (kind == 4) {
+                assertEq(t.timing.fallbackBy - t.timing.offerExpiresAt, 4, "deadlines one second apart");
+                assertEq(t.timing.appealDecideSec, 1, "the smallest escalation window");
+            }
+            // Price 0 with fee 0 holds nothing, which the escrow refuses; no boundary draw leaves both at 0.
+            bool lands = kind == 0 || kind == 2 || kind == 4;
+            if (!lands) vm.expectRevert(RulesHandler.Refused.selector);
+            x.agreeAndFund(PICK, 0, 0);
+            HoldbackRules.Stage s = x.word(x.dealId(0)).stage;
+            assertEq(uint8(s), uint8(lands ? HoldbackRules.Stage.Held : HoldbackRules.Stage.None), "funding outcome");
+        }
+    }
+
     function test_stranger_isRefused() public {
         _funded();
         for (uint256 w; w < 8; w++) {
