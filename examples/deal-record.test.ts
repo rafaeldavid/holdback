@@ -251,15 +251,17 @@ async function proxy(target: string, lie: { state?: string; tamperPrice?: string
   };
 }
 
-describe('deal-record.ts on a chain\'s event shape: no postings (T-390)', () => {
-  it('marks the postings checks not run, not failed, when the settling event carries no postings, as a chain\'s does', async () => {
+describe('deal-record.ts when a release\'s event carries no postings (T-390)', () => {
+  // A chain's events carry no postings, and there the record marks its postings checks not run (pin.chain set; not
+  // run here, since the local world pins no chain). On SimChain, which writes postings for a release, it fails closed.
+  it('on SimChain, fails the postings checks when every operator drops a release\'s postings', async () => {
     const released = await deal(GOOD);
     const fronts = await Promise.all(world.info.operators.map((op) => proxy(op, { noPostings: true })));
     try {
       const r = await dealRecord(released.id, { operators: fronts.map((f) => f.url), party: 'buyer' });
       const by = Object.fromEntries(r.checks.map((c) => [c.check, c]));
-      expect(by['postings conserve the hold']).toMatchObject({ ok: null, why: expect.stringMatching(/carry no postings for this outcome; read the token's Transfer logs/) });
-      expect(by['postings follow the outcome']?.ok).toBeNull();
+      expect(by['postings conserve the hold']?.ok).toBe(false);
+      expect(by['postings follow the outcome']?.ok).toBe(false);
       expect(r.row).toMatchObject({ outcome: 'Released', paidTo: null });
     } finally {
       await Promise.all(fronts.map((f) => f.close()));

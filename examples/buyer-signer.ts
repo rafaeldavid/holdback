@@ -41,7 +41,7 @@ import { recoverTypedDataAddress, type Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { Agent } from './agent.ts';
 import { dealRecord, type DealRecord } from './deal-record.ts';
-import { commitmentIdOf, digestOfFile, isAddressText, jcs, knownPins, moneyAddressWarnings, openEnvelopeKey, operatorFeeOf, paymentSentence, Refusal, typedDataFile, typedOf, type Intent, type Pin } from './verify.ts';
+import { commitmentIdOf, deliveryHashOf, digestOfFile, isAddressText, jcs, knownPins, moneyAddressWarnings, openEnvelopeKey, operatorFeeOf, paymentSentence, Refusal, typedDataFile, typedOf, type Intent, type Pin } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -175,7 +175,7 @@ export type Delivery = {
   work: string | null;
   plaintextSha256: string | null;
   /** On a settlement: the payouts it made, whether it released the key, and why no work was opened when none was. */
-  settlement?: { payouts: J[]; keyReleased: boolean; note: string | null };
+  settlement?: { payouts: J[]; keyReleased: boolean; note: string | null; deliveryHash?: string };
   /** What the buyer keeps: what it paid, the operator's signed receipt for the funding, and the deal's event hashes. */
   receipt: { commitmentId: Hex; outcome: string; paid: Money; funded: J | null; events: Array<{ seq: number; type: string; hash: string }>; finalAt: string | null };
   /** One link per on-chain step; empty on SimChain. */
@@ -1135,6 +1135,7 @@ export class BuyerSigner {
     let work: string | null = null;
     let plaintextSha256: string | null = null;
     let note: string | null = null;
+    let lateHash: string | null = null;
     const posted = events.some((e) => e.delivery);
     if (done.outcome === 'Settled' && !done.settlement?.keyReleased) note = 'the settlement released no key: there is no work to open';
     else if (done.outcome === 'Settled' && !posted) {
@@ -1142,6 +1143,8 @@ export class BuyerSigner {
       else {
         work = await this.#openLate(id, options.delivery);
         plaintextSha256 = await sha256(new TextEncoder().encode(work));
+        // Compare it with the deliveryHash of the settlement you signed: no public read carries that one (PR 440 review, Low 1).
+        lateHash = deliveryHashOf(options.delivery).toLowerCase();
       }
     }
     if (done.outcome === 'Released' || (done.outcome === 'Settled' && done.settlement?.keyReleased && posted)) {
@@ -1159,7 +1162,7 @@ export class BuyerSigner {
     const transactions = events.filter((e) => e.tx && !seen.has(e.tx) && seen.add(e.tx)).map((e) => ({ step: e.type as string, tx: e.tx as string, url: pin.chain?.explorer ? `${pin.chain.explorer}/tx/${e.tx}` : null }));
     return {
       outcome: done.outcome, work, plaintextSha256, transactions,
-      ...(done.outcome === 'Settled' ? { settlement: { payouts: done.settlement?.payouts ?? [], keyReleased: done.settlement?.keyReleased === true, note } } : {}),
+      ...(done.outcome === 'Settled' ? { settlement: { payouts: done.settlement?.payouts ?? [], keyReleased: done.settlement?.keyReleased === true, note, ...(lateHash ? { deliveryHash: lateHash } : {}) } } : {}),
       receipt: { commitmentId: id, outcome: done.outcome, paid: paid.total, funded: paid.receipt, events: events.map((e) => ({ seq: e.seq, type: e.type, hash: e.hash })), finalAt: done.finalAt },
     };
   }

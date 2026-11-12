@@ -397,7 +397,8 @@ async function view(a: Answers, id: Hex, o: Options, cache: Map<string, Uint8Arr
   const fromPayouts = postings.length === 0 && settledEv !== null && Array.isArray(settledEv.payload?.payouts);
   if (fromPayouts) postings = settledEv!.payload.payouts.map((p: J) => ({ to: lc(p.to), amount: p.amount, why: 'agreed payout (from the settled event)' }));
   // A chain's events carry no postings at all: the release's or refund's transfers are in the token's logs (Handoff).
-  const noPostings = postings.length === 0;
+  // Only on a chain: SimChain writes postings for every outcome but a settlement, so a SimChain event without them fails (PR 440 review, Low 3).
+  const noPostings = postings.length === 0 && pin?.chain !== undefined;
   if (hold && out.length && noPostings) {
     for (const name of ['postings conserve the hold', 'postings follow the outcome']) add(name, null, "the operators' events carry no postings for this outcome; read the token's Transfer logs of the transactions below to check it");
   } else if (hold && out.length && fromPayouts) {

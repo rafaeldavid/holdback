@@ -48,7 +48,8 @@ Labels: measured, inferred, guessed.
   - A judge that waits at a gate the test opens holds the rubric deal in judging after its delivery, so the parties can settle it first.
 - **The deal record** [measured, `examples/deal-record.test.ts`, 1 new test and 3 new assertions]:
   - On SimChain's shape (a real late-work settlement): "postings conserve the hold" and "postings follow the outcome" pass, `paidTo` is the seller's payout address and `refundedTo` the buyer's payment address.
-  - On the chain's shape (both operators' events stripped of postings, as the EVM adapter writes them): the two postings checks are marked not run, with the reason, and the record does not fail.
+  - A release whose events carry no postings: on SimChain, which writes them, the postings checks fail closed [measured]. On a chain, whose events carry none, they are marked not run with the reason [inferred: the branch needs a pinned chain, which the local world does not have].
+- **Review of PR 440** (reviewer subagent, Opus 5.5) [measured: its report]: PASS with three Lows. Fixed: "not run" applies only on a chain (Low 3); the late-work outcome names the handed-over delivery's `deliveryHash`, to compare with the settlement the buyer signed (Low 1). Left in the Handoff: Low 2 and the rest of Low 3.
 - **Where the shapes come from** [measured by reading]: SimChain's `commitment.settled` is `{payouts, keyReleased}` (`packages/settlement/sim/simchain.ts:967`), and its postings for the payouts and the fee are made but not put in the event. The EVM adapter writes every payload "as SimChain writes it for the same step (without postings)" (`packages/settlement/evm/evm-settlement.ts:1538`), and `commitment.settled` there is `{payouts, keyReleased}` too (`:1553`).
 
 ## Decisions
@@ -62,3 +63,4 @@ Labels: measured, inferred, guessed.
 - **Outside the listed paths:** `examples/audit-deal.ts` gains `'Settled'` in two type unions (its outcome and `EndState`), a type-only change the wider `Delivery.outcome` needs; the rehearsal makes no settlement.
 - **For the record on a chain:** a release's or refund's money is in the token's Transfer logs, which the record does not read; its postings checks say so and are not run.
 - **For T-387:** rerun the settlement cases; `resume` takes `--delivery <file>` for late work.
+- **Left from the review:** no test makes the operators agree on `Settled` while serving different payouts, and the `unconfirmed` report then shows `agreeing` equal to `answered` (Low 2). The settlement branch of the record cannot see where the adjudication fee went, and `refundedTo` stays null when the whole price goes to the seller although the fee went back (Low 3). `#openLate` binds the handed-over delivery to the deal by the buyer's envelope; it does not check the settlement's `deliveryHash`, which no public read carries, so the outcome now prints the delivery's own hash for the buyer to compare (Low 1).

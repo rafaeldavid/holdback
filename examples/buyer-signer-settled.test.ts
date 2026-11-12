@@ -152,7 +152,7 @@ describe('a deal that ends Settled finishes in the buyer\'s tools (T-390)', () =
     writeFileSync(wrong, JSON.stringify(other));
     const opened = await resume(d.store, d.id, ['--delivery', file]);
     expect(opened.code, opened.err).toBe(0);
-    expect(JSON.parse(opened.out)).toMatchObject({ outcome: 'Settled', work: CSV, settlement: { keyReleased: true, note: null } });
+    expect(JSON.parse(opened.out)).toMatchObject({ outcome: 'Settled', work: CSV, settlement: { keyReleased: true, note: null, deliveryHash: deliveryHashOf(late).toLowerCase() } });
     const refused = await resume(d.store, d.id, ['--delivery', wrong]);
     expect(refused.code).toBe(1);
     expect(refused.err).toMatch(/not your envelope in the delivery you passed/);
