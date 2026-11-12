@@ -2,9 +2,9 @@
 
 You will run a local Holdback world and settle one deal through the HTTP API: a seller offers a dataset, a buyer holds the money, the seller delivers it encrypted, an adjudicator checks it, and payment and the decryption key are released together. Every message is signed by the party that sends it, with a standard EIP-712 library. The operator prepares messages and relays them; the agent verifies each one against its own intent before signing.
 
-**Nothing here is real.** The world runs on SimChain, an in-process settlement layer. The token is tUSD, a test token with **6 decimals** (25 tUSD is `"25000000"`). Every key is a test key derived from a public label. The adjudicators use **fake judges**: no model runs, and every judgment record says so (`placeholder-` model IDs, verdicts starting `[fake judge, no model ran]`). No real money moves, and nothing can.
+**Nothing here is real.** The world runs on SimChain, an in-process settlement layer, under the phase-one rules that the contracts on Sepolia enforce: no party appeal and no bond, so a first decision is final (ADR-0031). The token is tUSD, a test token with **6 decimals** (25 tUSD is `"25000000"`). Every key is a test key derived from a public label. The adjudicators use **fake judges**: no model runs, and every judgment record says so (`placeholder-` model IDs, verdicts starting `[fake judge, no model ran]`). No real money moves, and nothing can.
 
-Two economics to know before you start: the buyer holds the price **plus the adjudication fee**, and **the fee is kept on a refund** (a refunded buyer gets the price back, not the fee). An appeal costs a bond of 5% of the price plus a 25 tUSD fee. docs/api.md, "Who gets what", has every outcome.
+Two economics to know before you start: the buyer holds the price **plus the adjudication fee**, and **the fee is kept on a refund** (a refunded buyer gets the price back, not the fee). A first decision is final: there is no party appeal (ADR-0031). The sim still prints the club's appeal bond and fee, which apply only to a SimChain world under the full protocol. docs/api.md, "Who gets what", has every outcome.
 
 ## 1. Install, build, start the sim
 
@@ -19,7 +19,7 @@ pnpm sim
 
 `pnpm sim` keeps running and prints two operator nodes (`http://127.0.0.1:8787` and `:8788`), a sim service (`http://127.0.0.1:8780`), three test adjudicators, the EIP-712 domain to pin in your agent, and the club's economics. If a port is taken, it says so; choose others with `pnpm sim --port 9780 --operator-ports 9787,9788` (then use those ports below). Leave it running and open a second terminal.
 
-Every account in this sim is yours, so its `GET /` lists the funded test accounts with their keys. (A world several agents share, such as the agent simulation in `tools/sim`, lists only addresses and public keys; each party gets its own keys privately.) The sim service has test controls: `POST /accounts` hands out a fresh funded account, `POST /advance {"seconds": n}` moves the clock, and `POST /adjudicators/primary {"silent": true}` stops an adjudicator so you can try the fallback. Work containing the text `FAIL-ME` fails every fake judge, so you can try a reject and an appeal.
+Every account in this sim is yours, so its `GET /` lists the funded test accounts with their keys. (A world several agents share, such as the agent simulation in `tools/sim`, lists only addresses and public keys; each party gets its own keys privately.) The sim service has test controls: `POST /accounts` hands out a fresh funded account, `POST /advance {"seconds": n}` moves the clock, and `POST /adjudicators/primary {"silent": true}` stops an adjudicator so you can try the fallback. Work containing the text `FAIL-ME` fails every fake judge, so you can try a reject.
 
 **In a hurry?** `pnpm example buy-dataset` and `pnpm example sell-translation` run whole deals (`examples/`); they start their own sim if none is running. The rest of this page does the same deal step by step with curl.
 
@@ -125,7 +125,7 @@ HOLDBACK_KEY=$SELLER_KEY node examples/seal.ts offer.body.json customers.csv   #
 
 ## 4. Read the result
 
-The adjudicator decrypts, runs the checks and decides. On accept, the seller is paid and the buyer's key is released in the same step. `Released` means paid, **not final**: the party the decision went against (here the buyer) may still appeal until `deadlines.appealBy`, and the commitment is final at `finalAt` (`null` until then; `POST /advance` in the sim moves past it). The sim's adjudicators decide moments after delivery, so a poller may never see `Delivered`: it can read `Held`, then `Released`. Read the events instead of waiting for a state.
+The adjudicator decrypts, runs the checks and decides. On accept, the seller is paid and the buyer's key is released in the same step. `Released` is final: `finalAt` is the decision's time, and nothing reopens it. The sim's adjudicators decide moments after delivery, so a poller may never see `Delivered`: it can read `Held`, then `Released`. Read the events instead of waiting for a state.
 
 ```sh
 curl -s $API/v1/commitments/$ID | jq '{escrowState, finalAt, deadlines}'   # "Released"
@@ -136,17 +136,17 @@ HOLDBACK_KEY=$BUYER_KEY HOLDBACK_ENCRYPTION_KEY=$BUYER_ENC node examples/open.ts
 curl -s $API/v1/balances/$BUYER; curl -s $API/v1/balances/$SELLER       # 9,974 and 10,025 tUSD
 ```
 
-Two `key.released` events appear: `payload.recipient` says whose key each is. The first, right after delivery, is the primary adjudicator's, so it can judge; the second is the buyer's, released with payment. The commitment is final (`finalAt`) once the appeal window closes with no appeal, at `deadlines.appealBy`; the sim's clock follows the wall clock, and `curl -s -X POST http://127.0.0.1:8780/advance -d '{"seconds": 600}'` moves it on.
+Two `key.released` events appear: `payload.recipient` says whose key each is. The first, right after delivery, is the primary adjudicator's, so it can judge; the second is the buyer's, released with payment. The sim's clock follows the wall clock, and `curl -s -X POST http://127.0.0.1:8780/advance -d '{"seconds": 600}'` moves it on, to reach a deadline.
 
 Try a bad delivery (two rows instead of three): the checks fail, the buyer is refunded 25 tUSD, gets no key, and the 1 tUSD fee stays with the adjudicator.
 
-Other steps follow the same pattern: `early-accept`, `appeal` (prepare it with `"appellant": "<your address>"`) and `settlement` (a co-signed split; both parties sign the same typed data). `examples/sign.ts` lists the intent each takes. Prepare answers 409 `invalid_state` when the commitment's state cannot take the step (an early accept after a decision, an appeal of a final decision).
+Other steps follow the same pattern: `early-accept` and `settlement` (a co-signed split; both parties sign the same typed data). `examples/sign.ts` lists the intent each takes. Prepare answers 409 `invalid_state` when the commitment's state cannot take the step, such as an early accept after a decision. `appeal` answers 409 `invalid_state` in every state: the first decision is final.
 
-Before an early accept, open your envelope: an early accept releases the envelope the seller supplied with the payment, and nothing else checks that it opens with your key. Ask the seller for its signed delivery body and put it in the intent as `"delivery"`; `sign.ts` checks it against the `delivery.submitted` event, opens your envelope with `HOLDBACK_ENCRYPTION_KEY`, decrypts the ciphertext and checks the plaintext hash, and refuses to sign otherwise. No appeal follows an early accept, so this check is your protection (D32; docs/api.md, "Before an early accept, open your envelope").
+Before an early accept, open your envelope: an early accept releases the envelope the seller supplied with the payment, and nothing else checks that it opens with your key. Ask the seller for its signed delivery body and put it in the intent as `"delivery"`; `sign.ts` checks it against the `delivery.submitted` event, opens your envelope with `HOLDBACK_ENCRYPTION_KEY`, decrypts the ciphertext and checks the plaintext hash, and refuses to sign otherwise. Nothing reopens an early accept, so this check is your protection (D32; docs/api.md, "Before an early accept, open your envelope").
 
-Timeouts are permissionless triggers: `POST $API/v1/commitments/$ID/triggers/fallback` and the others in docs/api.md. An offer nobody agreed keeps the primary adjudicator's bond reserved until someone calls `triggers/expire-offer` after `offerExpiresAt`; the seller or the adjudicator should.
+Timeouts are permissionless triggers: `POST $API/v1/commitments/$ID/triggers/fallback` and the others in docs/api.md. No one can fund an offer after its deadline. Anyone may call `triggers/expire-offer` after `offerExpiresAt` to record it `Expired`; the on-chain record of that expiry is not in phase one, so on a chain the operators record it themselves with no transaction.
 
-**Before you appeal, or write your next checks,** read docs/api.md, "Escalation, screen flags and appeals" and "Writing checks that resist a seller doing the minimum". In short: on a checks-only deal, work that passes your checks is accepted (a screen flag does not change that), and an appeal re-runs the same checks, so it costs the bond and the 25 tUSD fee and fails unless a check was misreported. A deal the primary escalates is decided by the appeal adjudicator, and that decision is final at once, with no appeal window.
+**Before you write your next checks,** read docs/api.md, "Escalation and screen flags" and "Writing checks that resist a seller doing the minimum". In short: on a checks-only deal, work that passes your checks is accepted (a screen flag does not change that), and the decision is final. A deal the primary escalates is decided by the appeal adjudicator, and that decision is final at once.
 
 ## Using the examples from your own code
 
@@ -178,7 +178,7 @@ for (const s of toSign) {
 // POST *your* body to path with an Idempotency-Key header
 ```
 
-**Other languages.** There is no Python (or other) port of `verify.ts` yet, and a signing call alone is not safe: port the checks first. With eth-account, `Account.sign_typed_data(key, full_message=td)` signs EIP-712 JSON in the shape the operator returns, once you have rebuilt `td` yourself from your intent, with your pinned domain and the types from `verify.ts`, and converted every `uint*` field to an integer. Port all of `verify.ts`: both halves of agree-and-fund, the buyer key and `maxTotal` checks, your own nonces, the exact appeal bond, settlement-time bounds. Then submit the body you built. For the delivery encryption, PyNaCl (`nacl.public.Box`) builds the envelope and `cryptography`'s `AESGCM` the content, following the byte layouts and test vectors in docs/api.md.
+**Other languages.** There is no Python (or other) port of `verify.ts` yet, and a signing call alone is not safe: port the checks first. With eth-account, `Account.sign_typed_data(key, full_message=td)` signs EIP-712 JSON in the shape the operator returns, once you have rebuilt `td` yourself from your intent, with your pinned domain and the types from `verify.ts`, and converted every `uint*` field to an integer. Port all of `verify.ts`: both halves of agree-and-fund, the buyer key and `maxTotal` checks, your own nonces, settlement-time bounds. Then submit the body you built. For the delivery encryption, PyNaCl (`nacl.public.Box`) builds the envelope and `cryptography`'s `AESGCM` the content, following the byte layouts and test vectors in docs/api.md.
 
 ## Where next
 

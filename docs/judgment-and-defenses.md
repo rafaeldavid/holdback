@@ -7,7 +7,7 @@ Settlement systems that run without trust between parties check delivery inside 
 - a hash preimage in a hashed timelock contract;
 - a fill on another chain for a bonded relayer.
 
-A cleaned dataset has no delivery-versus-payment check of that kind, because whether the work is good is not recorded on any ledger. The pipeline restores as much machine-checkability as possible, then hands the remainder to a defended, bonded panel.
+A cleaned dataset has no delivery-versus-payment check of that kind, because whether the work is good is not recorded on any ledger. The pipeline restores as much machine-checkability as possible, then hands the remainder to a defended panel.
 
 ## Stages
 
@@ -66,8 +66,8 @@ A flag on a deal with a rubric escalates the case, and a flagged case needs a un
 | Minimum valid (non-abstain) verdicts | 2 | 4 |
 | Accept supermajority (`acceptSupermajority`, a fraction) | ≥ 2/3 pass, with pass verdicts from ≥ 2 families | ≥ 4/5, with passes from ≥ 2 families |
 | Reject supermajority (`rejectSupermajority`, a fraction) | ≥ 2/3 fail | ≥ 4/5 fail |
-| Flagged (screen, `injectionSuspected`, filter abstention, sampled read) | escalate | after an escalation: accept only if every seat passes validly on the whole file from the family minimum with no injection suspected, otherwise reject (D27a, D27b). On a party appeal: escalate, so the first decision stands (D27c, D28) |
-| Otherwise | escalate | after a party appeal, the first decision stands and the appellant's bond is returned; after an escalation, the default outcome applies |
+| Flagged (screen, `injectionSuspected`, filter abstention, sampled read) | escalate | after an escalation: accept only if every seat passes validly on the whole file from the family minimum with no injection suspected, otherwise reject (D27a, D27b). On a party appeal (SimChain only): escalate, so the first decision stands (D27c, D28) |
+| Otherwise | escalate | after an escalation, the default outcome applies, a refund on a chain; on SimChain only, after a party appeal the first decision stands and the appealing party's bond is returned |
 | Judge timeout | 60 s, then abstain | 90 s |
 | Retries | 1, on transport error only, same inputs | same |
 | Temperature | Lowest supported | same |
@@ -78,7 +78,7 @@ A flag on a deal with a rubric escalates the case, and a flagged case needs a un
 2. In its decision, it reveals `seed`; the settlement layer checks it against `seedCommitment`.
 3. The panel is a deterministic seeded shuffle, keyed by `seed ‖ commitmentId`, of the active entries in the registry whose hash the commitment binds (`adjudication.registryHash`), subject to the family constraints.
 4. Anyone can recompute the panel.
-5. The fallback and appeal adjudicators commit to nothing in advance. Their seed is derived from a public beacon round fixed by `judgeBy`, the escalation or the appeal filing (ADR-0018), so they cannot choose their panel after reading the work.
+5. The fallback and appeal adjudicators commit to nothing in advance. Their seed is derived from a public beacon round fixed by `judgeBy` or the escalation, plus the deployment's beacon margin (ADR-0018, ADR-0032), or on SimChain only by a party appeal's filing, so they cannot choose their panel after reading the work.
 
 Neither party, nor the adjudicator after seeing the delivery, can steer which models judge.
 
@@ -94,7 +94,7 @@ Neither party, nor the adjudicator after seeing the delivery, can steer which mo
 if any required deterministic check failed            -> REJECT  (no panel)
 if all checks passed and rubric is empty              -> ACCEPT  (no panel; add reason "screen flagged; see screen.signals" if flagged)
 verdicts = run panel
-if screen.flagged or any verdict.injectionSuspected   -> ESCALATE at the primary, the fallback and a party appeal;
+if screen.flagged or any verdict.injectionSuspected   -> ESCALATE at the primary, the fallback and (SimChain only) a party appeal;
                                                          at the appeal after an escalation (also on a filter
                                                          abstention or a sampled read): ACCEPT only if every seat
                                                          passes validly on the whole file, from the appeal family
@@ -110,7 +110,7 @@ if fail * reject.den >= reject.num * len(valid) and fail > pass -> REJECT
 otherwise                                             -> ESCALATE   (ties escalate)
 ```
 
-**The appeal decides a flagged case** (ADR-0021 amendment, D25, review finding L3-1). There is no instance after the appeal, and an escalation there means no decision, so the default outcome would pay an injecting seller from the appeal bond. At the appeal after an escalation, a seller-controllable condition never escalates: a screen flag, a judge's injection suspicion, a filter abstention, or a sampled read the seller can force with one overlong record. The case is accepted only by a unanimous valid panel over the whole file, from all available families, in which no judge suspects injection; otherwise it is rejected (D27a, D27b). The red team showed that a steered supermajority, a split panel and a forced sample each paid the injector. On a party appeal against a first decision these conditions escalate and the first decision stands, so judge noise cannot overturn an honest accept (D27c; D28: after an accept the appealing buyer carries the burden). The flag stays in the signed record. Aggregation version `agg-3`, pinned to a digest of the decision table in `aggregate.test.ts`.
+**The appeal decides a flagged case** (ADR-0021 amendment, D25, review finding L3-1). There is no instance after the appeal, and an escalation there means no decision. On SimChain under the full protocol the default outcome would then pay an injecting seller from the appeal adjudicator's bond; on a chain it refunds the buyer, and the rule still gives every escalated case a decision. At the appeal after an escalation, a seller-controllable condition never escalates: a screen flag, a judge's injection suspicion, a filter abstention, or a sampled read the seller can force with one overlong record. The case is accepted only by a unanimous valid panel over the whole file, from all available families, in which no judge suspects injection; otherwise it is rejected (D27a, D27b). The red team showed that a steered supermajority, a split panel and a forced sample each paid the injector. On a party appeal against a first decision (SimChain only), these conditions escalate and the first decision stands, so judge noise cannot overturn an honest accept (D27c; D28: after an accept the appealing buyer carries the burden). The flag stays in the signed record. Aggregation version `agg-3`, pinned to a digest of the decision table in `aggregate.test.ts`.
 
 Thresholds are exact fractions compared by cross-multiplication, never by division or floats (ADR-0022). A policy must satisfy `2 × numerator > denominator`, so accept and reject can never both hold. The record carries `passCount`, `failCount` and `validCount`, not shares.
 
@@ -134,11 +134,11 @@ Unit-test this function exhaustively with table-driven cases.
 | T11 | Double spend, races | Parallel fund calls | Idempotency keys; serializable state transitions; settled-once guard | `error.concurrent-overdraft`, property tests |
 | T12 | Replay or forged messages | Reuse of a signed offer | EIP-712 with nonce, expiry, chainId and verifying contract; rulebook hash; scope check | `error.replay`, `error.scope-exceeded` |
 | T13 | Agent key compromise | A stolen key signs large commitments | Scope caps per commitment and per day; mandate expiry; revocation stops new commitments; on a live commitment, loss is bounded by the caps and there is no recourse (residual 12, D22) | `error.revoked-agent` |
-| T14 | Adjudicator insolvency | Bond too small for open exposure | Coverage-ratio gate on assignment; defaults compensated from the bond | `error.coverage-exceeded` |
+| T14 | Adjudicator insolvency | Bond too small for open exposure | Not in phase one: no adjudicator posts a bond, and a default refunds the buyer. On SimChain under the full protocol, a coverage-ratio gate on assignment, and defaults compensated from the bond | `error.coverage-exceeded` (SimChain only) |
 | T15 | Exfiltration through judge output | A judge is induced to write secrets or URLs | Judges hold no secrets; schema-limited output; URL and length filter | `attack.exfil-attempt` |
 | T16 | Operator tampering | An operator drops or alters messages | Signed messages; escape hatch; hash-chained log; receipts | `neutrality.operator-refuses` |
-| T18 | Adjudicator self-dealing | An adjudicator accepts every case for sellers it controls in guaranteed mode | 100% bond coverage per guaranteed commitment open to appeal; appeals to a different adjudicator; encumbered bond never counted twice | `attack.adjudicator-self-dealing` |
-| T19 | Wrong or missing key release | The decision pays the seller but releases a key that does not decrypt the committed plaintext | Buyer verifies against the plaintext hash; "missing or wrong key" is a bonded appeal ground; an appeal decision may carry the key | `appeal-bad-key-release` |
+| T18 | Adjudicator self-dealing | An adjudicator accepts every case for sellers it controls in guaranteed mode | In phase one: the parties' choice of all three adjudicators, commit-reveal and beacon panels, and the signed record (D26); no on-chain defense beyond those. On SimChain under the full protocol, 100% bond coverage per guaranteed commitment open to appeal, appeals to a different adjudicator, and encumbered bond never counted twice | `attack.adjudicator-self-dealing` (SimChain only) |
+| T19 | Wrong or missing key release | The decision pays the seller but releases a key that does not decrypt the committed plaintext | Buyer verifies against the plaintext hash and holds the signed decision as evidence (D26); on SimChain only, "missing or wrong key" is a bonded appeal ground, and an appeal decision may carry the key | `appeal-bad-key-release` (planned; SimChain only) |
 | T21 | Late panel selection | A fallback or appeal adjudicator reads the work, calls every judge once, then picks the seed whose panel gives the outcome it wants | Non-primary seeds come from a beacon round fixed by settlement state (ADR-0018); no substitute source; unprovable round leads to fallback or default | `attack.fallback-panel-shopping`, `attack.appeal-panel-shopping-after-escalation`, `attack.timing-grind`, `error.seed-mismatch` |
 | T22 | Hidden payload aimed at the buyer's agent | With an empty rubric, the work passes every check but carries Unicode tag characters spelling instructions for the buyer's own agent | The screen report is in the signed record and the SDK surfaces it, handing the agent a normalized view by default; parties may require `hidden_characters_max`, which rejects without a panel; escalation on high-risk signals is a Phase 3 `screenPolicy` option (ADR-0021) | `attack.injection-tags-empty-rubric`, `attack.injection-tags-required-check`, `neutrality.seller-multilingual-text` |
 | T17 | Malicious files | Oversized or archive files | MIME allowlist (`text/csv`, `application/json`, `text/plain`, `text/markdown`); 10 MB cap; parsing in a worker with a time limit | `error.mime-not-allowed` |
@@ -192,7 +192,7 @@ fee = max(minFee,
 ```
 
 - FAR and FRR come from the latest calibration, smoothed with appeal outcomes (Beta prior).
-- `bondAllocated = coverageRatio × price`.
+- `bondAllocated = coverageRatio × price`. The bond terms are the full protocol's; on a chain in phase one `bondAllocated` is 0.
 - Quotes are served at `POST /v1/adjudicators/{id}/quote`, a planned route that answers 501 today (T-306, Phase 3).
 
 ## References

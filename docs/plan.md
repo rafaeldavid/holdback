@@ -62,7 +62,7 @@ Goal: the same scenario fixtures pass against an EVM contract on a local chain. 
 Focus (Rafa, 2026-11-06; D53, narrowed the same day by D54 after his walkthrough of Phase 2): finish stable EVM operations, which are round 1 (T-216), the join-on-chain-delivery fix, operator-sent timeouts, the read-after-write audit (T-232) and T-206's sign-off, done the same day (PR 227). Under D53, six open rows moved to later phases: T-207 to Phase 8, T-034 to Phase 9, T-036 to Phase 10, T-224 to Phase 5, T-016b to Phase 3 and T-033 to Phase 6. Under D54, three more moved: T-212 to Phase 11, T-221 to Phase 4 and the scenario 11 redesign to Phase 3 (T-310). Later on 2026-11-06 Rafa added two rows for the operators' deploys, T-233 and T-234 ("Yes, do both"): the Worker's start-up time, and a deploy check that rolls back on its own. Neither is among D54's seven exit criteria below.
 
 - [x] T-201 (PR 64; option A kept) Hands-on spike, on local anvil: can a rules contract act as operator of `AuthCaptureEscrow` (D3-A)? If not, design an ERC-8183 extension (D3-B). Must confirm the ADR-0003 conditions: capture timing per mode, expiry margin, fee-only capture on the refund path with `maxFeeBps = 10000`, idempotency in the rules contract; compare deployed bytecode with the v1.1.0 tag; read the audits.
-- [x] T-202 (PR 68) Escrow rules contract, Foundry: offer/agree hashes, funding via ERC-3009/Permit2, deliver, decide with adjudicator signature, permissionless triggers, key release events, bonds.
+- [x] T-202 (PR 68) Escrow rules contract, Foundry: offer/agree hashes, funding via ERC-3009/Permit2, deliver, decide with adjudicator signature, permissionless triggers, key release events, bonds. (Permit2 and bonds are not in phase one: ADR-0031.)
 - [x] T-203 (PR 70) Invariant and fuzz tests: conservation, settle-once, no admin selectors.
 - [x] T-204 (PR 66) Formal model of the commitment state machine (TLA+ or Quint): liveness under any single actor halting; safety of fund movement.
 - [x] T-205 (PR 69) `Settlement` EVM implementation; `pnpm snap --settlement=local` green; differential report.
@@ -205,20 +205,20 @@ Status (`pnpm snap` runs every fixture in `fixtures/scenarios/` in CI on each pu
 | `neutrality.operator-refuses` | 7 | 1 | exists |
 | `neutrality.operator-offline` | 7 | 1 | exists |
 | `neutrality.adjudicator-offline` | 7 | 1 | exists |
-| `neutrality.adjudicator-and-fallback-offline` | 7 | 1 on SimChain; 4 on contract (default compensation from bonds) | exists |
-| `neutrality.appeal-adjudicator-offline` | 7 | 1 | planned (T-016b: party-appeal step) |
-| `neutrality.appeal-adjudicator-offline-after-escalation` | 6 | 1 on SimChain; 4 on contract (default compensation from bonds) | exists |
-| `honest-seller-survives-judge-noise-on-appeal` | — | 1 on SimChain; 4 on contract (appeal fee and bond rate) | exists |
+| `neutrality.adjudicator-and-fallback-offline` | 7 | 1; SimChain only (not in phase one: no bonds) | exists |
+| `neutrality.appeal-adjudicator-offline` | 7 | 1 | planned (T-016b: party-appeal step; SimChain only) |
+| `neutrality.appeal-adjudicator-offline-after-escalation` | 6 | 1; SimChain only (not in phase one: no bonds) | exists |
+| `honest-seller-survives-judge-noise-on-appeal` | — | 1; SimChain only (not in phase one: no party appeals) | exists |
 | `neutrality.maintainers-change-registry` | 3 | 1 | planned (T-016b: real registry and policy hashes) |
-| `attack.adjudicator-self-dealing` | 8 | 1 | exists |
+| `attack.adjudicator-self-dealing` | 8 | 1; SimChain only (not in phase one: no bonds) | exists |
 | `attack.untrusted-appeal-adjudicator-via-fallback` | — | 2 | exists as a named test, not a fixture (T-221, ADR-0030 §6): `apps/adjudicator/src/service.test.ts`. An outside primary names Crow's fallback under an appeal adjudicator it controls; the fallback neither triggers nor decides, the deal defaults at fallbackBy, and no bond moves |
 | `attack.outside-primary-rotates-policy` | — | 2 | exists as a named test, not a fixture (T-221 review of PR 202, ADR-0030 §6): `apps/adjudicator/src/service.test.ts`, and on anvil in `apps/demo-cloud/src/registration.anvil.test.ts`. An outside primary registers another policy after agreement; Crow's appeal adjudicator and fallback still judge by the policy the terms bound, read by its hash, so the wrong decision is overturned from the primary's bond |
-| `appeal-bad-key-release` | 8 | 1 | planned (T-016b) |
+| `appeal-bad-key-release` | 8 | 1 | planned (T-016b; SimChain only) |
 | `neutrality.club-revokes-mid-flight` | 7 | 1 | planned (needs run-time revocation; SimChain reads members from genesis) |
 | `neutrality.buyer-silent` | 7 | 1 | exists |
 | `neutrality.seller-withholds-delivery` | 2 | 1 | exists (the planned `reclaim-no-delivery`) |
 | `neutrality.store-withholds-delivery` | — | 2 (T-347) | exists |
-| `neutrality.store-withholds-reference` | — | 2 (T-327) | exists |
+| `neutrality.store-withholds-reference` | — | 2 (T-327); SimChain only (not in phase one: the default pays from bonds) | exists |
 | `audit-report-accepted` | — | 2 (T-317) | exists |
 | `audit-report-missing-file` | — | 2 (T-317) | exists |
 | `audit-report-reordered` | — | 2 (T-317) | exists |
@@ -230,8 +230,8 @@ Status (`pnpm snap` runs every fixture in `fixtures/scenarios/` in CI on each pu
 | `todo.beacon-unavailable-whole-window` | — | records residual 10 | planned |
 | `neutrality.onramp-refuses` | — | 5 | planned (with the funding service, ADR-0026) |
 | `panel-disagreement-escalates` | 3 | 1 | exists |
-| `appeal-overturn-bond-pays-seller` | 8 | 1 on SimChain; 4 on contract | planned (T-016b) |
-| `appeal-overturn-bond-pays-buyer` | 8 | 1 on SimChain; 4 on contract | planned (T-016b) |
+| `appeal-overturn-bond-pays-seller` | 8 | 1; SimChain only (not in phase one) | planned (T-016b) |
+| `appeal-overturn-bond-pays-buyer` | 8 | 1; SimChain only (not in phase one) | planned (T-016b) |
 | `error.scope-exceeded` | 1 | 1 | planned (T-016b) |
 | `error.replay` | 1 | 1 | planned (T-016b) |
 | `error.revoked-agent` | 7 | 1 | planned (T-016b) |
@@ -239,8 +239,8 @@ Status (`pnpm snap` runs every fixture in `fixtures/scenarios/` in CI on each pu
 | `error.idempotency-conflict` | 1 | 1 | planned (T-016b; covered today by `apps/operator` idempotency tests) |
 | `error.concurrent-overdraft` | 1 | 1 | exists |
 | `error.submission-limit` | 5 | 1 | exists |
-| `error.coverage-exceeded` | 7 | 1 | exists |
-| `error.early-accept-wrong-key-envelope` | — | 1 | exists |
+| `error.coverage-exceeded` | 7 | 1; SimChain only (not in phase one: no bonds) | exists |
+| `error.early-accept-wrong-key-envelope` | — | 1; SimChain only (not in phase one: a party-appeal step) | exists |
 | `error.appeal-decision-other-attempt` | — | 2 (T-210, PR 173: the appeal seed bound to the delivered attempt, T-206 H-1; on SimChain and the contract) | exists |
 | `error.reject-carries-buyer-key` | — | 2 (T-210, PR 173: no key for a refunded buyer, T-206 H-2; on SimChain and the contract) | exists |
 | `error.unpinned-model-refused` | 3 | 1 | planned (T-016b; covered today by registry loader tests) |
@@ -258,4 +258,4 @@ Status (`pnpm snap` runs every fixture in `fixtures/scenarios/` in CI on each pu
 
 Some neutrality and error cases are named tests rather than scenario files: `neutrality.operator-fee-direct-submission-free` (`apps/operator/src/fee.test.ts`), `neutrality.operator-rate-limits` (`apps/operator/src/neutrality.test.ts`), `neutrality.operator-lies-in-prepare` (`examples/verify.test.ts`) and `neutrality.operator-refuses-on-chain` (`packages/settlement/evm/sync.test.ts`: the operator refuses to relay after funding, the parties submit to the contract directly, and the view shows every step, T-218).
 
-Phase on contract (T-205): every existing fixture without an "on contract" note also runs on the contract from Phase 2 (`pnpm snap --settlement=local`). The three marked 4 are the printed exclusion list in `packages/testkit/src/runner.ts` (`LOCAL_EXCLUSIONS`). The per-fixture differences are in `reports/differential-local.md` (tracked, though `reports/` is otherwise git-ignored).
+Phase on contract (T-205): every existing fixture without a "SimChain only" note also runs on the contract from Phase 2 (`pnpm snap --settlement=local`). The rows marked SimChain only are the printed exclusion list (`LOCAL_EXCLUSIONS` in `packages/testkit/src/runner.ts`): they use party appeals or bonds, which are not in phase one. The per-fixture differences are in `reports/differential-local.md` (tracked, though `reports/` is otherwise git-ignored).

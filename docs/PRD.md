@@ -31,7 +31,7 @@ The missing piece is the acceptance desk. Someone has to decide whether work tha
 | Buyer operator (procurement ops lead running a buyer agent) | Bounded spend; pay only on acceptance; an audit trail; no lock-in to one provider |
 | Seller operator (running a provider agent) | Proof that funds exist before working; release not at the buyer's whim; keep the work if rejected |
 | Club operator | A rulebook and admission of members and agents, without power over funds |
-| Adjudicator operator | Run the judgment, post a bond, price the fee from its measured error rate |
+| Adjudicator operator | Run the judgment, price the fee from its measured error rate, and post a bond once bonds return (not in phase one, ADR-0031) |
 | Agent developer | One HTTP API and one agent guide; no chain details; works through any operator |
 | A first reader of the demo | See the experience end to end: what agents can commit, how judgment is defended, where control sits |
 
@@ -42,7 +42,7 @@ The missing piece is the acceptance desk. Someone has to decide whether work tha
 First and foremost, a protocol, not a service:
 
 1. **Any two agents choose their own adjudicator.** The buyer and seller name the primary, fallback and appeal adjudicators in the commitment they both sign. No one assigns them.
-2. **Any capital holder can join the bonding.** Anyone can post or back an adjudicator's bond and earn for the capital at risk (ADR-0007; backers proposed in ADR-0014).
+2. **Any capital holder can join the bonding.** Anyone can post or back an adjudicator's bond and earn for the capital at risk (ADR-0007; backers proposed in ADR-0014). Phase one has no bonds on chain; this property returns with them (D57, ADR-0031).
 3. **Access is by API.** Any operator node serves the HTTP API, and agents can also submit signed messages directly to the settlement layer. No single API provider is required (ADR-0005).
 
 On that protocol: machine-speed agent-to-agent escrow via direct API calls, with defended multi-model judgment, on a settlement layer no single party controls.
@@ -64,7 +64,7 @@ Agreed terms bind; the buyer carries the burden of acceptance. The buyer accepts
 | G2 | **Two-sided hold:** money in escrow, work encrypted, key released on settlement |
 | G3 | **Defended multi-model judgment** |
 | G4 | **Neutrality:** every actor-failure fixture completes according to terms |
-| G5 | **Capital behind judgment:** bonded adjudicators, appeals, guaranteed settlement mode |
+| G5 | **Capital behind judgment:** bonded adjudicators, appeals, guaranteed settlement mode. Bonds and party appeals are not in phase one: its contracts have neither (ADR-0031) |
 | G6 | **Rails abstraction:** SimChain, a local chain and a testnet run the same scenarios. Fiat enters only through ramps |
 | G7 | **Audit:** signed receipts and a replayable event log |
 
@@ -90,7 +90,7 @@ Agreed terms bind; the buyer carries the burden of acceptance. The buyer accepts
 
 ### Commitments
 
-- **FR-5** The seller signs an offer as EIP-712 typed data. Its terms are: deliverable spec, acceptance spec, price, timing, adjudicator, fallback adjudicator, appeal adjudicator, settlement mode, rulebook hash, nonce and expiry.
+- **FR-5** The seller signs an offer as EIP-712 typed data. Its terms are: deliverable spec, acceptance spec, price, timing, adjudicator, fallback adjudicator, appeal adjudicator, the buyer's payment address, the seller's payout address, settlement mode, rulebook hash, nonce and expiry.
 - **FR-6** The buyer agrees by signing the same typed data. A one-shot call that agrees and holds in one step is supported.
 - **FR-7** Signatures are verified against scope, nonce and expiry, and duplicates are rejected.
 
@@ -98,7 +98,7 @@ Agreed terms bind; the buyer carries the burden of acceptance. The buyer accepts
 
 - **FR-8** Funding moves the price plus the adjudication fee into escrow. Neither party can withdraw alone.
 - **FR-9** Every operation is idempotent. No double spend under concurrency.
-- **FR-10** Anyone can trigger every timeout: reclaim after a missed delivery, the fallback adjudicator, the default outcome, appeal expiry.
+- **FR-10** Anyone can trigger every timeout: reclaim after a missed delivery, the fallback adjudicator, the default outcome, and on SimChain only the appeal expiry.
 - **FR-11** The seller delivers ciphertext plus a plaintext hash. The content key is encrypted to the adjudicator and released to the buyer only on acceptance (D8).
 
 ### Acceptance and judgment
@@ -106,12 +106,12 @@ Agreed terms bind; the buyer carries the burden of acceptance. The buyer accepts
 - **FR-12** Declarative deterministic checks run first. A required check that fails means reject. If all checks pass and there is no rubric, the work is accepted.
 - **FR-13** Otherwise a panel judges, with pinned models from at least two families. The panel is selected by commit-reveal, with the seed and the judge registry hash committed at agreement.
 - **FR-14** The defenses in `docs/judgment-and-defenses.md` are mandatory: untrusted-data handling, screen, schema-enforced verdicts, sealed checks, submission limits, family diversity.
-- **FR-15** Aggregation produces accept, reject or escalate. An injection flag or a cross-family disagreement means escalate, never auto-accept, except at the appeal after an escalation, where a flagged case (including a sampled read a seller can force) is accepted only by a unanimous panel from all available families in which no judge suspects injection, and is otherwise rejected (D27). On a party appeal a flag escalates and the first decision stands (D27c, D28).
+- **FR-15** Aggregation produces accept, reject or escalate. An injection flag or a cross-family disagreement means escalate, never auto-accept, except at the appeal after an escalation, where a flagged case (including a sampled read a seller can force) is accepted only by a unanimous panel from all available families in which no judge suspects injection, and is otherwise rejected (D27). On a party appeal (SimChain only), a flag escalates and the first decision stands (D27c, D28).
 
 ### Appeals and adjudicators
 
-- **FR-16** The party a first-instance decision went against may appeal it within the appeal window by posting a bond (D43); an overturn pays the wronged party from the first adjudicator's bond. The appeal adjudicator decides with a larger panel of at least three families where available. A missing or wrong content key is an appeal ground. An escalated case undecided by the appeal deadline goes to the default outcome.
-- **FR-17** Adjudicators post bonds. An overturned decision pays the wronged party from the bond. A bond below the coverage ratio blocks new assignments. In guaranteed mode the ratio is 100% per commitment still open to appeal.
+- **FR-16** Deferred past phase one (not in phase one; ADR-0031): the party a first-instance decision went against may appeal it within the appeal window by posting a bond (D43); an overturn pays the wronged party from the first adjudicator's bond. The appeal adjudicator decides with a larger panel of at least three families where available. A missing or wrong content key is an appeal ground. An escalated case undecided by the appeal deadline goes to the default outcome.
+- **FR-17** Deferred past phase one (not in phase one; ADR-0031): adjudicators post bonds. An overturned decision pays the wronged party from the bond. A bond below the coverage ratio blocks new assignments. In guaranteed mode the ratio is 100% per commitment still open to appeal.
 - **FR-18** Settlement modes, chosen per commitment: `guaranteed_on_decision` (Phase 1), `settle_after_window` (Phase 4) and `optimistic` (release at `disputeBy` unless the buyer disputes; ADR-0015, accepted 2026-10-30 by D11, built in Phase 4).
 
 ### Interfaces
@@ -177,7 +177,7 @@ Agreed terms bind; the buyer carries the burden of acceptance. The buyer accepts
 1. **Legal effect.** Signed agent messages bind under a club rulebook. That depends on jurisdiction: UETA §14 and the UNCITRAL Model Law on Automated Contracting, Art. 7(1).
 2. **Acceptance criteria.** Real jobs can state acceptance criteria up front precisely enough for a panel.
 3. **Accuracy targets.** The calibration targets are reachable for dataset cleaning. Transfer to other work types is untested.
-4. **Bond sizing.** Adjudicators will post bonds equal to their open guaranteed volume, and 20% coverage suffices for `settle_after_window`. No loss data exists yet.
+4. **Bond sizing.** Adjudicators will post bonds equal to their open guaranteed volume, and 20% coverage suffices for `settle_after_window`. No loss data exists yet. Not in phase one: it applies when bonds return (ADR-0031).
 5. **Settlement mode demand.** Buyers and sellers prefer guaranteed settlement despite paying adjudicators for the risk.
 6. **The escape hatch.** Direct submission is usable by agents in practice: gas, account abstraction and paymasters.
 7. **On-ramp risk.** Fiat on-ramps will accept card chargeback risk for agent-initiated purchases. Untested.
