@@ -122,7 +122,7 @@ Each item is labelled measured, inferred or guessed.
 - **The agents' keys are `HOLDBACK_AGENT_*`, never the judges' variables** (Rafa via the coordinator). The judges' keys are also scrubbed wherever they might appear.
 - **The local docs are the published bytes**, built with `site/build.mjs` (`strip`, `tryCommand`, `sellerPage`), with only OP1 and OP2 changed. The record's `world` line lists the change.
 - **The page's first line is plain** ("a local test setup, with test money"). The exact engine stays in the engineers' section, the record and the summary. This weighs the coordinator's engine note against Rafa's plain-words direction. The coordinator can overrule it.
-- **The first limits are guesses**: the measured scripted counts times 3 for tokens, times 4 for turns and tool calls, times 3 for API calls, and 60 s for paying the seller.
+- **The first limits are guesses.** Turns and tool calls are the measured scripted counts times 4, API calls times 3, and paying the seller gets 60 s. An agent's token limit is the guides read once (measured each run) plus a work allowance: the scripted work share times 3. Because the billed count carries the guides on every turn, every run goes over on tokens today, scripted ones included, and the ticket says that is the guides (coordinator's direction).
 
 ## Handoff
 
@@ -151,6 +151,14 @@ Each item is labelled measured, inferred or guessed.
 - the record keeping the person's actions as `human` events, so measure 4 counts them;
 - the owner's policy still answering the approval stop, unless the person answers it, which then counts as an intervention.
 The loop's provider interface (`turn()`) is the seam: a "human" provider would wait for the person's next action instead of calling a model.
+
+**The real buyer signer and the name-only check** (by reading `examples/buyer-signer.ts`, inferred): the signer does not have the weakness the second red team found in this runner's policy.
+- `differencesOf` compares each check by its whole body as canonical JSON (`jcs`), keyed by ID. A hollow check with the right ID shows as a difference, `checks.<id>`.
+- `checkOffer` compares the whole `checks` list with the approved one.
+- So `--expect-terms` funds in one run only when every check equals the buyer's own file.
+- One limit remains: at a stop compared with the seller's defaults, a seller whose defaults already carry the hollow check shows no difference. The buyer is protected only by its own terms file, or by an agent that reads each check. That is as designed (D28: the signer shows, it does not judge), and worth a sentence in the docs.
+
+**Guides and tokens** (measured, 2026-11-12): the local guides are `llms.txt` 85,343 bytes and `sell.txt` 39,091 bytes, about 31,109 tokens at four bytes a token. An agent's billed tokens carry them on every turn after it reads them. In the scripted paid run, 124,025 of the buyer's 138,989 tokens and 223,245 of the seller's 244,489 carried the guides. Every run's ticket says so until the docs offer a shorter path for one purchase.
 
 **Open, Low** (from the review and the red teams):
 - `freePort()` closes then reuses a port, which can race under heavy parallel load.

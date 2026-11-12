@@ -18,8 +18,13 @@ export interface Summary {
   expect: string;
   models: Record<Side, { vendor: string; model: string }>;
   outcome: { commitmentId: string | null; state: string; funded: boolean; keyToBuyer: boolean; buyerOpened: boolean };
-  /** 1. Tokens in and out, per agent and for the deal. */
-  tokens: Record<Side, { input: number; output: number; cacheRead: number }> & { deal: number };
+  /**
+   * 1. Tokens in and out, per agent and for the deal, and what used them: `guides`, the tokens spent carrying Crow's
+   * guides (each turn's input holds every guide page read before it), and `work`, everything else.
+   */
+  tokens: Record<Side, { input: number; output: number; cacheRead: number; guides: number; work: number }> & { deal: number };
+  /** The guides as served (the largest body each fetch saw), in bytes and in tokens estimated at four bytes a token. */
+  guides: { bytes: Record<string, number>; tokens: number; estimate: string };
   /** The list-price cost of those tokens in micro-USD, from config/model-prices.json; null for a scripted side. */
   costMicroUsd: Record<Side, number | null>;
   /** 2. Model turns, tool calls, the client commands among them, refused calls, and API calls to the operators. */
@@ -66,6 +71,16 @@ export function measure(events: readonly Event[]): Summary {
   const sides: Side[] = ['buyer', 'seller'];
 
   const tokens = Object.fromEntries(sides.map((r) => [r, of('model.turn', r).reduce((a, t) => ({ input: a.input + t.tokensIn, output: a.output + t.tokensOut, cacheRead: a.cacheRead + (t.cacheRead ?? 0), cacheWrite: a.cacheWrite + (t.cacheWrite ?? 0) }), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })])) as Record<Side, { input: number; output: number; cacheRead: number; cacheWrite: number }>;
+  // What the guides cost: each turn's input carries every guide page read in an earlier turn (estimated at four
+  // characters a token), up to that turn's whole input.
+  const isGuide = (u: unknown) => /\/(llms|sell)\.txt(\?|$)/.test(String(u ?? ''));
+  const guideTokens = Object.fromEntries(sides.map((r) => {
+    const reads = of('tool', r).filter((t) => t.name === 'fetch_url' && !t.isError && isGuide(t.input?.url));
+    const carried = of('model.turn', r).reduce((sum, t) => sum + Math.min(t.tokensIn, reads.filter((x) => x.turn < t.turn).reduce((a, x) => a + Math.ceil(Number(x.bytes ?? 0) / 4), 0)), 0);
+    return [r, carried];
+  })) as Record<Side, number>;
+  const sizes: Record<string, number> = {};
+  for (const h of of('http')) if (isGuide(h.url) && h.status === 200) { const k = /llms\.txt/.test(String(h.url)) ? 'llms.txt' : 'sell.txt'; sizes[k] = Math.max(sizes[k] ?? 0, Number(h.bytes ?? 0)); }
   const costMicroUsd = Object.fromEntries(sides.map((r) => [r, start?.[r]?.vendor === 'scripted' ? null : priceOf(String(start?.[r]?.model ?? ''), tokens[r])])) as Record<Side, number | null>;
   const calls = Object.fromEntries(sides.map((r) => {
     const api = of('api', r);
@@ -129,7 +144,11 @@ export function measure(events: readonly Event[]): Summary {
     expect: start?.expect ?? '',
     models: { buyer: start?.buyer ?? { vendor: '?', model: '?' }, seller: start?.seller ?? { vendor: '?', model: '?' } },
     outcome: { commitmentId: id, state, funded, keyToBuyer, buyerOpened: opened },
-    tokens: { buyer: { input: tokens.buyer.input, output: tokens.buyer.output, cacheRead: tokens.buyer.cacheRead }, seller: { input: tokens.seller.input, output: tokens.seller.output, cacheRead: tokens.seller.cacheRead }, deal: sides.reduce((n, r) => n + tokens[r].input + tokens[r].output, 0) },
+    tokens: {
+      ...(Object.fromEntries(sides.map((r) => [r, { input: tokens[r].input, output: tokens[r].output, cacheRead: tokens[r].cacheRead, guides: guideTokens[r], work: tokens[r].input + tokens[r].output - guideTokens[r] }])) as Record<Side, { input: number; output: number; cacheRead: number; guides: number; work: number }>),
+      deal: sides.reduce((n, r) => n + tokens[r].input + tokens[r].output, 0),
+    },
+    guides: { bytes: sizes, tokens: Math.ceil(Object.values(sizes).reduce((a, b) => a + b, 0) / 4), estimate: 'four bytes a token; the providers\' own counts differ a little' },
     costMicroUsd,
     calls,
     stalls,

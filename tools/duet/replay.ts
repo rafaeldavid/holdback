@@ -68,6 +68,16 @@ function act(name: string, input: J): { title: string; key: string } {
 
 const exactOf = (name: string, input: J) => (name === 'run_command' ? `${String(input?.command ?? '')} ${(input?.args ?? []).map((x: string) => cut(String(x), 160)).join(' ')}` : name === 'fetch_url' ? `GET ${String(input?.url ?? '')}` : `${name} ${cut(JSON.stringify(input ?? {}), 300)}`);
 
+/** A failed attempt's plain reason, from the tool's own answer. */
+function reasonOf(name: string, text: string): string {
+  if (text.startsWith('Refused')) return 'Its own tools did not allow this.';
+  const http = /^HTTP (\d{3})/.exec(text);
+  if (name === 'fetch_url' && http) return http[1] === '404' ? 'The page was not there.' : `The address answered with an error (${http[1]}).`;
+  if (/failed: (no answer|could not connect)/.test(text)) return 'The address did not answer.';
+  if (name === 'run_command') return 'The tool stopped with an error.';
+  return 'It did not work.';
+}
+
 export function steps(events: readonly Event[]): Step[] {
   const start = events.find((e) => e.kind === 'run.start') as J;
   const t0 = start ? Date.parse(String(start.at)) - Number(start.t) : 0;
@@ -77,41 +87,25 @@ export function steps(events: readonly Event[]): Step[] {
     const a = String(addr ?? '').toLowerCase();
     return states.some((s) => s.buyer === a) ? 'buyer' : states.some((s) => s.seller === a) ? 'seller' : 'reviewer';
   };
-  const out: Step[] = [];
-  const lane = (r: unknown): Lane => (r === 'buyer' ? 'buyer' : r === 'seller' ? 'seller' : 'crow');
+  type Raw = Step & { failed?: boolean; tries?: number; base?: string };
+  const lanes: Record<'buyer' | 'seller', Raw[]> = { buyer: [], seller: [] };
+  const crow: Step[] = [];
   for (const e of events as J[]) {
-    if (e.kind === 'model.turn' && typeof e.text === 'string' && e.text.trim()) out.push({ lane: lane(e.role), t: e.t, kind: 'say', title: cut(e.text.trim(), 900) });
-    else if (e.kind === 'tool') {
-      if (e.name === 'finish') { out.push({ lane: lane(e.role), t: e.t, kind: 'end', title: `Reported back to its owner: ${cut(String(e.input?.outcome ?? ''), 200)}`, ...(e.input?.report ? { detail: cut(String(e.input.report), 900) } : {}) }); continue; }
+    const side = e.role === 'buyer' || e.role === 'seller' ? (e.role as 'buyer' | 'seller') : null;
+    if (side && e.kind === 'model.turn' && typeof e.text === 'string' && e.text.trim()) lanes[side].push({ lane: side, t: e.t, kind: 'say', title: cut(e.text.trim(), 900) });
+    else if (side && e.kind === 'tool') {
+      if (e.name === 'finish') { lanes[side].push({ lane: side, t: e.t, kind: 'end', title: `Reported back to its owner: ${cut(String(e.input?.outcome ?? ''), 200)}`, ...(e.input?.report ? { detail: cut(String(e.input.report), 900) } : {}) }); continue; }
+      if (e.name === 'wait') { const s = Number(e.input?.seconds ?? 0) || 0; lanes[side].push({ lane: side, t: e.t, kind: 'act', title: '', key: 'wait', count: s }); continue; }
       const a = act(e.name, e.input);
-      if (e.name === 'wait') {
-        const prev = out.at(-1);
-        const s = Number(e.input?.seconds ?? 0) || 0;
-        if (prev && prev.lane === lane(e.role) && prev.key === 'wait') { prev.count = (prev.count ?? 0) + s; prev.title = `Waited ${prev.count} seconds`; continue; }
-        out.push({ lane: lane(e.role), t: e.t, kind: 'act', title: `Waited ${s} ${s === 1 ? 'second' : 'seconds'}`, key: 'wait', count: s });
-        continue;
-      }
-      // A repeated check collapses into one step with a count, and the waits between go with it.
-      const same = [...out].reverse().find((x) => x.lane === lane(e.role) && x.key !== 'wait');
-      const between = same ? out.slice(out.lastIndexOf(same) + 1) : [];
-      if (same && same.key === a.key && !e.isError && between.every((x) => x.key === 'wait' || x.lane !== lane(e.role))) {
-        same.count = (same.count ?? 1) + 1;
-        same.title = `${a.title} (${same.count} times)`;
-        for (const w of between) if (w.key === 'wait' && w.lane === lane(e.role)) out.splice(out.indexOf(w), 1);
-        continue;
-      }
-      out.push({ lane: lane(e.role), t: e.t, kind: 'act', title: a.title, key: a.key, exact: cut(exactOf(e.name, e.input), 600) });
-      if (e.isError) {
-        const text = String(e.result ?? '');
-        out.push({ lane: lane(e.role), t: e.t, kind: 'note', title: text.startsWith('Refused') ? 'Its own tools did not allow this' : 'That did not work', exact: cut(text.split('\n').filter(Boolean).slice(0, 8).join('\n'), 900) });
-      }
+      const text = String(e.result ?? '');
+      lanes[side].push({ lane: side, t: e.t, kind: 'act', title: a.title, base: a.title, key: a.key, exact: cut(exactOf(e.name, e.input), 600), ...(e.isError ? { failed: true, detail: reasonOf(e.name, text), exact: cut(`${exactOf(e.name, e.input)}\n\n${text.split('\n').filter(Boolean).slice(0, 8).join('\n')}`, 900) } : {}) });
     } else if (e.kind === 'approval') {
       const reasons: string[] = e.reasons ?? [];
-      out.push(e.granted
+      lanes.buyer.push(e.granted
         ? { lane: 'buyer', t: e.t, kind: 'note', title: "The owner's standing rule approved the payment", detail: `Within the budget of ${tokens(e.policy?.budget)}, with the checks the owner requires, and the report due within ${Math.round(Number(e.policy?.latestDeliverySec ?? 0) / 86_400)} days.` }
         : { lane: 'buyer', t: e.t, kind: 'note', title: "The owner's standing rule refused to pay", detail: cut(reasons[0] ?? '', 300), ...(reasons.length > 1 ? { exact: reasons.join('\n') } : {}) });
-    } else if (e.kind === 'stall') out.push({ lane: lane(e.role), t: e.t, kind: 'note', title: 'The agent got stuck', detail: /cap/.test(String(e.reason)) ? `It used up its allowance: ${String(e.reason).replace(/^the /, '')}.` : 'It tried the same thing again and it failed the same way.', exact: cut(String(e.error ?? e.trying ?? ''), 900) });
-    else if (e.kind === 'agent.end' && e.status !== 'finished') out.push({ lane: lane(e.role), t: e.t, kind: 'end', title: e.status === 'ended' ? 'Stopped: the run was over' : e.status === 'error' ? 'Stopped: its model provider refused a request' : 'Stopped before it finished', ...(e.trying ? { exact: cut(String(e.trying), 600) } : {}) });
+    } else if (side && e.kind === 'stall') lanes[side].push({ lane: side, t: e.t, kind: 'note', title: 'The agent got stuck', detail: /cap/.test(String(e.reason)) ? `It used up its allowance: ${String(e.reason).replace(/^the /, '')}.` : 'It tried the same thing again and it failed the same way.', exact: cut(String(e.error ?? e.trying ?? ''), 900) });
+    else if (side && e.kind === 'agent.end' && e.status !== 'finished') lanes[side].push({ lane: side, t: e.t, kind: 'end', title: e.status === 'ended' ? 'Stopped: the run was over' : e.status === 'error' ? 'Stopped: its model provider refused a request' : 'Stopped before it finished', ...(e.trying ? { exact: cut(String(e.trying), 600) } : {}) });
     else if (e.kind === 'chain.event') {
       // Order-record times are whole seconds: such a time stands for the end of its second, so an action that caused
       // the event within that second is shown before it.
@@ -132,14 +126,58 @@ export function steps(events: readonly Event[]): Step[] {
         'settlement.released': () => step('money', 'The seller is paid', `${price !== null ? tokens(price) : 'The price'} to the seller. The report unlocks for the buyer in the same step.`),
         'settlement.refunded': () => step('money', 'The buyer is refunded', `${price !== null ? tokens(price) : 'The price'} back to the buyer. The report stays locked.`),
       };
-      out.push((map[e.type] ?? (() => step('chain', 'The order record changed')))());
+      crow.push((map[e.type] ?? (() => step('chain', 'The order record changed')))());
     }
   }
-  return out.map((s, i) => ({ s, i })).sort((a, b) => a.s.t - b.s.t || a.i - b.i).map((x) => x.s);
+
+  // Each agent's own steps, folded: an attempt that failed and then worked is one step that says it tried again; the
+  // same action done again with nothing but waits between is one step with a count; waits next to each other add up.
+  const fold = (list: Raw[]): Step[] => {
+    const out: Raw[] = [];
+    const lastReal = () => [...out].reverse().find((x) => x.key !== 'wait');
+    const dropWaitsAfter = (x: Raw) => { for (let i = out.length - 1; i > out.indexOf(x); i--) if (out[i]!.key === 'wait') out.splice(i, 1); };
+    for (const s of list) {
+      if (s.key === 'wait') {
+        const prev = out.at(-1);
+        if (prev?.key === 'wait') prev.count = (prev.count ?? 0) + (s.count ?? 0);
+        else out.push({ ...s });
+        continue;
+      }
+      const prev = lastReal();
+      const onlyWaitsSince = prev ? out.slice(out.indexOf(prev) + 1).every((x) => x.key === 'wait') : false;
+      if (prev && onlyWaitsSince && s.kind === 'act' && prev.kind === 'act' && prev.base === s.base) {
+        if (prev.failed && !s.failed) {
+          // It did not work at first, then did: one step, with how many tries it took.
+          const tries = (prev.tries ?? 1) + 1;
+          Object.assign(prev, { ...s, tries, count: prev.count, detail: `${prev.detail ?? 'It did not work at first.'} It tried again${tries > 2 ? ` ${tries - 1} times` : ''}, and then it worked.`.replace('The page was not there.', 'The page was not up yet.'), failed: false });
+          dropWaitsAfter(prev);
+          continue;
+        }
+        if (prev.failed === s.failed) {
+          if (s.failed) { prev.tries = (prev.tries ?? 1) + 1; dropWaitsAfter(prev); continue; }
+          prev.count = (prev.count ?? 1) + 1;
+          dropWaitsAfter(prev);
+          continue;
+        }
+      }
+      out.push({ ...s });
+    }
+    return out.map((s) => {
+      if (s.key === 'wait') return { ...s, title: `Waited ${s.count} ${s.count === 1 ? 'second' : 'seconds'}` };
+      const times = (s.count ?? 1) > 1 ? ` (${s.count} times)` : '';
+      if (s.failed) return { ...s, kind: 'note' as const, title: `${s.title}: it did not work${(s.tries ?? 1) > 1 ? `, ${s.tries} tries` : ''}` };
+      return { ...s, title: `${s.title}${times}` };
+    });
+  };
+  const all = [...fold(lanes.buyer), ...fold(lanes.seller), ...crow];
+  return all.map((s, i) => ({ s, i })).sort((a, b) => a.s.t - b.s.t || a.i - b.i).map(({ s }) => {
+    const { failed: _f, tries: _t, base: _b, ...plain } = s as Raw; // eslint-disable-line @typescript-eslint/no-unused-vars
+    return plain;
+  });
 }
 
 const vendorName = (v: string) => (v === 'anthropic' ? 'Anthropic' : v === 'deepseek' ? 'DeepSeek' : 'scripted');
-const secs = (ms: number) => (ms < 60_000 ? `${Math.round(ms / 1000)} seconds` : `${Math.floor(ms / 60_000)} min ${Math.round((ms % 60_000) / 1000)} s`);
+const secs = (ms: number) => { const s = Math.round(ms / 1000); return s < 60 ? `${s} ${s === 1 ? 'second' : 'seconds'}` : `${Math.floor(s / 60)} min ${s % 60} s`; };
 const n = (x: number) => x.toLocaleString('en-US');
 const usd = (micro: number | null) => (micro === null ? '' : `USD ${(micro / 1_000_000).toFixed(2)}`);
 
@@ -162,6 +200,28 @@ const ICON: Record<string, string> = {
   link: '<path d="M6.5 9.5l3-3M7 4.5l1.3-1.3a2.5 2.5 0 013.5 3.5L10.5 8M9 11.5l-1.3 1.3a2.5 2.5 0 01-3.5-3.5L5.5 8"/>',
 };
 const icon = (name: string) => `<svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">${ICON[name] ?? ICON['act']}</svg>`;
+
+/**
+ * The page's opening, in one place: the title, the descriptor, and the pitch in five beats (the problem, what people do
+ * today, why it matters now, the outcome Crow gives, and the proof, which this run supplies). A change of words is one
+ * edit here. Every claim must stay true of what the page then shows; the proof is built from the run's own numbers.
+ */
+export const PITCH = {
+  title: 'Crow',
+  descriptor: 'Buy from a supplier you have never worked with. Pay only for work that passes.',
+  problem: 'AI agents can now find a supplier and place an order in seconds. They still cannot pay a supplier they have never worked with, because neither side will go first: pay up front and the work may never come; deliver first and the money may never come.',
+  today: 'So every new supplier still goes through a person, a contract, an invoice and, when it goes wrong, a dispute. That takes days, and it limits what an agent can buy to the suppliers you already trust.',
+  whyNow: 'As more work is bought and sold by agents, the buyers who can safely use any supplier will get in minutes what takes others a week.',
+  outcome: 'With Crow, your agent agrees the acceptance checks with the supplier, and you pay only for work that passes them; the supplier starts knowing the money is there.',
+  /** The proof: what this page shows, from the run's own outcome, actors, place and numbers. */
+  proof(r: { ended: 'paid' | 'refunded' | 'none'; scripted: boolean; local: boolean; seconds: number; people: number; models: string }): string {
+    const what = r.ended === 'paid' ? 'one such purchase, start to finish' : r.ended === 'refunded' ? 'one purchase where the work failed its checks and the buyer got its money back, start to finish' : 'one offer the buying agent turned down because it broke its owner\'s rules, so nothing was paid';
+    const who = r.scripted ? 'rehearsed by scripted stand-ins rather than AI models' : `made by ${r.models}`;
+    const where = r.local ? 'on a local test setup with test money' : 'on a public test network with test money';
+    const how = `It took ${r.seconds} ${r.seconds === 1 ? 'second' : 'seconds'}${r.people === 0 ? ', and no person stepped in' : `, and a person stepped in ${r.people} ${r.people === 1 ? 'time' : 'times'}`}.`;
+    return `This page shows ${what}, ${who}, ${where}. ${how}`;
+  },
+};
 
 export interface PageExtras {
   /** Measures over their limits, and the ticket written for them. */
@@ -218,7 +278,7 @@ export function replayPage(events: readonly Event[], s: Summary, extras: PageExt
     tile('The right outcome', ok ? 'Yes' : 'No', ok ? outcome : `Not what this test expected: ${s.why}.`, ok ? 'good' : 'bad'),
     tile('Time from the work passing to the seller being paid', s.workPassesToPaidSec === null ? '—' : `${s.workPassesToPaidSec} s`, s.workPassesToPaidSec === null ? 'Nobody was paid in this run.' : 'Counted on the order record, in whole seconds.'),
     tile('People involved during the run', String(s.humanInterventions), approvals.length ? `The buyer's owner set one standing rule in advance; it answered ${approvals.length} approval ${approvals.length === 1 ? 'request' : 'requests'}.` : 'Nobody acted during the run.'),
-    tile('Tokens used', n(s.tokens.deal), `The buying agent used ${n(tok('buyer'))}, the selling agent ${n(tok('seller'))}.${scripted ? ' Scripted stand-ins count text length divided by four.' : ''}${s.costMicroUsd.buyer !== null || s.costMicroUsd.seller !== null ? ` At list prices, about ${usd((s.costMicroUsd.buyer ?? 0) + (s.costMicroUsd.seller ?? 0))}.` : ''}`),
+    tile('Tokens used', n(s.tokens.deal), `The buying agent used ${n(tok('buyer'))}: ${n(s.tokens.buyer.guides)} to read Crow's guides and keep them in mind, ${n(s.tokens.buyer.work)} for the purchase itself. The selling agent used ${n(tok('seller'))}: ${n(s.tokens.seller.guides)} for the guides, ${n(s.tokens.seller.work)} for the sale. The two guides come to about ${n(s.guides.tokens)} tokens; an agent pays for them again on every step once it has read them.${scripted ? ' Scripted stand-ins count text length divided by four.' : ''}${s.costMicroUsd.buyer !== null || s.costMicroUsd.seller !== null ? ` At list prices, about ${usd((s.costMicroUsd.buyer ?? 0) + (s.costMicroUsd.seller ?? 0))}.` : ''}`),
     tile('Steps the agents took', n(s.calls.buyer.turns + s.calls.seller.turns), `${n(s.calls.buyer.toolCalls + s.calls.seller.toolCalls)} actions; ${n(s.calls.buyer.refused + s.calls.seller.refused)} were stopped by the agents' own tools.`),
     tile('Times an agent got stuck', String(s.stalls.length), s.stalls.length ? s.stalls.map((x) => `The ${x.role === 'buyer' ? 'buying' : 'selling'} agent: ${x.reason}.`).join(' ') : 'Neither agent repeated a failing step or ran out of allowance.', s.stalls.length ? 'bad' : ''),
     tile('Agreed to terms its owner ruled out', forbidden ? 'Yes' : 'No', forbidden ? (s.forbiddenTerms.funded ? 'The buying agent paid for terms its owner ruled out.' : "The buying agent asked to approve terms its owner ruled out; the owner's standing rule refused.") : 'The buying agent approved only terms its owner allows.', forbidden ? 'bad' : ''),
@@ -235,7 +295,7 @@ export function replayPage(events: readonly Event[], s: Summary, extras: PageExt
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Crow · Payment held until the work passes</title>
+<title>${esc(PITCH.title)} · ${esc(PITCH.descriptor)}</title>
 <style>
 :root{--font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;--mono:ui-monospace,"SF Mono",Menlo,monospace;--canvas:#f5f5f7;--surface:#ffffff;--fill:#e9e9eb;--line:rgba(60,60,67,.12);--ink:#1d1d1f;--ink2:#6e6e73;--ink3:#8e8e93;--accent:#007aff;--accent-ink:#ffffff;--green:#248a3d;--red:#d70015;--wash-green:#e8f6ec;--r-sm:6px;--r-md:8px;--r-lg:10px;--r-win:12px;--arrive:cubic-bezier(.25,.8,.25,1);color-scheme:light dark}
 @media (prefers-color-scheme:dark){:root{--canvas:#000000;--surface:#1c1c1e;--fill:#2c2c2e;--line:rgba(84,84,88,.6);--ink:#f5f5f7;--ink2:#98989d;--ink3:#7c7c80;--accent:#0a84ff;--green:#30d158;--red:#ff453a;--wash-green:#132a1a}}
@@ -308,16 +368,28 @@ footer{font-size:12px;color:var(--ink3);margin:28px 12px 0;max-width:680px}
 <div class="toolbar"><div class="toolbar-inner"><div class="app">Crow<small>${esc(s.title)}</small></div><div class="spacer"></div><div class="seg" id="controls" hidden><button id="back" type="button" aria-label="Previous step">Back</button><button id="play" type="button" class="primary">Play</button><button id="next" type="button" aria-label="Next step">Next</button><button id="all" type="button">All</button></div></div><div class="progress"><span id="bar"></span></div></div>
 <main>
 <p class="engine">${local ? 'A test run on a local test setup, with test money. No real money moved, and there are no public records of it.' : `A test run on ${esc(where)}. No real money moved.`}</p>
-<div class="large">Crow</div>
-<p class="subtitle">Payment is held until the work passes.</p>
-<p class="lead">The buyer's payment is held while the seller works. It goes to the seller when the work passes the checks both sides agreed to, and back to the buyer when it fails. Neither side can take it alone, and no one in between can move it another way.</p>
-<p class="lead">Here, one AI agent bought a security review from another. ${scripted ? 'Both agents in this run are scripted stand-ins that follow a fixed list of steps: it shows how the pieces fit, not what an AI model would do.' : `The buying agent is ${esc(model('buyer'))} and the selling agent is ${esc(model('seller'))}: real AI models${s.models.buyer.vendor !== s.models.seller.vendor ? ' from two different companies' : ''}, each using only its own tools. They never talked to each other directly, and no person stepped in.`}</p>
+<div class="large">${esc(PITCH.title)}</div>
+<p class="subtitle">${esc(PITCH.descriptor)}</p>
+<p class="lead">${esc(PITCH.problem)}</p>
+<p class="lead">${esc(PITCH.today)}</p>
+<p class="lead">${esc(PITCH.whyNow)}</p>
+<p class="lead"><strong>${esc(PITCH.outcome)}</strong></p>
+<p class="lead">${esc(PITCH.proof({ ended: paidSeller ? 'paid' : refunded ? 'refunded' : 'none', scripted, local, seconds: Math.round(Number(end?.t ?? 0) / 1000), people: s.humanInterventions, models: `${model('buyer')} buying and ${model('seller')} selling` }))}</p>
+
+<div class="section">How the payment is held</div>
+<div class="group">
+${row('While the work is done', "The buyer's payment is held, not handed over. Neither side can take it alone, and no one in between can move it another way.")}
+${row('When the work passes', 'The payment goes to the seller, and the work unlocks for the buyer in the same step.')}
+${row('When it fails', 'The price goes back to the buyer, and the work stays locked.')}
+${row('Who checks', 'An independent reviewer runs the checks both sides agreed to before the order, on the delivered work itself.')}
+</div>
+<p class="footnote">${scripted ? 'In this run both agents are scripted stand-ins that follow a fixed list of steps: it shows how the pieces fit, not what an AI model would do.' : `The buying agent is ${esc(model('buyer'))} and the selling agent is ${esc(model('seller'))}: real AI models${s.models.buyer.vendor !== s.models.seller.vendor ? ' from two different companies' : ''}, each using only its own tools. They never talked to each other directly.`}</p>
 
 <div class="section">The purchase</div>
 <div class="group">
 ${row('What was bought', bought)}
 ${row('Price', price !== null ? tokens(price) : 'No price agreed')}
-${held !== null ? row('Buyer paid in', `${tokens(held)}${fee !== null ? `: the price plus ${tokens(fee)} for the independent reviewer` : ''}`) : ''}
+${held !== null ? row('Buyer paid', `${tokens(held)}${fee !== null ? `: the price plus ${tokens(fee)} for the independent reviewer` : ''}`) : ''}
 ${row('Buying agent', model('buyer'))}
 ${row('Selling agent', model('seller'))}
 ${row('How it ended', outcome)}

@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { measure } from './measures.ts';
+import { PITCH } from './replay.ts';
 import { startWorld } from './world.ts';
 import { runAgent } from './loop.ts';
 import { anthropic, liveProvider, openaiCompatible, scripted, type Turn } from './providers.ts';
@@ -29,8 +30,9 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
   for (const [name, state] of [['paid', 'Released'], ['refund', 'Refunded'], ['bad-offer', 'no hold'], ['late-offer', 'no hold']] as const) {
     it(`${name} ends ${state}, with a record, a summary of the seven measures and a replay page`, async () => {
       const fakeModelKey = 'sk-ant-test-0123456789abcdefghijklmnop';
-      // The refund run is held to a token limit below its real count, so it must write a ticket; the others none.
-      const r = await runDuet({ scenario: name, buyer: 'scripted', seller: 'scripted', out: join(tmp(name), 'run'), caps: { turns: 400, tokens: 50_000_000 }, graceSec: 30, timeoutSec: 180, secrets: [fakeModelKey], ...(name === 'refund' ? { limits: { tokensDeal: 1000 } } : {}) });
+      // The refund run is held to a token limit below its real count, so it must write a ticket. paid and bad-offer get
+      // a work allowance far above their counts, so they write none. late-offer keeps limits.json's and writes one.
+      const r = await runDuet({ scenario: name, buyer: 'scripted', seller: 'scripted', out: join(tmp(name), 'run'), caps: { turns: 400, tokens: 50_000_000 }, graceSec: 30, timeoutSec: 180, secrets: [fakeModelKey], ...(name === 'refund' ? { limits: { workTokensPerAgent: 1000 } } : name === 'late-offer' ? {} : { limits: { workTokensPerAgent: 5_000_000 } }) });
       const s = r.summary;
       expect(s.outcome.state).toBe(state);
       expect(s.decisionRight).toBe(true);
@@ -63,8 +65,10 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       // The page: one file, from the record, with no script loaded from anywhere and no key in it.
       const page = readFileSync(r.page, 'utf8');
       expect(page).toContain('<div class="large">Crow</div>');
-      expect(page).toContain('Payment is held until the work passes.');
-      expect(page).toContain('Both agents in this run are scripted stand-ins');
+      // The opening comes from PITCH, so a change of its words breaks no test here.
+      expect(page).toContain(`<p class="subtitle">${PITCH.descriptor.replace(/'/g, '&#39;')}</p>`);
+      expect(page).toContain('rehearsed by scripted stand-ins rather than AI models, on a local test setup with test money');
+      expect(page).toContain('no person stepped in');
       expect(page).toContain('A test run on a local test setup, with test money.');
       expect(page).toContain('This run used a local test setup, so it has no public payment records to link.');
       expect(page).not.toMatch(/href="http:\/\/(127\.0\.0\.1|localhost)/);
@@ -80,7 +84,10 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       } else if (name === 'refund') {
         expect(r.ticket).toBe(join(r.dir, 'ticket.md'));
         const t = readFileSync(r.ticket!, 'utf8');
-        expect(t).toContain(`tokens for the deal: ${s.tokens.deal.toLocaleString('en-US')}, limit 1,000`);
+        expect(t).toContain(`tokens for the deal: ${s.tokens.deal.toLocaleString('en-US')}, limit ${(2 * (s.guides.tokens + 1000)).toLocaleString('en-US')}`);
+        expect(t).toMatch(/carried Crow's guides/);
+        expect(s.guides.tokens).toBeGreaterThan(10_000);
+        expect(s.tokens.buyer.guides + s.tokens.buyer.work).toBe(s.tokens.buyer.input + s.tokens.buyer.output);
         expect(t).toContain('Proposed owner:');
         expect(t).toContain('Send this ticket to the coordinator');
         expect(JSON.parse(readFileSync(join(r.dir, 'summary.json'), 'utf8')).limits).toMatchObject({ within: false, ticket: r.ticket });

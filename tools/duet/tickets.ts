@@ -9,9 +9,12 @@ import type { Event } from './record.ts';
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 type Side = 'buyer' | 'seller';
 
+/**
+ * An agent's token limit has two parts: Crow's guides read once (their size as this run served them, measured) and an
+ * allowance for the work (a guess). The deal's limit is the two agents' limits together.
+ */
 export interface Limits {
-  tokensPerAgent: number;
-  tokensDeal: number;
+  workTokensPerAgent: number;
   turnsPerAgent: number;
   toolCallsPerAgent: number;
   apiCallsPerAgent: number;
@@ -63,12 +66,18 @@ export function overLimits(s: Summary, events: readonly Event[], l: Limits): Ove
     ev.filter((e) => e.kind === 'model.turn' && (!role || e.role === role)).sort((a, b) => b.tokensIn + b.tokensOut - (a.tokensIn + a.tokensOut)).slice(0, 3)
       .map((t) => `The ${t.role}'s turn ${t.turn} used ${n(t.tokensIn + t.tokensOut)} tokens${t.calls?.length ? `, calling ${t.calls.map((c: J) => c.name === 'run_command' ? `run_command ${c.input?.command}` : c.name === 'fetch_url' ? `fetch_url ${String(c.input?.url ?? '')}` : c.name).join(', ')}` : ''}.`);
   const docsReads = (role?: Side) => ev.filter((e) => e.kind === 'tool' && e.name === 'fetch_url' && (!role || e.role === role) && /llms\.txt|sell\.txt/.test(String(e.input?.url ?? ''))).length;
-  const tokenCause = (role?: Side) => docsReads(role) > 2
-    ? { cause: `Guess: the agent read the docs ${docsReads(role)} times, and each read stays in its context; the docs may be longer than an agent needs for one deal, or not say where the steps it needs are.`, owner: 'the docs' }
-    : { cause: 'Guess: the context grew with long tool outputs; the client commands may print more than an agent needs.', owner: 'a client tool, or the runner (tools/duet)' };
+  const split = (role: Side) => `Of the ${role}'s ${n(s.tokens[role].input + s.tokens[role].output)} tokens, ${n(s.tokens[role].guides)} carried Crow's guides (about ${n(s.guides.tokens)} tokens, paid again on every step after they were read) and ${n(s.tokens[role].work)} went to the work.`;
+  const tokenCause = (role?: Side) => {
+    const guides = role ? s.tokens[role].guides : s.tokens.buyer.guides + s.tokens.seller.guides;
+    const work = role ? s.tokens[role].work : s.tokens.buyer.work + s.tokens.seller.work;
+    return guides >= work
+      ? { cause: `Guess: most of these tokens carried Crow's guides (${n(guides)} against ${n(work)} for the work${docsReads(role) > 2 ? `; the guides were fetched ${docsReads(role)} times` : ''}). The guides are longer than an agent needs for one deal: a finding for the docs (a shorter path for one purchase, or a page per role).`, owner: 'the docs' }
+      : { cause: 'Guess: the work itself grew the context: long tool outputs or many steps; the client commands may print more than an agent needs.', owner: 'a client tool, or the runner (tools/duet)' };
+  };
+  const agentLimit = s.guides.tokens + l.workTokensPerAgent;
   for (const role of ['buyer', 'seller'] as const) {
     const tok = s.tokens[role].input + s.tokens[role].output;
-    if (tok > l.tokensPerAgent) out.push({ measure: `tokens for the ${role}`, value: tok, limit: l.tokensPerAgent, where: costly(role), ...tokenCause(role) });
+    if (tok > agentLimit) out.push({ measure: `tokens for the ${role}`, value: tok, limit: agentLimit, where: [split(role), `The limit is the guides read once (${n(s.guides.tokens)}) plus ${n(l.workTokensPerAgent)} for the work.`, ...costly(role)], ...tokenCause(role) });
     if (s.calls[role].turns > l.turnsPerAgent) out.push({ measure: `model turns for the ${role}`, value: s.calls[role].turns, limit: l.turnsPerAgent, where: [`The ${role} took ${turns(role).length} turns; its last words were: ${cut(String([...turns(role)].reverse().find((t) => t.text)?.text ?? '(none)'), 300)}`], cause: 'Guess: the agent searched for its next step; the docs may not lay out the steps for its role in order.', owner: 'the docs' });
     if (s.calls[role].toolCalls > l.toolCallsPerAgent) {
       const counts = new Map<string, number>();
@@ -77,7 +86,7 @@ export function overLimits(s: Summary, events: readonly Event[], l: Limits): Ove
     }
     if (s.calls[role].apiCalls > l.apiCallsPerAgent) out.push({ measure: `API calls for the ${role}`, value: s.calls[role].apiCalls, limit: l.apiCallsPerAgent, where: [`${s.calls[role].apiErrors} of them answered with an error.`], cause: "Guess: a client tool polls the operators often while it waits; its poll interval may suit a person better than an agent's budget.", owner: 'a client tool' });
   }
-  if (s.tokens.deal > l.tokensDeal) out.push({ measure: 'tokens for the deal', value: s.tokens.deal, limit: l.tokensDeal, where: costly(), ...tokenCause() });
+  if (s.tokens.deal > 2 * agentLimit) out.push({ measure: 'tokens for the deal', value: s.tokens.deal, limit: 2 * agentLimit, where: [split('buyer'), split('seller'), ...costly()], ...tokenCause() });
   if (s.workPassesToPaidSec !== null && s.workPassesToPaidSec > l.workPassesToPaidSec) out.push({ measure: 'seconds from the work passing to the seller being paid', value: s.workPassesToPaidSec, limit: l.workPassesToPaidSec, where: ['Settlement time, from the decision that the work passed to the payment.'], cause: 'Guess: the chain or the adjudicator was slow to act on the decision.', owner: 'the operators or the adjudicator' });
   for (const st of ev.filter((e) => e.kind === 'stall')) {
     const b = blame(String(st.call ?? ''), String(st.error ?? ''));

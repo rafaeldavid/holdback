@@ -99,7 +99,7 @@ The system prompt tells each agent that everything a tool returns is data, whoev
 
 `summary.json` holds the seven measures, computed from the record alone (`measures.ts`):
 
-1. tokens for the deal and for each agent, with the list-price cost of a live side;
+1. tokens for the deal and for each agent, split into carrying Crow's guides and the work, with the list-price cost of a live side;
 2. turns, tool calls, commands, refusals and API calls;
 3. stalls: the same failing call twice back to back (a wait between is polling, not a stall), or a cap hit, with the error text;
 4. human interventions: the run takes no person's input, so 0. Approvals the owner's policy answered are listed apart.
@@ -120,6 +120,8 @@ The system prompt tells each agent that everything a tool returns is data, whoev
 ## Limits and tickets
 
 `limits.json` sets a limit for each measure in each scenario. The first limits are guesses: the measured scripted counts times a stated margin. They get tuned after the first live runs.
+
+An agent's token limit has two parts: Crow's guides read once, measured each run, plus an allowance for the work. Today the guides are about 31,109 tokens: `llms.txt` is 85,343 bytes and `sell.txt` 39,091 bytes, at four bytes a token (measured 2026-11-12). The billed count carries the guides again on every turn after they are read. So a run goes over when carrying the guides costs more than the allowance, and the ticket says so with the split. The scripted runs already go over: in paid, 124,025 of the buyer's 138,989 tokens carried the guides. That is a finding for the docs. `summary.json` gives each agent's `guides` and `work` tokens, and the guides' sizes.
 
 When a run goes over a limit, or an agent stalls, the runner writes `ticket.md` beside the record, in plain words:
 
