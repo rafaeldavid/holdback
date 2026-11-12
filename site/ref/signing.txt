@@ -1,0 +1,118 @@
+# Crow reference: signing
+
+What you pin, how every signed step works, every value you compute yourself, and the EIP-712 types, for code that signs on its own.
+
+## Pins
+
+Pin this EIP-712 domain in your own configuration and sign under nothing else. Never take it from an operator: one that served another domain could collect a signature valid somewhere else. `verifyingContract` is the HoldbackRules contract on Sepolia.
+
+```json
+{"name": "Holdback", "version": "0.8", "chainId": 11155111, "verifyingContract": "0xf38287e5c5c1f20c6d03be500edbf8a244f27cfa"}
+```
+
+Pin this deployment too: you fund through it. `tokenDomain` is tUSDC's own EIP-712 domain, under which you sign the funding and any operator fee; `escrow` is Coinbase Commerce Payments' AuthCaptureEscrow, which holds the money; `collector` is its ERC-3009 collector, the `to` of your funding; `rules` is HoldbackRules; `expiryMarginSec` enters the funding nonce (`ref/signing.txt`). Each address is on https://sepolia.etherscan.io. The tools in the public repository pin the same two.
+
+```json
+{"tokenDomain": {"name": "Crow Test USDC", "version": "1", "chainId": 11155111, "verifyingContract": "0x5029787d7e141f2d51788035cc23903652d196b6"}, "escrow": "0x2d9ad608de707ac470111b73c693020d9c9342cc", "collector": "0xa7c26ba572dce83ab4466379fc8aee84345888e7", "rules": "0xf38287e5c5c1f20c6d03be500edbf8a244f27cfa", "expiryMarginSec": 86400}
+```
+
+## Prepare, verify, sign, submit
+
+Every step has the same shape. `POST /v1/prepare/<kind>` with plain inputs returns:
+
+```json
+{
+  "kind": "agree-and-fund",
+  "commitmentId": "0x…",
+  "sign": [ { "slot": "signature", "signer": "0x…", "typedData": { "domain": {}, "types": {}, "primaryType": "Agree", "message": {} }, "digest": "0x…" } ],
+  "submit": { "method": "POST", "path": "/v1/commitments/0x…/agree", "body": { "signature": null } },
+  "check": ["what you are about to sign, in words"],
+  "defaults": {}
+}
+```
+
+For each `sign` entry whose `signer` is you: sign, write the signature (`0x`, 65 bytes as hex) into `submit.body` at `slot` (a dotted path, such as `fund.signature`), and POST the body to `submit.path` with an `Idempotency-Key`.
+
+Prepare hides nothing. You send every nonce; a prepare without one is 400 with `field` naming it. `defaults` lists only what the operator filled in because you left it out, such as `createdAt` (settlement time) or an `expiresAt` (settlement time plus 3600 seconds). The answer may also carry `notices`.
+
+**Verify before you sign.** A prepare answer is a proposal. Do not check the operator's typed data against the operator's own digest: it chose both. Rebuild the message from your own intent and compare:
+
+1. **Domain:** the one you pinned, field for field: the Holdback domain, or for the funding and the operator fee the token's domain in your pinned deployment.
+2. **Types:** exactly the types under "EIP-712 types" below; the `primaryType` and the slots are the ones this step signs.
+3. **Message:** every field is what you asked for (each step below lists them). In `typedData.message` every integer is a decimal string and every time is Unix seconds; convert to integers before hashing.
+4. **Nonces:** generate each one yourself (32 random bytes, `0x` hex), send it in the prepare request, and refuse any other. Two are fixed by the terms instead and you compute them yourself: the funding nonce and the operator fee nonce ("Encodings").
+5. **Times the operator chose** (`createdAt`, `submittedAt`): at most 10 minutes behind and 60 seconds ahead of settlement time from both operators.
+6. **Digest:** compute the EIP-712 digest of your own domain, types and message. It must equal `digest`. Sign your typed data, not theirs, and check `submit.body` carries the same values before you send it.
+
+If anything differs, do not sign.
+
+**What `submit.body` holds.** The message you sign, as JSON under the same field names, with each signature slot `null` until you write yours in. It is not the typed data: times are RFC 3339 strings (Unix seconds only inside typed data), amounts and `value` are decimal strings, and counts (`attempt`, `bytes`, the `…Sec` windows, `maxSubmissions`) are JSON numbers. Per step:
+
+- Offer: the terms (`ref/http-seller.txt`, "Offer") plus `id` and `signatures`.
+- Agree and fund: `{"type": "Agree", commitmentId, buyer, nonce, expiresAt, signature, "fund": {"type": "FundingAuthorization", scheme, commitmentId, from, value, token, validAfter, validBefore, nonce, expiresAt, signature}, "operatorFee": {"type": "TransferAuthorization", scheme, purpose, commitmentId, from, to, value, token, validAfter, validBefore, nonce, expiresAt, signature}}`, without `operatorFee` on a node that charges none.
+- Delivery: `{commitmentId, attempt, ciphertext: {uri, sha256, bytes, cipher}, plaintextSha256, plaintextMime, encryptedKeys: [{recipient, scheme, ciphertext}], submittedAt, signature}`. The entries carry no `unlock`: the typed data adds `{"kind": "", "round": 0}`.
+
+Compare every field with your own message, and submit nothing the operator added.
+
+## Encodings
+
+Everything you compute yourself, in one place. Every message is EIP-712 typed data under the domain you pinned, with the types in the next section.
+
+- **Canonical JSON** is RFC 8785. For these documents (strings, integers, booleans, no floats) it is JSON with object keys sorted and no whitespace. Hash its UTF-8 bytes with keccak256, written `0x` plus 64 hex digits.
+- **Nonces.** Every `nonce` and `agreeNonce` is 32 random bytes you generate, as `0x` hex. The operator derives none and refuses a prepare without one (400, `field` names it). Use a fresh one per message. Refuse a prepared message whose nonce is not the one you sent. The two ERC-3009 nonces are the exception, below: the terms fix them, so they can fund or pay for this commitment only.
+- **The funding nonce** is Commerce Payments' PaymentInfo hash with the payer zeroed. `inner` = keccak256(abi.encode(TYPEHASH, operator = rules, payer = the zero address, receiver = sellerPayoutAddress, token = price.token (the deployment's one token: every route that takes terms refuses another), maxAmount = price + adjudication fee (uint120), preApprovalExpiry = fundBy (uint48), authorizationExpiry = refundExpiry = fallbackBy + appealDecideSec + expiryMarginSec (uint48 each), minFeeBps = 0 (uint16), maxFeeBps = 10000 (uint16), feeReceiver = the zero address, salt = the commitment ID as uint256)), where TYPEHASH = keccak256("PaymentInfo(address operator,address payer,address receiver,address token,uint120 maxAmount,uint48 preApprovalExpiry,uint48 authorizationExpiry,uint48 refundExpiry,uint16 minFeeBps,uint16 maxFeeBps,address feeReceiver,uint256 salt)"). The nonce = keccak256(abi.encode(uint256 chainId, address escrow, bytes32 inner)). Times are Unix seconds; `rules`, `escrow`, `expiryMarginSec` and the chain ID come from your pinned deployment.
+- **The operator fee nonce** = keccak256(abi.encode(bytes32 commitmentId, string "operator_fee")).
+- **Integers and times in typed data.** Every `uint*` field of `typedData.message` is a decimal string: convert it to an integer before hashing. Every time is Unix seconds: `Date.parse(t) / 1000`.
+- **The commitment ID** is `hashStruct("CommitmentTerms", terms)`, the EIP-712 struct hash with no domain, where `deliverableHash` and `acceptanceHash` are keccak256 of the canonical JSON of `deliverable` and `acceptance`, the five deadlines and `createdAt` are Unix seconds, `disputeBy`, `disputeJudgeSec` and `disputeFallbackSec` are 0, and amounts are integers.
+- **The delivery hash** is `hashStruct("Delivery", delivery)` of the delivery without its signature. The `delivery.submitted` event's `payload.deliveryHash` is that value. The event does not carry every field the hash covers (the per-recipient keys, the MIME type, the submission time), so to recompute it you need the seller's signed delivery.
+- **An optional field becomes a flag and a zero.** EIP-712 has no null, so these messages carry a `has…` bool beside a zero placeholder in the typed data (the JSON body you submit carries `null` or leaves the field out):
+  - `MutualSettlement`: before a delivery, `hasDelivery: false` and `deliveryHash` 32 zero bytes (`0x` and 64 zeros); after one, `hasDelivery: true` and the delivery hash.
+  - `ReadToken`: without an audience, `hasAudience: false` and `audience` the zero address (`0x` and 40 zeros); with one, `hasAudience: true` and that address.
+  - `Delegation.scope`: without categories, `hasCategories: false` and `categories: []`.
+  - `Delivery.encryptedKeys[].unlock`: always `{"kind": "", "round": 0}` today.
+- **Times prepare fills in.** A time you leave out is settlement time (`createdAt`, `submittedAt`, `filedAt`), or settlement time plus 3600 seconds for an `EarlyAccept` or `MutualSettlement` `expiresAt`. `Agree.expiresAt` is the terms' `offerExpiresAt`; the funding and the operator fee are valid from the epoch (`validAfter` 0) to `fundBy`. `defaults` lists what was filled in. A settlement you sign stays valid until its `expiresAt`, so the other party can hold it and submit it only if the coming decision would be worse for it. Set `expiresAt` before the next decision is due (`judgeBy`, or `fallbackBy`) unless you accept that.
+- **`attempt` and `deliveryHash`.** A first delivery is attempt 1. An `EarlyAccept` names the attempt the settlement layer holds (`attempt` in `GET /v1/commitments/<id>`) and the delivery it accepts (`deliveryHash`, the delivery hash above, of the seller's signed delivery you opened; `deliveryHash` in `GET /v1/commitments/<id>` and `payload.deliveryHash` of `delivery.submitted` name the posted one). The contract refuses an early accept relayed with any other delivery, and an adjudicator's decision names the delivery it judged the same way.
+
+## EIP-712 types
+
+Schema 0.11, signed under domain version "0.8" (the domain moves only when an existing type changes; 0.7 added `deliveryHash` to `EarlyAccept` and `Decision`; 0.10 added `AdjudicatorRegistration`; 0.8 added `buyerPaymentAddress` and `sellerPayoutAddress` to `CommitmentTerms`, ADR-0033). Pin these. The domain type is the standard `EIP712Domain` (name, version, chainId, verifyingContract); some libraries add it themselves. A message uses its primary type and the types it references. `Appeal`, first below, is the full protocol's type and SimChain only: the phase-one contracts take no party appeal. There `AdjudicatorAcceptance.bondReserved` must be `"0"`.
+```json
+{
+  "Appeal": [{"name":"commitmentId","type":"bytes32"},{"name":"appellant","type":"string"},{"name":"appellantAddress","type":"address"},{"name":"grounds","type":"string"},{"name":"bond","type":"TokenAmount"},{"name":"filedAt","type":"uint64"}],
+  "TokenAmount": [{"name":"token","type":"string"},{"name":"amount","type":"uint256"}],
+  "Adjudication": [{"name":"adjudicator","type":"address"},{"name":"fallbackAdjudicator","type":"address"},{"name":"appealAdjudicator","type":"address"},{"name":"policyId","type":"string"},{"name":"fee","type":"TokenAmount"},{"name":"registryHash","type":"bytes32"},{"name":"policyHash","type":"bytes32"}],
+  "Timing": [{"name":"offerExpiresAt","type":"uint64"},{"name":"fundBy","type":"uint64"},{"name":"deliverBy","type":"uint64"},{"name":"judgeBy","type":"uint64"},{"name":"fallbackBy","type":"uint64"},{"name":"appealWindowSec","type":"uint64"},{"name":"appealDecideSec","type":"uint64"},{"name":"maxSubmissions","type":"uint8"},{"name":"disputeBy","type":"uint64"},{"name":"disputeJudgeSec","type":"uint64"},{"name":"disputeFallbackSec","type":"uint64"}],
+  "Settlement": [{"name":"mode","type":"string"},{"name":"token","type":"string"}],
+  "Remedy": [{"name":"onReject","type":"string"}],
+  "Disclosure": [{"name":"level","type":"string"}],
+  "CommitmentTerms": [{"name":"schemaVersion","type":"string"},{"name":"clubId","type":"string"},{"name":"rulebookHash","type":"bytes32"},{"name":"buyer","type":"address"},{"name":"seller","type":"address"},{"name":"buyerPaymentAddress","type":"address"},{"name":"sellerPayoutAddress","type":"address"},{"name":"deliverableHash","type":"bytes32"},{"name":"acceptanceHash","type":"bytes32"},{"name":"price","type":"TokenAmount"},{"name":"adjudication","type":"Adjudication"},{"name":"timing","type":"Timing"},{"name":"settlement","type":"Settlement"},{"name":"remedy","type":"Remedy"},{"name":"disclosure","type":"Disclosure"},{"name":"buyerEncryptionPublicKey","type":"string"},{"name":"nonce","type":"bytes32"},{"name":"createdAt","type":"uint64"}],
+  "Agree": [{"name":"commitmentId","type":"bytes32"},{"name":"buyer","type":"address"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
+  "FundingAuthorization": [{"name":"scheme","type":"string"},{"name":"commitmentId","type":"bytes32"},{"name":"from","type":"address"},{"name":"value","type":"uint256"},{"name":"token","type":"string"},{"name":"validAfter","type":"uint64"},{"name":"validBefore","type":"uint64"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
+  "TransferAuthorization": [{"name":"scheme","type":"string"},{"name":"purpose","type":"string"},{"name":"commitmentId","type":"bytes32"},{"name":"from","type":"address"},{"name":"to","type":"address"},{"name":"value","type":"uint256"},{"name":"token","type":"string"},{"name":"validAfter","type":"uint64"},{"name":"validBefore","type":"uint64"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
+  "EarlyAccept": [{"name":"commitmentId","type":"bytes32"},{"name":"buyer","type":"address"},{"name":"attempt","type":"uint8"},{"name":"deliveryHash","type":"bytes32"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
+  "Ciphertext": [{"name":"uri","type":"string"},{"name":"sha256","type":"string"},{"name":"bytes","type":"uint64"},{"name":"cipher","type":"string"}],
+  "KeyUnlock": [{"name":"kind","type":"string"},{"name":"round","type":"uint64"}],
+  "EncryptedKey": [{"name":"recipient","type":"address"},{"name":"scheme","type":"string"},{"name":"ciphertext","type":"string"},{"name":"unlock","type":"KeyUnlock"}],
+  "Delivery": [{"name":"commitmentId","type":"bytes32"},{"name":"attempt","type":"uint8"},{"name":"ciphertext","type":"Ciphertext"},{"name":"plaintextSha256","type":"string"},{"name":"plaintextMime","type":"string"},{"name":"encryptedKeys","type":"EncryptedKey[]"},{"name":"submittedAt","type":"uint64"}],
+  "Payout": [{"name":"to","type":"address"},{"name":"amount","type":"TokenAmount"}],
+  "MutualSettlement": [{"name":"commitmentId","type":"bytes32"},{"name":"hasDelivery","type":"bool"},{"name":"deliveryHash","type":"bytes32"},{"name":"payouts","type":"Payout[]"},{"name":"releaseKey","type":"bool"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
+  "Scope": [{"name":"roles","type":"string[]"},{"name":"maxPerCommitment","type":"TokenAmount"},{"name":"maxDaily","type":"TokenAmount"},{"name":"hasCategories","type":"bool"},{"name":"categories","type":"string[]"},{"name":"expiresAt","type":"uint64"}],
+  "ReadToken": [{"name":"viewer","type":"address"},{"name":"commitmentId","type":"bytes32"},{"name":"hasAudience","type":"bool"},{"name":"audience","type":"address"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
+  "Delegation": [{"name":"principal","type":"address"},{"name":"agent","type":"address"},{"name":"dealKey","type":"address"},{"name":"dealEncryptionKey","type":"string"},{"name":"clubId","type":"string"},{"name":"scope","type":"Scope"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
+  "Publish": [{"name":"commitmentId","type":"bytes32"},{"name":"level","type":"string"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
+  "AdjudicatorAcceptance": [{"name":"commitmentId","type":"bytes32"},{"name":"adjudicator","type":"address"},{"name":"seedCommitment","type":"bytes32"},{"name":"policyHash","type":"bytes32"},{"name":"registryHash","type":"bytes32"},{"name":"fee","type":"TokenAmount"},{"name":"bondReserved","type":"TokenAmount"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
+  "SealedKey": [{"name":"scheme","type":"string"},{"name":"ciphertext","type":"string"}],
+  "Beacon": [{"name":"source","type":"string"},{"name":"round","type":"uint64"},{"name":"value","type":"bytes32"},{"name":"signature","type":"bytes"}],
+  "Decision": [{"name":"commitmentId","type":"bytes32"},{"name":"attempt","type":"uint8"},{"name":"deliveryHash","type":"bytes32"},{"name":"adjudicator","type":"address"},{"name":"role","type":"string"},{"name":"outcome","type":"string"},{"name":"seed","type":"bytes32"},{"name":"policyHash","type":"bytes32"},{"name":"registryHash","type":"bytes32"},{"name":"judgmentRecordHash","type":"bytes32"},{"name":"keyForBuyer","type":"SealedKey"},{"name":"appealGround","type":"string"},{"name":"beacon","type":"Beacon"},{"name":"encryptedKeys","type":"EncryptedKey[]"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
+  "AdjudicatorRegistration": [{"name":"adjudicator","type":"address"},{"name":"encryptionPublicKey","type":"string"},{"name":"keyId","type":"string"},{"name":"policyHash","type":"bytes32"},{"name":"registryHash","type":"bytes32"},{"name":"fee","type":"TokenAmount"},{"name":"poolTermsHash","type":"bytes32"},{"name":"bodyHash","type":"bytes32"},{"name":"issuedAt","type":"uint64"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}]
+}
+```
+
+The funding and the operator fee are signed under the token's domain (your pinned `tokenDomain`) with USDC's ERC-3009 types, each on its own:
+
+```json
+{
+  "ReceiveWithAuthorization": [{"name":"from","type":"address"},{"name":"to","type":"address"},{"name":"value","type":"uint256"},{"name":"validAfter","type":"uint256"},{"name":"validBefore","type":"uint256"},{"name":"nonce","type":"bytes32"}],
+  "TransferWithAuthorization": [{"name":"from","type":"address"},{"name":"to","type":"address"},{"name":"value","type":"uint256"},{"name":"validAfter","type":"uint256"},{"name":"validBefore","type":"uint256"},{"name":"nonce","type":"bytes32"}]
+}
+```
