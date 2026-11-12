@@ -11,8 +11,14 @@ import {LibString} from "solady/utils/LibString.sol";
 /// @dev Token identifiers on EVM settlement are the token's lowercase 0x-hex address (ADR-0025): the
 ///      contract hashes `LibString.toHexString(token)` wherever the struct has a TokenAmount or settlement token.
 library HoldbackTypes {
-    // Calldata shapes
+    // Calldata shapes. Every field is signed by the party or parties whose message it is in; a field this file calls
+    // "signed only" is hashed into its signature and read by no check of the rules contract.
 
+    /// @notice The terms' deadlines and windows, in Unix seconds or seconds.
+    /// @dev Enforced: `offerExpiresAt`, `fundBy`, `deliverBy`, `judgeBy` and `fallbackBy`, which `agreeAndFund`
+    ///      requires strictly increasing; `appealDecideSec`, the appeal adjudicator's window after an escalation, at
+    ///      least 1; `appealWindowSec`, which must be 0 (phase one has no party appeal); `maxSubmissions`, which must
+    ///      be 1. Signed only: `disputeBy`, `disputeJudgeSec` and `disputeFallbackSec`.
     struct Timing {
         uint64 offerExpiresAt;
         uint64 fundBy;
@@ -27,7 +33,15 @@ library HoldbackTypes {
         uint64 disputeFallbackSec;
     }
 
-    /// @notice The settlement view: enforced fields in the clear, 32-byte encodings for the rest.
+    /// @notice The settlement view: enforced fields in the clear, 32-byte encodings for the rest. Its struct hash is
+    ///         the commitment ID, and the seller's signature over that ID is the offer.
+    /// @dev Enforced: the parties (`buyer`, `seller`), the money addresses (`buyerPaymentAddress`,
+    ///      `sellerPayoutAddress`), `token` (must be the deployment's `TOKEN`), `price`, `fee`, the three adjudicators
+    ///      and `timing`. `policyHash` and `registryHash` are also hashed into the primary's acceptance and into every
+    ///      decision, so each adjudicator signs them. Signed only:
+    ///      `schemaVersionHash`, `clubIdHash`, `rulebookHash`, `deliverableHash`, `acceptanceHash`, `policyIdHash`,
+    ///      `remedyHash`, `disclosureHash`, `buyerKeyHash`, `nonce` and `createdAt`. `appealAdjudicator` is the appeal
+    ///      adjudicator, which in phase one hears escalations only.
     struct Terms {
         bytes32 schemaVersionHash; // keccak256(schemaVersion)
         bytes32 clubIdHash; // keccak256(clubId)
@@ -56,6 +70,8 @@ library HoldbackTypes {
     }
 
     /// @notice The primary adjudicator's AdjudicatorAcceptance; fee, policy and registry come from the terms.
+    /// @dev `seedCommitment`: keccak256 of the primary's panel seed, which its decision reveals. `bondReserved`: must
+    ///      be 0 (phase one has no bond). `expiresAt`: the acceptance funds only before it. `nonce`: signed only.
     struct Acceptance {
         bytes32 seedCommitment;
         uint256 bondReserved;
@@ -64,7 +80,7 @@ library HoldbackTypes {
         bytes signature;
     }
 
-    /// @notice The buyer's Agree.
+    /// @notice The buyer's Agree to the terms. `expiresAt`: it funds only before it. `nonce`: signed only.
     struct Agree {
         bytes32 nonce;
         uint64 expiresAt;
@@ -78,6 +94,8 @@ library HoldbackTypes {
     }
 
     /// @notice The seller-signed Delivery as its field encodings (no ciphertext or envelopes on chain).
+    /// @dev Enforced: `attempt` (must be 1) and `encryptedKeysHash` (the buyer's key proof checks against it). Signed
+    ///      only: `ciphertextHash`, `plaintextSha256Hash`, `plaintextMimeHash` and `submittedAt`.
     struct Delivery {
         uint8 attempt;
         bytes32 ciphertextHash; // struct hash of Ciphertext
@@ -88,6 +106,12 @@ library HoldbackTypes {
     }
 
     /// @notice A Decision. The adjudicator field is the one whose turn it is, so it is not carried.
+    /// @dev Enforced: `attempt` and `deliveryHash` (the posted delivery's), `role` (the one whose turn it is),
+    ///      `outcome`, `seed`, `keyCiphertext` (present exactly on an accept; emitted with `keyScheme`),
+    ///      `appealGroundHash` (must be keccak256("") for the primary and the fallback), `beaconRound`, `beaconValue` and
+    ///      `beaconSignature` (for the fallback and the appeal adjudicator), and `expiresAt`. Signed only:
+    ///      `judgmentRecordHash` (emitted), `beaconSourceHash`, `encryptedKeysHash` and `nonce`; the primary's beacon
+    ///      fields.
     struct Decision {
         uint8 attempt;
         bytes32 deliveryHash; // the delivery judged: deliveryHash(id, dv) of the posted delivery (ADR-0029)
@@ -108,6 +132,8 @@ library HoldbackTypes {
         bytes signature;
     }
 
+    /// @notice The buyer's EarlyAccept of the delivery it opened. `expiresAt`: it applies only before it. `nonce`:
+    ///         signed only.
     struct EarlyAccept {
         uint8 attempt;
         bytes32 deliveryHash; // the delivery the buyer opened (ADR-0029)
@@ -116,7 +142,9 @@ library HoldbackTypes {
         bytes signature;
     }
 
-    /// @notice The buyer's envelope inside a delivery's encryptedKeys, with the list's element hashes as proof.
+    /// @notice The buyer's envelope inside a delivery's encryptedKeys, with the list's element hashes as proof. The
+    ///         envelope must be addressed to the buyer, sit at `index` of `keyHashes`, and `keyHashes` must hash to the
+    ///         delivery's `encryptedKeysHash`. `scheme` and `ciphertext` are emitted in `KeyReleased`.
     struct KeyProof {
         string scheme;
         string ciphertext;
@@ -126,11 +154,18 @@ library HoldbackTypes {
         uint256 index; // position of the buyer's envelope
     }
 
+    /// @notice One payout of a mutual settlement: to the seller's payout address or the buyer's payment address, a
+    ///         nonzero amount in the token's base units.
     struct Payout {
         address to;
         uint256 amount;
     }
 
+    /// @notice A MutualSettlement the buyer and the seller both sign.
+    /// @dev `hasDelivery`, `deliveryHash`: the delivery it settles, which after a delivery must be the posted one; a
+    ///      settlement without a delivery applies only in Held. `payouts`: must add up to the price. `releaseKey`:
+    ///      releases the buyer's envelope from the named delivery. `expiresAt`: it applies only before it. `nonce`:
+    ///      signed only.
     struct Mutual {
         bool hasDelivery;
         bytes32 deliveryHash;
@@ -142,6 +177,9 @@ library HoldbackTypes {
         bytes sellerSignature;
     }
 
+    /// @dev Decision roles and outcomes as calldata and `Decided` carry them; `roleHash` and `outcomeHash` map them to
+    ///      the strings the adjudicator signs ("primary", "fallback", "appeal"; "accept", "reject", "escalate").
+    ///      `ROLE_APPEAL` is the appeal adjudicator, which in phase one hears escalations only.
     uint8 internal constant ROLE_PRIMARY = 0;
     uint8 internal constant ROLE_FALLBACK = 1;
     uint8 internal constant ROLE_APPEAL = 2;
@@ -238,14 +276,18 @@ library HoldbackTypes {
         return keccak256(bytes(LibString.toHexString(token)));
     }
 
+    /// @notice The EIP-712 struct hash of TokenAmount(token, amount), the token given as its `tokenIdHash`.
     function tokenAmountHash(bytes32 tokenHash, uint256 amount) internal pure returns (bytes32) {
         return keccak256(abi.encode(TOKEN_AMOUNT_TYPEHASH, tokenHash, amount));
     }
 
+    /// @notice The EIP-712 struct hash of the terms' Timing.
     function timingHash(Timing calldata t) internal pure returns (bytes32) {
         return keccak256(abi.encode(TIMING_TYPEHASH, t));
     }
 
+    /// @notice The EIP-712 struct hash of the terms' Adjudication: the three adjudicators, the policy ID, the fee, the
+    ///         registry hash and the policy hash.
     function adjudicationHash(Terms calldata t, bytes32 tokenHash) internal pure returns (bytes32) {
         return keccak256(
             abi.encode(
@@ -290,6 +332,7 @@ library HoldbackTypes {
         return keccak256(bytes.concat(head, tail));
     }
 
+    /// @notice The struct hash of the primary adjudicator's AdjudicatorAcceptance of commitment `id`.
     function acceptanceHash(bytes32 id, Terms calldata t, Acceptance calldata a) internal pure returns (bytes32) {
         bytes32 tokenHash = tokenIdHash(t.token);
         return keccak256(
@@ -308,14 +351,18 @@ library HoldbackTypes {
         );
     }
 
+    /// @notice The struct hash of the buyer's Agree to commitment `id`.
     function agreeHash(bytes32 id, address buyer, Agree calldata a) internal pure returns (bytes32) {
         return keccak256(abi.encode(AGREE_TYPEHASH, id, buyer, a.nonce, a.expiresAt));
     }
 
+    /// @notice The struct hash of the buyer's EarlyAccept on commitment `id`.
     function earlyAcceptHash(bytes32 id, address buyer, EarlyAccept calldata m) internal pure returns (bytes32) {
         return keccak256(abi.encode(EARLY_ACCEPT_TYPEHASH, id, buyer, m.attempt, m.deliveryHash, m.nonce, m.expiresAt));
     }
 
+    /// @notice The struct hash of the seller's Delivery on commitment `id`: the value `deliveryHashOf` stores and
+    ///         every later message names.
     function deliveryHash(bytes32 id, Delivery calldata d) internal pure returns (bytes32) {
         return keccak256(
             abi.encode(
@@ -331,6 +378,7 @@ library HoldbackTypes {
         );
     }
 
+    /// @notice The struct hash of the EncryptedKey that `k` describes, addressed to `recipient`.
     function encryptedKeyHash(address recipient, KeyProof calldata k) internal pure returns (bytes32) {
         return keccak256(
             abi.encode(
@@ -343,18 +391,22 @@ library HoldbackTypes {
         );
     }
 
+    /// @notice keccak256 of a role's signed string: "primary", "fallback", or "appeal" for any other value.
     function roleHash(uint8 role) internal pure returns (bytes32) {
         if (role == ROLE_PRIMARY) return keccak256("primary");
         if (role == ROLE_FALLBACK) return keccak256("fallback");
         return keccak256("appeal");
     }
 
+    /// @notice keccak256 of an outcome's signed string: "accept", "reject", or "escalate" for any other value.
     function outcomeHash(uint8 outcome) internal pure returns (bytes32) {
         if (outcome == OUTCOME_ACCEPT) return keccak256("accept");
         if (outcome == OUTCOME_REJECT) return keccak256("reject");
         return keccak256("escalate");
     }
 
+    /// @notice The struct hash of a Decision on commitment `id` by `adjudicator`, with the terms' policy and registry
+    ///         hashes.
     function decisionHash(bytes32 id, address adjudicator, Terms calldata t, Decision calldata m)
         internal
         pure
@@ -383,6 +435,7 @@ library HoldbackTypes {
         return keccak256(bytes.concat(head, tail));
     }
 
+    /// @notice The struct hash of a MutualSettlement on commitment `id`, each payout's amount in the token `tokenHash`.
     function mutualHash(bytes32 id, bytes32 tokenHash, Mutual calldata m) internal pure returns (bytes32) {
         uint256 n = m.payouts.length;
         bytes32[] memory items = new bytes32[](n);
