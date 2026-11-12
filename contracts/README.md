@@ -4,7 +4,7 @@ Crow's settlement contracts (protocol name Holdback), their tests and the Sepoli
 
 | Path | Holds |
 | --- | --- |
-| `src/` | The contract files an audit covers (see [`docs/audit/scope.md`](../docs/audit/scope.md)): `DrandQuicknetBeacon.sol`, `HoldbackRules.sol`, `HoldbackTypes.sol` and `IHoldbackBeacon.sol`<!-- T-385: add IHoldbackRules.sol (descriptions, no logic) when T-384 merges --> |
+| `src/` | The contract files an audit covers (see [`docs/audit/scope.md`](../docs/audit/scope.md)): `DrandQuicknetBeacon.sol`, `HoldbackRules.sol`, `HoldbackTypes.sol`, `IHoldbackBeacon.sol` and `IHoldbackRules.sol`. `IHoldbackRules.sol` declares the rules contract's types, events, errors and functions and is the place for their descriptions, with no logic; `HoldbackRules` implements it |
 | `test/` | Foundry tests: `unit/`, `fuzz/`, `invariant/` with its handler in `handlers/`, `crosscheck/`, `differential/` and `attack/` |
 | `script/` | `deploy-sepolia.sh`; `TestUSDC.sol`, the open-mint test token on Sepolia; `LocalUSDC.sol`, `LocalMulticall3.sol` and `SimBeacon.sol` (the local chain's beacon, refused on any chain but 31337), helpers for the anvil tests |
 | `deployments/` | The Sepolia deployment records |

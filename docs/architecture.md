@@ -188,7 +188,7 @@ Keys go only to those who need them. Whoever wants judgment carries the key; the
 | Early acceptance | The buyer, with the payment |
 | Optimistic mode | The buyer at delivery. A `Dispute` carries keys for all three adjudicators |
 | Guaranteed mode, primary | At delivery |
-| Fallback | Released on takeover: SimChain holds the envelope in Phase 1; time-locked to the beacon round at `judgeBy` later, with T-207's private-deal slices (Phase 8) |
+| Fallback | Released on takeover: SimChain holds the envelope in Phase 1; time-locked to the fallback's beacon round later, with T-207's private-deal slices (Phase 8) |
 | Appeal | Carried by the `escalate` decision, or on SimChain only by a party appeal; time-locked to `appealBy` as a backstop later, with the same slices (Phase 8) |
 
 Disclosure levels are a signed term: `private`, `judgment` or `public`. A rulebook sets `disclosureMin`, an adjudicator policy may require a minimum, and a co-signed `Publish` can raise the level, never lower it. Operators accept all three levels; the demo adjudicators cannot open sealed terms yet (T-207). Bond backers see aggregate signals recomputed from skeleton events, not cases.

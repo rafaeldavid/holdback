@@ -122,7 +122,7 @@ As of 2026-11-06:
 | `packages/judgment/` | Intake, declarative checks, the screen, providers, panel selection, aggregation |
 | `packages/sdk/` | The internal SDK: used by the operator, the demo and the tests (failover, direct submit); not published |
 | `packages/testkit/` | The `pnpm snap` scenario runner |
-| `contracts/` | Foundry: `contracts/src/` holds `DrandQuicknetBeacon.sol` (the drand beacon verifier), `HoldbackRules.sol`, `HoldbackTypes.sol` and `IHoldbackBeacon.sol`<!-- T-385: add IHoldbackRules.sol (descriptions, no logic) when T-384 merges -->; plus their tests |
+| `contracts/` | Foundry: `contracts/src/` holds `DrandQuicknetBeacon.sol` (the drand beacon verifier), `HoldbackRules.sol`, `HoldbackTypes.sol`, `IHoldbackBeacon.sol` and `IHoldbackRules.sol` (the rules contract's interface: its declarations and the place for their descriptions, no logic); plus their tests |
 | `formal/` | The TLA+ model of the commitment state machine |
 | `spec/` | JSON Schemas (the API contract), examples and the OpenAPI document |
 | `fixtures/` | Scenario fixtures, recordings, demo clubs, terms and data |
