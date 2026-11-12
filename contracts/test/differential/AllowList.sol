@@ -22,8 +22,9 @@ import {Field, Obs} from "./Observation.sol";
 ///      T-375, RF-4 (`docs/audit/state-model.md` section 9.2): the deal's stored word gains its closing reason and
 ///      its decider, so `dealOf` returns six fields where the parent returns four. Exactly this difference, and no
 ///      other: in the Words field, for every deal, the new raw word is the old raw word followed by two words, a
-///      reason (0 to 5) that is 0 (Open) exactly while the stage is None to Escalated, and a decider (0 to 3) that is
-///      not 0 exactly when the reason is 1 (Decided); the stored delivery hashes are equal. Whether each reason and
+///      reason (0 to 5) that is 0 (Open) exactly while the stage is None to Escalated and otherwise fits the stage as
+///      section 9.2 says, and a decider (0 to 3) that is not 0 exactly when the reason is 1 (Decided); the stored
+///      delivery hashes are equal. Whether each reason and
 ///      decider is the right one is the state oracle's check, against the handler's record of how each deal closed.
 library AllowList {
     struct Verdict {
@@ -68,8 +69,19 @@ library AllowList {
             if (reason > 5 || decider > 3) return false;
             if ((reason == 0) != (stage <= LAST_OPEN_STAGE)) return false;
             if ((decider != 0) != (reason == DECIDED)) return false;
+            if (!_reasonFitsStage(reason, stage)) return false;
         }
         return true;
+    }
+
+    /// Section 9.2: the reason fixes the stage. Decided gives Released (5) or Refunded (6), AcceptedEarly Released,
+    /// Settled Settled (7), Reclaimed and Defaulted Refunded; Open any open stage (checked by the caller).
+    function _reasonFitsStage(uint256 reason, uint256 stage) private pure returns (bool) {
+        if (reason == 0) return true;
+        if (reason == DECIDED) return stage == 5 || stage == 6;
+        if (reason == 2) return stage == 5;
+        if (reason == 3) return stage == 7;
+        return stage == 6;
     }
 
     /// The k-th 32-byte word of `b`.
