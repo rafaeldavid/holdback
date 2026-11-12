@@ -396,6 +396,13 @@ library HoldbackTypes {
         );
     }
 
+    /// @notice The tag a funded deal stores for the primary's seed (known issue L-4, T-380): the low 144 bits of
+    ///         keccak256(seedCommitment ‖ commitment ID). Every bit of the commitment enters it, and two seeds whose
+    ///         tags collide on one deal give no choice on another.
+    function seedTag(bytes32 seedCommitment, bytes32 id) internal pure returns (uint144) {
+        return uint144(uint256(keccak256(abi.encode(seedCommitment, id))));
+    }
+
     /// @notice panelSeed(role) = keccak256(commitmentId ‖ role ‖ attempt ‖ beaconValue) (ADR-0018, core panelSeed).
     function panelSeed(bytes32 id, uint8 role, uint8 attempt, bytes32 beaconValue) internal pure returns (bytes32) {
         string memory r = role == ROLE_FALLBACK ? "fallback" : "appeal";
