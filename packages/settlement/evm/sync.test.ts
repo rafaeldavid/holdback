@@ -155,7 +155,8 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
       fromBlock: Number(d.fromBlock),
       token: { address: d.token, name: anvil.tokenDomain.name, version: anvil.tokenDomain.version, symbol: 'tUSDC', decimals: 6 },
       escrow: d.escrow,
-      erc3009Collector: d.erc3009Collector,      multicall: d.multicall,
+      erc3009Collector: d.erc3009Collector,
+      multicall: d.multicall,
       rules: d.rules,
       beacon: d.beacon,
       expiryMarginSec: Number(anvil.expiryMargin),
@@ -279,7 +280,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     const af = await d.agreeAndFund();
     if (af.kind !== 'agree_and_fund') throw new Error('unreachable');
     const seq = s.log().length;
-    const mined = await direct(cast.buyer, 'agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(served), agreeView(af.agree), { signature:af.funding.signature }]);
+    const mined = await direct(cast.buyer, 'agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(served), agreeView(af.agree), { signature: af.funding.signature }]);
     expect((await s.state(d.id))!.escrowState).toBe('AcceptedByAdjudicator');
     expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0, unknown: 0 });
     expect((await s.state(d.id))!.escrowState).toBe('Held');
@@ -653,7 +654,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     const accept = await d.accept();
     const af = await d.agreeAndFund();
     if (accept.kind !== 'adjudicator_accept' || af.kind !== 'agree_and_fund') throw new Error('unreachable');
-    const mined = await direct(cast.buyer, 'agreeAndFund', [termsView(d.terms), offer.commitment.signatures.seller, acceptanceView(accept.message), agreeView(af.agree), { signature:af.funding.signature }]);
+    const mined = await direct(cast.buyer, 'agreeAndFund', [termsView(d.terms), offer.commitment.signatures.seller, acceptanceView(accept.message), agreeView(af.agree), { signature: af.funding.signature }]);
     expect(await sync.pass()).toMatchObject({ applied: 0, unknown: 1 });
     expect(s.follows(d.id)).toBe(false);
     const joined = await ok(s, offer);
@@ -678,7 +679,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     const sub = await d.agreeAndFund({ operatorFee: { to: cast.operator.address, value: 4_710_000n } });
     if (sub.kind !== 'agree_and_fund' || accept.kind !== 'adjudicator_accept') throw new Error('unreachable');
     const sellerSignature = s.log().find((e) => e.commitmentId === d.id && e.type === 'commitment.offered')!.payload['sellerSignature'] as Hex;
-    await direct(watcher, 'agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(sub.agree), { signature:sub.funding.signature }]);
+    await direct(watcher, 'agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(sub.agree), { signature: sub.funding.signature }]);
     await sync.pass();
     expect((await s.state(d.id))!.escrowState).toBe('Held');
     expect(s.log().some((e) => e.commitmentId === d.id && e.type === 'fee.operator')).toBe(false);
@@ -702,7 +703,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     const sub = await d.agreeAndFund({ operatorFee: { to: cast.operator.address, value: 4_710_000n } });
     if (sub.kind !== 'agree_and_fund' || accept.kind !== 'adjudicator_accept') throw new Error('unreachable');
     const sellerSignature = s.log().find((e) => e.commitmentId === d.id && e.type === 'commitment.offered')!.payload['sellerSignature'] as Hex;
-    const fundLeg = encodeFunctionData({ abi: chain.abis.rules, functionName: 'agreeAndFund', args: [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(sub.agree), { signature:sub.funding.signature }] });
+    const fundLeg = encodeFunctionData({ abi: chain.abis.rules, functionName: 'agreeAndFund', args: [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(sub.agree), { signature: sub.funding.signature }] });
     const fees = await s.tokenBalance(cast.operator.address, true);
     let copy: Hex | undefined;
     let pending: Promise<Awaited<ReturnType<EvmSettlement['submit']>>> | undefined;
@@ -853,7 +854,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     // Residual 13, case 3: two signed steps for one deal in one transaction (the funding and the delivery), sent by a
     // watcher who holds copies of both. The book stays AcceptedByAdjudicator while dealOf moves to Delivered.
     await raw(watcher, multicall, bundle([
-      { target: rules, allowFailure: false, callData: rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(af.agree), { signature:af.funding.signature }]) },
+      { target: rules, allowFailure: false, callData: rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(af.agree), { signature: af.funding.signature }]) },
       { target: rules, allowFailure: false, callData: rulesCall('deliver', [termsView(d.terms), deliveryView(delivery.delivery), delivery.delivery.signature]) },
     ]));
     // A deal funded on chain whose offer never reached this node.
@@ -862,7 +863,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     const unseenAccept = await unseen.accept();
     const unseenFund = await unseen.agreeAndFund();
     if (offer.kind !== 'offer' || unseenAccept.kind !== 'adjudicator_accept' || unseenFund.kind !== 'agree_and_fund') throw new Error('unreachable');
-    await direct(watcher, 'agreeAndFund', [termsView(unseen.terms), offer.commitment.signatures.seller, acceptanceView(unseenAccept.message), agreeView(unseenFund.agree), { signature:unseenFund.funding.signature }]);
+    await direct(watcher, 'agreeAndFund', [termsView(unseen.terms), offer.commitment.signatures.seller, acceptanceView(unseenAccept.message), agreeView(unseenFund.agree), { signature: unseenFund.funding.signature }]);
     expect(await sync.pass()).toMatchObject({ behind: 1 });
     expect(s.lag(d.id)).toContain('2 signed calls');
     expect((await s.state(d.id))!.escrowState).toBe('Delivered');
@@ -940,7 +941,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     if (accept.kind !== 'adjudicator_accept' || af.kind !== 'agree_and_fund' || delivery.kind !== 'deliver') throw new Error('unreachable');
     const sellerSignature = s.log().find((e) => e.commitmentId === d.id && e.type === 'commitment.offered')!.payload['sellerSignature'] as Hex;
     await raw(watcher, multicall, bundle([
-      { target: rules, allowFailure: false, callData: rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(af.agree), { signature:af.funding.signature }]) },
+      { target: rules, allowFailure: false, callData: rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(af.agree), { signature: af.funding.signature }]) },
       { target: rules, allowFailure: false, callData: rulesCall('deliver', [termsView(d.terms), deliveryView(delivery.delivery), delivery.delivery.signature]) },
     ]));
     expect(await sync.pass()).toMatchObject({ behind: 1 });
@@ -1175,7 +1176,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
       primaryType: 'Agree',
       message: { commitmentId: d.id, buyer: cast.buyer.address, nonce, expiresAt },
     });
-    await raw(cast.buyer, chain.deployment.rules, rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), { nonce, expiresAt, signature }, { signature:af.funding.signature }]));
+    await raw(cast.buyer, chain.deployment.rules, rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), { nonce, expiresAt, signature }, { signature: af.funding.signature }]));
     await direct(cast.stranger, 'decide', decideArgs(beside, await decision(beside, 'primary', 'accept')));
     expect(await sync.pass()).toMatchObject({ applied: 2, behind: 0 });
     expect(s.escrowState(d.id)!.kind).toBe('Held');
@@ -1273,7 +1274,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     const sub = await d.agreeAndFund();
     if (sub.kind !== 'agree_and_fund' || accept.kind !== 'adjudicator_accept') throw new Error('unreachable');
     const sellerSignature = s.log().find((e) => e.commitmentId === d.id && e.type === 'commitment.offered')!.payload['sellerSignature'] as Hex;
-    const fundLeg = rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(sub.agree), { signature:sub.funding.signature }]);
+    const fundLeg = rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(sub.agree), { signature: sub.funding.signature }]);
     await plantedAfter(watcher, fundLeg, rulesCall('expireOffer', [termsView(d.terms)]));
     expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
     expect(s.escrowState(d.id)!.kind).toBe('Held');
@@ -1318,7 +1319,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     const sub = await d.agreeAndFund({ operatorFee: { to: cast.operator.address, value: 4_710_000n } });
     if (sub.kind !== 'agree_and_fund' || accept.kind !== 'adjudicator_accept') throw new Error('unreachable');
     const sellerSignature = s.log().find((e) => e.commitmentId === d.id && e.type === 'commitment.offered')!.payload['sellerSignature'] as Hex;
-    const fundLeg = rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(sub.agree), { signature:sub.funding.signature }]);
+    const fundLeg = rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(sub.agree), { signature: sub.funding.signature }]);
     // The watcher signs its own transfer of 1 base unit, with the nonce bound to this commitment.
     await chain.mint(watcher.address, 10n);
     const validBefore = d.terms.timing.fundBy;

@@ -20,7 +20,7 @@ SEPOLIA=11155111
 export FOUNDRY_CHAIN_ID=$SEPOLIA
 
 # Phase one funds by ERC-3009 only (ADR-0031 §3): no Permit2 and no Permit2 collector. Multicall3 stays: the ERC-3009
-# collector uses it for wallets that are not deployed yet (ERC-6492).
+# collector is built with it, for its ERC-6492 path.
 MULTICALL3=0xcA11bde05977b3631167028862bE2a173976CA11
 MULTICALL3_CODEHASH=0xd5c15df687b16f2ff992fc8d767b4216323184a2bbc6ee2f9c398c318e770891
 EXPIRY_MARGIN=86400 # T-206 review §7: one day, the value the local EVM world and the tests use

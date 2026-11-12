@@ -6,6 +6,8 @@ import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
+import {TestUSDC} from "../../script/TestUSDC.sol";
+import {OwnedWallet} from "../crosscheck/Erc1271Replay.t.sol";
 import {Base} from "./Base.sol";
 
 /// @title SC-2: funding by ERC-3009 only (T-356, ADR-0031 §3)
@@ -34,12 +36,42 @@ contract Erc3009OnlyTest is Base {
         H.Funding memory f = H.Funding({signature: _permit2(t, BUYER_PK)});
         uint256 before = usdc.balanceOf(buyer);
 
-        vm.expectRevert();
+        // The ERC-3009 collector hands the bytes to the token's receiveWithAuthorization, which finds no ERC-3009
+        // signature in them.
+        vm.expectRevert(bytes("MockERC3009: invalid signature"));
         rules.agreeAndFund(t, ss, acc, ag, f);
 
         assertEq(uint8(rules.dealOf(id).stage), uint8(HoldbackRules.Stage.None), "nothing stored");
         assertEq(usdc.balanceOf(buyer), before, "no token moved");
         assertEq(_held(t), 0);
+    }
+
+    /// With Permit2 gone, a multisig or any contract-wallet buyer funds only through the token's ERC-3009. On the
+    /// demo's own token (TestUSDC, the token `deploy-sepolia.sh` deploys, not CPP's mock) the token checks the
+    /// wallet's ERC-1271 answer, the hold funds, and the timeout returns it in full (ADR-0031 §3, §5).
+    function test_contractWalletBuyer_fundsOnTestUSDC() public {
+        TestUSDC tusdc = new TestUSDC();
+        rules = new HoldbackRules(escrow, address(collector3009), MARGIN, sim, address(tusdc));
+        uint256 ownerPk = 0x0111E4;
+        OwnedWallet w = new OwnedWallet(vm.addr(ownerPk));
+        tusdc.mint(address(w), 1_000_000_000);
+        H.Terms memory t = _terms();
+        t.token = address(tusdc);
+        t.buyer = address(w);
+        bytes memory ss = _sellerSig(t, SELLER_PK);
+        H.Acceptance memory acc = _acceptance(t, ADJ_PK);
+        H.Agree memory ag = _agree(t, ownerPk);
+        H.Funding memory f = _erc3009(t, ownerPk);
+
+        vm.prank(relayer);
+        bytes32 id = rules.agreeAndFund(t, ss, acc, ag, f);
+        assertEq(uint8(rules.dealOf(id).stage), uint8(HoldbackRules.Stage.Held));
+        assertEq(tusdc.balanceOf(escrow.getTokenStore(address(rules))), PRICE + FEE);
+        assertEq(tusdc.balanceOf(address(w)), 1_000_000_000 - PRICE - FEE);
+
+        vm.warp(t.timing.deliverBy);
+        rules.reclaim(t);
+        assertEq(tusdc.balanceOf(address(w)), 1_000_000_000, "the wallet got its hold back");
     }
 
     /// Every hold goes through the ERC-3009 collector: the escrow's `PaymentAuthorized` names it.

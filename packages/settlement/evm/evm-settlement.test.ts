@@ -363,6 +363,22 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     expect(chain.transactions()).toHaveLength(0);
   }, 60_000);
 
+  // ADR-0031 §3 (SC-2): the phase-one contracts fund by ERC-3009 only.
+  it('a Permit2 funding authorization is refused before any transaction: invalid_terms', async () => {
+    const { chain, cast, club } = await newSettlement(world);
+    const d = new EvmDeal(chain, cast, club, 'permit2-funding');
+    for (const sub of [d.offer(), d.accept()]) await must(chain, cast, sub);
+    const af = await d.agreeAndFund();
+    if (af.kind !== 'agree_and_fund') throw new Error('unreachable');
+    const r = await chain.submit({ ...af, funding: { ...af.funding, scheme: 'permit2' } }, { via: 'op-1', sender: cast.operator.key });
+    expect(r.ok ? 'ok' : r.problem.type).toBe('invalid_terms');
+    expect(chain.escrowState(d.id)?.kind).toBe('AcceptedByAdjudicator');
+    expect(chain.transactions()).toHaveLength(0);
+    // The same submission as ERC-3009 funds.
+    await must(chain, cast, af);
+    expect(chain.escrowState(d.id)?.kind).toBe('Held');
+  }, 60_000);
+
   // ADR-0031 §2 (SC-1): a deployment serves one token. A club that allows a second token would let the parties sign
   // terms the contract never funds; the adapter refuses them at the offer, before anyone else signs.
   it('an offer in a token the deployment does not serve is refused before anyone signs: invalid_terms, naming SC-1', async () => {
@@ -584,7 +600,8 @@ describe.skipIf(!ready)(`relayed transactions a restart left in flight (T-219; a
       fromBlock: Number(d.fromBlock),
       token: { address: d.token, name: anvil.tokenDomain.name, version: anvil.tokenDomain.version, symbol: 'tUSDC', decimals: 6 },
       escrow: d.escrow,
-      erc3009Collector: d.erc3009Collector,      multicall: d.multicall,
+      erc3009Collector: d.erc3009Collector,
+      multicall: d.multicall,
       rules: d.rules,
       beacon: d.beacon,
       expiryMarginSec: Number(anvil.expiryMargin),

@@ -66,7 +66,8 @@ describe.skipIf(!ready)(`red team of the operators' own timeouts, on anvil stand
       fromBlock: Number(d.fromBlock),
       token: { address: d.token, name: anvil.tokenDomain.name, version: anvil.tokenDomain.version, symbol: 'tUSDC', decimals: 6 },
       escrow: d.escrow,
-      erc3009Collector: d.erc3009Collector,      multicall: d.multicall,
+      erc3009Collector: d.erc3009Collector,
+      multicall: d.multicall,
       rules: d.rules,
       beacon: d.beacon,
       expiryMarginSec: Number(anvil.expiryMargin),
@@ -211,7 +212,7 @@ describe.skipIf(!ready)(`red team of the operators' own timeouts, on anvil stand
       functionName: 'aggregate3',
       args: [
         [
-          { target: rules, allowFailure: false, callData: rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(af.agree), { signature:af.funding.signature }]) },
+          { target: rules, allowFailure: false, callData: rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(af.agree), { signature: af.funding.signature }]) },
           { target: rules, allowFailure: false, callData: rulesCall('deliver', [termsView(d.terms), deliveryView(delivery.delivery), delivery.delivery.signature]) },
         ],
       ],
