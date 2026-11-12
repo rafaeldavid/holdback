@@ -225,7 +225,7 @@ describe('deal-record.ts writes one verified record of a finished deal (T-333)',
 });
 
 /** A proxy in front of one operator that rewrites some answers: the escrow state, the terms' price, a ciphertext URI. */
-async function proxy(target: string, lie: { state?: string; tamperPrice?: string; ciphertextUri?: string }): Promise<{ url: string; close(): Promise<void> }> {
+async function proxy(target: string, lie: { state?: string; tamperPrice?: string; ciphertextUri?: string; noPostings?: boolean }): Promise<{ url: string; close(): Promise<void> }> {
   const server = createServer(async (req, res) => {
     const path = req.url ?? '/';
     const up = await realFetch(`${target}${path}`, { method: req.method! });
@@ -235,6 +235,8 @@ async function proxy(target: string, lie: { state?: string; tamperPrice?: string
       if (lie.state && /^\/v1\/commitments\/0x[0-9a-f]{64}$/.test(path)) body.escrowState = lie.state;
       if (lie.tamperPrice && /\/terms$/.test(path)) body.price.amount = lie.tamperPrice;
       if (lie.ciphertextUri && /\/events/.test(path)) for (const e of body.items) if (e.type === 'delivery.submitted') e.payload.ciphertext.uri = lie.ciphertextUri;
+      // A chain's events carry no postings (packages/settlement/evm/evm-settlement.ts:1538): the shape of the EVM world.
+      if (lie.noPostings && /\/events/.test(path)) for (const e of body.items) if (e.payload) delete e.payload.postings;
       text = JSON.stringify(body);
     }
     res.writeHead(up.status, { 'content-type': up.headers.get('content-type') ?? 'application/json' }).end(text);
@@ -248,6 +250,22 @@ async function proxy(target: string, lie: { state?: string; tamperPrice?: string
     }),
   };
 }
+
+describe('deal-record.ts on a chain\'s event shape: no postings (T-390)', () => {
+  it('marks the postings checks not run, not failed, when the settling event carries no postings, as a chain\'s does', async () => {
+    const released = await deal(GOOD);
+    const fronts = await Promise.all(world.info.operators.map((op) => proxy(op, { noPostings: true })));
+    try {
+      const r = await dealRecord(released.id, { operators: fronts.map((f) => f.url), party: 'buyer' });
+      const by = Object.fromEntries(r.checks.map((c) => [c.check, c]));
+      expect(by['postings conserve the hold']).toMatchObject({ ok: null, why: expect.stringMatching(/carry no postings for this outcome; read the token's Transfer logs/) });
+      expect(by['postings follow the outcome']?.ok).toBeNull();
+      expect(r.row).toMatchObject({ outcome: 'Released', paidTo: null });
+    } finally {
+      await Promise.all(fronts.map((f) => f.close()));
+    }
+  }, 60_000);
+});
 
 describe('deal-record.ts shows late work accepted by a mutual settlement (SC-5b)', () => {
   // The event log as T-378's route writes it (rafaeldavid/holdback#408): no delivery.submitted, a settlement that
@@ -309,6 +327,9 @@ describe('deal-record.ts shows late work accepted by a mutual settlement (SC-5b)
     const record = (settlement: J, delivery: J) => dealRecord(offer.id, { operators: [...world.info.operators], party: 'buyer', settlement, delivery });
     const good = await record(body, late);
     expect(checks(good)).toMatchObject({ 'late work: the settlement is the one that settled': true, 'late work: settlement names the delivery': true });
+    // T-390: SimChain's settled event carries payouts and no postings; the record conserves the hold from them.
+    expect(checks(good)).toMatchObject({ 'postings conserve the hold': true, 'postings follow the outcome': true });
+    expect(good.row).toMatchObject({ paidTo: seller.address, refundedTo: buyer.address, outcome: 'Settled' });
     expect(good.row.lateWork).toBe(true);
     expect((good.outcome as J).lateWork).toEqual({ deliveryHash: deliveryHashOf(late).toLowerCase(), keyReleasedTo: buyer.address });
     // A signed draft for another delivery passes the signatures and payouts, and fails on the released envelope.

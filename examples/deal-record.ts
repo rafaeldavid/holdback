@@ -389,8 +389,25 @@ async function view(a: Answers, id: Hex, o: Options, cache: Map<string, Uint8Arr
     add('operator fee', BigInt(operatorFee.amount) === due, `${operatorFee.amount} base units paid; ${due < 0n ? 'the published schedule is malformed' : `${due} due under ${schedule}`}`);
   }
   const out = events.filter((e) => SETTLED.includes(e.type));
-  const postings = out.flatMap((e) => (Array.isArray(e.payload?.postings) ? e.payload.postings : [])).filter((x: J) => lc(x.from) === `escrow:${id}`).map((x: J) => ({ to: lc(x.to), amount: x.amount, why: x.why ?? null }));
-  if (hold && out.length) {
+  let postings = out.flatMap((e) => (Array.isArray(e.payload?.postings) ? e.payload.postings : [])).filter((x: J) => lc(x.from) === `escrow:${id}`).map((x: J) => ({ to: lc(x.to), amount: x.amount, why: x.why ?? null }));
+  // T-390: a mutual settlement's event carries its payouts and no postings, on SimChain and on a chain alike
+  // (packages/settlement/sim/simchain.ts:967, evm-settlement.ts:1553). The payouts sum to the price; the adjudication
+  // fee goes back to the buyer's payment address, less the sitting adjudicator's rulebook share (0 bps in phase one).
+  const settledEv = out.at(-1)?.type === 'commitment.settled' ? out.at(-1) : null;
+  const fromPayouts = postings.length === 0 && settledEv !== null && Array.isArray(settledEv.payload?.payouts);
+  if (fromPayouts) postings = settledEv!.payload.payouts.map((p: J) => ({ to: lc(p.to), amount: p.amount, why: 'agreed payout (from the settled event)' }));
+  // A chain's events carry no postings at all: the release's or refund's transfers are in the token's logs (Handoff).
+  const noPostings = postings.length === 0;
+  if (hold && out.length && noPostings) {
+    for (const name of ['postings conserve the hold', 'postings follow the outcome']) add(name, null, "the operators' events carry no postings for this outcome; read the token's Transfer logs of the transactions below to check it");
+  } else if (hold && out.length && fromPayouts) {
+    const ok = postings.every((x: J) => isMoney(x.amount) && x.amount.token === hold.token && BigInt(x.amount.amount) > 0n) && price !== null && fee !== null && sum(postings.map((x: J) => x.amount)) === BigInt(price.amount) && BigInt(price.amount) + BigInt(fee.amount) === BigInt(hold.amount);
+    add('postings conserve the hold', ok, `the settlement's payouts sum to the price, ${price?.amount} ${hold.token}, and the adjudication fee, ${fee?.amount}, returns to the buyer's payment address less the sitting adjudicator's rulebook share, which the event does not carry: the hold, ${hold.amount} ${hold.token}`);
+    const allowed = t ? [t.sellerPayoutAddress ?? t.seller, t.buyerPaymentAddress ?? t.buyer].map(lc) : [];
+    add('postings follow the outcome', t ? postings.every((x: J) => allowed.includes(x.to)) : null, t ? "settled: every payout goes to the seller's payout address or the buyer's payment address (ADR-0033)" : 'the terms were not read');
+    const apart = t ? [[t.buyer, t.buyerPaymentAddress ?? t.buyer], [t.seller, t.sellerPayoutAddress ?? t.seller]].filter(([s, m]) => lc(s) !== lc(m)).map(([s]) => lc(s)) : [];
+    if (apart.length) add('signing addresses receive nothing', postings.every((x: J) => !apart.includes(x.to)), `no payout goes to ${apart.join(' or ')}, which sign and differ from their money address`);
+  } else if (hold && out.length) {
     const ok = postings.every((x: J) => isMoney(x.amount) && x.amount.token === hold.token) && sum(postings.map((x: J) => x.amount)) === BigInt(hold.amount);
     add('postings conserve the hold', ok, `the postings out of escrow sum to the hold, ${hold.amount} ${hold.token}`);
     const to = (who: string, amount: bigint) => postings.some((x: J) => x.to === lc(who) && BigInt(x.amount.amount) === amount);

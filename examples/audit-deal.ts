@@ -132,7 +132,7 @@ export interface AuditDealOptions {
 export interface AuditDealResult {
   commitmentId: Hex;
   /** `Held`: with a seller's own report, the seller's check run refused it, nothing was delivered and the run stopped. */
-  outcome: 'Released' | 'Refunded' | 'Held';
+  outcome: 'Released' | 'Refunded' | 'Held' | 'Settled'; // Settled: a mutual settlement (T-390); the rehearsal makes none
   buyer: string;
   seller: string;
   /** The offer as both operators served it and the buyer approved it. */
@@ -564,7 +564,7 @@ export async function startLocalWorld(): Promise<LocalWorld> {
 export const CASES = ['released', 'redelivered', 'rubric', 'refunded', 'missed-deadline', 'shown-mismatch', 'resume', 'two-addresses'] as const;
 export type CaseName = (typeof CASES)[number];
 /** `Not funded`: the buyer's signer refused before any signature, so the commitment never reached a hold. */
-export type EndState = 'Released' | 'Refunded' | 'Held' | 'Not funded';
+export type EndState = 'Released' | 'Refunded' | 'Held' | 'Not funded' | 'Settled'; // Settled: a mutual settlement (T-390); no case expects one
 /** How each case should end. A case that ends otherwise makes the command exit 1. */
 export const EXPECTED: Record<CaseName, EndState> = { released: 'Released', redelivered: 'Released', rubric: 'Released', refunded: 'Refunded', 'missed-deadline': 'Refunded', 'shown-mismatch': 'Not funded', resume: 'Released', 'two-addresses': 'Released' };
 /** The cases only the local world can rehearse, and why. */
