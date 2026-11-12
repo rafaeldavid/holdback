@@ -86,7 +86,7 @@ pnpm snap --update <name>       # regenerate a snapshot; review the diff before 
 pnpm demo                       # scripted judges: no keys needed; writes demo/out
 pnpm demo --live                # live judges (needs two model-family keys)
 (cd contracts && forge test)    # contracts, local chain only (Phase 2)
-formal/check.sh                 # TLA+ model of the state machine (T-204); safety in seconds, liveness ~11 min
+formal/check.sh                 # TLA+ model of the state machine (T-204); safety in seconds, liveness ~21 min
 node site/build.mjs && node site/check.mjs   # the site and its agent docs (site/llms.txt)
 ```
 
@@ -95,7 +95,7 @@ node site/build.mjs && node site/check.mjs   # the site and its agent docs (site
 1. Read this file, then the newest entry of the daily log: its "Next steps (resume here)" list is the current work. The maintainers keep the log in the private repository under `control/log/` (files are named by date, `YYYY-MM-DD.md`; take the newest). On the maintainer's machine that repository is checked out at `reports/crow-private/` inside the main checkout. A session without it starts from `docs/plan.md` and the open pull requests. Check `gh pr list` for open PRs before starting a task that may already be in flight.
 2. `docs/plan.md` lists the current build's tasks by phase (Phases 0 to 2); each task file in `docs/tasks/` has Intent, acceptance criteria, Evidence and a Handoff section that says how to resume. Since 2026-11-06 the focus is stable EVM operations on Sepolia (D53), and Phase 2's exit criteria say when it is done (D54).
 3. `docs/operations.md`: what is live (crow.direct, the API on Sepolia, the test seller, sign-ups, Crow Control at control.crow.direct), how to deploy, secrets handling, and the gates.
-4. Open decisions and their history: `docs/decisions-today.md` (D1 to D56) and `docs/decisions/` (ADRs).
+4. Open decisions and their history: `docs/decisions-today.md` (D1 to D63) and `docs/decisions/` (ADRs).
 
 ## Working as a team of agents
 
@@ -113,7 +113,7 @@ node site/build.mjs && node site/check.mjs   # the site and its agent docs (site
 
 ## Map
 
-`docs/decisions-today.md` records decisions D1 to D56 (decided from October 30 to November 10, 2026; D4, deferred to Phase 2 at first, was settled by D41: the public demo settles on Sepolia), and `docs/reviews/` the reviews behind them. Read both first. Work deferred until after the basic demo, and the phases after Phase 2, are planned privately (`docs/plan.md`, Future work).
+`docs/decisions-today.md` records decisions D1 to D63 (decided from October 30 to November 12, 2026; D4, deferred to Phase 2 at first, was settled by D41: the public demo settles on Sepolia), and `docs/reviews/` the reviews behind them. Read both first. Work deferred until after the basic demo, and the phases after Phase 2, are planned privately (`docs/plan.md`, Future work).
 
 The other docs: `PRD.md`, `neutrality.md`, `architecture.md`, `judgment-and-defenses.md`, `api.md`, `quickstart.md`, `demo.md`, `testing.md`, `team.md`, `writing.md`, `plan.md`, `private-materials.md`, `audit/`, `decisions/`, `tasks/`. Research is in `docs/research/`; open it only when a decision needs it. `docs/operations.md` covers the live demo and deploys. Planning and business material, the brand work included, is kept privately (`docs/private-materials.md`). Write Crow in docs; ’crow ("escrow" with the "es" unsaid) is the website's logomark (Rafa, 2026-11-03). Tagline "Verifiable settlement for AI commerce" (Rafa, 2026-11-10; D56, which replaced D40's tagline; D40's rule stands: privacy is each deal's choice), at crow.direct; its mark is Archibald Thorburn's 1919 hooded crow (public domain); Holdback stays the protocol's working name and EIP-712 domain.
 
