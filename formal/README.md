@@ -75,7 +75,8 @@ a step from the base's `Next`.
 | Appeal states | Every `AppealState.kind`, plus `na` where no appeal state exists. In phase one a first-instance decision writes `expired`, as core does: closed, with no appeal. |
 | Money | Abstract units in the holders' wallets, `escrow[c]`, adjudicator fee accounts and, in the full profile, adjudicator bonds, `apBond[c]` and `apFee[c]`. Postings follow `docs/architecture.md`, "Hold and settlement postings". Values: price 2, fee 1, appeal bond 1, appeal fee 1, default compensation 1 per liable bond. |
 | The ledger | `out[c]` records what `escrow[c]` paid to the payment address, to the payout address and to each fee account. It is an observer: in each step that debits the escrow it adds what that step itself credited to those accounts. The properties compare it with how the deal closed. |
-| Time | The absolute deadlines are strictly ordered, so `clk[c]` counts how many have passed (1 offerExpiresAt, 2 fundBy, 3 deliverBy, 4 judgeBy, 5 fallbackBy). Core refuses any other order (`packages/core/src/timing.ts:35-49`), and so does the contract at funding (`HoldbackRules.sol:198-204`). Relative deadlines get their own counters: `escClk` for the escalation's appealDecideBy, `apClk` for appealBy and then appealDecideBy. Each tick is its own step, so TLC explores every interleaving of deadlines across commitments and actions. An action is on time iff its deadline has not passed. A timeout fires iff it has. |
+| The closing reason and the decider | `reason[c]` and `decider[c]` are the two fields the contract stores in the deal's word when it closes a deal (`docs/audit/state-model.md`, section 9.2). The model writes them in the closing step, in both profiles. SimChain stores no such fields: its state keeps the same fact as `via`. |
+| Time | The absolute deadlines are strictly ordered, so `clk[c]` counts how many have passed (1 offerExpiresAt, 2 fundBy, 3 deliverBy, 4 judgeBy, 5 fallbackBy). Core refuses any other order (`packages/core/src/timing.ts:35-49`), and so does the contract at funding (`HoldbackRules.sol:222-228`). Relative deadlines get their own counters: `escClk` for the escalation's appealDecideBy, `apClk` for appealBy and then appealDecideBy. Each tick is its own step, so TLC explores every interleaving of deadlines across commitments and actions. An action is on time iff its deadline has not passed. A timeout fires iff it has. |
 | Halting | `Halted` names one actor, or `"any"` to let the check choose it. A weakly fair `Crash` step stops that actor at some point, which may be any point, and it never acts after that. |
 | Signatures | A signature is "the named actor took the step". A step that needs an actor's signature needs that actor not crashed, and each step records its signers. `Signed` holds every step to that record. It can fail only where an actor halts, so the `safety-halting` and `live-*` configs are the ones that check it. |
 | Fairness | Weak fairness applies only to the "anyone" timeouts, the clock and `Crash`. No named actor is ever required to act, so every config also covers any actor stopping at any time. |
@@ -96,7 +97,7 @@ a step from the base's `Next`.
 - **The beacon round and its margin.** The model knows only whether the beacon answers. Which round fixes a
   seed, and the margin after an escalation, are tested in forge (ADR-0032).
 - **Amounts other than the fixed ones.** A zero price or a zero fee takes other branches in the contract
-  (`HoldbackRules.sol:330`, `:335-336`, `:369-370`). Forge tests cover them.
+  (`HoldbackRules.sol:356`, `:361-362`, `:395-396`). Forge tests cover them.
 - **A payment address equal to the payout address,** or to the other party's signing address. The contract
   compares no two addresses. The model checks each money address equal to its own party's signing address, or
   apart from every other address.
@@ -123,7 +124,6 @@ a step from the base's `Next`.
   the vault's rule, which returns with bonds (ADR-0031), and not SimChain's steps one for one.
 - **The rest:** `settle_after_window` and the `settle` timeout, scopes and mandates, rulebook checks, more than
   one delivery attempt, the operator fee, and appeal clauses beyond core's default rules.
-- **The contract's stored closing reason and decider.** See "Waiting for RF-4".
 
 ## Properties
 
@@ -140,17 +140,19 @@ a step from the base's `Next`.
 | `PhaseOneCuts` | invariant | phase one | No party appeal and no appeal stake, no bond posted or encumbered, no `Expired` and no `Defaulted` state. |
 | `EscrowLedger` | invariant | both | Whatever left an escrow reached the payment address, the payout address or a fee account. A unit paid anywhere else leaves the sum short. |
 | `PaidAsClosed` | invariant | both | The money matches how the deal closed. A decision's accept paid the price to the payout address, a reject paid it to the payment address, and either paid the fee to the adjudicator that decided and to no other. An early accept paid the price to the payout address and returned the fee. A reclaim or a default returned the whole hold to the payment address. A settlement split the price between the two and returned the fee. After the payment address's reclaim on the escrow, that address has the whole hold and nobody else has anything. |
+| `ReasonRules` | invariant | both | The stored closing reason and decider keep the rules of `docs/audit/state-model.md`, section 9.2: the reason is `open` exactly while the deal is not closed; a decider is named exactly when the reason is `decided`; the reason fixes the stage. |
+| `ReasonMatchesMoney` | invariant | both | The stored reason matches the money that moved, read from the ledger and not from `via`. Decided: the price went to the payout address on a release and to the payment address on a refund, and the fee went to the stored decider and to no other adjudicator. Accepted early: the price to the payout address, the fee back. Settled: the price split between the two addresses, the fee back. Reclaimed or defaulted: the whole hold back to the payment address. |
 | `DefaultRefundsBuyer` | invariant | both | After a default the payment address has the whole hold back, and the escrow paid nothing to the payout address or to any adjudicator. |
 | `SignersHoldNothing` | invariant | phase one | A signing address that is apart from its money address holds nothing, at any step. |
 | `KeyOnlyWithPayment` | invariant | both | The buyer holds the content key only in Released, or in Settled when the settlement released it, and always holds it in Released. |
 | `RefundedNeverReleasedKey` | invariant | both | A Refunded deal's buyer does not hold the key. With `AtomicKey`, which says a key is never taken back, it never held it. |
 | `BondCovered`, `EncMatchesDeals`, `BondsReleasedAtClose` | invariants | full | No encumbrance exceeds its bond; each encumbrance is the price times the open deals that flag the adjudicator; a deal holds a bond only while funded or appealable. |
 | `AuthorizedMoves` | action property | both | Every debit is justified by the state before the step and by who signed it. An escrow debit needs: the decision of the adjudicator whose turn it is, on time, with a beacon for the fallback and the appeal adjudicator; or the buyer's early accept after a delivery; or both parties' settlement; or reclaim after deliverBy; or the default outcome after its deadline; or the payment address's own reclaim after the escrow's expiry. In phase one a decision or an early accept in Held also qualifies, with the seller's signature on the delivery it carries, before deliverBy. A wallet debit needs the payment address's own funding before the funding deadline, or, in the full profile, a party's own appeal. Bond and appeal-stake debits need an appeal decision, an expired appeal or the default outcome. Fee accounts are never debited. Every signer the step names was able to act (`Signed`). |
-| `AuthorizedSteps` | action property | both | Every step that changes a deal's stage is justified, whether or not it moves money: by the stage before it, the step's name and signers, and the deadline. A delivery needs the seller, before deliverBy. The fallback takes over only from judgeBy. Only the adjudicator whose turn it is escalates. The record of how a deal closed is the step that closed it, so the adjudicator `PaidAsClosed` finds paid is the one whose turn it was. In the full profile the appeal state moves only by the losing party's filing in time, the appeal adjudicator's decision in time, or an expiry. |
+| `AuthorizedSteps` | action property | both | Every step that changes a deal's stage is justified, whether or not it moves money: by the stage before it, the step's name and signers, and the deadline. A delivery needs the seller, before deliverBy. The fallback takes over only from judgeBy. Only the adjudicator whose turn it is escalates. The record of how a deal closed is the step that closed it, and so are the stored reason and decider: a default is stored as a default and a reclaim as a reclaim, although the money is the same. So the adjudicator `PaidAsClosed` and `ReasonMatchesMoney` find paid is the one whose turn it was. In the full profile the appeal state moves only by the losing party's filing in time, the appeal adjudicator's decision in time, or an expiry. |
 | `BondMoneyLands` | action property | full | A filing takes the appeal bond and fee from the losing party's signing address and from nobody else. An overturn pays the price to the wronged party's money address and returns the bond to the appellant's signing address. An undecided appeal returns bond and fee there. The default compensation lands on the payout address (ADR-0033 section 4). |
 | `PaymentAddressFunds` | action property | both | Whatever enters an escrow leaves the payment address in the same step, a funding that address signed, and no other holder's balance changes. |
 | `SignersOnlyStake` | action property | both | A signing address apart from its money address never pays or receives deal money. Its balance changes only by its own appeal stake, in the full profile. |
-| `FirstDecisionFinal` | action property | both | Once an escrow is paid out, the deal's outcome, key, escrow and ledger never change. In phase one nothing about the deal changes, and no later step that names it moves money. |
+| `FirstDecisionFinal` | action property | both | Once an escrow is paid out, the deal's outcome, key, escrow, ledger, stored reason and decider never change. In phase one nothing about the deal changes, and no later step that names it moves money. |
 | `LapsedOfferNeverFunds` | action property | both | An unfunded offer whose funding deadline has passed never funds. |
 | `AtomicKey` | action property | both | The key moves only in a step that pays out the escrow, every transition into Released carries it, and it is never taken back (ADR-0012). |
 | `NoCaptureAfterExpiry` | action property | both | After the escrow's expiry, whatever leaves it goes to the payment address in full and no fee is paid. |
@@ -200,6 +202,10 @@ what TLC must print; `check.sh` requires that TLC fails on that config and that 
 | `broken/phase-one/default-pays-fee.cfg` | a default pays the fee to the fallback adjudicator | `DefaultRefundsBuyer` |
 | `broken/phase-one/reject-releases-key.cfg` | a reject hands the buyer the key | `RefundedNeverReleasedKey` |
 | `broken/phase-one/reject-refunds-fee.cfg` | a reject pays the fee and also returns it | `Conservation` |
+| `broken/phase-one/default-recorded-decided.cfg` | a default is stored as the fallback's decision | `ReasonMatchesMoney` |
+| `broken/phase-one/fee-to-other.cfg` | a decision pays the fee to an adjudicator other than the stored decider | `ReasonMatchesMoney` |
+| `broken/phase-one/reason-not-written.cfg` | a settlement closes the deal and leaves its stored reason open | `ReasonRules` |
+| `broken/phase-one/default-recorded-reclaimed.cfg` | a default is stored as a reclaim | `AuthorizedSteps` |
 | `broken/phase-one/second-capture.cfg` | the primary decides again after the close | `FirstDecisionFinal` |
 | `broken/phase-one/fund-after-expiry.cfg` | funding lands after `offerExpiresAt` | `LapsedOfferNeverFunds` |
 | `broken/phase-one/expire-recorded.cfg` | the contract records an offer's expiry | `PhaseOneCuts` |
@@ -245,7 +251,7 @@ The witnesses cover steps, not every interleaving: a step the list does not name
 
 **What became of `broken/late-judge-by.cfg`.** It moved, and it changed meaning. T-337 wrote it as the record of
 an open issue (L-6): the deployed contract took terms whose `judgeBy` falls after the escrow's expiry. The lane's
-contract refuses such terms at funding (`HoldbackRules.sol:198-204`, ADR-0031 section 6), and core refuses them for
+contract refuses such terms at funding (`HoldbackRules.sol:222-228`, ADR-0031 section 6), and core refuses them for
 SimChain, so no code this model describes can reach that trace. The variant is now a planted fault like the
 others, one config per profile: it removes the refusal and shows that `ExpiryAfterCaptures` would catch its loss.
 
@@ -253,47 +259,49 @@ others, one config per profile: it removes the refusal and shows that `ExpiryAft
 
 `R:` is `contracts/src/HoldbackRules.sol` and `E:` is
 `contracts/lib/commerce-payments/src/AuthCaptureEscrow.sol` (the pinned commit `6b0a5ef`). Lines are at the lane's
-commit `ffb67cf`. The mapping was read, not checked by a tool [inferred].
+commit `74fa299`. The mapping was read, not checked by a tool [inferred].
 
 | Model action | Contract function and line |
 | --- | --- |
-| `Offer` | `agreeAndFund` (`R:178`): the seller's signature over the commitment ID, checked at funding (`R:205`). Nothing is stored before funding |
-| `AdjAccept` | `agreeAndFund`: the primary's `Acceptance` signature (`R:206`), unexpired (`R:189`), with `bondReserved` of 0 (`R:192`) |
-| `Agree` | `agreeAndFund`: the buyer's `Agree` signature (`R:207`), unexpired (`R:189`) |
-| `Fund` | `agreeAndFund`: stage None (`R:187`); before `offerExpiresAt` and `fundBy` (`R:188`); the deadlines strictly in order, one delivery attempt, an escalation window above 0 and an appeal window of 0 (`R:198-204`); `stage = Held` (`R:210`); `ESCROW.authorize` (`R:215`) pulls price + fee from the escrow's payer, `buyerPaymentAddress` (`R:159`), on that address's ERC-3009 signature |
-| `Deliver` | `deliver` (`R:223`): stage Held (`R:226`); `_acceptDelivery` (`R:503`): before `deliverBy` (`R:510`), attempt 1 (`R:511`), the seller's signature (`R:513`); `stage = Delivered` (`R:228`) |
-| `DecidePrimary` | `decide` (`R:235`): role by stage (`R:252-254`), before `judgeBy` (`R:276`), the seed reveal (`R:279`), the primary's signature (`R:291`); `_firstInstance` (`R:300`). In Held the call first lands the delivery it carries (`R:241-245`), under `_acceptDelivery`'s checks |
-| `DecideFallback` | `decide`: role and deadline `fallbackBy` (`R:255-258`, `R:276`), the beacon round and the seed (`R:280-287`); `_firstInstance` |
-| `FirstInstance` with `escalate` | `_firstInstance` (`R:304-309`): `stage = Escalated`, `t1` = now; no money moves |
-| `FirstInstance` with accept or reject | `_firstInstance` (`R:310-313`): `stage = Released` or `Refunded`, final when written; `_settleDecision` |
-| `DecideEscalated` | `decide`: role and deadline `t1 + appealDecideSec` (`R:259-262`, `R:276`), accept or reject only (`R:270`); `_escalationDecision` (`R:317`) |
-| `Settle` | `_settleDecision` (`R:326`). Accept: one capture of the hold with the fee to the decider (`R:330`); the rest goes to the escrow's receiver, `sellerPayoutAddress` (`R:160`, `E:468-471`); the key is released (`R:333`). Reject: a fee-only capture to the decider (`R:335`), then a void (`R:336`), which pays the payer (`E:315`). A key on a reject reverts (`R:275`) |
-| `EarlyAccept` | `earlyAccept` (`R:349`): stage Held or Delivered (`R:359`); the buyer's signature (`R:361`); in Held `_acceptDelivery` lands the carried delivery (`R:362`); the price captured to the payout address (`R:369`), the fee voided to the payment address (`R:370`), the key released (`R:374`) |
-| `MutualSettle` | `mutualSettle` (`R:383`): the four funded stages (`R:389-391`); no key without a named delivery (`R:393-395`); both signatures (`R:400-401`); `stage = Settled` (`R:407`); `_payOut` (`R:417`): a payout names the payout address or the payment address and nothing else (`R:423`), the payouts sum to the price (`R:427`), the seller's share is a capture (`R:429`), the rest and the whole fee a void (`R:434-436`); the key (`R:410`) |
-| `Reclaim` | `reclaim` (`R:447`): stage Held (`R:450`), from `deliverBy` (`R:451`); `_refundAll` |
-| `TriggerFallback` | `triggerFallback` (`R:457`): stage Delivered (`R:460`), from `judgeBy` (`R:461`) |
-| `TriggerDefault` | `triggerDefault` (`R:470`): from `fallbackBy` (`R:475`) or from `t1 + appealDecideSec` after an escalation (`R:477`); `_refundAll` in the same call (`R:482`) |
-| the refund in `Reclaim` and `TriggerDefault` | `_refundAll` (`R:487`): `stage = Refunded` (`R:488`); the void (`R:496`) pays the payer; skipped when the escrow holds nothing after its expiry (`R:492-494`) |
-| `TickExpiry` | `authorizationExpiry = fallbackBy + appealDecideSec + EXPIRY_MARGIN` (`R:153`, `R:164`). A capture reverts from it (`E:277-278`); a void does not check it (`E:304-316`) |
+| `Offer` | `agreeAndFund` (`R:202`): the seller's signature over the commitment ID, checked at funding (`R:229`). Nothing is stored before funding |
+| `AdjAccept` | `agreeAndFund`: the primary's `Acceptance` signature (`R:230`), unexpired (`R:213`), with `bondReserved` of 0 (`R:216`) |
+| `Agree` | `agreeAndFund`: the buyer's `Agree` signature (`R:231`), unexpired (`R:213`) |
+| `Fund` | `agreeAndFund`: stage None (`R:211`); before `offerExpiresAt` and `fundBy` (`R:212`); the deadlines strictly in order, one delivery attempt, an escalation window above 0 and an appeal window of 0 (`R:222-228`); `stage = Held` (`R:234`); `ESCROW.authorize` (`R:239`) pulls price + fee from the escrow's payer, `buyerPaymentAddress` (`R:183`), on that address's ERC-3009 signature |
+| `Deliver` | `deliver` (`R:247`): stage Held (`R:250`); `_acceptDelivery` (`R:529`): before `deliverBy` (`R:536`), attempt 1 (`R:537`), the seller's signature (`R:539`); `stage = Delivered` (`R:252`) |
+| `DecidePrimary` | `decide` (`R:259`): role by stage (`R:276-278`), before `judgeBy` (`R:300`), the seed reveal (`R:303`), the primary's signature (`R:315`); `_firstInstance` (`R:324`). In Held the call first lands the delivery it carries (`R:265-269`), under `_acceptDelivery`'s checks |
+| `DecideFallback` | `decide`: role and deadline `fallbackBy` (`R:279-282`, `R:300`), the beacon round and the seed (`R:304-311`); `_firstInstance` |
+| `FirstInstance` with `escalate` | `_firstInstance` (`R:328-333`): `stage = Escalated`, `t1` = now; no money moves |
+| `FirstInstance` with accept or reject | `_firstInstance` (`R:334-338`): `stage = Released` or `Refunded`, final when written, with the reason `Decided` and the decider by the decision's role (`R:336`); `_settleDecision` |
+| `DecideEscalated` | `decide`: role and deadline `t1 + appealDecideSec` (`R:283-286`, `R:300`), accept or reject only (`R:294`); `_escalationDecision` (`R:342`), which stores the reason `Decided` and the decider `Appeal` (`R:344`) |
+| `Settle` | `_settleDecision` (`R:352`). Accept: one capture of the hold with the fee to the decider (`R:356`); the rest goes to the escrow's receiver, `sellerPayoutAddress` (`R:184`, `E:468-471`); the key is released (`R:359`). Reject: a fee-only capture to the decider (`R:361`), then a void (`R:362`), which pays the payer (`E:315`). A key on a reject reverts (`R:299`) |
+| `EarlyAccept` | `earlyAccept` (`R:375`): stage Held or Delivered (`R:385`); the buyer's signature (`R:387`); in Held `_acceptDelivery` lands the carried delivery (`R:388`); the price captured to the payout address (`R:395`), the fee voided to the payment address (`R:396`), the key released (`R:400`) |
+| `MutualSettle` | `mutualSettle` (`R:409`): the four funded stages (`R:415-417`); no key without a named delivery (`R:419-421`); both signatures (`R:426-427`); `stage = Settled` (`R:433`); `_payOut` (`R:443`): a payout names the payout address or the payment address and nothing else (`R:449`), the payouts sum to the price (`R:453`), the seller's share is a capture (`R:455`), the rest and the whole fee a void (`R:460-462`); the key (`R:436`) |
+| `Reclaim` | `reclaim` (`R:473`): stage Held (`R:476`), from `deliverBy` (`R:477`); `_refundAll` |
+| `TriggerFallback` | `triggerFallback` (`R:483`): stage Delivered (`R:486`), from `judgeBy` (`R:487`) |
+| `TriggerDefault` | `triggerDefault` (`R:496`): from `fallbackBy` (`R:501`) or from `t1 + appealDecideSec` after an escalation (`R:503`); `_refundAll` in the same call (`R:508`) |
+| the refund in `Reclaim` and `TriggerDefault` | `_refundAll` (`R:513`): `stage = Refunded` (`R:514`); the void (`R:522`) pays the payer; skipped when the escrow holds nothing after its expiry (`R:518-520`) |
+| `TickExpiry` | `authorizationExpiry = fallbackBy + appealDecideSec + EXPIRY_MARGIN` (`R:177`, `R:188`). A capture reverts from it (`E:277-278`); a void does not check it (`E:304-316`) |
 | `CppReclaim` | the escrow's `reclaim` (`E:323`): only the payer may call it, from `authorizationExpiry` (`E:325-326`), and it pays the payer (`E:339`). Outside the rules contract |
 | `TickAbs`, `TickEsc` | `block.timestamp` against `Terms.timing` and `Deal.t1` |
 | `Crash` | (environment) an actor stops |
-| `Expire`, `FileAppeal`, `DecideAppeal`, `ExpireAppeal`, `TickAppeal`, `ApplyDefault` | not in phase one: `~P1` disables each, and the contract has no such function (`R:443-444` says so for the offer's expiry) |
+| `Expire`, `FileAppeal`, `DecideAppeal`, `ExpireAppeal`, `TickAppeal`, `ApplyDefault` | not in phase one: `~P1` disables each, and the contract has no such function (`R:469-470` says so for the offer's expiry) |
 | `OperatorEarlyAccept`, `ReleaseKeyLate` and the other `Bug` branches | none: they exist only in the broken variants |
 
 | Model variable | Contract storage or event |
 | --- | --- |
-| `esc` | `Deal.stage` (`R:36-41`; `Stage`, `R:23-32`). The model's None, Offered, AcceptedByAdjudicator and Agreed are all `Stage.None` |
-| `via` | none stored: the events `Decided`, `JobCompleted`, `Refunded`, `Defaulted` and `MutuallySettled` tell how a deal closed. RF-4 stores it |
+| `esc` | `Deal.stage` (`R:58-65`; `Stage`, `R:23-32`). The model's None, Offered, AcceptedByAdjudicator and Agreed are all `Stage.None` |
+| `reason` | `Deal.reason` (`R:63`; `Reason`, `R:38-45`), written in the storage write that closes the deal: a decision (`R:336`, `R:344`), an early accept (`R:393`), a settlement (`R:433`), a reclaim (`R:478`) and a default (`R:508`), the last two through `_refundAll` (`R:514`) |
+| `decider` | `Deal.decider` (`R:64`; `Decider`, `R:49-54`): the primary or the fallback by the decision's role (`R:336`), the appeal adjudicator after an escalation (`R:344`); `None` otherwise |
+| `via` | none stored: the model's own record of how a deal closed, core's `ReleaseVia` and `RefundVia`. `reason` and `decider` carry the same fact on the contract; the events `Decided`, `JobCompleted`, `Refunded`, `Defaulted` and `MutuallySettled` report it |
 | `ap`, `appellant`, `apClk`, `apBond`, `apFee`, `bond`, `enc`, `flags` | none: phase one has no appeal state and no bond (`PhaseOneCuts`) |
 | `clk`, `escClk` | `block.timestamp` against `Terms.timing`; `Deal.t1` starts the escalation's window |
-| `key` | the `KeyReleased` event (`R:97`, `_releaseKey` `R:532`), always to `t.buyer` |
-| `wallet[PayAddr]`, `wallet[PayoutAddr]` | the token balances of `t.buyerPaymentAddress` and `t.sellerPayoutAddress`, the escrow's payer and receiver (`R:159-160`); the `SettlementAddresses` event names both (`R:103`) |
+| `key` | the `KeyReleased` event (`R:121`, `_releaseKey` `R:558`), always to `t.buyer` |
+| `wallet[PayAddr]`, `wallet[PayoutAddr]` | the token balances of `t.buyerPaymentAddress` and `t.sellerPayoutAddress`, the escrow's payer and receiver (`R:183-184`); the `SettlementAddresses` event names both (`R:127`) |
 | `wallet` of a signing address that is apart | the token balances of `t.buyer` and `t.seller`, which no step of the contract moves |
-| `escrow` | the escrow's `paymentState(hash).capturableAmount` for the deal's `PaymentInfo` (`_paymentInfo`, `R:147`) |
-| `fees` | the deciding adjudicator's token balance (the fee capture, `R:330`, `R:335`) |
-| `cppExp` | `block.timestamp >= authorizationExpiry` (`R:164`) |
-| `cppRec` | the escrow's `paymentState` after the payer's `reclaim`: nothing capturable, read in `_refundAll` (`R:493-494`) |
+| `escrow` | the escrow's `paymentState(hash).capturableAmount` for the deal's `PaymentInfo` (`_paymentInfo`, `R:171`) |
+| `fees` | the deciding adjudicator's token balance (the fee capture, `R:356`, `R:361`) |
+| `cppExp` | `block.timestamp >= authorizationExpiry` (`R:188`) |
+| `cppRec` | the escrow's `paymentState` after the payer's `reclaim`: nothing capturable, read in `_refundAll` (`R:519-520`) |
 | `moves`, `out`, `up`, `act` | none: counters, the ledger, environment and history |
 
 **Where the model's shape differs from the contract's.** The model takes the offer, the acceptance and the
@@ -302,46 +310,33 @@ model's absolute clock stops at the deadline the current state can use.
 
 ## Model to code: full profile
 
-`S:` is `packages/core/src/state.ts` and `Sim:` is `packages/settlement/sim/simchain.ts`, at `ffb67cf`. SimChain
+`S:` is `packages/core/src/state.ts` and `Sim:` is `packages/settlement/sim/simchain.ts`, at `74fa299`. SimChain
 steps core's `step` and then posts the money.
 
 | Model action | Core and SimChain |
 | --- | --- |
-| `Offer` | `offer()` (`S:207`) |
-| `AdjAccept` | `step` `adjudicator_accept` → `adjudicatorAccept` (`S:253`) |
-| `Agree` | `step` `agree` → `agree` (`S:284`) |
-| `Fund` | `step` `fund` → `fund` (`S:303`): the authorization comes from the payment address (`S:311`); SimChain posts the hold (`Sim:803`) |
-| `Deliver` | `step` `deliver` → `deliver` (`S:336`) |
-| `DecidePrimary`, `DecideFallback` | `step` `decide` in Delivered or FallbackJudging → `firstInstance` (`S:429`); SimChain's `decide` pays the payout or the payment address and the fee (`Sim:841`) |
-| `DecideEscalated` | `step` `decide` in Escalated → `escalationDecision` (`S:477`) |
-| `EarlyAccept` | `step` `early_accept` in Delivered (`S:664`); SimChain posts the price to the payout address and the fee back to the payment address (`Sim:747`) |
-| `MutualSettle` | `step` `mutual_settle` → `mutualSettle` (`S:599`), `lateDelivery` in Held (`S:587`); SimChain's `mutualSettle` (`Sim:918`) |
-| `FileAppeal` | `step` `file_appeal` → `settled` (`S:552`) → `stepAppeal` (`S:509`) |
+| `Offer` | `offer()` (`S:216`) |
+| `AdjAccept` | `step` `adjudicator_accept` → `adjudicatorAccept` (`S:262`) |
+| `Agree` | `step` `agree` → `agree` (`S:293`) |
+| `Fund` | `step` `fund` → `fund` (`S:312`): the authorization comes from the payment address (`S:320`); SimChain posts the hold (`Sim:803`) |
+| `Deliver` | `step` `deliver` → `deliver` (`S:345`) |
+| `DecidePrimary`, `DecideFallback` | `step` `decide` in Delivered or FallbackJudging → `firstInstance` (`S:438`); SimChain's `decide` pays the payout or the payment address and the fee (`Sim:841`) |
+| `DecideEscalated` | `step` `decide` in Escalated → `escalationDecision` (`S:486`) |
+| `EarlyAccept` | `step` `early_accept` in Delivered (`S:673`); SimChain posts the price to the payout address and the fee back to the payment address (`Sim:747`) |
+| `MutualSettle` | `step` `mutual_settle` → `mutualSettle` (`S:608`), `lateDelivery` in Held (`S:596`); SimChain's `mutualSettle` (`Sim:918`) |
+| `FileAppeal` | `step` `file_appeal` → `settled` (`S:561`) → `stepAppeal` (`S:518`) |
 | `DecideAppeal` | `step` `decide` in Released or Refunded → `settled` → `stepAppeal`; SimChain pays an overturn from the first decider's bond to the wronged party's money address (`Sim:881`) |
-| `Expire` | `step` `expire` (`S:650`, `S:706`); TimeoutKind `expire_offer` |
-| `Reclaim` | `step` `reclaim` (`S:657`); SimChain refunds the payment address (`Sim:975`) |
-| `TriggerFallback` | `step` `trigger_fallback` (`S:674`) |
-| `TriggerDefault`, `ApplyDefault` | `step` `trigger_default` (`S:681`, `S:688`) and `apply_default_outcome` (`S:695`); SimChain refunds the payment address and compensates the payout address from the liable bonds (`Sim:988`) |
-| `ExpireAppeal` | `step` `expire_appeal` → `stepAppeal` (`S:544`); SimChain returns an open appeal's bond and fee to the appellant (`Sim:1008`) |
+| `Expire` | `step` `expire` (`S:659`, `S:715`); TimeoutKind `expire_offer` |
+| `Reclaim` | `step` `reclaim` (`S:666`); SimChain refunds the payment address (`Sim:975`) |
+| `TriggerFallback` | `step` `trigger_fallback` (`S:683`) |
+| `TriggerDefault`, `ApplyDefault` | `step` `trigger_default` (`S:690`, `S:697`) and `apply_default_outcome` (`S:704`); SimChain refunds the payment address and compensates the payout address from the liable bonds (`Sim:988`) |
+| `ExpireAppeal` | `step` `expire_appeal` → `stepAppeal` (`S:553`); SimChain returns an open appeal's bond and fee to the appellant (`Sim:1008`) |
 | `TickExpiry`, the `~cppExp` guards | SimChain's `beforeCaptureExpiry` (`Sim:602`), which refuses a payment to the seller from `authorizationExpiry` as the escrow does |
 | `CppReclaim` | none on SimChain, which has no escrow contract beside it. The full profile keeps the step so that the bond properties of T-337 still cover it |
 
 Core's own `phase_one` profile keeps core's shape: a default in two steps, a delivery as its own step, funding
 until `fundBy`. The EVM adapter maps the contract's single calls onto those steps. The model's phase-one profile
 follows the contract.
-
-## Waiting for RF-4
-
-The contract will store a closing reason and a decider in the deal's word (`docs/audit/state-model.md`, section
-9.2; refactor RF-4, which T-375 lands). They are not modelled yet. `Holdback.tla` marks the place, after the
-variables, with the two fields and the properties to add:
-
-- **`ReasonRules`:** the reason is `open` exactly while the deal is not closed; a decider is named exactly when
-  the reason is `decided`; neither changes after the close.
-- **`ReasonMatchesMoney`:** the reason matches the money that moved. It is `PaidAsClosed`, restated over the
-  stored reason and decider in place of `via`, the model's own record of how a deal closed.
-
-The second pass is a small pull request once T-375 reports RF-4 merged.
 
 ## Run times
 
