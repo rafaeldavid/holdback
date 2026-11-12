@@ -5,7 +5,7 @@
 - **Depends on:** T-393 (the short guides and `site/buy.mjs`); the run's record, from T-391's duet
 - **Paths this task may touch:** `site/` (guides, `guides.mjs`, the bundles), `examples/` usage text and the caller in gap 3, their tests, this file
 - **Human gate:** no. Rafa approved the task (2026-11-12, "Yes, fix them"). Nothing deploys.
-- **Status:** in progress
+- **Status:** done
 - **Agent/session:** T-393's session, kind 1
 
 ## Intent
@@ -27,7 +27,7 @@ Limits: each role's first-deal path stays within 5,000 tokens. The buyer's was a
 - [x] Gap 4: `buy.txt` step 2 says to wait a minute, fetch the same address again, and never guess other paths.
 - [x] Budgets hold, the site check passes, and the bundles are rebuilt.
 - [x] One reviewer; findings fixed (below).
-- [ ] Merged by hand into `contracts-audit-ready` once `check` and `gitleaks` pass.
+- [x] Merged by hand into `contracts-audit-ready` once `check` and `gitleaks` passed (PR 462).
 
 ## Out of scope
 
@@ -76,4 +76,13 @@ Now the journal lists, in `mandatesSeen`, each seller address and club it has se
 
 ## Handoff
 
-To be completed at the merge.
+**Done.** All four gaps are closed in PR 462. Before the merge, the lane was brought in after PR 461 (the home page, 680dd49) and PR 463 (the run tool, 85ee32de). Both rebuilds changed no file, and the site check and `tools/duet` tests passed (29 of 29).
+
+**For the next deploy.** `site/buy.mjs` changed. Its hash is the one `buy.txt`'s install line carries: 7bb0440e22ec68f00db4f0aaafc53029ff69951e49411bd935479bfb85b35734. The first deploy from main must publish it, and https://crow.direct/buy.mjs must hash to that value.
+
+**Left for others.**
+- `tools/duet/` (T-391): the tool wrapper prints its own usage lines for `buy-with-signer`, `deal-record` and `check-delivery`, and refuses `--help`. The briefs now name `buy.txt`'s order.
+- T-397 (next): every client command answers `--help` and `-h`.
+- A one-file bundle of the seller's adapter, so `sell.txt` step 1 needs no clone.
+
+**How to resume.** `node site/build.mjs && node site/check.mjs` prints both paths' sizes. `examples/seller-adapter.test.ts`, "asks the faucet first only for a seller the journal has not seen hold a mandate", pins gap 3.
