@@ -135,7 +135,9 @@ export type EscrowEvent =
   // decisions, ignored for the primary (ADR-0018). null when the round cannot be proven.
   | { type: 'decide'; at: Timestamp; message: Decision; beacon?: BeaconFact | null }
   // ADR-0019, D23. Both signatures are verified before step; rule is the club rulebook's mutualSettlement.
-  | { type: 'mutual_settle'; at: Timestamp; message: MutualSettlement; rule: Pick<Rulebook['mutualSettlement'], 'allowed' | 'payoutsTo'> }
+  // T-357 (SC-5b): in Held, `delivery` is the unposted delivery the settlement names and whose key it releases; it is
+  // read only there, as the contract reads its `dv` and key proof only with releaseKey.
+  | { type: 'mutual_settle'; at: Timestamp; message: MutualSettlement; rule: Pick<Rulebook['mutualSettlement'], 'allowed' | 'payoutsTo'>; delivery?: Delivery }
   // requiredBond is price x the rulebook appealBondRateBps and requiredFee the rulebook appealFee, both
   // computed by the caller; feePaid is the appeal-fee authorization that accompanies the appeal.
   | { type: 'file_appeal'; at: Timestamp; appeal: Appeal; requiredBond: TokenAmount; requiredFee: TokenAmount; feePaid: TokenAmount }
@@ -361,7 +363,8 @@ function namesTheDelivery(m: { deliveryHash: Hex32 }, d: Delivery | Hex32): R<tr
 /**
  * The posted delivery's hash, from Delivered on (the read model's `deliveryHash`, ADR-0029): from the delivery while
  * the state holds it, then from the signature that settled the deal, which named it. Undefined before a delivery,
- * after a reclaim, after a default (no signature named it) and after a mutual settlement before delivery.
+ * after a reclaim, after a default (no signature named it) and after a mutual settlement in Held that named none (one
+ * that named an unposted delivery, SC-5b, reports the hash both parties signed).
  */
 export function postedDeliveryHash(s: EscrowState): Hex32 | undefined {
   if ('delivery' in s) return deliveryHash(s.delivery);
@@ -538,6 +541,26 @@ function settled(s: Extract<EscrowState, { kind: 'Released' | 'Refunded' }>, e: 
 
 type Settleable = Extract<EscrowState, { kind: 'Held' | 'Delivered' | 'FallbackJudging' | 'Escalated' }>;
 
+/**
+ * ADR-0031 SC-5b, ADR-0019 as amended 2026-11-12 (T-357): a settlement in Held, where nothing is posted, exactly as
+ * HoldbackRules.mutualSettle takes it, no looser and no stricter:
+ * - no delivery named: no key released (:370, InvalidMessage);
+ * - a delivery named and its key kept: nothing more is checked (:379);
+ * - a delivery named and its key released: the carried delivery is for this commitment and hashes to the hash both
+ *   parties signed (:380, the contract hashes `dv` with this commitment's id), and it holds an envelope for the buyer,
+ *   the first of which is released (:381, BadKeyProof). Both parties' signatures over the settlement, which names that
+ *   hash, are what endorse the delivery: like the contract, core reads no seller signature, attempt or submittedAt.
+ */
+function lateDelivery(s: Extract<Settleable, { kind: 'Held' }>, m: MutualSettlement, d: Delivery | undefined): R<true> {
+  if (m.deliveryHash === null) return m.releaseKey ? fail('invalid_terms', 'releaseKey needs a delivery') : ok(true);
+  if (!m.releaseKey) return ok(true);
+  if (!d) return fail('invalid_terms', `the settlement releases the key of delivery ${m.deliveryHash}, but carries no delivery`);
+  if (d.commitmentId !== s.id) return fail('invalid_terms', 'the carried delivery is for another commitment');
+  if (deliveryHash(d) !== m.deliveryHash) return fail('invalid_terms', `the carried delivery does not hash to the signed deliveryHash ${m.deliveryHash}; it hashes to ${deliveryHash(d)}`);
+  if (!d.encryptedKeys.some((k) => sameAddress(k.recipient, s.terms.buyer))) return fail('invalid_terms', 'the carried delivery has no envelope for the buyer, so there is no key to release');
+  return ok(true);
+}
+
 /** ADR-0019: a settlement both parties signed closes a funded, undecided commitment. Signatures are checked before step. */
 function mutualSettle(s: Settleable, e: Extract<EscrowEvent, { type: 'mutual_settle' }>): R {
   const m = e.message;
@@ -545,8 +568,8 @@ function mutualSettle(s: Settleable, e: Extract<EscrowEvent, { type: 'mutual_set
   const live = messageLive(m, e.at);
   if (!live.ok) return live;
   if (s.kind === 'Held') {
-    if (m.deliveryHash !== null) return fail('invalid_terms', 'nothing was delivered, so deliveryHash must be null');
-    if (m.releaseKey) return fail('invalid_terms', 'releaseKey needs a delivery');
+    const late = lateDelivery(s, m, e.delivery);
+    if (!late.ok) return late;
   } else if (m.deliveryHash !== deliveryHash(s.delivery)) {
     return fail('invalid_terms', 'deliveryHash does not name the current delivery');
   }
