@@ -1084,3 +1084,13 @@ The full text is kept privately (`docs/private-materials.md`).
 
 - **Still open, and his:** which address is the pilot's payment address, and the Sepolia redeploy. Neither blocks the contract package.
 - **Litmus tests.** Unchanged from D60: no answer here moves funds or changes who signs. Point 3 makes the signed terms of a phase-one deal say what the deployment does.
+
+## D63. The beacon margin of 29 s stands on Ethereum mainnet and on Sepolia (ADR-0032)
+
+**Decided 2026-11-12 by Rafa,** in the coordinating session, relayed to T-348. It answers the one point D59 left to him: how many slots the margin covers. The coordinating session recommended keeping 29 s, two and a half slots, and he answered: "that is OK as long as there's a valid reason". ADR-0032 stays Proposed and records the answer in its section 4; Rafa may overrule any line.
+
+- **The margin:** `BEACON_MARGIN` is 29 s on Ethereum mainnet and on Sepolia, for the escalation's round and the fallback's. The smallest escalation window that can be decided stays 37 s.
+- **The reason, in two sentences.** With two slots of margin, learning the round before committing takes a validator operator that proposes three slots in a row and colludes with a party to that deal: about 2.8 such runs a day at 7.31% of the stake. One slot would need only two in a row, about 38 runs a day at the same share; three slots would need four, about 0.2 runs a day, and would raise the smallest decidable escalation window from 37 s to 49 s for every deal.
+- **The numbers** are ADR-0032's [measured: 7,200 slots a day times the stake share raised to the run's length; the 7.31% is the largest single custodian on one dashboard, read 2026-11-11].
+- **What does not change:** the rule, the gate lines and the residuals of ADR-0032. Gate line BR-6 still measures the runs on mainnet before a deploy there, and the margin can be raised then, before the deploy fixes it.
+- **Litmus tests.** Unchanged from D59.
