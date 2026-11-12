@@ -73,7 +73,7 @@ describe.skipIf(!ready)(`an outside adjudicator on a live chain (anvil; T-221)${
       expect(final).toMatchObject({ escrowState: 'Released', appealState: 'none' });
       expect(final.finalAt).toBe(final.settledAt);
       // The buyer's appeal is refused before anything is signed or sent, with the reason.
-      // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
+      // A party appeal is not in phase one.
       const refusedAppeal = await fetch(`${demo.urls[0]}/v1/prepare/appeal`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': crypto.randomUUID() }, body: JSON.stringify({ commitmentId: one.id, appellant: one.buyer.address }) });
       expect(refusedAppeal.status).toBe(409);
       expect((await refusedAppeal.json()) as J).toMatchObject({ type: expect.stringMatching(/invalid_state$/), detail: expect.stringMatching(/phase-one contracts, which have no party appeals/) });

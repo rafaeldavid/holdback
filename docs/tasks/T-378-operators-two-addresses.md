@@ -154,6 +154,10 @@ Labels: measured, inferred, guessed. All runs are on this task's branches, 2026-
   - The six changed rows are killed, each run alone.
   - The two margin rows are killed only where anvil and `contracts/out` exist: their tests are the anvil red-team suite.
 - The touched suites pass on the lane's tip: 749 tests in 54 files, 12 skipped [measured].
+- The reviewer gave ISSUES, all Low or Info:
+  - Lows 1 to 4 are fixed: the marks on phase one's own refusals say "not in phase one", the bond reads say they read zero on a chain, and the doc-block mark moved above its block;
+  - Info 5 is the Paths note in the Handoff;
+  - Info 6: the margin rows are killed only by the anvil red-team suite, as stated above.
 
 ## Decisions
 
@@ -176,6 +180,8 @@ Labels: measured, inferred, guessed. All runs are on this task's branches, 2026-
 ## Handoff
 
 **State on 2026-11-12:** parts 1 to 5 are merged into `contracts-audit-ready`. Part 6 follows on its own branch. The operator deploy that carries this work is Rafa's, after the Sepolia redeploy.
+
+**Paths beyond the Paths line, each allowed by the coordinator on 2026-11-12:** `spec/openapi/paths.json` (the source of `spec/openapi.json`); `examples/e2e-world.ts` (one line, part 3); `tests/contract/openapi.contract.test.ts` and, in part 5, `tests/cut-feature-alignment.test.ts` (six ALLOWED entries) and its known list; one line in ADR-0033 (part 4); the profile option in `packages/settlement/sim/` (part 3; `packages/core/` needed no change).
 
 **Open, for later work:**
 

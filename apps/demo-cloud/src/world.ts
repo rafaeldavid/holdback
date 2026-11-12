@@ -646,11 +646,11 @@ export class PublicWorld {
     const faucetWindowSec = o.faucetWindowSec ?? 3600;
     const faucetPerClient = o.faucetPerClient ?? 10;
     const tokenAmount = (v: bigint): TokenAmount => ({ token, amount: v.toString() }) as TokenAmount;
-    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
+    // Bonds are not in phase one: on a chain the pool reads zero for every address (ADR-0031 §8); SimChain keeps them.
     const bondOf = (p: { junior: bigint; senior: bigint; reserved: bigint }): Bond => ({ junior: tokenAmount(p.junior), senior: tokenAmount(p.senior), reserved: tokenAmount(p.reserved) });
     // Any address's bond, read live (ADR-0030 §3 and §5) from SimChain's ledger. A chain holds no bond (ADR-0031 §8):
     // EvmSettlement's pool is empty for every address, and the operator shows `observed.bond: "none"` there.
-    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
+    // Bonds are not in phase one: on a chain the pool reads zero for every address (ADR-0031 §8); SimChain keeps them.
     const pool = async (address: Address): Promise<Bond> => bondOf(chain.pool(address));
     /**
      * A stored registration as the adjudicators read it: for its policy and its key, never its bond (the service reads
@@ -658,7 +658,7 @@ export class PublicWorld {
      */
     const registration = async (address: Address): Promise<AdjudicatorRegistration | null> => {
       const r = await registrations.get(address);
-      // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
+      // Bonds are not in phase one: on a chain the pool reads zero for every address (ADR-0031 §8); SimChain keeps them.
       return r ? ({ ...r.record, pool: { ...bondOf(chain.pool(address)), terms: r.record.pool.terms } } as AdjudicatorRegistration) : null;
     };
     const registry: Registry = {

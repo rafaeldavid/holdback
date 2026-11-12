@@ -974,7 +974,7 @@ export class Operator {
     const s = await this.o.settlement.state(commitmentIdOf(op)).catch(() => null);
     if (!s) return p;
     // ADR-0031 §8: a phase-one appeal is refused in every state, so no state to wait for is named (T-349 review).
-    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
+    // A party appeal and its expiry are not in phase one: this is where the phase-one operator refuses them.
     if (this.phaseOne && (op.kind === 'appeal' || (op.kind === 'trigger' && op.timeout === 'appeal_expiry'))) return { ...p, state: s.escrowState };
     const needs = needsOf(op);
     return { ...p, state: s.escrowState, ...(needs && !needs.includes(s.escrowState) ? { needs } : {}) };

@@ -86,9 +86,9 @@ export interface AdjudicatorSettlement {
   /** The permissionless appeal expiry. */
   // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   expireAppeal(commitmentId: Hex32): Promise<Result<unknown, Problem>>;
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   /**
    * The bond this adjudicator could put behind its decision on the commitment now, in base units of the price token:
-   // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
    * its free bond (the contract's `freeOf`) plus what the commitment already holds on it. The contract reserves a
    * fallback's bond when it decides and refuses an uncovered one (T-206 M-3); SimChain reserves it at takeover.
    */
