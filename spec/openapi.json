@@ -9212,7 +9212,11 @@
         "properties": {
           "address": {
             "$ref": "#/components/schemas/Address",
-            "description": "Your own address: make your own keys"
+            "description": "Your own signing address: make your own keys. The mandate is for this address"
+          },
+          "paymentAddress": {
+            "$ref": "#/components/schemas/Address",
+            "description": "Optional (ADR-0033 §5): the address that funds your holds and receives refunds. The tokens go here and the mandate to `address`, so a per-deal signing key holds no tokens. Absent: the tokens go to `address`"
           },
           "amount": {
             "type": "string",
@@ -9233,11 +9237,16 @@
           "address": {
             "$ref": "#/components/schemas/Address"
           },
+          "paymentAddress": {
+            "$ref": "#/components/schemas/Address",
+            "description": "The address that received the tokens, when the request named one"
+          },
           "granted": {
             "$ref": "#/components/schemas/TokenAmount"
           },
           "balance": {
-            "$ref": "#/components/schemas/TokenAmount"
+            "$ref": "#/components/schemas/TokenAmount",
+            "description": "The balance of the address that received the tokens"
           },
           "clubId": {
             "$ref": "#/components/schemas/ClubId",
@@ -9843,7 +9852,11 @@
           },
           "seller": {
             "$ref": "#/components/schemas/Address",
-            "description": "Your address"
+            "description": "Your signing address"
+          },
+          "sellerPayoutAddress": {
+            "$ref": "#/components/schemas/Address",
+            "description": "Optional (ADR-0033): the address that receives every payment to you, from your own configuration. Absent: your signing address, said in `notices`"
           },
           "buyer": {
             "type": "object",
@@ -9854,10 +9867,15 @@
             "description": "As the buyer gave them to you",
             "properties": {
               "address": {
-                "$ref": "#/components/schemas/Address"
+                "$ref": "#/components/schemas/Address",
+                "description": "The buyer's signing address"
               },
               "encryptionPublicKey": {
                 "$ref": "#/components/schemas/Commitment/properties/buyerEncryptionPublicKey"
+              },
+              "paymentAddress": {
+                "$ref": "#/components/schemas/Address",
+                "description": "Optional (ADR-0033): the address that funds the hold and receives every refund. Absent: the buyer's signing address, said in `notices`"
               }
             }
           },

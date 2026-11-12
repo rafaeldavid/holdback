@@ -500,7 +500,8 @@ export class TestSeller {
       await this.s.put({ recent: [...((await this.s.get<number[]>('recent')) ?? []).filter((t) => now - t < DAY), now] });
       await this.ensureMandate(found.clubId, settlement);
       const request = {
-        nonce: freshNonce(), disclosure: 'public', template: 'checks-only', clubId: found.clubId, seller: a.address,
+        // ADR-0033 §7: the test seller is paid at its signing address, named so the terms say it and no notice is needed.
+        nonce: freshNonce(), disclosure: 'public', template: 'checks-only', clubId: found.clubId, seller: a.address, sellerPayoutAddress: a.address,
         buyer: { address: want.buyer, encryptionPublicKey: want.encryptionPublicKey }, adjudicators, price: this.price, deliverable: DELIVERABLE, checks: CHECKS, timing: this.timing,
       };
       const prepared = await a.call('POST', '/v1/prepare/offer', request);

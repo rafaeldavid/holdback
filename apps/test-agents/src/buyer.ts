@@ -144,6 +144,8 @@ export function checkTerms(id: string, t: J, c: Context): Broken | null {
     return no('terms', 'the terms do not encode as CommitmentTerms');
   }
   if (lower(t.buyer) !== c.me.address) return no('buyer', `the offer names buyer ${t.buyer}, not this buyer (${c.me.address})`);
+  // ADR-0033 §6: the test buyer pays from its signing address, so the terms must name that address as the payment address.
+  if (lower(t.buyerPaymentAddress) !== c.me.address) return no('buyerPaymentAddress', `the offer names payment address ${t.buyerPaymentAddress}; this buyer funds from ${c.me.address} and takes refunds there`);
   if (t.buyerEncryptionPublicKey !== c.me.encryptionPublicKey) return no('buyerEncryptionPublicKey', `the offer seals the work to ${t.buyerEncryptionPublicKey}, not this buyer's key (${c.me.encryptionPublicKey})`);
   if (t.clubId !== c.clubId) return no('accepts.clubId', `the offer is in club ${t.clubId}; this buyer deals in ${c.clubId}`);
   if (lower(t.price?.token) !== lower(c.token) || lower(t.settlement?.token) !== lower(c.token)) return no('accepts.token', `the offer is priced in ${t.price?.token}; this buyer pays only in ${c.token}`);

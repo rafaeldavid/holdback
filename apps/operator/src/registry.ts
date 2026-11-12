@@ -7,6 +7,7 @@ import { MemoryRegistrationStore, type Bond, type RegistrationStore } from './re
 /** What POST /v1/faucet grants on a test network: tokens, and on the public demo a mandate in its club. */
 export interface FaucetGrant {
   granted: TokenAmount;
+  /** The balance of the address that received the tokens: the payment address when the request named one. */
   balance: TokenAmount;
   clubId?: string;
   mandate?: Mandate & { mandateHash: Hex32 };
@@ -74,8 +75,12 @@ export interface Registry {
   members: ReadonlyArray<{ clubId: string; member: Address }>;
   /** Registered adjudicators, oldest first. */
   adjudicators(): AdjudicatorView[];
-  /** Test funding (POST /v1/faucet); SimChain or testnet only. `client` keys any per-client limit. */
-  faucet?(address: Address, o: { amount?: bigint; client: string }): Promise<FaucetOutcome>;
+  /**
+   * Test funding (POST /v1/faucet); SimChain or testnet only. `client` keys any per-client limit. The tokens go to
+   * `paymentAddress` when given (ADR-0033 §5: the buyer's payment address funds the hold), and any mandate to `address`,
+   * the signing address; absent, both go to `address`.
+   */
+  faucet?(address: Address, o: { amount?: bigint; client: string; paymentAddress?: Address }): Promise<FaucetOutcome>;
   /** The funding service this operator calls (ADR-0026, planned); none yet. */
   funding?: FundingService;
   /**
@@ -124,9 +129,9 @@ export function simRegistry(chain: SimChain): Registry {
     registrations: new MemoryRegistrationStore(),
     pool: async (a) => bond(a),
     now: () => chain.now(),
-    faucet: async (address, { amount = DEFAULT_FAUCET_GRANT }) => {
-      chain.faucet(address, amount);
-      return { ok: true, grant: { granted: { token: g.token, amount: amount.toString() } as TokenAmount, balance: (await chain.balances([address]))[address]! } };
+    faucet: async (address, { amount = DEFAULT_FAUCET_GRANT, paymentAddress = address }) => {
+      chain.faucet(paymentAddress, amount);
+      return { ok: true, grant: { granted: { token: g.token, amount: amount.toString() } as TokenAmount, balance: (await chain.balances([paymentAddress]))[paymentAddress]! } };
     },
   };
 }

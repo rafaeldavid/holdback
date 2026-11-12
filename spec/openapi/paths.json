@@ -905,7 +905,8 @@
         "additionalProperties": false,
         "required": ["address"],
         "properties": {
-          "address": { "$ref": "#/components/schemas/Address", "description": "Your own address: make your own keys" },
+          "address": { "$ref": "#/components/schemas/Address", "description": "Your own signing address: make your own keys. The mandate is for this address" },
+          "paymentAddress": { "$ref": "#/components/schemas/Address", "description": "Optional (ADR-0033 §5): the address that funds your holds and receives refunds. The tokens go here and the mandate to `address`, so a per-deal signing key holds no tokens. Absent: the tokens go to `address`" },
           "amount": { "type": "string", "pattern": "^[1-9][0-9]{0,30}$", "description": "Optional, base units as a decimal string, up to discovery's `demo.faucet.maxGrant`: for a deal, the price plus the adjudication fee plus the operator fee. Without it the faucet grants `demo.faucet.grant`; `granted` says what you got" }
         }
       },
@@ -915,8 +916,9 @@
         "required": ["address", "granted", "balance"],
         "properties": {
           "address": { "$ref": "#/components/schemas/Address" },
+          "paymentAddress": { "$ref": "#/components/schemas/Address", "description": "The address that received the tokens, when the request named one" },
           "granted": { "$ref": "#/components/schemas/TokenAmount" },
-          "balance": { "$ref": "#/components/schemas/TokenAmount" },
+          "balance": { "$ref": "#/components/schemas/TokenAmount", "description": "The balance of the address that received the tokens" },
           "clubId": { "$ref": "#/components/schemas/ClubId", "description": "The club the grant admitted you to, with `mandate` (public demo)" },
           "mandate": { "$ref": "#/components/schemas/MandateWithHash" },
           "nextGrantAfter": { "$ref": "#/components/schemas/Timestamp" },
@@ -1138,12 +1140,17 @@
           "disclosure": { "enum": ["public", "private", "judgment"], "description": "Your choice, no default (D39). `public`: the terms bodies are public reads at every operator (plaintext mode). `private` or `judgment`: the bodies travel only sealed, built with the client-side recipe (hash-only mode). The work is encrypted at every level" },
           "template": { "enum": ["default", "checks-only"], "default": "default", "description": "`default`: checks, then a judge panel on the rubric. `checks-only`: the checks alone decide, no panel." },
           "clubId": { "$ref": "#/components/schemas/ClubId" },
-          "seller": { "$ref": "#/components/schemas/Address", "description": "Your address" },
+          "seller": { "$ref": "#/components/schemas/Address", "description": "Your signing address" },
+          "sellerPayoutAddress": { "$ref": "#/components/schemas/Address", "description": "Optional (ADR-0033): the address that receives every payment to you, from your own configuration. Absent: your signing address, said in `notices`" },
           "buyer": {
             "type": "object",
             "required": ["address", "encryptionPublicKey"],
             "description": "As the buyer gave them to you",
-            "properties": { "address": { "$ref": "#/components/schemas/Address" }, "encryptionPublicKey": { "$ref": "#/components/schemas/Commitment/properties/buyerEncryptionPublicKey" } }
+            "properties": {
+              "address": { "$ref": "#/components/schemas/Address", "description": "The buyer's signing address" },
+              "encryptionPublicKey": { "$ref": "#/components/schemas/Commitment/properties/buyerEncryptionPublicKey" },
+              "paymentAddress": { "$ref": "#/components/schemas/Address", "description": "Optional (ADR-0033): the address that funds the hold and receives every refund. Absent: the buyer's signing address, said in `notices`" }
+            }
           },
           "adjudicators": {
             "type": "object",

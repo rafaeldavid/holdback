@@ -742,6 +742,20 @@ export class PublicWorld {
     };
     const chainFacts = o.live ? { chainId, rules: o.live.chain.deployment.rules, token, symbol, funding: o.live.chain.funding, explorer: o.live.explorer ?? SEPOLIA_EXPLORER, gas: gasQuote } : undefined;
     const evm = chain instanceof EvmSettlement ? chain : undefined;
+    // ADR-0033 §7: a money address equal to one of these gets a notice at prepare. The escrow's token store is not in the
+    // deployment record: reading it (getTokenStore) is a chain call, which opening a world may not make. So it is not listed
+    // (T-378 Handoff).
+    const d = o.live?.chain.deployment;
+    const contracts = d
+      ? [
+          { name: 'rules contract', address: lc(d.rules) as Address },
+          { name: 'escrow', address: lc(d.escrow) as Address },
+          { name: 'ERC-3009 collector', address: lc(d.erc3009Collector) as Address },
+          { name: 'token', address: lc(d.token) as Address },
+          { name: 'beacon', address: lc(d.beacon) as Address },
+          { name: 'multicall3', address: lc(d.multicall) as Address },
+        ]
+      : undefined;
     for (const i of [0, 1]) {
       operators.push(
         new Operator({
@@ -751,6 +765,7 @@ export class PublicWorld {
           maxCiphertextBytes: DEMO_MAX_CIPHERTEXT_BYTES,
           ...(operatorFee ? { fee: operatorFee } : {}),
           ...(evm ? { erc3009: { funding: (t) => evm.fundingTypedData(t), operatorFee: (x) => evm.operatorFeeTypedData(x) } } : {}),
+          ...(contracts ? { contracts } : {}),
           signerKey: key(`demo-operator-${i + 1}`).privateKey,
           operatorId: `demo-op-${i + 1}`,
           env: o.env,
@@ -1276,7 +1291,11 @@ function grantFrom(w: {
   const perClient = new Map<string, { start: number; count: number }>();
   const granting = new Set<string>();
   let today = { day: '', minted: 0 };
-  return async (address, { client, amount = w.amount }): Promise<FaucetOutcome> => {
+  // ADR-0033 §5: the tokens go to the payment address when the request names one, the mandate always to `address`, the
+  // signing address. The per-address window counts the signing address, so one standing payment address can fund many
+  // per-deal keys; the per-client window and the day's mints still bound what one caller takes. Two grants from two keys
+  // to one payment address may both mint, as two grants to two addresses always could.
+  return async (address, { client, amount = w.amount, paymentAddress = address }): Promise<FaucetOutcome> => {
     // Refused before any limit is counted: a corrected call keeps its turn.
     if (amount > w.maxAmount) return { ok: false, problem: problem('invalid_terms', `amount ${amount} is above this faucet's cap of ${w.maxAmount} base units a grant (${tokenText(w.maxAmount.toString(), w.symbol)}; demo.faucet.maxGrant in discovery)`), field: 'amount' };
     const now = w.now();
@@ -1291,13 +1310,13 @@ function grantFrom(w: {
     c.count++;
     granting.add(address);
     try {
-      return await grant(address, amount, now, windowMs, retryAfterSec);
+      return await grant(address, paymentAddress, amount, now, windowMs, retryAfterSec);
     } finally {
       granting.delete(address);
     }
   };
 
-  async function grant(address: Address, amount: bigint, now: number, windowMs: number, retryAfterSec: (at: number) => number): Promise<FaucetOutcome> {
+  async function grant(address: Address, payTo: Address, amount: bigint, now: number, windowMs: number, retryAfterSec: (at: number) => number): Promise<FaucetOutcome> {
     // Every grant signs a fresh 30-day mandate, which replaces the address's earlier one: an expired mandate is
     // refused at offer and agree (mandate_expired), and an agent may ask before its own deal outlasts the old one.
     const scope = rebindToken(wideScope(['buyer', 'seller'], wholeSecond(now + 30 * 86_400_000)), TOKEN, w.token);
@@ -1305,7 +1324,7 @@ function grantFrom(w: {
     const p = await w.ledger.admit(mandate);
     if (p) return { ok: false, problem: p };
     let tx: string | undefined;
-    const held = BigInt((await w.ledger.balances([address]))[address]?.amount ?? '0');
+    const held = BigInt((await w.ledger.balances([payTo]))[payTo]?.amount ?? '0');
     if (!w.live || held < amount) {
       const day = `fm:${new Date(now).toISOString().slice(0, 10)}`;
       if (w.live) {
@@ -1319,7 +1338,7 @@ function grantFrom(w: {
       // Counted before the mint, so a grant racing it cannot mint twice; a failed mint gives the address its turn back.
       await w.storage.put({ [`fa:${address}`]: now, ...(w.live ? { [day]: today.minted } : {}) });
       try {
-        tx = (await w.ledger.grant(address, amount)).tx;
+        tx = (await w.ledger.grant(payTo, amount)).tx;
       } catch (e) {
         await w.storage.put({ [`fa:${address}`]: 0 });
         if (e instanceof RelayRefused) return { ok: false, problem: problem('relay_refused', `the faucet cannot mint now: ${e.message}`) };
@@ -1333,7 +1352,7 @@ function grantFrom(w: {
       grant: {
         clubId: w.club.id,
         granted: { token: w.token, amount: tx || !w.live ? amount.toString() : '0' } as TokenAmount,
-        balance: (await w.ledger.balances([address]))[address]!,
+        balance: (await w.ledger.balances([payTo]))[payTo]!,
         mandate: { ...mandate, mandateHash: canonicalKeccak(mandate) as Hex32 },
         nextGrantAfter: wholeSecond(now + windowMs),
         notice: w.live
