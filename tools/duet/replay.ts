@@ -246,6 +246,20 @@ export const HERO = {
   learnIntro: 'Two companies\' agents agree the checks, the payment is set aside, and the seller is paid the moment the work passes. Here is how it works, and what happened in this sample.',
   closing: 'Live in early access on test money.',
 };
+/**
+ * Crow's mark: a crow in flight, as the crow flies, the direct way (Rafa, 2026-11-12). Three solid shapes in the
+ * text's colour: the far wing, the near wing and the body, each cut from the one behind by a thin line of the page's
+ * colour. Drawn for this page; for the header and the tab icon.
+ */
+export const CROW_MARK = {
+  far: 'M15.7 7.5C15.1 5.1 13.5 2.8 10.9.9L11.3 2.9 9.9 2.4 10.9 4.3 9.5 4.2C11 5.9 12.2 7.5 13 9.1Z',
+  near: 'M14.1 8.5C12.1 6.1 8.9 3.5 3.9 2.1L5.4 3.9 2.9 3.7 5 5.4 2.7 5.7 5.5 7 3.9 7.8C6.9 9.3 9.1 10.9 10.9 12.5Z',
+  body: 'M22.2 8.8 19.4 9.5C19.2 12.6 17 15.3 13.6 16.6 11.6 17.4 9.4 17.6 7.6 17.6L2.4 20 1.6 18.8 5.6 16C7.4 12.6 10.6 9.8 13.9 8.1 15.4 6.6 17.9 6.4 19.3 7.6Z',
+};
+/** The mark as SVG paths: `ink` fills the shapes, `cut` draws the line between them. */
+const markPaths = (ink: string, cut: string) => `<path d="${CROW_MARK.far}" fill="${ink}"/><path d="${CROW_MARK.near}" fill="${ink}" stroke="${cut}" stroke-width=".6" paint-order="stroke"/><path d="${CROW_MARK.body}" fill="${ink}" stroke="${cut}" stroke-width=".6" paint-order="stroke"/>`;
+const FAVICON = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">${markPaths('#1d1d1f', '#ffffff')}</svg>`)}`;
+
 /** Where "Request early access" goes: the sign-up form on Crow's site. */
 export const EARLY_ACCESS = 'https://crow.direct/#join-form';
 
@@ -259,35 +273,8 @@ export interface PageExtras {
    * machine and carries nothing a secret scanner reads as a key.
    */
   publish?: boolean;
-  /**
-   * `home`: the home page's brand (crow.direct): warm paper, its ink and rules, EB Garamond, outlined buttons and the
-   * pencil crow above the headline; light only, as the home page is. Default: neutral system type.
-   */
-  theme?: 'neutral' | 'home';
-  /** The crow drawing's address for the `home` theme: `/crow.png` on the site; a data URL for a file opened from disk. */
-  bird?: string;
 }
 
-/** The home page's brand, laid over the neutral page: its tokens from site/index.html, light only. */
-const HOME_THEME = `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&display=swap">
-<style>
-:root,:root[data-theme]{color-scheme:light}
-:root{--font:"EB Garamond",Garamond,"Times New Roman",serif;--display:"EB Garamond",Garamond,"Times New Roman",serif;--page:#faf7f0;--band:#f3eee3;--surface:#fffdf8;--ink:#2f2d2a;--ink2:#57534c;--ink3:#706a5f;--line:#cfc8b8;--hair:rgba(47,45,42,.12);--bubble-a:#eee8da;--bubble-a-ink:#2f2d2a;--bubble-b:#fffdf8;--bubble-b-ink:#2f2d2a;--bubble-b-line:#cfc8b8;--primary:#2f2d2a;--primary-ink:#faf7f0;--green:#4c6f45;--wash-green:#ecefe1}
-@media (prefers-color-scheme:dark){:root{--page:#faf7f0;--band:#f3eee3;--surface:#fffdf8;--ink:#2f2d2a;--ink2:#57534c;--ink3:#706a5f;--line:#cfc8b8;--hair:rgba(47,45,42,.12);--bubble-a:#eee8da;--bubble-a-ink:#2f2d2a;--bubble-b:#fffdf8;--bubble-b-ink:#2f2d2a;--bubble-b-line:#cfc8b8;--primary:#2f2d2a;--primary-ink:#faf7f0;--green:#4c6f45;--wash-green:#ecefe1}}
-html,body{font-size:18px}
-.app{font-size:20px;font-weight:500}.app small{font-style:italic;font-size:14px}
-.headline,.page-title,.block-title,.closing h3{font-weight:500;letter-spacing:-.005em}
-.headline{font-size:60px}
-.intro,.page-intro{font-size:22px;color:var(--ink)}
-.bird{display:block;width:min(46vw,190px);height:auto;margin:0 auto 4px}
-.button{font-weight:500;font-size:18px}
-.button:not(.quiet){background:transparent;color:var(--ink);border-color:var(--ink)}
-.cta .button:not(.quiet),.closing .button{background:var(--ink);color:var(--page)}
-.bubble{font-size:17px}
-.demo-label,.eyebrow,.beat-label,details.engineers>summary{font-variant:small-caps;text-transform:lowercase;letter-spacing:.06em;font-size:15px}
-.step-num{background:transparent;color:var(--ink);border:1px solid var(--ink)}
-.avatar.seller{background:var(--ink);color:var(--page)}
-</style>`;
 
 /** The published page's text: local paths cut to the run's own part, long hex strings to their ends. */
 export function forPublishing(html: string): string {
@@ -297,7 +284,7 @@ export function forPublishing(html: string): string {
 }
 
 export function replayPage(events: readonly Event[], s: Summary, extras: PageExtras = {}): string {
-  const html = extras.theme === 'home' ? page(events, s, extras).replace('</head>', `${HOME_THEME}\n</head>`).replace('<h1 class="headline">', `<img class="bird" src="${esc(extras.bird ?? '/crow.png')}" alt="Pencil study of a hooded crow" width="640" height="406">\n<h1 class="headline">`) : page(events, s, extras);
+  const html = page(events, s, extras);
   return extras.publish ? forPublishing(html) : html;
 }
 
@@ -386,6 +373,7 @@ function page(events: readonly Event[], s: Summary, extras: PageExtras): string 
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(PITCH.title)} · ${esc(PITCH.descriptor)}</title>
+<link rel="icon" href="${FAVICON}">
 <style>
 /* One neutral family and one accent. The accent (ink) is kept for the primary action; the conversation is neutral;
    green means money moved and nothing else. */
@@ -401,7 +389,7 @@ html,body{margin:0;background:var(--page);color:var(--ink);font:16px/1.5 var(--f
 a{color:inherit}
 .toolbar{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--page) 92%,transparent);backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid var(--hair)}
 .toolbar-inner{max-width:1040px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:20px}
-.app{font-weight:600;font-size:16px;color:var(--ink);text-decoration:none;line-height:1.2}.app small{display:block;font-weight:400;font-size:12px;color:var(--ink2)}
+.app{display:flex;align-items:center;gap:10px;font-weight:600;font-size:16px;color:var(--ink);text-decoration:none;line-height:1.2}.app .mark{width:28px;height:28px;flex:none}.app small{display:block;font-weight:400;font-size:12px;color:var(--ink2)}
 .spacer{flex:1}
 .navlink{font-size:14px;color:var(--ink2);text-decoration:none}.navlink:hover{color:var(--ink)}
 .button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 22px;border-radius:999px;background:var(--primary);color:var(--primary-ink);font:inherit;font-size:16px;font-weight:600;text-decoration:none;border:1px solid var(--primary);cursor:pointer}
@@ -521,7 +509,7 @@ footer{font-size:12px;color:var(--ink3);margin:40px 0 0;max-width:720px}
 </style>
 </head>
 <body>
-<div class="toolbar"><div class="toolbar-inner"><a class="app" href="#">${esc(PITCH.title)}<small>${esc(PITCH.descriptor)}</small></a><div class="spacer"></div><a class="navlink" href="#learn-more">Learn more</a><a class="button quiet" href="${esc(EARLY)}" rel="noopener">Request early access</a></div></div>
+<div class="toolbar"><div class="toolbar-inner"><a class="app" href="#" aria-label="${esc(PITCH.title)}"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true">${markPaths('currentColor', 'var(--page)')}</svg><span>${esc(PITCH.title)}<small>${esc(PITCH.descriptor)}</small></span></a><div class="spacer"></div><a class="navlink" href="#learn-more">Learn more</a><a class="button quiet" href="${esc(EARLY)}" rel="noopener">Request early access</a></div></div>
 
 <main id="demo-view">
 <div class="hero">

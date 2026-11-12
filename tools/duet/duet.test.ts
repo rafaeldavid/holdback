@@ -67,7 +67,7 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       // The demo page: Crow and its descriptor in the header, the headline, the early-access button, the self-playing
       // demo with its one label, and everything else in the Learn more view.
       const q = (t: string) => t.replace(/'/g, '&#39;');
-      expect(page).toContain(`<a class="app" href="#">Crow<small>${q(PITCH.descriptor)}</small></a>`);
+      expect(page).toContain(`<span>Crow<small>${q(PITCH.descriptor)}</small></span></a>`);
       expect(page).toContain(`<h1 class="headline">${q(HERO.headline)}</h1>`);
       expect(page).toContain(`href="${EARLY_ACCESS}"`);
       expect(page).toContain(`<span class="demo-label">${HERO.demoLabel}</span>`);
@@ -101,12 +101,9 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       expect(r.leaks(published)).toBe(false);
       expect(banned(readerText(published))).toEqual([]);
       expect(readerText(published)).not.toMatch(/\bowners?\b/i);
-      // The home page's brand, as a theme: its type, its paper and the crow above the headline; light only.
-      const branded = replayPage(events, s, { publish: true, theme: 'home' });
-      expect(branded).toContain('family=EB+Garamond');
-      expect(branded).toContain('--page:#faf7f0');
-      expect(branded).toContain('<img class="bird" src="/crow.png"');
-      expect(banned(readerText(branded))).toEqual([]);
+      // The header carries Crow's mark, and so does the tab.
+      expect(page).toContain('<svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M15.7 7.5');
+      expect(page).toContain('<link rel="icon" href="data:image/svg+xml,');
       // The reader's text, outside the engineers' section and the "Exact call" disclosures, uses no protocol words.
       expect(banned(readerText(page))).toEqual([]);
       // Limits: one ticket when a measure is over, with the measure and its number; none otherwise.
