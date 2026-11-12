@@ -7,7 +7,7 @@
   "family": "claude",
   "model": "claude-sonnet-5-5@2026-09-28",
   "promptTemplateHash": "0xabb5ec9b33cf9a936e140bf8530c217f6629fdf1e08a46fbdf6bd7363ce84dd2",
-  "inputHash": "0x448081e8fe563c72ebd7456b84ad7c7edb0548f13a9f09ba29eab60456bdd70e",
+  "inputHash": "0x361a52240d349ac776ac83d81ade2de4f6b8751152aaa7aef50499694dfc4848",
   "rubricHash": "0x4201c2a950347823c494fcfc89f88fab1ca670b2086f66ed726aa9c7b0ec7925",
   "capturedFrom": "fake",
   "verdict": {
