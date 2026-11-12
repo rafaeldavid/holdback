@@ -478,8 +478,17 @@ interface WaitingTurn {
   kind: EscrowState['kind'];
 }
 
-/** The longest refusal detail the state read and the log carry, in characters. */
-const WAITING_DETAIL_MAX = 400;
+/** The longest refusal detail the state read and the log carry, in characters: room for the deadline and what follows it. */
+const WAITING_DETAIL_MAX = 600;
+
+/**
+ * A refusal's detail as the state read and the log may carry it: the URI the seller signed for its ciphertext is the
+ * seller's own text, so it is named, not quoted (T-372 red team M2); the hash beside it says which bytes.
+ */
+function waitingDetail(s: EscrowState, detail: string): string {
+  const uri = 'delivery' in s ? s.delivery.ciphertext.uri.slice(0, 200) : '';
+  return (uri ? detail.split(uri).join('(the URI the seller signed)') : detail).slice(0, WAITING_DETAIL_MAX);
+}
 
 /** The role `address` refused in: the primary's while it accepts or judges, else its fallback or appeal turn. */
 function waitingRoleOf(s: EscrowState, address: string): AdjudicatorRole | null {
@@ -544,6 +553,8 @@ export class PublicWorld {
   private lastActive = -Infinity;
   /** Adjudicator passes in a row that changed nothing. */
   private idlePasses = 0;
+  /** T-372: each adjudicator's lists that did not answer in its last pass, as `address|step`, so each is logged once. */
+  private readonly listsDown = new Set<string>();
   /** Every commitment an adjudicator may still act on, from the event log read up to `seq`. */
   private readonly commitments = new Set<Hex32>();
   private seq = 0;
@@ -1172,17 +1183,25 @@ export class PublicWorld {
    */
   private noteWaiting(address: string, r: RunReport): void {
     const by = lc(address);
-    const now = new Map(r.refused.filter((x) => x.problem.type === 'adjudicator_unavailable').map((x) => [x.commitmentId, x.problem.detail.slice(0, WAITING_DETAIL_MAX)]));
-    for (const [id, w] of this.waiting) if (w.by === by && !now.has(id)) this.waiting.delete(id);
-    for (const [id, detail] of now) {
+    const now = new Map(r.refused.filter((x) => x.problem.type === 'adjudicator_unavailable').map((x) => [x.commitmentId, x.problem.detail]));
+    // A list that did not answer leaves what this adjudicator said before standing: it did not look again (red team L6).
+    if (r.unavailable.length === 0) for (const [id, w] of this.waiting) if (w.by === by && !now.has(id)) this.waiting.delete(id);
+    for (const [id, raw] of now) {
       const s = this.chain.escrowState(id);
       const role = s ? waitingRoleOf(s, by) : null;
       if (!s || !role) continue;
+      // A refusal now supersedes an earlier decline of the same offer: the state read says the primary is retrying.
+      this.declined.delete(id);
+      const detail = waitingDetail(s, raw);
       const before = this.waiting.get(id);
       if (!before || before.detail !== detail || before.by !== by) this.o.onError?.(new Error(`the ${role} adjudicator cannot act on ${id} yet: ${detail}`));
       this.waiting.set(id, { role, by, detail, kind: s.kind });
     }
-    for (const u of r.unavailable) this.o.onError?.(new Error(`adjudicator ${by}: ${u.problem.detail.slice(0, WAITING_DETAIL_MAX)}`));
+    // Each list that did not answer is logged once until it answers again.
+    const lists = new Set(r.unavailable.map((u) => `${by}|${u.step}`));
+    for (const u of r.unavailable) if (!this.listsDown.has(`${by}|${u.step}`)) this.o.onError?.(new Error(`adjudicator ${by}: ${u.problem.detail.slice(0, WAITING_DETAIL_MAX)}`));
+    for (const k of this.listsDown) if (k.startsWith(`${by}|`) && !lists.has(k)) this.listsDown.delete(k);
+    for (const k of lists) this.listsDown.add(k);
   }
 
   private async closeDue(): Promise<boolean> {

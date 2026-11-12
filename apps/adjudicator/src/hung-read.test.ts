@@ -9,7 +9,7 @@ import { keccak256 } from 'viem';
 import { describe, expect, it } from 'vitest';
 import { demoCsv, DOMAIN, makeCommitment, party, TestSettlement, tusd } from './_sim.js';
 import { defaultPolicy, policyHashOf } from './policy.js';
-import { Adjudicator, DEFAULT_STORE_READ_TIMEOUT_MS, STORE_READ_RETIRE_LIMITS, type RunReport } from './service.js';
+import { Adjudicator, DEFAULT_STORE_READ_TIMEOUT_MS, PASS_WAIT_LIMITS, STORE_READ_RETIRE_LIMITS, type RunReport } from './service.js';
 
 const entry = (id: string, family: string, provider: 'anthropic' | 'openai-compatible') => ({ id, provider, family, model: `${id}-20260601`, status: 'active' as const });
 const REGISTRY: RegistryDoc = {
@@ -230,15 +230,53 @@ describe('a store read that never returns (T-372)', () => {
     expect(report.unavailable).toEqual([{ step: 'tasks', problem: { type: 'adjudicator_unavailable', detail: expect.stringContaining(`did not answer within ${LIMIT_MS} ms`) } }]);
   });
 
-  it('a registration or bond read that never answers costs only its own deal', async () => {
-    const { s, a, cs } = await deals(2);
-    const bad = cs[0]!.id as Hex32;
-    const inner = s.registration.bind(s);
+  it('a registration read that never answers is asked once for every deal in the pass, and waited out once (red team M1)', async () => {
+    const { s, a, cs } = await deals(5);
     let calls = 0;
-    s.registration = (addr: Hex32) => (calls++ === 0 ? never() : inner(addr));
+    s.registration = () => (calls++, never());
+    const started = Date.now();
     const report = await pass(a.adj);
-    expect(report.refused.map((r) => r.commitmentId)).toEqual([bad]);
-    expect(report.decided.map((d) => d.commitmentId)).toEqual([cs[1]!.id]);
+    expect(Date.now() - started).toBeLessThan(LIMIT_MS * 4);
+    expect(report.refused.map((r) => r.commitmentId).sort()).toEqual(cs.map((c) => c.id).sort());
+    expect(report.decided).toEqual([]);
+    expect(calls).toBe(1);
+  });
+
+  it('a pass waits out at most PASS_WAIT_LIMITS limits on stuck reads; the rest wait a tenth, and a healthy deal behind them is judged (red team M1)', async () => {
+    const limit = 500;
+    const { s, a, cs, uris } = await deals(6, CHECKS_ONLY, limit);
+    hang(s, new Set(uris.slice(0, 5)));
+    const started = Date.now();
+    const report = await pass(a.adj, 5_000);
+    const took = Date.now() - started;
+    // 2 full waits (1,000 ms) and 3 short ones (150 ms), not 5 full waits (2,500 ms).
+    expect(took).toBeLessThan(limit * (PASS_WAIT_LIMITS + 2));
+    expect(report.refused).toHaveLength(5);
+    expect(report.decided.map((d) => d.commitmentId)).toEqual([cs[5]!.id]);
+  });
+
+  it('offers come after the turns with a deadline: stuck offers do not delay a delivered deal (red team M1)', async () => {
+    const { s, a, cs } = await deals(1);
+    const ref = s.store(new TextEncoder().encode('customer_id,email\n100000,customer0@example.com'));
+    // One reference under a URI of its own per offer, so no read joins another.
+    const uris = SELLERS.slice(1).map((_, i) => `mem://offer-${i}/${ref.sha256}`);
+    const late = SELLERS.slice(1).map((seller, i) => {
+      const check: JudgmentCheck = { id: 'ref', type: 'reference_row_match_min', required: true, reference: { uri: uris[i]!, sha256: ref.sha256 }, keyColumn: 'customer_id', minBps: 9500 };
+      const acceptance = { deterministicChecks: [...EXAMPLE.acceptance.deterministicChecks, check], rubric: { criteria: [], passThreshold: 0 } } as unknown as Commitment['acceptance'];
+      return makeCommitment({ primary: A.address, fallback: B.address, appeal: C.address, policyHash: policyHashOf(a.adj.policy), registryHash: reg.hash, buyer: BUYER, seller, acceptance, timing: { offerExpiresAt: '2026-11-01T12:00:00Z' } });
+    });
+    for (const c of late) s.offer(c);
+    hang(s, new Set(uris));
+    let judgedAfter = -1;
+    const decide = a.adj.decideTask.bind(a.adj);
+    const started = Date.now();
+    a.adj.decideTask = (task) => ((judgedAfter = Date.now() - started), decide(task));
+    const report = await pass(a.adj);
+    expect(report.decided.map((d) => d.commitmentId)).toEqual([cs[0]!.id]);
+    expect(report.refused).toHaveLength(late.length);
+    // Before any offer's read could time out.
+    expect(judgedAfter).toBeGreaterThanOrEqual(0);
+    expect(judgedAfter).toBeLessThan(LIMIT_MS);
   });
 
   it('the limit is a setting: the default is DEFAULT_STORE_READ_TIMEOUT_MS, and a limit that is not a positive number is refused at start', () => {

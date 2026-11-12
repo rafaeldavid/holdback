@@ -59,9 +59,9 @@ export interface AppealLimits {
 
 /**
  * T-372: how long one read the pass awaits from the settlement port or its store may take, in milliseconds, unless
- * configured: 10 s. A local read of the largest ciphertext a store keeps (10 MiB) takes tens of milliseconds, and a
- * remote one at 10 Mbit/s about 8.4 s, so 10 s refuses no working store; and the demo's shortest window is 60 s, so a
- * few stuck reads in one pass leave the other deals time to be judged.
+ * configured: 10 s. A local read of the largest ciphertext a store keeps (10 MiB) took at most 8.7 ms (T-372, measured),
+ * and a remote one at 10 Mbit/s takes about 8.4 s, so 10 s refuses no working store; with PASS_WAIT_LIMITS a pass waits
+ * out at most 20 s, inside the demo's shortest window of 60 s.
  */
 export const DEFAULT_STORE_READ_TIMEOUT_MS = 10_000;
 /**
@@ -70,6 +70,14 @@ export const DEFAULT_STORE_READ_TIMEOUT_MS = 10_000;
  * per 30 limits, and the passes in between stay short however many deals are stuck.
  */
 export const STORE_READ_RETIRE_LIMITS = 30;
+/**
+ * A pass waits out at most this many limits on reads that time out (20 s at the default); after that each further
+ * read in the pass waits at most FAST_READ_MS, so many stuck deals cannot hold a pass past the deals' windows
+ * (T-372 red team M1). A healthy local read takes under 10 ms (measured), far inside FAST_READ_MS.
+ */
+export const PASS_WAIT_LIMITS = 2;
+/** The wait for each read once a pass has used its wait: a tenth of the limit, at most 1 s (1 s at the default). */
+const fastReadMs = (limit: number) => Math.min(1_000, limit / 10);
 /** The longest delay a timer takes (2^31 - 1 ms, about 24.8 days); a limit above it means no limit. */
 const MAX_TIMER_MS = 2_147_483_647;
 
@@ -196,6 +204,8 @@ export class Adjudicator {
   /** Deals whose last turn waited on a read that timed out: the next pass takes them after the others. */
   readonly #stalled = new Set<Hex32>();
   #timeouts = 0;
+  /** What is left of this pass's wait on reads that time out, in milliseconds; null outside a pass. */
+  #passWaitLeft: number | null = null;
 
   constructor(cfg: AdjudicatorConfig) {
     this.#cfg = cfg;
@@ -207,7 +217,8 @@ export class Adjudicator {
     if (typeof limit !== 'number' || !(limit > 0)) throw new Error(`storeReadTimeoutMs must be a positive number of milliseconds; it is ${String(limit)}`);
     this.#limitMs = limit;
     const p = cfg.settlement;
-    const ct = (uri: string) => `the store read of ${uri.slice(0, 200)}`;
+    // The URI is the seller's or the terms' text, and refusals are published: name only a hash it ends in (red team M2).
+    const ct = (uri: string) => `the store read of ${/(sha256:[0-9a-f]{64})$/.exec(uri)?.[1] ?? 'a ciphertext'}`;
     this.#port = {
       now: () => p.now(),
       randomness: (c) => p.randomness(c),
@@ -217,7 +228,8 @@ export class Adjudicator {
       appealExpiriesDue: (a) => this.#read('the appeal expiry list', () => p.appealExpiriesDue(a)),
       bondCover: (a, c) => this.#read('the bond read', () => p.bondCover(a, c)),
       ciphertext: (uri) => this.#read(ct(uri), () => p.ciphertext(uri), `ciphertext|${uri}`),
-      registration: (a) => this.#read('the registration read', () => p.registration(a)),
+      // Joined too: every deal of a pass asks for the same few registrations (red team M1).
+      registration: (a) => this.#read('the registration read', () => p.registration(a), `registration|${a.toLowerCase()}`),
       ...(p.policy ? { policy: (h: Hex32) => this.#read('the policy read', () => p.policy!(h), `policy|${h}`) } : {}),
       triggerFallback: (id) => p.triggerFallback(id),
       expireAppeal: (id) => p.expireAppeal(id),
@@ -251,12 +263,18 @@ export class Adjudicator {
       entry = made;
     }
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // A read joined past its limit still gets one turn of the event loop, so an answer already in is taken. Once the
+    // pass has used its wait, a read waits at most fastReadMs.
+    const full = Math.max(0, entry.startedAt + ms - now);
+    const wait = this.#passWaitLeft !== null && this.#passWaitLeft <= 0 ? Math.min(full, fastReadMs(ms)) : full;
     const late = new Promise<never>((_, reject) => {
-      // A read joined past its limit still gets one turn of the event loop, so an answer already in is taken.
       timer = setTimeout(() => {
-        this.#timeouts++;
+        // A read cut short by the pass's spent wait does not mark its deal stalled: it goes first again next pass,
+        // with the full limit, ahead of the reads that used theirs.
+        if (wait === full) this.#timeouts++;
+        if (this.#passWaitLeft !== null) this.#passWaitLeft -= wait;
         reject(new StoreReadTimeout(what, ms));
-      }, Math.max(0, entry.startedAt + ms - now));
+      }, wait);
     });
     try {
       return (await Promise.race([entry.promise, late])) as T;
@@ -266,7 +284,8 @@ export class Adjudicator {
   }
 
   /** Runs one deal's unit of the pass and notes whether a read it awaited timed out, for the next pass's order. */
-  async #unit(id: Hex32, run: () => Promise<void>): Promise<void> {
+  async #unit(id: Hex32, run: () => Promise<void>, seen?: Set<Hex32>): Promise<void> {
+    seen?.add(id);
     const before = this.#timeouts;
     try {
       await run();
@@ -317,6 +336,20 @@ export class Adjudicator {
   }
 
   async runOnce(): Promise<RunReport> {
+    this.#passWaitLeft = PASS_WAIT_LIMITS * this.#limitMs;
+    // Reads stuck past their retire age are dropped here too, so a deal that left the lists leaves nothing behind.
+    const now = Date.now();
+    for (const [k, e] of this.#inflight) if (now - e.startedAt > this.#limitMs * STORE_READ_RETIRE_LIMITS) this.#inflight.delete(k);
+    const seen = new Set<Hex32>();
+    try {
+      return await this.#pass(seen);
+    } finally {
+      this.#passWaitLeft = null;
+      for (const id of this.#stalled) if (!seen.has(id)) this.#stalled.delete(id);
+    }
+  }
+
+  async #pass(seen: Set<Hex32>): Promise<RunReport> {
     const port = this.#port;
     const report: RunReport = { accepted: [], declined: [], expired: [], triggered: [], decided: [], undecided: [], refused: [], unavailable: [] };
     // T-211: its own decisions hold its bond until their appeal closes, and a sham deal's parties never close it. So it
@@ -331,20 +364,8 @@ export class Adjudicator {
     }
     // T-347: each offer, takeover and task is its own unit. One that throws (a store read, a relay, a registration) is
     // reported as refused and retried on the next pass; it never ends the pass for the other deals. T-372: every read
-    // has a time limit, and a deal whose read timed out goes after the others on the next pass.
-    const offers = await this.#list('offers', report, () => port.offers(this.address));
-    for (const offer of this.#ordered(offers, (o) => o.commitment.id)) {
-      await this.#unit(offer.commitment.id, async () => {
-        try {
-          const r = await this.#accept(offer.commitment);
-          if (r.ok) report.accepted.push(offer.commitment.id);
-          else report.declined.push({ commitmentId: offer.commitment.id, reason: r.error.detail });
-        } catch (e) {
-          // Refused, not declined: a caller may publish a decline as final (T-347 red team M1), and this is retried.
-          report.refused.push({ commitmentId: offer.commitment.id, problem: passProblem('the acceptance', e) });
-        }
-      });
-    }
+    // has a time limit, a deal whose read timed out goes after the others on the next pass, and the offers come last,
+    // after the turns that have a deadline (red team M1).
     const takeovers = await this.#list('takeovers', report, () => port.takeoversDue(this.address));
     for (const c of this.#ordered(takeovers, (x) => x.id)) {
       await this.#unit(c.id, async () => {
@@ -358,7 +379,7 @@ export class Adjudicator {
         } catch (e) {
           report.refused.push({ commitmentId: c.id, problem: passProblem('the takeover', e) });
         }
-      });
+      }, seen);
     }
     const tasks = await this.#list('tasks', report, () => port.tasks(this.address));
     for (const task of this.#ordered(tasks, (t) => t.commitment.id)) {
@@ -369,7 +390,20 @@ export class Adjudicator {
           // decideTask keeps a judged record the moment the panel returns, so a retry never asks the judges again.
           report.refused.push({ commitmentId: task.commitment.id, problem: passProblem(`the ${task.role} turn`, e) });
         }
-      });
+      }, seen);
+    }
+    const offers = await this.#list('offers', report, () => port.offers(this.address));
+    for (const offer of this.#ordered(offers, (o) => o.commitment.id)) {
+      await this.#unit(offer.commitment.id, async () => {
+        try {
+          const r = await this.#accept(offer.commitment);
+          if (r.ok) report.accepted.push(offer.commitment.id);
+          else report.declined.push({ commitmentId: offer.commitment.id, reason: r.error.detail });
+        } catch (e) {
+          // Refused, not declined: a caller may publish a decline as final (T-347 red team M1), and this is retried.
+          report.refused.push({ commitmentId: offer.commitment.id, problem: passProblem('the acceptance', e) });
+        }
+      }, seen);
     }
     return report;
   }

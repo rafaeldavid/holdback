@@ -71,10 +71,14 @@ describe("the demo world's state read and refusals (T-372)", () => {
     expect(said).toMatch(/primary adjudicator cannot judge this deal yet/i);
     expect(said).toContain(delivery.ciphertext.sha256);
     expect(said).not.toContain('SECRETKEY');
+    // The URI is the seller's own text: named, not quoted (red team M2).
+    expect(said).not.toContain(delivery.ciphertext.uri);
+    expect(said).toMatch(/If no store returns it by .*the fallback or the default outcome/);
     const lines = logged.filter((l) => l.includes(offer.id));
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain(delivery.ciphertext.sha256);
     expect(lines.join(' ')).not.toContain('SECRETKEY');
+    expect(lines.join(' ')).not.toContain(delivery.ciphertext.uri);
     storage.failing.clear();
     await world.work();
     expect((await buyer.waitFor(offer.id, ['Released', 'Refunded'])).escrowState).toBe('Released');

@@ -702,15 +702,17 @@ export class Operator {
     // The policy sees a frozen copy: it can decline, never alter what this node relays.
     const refused = this.o.policy?.(deepFreeze(structuredClone(op)), await this.policyContext(op));
     if (refused) fail(refused.type, refused.detail);
-    // Before the idempotent handler, as the policy: a refusal is not stored, so the same key works once the bytes are up.
-    await this.refuseUnstoredDelivery(op);
     if (dryRun) {
+      await this.refuseUnstoredDelivery(op);
       await this.refuseUnpayableFallback(op);
       return this.send(ctx, await this.dryRun(op));
     }
     return this.idempotent(ctx, raw, async () => {
       // Inside the handler, so a retry of a relayed write replays its answer even if a bond or the fee changed since
       // (ADR-0030 §5). The fallback refusal comes before the fee, so a buyer is never asked to pay for terms refused here.
+      // T-372: inside the handler, so a delivery this key already relayed replays its answer even if the store lost the
+      // bytes since (red team L1); a refusal is not stored, so the same key works once the bytes are up.
+      await this.refuseUnstoredDelivery(op);
       await this.refuseUnpayableFallback(op);
       await this.chargeFee(op);
       const r = await this.relay(ctx, op, await this.bondNoticesFor(op));
@@ -767,22 +769,35 @@ export class Operator {
   private async refuseUnstoredDelivery(op: Operation): Promise<void> {
     const store = this.o.store;
     if (!store || op.kind !== 'deliver') return;
-    const { sha256: id } = op.delivery.ciphertext;
+    // A delivery already on the settlement layer (sent there directly, and now joined to this node's book) is not
+    // refused: the settlement layer, not this node, has the say (red team L4).
+    const state = await this.o.settlement.state(op.delivery.commitmentId).catch(() => null);
+    if (state && state.escrowState !== 'Held') return;
+    // The signed hash, and the one the URI ends in when it names one: an adjudicator may read the bytes by either (L2).
+    const { sha256: signed, uri } = op.delivery.ciphertext;
+    const named = /(sha256:[0-9a-f]{64})$/.exec(uri)?.[1];
+    for (const id of new Set([signed, ...(named ? [named] : [])])) {
+      if (!(await this.lacks(store, id as Sha256))) continue;
+      fail(
+        'relay_refused',
+        `this node's store holds no ciphertext ${id}, which this delivery names, so an adjudicator reading it here could not judge it. ` +
+          'Upload the bytes with POST /v1/ciphertext (to this node, or to the store your adjudicators read) and send the same signed delivery again; ' +
+          'or send it to another operator that holds them, or straight to the settlement layer',
+      );
+    }
+  }
+
+  /** True only when this node's store answers "not held" for `id` within STORE_CHECK_MS (T-372). */
+  private async lacks(store: CiphertextStore, id: Sha256): Promise<boolean> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([store.get(id), new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error('store check timed out')), STORE_CHECK_MS)))]);
-      return;
+      return false;
     } catch (e) {
-      if (!(e instanceof StoreError && e.code === 'not_found')) return;
+      return e instanceof StoreError && e.code === 'not_found';
     } finally {
       clearTimeout(timer);
     }
-    fail(
-      'relay_refused',
-      `this node's store holds no ciphertext ${id}, so an adjudicator reading it here could not judge this delivery. ` +
-        'Upload the bytes with POST /v1/ciphertext (to this node, or to the store your adjudicators read) and send the same signed delivery again; ' +
-        'or send it to another operator that holds them, or straight to the settlement layer',
-    );
   }
 
   /**

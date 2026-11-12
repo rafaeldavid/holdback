@@ -93,4 +93,39 @@ describe("the delivery relay checks the operator's own store (T-372)", () => {
     const err = await hb.preview(asOperation((await deliveryId()).submission)).catch((e: unknown) => e);
     expect((err as HoldbackError).problem?.type).toBe('relay_refused');
   });
+
+  it('replays a delivery it relayed under the same Idempotency-Key, even after its store lost the bytes (red team L1)', async () => {
+    const { sha256 } = await deliveryId();
+    let held = true;
+    const store: CiphertextStore = { put: async () => sha256 as Sha256, get: async (id) => (held && id === sha256 ? new Uint8Array([1]) : Promise.reject(new StoreError('not_found'))) };
+    const op = await w.operator('op-1', { store });
+    const hb = new Holdback({ operators: [op.url] });
+    await hb.hold(await holdOf(w.deal));
+    const submission = (await deliveryId()).submission;
+    expect((await hb.submit(asOperation(submission), { idempotencyKey: 'k-1' })).state.escrowState).toBe('Delivered');
+    held = false;
+    expect((await hb.submit(asOperation(submission), { idempotencyKey: 'k-1' })).state.escrowState).toBe('Delivered');
+  });
+
+  it('checks the hash the URI ends in too, which an adjudicator may read the bytes by (red team L2)', async () => {
+    const { submission, sha256 } = await deliveryId();
+    const op = await w.operator('op-1', { store: holding(sha256) });
+    const hb = new Holdback({ operators: [op.url] });
+    await hb.hold(await holdOf(w.deal));
+    const other = `sha256:${'d'.repeat(64)}`;
+    const named = { ...submission, delivery: { ...submission.delivery, ciphertext: { ...submission.delivery.ciphertext, uri: `https://store.example/v1/ciphertext/${other}` } } };
+    const err = await hb.submit(asOperation(named)).catch((e: unknown) => e);
+    expect((err as HoldbackError).problem.type).toBe('relay_refused');
+    expect((err as HoldbackError).problem.detail).toContain(other);
+  });
+
+  it('does not check a delivery already on the settlement layer, which this node only joins to its book (red team L4)', async () => {
+    const op = await w.operator('op-1', { store: new MemoryCiphertextStore() });
+    const hb = new Holdback({ operators: [op.url] });
+    await hb.hold(await holdOf(w.deal));
+    const submission = (await deliveryId()).submission;
+    await new Holdback({ operators: [], settlement: w.chain }).submit(asOperation(submission));
+    const err = await hb.submit(asOperation(submission)).catch((e: unknown) => e);
+    expect(err instanceof HoldbackError ? err.problem.type : 'relayed').not.toBe('relay_refused');
+  });
 });
