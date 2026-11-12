@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -34,15 +35,15 @@ contract StrictTermsTest is Base {
         uint256 b0 = usdc.balanceOf(buyer);
         (bool ok, bytes memory ret) = _fundCall(t);
         assertFalse(ok, "funded");
-        assertEq(ret, abi.encodeWithSelector(HoldbackRules.InvalidMessage.selector));
-        assertEq(uint8(rules.dealOf(hx.id(t)).stage), uint8(HoldbackRules.Stage.None), "nothing stored");
+        assertEq(ret, abi.encodeWithSelector(IHoldbackRules.InvalidMessage.selector));
+        assertEq(uint8(rules.dealOf(hx.id(t)).stage), uint8(IHoldbackRules.Stage.None), "nothing stored");
         assertEq(usdc.balanceOf(buyer), b0, "no token moved");
     }
 
     function _funds(H.Terms memory t) internal {
         (bool ok,) = _fundCall(t);
         assertTrue(ok, "refused");
-        assertEq(uint8(rules.dealOf(hx.id(t)).stage), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(rules.dealOf(hx.id(t)).stage), uint8(IHoldbackRules.Stage.Held));
     }
 
     // ------------------------------------------------------------ deadlines in strict order
@@ -159,7 +160,7 @@ contract StrictTermsTest is Base {
         bytes32 id = hx.id(t);
         _deliver(t, id);
         rules.decide(t, _primary(t, id, H.OUTCOME_ACCEPT), _noDelivery(), "");
-        assertEq(uint8(rules.dealOf(id).stage), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(rules.dealOf(id).stage), uint8(IHoldbackRules.Stage.Released));
     }
 
     // ------------------------------------------------------------ what is not refused
@@ -180,7 +181,7 @@ contract StrictTermsTest is Base {
         (bool ok, bytes memory ret) = _fundCall(t);
         assertFalse(ok);
         assertEq(ret, abi.encodeWithSelector(AuthCaptureEscrow.ZeroAmount.selector));
-        assertEq(uint8(rules.dealOf(hx.id(t)).stage), uint8(HoldbackRules.Stage.None));
+        assertEq(uint8(rules.dealOf(hx.id(t)).stage), uint8(IHoldbackRules.Stage.None));
     }
 
     /// The refusal comes before the signature checks: wrong-key terms out of order answer `InvalidMessage`.
@@ -191,7 +192,7 @@ contract StrictTermsTest is Base {
         H.Acceptance memory acc = _acceptance(t, ADJ_PK);
         H.Agree memory ag = _agree(t, BUYER_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.agreeAndFund(t, wrong, acc, ag, f);
     }
 }

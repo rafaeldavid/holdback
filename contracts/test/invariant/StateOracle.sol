@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {RulesHandler} from "../handlers/RulesHandler.sol";
 
@@ -43,7 +44,7 @@ library StateOracle {
 
     struct Row {
         string id;
-        HoldbackRules.Stage stage;
+        IHoldbackRules.Stage stage;
         uint8 attempt; // 0 or 1; the delivery hash is set exactly when it is 1
         uint8 reason;
         uint8 decider;
@@ -52,7 +53,7 @@ library StateOracle {
 
     /// Everything the oracle reads about one deal.
     struct State {
-        HoldbackRules.Deal d;
+        IHoldbackRules.Deal d;
         bytes32 deliveryHash;
         uint8 reason; // the handler's record: how the deal closed (OPEN while it is open)
         uint8 decider; // the handler's record: whose decision closed it
@@ -81,7 +82,7 @@ library StateOracle {
         return check(read(x, i), x.termsOf(i), rows());
     }
 
-    function _r(string memory id, HoldbackRules.Stage s, uint8 attempt, uint8 reason, uint8 decider, uint8 t1)
+    function _r(string memory id, IHoldbackRules.Stage s, uint8 attempt, uint8 reason, uint8 decider, uint8 t1)
         private
         pure
         returns (Row memory)
@@ -91,15 +92,15 @@ library StateOracle {
 
     /// Section 9.3's table, row for row. L02 left with SC-6.
     function rows() internal pure returns (Row[] memory r) {
-        HoldbackRules.Stage rel = HoldbackRules.Stage.Released;
-        HoldbackRules.Stage ref = HoldbackRules.Stage.Refunded;
-        HoldbackRules.Stage set = HoldbackRules.Stage.Settled;
+        IHoldbackRules.Stage rel = IHoldbackRules.Stage.Released;
+        IHoldbackRules.Stage ref = IHoldbackRules.Stage.Refunded;
+        IHoldbackRules.Stage set = IHoldbackRules.Stage.Settled;
         r = new Row[](17);
-        r[0] = _r("P01", HoldbackRules.Stage.None, 0, OPEN, NOBODY, ZERO);
-        r[1] = _r("P02", HoldbackRules.Stage.Held, 0, OPEN, NOBODY, ZERO);
-        r[2] = _r("P03", HoldbackRules.Stage.Delivered, 1, OPEN, NOBODY, ZERO);
-        r[3] = _r("P04", HoldbackRules.Stage.FallbackJudging, 1, OPEN, NOBODY, SET);
-        r[4] = _r("P05", HoldbackRules.Stage.Escalated, 1, OPEN, NOBODY, SET);
+        r[0] = _r("P01", IHoldbackRules.Stage.None, 0, OPEN, NOBODY, ZERO);
+        r[1] = _r("P02", IHoldbackRules.Stage.Held, 0, OPEN, NOBODY, ZERO);
+        r[2] = _r("P03", IHoldbackRules.Stage.Delivered, 1, OPEN, NOBODY, ZERO);
+        r[3] = _r("P04", IHoldbackRules.Stage.FallbackJudging, 1, OPEN, NOBODY, SET);
+        r[4] = _r("P05", IHoldbackRules.Stage.Escalated, 1, OPEN, NOBODY, SET);
         r[5] = _r("P06", rel, 1, DECIDED, PRIMARY, SET);
         r[6] = _r("P07", ref, 1, DECIDED, PRIMARY, SET);
         r[7] = _r("P08", rel, 1, DECIDED, FALLBACK, SET);
@@ -115,7 +116,7 @@ library StateOracle {
     }
 
     function matches(Row memory r, State memory s) internal pure returns (bool) {
-        HoldbackRules.Deal memory d = s.d;
+        IHoldbackRules.Deal memory d = s.d;
         return d.stage == r.stage && d.attempt == r.attempt && s.reason == r.reason && s.decider == r.decider
             && (d.t1 != 0) == (r.t1 == SET) && (s.deliveryHash != bytes32(0)) == (r.attempt == 1);
     }
@@ -147,14 +148,14 @@ library StateOracle {
 
     /// Returns "" when the deal's state is legal in `table`, otherwise why it is not, with the word.
     function check(State memory s, H.Terms memory t, Row[] memory table) internal pure returns (string memory) {
-        HoldbackRules.Deal memory d = s.d;
+        IHoldbackRules.Deal memory d = s.d;
         uint256 n = rowIndex(s, table);
         if (n == 0) return string.concat("no legal row (section 9): ", describe(s));
         string memory row = table[n - 1].id;
         if (uint8(d.reason) != s.reason || uint8(d.decider) != s.decider) {
             return string.concat(row, ": the stored closing reason or decider is not how the deal closed");
         }
-        bool unfunded = d.stage == HoldbackRules.Stage.None;
+        bool unfunded = d.stage == IHoldbackRules.Stage.None;
         if (d.seedTag != (unfunded ? 0 : s.seedTag)) {
             return string.concat(row, ": the seed tag is not the primary's seed commitment");
         }
@@ -164,7 +165,7 @@ library StateOracle {
     }
 
     /// Section 9.3's bounds on t1.
-    function _times(string memory row, HoldbackRules.Deal memory d, H.Terms memory t)
+    function _times(string memory row, IHoldbackRules.Deal memory d, H.Terms memory t)
         private
         pure
         returns (string memory)
@@ -193,8 +194,8 @@ library StateOracle {
     /// Section 9.4: what the escrow holds for each row.
     function _holds(string memory row, State memory s, H.Terms memory t) private pure returns (string memory) {
         uint256 hold = t.price + t.fee;
-        HoldbackRules.Stage st = s.d.stage;
-        if (st == HoldbackRules.Stage.None) {
+        IHoldbackRules.Stage st = s.d.stage;
+        if (st == IHoldbackRules.Stage.None) {
             if (s.capturable != 0 || s.refundable != 0) return string.concat(row, ": an unfunded deal holds money");
             return "";
         }
@@ -212,7 +213,7 @@ library StateOracle {
         uint256 paid;
         if (s.reason == DECIDED) {
             // P06, P08, P10: price + fee out of the escrow; P07, P09, P11: the fee only.
-            paid = st == HoldbackRules.Stage.Released ? hold : t.fee;
+            paid = st == IHoldbackRules.Stage.Released ? hold : t.fee;
         } else if (s.reason == ACCEPTED_EARLY) {
             paid = t.price; // P13
         } else {
@@ -227,7 +228,7 @@ library StateOracle {
     }
 
     function describe(State memory s) internal pure returns (string memory) {
-        HoldbackRules.Deal memory d = s.d;
+        IHoldbackRules.Deal memory d = s.d;
         return string.concat(
             string.concat("stage ", _u(uint8(d.stage)), ", attempt ", _u(d.attempt), ", reason ", _u(s.reason)),
             string.concat(", decider ", _u(s.decider), d.t1 == 0 ? ", t1 zero" : ", t1 set"),

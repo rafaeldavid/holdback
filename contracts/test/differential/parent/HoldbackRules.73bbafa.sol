@@ -152,6 +152,9 @@ contract HoldbackRules is EIP712 {
     error BadSeed();
     /// @notice A margin of 0 on a chain other than the local one (ADR-0032 §3.4): a deploy-time check on the deployer.
     error NoBeaconMargin();
+    /// @notice A constructor address of zero (T-380): every immutable is fixed for the deployment's life, and one at
+    ///         the zero address would leave every deal unfundable or unsettleable. A deploy-time check on the deployer.
+    error ZeroAddress();
 
     constructor(
         AuthCaptureEscrow escrow,
@@ -161,6 +164,10 @@ contract HoldbackRules is EIP712 {
         address token,
         uint64 beaconMargin
     ) {
+        if (
+            address(escrow) == address(0) || erc3009Collector == address(0) || address(beacon) == address(0)
+                || token == address(0)
+        ) revert ZeroAddress();
         if (beaconMargin == 0 && block.chainid != LOCAL_CHAIN_ID) revert NoBeaconMargin();
         ESCROW = escrow;
         ERC3009_COLLECTOR = erc3009Collector;

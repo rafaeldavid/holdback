@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Vm} from "forge-std/Vm.sol";
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {SignerBase, SwitchWallet} from "./ContractSigners.sol";
 
@@ -31,21 +32,21 @@ contract Erc1271SettlementTest is SignerBase {
         uint8[3] memory modes = _wrongModes();
         for (uint256 i; i < modes.length; i++) {
             w.setMode(modes[i]);
-            vm.expectRevert(HoldbackRules.BadSignature.selector);
+            vm.expectRevert(IHoldbackRules.BadSignature.selector);
             rules.earlyAccept(t, m, d, "", k);
         }
         w.setMode(HONEST);
         H.EarlyAccept memory forged = _earlyFor(t, id, d, OTHER_PK);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.earlyAccept(t, forged, d, "", k);
-        _is(id, HoldbackRules.Stage.Delivered);
+        _is(id, IHoldbackRules.Stage.Delivered);
 
         uint256 walletBefore = usdc.balanceOf(address(w));
         uint256 sellerBefore = usdc.balanceOf(seller);
         vm.recordLogs();
         rules.earlyAccept(t, m, d, "", k);
-        _assertLogged(HoldbackRules.KeyReleased.selector, id, address(w), "the key is released to the wallet");
-        _is(id, HoldbackRules.Stage.Released);
+        _assertLogged(IHoldbackRules.KeyReleased.selector, id, address(w), "the key is released to the wallet");
+        _is(id, IHoldbackRules.Stage.Released);
         assertEq(usdc.balanceOf(seller) - sellerBefore, PRICE, "the seller is paid the price");
         assertEq(usdc.balanceOf(address(w)) - walletBefore, FEE, "the wallet gets the fee back");
         assertEq(_held(t), 0);
@@ -67,18 +68,18 @@ contract Erc1271SettlementTest is SignerBase {
         uint8[3] memory modes = _wrongModes();
         for (uint256 i; i < modes.length; i++) {
             w.setMode(modes[i]);
-            vm.expectRevert(HoldbackRules.BadSignature.selector);
+            vm.expectRevert(IHoldbackRules.BadSignature.selector);
             rules.earlyAccept(t, m, d, sellerSig, k);
         }
         w.setMode(HONEST);
-        _is(id, HoldbackRules.Stage.Held);
+        _is(id, IHoldbackRules.Stage.Held);
         assertEq(rules.deliveryHashOf(id), bytes32(0), "no delivery landed");
 
         uint256 sellerBefore = usdc.balanceOf(seller);
         vm.recordLogs();
         rules.earlyAccept(t, m, d, sellerSig, k);
-        _assertLogged(HoldbackRules.KeyReleased.selector, id, address(w), "the key is released to the wallet");
-        _is(id, HoldbackRules.Stage.Released);
+        _assertLogged(IHoldbackRules.KeyReleased.selector, id, address(w), "the key is released to the wallet");
+        _is(id, IHoldbackRules.Stage.Released);
         assertEq(rules.deliveryHashOf(id), hx.delivery(id, d));
         assertEq(usdc.balanceOf(seller) - sellerBefore, PRICE);
     }
@@ -101,19 +102,19 @@ contract Erc1271SettlementTest is SignerBase {
         uint8[3] memory modes = _wrongModes();
         for (uint256 i; i < modes.length; i++) {
             w.setMode(modes[i]);
-            vm.expectRevert(HoldbackRules.BadSignature.selector);
+            vm.expectRevert(IHoldbackRules.BadSignature.selector);
             rules.mutualSettle(t, mu, d, k);
         }
         w.setMode(HONEST);
         H.Mutual memory forged = _mutualFor(t, id, OTHER_PK, SELLER_PK, toSeller);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.mutualSettle(t, forged, d, k);
-        _is(id, HoldbackRules.Stage.Delivered);
+        _is(id, IHoldbackRules.Stage.Delivered);
 
         uint256 walletBefore = usdc.balanceOf(address(w));
         uint256 sellerBefore = usdc.balanceOf(seller);
         rules.mutualSettle(t, mu, d, k);
-        _is(id, HoldbackRules.Stage.Settled);
+        _is(id, IHoldbackRules.Stage.Settled);
         assertEq(usdc.balanceOf(seller) - sellerBefore, toSeller, "the seller's share");
         assertEq(usdc.balanceOf(address(w)) - walletBefore, PRICE - toSeller + FEE, "the buyer's share and the fee");
         assertEq(_held(t), 0);
@@ -135,19 +136,19 @@ contract Erc1271SettlementTest is SignerBase {
         uint8[3] memory modes = _wrongModes();
         for (uint256 i; i < modes.length; i++) {
             w.setMode(modes[i]);
-            vm.expectRevert(HoldbackRules.BadSignature.selector);
+            vm.expectRevert(IHoldbackRules.BadSignature.selector);
             rules.mutualSettle(t, mu, d, k);
         }
         w.setMode(HONEST);
         H.Mutual memory forged = _mutualFor(t, id, BUYER_PK, OTHER_PK, toSeller);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.mutualSettle(t, forged, d, k);
-        _is(id, HoldbackRules.Stage.Delivered);
+        _is(id, IHoldbackRules.Stage.Delivered);
 
         uint256 walletBefore = usdc.balanceOf(address(w));
         uint256 buyerBefore = usdc.balanceOf(buyer);
         rules.mutualSettle(t, mu, d, k);
-        _is(id, HoldbackRules.Stage.Settled);
+        _is(id, IHoldbackRules.Stage.Settled);
         assertEq(usdc.balanceOf(address(w)) - walletBefore, toSeller, "the wallet's share");
         assertEq(usdc.balanceOf(buyer) - buyerBefore, PRICE - toSeller + FEE);
     }
@@ -168,19 +169,19 @@ contract Erc1271SettlementTest is SignerBase {
         H.KeyProof memory noKey;
 
         bw.setMode(WRONG_MAGIC);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.mutualSettle(t, mu, none, noKey);
         bw.setMode(HONEST);
         sw.setMode(REVERTS);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.mutualSettle(t, mu, none, noKey);
         sw.setMode(HONEST);
-        _is(id, HoldbackRules.Stage.Held);
+        _is(id, IHoldbackRules.Stage.Held);
 
         uint256 bwBefore = usdc.balanceOf(address(bw));
         uint256 swBefore = usdc.balanceOf(address(sw));
         rules.mutualSettle(t, mu, none, noKey);
-        _is(id, HoldbackRules.Stage.Settled);
+        _is(id, IHoldbackRules.Stage.Settled);
         assertEq(usdc.balanceOf(address(sw)) - swBefore, 5_000_000);
         assertEq(usdc.balanceOf(address(bw)) - bwBefore, PRICE - 5_000_000 + FEE);
     }
@@ -204,22 +205,22 @@ contract Erc1271SettlementTest is SignerBase {
         uint8[3] memory modes = _wrongModes();
         for (uint256 i; i < modes.length; i++) {
             w.setMode(modes[i]);
-            vm.expectRevert(HoldbackRules.BadSignature.selector);
+            vm.expectRevert(IHoldbackRules.BadSignature.selector);
             rules.decide(t, m, _noDelivery(), "");
         }
         w.setMode(HONEST);
         H.Decision memory forged = _appealDecision(t, id, H.OUTCOME_ACCEPT, at, address(w), OTHER_PK);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.decide(t, forged, _noDelivery(), "");
-        _is(id, HoldbackRules.Stage.Escalated);
+        _is(id, IHoldbackRules.Stage.Escalated);
         assertEq(_held(t), PRICE + FEE);
 
         uint256 walletBefore = usdc.balanceOf(address(w));
         uint256 sellerBefore = usdc.balanceOf(seller);
         vm.recordLogs();
         rules.decide(t, m, _noDelivery(), "");
-        _assertLogged(HoldbackRules.Decided.selector, id, address(w), "the wallet is the deciding adjudicator");
-        _is(id, HoldbackRules.Stage.Released);
+        _assertLogged(IHoldbackRules.Decided.selector, id, address(w), "the wallet is the deciding adjudicator");
+        _is(id, IHoldbackRules.Stage.Released);
         assertEq(usdc.balanceOf(seller) - sellerBefore, PRICE);
         assertEq(usdc.balanceOf(address(w)) - walletBefore, FEE, "the wallet is paid the fee");
     }
@@ -250,7 +251,7 @@ contract Erc1271SettlementTest is SignerBase {
         uint256 buyerBefore = usdc.balanceOf(buyer);
         uint256 walletBefore = usdc.balanceOf(address(w));
         rules.decide(t, _appealDecision(t, id, H.OUTCOME_REJECT, at, address(w), AW_PK), _noDelivery(), "");
-        _is(id, HoldbackRules.Stage.Refunded);
+        _is(id, IHoldbackRules.Stage.Refunded);
         assertEq(usdc.balanceOf(buyer) - buyerBefore, PRICE);
         assertEq(usdc.balanceOf(address(w)) - walletBefore, FEE);
     }

@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Vm} from "forge-std/Vm.sol";
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {SignerBase, StepRelayer} from "./ContractSigners.sol";
 
@@ -46,7 +47,7 @@ contract RelayFromContractTest is SignerBase {
         }
         bytes32 directLogs = _logsHash(vm.getRecordedLogs());
         bytes32 directState = _state(t, id, address(relay));
-        HoldbackRules.Stage directStage = _stage(id);
+        IHoldbackRules.Stage directStage = _stage(id);
 
         assertTrue(vm.revertToState(snap), "back to the state before the direct run");
         vm.recordLogs();
@@ -90,14 +91,14 @@ contract RelayFromContractTest is SignerBase {
         H.Terms memory t = _terms();
         bytes32 id = hx.id(t);
         _landsAlike(t, id, _one(_fundCall(t)));
-        _is(id, HoldbackRules.Stage.Held);
+        _is(id, IHoldbackRules.Stage.Held);
     }
 
     /// deliver relayed from a contract posts the seller-signed delivery exactly as a direct relay does.
     function test_relay_deliver() public {
         (H.Terms memory t, bytes32 id) = _funded();
         _landsAlike(t, id, _one(_deliverCall(t, id)));
-        _is(id, HoldbackRules.Stage.Delivered);
+        _is(id, IHoldbackRules.Stage.Delivered);
     }
 
     /// decide relayed from a contract settles the primary's accept exactly as a direct relay does: the price to the
@@ -106,7 +107,7 @@ contract RelayFromContractTest is SignerBase {
         (H.Terms memory t, bytes32 id) = _funded();
         _deliver(t, id);
         _landsAlike(t, id, _one(_acceptCall(t, id)));
-        _is(id, HoldbackRules.Stage.Released);
+        _is(id, IHoldbackRules.Stage.Released);
         assertEq(usdc.balanceOf(adjudicator), FEE);
     }
 
@@ -118,7 +119,7 @@ contract RelayFromContractTest is SignerBase {
             HoldbackRules.decide, (t, _primary(t, id, H.OUTCOME_REJECT), d, _deliverySig(id, d, SELLER_PK))
         );
         _landsAlike(t, id, _one(step));
-        _is(id, HoldbackRules.Stage.Refunded);
+        _is(id, IHoldbackRules.Stage.Refunded);
     }
 
     /// earlyAccept relayed from a contract releases the price and the buyer's key exactly as a direct relay does.
@@ -127,7 +128,7 @@ contract RelayFromContractTest is SignerBase {
         (H.Delivery memory d, H.KeyProof memory k) = _deliver(t, id);
         bytes memory step = abi.encodeCall(HoldbackRules.earlyAccept, (t, _early(t, id, BUYER_PK), d, bytes(""), k));
         _landsAlike(t, id, _one(step));
-        _is(id, HoldbackRules.Stage.Released);
+        _is(id, IHoldbackRules.Stage.Released);
     }
 
     /// mutualSettle relayed from a contract pays out the signed split exactly as a direct relay does.
@@ -136,7 +137,7 @@ contract RelayFromContractTest is SignerBase {
         (H.Delivery memory d, H.KeyProof memory k) = _deliver(t, id);
         H.Mutual memory mu = _mutualFor(t, id, BUYER_PK, SELLER_PK, 18_000_000);
         _landsAlike(t, id, _one(abi.encodeCall(HoldbackRules.mutualSettle, (t, mu, d, k))));
-        _is(id, HoldbackRules.Stage.Settled);
+        _is(id, IHoldbackRules.Stage.Settled);
     }
 
     // T-356 (SC-6): `test_relay_expireOffer` left with `expireOffer`; no other entry point changed.
@@ -146,7 +147,7 @@ contract RelayFromContractTest is SignerBase {
         (H.Terms memory t, bytes32 id) = _funded();
         vm.warp(t.timing.deliverBy);
         _landsAlike(t, id, _one(abi.encodeCall(HoldbackRules.reclaim, (t))));
-        _is(id, HoldbackRules.Stage.Refunded);
+        _is(id, IHoldbackRules.Stage.Refunded);
     }
 
     /// triggerFallback relayed from a contract hands the case to the fallback exactly as a direct relay does.
@@ -155,7 +156,7 @@ contract RelayFromContractTest is SignerBase {
         _deliver(t, id);
         vm.warp(t.timing.judgeBy);
         _landsAlike(t, id, _one(abi.encodeCall(HoldbackRules.triggerFallback, (t))));
-        _is(id, HoldbackRules.Stage.FallbackJudging);
+        _is(id, IHoldbackRules.Stage.FallbackJudging);
     }
 
     /// triggerDefault relayed from a contract, after the fallback missed fallbackBy, refunds the buyer exactly as a
@@ -167,7 +168,7 @@ contract RelayFromContractTest is SignerBase {
         rules.triggerFallback(t);
         vm.warp(t.timing.fallbackBy);
         _landsAlike(t, id, _one(abi.encodeCall(HoldbackRules.triggerDefault, (t))));
-        _is(id, HoldbackRules.Stage.Refunded);
+        _is(id, IHoldbackRules.Stage.Refunded);
     }
 
     /// triggerDefault relayed from a contract, after the appeal adjudicator missed its window, refunds the buyer
@@ -178,7 +179,7 @@ contract RelayFromContractTest is SignerBase {
         rules.decide(t, _primary(t, id, H.OUTCOME_ESCALATE), _noDelivery(), "");
         vm.warp(block.timestamp + t.timing.appealDecideSec);
         _landsAlike(t, id, _one(abi.encodeCall(HoldbackRules.triggerDefault, (t))));
-        _is(id, HoldbackRules.Stage.Refunded);
+        _is(id, IHoldbackRules.Stage.Refunded);
     }
 
     // ------------------------------------------------------------ several steps of one deal in one call
@@ -191,7 +192,7 @@ contract RelayFromContractTest is SignerBase {
         steps[0] = _fundCall(t);
         steps[1] = _deliverCall(t, id);
         _landsAlike(t, id, steps);
-        _is(id, HoldbackRules.Stage.Delivered);
+        _is(id, IHoldbackRules.Stage.Delivered);
     }
 
     /// deliver then decide in one call of the relaying contract land as the two steps relayed one by one.
@@ -201,7 +202,7 @@ contract RelayFromContractTest is SignerBase {
         steps[0] = _deliverCall(t, id);
         steps[1] = _acceptCall(t, id); // names `_delivery()`, the delivery step 0 posts
         _landsAlike(t, id, steps);
-        _is(id, HoldbackRules.Stage.Released);
+        _is(id, IHoldbackRules.Stage.Released);
     }
 
     /// A whole deal, agreeAndFund, deliver and decide, in one call of the relaying contract lands as the three steps
@@ -214,7 +215,7 @@ contract RelayFromContractTest is SignerBase {
         steps[1] = _deliverCall(t, id);
         steps[2] = _acceptCall(t, id);
         _landsAlike(t, id, steps);
-        _is(id, HoldbackRules.Stage.Released);
+        _is(id, IHoldbackRules.Stage.Released);
         assertEq(usdc.balanceOf(adjudicator), FEE);
     }
 
@@ -230,9 +231,9 @@ contract RelayFromContractTest is SignerBase {
         other = _signDecision(t, id, other, adjudicator, ADJ_PK);
         steps[1] = abi.encodeCall(HoldbackRules.decide, (t, other, _noDelivery(), bytes("")));
         bytes32 before = _state(t, id, address(relay));
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         relay.relayAll(address(rules), steps);
         assertEq(_state(t, id, address(relay)), before, "nothing landed");
-        _is(id, HoldbackRules.Stage.Held);
+        _is(id, IHoldbackRules.Stage.Held);
     }
 }

@@ -6,6 +6,7 @@ import {EIP712} from "solady/utils/EIP712.sol";
 import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 
 import {IHoldbackBeacon} from "./IHoldbackBeacon.sol";
+import {IHoldbackRules} from "./IHoldbackRules.sol";
 import {HoldbackTypes as H, Money} from "./HoldbackTypes.sol";
 
 /// @title HoldbackRules
@@ -17,52 +18,8 @@ import {HoldbackTypes as H, Money} from "./HoldbackTypes.sol";
 /// @dev No owner, role, pause, upgrade, fallback or receive. The contract takes the settlement view (ADR-0024 §8)
 ///      in calldata, recomputes the commitment ID from it, and stores one word per commitment. Offer, adjudicator
 ///      acceptance and agreement are signatures checked at `agreeAndFund`; nothing is stored before funding.
-contract HoldbackRules is EIP712 {
+contract HoldbackRules is EIP712, IHoldbackRules {
     // State
-
-    enum Stage {
-        None,
-        Held,
-        Delivered,
-        FallbackJudging,
-        Escalated,
-        Released,
-        Refunded,
-        Settled
-    }
-
-    /// @notice Why a deal closed (`docs/audit/state-model.md` section 9.2). `Open` exactly while the stage is None,
-    ///         Held, Delivered, FallbackJudging or Escalated; written in the storage write that closes the deal, and
-    ///         never changed after. `Decided` gives Released or Refunded, `AcceptedEarly` Released, `Settled` Settled,
-    ///         `Reclaimed` and `Defaulted` Refunded.
-    enum Reason {
-        Open,
-        Decided,
-        AcceptedEarly,
-        Settled,
-        Reclaimed,
-        Defaulted
-    }
-
-    /// @notice Which adjudicator's decision closed the deal and received its fee: not `None` exactly when the reason
-    ///         is `Decided`.
-    enum Decider {
-        None,
-        Primary,
-        Fallback,
-        Appeal
-    }
-
-    /// @notice One storage word per commitment. Phase one has no party appeal and no bond (ADR-0031 §8): the first
-    ///         decision by the primary or the fallback, and an escalation's decision, are final when written.
-    struct Deal {
-        Stage stage;
-        uint8 attempt; // delivery attempt seen on chain (0 until a delivery is verified)
-        uint40 t1; // decidedAt, escalatedAt or fallbackSince
-        uint144 seedTag; // H.seedTag(the primary's seedCommitment, the commitment ID) (L-4)
-        Reason reason; // why the deal closed; Open while it is open (RF-4)
-        Decider decider; // whose decision closed it; None unless the reason is Decided (RF-4)
-    }
 
     // Key release paths (ADR-0012).
     uint8 public constant KEY_DECISION = 0;
@@ -80,6 +37,9 @@ contract HoldbackRules is EIP712 {
 
     /// @dev anvil's chain ID: the one chain where a beacon margin of 0 deploys (ADR-0032 §3.4), as for the sim beacon.
     uint256 internal constant LOCAL_CHAIN_ID = 31337;
+
+    /// @dev The one delivery attempt phase one takes: the terms' `maxSubmissions` and every delivery's attempt number.
+    uint8 internal constant ONLY_ATTEMPT = 1;
 
     AuthCaptureEscrow public immutable ESCROW;
     /// @notice CPP's ERC-3009 collector, the one way a phase-one deal funds (ADR-0031 §3, SC-2).
@@ -103,58 +63,6 @@ contract HoldbackRules is EIP712 {
     ///         it), written by whichever call lands the delivery. Every decision, early accept and mutual settlement
     ///         after it must name this hash (ADR-0029).
     mapping(bytes32 commitmentId => bytes32) public deliveryHashOf;
-
-    // Events
-
-    // ERC-8183-shaped (draft names; job ID = commitment ID).
-    event JobCreated(
-        bytes32 indexed jobId, address indexed client, address indexed provider, address evaluator, uint256 expiredAt
-    );
-    event JobFunded(bytes32 indexed jobId, address indexed client, uint256 amount);
-    event JobSubmitted(bytes32 indexed jobId, address indexed provider, bytes32 deliverable);
-    event JobCompleted(bytes32 indexed jobId, address indexed evaluator, bytes32 reason);
-    event JobRejected(bytes32 indexed jobId, address indexed rejector, bytes32 reason);
-    event JobExpired(bytes32 indexed jobId);
-    event PaymentReleased(bytes32 indexed jobId, address indexed provider, uint256 amount);
-    event Refunded(bytes32 indexed jobId, address indexed client, uint256 amount);
-
-    // Holdback.
-    event FeePaid(bytes32 indexed id, address indexed adjudicator, uint256 amount);
-    event Decided(
-        bytes32 indexed id,
-        address indexed adjudicator,
-        uint8 role,
-        uint8 outcome,
-        bytes32 judgmentRecordHash,
-        bytes32 seed
-    );
-    /// @notice The buyer's sealed content key, emitted in the same transaction as the payment (ADR-0012).
-    event KeyReleased(bytes32 indexed id, address indexed recipient, uint8 path, string scheme, string ciphertext);
-    event FallbackTriggered(bytes32 indexed id, uint64 beaconRound);
-    event Defaulted(bytes32 indexed id, Stage from);
-    event MutuallySettled(bytes32 indexed id, bool keyReleased);
-    /// @notice Where this deal's money comes from and goes (ADR-0033): the escrow's payer and receiver. Every other
-    ///         event names the parties (`buyer`, `seller`), which sign; these two addresses hold the money.
-    event SettlementAddresses(
-        bytes32 indexed id, address indexed buyerPaymentAddress, address indexed sellerPayoutAddress
-    );
-
-    // Errors
-
-    error WrongStage(Stage current);
-    error BadSignature();
-    error DeadlinePassed();
-    error TooEarly();
-    error MessageExpired();
-    error Unrepresentable();
-    error InvalidMessage();
-    error BadKeyProof();
-    error BadSeed();
-    /// @notice A margin of 0 on a chain other than the local one (ADR-0032 §3.4): a deploy-time check on the deployer.
-    error NoBeaconMargin();
-    /// @notice A constructor address of zero (T-380): every immutable is fixed for the deployment's life, and one at
-    ///         the zero address would leave every deal unfundable or unsettleable. A deploy-time check on the deployer.
-    error ZeroAddress();
 
     constructor(
         AuthCaptureEscrow escrow,
@@ -243,7 +151,7 @@ contract HoldbackRules is EIP712 {
         H.Timing calldata tm = t.timing;
         if (
             tm.offerExpiresAt >= tm.fundBy || tm.fundBy >= tm.deliverBy || tm.deliverBy >= tm.judgeBy
-                || tm.judgeBy >= tm.fallbackBy || tm.maxSubmissions != 1 || tm.appealDecideSec == 0
+                || tm.judgeBy >= tm.fallbackBy || tm.maxSubmissions != ONLY_ATTEMPT || tm.appealDecideSec == 0
                 || tm.appealWindowSec != 0
         ) {
             revert InvalidMessage();
@@ -306,7 +214,7 @@ contract HoldbackRules is EIP712 {
         // role also names the posted delivery, so a decision about another seller-signed body never settles (ADR-0029).
         if (
             m.role != role || m.attempt != d.attempt || m.deliveryHash != deliveryHashOf[id]
-                || m.outcome > (role == H.ROLE_APPEAL ? H.OUTCOME_REJECT : H.OUTCOME_ESCALATE)
+                || !H.isValidOutcome(role, m.outcome)
         ) {
             revert InvalidMessage();
         }
@@ -608,7 +516,7 @@ contract HoldbackRules is EIP712 {
         returns (bytes32 dh)
     {
         if (block.timestamp >= t.timing.deliverBy) revert DeadlinePassed();
-        if (dv.attempt != 1) revert InvalidMessage();
+        if (dv.attempt != ONLY_ATTEMPT) revert InvalidMessage();
         dh = H.deliveryHash(id, dv);
         _requireSigned(t.seller, dh, sellerSignature);
         deliveryHashOf[id] = dh;

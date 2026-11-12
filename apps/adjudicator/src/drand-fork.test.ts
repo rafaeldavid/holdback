@@ -1,5 +1,6 @@
-// T-217 on a Sepolia fork: the fallback adjudicator escalates from the live drand quicknet round at judgeBy, the appeal
-// adjudicator decides the escalation from the first quicknet round after it, and the HoldbackRules of the deployment
+// T-217 on a Sepolia fork: the fallback adjudicator escalates from the first live drand quicknet round after
+// judgeBy − 1 + BEACON_MARGIN, the appeal adjudicator decides the escalation from the first round after the escalation
+// plus the margin (ADR-0032), and the HoldbackRules of the deployment
 // record, over its DrandQuicknetBeacon, accepts both decisions. A decision built from a bad proof is refused by the
 // service before any transaction. The phase-one contracts take no party appeal (ADR-0031 §8), so the appeal
 // adjudicator's turn here is the escalation's (T-349, T-374). Run it against the phase-one deployment record: the
@@ -248,8 +249,11 @@ describe.skipIf(!forkReady)(`drand quicknet decisions on a Sepolia fork (T-217)$
     must(await evm.submit({ kind: 'deliver', delivery: (await signed(seller, { ...body, type: 'Delivery' as const })) as unknown as Delivery }, { idempotencyKey: `deliver/${id}` }));
     expect(evm.escrowState(id)?.kind).toBe('Delivered');
 
-    // The fallback takes over at judgeBy and escalates from the quicknet round at judgeBy, which the contract verifies.
-    const judgeByRound = beaconRoundAt(DRAND_QUICKNET, Date.parse(terms.timing.judgeBy) / 1000);
+    // The fallback takes over at judgeBy and escalates from its round, which the contract verifies: the first round
+    // after judgeBy − 1 + the rules contract's BEACON_MARGIN (ADR-0032; 29 s on Sepolia), as core computes it.
+    const margin = evm.beaconMarginSec;
+    const fallbackRound = beaconRoundFor(evm.escrowState(id)!, 'fallback', margin)!;
+    expect(fallbackRound).toBe(beaconRoundAt(DRAND_QUICKNET, Date.parse(terms.timing.judgeBy) / 1000 - 1 + margin) + 1);
     await decided(f, 'fallback');
     const escalated = evm.escrowState(id);
     expect(escalated?.kind).toBe('Escalated');
@@ -262,12 +266,12 @@ describe.skipIf(!forkReady)(`drand quicknet decisions on a Sepolia fork (T-217)$
       for (const u of urls) expect(u).toMatch(new RegExp(`/${DRAND_QUICKNET_CHAIN_HASH.slice(2)}/public/${round}$`));
       console.log(`${who} decision: round ${round}, ${urls.length} relay request(s): ${urls.join(', ')}`);
     };
-    asked('fallback', judgeByRound);
+    asked('fallback', fallbackRound);
 
-    // The appeal adjudicator decides the escalation from the first quicknet round after it (core's beaconRoundFor).
-    // A service whose source returns a tampered proof refuses before any transaction.
-    const appealRound = beaconRoundFor(escalated!, 'appeal')!;
-    expect(appealRound).toBeGreaterThan(judgeByRound);
+    // The appeal adjudicator decides the escalation from the first quicknet round after it plus the margin (core's
+    // beaconRoundFor, ADR-0032). A service whose source returns a tampered proof refuses before any transaction.
+    const appealRound = beaconRoundFor(escalated!, 'appeal', margin)!;
+    expect(appealRound).toBeGreaterThan(fallbackRound);
     const honest = drandQuicknet({});
     const lying: RandomnessSource = {
       kind: 'drand-quicknet',

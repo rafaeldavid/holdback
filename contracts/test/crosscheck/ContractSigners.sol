@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "../unit/Base.sol";
 
@@ -212,7 +213,7 @@ abstract contract SignerBase is Base {
         );
     }
 
-    function _is(bytes32 id, HoldbackRules.Stage s) internal view {
+    function _is(bytes32 id, IHoldbackRules.Stage s) internal view {
         assertEq(uint8(_stage(id)), uint8(s), "stage");
     }
 }
