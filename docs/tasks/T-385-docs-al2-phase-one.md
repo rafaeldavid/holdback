@@ -5,7 +5,7 @@
 - **Depends on:** T-380 (package R8, merged at lane tip `73bbafa`), T-374 (AL-1), T-376 (R4b), T-378 (R6c-2), T-379 (R6c-3); T-384's first pull request for the interface file and the renamed tests
 - **Paths this task may touch:** `docs/` except `docs/tasks/` (other than this file) and `docs/cutover-phase-one.md` (T-383's); `site/llms.txt`, `site/sell.txt`, `site/index.html` and, as its only source, the vignettes in `site/build.mjs`; `README.md`; `SECURITY.md`; `contracts/README.md`; `formal/README.md`'s wording; the entries of `tests/cut-feature-alignment.known.json` that these files leave. Step 1, the merge of main, also needed two test files (`apps/demo-cloud/src/notice.test.ts`, `tests/cut-feature-alignment.test.ts`): holdback PR 432 says why
 - **Human gate:** no for the branch. Tier-3 lines (`CLAUDE.md` and the rest) go to the coordinator for Rafa. No deploy
-- **Status:** in progress (step 1, holdback PR 432)
+- **Status:** in progress (step 1 merged: holdback PR 432, `690edfd`; step 2 under way)
 - **Agent/session:** change kinds 1 and 2 (copy, agent docs and process docs), no review
 
 ## Intent
@@ -37,7 +37,8 @@ Non-goals: no code change beyond what step 1's merge needed; no change to `docs/
 
 (Filled as each pull request lands.)
 
-- Step 1: holdback PR 432, main at `e29d387` merged into the lane at `73bbafa`. `pnpm test` 3,588 passed and 197 skipped, typecheck, lint and the site check pass [measured, 2026-11-12].
+- Step 1: holdback PR 432, main at `e29d387` merged into the lane, then the lane's tip `22e5793` merged in; merged as `690edfd` after all 12 CI checks passed. Locally `pnpm test` passed 3,588 and skipped 197; typecheck, lint and the site check pass; `pnpm snap` passed 48 of 48 after the five ADR-0036 fixtures were re-seated (`b19170a`) [measured, 2026-11-12].
+- The agent docs: the cutover's copies command (`scripts/record-copies.mjs`), run on a copy of this branch with a made-up new record, finds no line in my paths that names an old deployment value [measured]; the two `HoldbackBonds` lines it failed on are gone.
 - Alignment known list: 61 files at the lane's tip `73bbafa`, 23 of them in my paths [measured].
 
 ## Handoff
