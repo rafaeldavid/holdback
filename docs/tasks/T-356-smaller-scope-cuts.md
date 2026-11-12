@@ -5,7 +5,7 @@
 - **Depends on:** T-346 and T-349 (SC-7, merged to `contracts-audit-ready` at `4f6cea0`), T-341 (the side-by-side harness and the state oracle), T-354 (the alignment test), T-345 (`ZeroPrice.t.sol`), ADR-0031 (Proposed, with D57 and D58)
 - **Paths this task may touch:** `contracts/src/`; `contracts/test/` (tests of removed features, a test for each refusal, the harness's pinned parent, allow-list and handler); `contracts/script/` where a cut requires it; `packages/core/src/` for each cut's mirror; `packages/settlement/evm/`, `apps/operator/`, `apps/adjudicator/`, `apps/demo-cloud/`, `apps/test-agents/` and `examples/e2e-*` only where a cut breaks them; `scripts/evm-abis.mjs` and `abis.json`; the fixtures' SimChain-only list; `tests/cut-feature-alignment.known.json`; this task file. Never `spec/schemas/`, `site/`, `docs/api.md`, `docs/audit/`, `examples/seller-adapter.ts`, `examples/buyer-signer.ts`, `examples/audit-deal.ts`
 - **Human gate:** no for the branch. The freeze, the merge to `main` and the redeploy are Rafa's
-- **Status:** in progress
+- **Status:** merged to contracts-audit-ready, waits for the freeze
 - **Agent/session:** implementer session, change kind 7 (smart contracts): `forge test`, one reviewer and one red team per pull request, a target of 300k tokens per pull request
 
 ## Intent
@@ -83,6 +83,8 @@ For each pull request:
 ## Evidence
 
 Filled in per pull request. Labels: measured, inferred.
+
+**In sum** [measured]: five pull requests, each reviewed by one reviewer and one red team, none with a Critical or High finding; two Mediums (SC-6's off-chain expiry, found by both) fixed before merge. `HoldbackRules` runtime 19,609 bytes at `4f6cea0` and 19,651 at SC-5: SC-1 +189, SC-2 −179, SC-6 −205, SC-3 −42, SC-5 +279, so **426 bytes freed by the cuts and 468 added by the token check and the refusals, 42 bytes more in all**. `forge test` 353 → 388 with T-357's 7 counted between SC-2 and SC-6; 7 tests of removed features removed, each named below. Alignment known list 122 → 115.
 
 ### SC-1
 
