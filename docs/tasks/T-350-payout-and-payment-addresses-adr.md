@@ -78,7 +78,7 @@ All are in ADR-0033; Rafa may overrule any of them.
 
 **For the contract package's owner:** it starts after ADR-0031's cuts of Permit2, third-party payouts, and appeals and bonds have merged. ADR-0033 section 2 says what else changes if it starts earlier.
 
-**After the merge: Rafa's answers (D62, 2026-11-11).** The field names are final and the `SettlementAddresses` event stays. The third point, an appeal window of 0 in v0.11, reached him the wrong way round and stays open; ADR-0033's section "Rafa's answers, and the points still open" has it with two options and a recommendation. The list below is the one the first PR carried.
+**After the merge: Rafa's answers (D62, 2026-11-11).** The field names are final and the `SettlementAddresses` event stays. The third point, an appeal window of 0 in v0.11, first reached him the wrong way round. Asked again on 2026-11-12, he decided it: v0.11 allows 0, and a phase-one deployment refuses any other value, in the contract too (ADR-0033 section 2b). Still his: the pilot's payment address and the Sepolia redeploy. The list below is the one the first PR carried.
 
 **Open points that are Rafa's** (ADR-0033, as first written): the two names, the new event, whether ADR-0031's schema candidate rides in v0.11, the pilot's payment address, and the Sepolia redeploy. None blocks the contract package.
 

@@ -1,6 +1,6 @@
 # ADR-0033: A payout address for the seller and a payment address for the buyer
 
-- **Status:** Proposed, 2026-11-11. Rafa decided the substance the same day (ADR-0031 section 11, D58 item 5 and its amendment). This ADR is the design he asked for; he may overrule any line. Nothing here is built. On 2026-11-11 he also decided two of its open points (D62): the field names are final and the new event stays. Three points stay open, in the section "Rafa's answers, and the points still open".
+- **Status:** Proposed, 2026-11-11. Rafa decided the substance the same day (ADR-0031 section 11, D58 item 5 and its amendment). This ADR is the design he asked for; he may overrule any line. Nothing here is built. On 2026-11-11 and 2026-11-12 he also decided three of its open points (D62): the field names are final, the new event stays, and schema v0.11 allows an appeal window of 0 that a phase-one deployment requires, in the contract too (section 2b). Two points stay open, in the section "Rafa's answers, and the points still open".
 - **Date:** 2026-11-11
 - **Raised by:** T-350, from Rafa's decision on 2026-11-11: "The contract Seller (as in agree-er) should not be the same address as the asset payout address. So that does need to get fixed in the contract architecture if it isn't already the case". Research: this note (code read at the commits named below; nothing run), then one red-team pass (section 12).
 - **Builds on:** ADR-0001 (neutrality), ADR-0002 (the hold), ADR-0003 (the escrow base), ADR-0016 (the commitment ID and the signed messages), ADR-0019 (mutual settlement), ADR-0023 (the operator fee), ADR-0024 (per-deal keys and the `Delegation`), ADR-0025 and ADR-0026 (funding), ADR-0029 (the last change to a signed type), ADR-0031 (the phase-one scope, section 11); D26, D31, D32, D35, D57, D58.
@@ -10,7 +10,7 @@
   - the client package: `examples/` (the buyer signer, the seller adapter, the audit deal, the deal record, `verify.ts`) and `site/llms.txt`.
   - This ADR itself changes no code.
 - **Order:** the contract package starts after the contract lane has merged ADR-0031's cuts of Permit2 funding, third-party payouts, and appeals and bonds. Section 2 counts its edits on that code and says what else changes if the package starts earlier.
-- **Amends:** ADR-0016 (two fields join the terms and the commitment ID), ADR-0019 (which addresses a settlement's payouts may name), ADR-0023 and ADR-0025 (who signs the operator fee and the funding), ADR-0024 section 7 (a per-deal key no longer has to hold funds), ADR-0031 section 11 (designed here).
+- **Amends:** ADR-0016 (two fields join the terms and the commitment ID), ADR-0019 (which addresses a settlement's payouts may name), ADR-0023 and ADR-0025 (who signs the operator fee and the funding), ADR-0024 section 7 (a per-deal key no longer has to hold funds), ADR-0031 section 11 (designed here) and section 8 point 3 (the appeal window becomes an enforced field on a phase-one deployment, section 2b).
 
 Labels: **measured** (read at the cited line by this task), **documented** (stated in the cited doc), **inferred** (from reading, not from a run), **guessed**. Nothing was run.
 
@@ -110,6 +110,7 @@ The referenced types and their sorted concatenation do not change: `Adjudication
 **The schema's changes (v0.11).**
 
 - `commitment.schema.json`: `buyerPaymentAddress` and `sellerPayoutAddress`, each `common.schema.json#/$defs/Address`, both in `required` (`:6-23`), placed after `seller` (`:94-96`). `schemaVersion` becomes `"0.8"`.
+- `commitment.schema.json`: `timing.appealWindowSec` takes a `minimum` of 0 (section 2b).
 - `messages.schema.json`: the descriptions of `FundingAuthorization.from` and of the operator fee's `from` say "the buyer's payment address". Their shapes do not change.
 - The prepare routes' request bodies take both fields as optional inputs (section 7). That is the operator package's change and joins v0.11.
 - `spec/README.md` gains the v0.11 entry.
@@ -135,7 +136,7 @@ The referenced types and their sorted concatenation do not change: `Adjudication
 | 3 | `_payOut`, `R:468-470` | a payout to `t.seller` is the seller's share; a payout to `t.buyer` stays in the hold for the void | a payout to `t.sellerPayoutAddress` is the seller's share; a payout to `t.buyerPaymentAddress` stays in the hold for the void; any other `to` reverts with `InvalidMessage` (ADR-0031 section 4) |
 | 4 | `_domainNameAndVersion`, `R:667` | `"0.7"` | `"0.8"` |
 
-One event joins (below). Every signature check stays on `t.buyer` and `t.seller` (`R:206`, `R:208`, `R:400`, `R:442-443`, `R:626`). Every key proof and key release stays on `t.buyer` (`R:354`, `R:404`, `R:417`, `R:446`, `R:456`): the envelope is sealed to the key in the terms and addressed to the party, not to its wallet.
+One event joins (below), and section 2b adds a fifth edit, the check on the appeal window. Every signature check stays on `t.buyer` and `t.seller` (`R:206`, `R:208`, `R:400`, `R:442-443`, `R:626`). Every key proof and key release stays on `t.buyer` (`R:354`, `R:404`, `R:417`, `R:446`, `R:456`): the envelope is sealed to the key in the terms and addressed to the party, not to its wallet.
 
 **If the package starts on code that still has a cut feature,** these also change, by the same two rules (deal money uses the payment and payout addresses; a signature's own stake stays with the signer) [measured at `5a90dc5`]:
 
@@ -196,6 +197,21 @@ One event joins (below). Every signature check stays on `t.buyer` and `t.seller`
 - The contract already compares no addresses with each other (`docs/audit/threat-model.md`, assumption TA-4). A check here would be the only one, and it would stop at the first proxy or forwarder.
 
 **Cost** [inferred from EIP constants; the building task measures]. Each address adds one calldata word to every call that carries the terms: about 370 gas per address, 740 per call (20 non-zero bytes at 16 gas, 12 zero bytes at 4). The ID's hash covers 64 more bytes. The escrow's work does not change. After the cut of appeals and bonds the size limit is not a constraint.
+
+### 2b. One more rule in the same version: an appeal window of 0 (decided by Rafa)
+
+**Schema v0.11 allows `timing.appealWindowSec` of 0, and a phase-one deployment refuses any other value: in the contract, in core and in the prepare routes.** Rafa, 2026-11-12, asked whether the contract enforces it too: "Yes, contract too". This is the candidate ADR-0031 section 8 point 3 left for "the next schema version"; it rides here so that the terms format changes once.
+
+- **Why the rule.** Phase one has no party appeal, so its contract never reads the field (ADR-0031 section 8). The schema requires at least 1 (`spec/schemas/commitment.schema.json:307-310`) [measured]. So today every phase-one deal's signed terms state an appeal window that nothing honours. With the rule they state 0, which is true.
+- **Why the contract too.** ADR-0031 gives the reason for the acceptance's `bondReserved`, and it holds here: terms that the contract takes and core refuses would leave a deal sent straight to the contract behind the operators' view.
+- **D31.** The deployment refuses only a value it cannot honour, as it refuses `maxSubmissions` other than 1.
+- **The schema.** In `commitment.schema.json` the field's `minimum` goes from 1 to 0. Its type in the signed struct stays `uint64`, so no type string changes because of this rule.
+- **The contract.** `agreeAndFund` reverts unless `t.timing.appealWindowSec` is 0, beside the checks ADR-0031 adds for `maxSubmissions` and `bondReserved`, and with the same error. It is a fifth edit to `HoldbackRules.sol`.
+- **Core and the prepare routes.** On a phase-one deployment core refuses any other value, and the prepare routes say so before anyone signs. SimChain's full protocol keeps appeals and each club's own minimum window (`packages/core/src/timing.ts:50-55`).
+- **One thing the building task must settle.** Core compares the field with the club rulebook's `minWindowsSec.appealWindow`, and the rulebook's schema requires that minimum to be at least 1 (`spec/schemas/club.schema.json:85-88`) [measured]. So a phase-one deal with a window of 0 fails core's check today. The task either lets the rulebook's minimum be 0 in v0.11 or has core's phase-one rule replace the rulebook's minimum for this field. Either way the change is in v0.11.
+- **Order of the build.** The contract cannot require 0 while the schema still requires at least 1. The contract's check lands in the same change as v0.11, not before it.
+- **Tests.** On the contract: terms with a window of 1 revert, and terms with 0 fund. In core: a phase-one deployment refuses 1 and takes 0, and SimChain's full protocol still takes a club's window. `tests/spec.test.ts`: a commitment with a window of 0 passes validation. The fixtures that run on the contract state 0.
+- **What it amends.** ADR-0031 section 8 point 3 and its table row "`timing.appealWindowSec`, at least 1: signed, not read": from v0.11 the field is enforced on a phase-one deployment, as 0.
 
 ### 3. Who signs what
 
@@ -540,31 +556,20 @@ One `red-teamer` pass read the first draft of this ADR, the contracts, the vendo
 
 ## Rafa's answers, and the points still open
 
-This ADR first listed five open points. Rafa answered on 2026-11-11 (D62). Two are decided, and three stay open. None blocks the contract package.
+This ADR first listed five open points. Rafa answered three of them on 2026-11-11 and 2026-11-12 (D62). Two stay open. None blocks the contract package.
 
-### Decided by Rafa, 2026-11-11
+### Decided by Rafa
 
-In the coordinating session, after a walk-through of the first three points, Rafa said: **"Accept all three"**. Two of the three were put to him as this ADR states them, and they are decided.
+1. **The field names are final:** `buyerPaymentAddress` and `sellerPayoutAddress` (2026-11-11). He was told that a rename after the contract package merges would be another change to the signed terms.
+2. **The new event stays:** `SettlementAddresses` (2026-11-11). His standing rule is that events are kept, for tracing, telemetry and monitoring. He was given the cost: about 1,900 gas per deal [inferred, section 2].
+3. **Schema v0.11 allows an appeal window of 0, and a phase-one deployment requires it, in the contract too** (2026-11-12). Section 2b is the design.
 
-1. **The field names are final:** `buyerPaymentAddress` and `sellerPayoutAddress`. He was told that a rename after the contract package merges would be another change to the signed terms.
-2. **The new event stays:** `SettlementAddresses`. His standing rule is that events are kept, for tracing, telemetry and monitoring. He was given the cost: about 1,900 gas per deal [inferred, section 2].
+**His words.** On the first two, in the coordinating session after a walk-through: "Accept all three". On the third, asked where the rule is enforced, with both views in front of him: **"Yes, contract too"**.
 
-### Not decided: the third point reached him the wrong way round
-
-- **What he was asked** [documented by the coordinating session]: "Add one more rule in the same version? Refusing an appeal window of zero ... a value of zero makes no sense in any case, and the format could refuse it."
-- **Why that decides nothing.** The schema already refuses zero: `timing.appealWindowSec` has `minimum: 1` (`spec/schemas/commitment.schema.json:307-310`) [measured]. The candidate is the reverse (point 3 below). His "Accept all three" was an answer to a question that did not describe it, so this ADR does not record point 3 as decided. The coordinating session puts it to him again.
+**How the third point was decided, for the record.** The walk-through on 2026-11-11 put it to him the wrong way round: "Refusing an appeal window of zero ... the format could refuse it." The schema already refuses zero (`spec/schemas/commitment.schema.json:307-310`, `minimum: 1`) [measured], and the candidate is the reverse. So his "Accept all three" did not decide it. The coordinating session asked again shortly after 00:00 UTC on 2026-11-12, with ADR-0031's candidate as it is written and the choice of where to enforce it: in the contract, core and the prepare routes, or in core and the prepare routes only. He chose the first.
 
 ### Still open
 
-3. **Should schema v0.11 allow an appeal window of 0, and should a phase-one deployment require it?**
-   - **The candidate, as ADR-0031 section 8 point 3 has it:** "allow 0, and have the phase-one contract refuse any other value, as it refuses `maxSubmissions` above 1."
-   - **Why it exists.** Phase one has no party appeal, so its contract never reads `appealWindowSec` (ADR-0031 section 8). The schema requires at least 1. So every phase-one deal's signed terms state an appeal window that nothing honours.
-   - **What changes in the schema:** the field's `minimum` goes from 1 to 0. Its type in the signed struct stays `uint64`, so the type string does not change. On the full protocol core still requires each club's own minimum window (`packages/core/src/timing.ts:50-55`), so SimChain's deals keep their windows.
-   - **Option A: the contract, core and the prepare routes all require 0 on a phase-one deployment.** `agreeAndFund` reverts on any other value, as it does for `maxSubmissions` other than 1 and for a `bondReserved` other than 0 (ADR-0031 sections 6 and 8). It costs one comparison.
-   - **Option B: core and the prepare routes require 0; the contract does not check.** The contract is one comparison smaller. A deal funded by a direct transaction with a window above 0 is then taken by the contract and refused by core, so it falls behind the operators' view, and its terms still promise an appeal.
-   - **Recommended: A.** It is the rule Rafa agreed for the two fields beside it ("Agree with your strict rules", D58 item 3), and it keeps the contract and core equal, which is what stops a direct deal from falling behind. Under D31 it refuses only a value this deployment cannot honour.
-   - **If it is decided before the contract package starts,** it rides in v0.11 and the fixtures' IDs move once. Decided later, it needs schema v0.12 and moves every phase-one fixture's ID a second time, with no change to the domain version.
-   - **Until it is decided,** v0.11 keeps `minimum: 1`, and the field stays signed and not read, as ADR-0031 records.
 4. **The pilot's first deal.** Which of Rafa's addresses is the payment address, and which wallet signs the funding, is his choice when the deal is prepared.
 5. **The Sepolia redeploy and the Worker switch** wait for him, as for every contract change.
 
