@@ -194,8 +194,9 @@ Run `cd $W` once step 0 has made the worktree; the round of item 16 reads `.env`
    - **Today's deployer is short.** The deployer of the 2026-11-04 record, `0x1A4435488eaF1A37d2327d44Fe67e97d83203B64`, held 0.1074 Sepolia ETH at 19:59 UTC on 2026-11-12 [measured by the coordinator]. Fund it, or use a new throwaway key, before anything else.
 2. **Step 0, baseline.**
    - `git -C /Users/rafa/Documents/escrow fetch origin`.
-   - Make the worktree at the frozen commit: `git -C /Users/rafa/Documents/escrow worktree add $W -b cutover-phase-one <frozen commit>`. The candidate is `0180a39f941194f3a90733e5f785675caa6c2f32`, or the lane's tip Rafa names on the day. Then run the page's submodule and install lines, and `cd $W`.
-   - `git -C $W diff --quiet 0180a39f941194f3a90733e5f785675caa6c2f32 -- contracts/src contracts/lib contracts/foundry.toml contracts/remappings.txt contracts/script/TestUSDC.sol; echo $?` prints `0`.
+   - **The frozen commit** is the lane's tip at the moment of the freeze. It comes after the reviews' pull request (449), the mutation run's tests-only pull request and the open tool and docs pull requests have merged, and nothing merges to the lane after it until step 11.2b. It is not `0180a39`, which lacks the tools and docs merged after it.
+   - Make the worktree there: `git -C /Users/rafa/Documents/escrow worktree add $W -b cutover-phase-one <frozen commit>`. Then run the page's submodule and install lines, and `cd $W`.
+   - **Its `contracts/src` equals `0180a39`'s,** the last commit that changed it. `git -C $W diff --quiet 0180a39f941194f3a90733e5f785675caa6c2f32 -- contracts/src; echo $?` prints `0`. The page's runtime-hash command (step 0.1.2) prints `HoldbackRules` 20,449 bytes `545f80b5…0c47` and `DrandQuicknetBeacon` 3,216 bytes `3a8c11c6…e38c96`.
    - `git -C $W merge-base --is-ancestor origin/main HEAD; echo $?` prints `0`.
    - Run `npx wrangler@4 deployments status --name <each Worker> --json` for holdback-op1, holdback-op2, crow-test-agents and crow-site. Write the four versions down: they are the rollback targets.
    - From here to step 11 the coordinator holds every merge to `main`.
@@ -227,12 +228,16 @@ Run `cd $W` once step 0 has made the worktree; the round of item 16 reads `.env`
 21. **The rest of step 11.**
     - `$W/contracts/script/deploy-sepolia.sh --check $R` from `main`.
     - The pull request from `cutover-phase-one` into `contracts-audit-ready` (11.2b), merged once `check` and `gitleaks` pass.
-    - The tag, which completes point of no return 2. Rafa runs, on the record's commit:
+    - The tag, which completes point of no return 2. It goes on step 11.1's merge commit on `main`. The coordinator holds every other merge, so `origin/main` is that commit; check its subject names the step-3 pull request first. Rafa runs:
 
       ```sh
-      git -C $W tag -a contracts-phase-one-1 "$(jq -r .commit $W/contracts/deployments/sepolia.json)" -m "Holdback phase-one contracts, frozen for the audit and deployed on Sepolia"
+      git -C $W fetch origin main
+      git -C $W log -1 --format='%H %s' origin/main
+      git -C $W tag -a contracts-phase-one-1 origin/main -m "Holdback phase-one contracts, frozen for the audit and deployed on Sepolia"
       git -C $W push origin contracts-phase-one-1
       ```
+
+    - **An auditor checks the tag** with the page's two `git diff --quiet` lines (step 11.3). The first compares the tag with the record's `commit`, the second with `0180a39`, both over `contracts/src`; each prints `0`. Then the runtime hashes at the tag match step 0.1.2's.
 
     - Then `docs/audit/scope.md` and the rehearsal cases.
 
