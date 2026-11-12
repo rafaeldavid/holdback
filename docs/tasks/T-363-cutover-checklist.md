@@ -5,7 +5,7 @@
 - **Depends on:** T-346 and T-349 (party appeals and bonds cut, on and off chain), T-356 (the smaller cuts), T-357 (the late-work settlement), all merged into `contracts-audit-ready`. The second pass waits for T-358 (two addresses in the signed terms, schema v0.11, EIP-712 domain 0.8), the refactors (R7), the remaining fixes (R8) and the deploy-script package
 - **Paths this task may touch:** `docs/cutover-phase-one.md` (new), `docs/tasks/T-363-cutover-checklist.md`
 - **Human gate:** no for the document. Every step the checklist describes is Rafa's: deploys, live runs, the merge to `main`, the tag
-- **Status:** review
+- **Status:** done (the first pass, rafaeldavid/holdback#379 into `contracts-audit-ready`; the second pass and the rehearsal are later tasks)
 - **Agent/session:** author session, 2026-11-12. The brief names change kind 1 (docs); the paths are `docs/`, which `docs/team.md` lists under kind 2. Neither kind asks for a review
 
 ## Intent
