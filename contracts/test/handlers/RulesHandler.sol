@@ -49,7 +49,7 @@ interface IDeployedVault {
 ///         - seven actors: buyer, seller, three adjudicators, an operator and an unrelated address. Every call is
 ///           sent from one of them, and every signature is made by one of their keys;
 ///         - at most MAX_DEALS commitments over two tokens, with fuzzed price, fee, adjudicator roles (an address may
-///           hold two roles) and timing (ordered, or any order: D31);
+///           hold two roles) and timing (strictly ordered, or, one offer in 32, any order, which SC-5 refuses);
 ///         - forward time warps that land on, one second before or one second after every deadline.
 ///         Each call's outcome is checked against what the rules allow, and violations are counted in ghost
 ///         variables that `test/invariant/RulesInvariants.t.sol` reads. A call the rules refuse, with no violation

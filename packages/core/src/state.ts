@@ -218,8 +218,9 @@ export function offer(input: OfferInput): R<Extract<EscrowState, { kind: 'Offere
 
   const timing = validateTiming(terms.timing, rulebook);
   if (!timing.ok) return timing;
-  // ADR-0031 §6 (SC-5): what the phase-one contracts refuse at funding, refused here before anyone signs. The strict
-  // deadline order is validateTiming's, which the contract copies.
+  // ADR-0031 §6 (SC-5): what the phase-one contracts refuse at funding, refused at the offer, before the buyer and the
+  // adjudicator sign (the operator's prepare route says it before the seller signs). The strict deadline order is
+  // validateTiming's, which the contract copies.
   if (input.profile === 'phase_one') {
     if (terms.timing.maxSubmissions !== 1) return fail('invalid_terms', `timing.maxSubmissions ${terms.timing.maxSubmissions}: the phase-one contracts take one delivery (1 only)`);
     if (terms.timing.appealDecideSec < 1) return fail('invalid_terms', 'timing.appealDecideSec must be at least 1: with 0 no escalation could be decided');

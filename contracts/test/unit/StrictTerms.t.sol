@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
+
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
@@ -14,7 +16,7 @@ import {Base} from "./Base.sol";
 ///         - an escalation decision window (`appealDecideSec`) of 0, which the schema already forbids.
 ///         Every refused input was funded by the parent (`test/differential/parent/`). A zero price is not refused
 ///         (Rafa, 2026-11-11); a deal that holds nothing (price 0 and fee 0) is refused by the escrow itself
-///         (`ZeroPrice.t.sol`, `test_zeroPriceZeroFee_cannotFund_escrowRefusesZeroAmount`). `appealWindowSec` is not
+///         (`test_zeroPriceZeroFee_escrowRefusesZeroAmount` below; on `main`, `ZeroPrice.t.sol`). `appealWindowSec` is not
 ///         checked: whether phase one requires it to be 0 is open with Rafa.
 contract StrictTermsTest is Base {
     /// Relays `agreeAndFund` for `t` with every message correctly signed for it; returns the outcome.
@@ -146,6 +148,18 @@ contract StrictTermsTest is Base {
         H.Terms memory t = _terms();
         t.price = 0;
         _funds(t);
+    }
+
+    /// The deal that holds nothing (price 0 and fee 0) is not one of SC-5's refusals: the rules contract lets it
+    /// through, and the escrow refuses to hold 0 with its own `ZeroAmount`. Pinned here on the lane (as on `main` in
+    /// `ZeroPrice.t.sol`, T-345); core and the operator's prepare routes refuse it off chain with that reason.
+    function test_zeroPriceZeroFee_escrowRefusesZeroAmount() public {
+        H.Terms memory t = _terms();
+        (t.price, t.fee) = (0, 0);
+        (bool ok, bytes memory ret) = _fundCall(t);
+        assertFalse(ok);
+        assertEq(ret, abi.encodeWithSelector(AuthCaptureEscrow.ZeroAmount.selector));
+        assertEq(uint8(rules.dealOf(hx.id(t)).stage), uint8(HoldbackRules.Stage.None));
     }
 
     /// The refusal comes before the signature checks: wrong-key terms out of order answer `InvalidMessage`.

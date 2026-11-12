@@ -28,8 +28,9 @@ contract KnownSeedFallbackTest is Base {
         H.Terms memory t = _pastJudgeBy();
         bytes32 id = hx.id(t);
         uint64 round = sim.roundAt(t.timing.judgeBy);
-        bytes32 value = sim.beaconValue(round, ""); // public already: the reason the terms must not fund
-        assertTrue(hx.panelSeed(id, H.ROLE_FALLBACK, 1, value) != bytes32(0));
+        // The beacon already serves the round (it refuses a future one: the control test below), so the seed would be
+        // public before funding: the reason such terms must not fund.
+        sim.beaconValue(round, "");
         bytes memory ss = _sellerSig(t, SELLER_PK);
         H.Acceptance memory acc = _acceptance(t, ADJ_PK);
         H.Agree memory ag = _agree(t, BUYER_PK);
