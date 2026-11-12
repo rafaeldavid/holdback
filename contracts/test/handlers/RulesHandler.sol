@@ -281,10 +281,10 @@ contract RulesHandler is Base {
         }
     }
 
-    /// The seed tag every funded deal stores: the low 144 bits of the primary's seed commitment, which every
-    /// acceptance this handler signs carries (`Base._acceptance`). The state oracle checks it (T-341).
-    function seedTag() external pure returns (uint144) {
-        return uint144(uint256(keccak256(abi.encodePacked(SEED))));
+    /// The seed tag funded deal `id` stores: the primary's seed commitment, which every acceptance this handler signs
+    /// carries (`Base._acceptance`), hashed with the ID (T-380, L-4). The state oracle checks it (T-341).
+    function seedTag(bytes32 id) external pure returns (uint144) {
+        return H.seedTag(keccak256(abi.encodePacked(SEED)), id);
     }
 
     /// CPP's whole payment state for commitment i (T-341: the side-by-side harness compares it).

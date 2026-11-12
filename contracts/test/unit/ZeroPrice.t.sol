@@ -106,7 +106,7 @@ contract ZeroPriceDealTest is Base {
         assertEq(uint8(d.stage), uint8(stage), "stage");
         assertEq(d.attempt, attempt, "attempt");
         assertEq(d.t1, t1, "t1");
-        assertEq(d.seedTag, uint144(uint256(keccak256(abi.encodePacked(SEED)))), "seedTag");
+        assertEq(d.seedTag, H.seedTag(keccak256(abi.encodePacked(SEED)), id), "seedTag");
         assertEq(rules.deliveryHashOf(id), attempt == 1 ? _postedHash(id) : bytes32(0), "dh");
     }
 

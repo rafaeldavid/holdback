@@ -209,7 +209,7 @@ contract StateOracleTest is Test {
         bytes32 slot = _slot(id, 0);
         uint256 word = uint256(vm.load(address(rules), slot));
         assertEq(uint8(word), uint8(HoldbackRules.Stage.Held), "slot 0 is not _deals");
-        assertEq(h.word(id).seedTag, h.seedTag(), "the word's layout is not stage, attempt, t1, seedTag");
+        assertEq(h.word(id).seedTag, h.seedTag(id), "the word's layout is not stage, attempt, t1, seedTag");
         this.assertAllLegal(h);
         uint256 low = ~uint256(0xffff);
         StateOracle.State memory s = StateOracle.read(h, 0);
@@ -265,12 +265,12 @@ contract StateOracleTest is Test {
             stage: HoldbackRules.Stage.Escalated,
             attempt: 1,
             t1: t1,
-            seedTag: h.seedTag(),
+            seedTag: h.seedTag(h.dealId(0)),
             reason: HoldbackRules.Reason.Open,
             decider: HoldbackRules.Decider.None
         });
         s.deliveryHash = keccak256("a delivery");
-        s.seedTag = h.seedTag();
+        s.seedTag = h.seedTag(h.dealId(0));
         s.capturable = uint120(t.price + t.fee);
     }
 
