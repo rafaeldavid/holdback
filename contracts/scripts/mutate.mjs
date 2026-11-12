@@ -38,7 +38,8 @@
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   GAS_CAP_REGEX,
   ROOT,
@@ -63,11 +64,34 @@ const args = flags(process.argv.slice(2), {
   'no-full': 'bool',
   'timeout-min': 'value',
   build: 'value',
+  list: 'value',
+  check: 'bool',
 });
 const timeoutMs = Number(args['timeout-min'] ?? 30) * 60_000;
 const build = args.build ?? 'fast';
 if (!['fast', 'full'].includes(build)) fail('--build is fast or full');
-const list = JSON.parse(readFileSync(new URL('./mutants.json', import.meta.url), 'utf8')).mutants;
+
+/**
+ * The mutant list: mutants.json, or the file --list names. A list with `inherit` takes the inherited file's mutants
+ * in their order, drops the ids in `retired`, replaces in place the ids it redefines, and appends its new ones.
+ */
+function loadList(path) {
+  const own = JSON.parse(readFileSync(path, 'utf8'));
+  if (!own.inherit) return own.mutants;
+  const base = loadList(join(dirname(path), own.inherit));
+  const retired = own.retired ?? {};
+  const redefined = new Map(own.mutants.map((m) => [m.id, m]));
+  const unknown = [...Object.keys(retired), ...redefined.keys()].filter((id) => !base.some((m) => m.id === id) && !/^L/.test(id));
+  if (unknown.length) fail(`${path}: retires or redefines ids its base does not have: ${unknown.join(', ')}`);
+  const merged = base.filter((m) => !(m.id in retired)).map((m) => redefined.get(m.id) ?? m);
+  const added = own.mutants.filter((m) => !base.some((b) => b.id === m.id));
+  return [...merged, ...added];
+}
+const listPath = args.list ? join(ROOT, args.list) : fileURLToPath(new URL('./mutants.json', import.meta.url));
+const list = loadList(listPath);
+const ids = list.map((m) => m.id);
+const repeated = [...new Set(ids.filter((id, i) => ids.indexOf(id) !== i))];
+if (repeated.length) fail(`${listPath}: duplicate mutant ids: ${repeated.join(', ')}; give each mutant its own id`);
 const bad = list.filter((m) => !/^src\/[A-Za-z0-9_]+\.sol$/.test(m.file) || typeof m.find !== 'string' || !m.find);
 if (bad.length) fail(`mutants.json: ${bad.map((m) => m.id).join(', ')} name a file outside src/ or have no find`);
 let chosen = list;
@@ -84,9 +108,35 @@ const guard = () => {
   if (!sameTree(before, hashTree(realSrc))) fail(`the checkout's contracts/src changed during the run; stopping`);
 };
 
-const run = `${(args.ref ?? 'worktree').replace(/[^A-Za-z0-9._-]+/g, '_')}-${build}`;
+const log = (s) => process.stdout.write(`${s}\n`);
+const listTag = args.list ? `-${basename(args.list, '.json')}` : '';
+const run = `${(args.ref ?? 'worktree').replace(/[^A-Za-z0-9._-]+/g, '_')}-${build}${listTag}`;
 lock(`mutation-${run}`);
 const { contracts, label, commit } = prepareCopy(`mutation-${run}`, args.ref ?? null);
+
+// --check: say which mutants apply to this source exactly once, and stop. No forge runs.
+if (args.check) {
+  const where = { applies: [], missing: [], twice: [] };
+  for (const m of chosen) {
+    let text = '';
+    try {
+      text = readFileSync(join(contracts, m.file), 'utf8');
+    } catch {
+      where.missing.push(`${m.id} (no ${m.file})`);
+      continue;
+    }
+    const at = text.indexOf(m.find);
+    if (at < 0) where.missing.push(m.id);
+    else if (text.indexOf(m.find, at + 1) >= 0) where.twice.push(m.id);
+    else where.applies.push(`${m.id} ${m.file}:${text.slice(0, at).split('\n').length}`);
+  }
+  log(`check of ${chosen.length} mutants from ${listPath} against ${label}:`);
+  log(`  apply once: ${where.applies.length}`);
+  log(`  text missing (stale): ${where.missing.length}${where.missing.length ? ` ${where.missing.join(', ')}` : ''}`);
+  log(`  text found twice: ${where.twice.length}${where.twice.length ? ` ${where.twice.join(', ')}` : ''}`);
+  rmSync(join(SCRATCH, `mutation-${run}`), { recursive: true, force: true });
+  process.exit(where.missing.length + where.twice.length === 0 ? 0 : 1);
+}
 const resultsPath = join(SCRATCH, `mutation-${run}.json`);
 const reportPath = join(SCRATCH, `mutation-${run}.md`);
 const sha = (s) => createHash('sha256').update(s).digest('hex');
@@ -139,7 +189,6 @@ const hasHarness = existsSync(sideBySide);
 if (hasHarness) cpSync(sideBySide, harness);
 rmSync(sideBySide, { force: true });
 
-const log = (s) => process.stdout.write(`${s}\n`);
 const forge = (sub, extra = []) => {
   const t0 = Date.now();
   const seed = sub === 'test' ? ['--fuzz-seed', FUZZ_SEED] : [];
@@ -213,7 +262,17 @@ const report = () => {
         `| ${r.id}${r.money ? ' (money)' : ''} | ${r.verdict} | ${r.file}${r.line ? `:${r.line}` : ''} | ${r.op}: ${r.what} | ${(r.killedBy ?? [])[0] ?? r.detail ?? ''} | ${r.full ?? ''}${r.fullKilledBy?.length ? ` (${r.fullKilledBy[0]})` : ''} | ${r.seconds} |`,
     ),
     '',
+    `## Survivors, with the mutated text`,
+    '',
+    `Line numbers are those of commit ${commit}; the text below finds the line after comments move it.`,
+    '',
   ];
+  const oneLine = (s) => s.replace(/\s+/g, ' ').trim() || '(nothing)';
+  for (const r of rows.filter((x) => x.verdict === 'survived' && x.full !== 'killed')) {
+    const m = chosen.find((x) => x.id === r.id);
+    md.push(`- **${r.id}**, ${r.file}:${r.line}, ${r.what}: \`${oneLine(m.find)}\` became \`${oneLine(m.replace)}\``);
+  }
+  md.push('');
   writeFileSync(reportPath, md.join('\n'));
   return md[4];
 };
