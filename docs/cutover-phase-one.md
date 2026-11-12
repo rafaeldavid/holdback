@@ -152,7 +152,7 @@ This page moves the live test service from the contracts deployed on 2026-11-04 
 
 **Why one commit:** a world refuses to open against another rules address (`apps/demo-cloud/src/world.ts:507`), and a new world stores its rules address before it checks the chain (`:503`, `:915`) [measured]. A build with the new name and the old record would create the new world on the old contracts, and that name could not be used again [inferred]. So the record, the world's name and every copy move together. Since T-383 the world's name is the record's rules address in both Workers, so the name cannot lag the record.
 
-**The files.** The copies command of step 3.1 (`scripts/record-copies.mjs`, T-383) writes the first six rows; the rest stay by hand:
+**The files.** The copies command of step 3.1 (`scripts/record-copies.mjs`, T-383) writes rows 3 to 6; step 2 wrote rows 1 and 2, the Workers need no edit (row 7), and the rest stay by hand:
 
 | File | What changes | Guarded by |
 | --- | --- | --- |
@@ -162,8 +162,8 @@ This page moves the live test service from the contracts deployed on 2026-11-04 
 | `site/llms.txt`, `examples/verify.ts`, `tools/contract-stack/plain.json` | The command replaces each old address and hash with the new one, in the letter case it was written in | `node site/check.mjs` compares both blocks with `examples/verify.ts` |
 | `packages/settlement/evm/accepted-tokens.json` | The command replaces Sepolia's token with the new one | `deploy-sepolia.sh --check`, and the operators' start-up |
 | `site/try.mjs`, `site/index.html` | The command runs `node site/build.mjs`. The bundle's SHA-256 changes, so the one command changes | `examples/try.test.ts`, `site/check.mjs` |
-| `apps/demo-cloud/src/worker.ts`, `apps/test-agents/src/worker.ts` | No edit: each Worker names its Sepolia world by the record's rules address. `WORLD_NAMES.sim` is R6c-2's, because schema v0.11 changes what a stored SimChain journal replays ([`operations.md`](operations.md), "A world changes in place") | `apps/demo-cloud/src/worker.test.ts` |
-| `scripts/contract-stack.mjs:55-65`, `tests/contract-stack.test.ts:33`, `tools/contract-stack/plain.json` | The address lists and the plain-words file drop the vault and the second collector, which are not in phase one | `tests/contract-stack.test.ts` |
+| `apps/demo-cloud/src/worker.ts`, `apps/test-agents/src/worker.ts` | No edit: each Worker names its Sepolia world by the record's rules address. `WORLD_NAMES.sim` is already `holdback-public-demo-sim-2026-11-12`, because schema v0.11 changes what a stored SimChain journal replays ([`operations.md`](operations.md), "A world changes in place") | `apps/demo-cloud/src/worker.test.ts` |
+| `scripts/contract-stack.mjs:55-65`, `tests/contract-stack.test.ts:33`, the words of `tools/contract-stack/plain.json` (its addresses are the command's) | The address lists and the plain-words file drop the vault and the second collector, which are not in phase one | `tests/contract-stack.test.ts` |
 | `tests/cut-feature-alignment.known.json` | Shrinks by the files this commit fixed: `pnpm -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one exec vitest run tests/cut-feature-alignment.test.ts -u`, then read its diff: only removals | the test itself |
 | `.gitleaksignore` | **Rafa's file.** gitleaks flagged the record and its copies at both earlier deployments (`:34-36`, `:49-55`). Each entry names the commit, so it can only be written after the commit exists | the `gitleaks` CI job |
 | `contracts/README.md:84-85`, [`operations.md`](operations.md), `docs/audit/scope.md` | The words package and step 11 own these | none |
@@ -172,7 +172,7 @@ This page moves the live test service from the contracts deployed on 2026-11-04 
 
 **Do:**
 
-1. **Write the record's copies, by one command.** It substitutes, rebuilds the site, then sweeps: it fails, naming each `file:line`, if any old address or hash remains in a tracked file outside the dated records, `docs/`, the recorded fixtures under `tests/metrics/fixtures/` and three fixed test vectors (`examples/e2e-run.test.ts`, `examples/e2e-adjudicator.test.ts`, `examples/send-timeout.test.ts`). The list and the reason for each are at the top of the script.
+1. **Write the record's copies, by one command.** It substitutes, rebuilds the site, then sweeps: it fails, naming each `file:line`, if any old address or hash remains in a tracked file, in any spelling (no `0x`, padded to 32 bytes, inside a longer hex string), outside its history list: the dated records; `docs/tasks/`, `docs/reviews/`, `docs/research/`, `docs/operations.md`, this page, and `docs/audit/scope.md` (step 11.4 rewrites it); the recorded fixtures under `tests/metrics/fixtures/`; and three fixed test vectors (`examples/e2e-run.test.ts`, `examples/e2e-adjudicator.test.ts`, `examples/send-timeout.test.ts`). The list and the reason for each are at the top of the script.
 
    ```sh
    node /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/scripts/record-copies.mjs --old contracts/deployments/sepolia-2026-11-04-domain-0.7.json --new contracts/deployments/sepolia.json
@@ -192,7 +192,7 @@ This page moves the live test service from the contracts deployed on 2026-11-04 
    /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/contracts/script/deploy-sepolia.sh --verify https://ethereum-sepolia-rpc.publicnode.com
    ```
 
-   It must end with `the five contracts are verified on Sourcify` (and Etherscan, with a key). What Sourcify and Etherscan answer on Sepolia has not been tried [T-383 tested the commands it builds on a local chain only].
+   It must end with `the five contracts are verified on Sourcify` (and Etherscan, with a key). What Sourcify and Etherscan answer on Sepolia has not been tried [T-383 tested the commands it builds on a local chain only]. It verifies all five on Sourcify before any on Etherscan, and it replaces the key's value in forge's output before printing it. **Expect Etherscan to fail with the pinned forge 1.0.0:** its binary names only Etherscan's V1 endpoint, which Etherscan has retired [inferred by the T-383 review from the binary; not run]. Sourcify does not depend on it. Etherscan needs a newer forge, which is Rafa's decision with the key.
 4. Check the site:
 
    ```sh
@@ -238,7 +238,7 @@ Run them one at a time. If publicnode makes anvil exit, use `https://sepolia.gat
 
 1. Repeat the list of step 1.3 on both nodes. It must be empty, or hold only deals recorded as left behind in step 1.5.
 2. Read `head.eventSeq` from `https://api.crow.direct/v1/status` and `https://api2.crow.direct/v1/status` twice, 30 s apart. It must not move [documented, the check before T-220's deploy].
-3. Read the agents: `curl -s https://crow.direct/agents/test-seller/health` and `curl -s https://crow.direct/agents/test-buyer/health`. Each must say `"open": 0`. The agents' storage is new with each record (T-383: its name is the record's rules address), so a deal one of them still holds stays in the old storage, which a rollback serves again.
+3. Read the agents: `curl -s https://crow.direct/agents/test-seller/health` and `curl -s https://crow.direct/agents/test-buyer/health`. Each must say `"open": 0`. If one does not, the deal it holds is on the old contracts: record its ID as left behind (step 1.5), as for an operator's deal. The agents' storage is new with each record (T-383: its name is the record's rules address), so that deal stays in the old storage, which a rollback serves again.
 
 **It must show:** all three lines true within the same minute.
 **The race that remains:** a stranger can open a deal between this check and step 6, because nothing can refuse new deals (gap 1 of T-363). Step 6.5 looks for it.
@@ -400,7 +400,7 @@ It must show the new rules address, the new token and the new world's start bloc
 3. **The old record must be copied before the deploy,** because the script writes over it.
 4. **The test agents open no deal on their own, and nothing can pause a deal's sources.** The quiet is a wait and two checks, with a race that remains.
 5. **A new token, new adjudicator addresses and a new rulebook hash** come with the new world. Anyone who pinned the old ones must read them again.
-6. **The SimChain world's name** must move with schema v0.11, or the rollback path to SimChain refuses its stored journal. **Second pass.**
+6. **The SimChain world's name** moves with schema v0.11, or the rollback path to SimChain refuses its stored journal. Done: `holdback-public-demo-sim-2026-11-12` (T-383, for T-378).
 7. **The one command fails between steps 6 and 9,** and the live test agents refuse to sign between steps 6 and 8.
 8. **The old world's alarm** fails harmlessly after step 6, and its error line is expected.
 9. **A deal left on the old contracts has no operator** after step 6 and no tool to send its timeouts.
@@ -419,7 +419,7 @@ It must show the new rules address, the new token and the new world's start bloc
 | Step 2.6, step 6.4 | T-358 | The domain reads 0.8 and the schema 0.11 |
 | Step 3.3 | Rafa, for an Etherscan key | Done by T-383: `deploy-sepolia.sh --verify`, Sourcify with no key; Etherscan when `ETHERSCAN_API_KEY` is set. Not tried against the real explorers |
 | Step 3, the versions and the test rulebooks | T-358; an owner for the two test rulebooks | They land on the lane before the freeze, not in the cutover's commit |
-| Step 3, `WORLD_NAMES.sim` | T-358 | The SimChain world's new name |
+| Step 3, `WORLD_NAMES.sim` | none | Done: `holdback-public-demo-sim-2026-11-12` |
 | Step 4 | The code-alignment package | Three fork suites rewritten for the phase-one record; the pre-deploy suite's place decided |
 | Step 6, the start-up check | none | Done: T-358's domain 0.8, and T-383's token check and old-record test |
 | Step 6.4, the club's minimum appeal window | T-358 | The rulebook and a required window of 0 agree |
