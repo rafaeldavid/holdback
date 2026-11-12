@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -9,7 +10,7 @@ import {Base} from "./Base.sol";
 /// panelSeed(id, role, attempt, beaconValue), so a free attempt would let the decider pick one of 256 seeds
 /// (ADR-0018: no field the decider controls may change the seed). Rounds are read from the deal, because
 /// block.timestamp is not re-read after a warp under via_ir.
-contract AppealAttemptTest is Base {
+contract EscalationAttemptTest is Base {
     function _escalated() internal returns (H.Terms memory t, bytes32 id, uint64 round) {
         (t, id) = _funded();
         _deliver(t, id);
@@ -34,7 +35,7 @@ contract AppealAttemptTest is Base {
     function test_afterEscalation_refusesASeedFromAnotherAttempt() public {
         (H.Terms memory t, bytes32 id, uint64 round) = _escalated();
         H.Decision memory m = _beaconAttempt(t, id, H.ROLE_APPEAL, round, 2);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.decide(t, m, _noDelivery(), "");
     }
 
@@ -44,7 +45,7 @@ contract AppealAttemptTest is Base {
         vm.warp(t.timing.judgeBy);
         rules.triggerFallback(t);
         H.Decision memory m = _beaconAttempt(t, id, H.ROLE_FALLBACK, t.timing.judgeBy, 2);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.decide(t, m, _noDelivery(), "");
     }
 
@@ -54,7 +55,7 @@ contract AppealAttemptTest is Base {
         H.Decision memory m = _decision(H.ROLE_PRIMARY, H.OUTCOME_ACCEPT);
         m.attempt = 2;
         m = _signDecision(t, id, m, adjudicator, ADJ_PK);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.decide(t, m, _noDelivery(), "");
     }
 
@@ -65,13 +66,13 @@ contract AppealAttemptTest is Base {
         H.Decision memory m = _decision(H.ROLE_PRIMARY, H.OUTCOME_ACCEPT);
         m.attempt = 2;
         m = _signDecision(t, id, m, adjudicator, ADJ_PK);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.decide(t, m, dv, sig);
     }
 
     function test_afterEscalation_decidesWithTheDeliveryAttempt() public {
         (H.Terms memory t, bytes32 id, uint64 round) = _escalated();
         rules.decide(t, _beaconAttempt(t, id, H.ROLE_APPEAL, round, 1), _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
     }
 }

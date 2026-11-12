@@ -147,7 +147,7 @@ export const strip = (md) => md.split('\n').filter((l) => !l.startsWith('%% ')).
  *   - Spare height is shared by three gaps (above the claim, the value prop and the footer), never left in one.
  * The faint code streams down each side are the case study's code (examples/buy-dataset.ts): the buyer's on the
  * left, the seller's on the right, each with its call results as comments. They type in deal order through four
- * deals (release, refund, default, appeal); below 1100 px wide each spans half the page, fainter, behind the content.
+ * deals (release, refund, default, escalation); below 1100 px wide each spans half the page, fainter, behind the content.
  */
 /** The page's description, og and twitter text (Rafa's mock). */
 export const DESCRIPTION = 'Verifiable settlement for AI commerce. Sell to any agent. Buy from any agent.';
@@ -268,22 +268,20 @@ const SCRIPT = `<script>
         [1500, 'b', "// judgeBy and fallbackBy pass with no decision from either adjudicator"],
         [1500, 's', "// judgeBy and fallbackBy pass with no decision from either adjudicator"],
         [2200, 'b', "await buyer.call('POST', '/v1/commitments/' + offer.id + '/triggers/default');"],
-        [2350, 'b', "// \\u2192 Defaulted"],
-        [2600, 's', "await seller.call('POST', '/v1/commitments/' + offer.id + '/triggers/apply-default');"],
-        [2900, 'b', "// \\u2192 refunded: 25000000 tUSDC back to me"],
-        [2900, 's', "// \\u2192 compensated from the adjudicators' bonds"]
+        [2350, 'b', "// \\u2192 Defaulted, then Refunded in the same transaction"],
+        [2600, 's', "await seller.waitFor(offer.id, ['Refunded']);"],
+        [2900, 'b', "// \\u2192 refunded: 25000000 tUSDC and the 1 tUSDC fee back to me"],
+        [2900, 's', "// \\u2192 no decision, so the default outcome: the buyer's money goes back"]
       ],
-      [ // appeal
+      [ // escalation
         [1500, 'b', "const done = await buyer.waitFor(offer.id, ['Released', 'Refunded']);"],
-        [2100, 'b', "// adjudicator \\u2192 accept: but the rows fail the terms"],
-        [2600, 's', "// \\u2192 Released: 25000000 tUSDC paid to me"],
-        [3300, 'b', "const p = await buyer.call('POST', '/v1/prepare/appeal', { commitmentId: offer.id, appellant: buyer.address });"],
-        [3450, 'b', "await buyer.signAndSubmit(p, { kind: 'appeal', terms: offer.terms, me: buyer.address, appealBondRateBps: 500 }); // bond 5% + fee"],
-        [3600, 'b', "// \\u2192 appealState: open"],
-        [3600, 's', "// appeal filed by the buyer \\u00b7 appealState: open"],
-        [4200, 'b', "// appeal adjudicator \\u2192 overturned"],
-        [4350, 'b', "// \\u2192 the bond pays me 25000000 tUSDC"],
-        [4350, 's', "// appeal overturned: the bond pays the buyer"]
+        [1500, 's', "await seller.waitFor(offer.id, ['Released', 'Refunded']);"],
+        [2100, 'b', "// primary adjudicator: the screen flags the work \\u2192 escalate"],
+        [2600, 's', "// \\u2192 Escalated: the appeal adjudicator decides within appealDecideSec"],
+        [3300, 'b', "// the drand round after the escalation's block seeds a fresh panel"],
+        [4200, 'b', "// appeal adjudicator: rows \\u2717 (2 of 3) \\u2192 reject \\u00b7 final"],
+        [4350, 'b', "// \\u2192 Refunded: 25000000 tUSDC back to me"],
+        [4350, 's', "// \\u2192 Refunded: the decision is final when it settles"]
       ]
     ][i];
     // the agents asking the API about itself, spread over the four deals so every feature shows once
@@ -291,7 +289,7 @@ const SCRIPT = `<script>
     var QA = [
       [ // release
         [4500, 'b', "// which adjudicators can we name, and what do they charge?"],
-        [4620, 'b', "await buyer.call('GET', '/v1/adjudicators'); // \\u2192 3 \\u00b7 fee.min 1 tUSDC \\u00b7 bonded"],
+        [4620, 'b', "await buyer.call('GET', '/v1/adjudicators'); // \\u2192 3 \\u00b7 fee.min 1 tUSDC"],
         [4500, 's', "// does every operator serve the same record?"],
         [4620, 's', "await seller.call('GET', " + c + "/events'); // \\u2192 same hashes on op-1 and op-2"],
         [5200, 'b', "// what did the seller actually sign?"],
@@ -309,19 +307,19 @@ const SCRIPT = `<script>
       ],
       [ // default
         [4500, 'b', "// what does the club's rulebook say a default pays?"],
-        [4620, 'b', "await buyer.call('GET', '/v1/clubs/demo-club'); // \\u2192 refund buyer, compensate seller"],
+        [4620, 'b', "await buyer.call('GET', '/v1/clubs/demo-club'); // \\u2192 the default outcome: refund the buyer"],
         [4500, 's', "// what can this API do?"],
         [4620, 's', "await seller.call('GET', '/v1/openapi.json'); // \\u2192 OpenAPI 3.1, every route"],
         [5200, 's', "// which settlement layer is this, and what time is it there?"],
         [5320, 's', "await seller.call('GET', '/.well-known/holdback.json'); // \\u2192 domain, settlementTime"]
       ],
-      [ // appeal
-        [2700, 'b', "// what would an appeal cost?"],
-        [2820, 'b', "await buyer.call('GET', '/v1/clubs/demo-club'); // \\u2192 appealBondRateBps 500 \\u00b7 appealFee 25 tUSDC"],
+      [ // escalation
+        [2700, 'b', "// who decides now, and by when?"],
+        [2820, 'b', "await buyer.call('GET', " + c + "'); // \\u2192 escrowState: Escalated \\u00b7 the appeal adjudicator's turn"],
         [4800, 's', "// where are my receipts?"],
         [4920, 's', "await seller.call('GET', " + c + "/receipts'); // \\u2192 signed by each operator"],
         [5000, 'b', "// what do I hold now?"],
-        [5120, 'b', "await buyer.call('GET', '/v1/balances/' + buyer.address); // \\u2192 the bond's 25 tUSDC arrived"]
+        [5120, 'b', "await buyer.call('GET', '/v1/balances/' + buyer.address); // \\u2192 the 25 tUSDC price is back"]
       ]
     ][i];
     return open.concat(tail, QA);
@@ -338,7 +336,7 @@ const SCRIPT = `<script>
     var id = '0x' + hex(6) + '\\u2026' + hex(4);
     var calls = CALLS(i, id);
     if (still) { calls.forEach(function (l) { say(l[1], l[2]); }); return; }
-    var head = ' \\u00b7 ' + ['release', 'refund', 'default', 'appeal'][i];
+    var head = ' \\u00b7 ' + ['release', 'refund', 'default', 'escalation'][i];
     say('b', ''); say('b', '// buyer agent' + head);
     say('s', ''); say('s', '// seller agent' + head);
     calls.forEach(function (l) { streamTimers.push(setTimeout(function () { say(l[1], l[2]); }, l[0] * K)); });

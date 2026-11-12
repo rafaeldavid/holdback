@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "../unit/Base.sol";
 
@@ -35,9 +36,9 @@ contract KnownSeedFallbackTest is Base {
         H.Acceptance memory acc = _acceptance(t, ADJ_PK);
         H.Agree memory ag = _agree(t, BUYER_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.agreeAndFund(t, ss, acc, ag, f);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.None));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.None));
     }
 
     /// Closed by SC-5: the offering party could grind `nonce` until the fallback seed had a property it wanted (here a
@@ -56,9 +57,9 @@ contract KnownSeedFallbackTest is Base {
         H.Acceptance memory acc = _acceptance(t, ADJ_PK);
         H.Agree memory ag = _agree(t, BUYER_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.agreeAndFund(t, ss, acc, ag, f);
-        assertEq(uint8(_stage(hx.id(t))), uint8(HoldbackRules.Stage.None));
+        assertEq(uint8(_stage(hx.id(t))), uint8(IHoldbackRules.Stage.None));
     }
 
     /// Control: with judgeBy in the future the sim beacon refuses the round, so no seed exists at signing.

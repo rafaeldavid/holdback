@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "../unit/Base.sol";
 
@@ -56,7 +57,7 @@ contract Erc1271ReplayTest is Base {
         vm.prank(relayer);
         bytes32 idA =
             rules.agreeAndFund(tA, _sellerSig(tA, SELLER_PK), _acceptance(tA, ADJ_PK), _agree(tA, OWNER_PK), fA);
-        assertEq(uint8(_stage(idA)), uint8(HoldbackRules.Stage.Held), "wallet A funds through ERC-1271");
+        assertEq(uint8(_stage(idA)), uint8(IHoldbackRules.Stage.Held), "wallet A funds through ERC-1271");
 
         H.Terms memory tB = _dealFor(address(walletB));
         bytes memory sellerSig = _sellerSig(tB, SELLER_PK);
@@ -77,7 +78,7 @@ contract Erc1271ReplayTest is Base {
         bytes memory sellerSig = _sellerSig(tB, SELLER_PK);
         H.Acceptance memory acc = _acceptance(tB, ADJ_PK);
         H.Funding memory fB = _erc3009(tB, OWNER_PK);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.agreeAndFund(tB, sellerSig, acc, agA, fB);
     }
 }

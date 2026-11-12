@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Vm} from "forge-std/Vm.sol";
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -52,7 +53,7 @@ contract LateWorkKeyTest is Base {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         uint256 released;
         for (uint256 i; i < logs.length; i++) {
-            if (logs[i].emitter != address(rules) || logs[i].topics[0] != HoldbackRules.KeyReleased.selector) continue;
+            if (logs[i].emitter != address(rules) || logs[i].topics[0] != IHoldbackRules.KeyReleased.selector) continue;
             released++;
             assertEq(logs[i].topics[1], id);
             assertEq(address(uint160(uint256(logs[i].topics[2]))), buyer);
@@ -65,7 +66,7 @@ contract LateWorkKeyTest is Base {
             assertEq(keccak256(abi.encodePacked(k.keyHashes)), dv.encryptedKeysHash);
         }
         assertEq(released, 1, "one key released");
-        assertEq(uint8(rules.dealOf(id).stage), uint8(HoldbackRules.Stage.Settled));
+        assertEq(uint8(rules.dealOf(id).stage), uint8(IHoldbackRules.Stage.Settled));
         // No delivery was posted: the late work changed hands only through the settlement.
         assertEq(rules.deliveryHashOf(id), bytes32(0));
     }
@@ -77,7 +78,7 @@ contract LateWorkKeyTest is Base {
         (H.Delivery memory other, H.KeyProof memory otherKey) = _otherDelivery();
         H.Mutual memory mu = _late(t, id, named);
         vm.warp(t.timing.deliverBy);
-        vm.expectRevert(HoldbackRules.BadKeyProof.selector);
+        vm.expectRevert(IHoldbackRules.BadKeyProof.selector);
         rules.mutualSettle(t, mu, other, otherKey);
     }
 
@@ -88,7 +89,7 @@ contract LateWorkKeyTest is Base {
         (, H.KeyProof memory otherKey) = _otherDelivery();
         H.Mutual memory mu = _late(t, id, named);
         vm.warp(t.timing.deliverBy);
-        vm.expectRevert(HoldbackRules.BadKeyProof.selector);
+        vm.expectRevert(IHoldbackRules.BadKeyProof.selector);
         rules.mutualSettle(t, mu, named, otherKey);
     }
 
@@ -99,7 +100,7 @@ contract LateWorkKeyTest is Base {
         H.Mutual memory mu = _late(t, id, dv);
         k.index = 0; // the primary's envelope slot
         vm.warp(t.timing.deliverBy);
-        vm.expectRevert(HoldbackRules.BadKeyProof.selector);
+        vm.expectRevert(IHoldbackRules.BadKeyProof.selector);
         rules.mutualSettle(t, mu, dv, k);
     }
 
@@ -118,8 +119,8 @@ contract LateWorkKeyTest is Base {
         rules.mutualSettle(t, mu, dv, none);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         for (uint256 i; i < logs.length; i++) {
-            assertTrue(logs[i].topics.length == 0 || logs[i].topics[0] != HoldbackRules.KeyReleased.selector);
+            assertTrue(logs[i].topics.length == 0 || logs[i].topics[0] != IHoldbackRules.KeyReleased.selector);
         }
-        assertEq(uint8(rules.dealOf(id).stage), uint8(HoldbackRules.Stage.Settled));
+        assertEq(uint8(rules.dealOf(id).stage), uint8(IHoldbackRules.Stage.Settled));
     }
 }

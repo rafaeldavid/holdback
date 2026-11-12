@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Vm} from "forge-std/Vm.sol";
 import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "../unit/Base.sol";
 
@@ -101,12 +102,12 @@ contract Erc6492PrepareTest is Base {
         _fundWrapped(t, address(probe), _runProbe());
 
         assertTrue(probe.ok(0), "the prepare call ran");
-        assertEq(probe.stageSeen(), uint8(HoldbackRules.Stage.Held), "rules: Held before any token moved");
+        assertEq(probe.stageSeen(), uint8(IHoldbackRules.Stage.Held), "rules: Held before any token moved");
         assertTrue(probe.collectedSeen(), "CPP: hasCollectedPayment before any token moved");
         assertEq(probe.capturableSeen(), uint120(PRICE + FEE), "CPP: capturable before any token moved");
         assertEq(probe.storeBalanceSeen(), 0, "the token store was empty during the prepare call");
         // The funding itself completed as if nothing had happened.
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Held));
         assertEq(_held(t), PRICE + FEE);
     }
 
@@ -164,7 +165,7 @@ contract Erc6492PrepareTest is Base {
         assertEq(bytes4(probe.ret(0)), REENTRANCY, "early accept hit CPP's transient guard");
         assertEq(bytes4(probe.ret(1)), REENTRANCY, "primary accept hit CPP's transient guard");
         assertEq(bytes4(probe.ret(2)), REENTRANCY, "mutual settlement hit CPP's transient guard");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Held));
         assertEq(_held(t), PRICE + FEE);
         assertEq(usdc.balanceOf(seller), 1_000_000_000, "the seller was not paid");
     }
@@ -186,8 +187,8 @@ contract Erc6492PrepareTest is Base {
 
         assertFalse(probe.ok(0));
         assertEq(bytes4(probe.ret(0)), REENTRANCY);
-        assertEq(uint8(_stage(id1)), uint8(HoldbackRules.Stage.Held));
-        assertEq(uint8(_stage(id2)), uint8(HoldbackRules.Stage.None), "deal 2 left no state");
+        assertEq(uint8(_stage(id1)), uint8(IHoldbackRules.Stage.Held));
+        assertEq(uint8(_stage(id2)), uint8(IHoldbackRules.Stage.None), "deal 2 left no state");
         assertEq(_held(t1), PRICE + FEE);
     }
 
@@ -206,14 +207,14 @@ contract Erc6492PrepareTest is Base {
         vm.recordLogs();
         _fundWrapped(t, address(rules), abi.encodeCall(HoldbackRules.deliver, (t, dv, dSig)));
 
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Delivered), "delivered inside agreeAndFund");
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Delivered), "delivered inside agreeAndFund");
         assertEq(_held(t), PRICE + FEE);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         uint256 submittedAt = type(uint256).max;
         uint256 authorizedAt = type(uint256).max;
         uint256 usedAt = type(uint256).max;
         for (uint256 i; i < logs.length; ++i) {
-            if (logs[i].topics[0] == HoldbackRules.JobSubmitted.selector) submittedAt = i;
+            if (logs[i].topics[0] == IHoldbackRules.JobSubmitted.selector) submittedAt = i;
             if (logs[i].topics[0] == AuthCaptureEscrow.PaymentAuthorized.selector) authorizedAt = i;
             if (logs[i].topics[0] == keccak256("AuthorizationUsed(address,bytes32)")) usedAt = i;
         }
@@ -244,10 +245,10 @@ contract Erc6492PrepareTest is Base {
         H.Acceptance memory acc = _acceptance(t, ADJ_PK);
         H.Agree memory ag = _agree(t, BUYER_PK);
         vm.prank(relayer);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.agreeAndFund(t, ss, acc, ag, f);
 
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.None), "no deal");
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.None), "no deal");
         assertEq(_held(t), 0, "nothing held");
         assertEq(rules.deliveryHashOf(id), bytes32(0), "the prepare call's delivery never landed");
     }
@@ -265,6 +266,6 @@ contract Erc6492PrepareTest is Base {
         vm.expectRevert();
         rules.agreeAndFund(t, sellerSig, acc, ag, wrapped);
         bytes32 id = rules.agreeAndFund(t, sellerSig, acc, ag, f);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Held));
     }
 }

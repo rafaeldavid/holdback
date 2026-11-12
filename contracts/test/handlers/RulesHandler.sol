@@ -6,6 +6,7 @@ import {MockERC3009Token} from "commerce-payments-test/mocks/MockERC3009Token.so
 import {Vm} from "forge-std/Vm.sol";
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "../unit/Base.sol";
 
@@ -181,7 +182,7 @@ contract RulesHandler is Base {
     // ------------------------------------------------------------ the side's own reads (T-346)
 
     /// The deal's stored word in the phase-one shape. A pinned side whose parent stores another word overrides it.
-    function _dealOf(bytes32 id) internal view virtual returns (HoldbackRules.Deal memory) {
+    function _dealOf(bytes32 id) internal view virtual returns (IHoldbackRules.Deal memory) {
         return rules.dealOf(id);
     }
 
@@ -202,7 +203,7 @@ contract RulesHandler is Base {
     }
 
     /// The deal's stored word, in the phase-one shape, whichever side this is.
-    function word(bytes32 id) external view returns (HoldbackRules.Deal memory) {
+    function word(bytes32 id) external view returns (IHoldbackRules.Deal memory) {
         return _dealOf(id);
     }
 
@@ -256,14 +257,14 @@ contract RulesHandler is Base {
         return _terms_[i];
     }
 
-    function _isOpen(HoldbackRules.Stage s) internal pure returns (bool) {
-        return s == HoldbackRules.Stage.Held || s == HoldbackRules.Stage.Delivered
-            || s == HoldbackRules.Stage.FallbackJudging || s == HoldbackRules.Stage.Escalated;
+    function _isOpen(IHoldbackRules.Stage s) internal pure returns (bool) {
+        return s == IHoldbackRules.Stage.Held || s == IHoldbackRules.Stage.Delivered
+            || s == IHoldbackRules.Stage.FallbackJudging || s == IHoldbackRules.Stage.Escalated;
     }
 
-    function _isClosed(HoldbackRules.Stage s) internal pure returns (bool) {
+    function _isClosed(IHoldbackRules.Stage s) internal pure returns (bool) {
         return
-            s == HoldbackRules.Stage.Released || s == HoldbackRules.Stage.Refunded || s == HoldbackRules.Stage.Settled;
+            s == IHoldbackRules.Stage.Released || s == IHoldbackRules.Stage.Refunded || s == IHoldbackRules.Stage.Settled;
     }
 
     /// What the rules state says CPP must hold for commitment i: price + fee while open, else nothing.
@@ -387,9 +388,9 @@ contract RulesHandler is Base {
 
     /// The adjudicator whose turn a stage is: the primary in Held and Delivered, the fallback in FallbackJudging,
     /// the appeal adjudicator in Escalated.
-    function _turn(HoldbackRules.Stage s) internal pure returns (uint8) {
-        if (s == HoldbackRules.Stage.FallbackJudging) return D_FALLBACK;
-        if (s == HoldbackRules.Stage.Escalated) return D_APPEAL;
+    function _turn(IHoldbackRules.Stage s) internal pure returns (uint8) {
+        if (s == IHoldbackRules.Stage.FallbackJudging) return D_FALLBACK;
+        if (s == IHoldbackRules.Stage.Escalated) return D_APPEAL;
         return D_PRIMARY;
     }
 
@@ -398,8 +399,8 @@ contract RulesHandler is Base {
         (_closing, _decider) = (reason, decider);
     }
 
-    function _track(bytes32 id, HoldbackRules.Stage before) internal {
-        HoldbackRules.Deal memory d = _dealOf(id);
+    function _track(bytes32 id, IHoldbackRules.Stage before) internal {
+        IHoldbackRules.Deal memory d = _dealOf(id);
         // T-358 (ADR-0033): a deal whose money addresses are apart never moves its signing addresses' money.
         if (_terms_.length > 0 && _terms_[_indexOf(id)].buyerPaymentAddress != buyer) {
             if (usdc.balanceOf(buyer) != _buyer0 || usdc.balanceOf(seller) != _seller0) {
@@ -407,7 +408,7 @@ contract RulesHandler is Base {
                 lastViolation = "a deal with its money addresses apart moved a signing address's balance";
             }
         }
-        HoldbackRules.Stage s = d.stage;
+        IHoldbackRules.Stage s = d.stage;
         if (!_isClosed(before) && _isClosed(s)) {
             closings[id]++;
             everClosed[id] = true;
@@ -420,13 +421,13 @@ contract RulesHandler is Base {
         }
         // A delivery lands only before deliverBy, whichever call carries it (T-206 M-2); reclaim and mutual
         // settlement leave the attempt at 0.
-        if (before == HoldbackRules.Stage.Held && d.attempt != 0 && block.timestamp >= _deliverBy[id]) {
+        if (before == IHoldbackRules.Stage.Held && d.attempt != 0 && block.timestamp >= _deliverBy[id]) {
             timeoutMismatch++;
             lastViolation = "a delivery landed at or after deliverBy";
         }
         // T-336: a delivery landed (deliver, or a decision or early accept that carried it). Every handler path posts
         // the fixture's delivery, so its hash is known; the chain must store exactly it (ADR-0029).
-        if (before == HoldbackRules.Stage.Held && d.attempt != 0 && postedHash[id] == bytes32(0)) {
+        if (before == IHoldbackRules.Stage.Held && d.attempt != 0 && postedHash[id] == bytes32(0)) {
             (H.Delivery memory dv,) = _delivery();
             postedHash[id] = hx.delivery(id, dv);
             deliveries++;
@@ -581,7 +582,7 @@ contract RulesHandler is Base {
         H.Acceptance memory acc = _acceptance(t, ak);
         H.Agree memory ag = _agree(t, bk);
         H.Funding memory f = _erc3009(t, fk);
-        HoldbackRules.Stage before = _dealOf(id).stage;
+        IHoldbackRules.Stage before = _dealOf(id).stage;
         bool ok = _relay(_caller(callerSeed), _agreeAndFundCall(t, ss, acc, ag, f));
         if (ok) _authorised("agreeAndFund", sk == SELLER_PK && ak == good && bk == BUYER_PK && fk == _payPk(t));
         _track(id, before);
@@ -608,7 +609,7 @@ contract RulesHandler is Base {
         (H.Delivery memory d,) = _delivery();
         uint256 k = _signer(signerSeed, SELLER_PK);
         bytes memory sig = _deliverySig(id, d, k);
-        HoldbackRules.Stage before = _dealOf(id).stage;
+        IHoldbackRules.Stage before = _dealOf(id).stage;
         uint256 c0 = capturable(i);
         bool ok;
         vm.prank(_caller(callerSeed));
@@ -620,7 +621,7 @@ contract RulesHandler is Base {
             _note(false, e);
         }
         // T-336: the seller's own delivery on a Held deal before deliverBy always lands, from any relayer.
-        if (!ok && k == SELLER_PK && before == HoldbackRules.Stage.Held && block.timestamp < _deliverBy[id]) {
+        if (!ok && k == SELLER_PK && before == IHoldbackRules.Stage.Held && block.timestamp < _deliverBy[id]) {
             deliverRefused++;
             lastViolation = "deliver: the seller's delivery before deliverBy was refused";
         }
@@ -637,13 +638,13 @@ contract RulesHandler is Base {
         uint256 i = _pickFor(dealSeed, M_OPEN);
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
-        HoldbackRules.Deal memory d = _dealOf(id);
+        IHoldbackRules.Deal memory d = _dealOf(id);
         uint8 role = H.ROLE_PRIMARY;
         uint64 round;
-        if (d.stage == HoldbackRules.Stage.FallbackJudging) {
+        if (d.stage == IHoldbackRules.Stage.FallbackJudging) {
             role = H.ROLE_FALLBACK;
             round = rules.BEACON().roundAt(t.timing.judgeBy);
-        } else if (d.stage == HoldbackRules.Stage.Escalated) {
+        } else if (d.stage == IHoldbackRules.Stage.Escalated) {
             role = H.ROLE_APPEAL;
             round = rules.BEACON().roundAt(d.t1) + 1;
         }
@@ -662,7 +663,7 @@ contract RulesHandler is Base {
         H.Delivery memory dv;
         bytes memory dsig;
         uint256 sk = SELLER_PK;
-        if (d.stage == HoldbackRules.Stage.Held) {
+        if (d.stage == IHoldbackRules.Stage.Held) {
             (dv,) = _delivery();
             sk = _signer(signerSeed >> 8, SELLER_PK);
             dsig = _deliverySig(id, dv, sk);
@@ -687,7 +688,7 @@ contract RulesHandler is Base {
         uint256 i = _pickFor(dealSeed, M_DECIDED);
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
-        HoldbackRules.Stage before = _dealOf(id).stage;
+        IHoldbackRules.Stage before = _dealOf(id).stage;
         (,, uint40 t2) = _deployedAppeal(id);
         uint64 round = t2 == 0 ? 0 : rules.BEACON().roundAt(t2) + 1;
         H.Decision memory m = _beaconDecision(id, H.ROLE_APPEAL, uint8(outcomeSeed % 2), round);
@@ -711,8 +712,8 @@ contract RulesHandler is Base {
         uint256 i = _pickFor(dealSeed, M_HELD | M_DELIVERED | M_FALLBACK);
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
-        HoldbackRules.Stage before = _dealOf(id).stage;
-        if (before == HoldbackRules.Stage.Held) {
+        IHoldbackRules.Stage before = _dealOf(id).stage;
+        if (before == IHoldbackRules.Stage.Held) {
             (H.Delivery memory dv,) = _delivery();
             try rules.deliver(t, dv, _deliverySig(id, dv, SELLER_PK)) {
                 _note(true, "");
@@ -722,7 +723,7 @@ contract RulesHandler is Base {
             _track(id, before); // the delivery's own deadline check, before the warp below
             before = _dealOf(id).stage;
         }
-        if (_dealOf(id).stage == HoldbackRules.Stage.Delivered) {
+        if (_dealOf(id).stage == IHoldbackRules.Stage.Delivered) {
             if (block.timestamp < t.timing.judgeBy) vm.warp(t.timing.judgeBy);
             try rules.triggerFallback(t) {
                 _note(true, "");
@@ -733,8 +734,8 @@ contract RulesHandler is Base {
         H.Decision memory m = _beaconDecision(id, H.ROLE_FALLBACK, uint8(outcomeSeed % 3), t.timing.judgeBy);
         uint256 pk = _rolePk[id][H.ROLE_FALLBACK];
         m = _signDecision(t, id, m, vm.addr(pk), pk);
-        HoldbackRules.Deal memory d = _dealOf(id);
-        bool timely = d.stage == HoldbackRules.Stage.FallbackJudging
+        IHoldbackRules.Deal memory d = _dealOf(id);
+        bool timely = d.stage == IHoldbackRules.Stage.FallbackJudging
             && _timelyDecision(t, d, m, H.ROLE_FALLBACK, true, postedHash[id]);
         _recordLogs();
         _closingAs(R_DECIDED, D_FALLBACK);
@@ -777,9 +778,9 @@ contract RulesHandler is Base {
     function _keyOnlyWithPayment() internal {
         Vm.Log[] memory logs = _drainLogs();
         for (uint256 i; i < logs.length; i++) {
-            if (logs[i].emitter != address(rules) || logs[i].topics[0] != HoldbackRules.KeyReleased.selector) continue;
-            HoldbackRules.Stage s = _dealOf(logs[i].topics[1]).stage;
-            if (s != HoldbackRules.Stage.Released && s != HoldbackRules.Stage.Settled) {
+            if (logs[i].emitter != address(rules) || logs[i].topics[0] != IHoldbackRules.KeyReleased.selector) continue;
+            IHoldbackRules.Stage s = _dealOf(logs[i].topics[1]).stage;
+            if (s != IHoldbackRules.Stage.Released && s != IHoldbackRules.Stage.Settled) {
                 keyWithoutPayment++;
                 lastViolation = "released the buyer's key on a deal that is not Released or Settled";
             }
@@ -788,12 +789,12 @@ contract RulesHandler is Base {
 
     /// T-375: the delivery a decision must name, from the handler's own record: the one it carries in Held, else the
     /// one the handler posted (`postedHash`). Not the chain's stored hash, so a mutant that loses it cannot hide here.
-    function _expectedDelivery(bytes32 id, HoldbackRules.Stage s, H.Delivery memory carried)
+    function _expectedDelivery(bytes32 id, IHoldbackRules.Stage s, H.Delivery memory carried)
         internal
         view
         returns (bytes32)
     {
-        return s == HoldbackRules.Stage.Held ? hx.delivery(id, carried) : postedHash[id];
+        return s == IHoldbackRules.Stage.Held ? hx.delivery(id, carried) : postedHash[id];
     }
 
     /// T-375 (triage item 43): whether the phase-one rules must take decision `m` on deal word `d` now, given that its
@@ -813,16 +814,16 @@ contract RulesHandler is Base {
     /// capture or void that follows cannot fail for time.
     function _timelyDecision(
         H.Terms memory t,
-        HoldbackRules.Deal memory d,
+        IHoldbackRules.Deal memory d,
         H.Decision memory m,
         uint8 role,
         bool sellerSigned,
         bytes32 expected
     ) internal view returns (bool) {
-        HoldbackRules.Stage s = d.stage;
+        IHoldbackRules.Stage s = d.stage;
         if (!_isOpen(s) || m.role != role || m.attempt != 1 || m.deliveryHash != expected) return false;
         if (block.timestamp >= m.expiresAt) return false;
-        if (s == HoldbackRules.Stage.Held && (!sellerSigned || block.timestamp >= t.timing.deliverBy)) return false;
+        if (s == IHoldbackRules.Stage.Held && (!sellerSigned || block.timestamp >= t.timing.deliverBy)) return false;
         if (role == H.ROLE_APPEAL) {
             return m.outcome <= H.OUTCOME_REJECT && block.timestamp >= uint256(d.t1) + 1
                 && block.timestamp < uint256(d.t1) + t.timing.appealDecideSec;
@@ -859,14 +860,14 @@ contract RulesHandler is Base {
         uint256 sk = _signer(signerSeed >> 8, SELLER_PK);
         m.signature = _sign(bk, hx.early(id, buyer, m));
         bytes memory dsig = _deliverySig(id, dv, sk);
-        HoldbackRules.Stage before = _dealOf(id).stage;
+        IHoldbackRules.Stage before = _dealOf(id).stage;
         bool ok;
         _recordLogs();
         _closingAs(R_ACCEPTED_EARLY, D_NONE);
         ok = _relay(_caller(callerSeed), abi.encodeCall(HoldbackRules.earlyAccept, (t, m, dv, dsig, kp)));
         if (ok) {
             // After `deliver` the carried signature is not read: the posted delivery was verified when it landed.
-            bool sellerSigned = sk == SELLER_PK || before == HoldbackRules.Stage.Delivered;
+            bool sellerSigned = sk == SELLER_PK || before == IHoldbackRules.Stage.Delivered;
             _authorised("earlyAccept", bk == BUYER_PK && sellerSigned && named == rules.deliveryHashOf(id));
         }
         _keyOnlyWithPayment();
@@ -879,7 +880,7 @@ contract RulesHandler is Base {
         uint256 i = _pickFor(dealSeed, M_OPEN);
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
-        HoldbackRules.Stage before = _dealOf(id).stage;
+        IHoldbackRules.Stage before = _dealOf(id).stage;
         H.Mutual memory m = _mutual(t, id, before, splitSeed);
         thirdPartyPayout = false;
         for (uint256 k; k < m.payouts.length; k++) {
@@ -906,7 +907,7 @@ contract RulesHandler is Base {
     /// Splits the price between the seller, the buyer and a third party (the operator or the unrelated address);
     /// one time in sixteen the payouts overshoot the price by one unit. T-356 (SC-3): phase one pays the parties only,
     /// so one settlement in 32 names a third party (refused there); otherwise the third share goes to the buyer.
-    function _mutual(H.Terms memory t, bytes32 id, HoldbackRules.Stage s, uint256 seed)
+    function _mutual(H.Terms memory t, bytes32 id, IHoldbackRules.Stage s, uint256 seed)
         internal
         view
         returns (H.Mutual memory m)
@@ -926,7 +927,7 @@ contract RulesHandler is Base {
         if (a > 0) m.payouts[j++] = H.Payout(t.sellerPayoutAddress, a);
         if (b > 0) m.payouts[j++] = H.Payout(t.buyerPaymentAddress, b);
         if (c > 0) m.payouts[j++] = H.Payout(third, c);
-        m.hasDelivery = s != HoldbackRules.Stage.Held || (seed >> 130) & 1 == 1;
+        m.hasDelivery = s != IHoldbackRules.Stage.Held || (seed >> 130) & 1 == 1;
         m.releaseKey = m.hasDelivery && (seed >> 131) & 1 == 1;
         if (m.hasDelivery) {
             (H.Delivery memory dv,) = _delivery();
@@ -952,7 +953,7 @@ contract RulesHandler is Base {
             signature: ""
         });
         a.signature = _sign(_signer(signerSeed, who == 0 ? BUYER_PK : SELLER_PK), _appealHash(id, t, a));
-        HoldbackRules.Stage before = _dealOf(id).stage;
+        IHoldbackRules.Stage before = _dealOf(id).stage;
         uint256 c0 = capturable(i);
         bool ok = _relay(_caller(callerSeed), abi.encodeCall(IDeployedAppeals.fileAppeal, (t, a)));
         _noMove("fileAppeal", i, c0);
@@ -987,8 +988,8 @@ contract RulesHandler is Base {
         bytes32 id = _ids[i];
         uint256 first = t.timing.offerExpiresAt < t.timing.fundBy ? t.timing.offerExpiresAt : t.timing.fundBy;
         _warpNear(first, callerSeed);
-        HoldbackRules.Stage before = _dealOf(id).stage;
-        bool due = _hasExpireOffer() && !offerExpired[id] && before == HoldbackRules.Stage.None
+        IHoldbackRules.Stage before = _dealOf(id).stage;
+        bool due = _hasExpireOffer() && !offerExpired[id] && before == IHoldbackRules.Stage.None
             && (block.timestamp >= t.timing.offerExpiresAt || block.timestamp >= t.timing.fundBy);
         uint256 c0 = capturable(i);
         bool ok = _relay(_caller(callerSeed), abi.encodeCall(IDeployedOffers.expireOffer, (t)));
@@ -1005,8 +1006,8 @@ contract RulesHandler is Base {
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
         _warpNear(t.timing.deliverBy, callerSeed);
-        HoldbackRules.Stage before = _dealOf(id).stage;
-        bool due = before == HoldbackRules.Stage.Held && block.timestamp >= t.timing.deliverBy;
+        IHoldbackRules.Stage before = _dealOf(id).stage;
+        bool due = before == IHoldbackRules.Stage.Held && block.timestamp >= t.timing.deliverBy;
         bool ok;
         _closingAs(R_RECLAIMED, D_NONE);
         vm.prank(_caller(callerSeed));
@@ -1027,8 +1028,8 @@ contract RulesHandler is Base {
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
         _warpNear(t.timing.judgeBy, callerSeed);
-        HoldbackRules.Stage before = _dealOf(id).stage;
-        bool due = before == HoldbackRules.Stage.Delivered && block.timestamp >= t.timing.judgeBy;
+        IHoldbackRules.Stage before = _dealOf(id).stage;
+        bool due = before == IHoldbackRules.Stage.Delivered && block.timestamp >= t.timing.judgeBy;
         uint256 c0 = capturable(i);
         bool ok;
         vm.prank(_caller(callerSeed));
@@ -1049,15 +1050,15 @@ contract RulesHandler is Base {
         uint256 i = _pickFor(dealSeed, M_FALLBACK | M_ESCALATED);
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
-        HoldbackRules.Deal memory d = _dealOf(id);
+        IHoldbackRules.Deal memory d = _dealOf(id);
         _warpNear(
-            d.stage == HoldbackRules.Stage.Escalated
+            d.stage == IHoldbackRules.Stage.Escalated
                 ? uint256(d.t1) + t.timing.appealDecideSec
                 : uint256(t.timing.fallbackBy),
             callerSeed
         );
-        bool due = (d.stage == HoldbackRules.Stage.FallbackJudging && block.timestamp >= t.timing.fallbackBy)
-            || (d.stage == HoldbackRules.Stage.Escalated && block.timestamp >= uint256(d.t1) + t.timing.appealDecideSec);
+        bool due = (d.stage == IHoldbackRules.Stage.FallbackJudging && block.timestamp >= t.timing.fallbackBy)
+            || (d.stage == IHoldbackRules.Stage.Escalated && block.timestamp >= uint256(d.t1) + t.timing.appealDecideSec);
         bool ok;
         _closingAs(R_DEFAULTED, D_NONE);
         vm.prank(_caller(callerSeed));
@@ -1080,13 +1081,13 @@ contract RulesHandler is Base {
         uint256 i = _pickFor(dealSeed, M_DECIDED);
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
-        HoldbackRules.Deal memory d = _dealOf(id);
+        IHoldbackRules.Deal memory d = _dealOf(id);
         uint256 appealBy = uint256(d.t1) + t.timing.appealWindowSec;
         _warpNear((callerSeed >> 16) & 1 == 0 ? appealBy : appealBy + t.timing.appealDecideSec, callerSeed);
         (uint8 appeal,,) = _deployedAppeal(id);
         // The deployed contracts' rule: AppealState None (0) is due from appealBy, Open (1) from appealBy plus the
         // decision window. Phase one has no appeal state, so nothing is ever due there.
-        bool decided = d.stage == HoldbackRules.Stage.Released || d.stage == HoldbackRules.Stage.Refunded;
+        bool decided = d.stage == IHoldbackRules.Stage.Released || d.stage == IHoldbackRules.Stage.Refunded;
         bool due = _hasDeployedAppeals() && decided
             && ((appeal == 0 && block.timestamp >= appealBy) || (appeal == 1 && block.timestamp >= appealBy + t.timing.appealDecideSec));
         uint256 c0 = capturable(i);
@@ -1152,7 +1153,7 @@ contract RulesHandler is Base {
         } else {
             uint256 i = (seed >> 8) % _ids.length;
             H.Terms memory t = _terms_[i];
-            HoldbackRules.Deal memory d = _dealOf(_ids[i]);
+            IHoldbackRules.Deal memory d = _dealOf(_ids[i]);
             uint256 w = t.timing.appealWindowSec;
             uint256 dec = t.timing.appealDecideSec;
             uint256[9] memory deadlines = [

@@ -9,6 +9,9 @@
 // units) is the per-deal gas quote a chain world adds to the minimum (D33 as amended 2026-11-03): 4.70 tUSDC is
 // about 1.56 million gas (a deal's three transactions, measured on Sepolia) at its 1 gwei median tip, at the demo's
 // fixed, fictional rate of 3,000 tUSDC per test ETH, rounded up. SimChain ignores it.
+// For the first wave of pilots all three are "0" (Rafa, 2026-11-12, T-389): a buyer pays the price and the adjudication
+// fee only, and Crow's relayer wallet pays the gas. The schedule stays published at 0 so agents read it as before; a
+// fee is a parameter (D31), so an operator that anyone else runs can still set one, and these nodes can again.
 // Workers Logs keeps console lines (errors, and the World's telemetry lines, T-031) but no invocation logs: those
 // record each request's headers, which carry Authorization and the caller's IP (D39).
 // Each node answers on its crow.direct and its escrow.stream hostname alike, with no redirect (T-312): agents POST
@@ -25,7 +28,7 @@
     { "pattern": "api.escrow.stream", "custom_domain": true }
   ],
   "preview_urls": false,
-  "vars": { "OPERATOR_URLS": "https://api.crow.direct,https://api2.crow.direct", "NODE_INDEX": "0", "SETTLEMENT": "sepolia", "MIN_WINDOW_SEC": "60", "OPERATOR_FEE_BPS": "1", "OPERATOR_FEE_MIN": "10000", "OPERATOR_FEE_GAS": "4700000" },
+  "vars": { "OPERATOR_URLS": "https://api.crow.direct,https://api2.crow.direct", "NODE_INDEX": "0", "SETTLEMENT": "sepolia", "MIN_WINDOW_SEC": "60", "OPERATOR_FEE_BPS": "0", "OPERATOR_FEE_MIN": "0", "OPERATOR_FEE_GAS": "0" },
   "durable_objects": { "bindings": [{ "name": "WORLD", "class_name": "World" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["World"] }],
   "alias": { "node:fs": "./worker/fs-shim.js" },
