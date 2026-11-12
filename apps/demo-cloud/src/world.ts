@@ -79,6 +79,11 @@ export interface PublicWorldOptions {
   env: Readonly<Record<string, string | undefined>>;
   /** The demo club's minimum for each judge, fallback and appeal window, in seconds. Default 60. */
   minWindowSec?: number;
+  /**
+   * The protocol a new SimChain world enforces (T-378), fixed at creation like minWindowSec. Default `phase_one`, the
+   * contracts' rules, which the rehearsal tool's in-process world relies on; `full` keeps party appeals and bonds.
+   */
+  simProfile?: 'full' | 'phase_one';
   /** What the faucet grants when a request names no amount, in base units. Default 1,000 tUSD. */
   faucetAmount?: bigint;
   /** The largest amount one grant gives, in base units. Default DEMO_FAUCET_MAX_GRANT. */
@@ -135,6 +140,8 @@ interface Meta {
   settlement?: 'sim' | 'sepolia';
   /** The rules contract a live world settles on, lowercase. */
   rules?: string;
+  /** A SimChain world's protocol, fixed when the world is created (T-378). Absent in worlds created before it: `full`. */
+  profile?: 'full' | 'phase_one';
 }
 
 /** Which node a request reached, as the Worker in front knows it. */
@@ -541,10 +548,18 @@ export class PublicWorld {
     // a later configuration change (MIN_WINDOW_SEC) applies to a fresh world, not to this one.
     let meta = await storage.get<Meta>('meta');
     if (!meta) {
-      meta = { secret: hex(crypto.getRandomValues(new Uint8Array(32))), start: wholeSecond(now()), minWindowSec: o.minWindowSec ?? 60, settlement, ...(o.live ? { rules: lc(o.live.chain.deployment.rules) } : {}) };
+      meta = {
+        secret: hex(crypto.getRandomValues(new Uint8Array(32))),
+        start: wholeSecond(now()),
+        minWindowSec: o.minWindowSec ?? 60,
+        settlement,
+        ...(o.live ? { rules: lc(o.live.chain.deployment.rules) } : { profile: o.simProfile ?? 'phase_one' }),
+      };
       await storage.put({ meta });
     }
     if ((meta.settlement ?? 'sim') !== settlement) throw new Error(`this world settles on ${meta.settlement ?? 'sim'}; it cannot open as ${settlement} (name another world)`);
+    // PR 416 review L4: a SimChain world keeps the protocol it was created with; asking for another is an error, not ignored.
+    if (!o.live && o.simProfile && o.simProfile !== (meta.profile ?? 'full')) throw new Error(`this world runs the ${meta.profile ?? 'full'} protocol; it cannot open as ${o.simProfile} (name another world)`);
     if (o.live && meta.rules !== lc(o.live.chain.deployment.rules)) throw new Error(`this world settles on the rules contract ${meta.rules}, not ${o.live.chain.deployment.rules} (a new deployment needs a new world)`);
     const secret = meta.secret;
     const key = (label: string): TestAccount => ({ ...testAccount(`${label}/${secret}`), label });
@@ -582,6 +597,9 @@ export class PublicWorld {
       members: [],
       balances: {},
       bonds: o.live ? {} : Object.fromEntries(adjKeys.map((a) => [a.keys.address, { junior: bond, senior: '0' }])),
+      // T-378: a SimChain world runs the phase-one contracts' rules unless it was created on the full protocol, so the
+      // rehearsal tool and any agent trying the world locally are refused what the chain refuses.
+      ...(o.live ? {} : { profile: meta.profile ?? 'full' }),
     };
     let chain: SimChain | EvmSettlement;
     let journalLength = 0;

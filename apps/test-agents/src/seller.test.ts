@@ -332,7 +332,7 @@ describe("Crow's test seller", () => {
     let skew = 0;
     const world = await serveWorld({ now: () => Date.now() + skew });
     try {
-      const timing = { offerExpiresInSec: 600, fundWithinSec: 900, deliverWithinSec: 1200, judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 60, appealDecideSec: 60 };
+      const timing = { offerExpiresInSec: 600, fundWithinSec: 900, deliverWithinSec: 1200, judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 0, appealDecideSec: 60 };
       const storage = new MemoryStorage();
       const seed = generatePrivateKey();
       const s = startSeller({ world, timing, storage, seed });
