@@ -1,6 +1,10 @@
-// T-217 on a Sepolia fork: the adjudicator service decides a fallback and a party appeal from live drand quicknet
-// rounds, and the deployed 0.7 HoldbackRules, over the deployed DrandQuicknetBeacon, accepts both decisions. A decision
-// built from a bad proof is refused by the service before any transaction.
+// T-217 on a Sepolia fork: the fallback adjudicator escalates from the live drand quicknet round at judgeBy, the appeal
+// adjudicator decides the escalation from the first quicknet round after it, and the HoldbackRules of the deployment
+// record, over its DrandQuicknetBeacon, accepts both decisions. A decision built from a bad proof is refused by the
+// service before any transaction. The phase-one contracts take no party appeal (ADR-0031 §8), so the appeal
+// adjudicator's turn here is the escalation's (T-349, T-374). Run it against the phase-one deployment record: the
+// cutover's step 4 runs it once the new contracts are on Sepolia; against the record of the contracts on main, the
+// domain-0.8 terms are refused.
 //
 // Opt-in, like T-213's fork test (apps/demo-cloud/src/live.test.ts): it needs SEPOLIA_FORK_RPC (any Sepolia JSON-RPC),
 // anvil on PATH, contracts/deployments/sepolia.json, and the network for the drand relays. Nothing reaches the real
@@ -12,6 +16,7 @@ import { createServer, type Server } from 'node:http';
 import { createServer as createNetServer, type AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import {
+  beaconRoundFor,
   beaconRoundAt,
   commitmentId,
   DRAND_QUICKNET,
@@ -45,6 +50,7 @@ import { privateKeyToAccount, sign } from 'viem/accounts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DRAND_RELAYS, drandQuicknet } from './drand.js';
 import { policyHashOf } from './policy.js';
+import type { FakeScript } from '@holdback/judgment';
 import type { RandomnessSource } from './randomness.js';
 import { placeholderRegistry, testAdjudicator, type TestAdjudicator } from './test-adjudicator.js';
 
@@ -132,7 +138,7 @@ describe.skipIf(!forkReady)(`drand quicknet decisions on a Sepolia fork (T-217)$
     anvil?.kill();
   });
 
-  it('decides a fallback and a party appeal from live quicknet rounds; the deployed contract accepts both, and a bad proof never reaches it', async () => {
+  it('the fallback escalates and the appeal adjudicator decides the escalation from live quicknet rounds; the contract accepts both, and a bad proof never reaches it', async () => {
     const chain = new LiveChain({ deployment, rpcUrls: [shim!.url], relayerKey: RELAYER, pollMs: 300, rebroadcastMs: 20_000, mintBatchMs: 300 });
     await chain.verify();
     await chain.topUpLanes(10n ** 17n, 10n ** 18n);
@@ -169,7 +175,7 @@ describe.skipIf(!forkReady)(`drand quicknet decisions on a Sepolia fork (T-217)$
       return over ?? drandQuicknet({ fetch: (input, init) => (relayRequests.get(who)!.push(String(input)), fetch(input, init)), log: (l) => console.log(`${who}: ${l}`) });
     };
     const registry = placeholderRegistry();
-    const service = (a: ReturnType<typeof actor>, drand: RandomnessSource): TestAdjudicator => {
+    const service = (a: ReturnType<typeof actor>, drand: RandomnessSource, judges?: FakeScript): TestAdjudicator => {
       const adj = testAdjudicator({
         name: a.name,
         label: `t217-${a.name}`,
@@ -183,12 +189,14 @@ describe.skipIf(!forkReady)(`drand quicknet decisions on a Sepolia fork (T-217)$
         registry,
         trustedAdjudicators: [primary.address, fallback.address, appeal.address],
         drand,
+        ...(judges ? { judges } : {}),
       });
       registrations.set(adj.address, { ...adj.registration(), pool: {} as never, poolTermsHash: `0x${'00'.repeat(32)}`, status: 'active' });
       return adj;
     };
     const p = service(primary, counted('primary'));
-    const f = service(fallback, counted('fallback'));
+    // Only one family answers at the fallback, so its panel cannot accept or reject: it escalates.
+    const f = service(fallback, counted('fallback'), { 'gpt-a': 'timeout', 'gpt-b': 'timeout', 'qwen-a': 'timeout', 'qwen-b': 'timeout' });
     const a = service(appeal, counted('appeal'));
     /** Passes until the service decides in `role`; a timeout names what the last pass refused. */
     const decided = async (adj: TestAdjudicator, role: 'fallback' | 'appeal') => {
@@ -240,15 +248,12 @@ describe.skipIf(!forkReady)(`drand quicknet decisions on a Sepolia fork (T-217)$
     must(await evm.submit({ kind: 'deliver', delivery: (await signed(seller, { ...body, type: 'Delivery' as const })) as unknown as Delivery }, { idempotencyKey: `deliver/${id}` }));
     expect(evm.escrowState(id)?.kind).toBe('Delivered');
 
-    // The fallback takes over at judgeBy and decides from the quicknet round at judgeBy, which the contract verifies.
+    // The fallback takes over at judgeBy and escalates from the quicknet round at judgeBy, which the contract verifies.
     const judgeByRound = beaconRoundAt(DRAND_QUICKNET, Date.parse(terms.timing.judgeBy) / 1000);
     await decided(f, 'fallback');
-    const released = evm.escrowState(id);
-    expect(released?.kind).toBe('Released');
-    const first = released?.kind === 'Released' && released.via.kind === 'first_instance' ? released.via.decision : (undefined as never as Decision);
-    expect(first.role).toBe('fallback');
-    expect(first.beacon).toMatchObject({ source: 'drand-quicknet', round: judgeByRound });
-    expect(first.beacon!.value).toBe(sha256(first.beacon!.signature!));
+    const escalated = evm.escrowState(id);
+    expect(escalated?.kind).toBe('Escalated');
+    expect(escalated?.kind === 'Escalated' ? escalated.escalation.by : undefined).toBe('fallback');
     // Every request asks for the fixed round, never `latest` or another; one when the first relay answers (logged).
     const asked = (who: string, round: number) => {
       const urls = relayRequests.get(who)!;
@@ -259,12 +264,10 @@ describe.skipIf(!forkReady)(`drand quicknet decisions on a Sepolia fork (T-217)$
     };
     asked('fallback', judgeByRound);
 
-    // The buyer appeals. A service whose source returns a tampered proof refuses before any transaction.
-    const appealBody = { commitmentId: id, appellant: 'buyer' as const, appellantAddress: buyer.address, grounds: 'wrong-outcome', bond: amount(0n), filedAt: evm.now() };
-    must(await evm.submit({ kind: 'appeal', appeal: await signed(buyer, { ...appealBody, type: 'Appeal' as const }) as never }, { idempotencyKey: `appeal/${id}` }));
-    const filed = evm.escrowState(id);
-    const openedAt = filed?.kind === 'Released' && filed.via.kind === 'first_instance' && filed.via.appeal.kind === 'open' ? filed.via.appeal.openedAt : (undefined as never as string);
-    const appealRound = beaconRoundAt(DRAND_QUICKNET, Math.floor(Date.parse(openedAt) / 1000)) + 1;
+    // The appeal adjudicator decides the escalation from the first quicknet round after it (core's beaconRoundFor).
+    // A service whose source returns a tampered proof refuses before any transaction.
+    const appealRound = beaconRoundFor(escalated!, 'appeal')!;
+    expect(appealRound).toBeGreaterThan(judgeByRound);
     const honest = drandQuicknet({});
     const lying: RandomnessSource = {
       kind: 'drand-quicknet',
@@ -293,12 +296,14 @@ describe.skipIf(!forkReady)(`drand quicknet decisions on a Sepolia fork (T-217)$
     expect(sent).toBe(0);
     registrations.set(a.address, { ...a.registration(), pool: {} as never, poolTermsHash: `0x${'00'.repeat(32)}`, status: 'active' });
 
-    // The honest appeal adjudicator decides from the first quicknet round after the filing.
+    // The honest appeal adjudicator decides the escalation from the first quicknet round after it; the work passes.
     await decided(a, 'appeal');
     const after = evm.escrowState(id);
-    const upheld = after?.kind === 'Released' && after.via.kind === 'first_instance' && after.via.appeal.kind === 'upheld' ? after.via.appeal.decision : (undefined as never as Decision);
-    expect(upheld.role).toBe('appeal');
-    expect(upheld.beacon).toMatchObject({ source: 'drand-quicknet', round: appealRound });
+    expect(after?.kind).toBe('Released');
+    const final = after?.kind === 'Released' && after.via.kind === 'escalation' ? after.via.decision : (undefined as never as Decision);
+    expect(final).toMatchObject({ role: 'appeal', outcome: 'accept' });
+    expect(final.beacon).toMatchObject({ source: 'drand-quicknet', round: appealRound });
+    expect(final.beacon!.value).toBe(sha256(final.beacon!.signature!));
     asked('appeal', appealRound);
 
     // Every call to the rules contract since the fork, with its gas on the fork (anvil prices by Prague).
