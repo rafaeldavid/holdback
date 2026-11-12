@@ -72,6 +72,3 @@ e444e0864c3aabafdb544052abc5d54261abe373:site/llms.txt:generic-api-key:161
 59b13228fa5131784ae607501b09dae6a964dfb7:tests/metrics/fixtures/deal-once.events.json:generic-api-key:130
 59b13228fa5131784ae607501b09dae6a964dfb7:tests/metrics/fixtures/deal-once.events.json:generic-api-key:166
 59b13228fa5131784ae607501b09dae6a964dfb7:tests/metrics/fixtures/deal-once.events.json:generic-api-key:186
-# False positives: pinned EIP-712 digests of ReadToken and KeyRegistration under domain 0.8 (T-358, ADR-0033), public test values.
-fbe8fecb144241db61945b09ef1165178c014fd7:packages/core/src/eip712.binding.test.ts:generic-api-key:257
-fbe8fecb144241db61945b09ef1165178c014fd7:packages/core/src/eip712.binding.test.ts:generic-api-key:259
