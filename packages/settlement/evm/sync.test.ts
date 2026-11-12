@@ -552,6 +552,44 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect((await ok(s, await d.decide('appeal', 'accept', round))).state.escrowState).toBe('Released');
   }, 60_000);
 
+  // T-358, ADR-0033 §10 test 33 (neutrality.direct-funding-separate-addresses): the direct route, which neutrality rests
+  // on, with all four addresses apart. Direct transactions fund the deal and settle it; the sync keeps the operators'
+  // view; the signing addresses move no money.
+  it('a deal with its money addresses apart, funded and settled by direct transactions, stays in the operators\' view', async () => {
+    const { s, sync } = await node();
+    const payment = testActor('t358-payment');
+    const payout = testActor('t358-payout').address;
+    await anvil.rpc('anvil_setBalance', [payment.address, '0x56bc75e2d63100000']);
+    await chain.mint(payment.address, 10n ** 10n);
+    const d = new EvmDeal(s, cast, club, 'direct-apart', 2_000_000_000n, 50_000_000n, { payment, payout });
+    await ok(s, await d.offer());
+    await ok(s, await d.accept());
+    const served = s.log().find((e) => e.commitmentId === d.id && e.type === 'adjudicator.accepted')!.payload['acceptance'] as AdjudicatorAcceptance;
+    const sellerSignature = s.log().find((e) => e.commitmentId === d.id && e.type === 'commitment.offered')!.payload['sellerSignature'] as Hex;
+    const af = await d.agreeAndFund();
+    if (af.kind !== 'agree_and_fund') throw new Error('unreachable');
+    const balances = async () => Promise.all([cast.buyer.address, cast.seller.address, payment.address, payout].map((a) => s.tokenBalance(a, true)));
+    const [b0, s0, p0, o0] = await balances();
+    const seq = s.log().length;
+    await direct(cast.buyer, 'agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(served), agreeView(af.agree), { signature: af.funding.signature }]);
+    expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0, unknown: 0 });
+    expect((await s.state(d.id))!.escrowState).toBe('Held');
+    const funded = after(s, d.id, seq).find((e) => e.type === 'hold.funded')!;
+    expect([lc(String(funded.actor)), funded.submittedVia]).toEqual([lc(payment.address), 'direct']); // the payment address funded
+    const m = ((await d.mutual(1_500_000_000n, false)) as { message: Parameters<typeof mutualView>[0] }).message;
+    await direct(cast.seller, 'mutualSettle', [termsView(d.terms), mutualView(m), NO_DELIVERY, NO_KEY]);
+    expect(await sync.pass()).toMatchObject({ applied: 1 });
+    expect((await s.state(d.id))!.escrowState).toBe('Settled');
+    expect((await s.stage(d.id)).stage).toBe('Settled');
+    const [b1, s1, p1, o1] = await balances();
+    expect([b1, s1]).toEqual([b0, s0]); // the signing addresses hold what they held
+    expect(o1! - o0!).toBe(1_500_000_000n); // the seller's share to the payout address
+    expect(p0! - p1!).toBe(1_500_000_000n); // the payment address paid price + fee and got 500 + the fee back
+    expect((await s.state(d.id))!.balances).toMatchObject({ [d.terms.buyerPaymentAddress]: expect.anything(), [d.terms.sellerPayoutAddress]: expect.anything() });
+    expect(schemaErrors(s.log())).toEqual([]);
+    chained(s);
+  }, 60_000);
+
   it('a mutual settlement sent by the buyer settles the deal', async () => {
     const { s, sync } = await node();
     const d = await funded('direct-mutual', s);

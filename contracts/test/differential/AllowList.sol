@@ -72,7 +72,8 @@ library AllowList {
     }
 
     /// `n` is `o` with exactly one `SettlementAddresses` event inserted right after the old side's `JobFunded`, from
-    /// the same emitter, naming the same deal in its first topic.
+    /// the same emitter, naming the same deal in its first topic, and naming as its payment and payout addresses the
+    /// client and the provider of the step's `JobCreated` (in trace mode each deal's addresses are equal).
     function _oneMore(bytes[] memory o, bytes[] memory n) private pure returns (bool) {
         if (n.length != o.length + 1) return false;
         uint256 at = type(uint256).max;
@@ -82,6 +83,14 @@ library AllowList {
                 if (at != type(uint256).max || i == 0) return false;
                 (address prev, bytes32[] memory pt,) = abi.decode(n[i - 1], (address, bytes32[], bytes));
                 if (prev != emitter || pt.length < 2 || pt[0] != HoldbackRules.JobFunded.selector || pt[1] != topics[1]) {
+                    return false;
+                }
+                if (i < 2) return false;
+                (address created, bytes32[] memory ct,) = abi.decode(n[i - 2], (address, bytes32[], bytes));
+                if (
+                    created != emitter || ct.length != 4 || ct[0] != HoldbackRules.JobCreated.selector || ct[1] != topics[1]
+                        || ct[2] != topics[2] || ct[3] != topics[3]
+                ) {
                     return false;
                 }
                 at = i;

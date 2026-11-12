@@ -122,6 +122,8 @@ export class EvmDeal {
     tag: string,
     price = 2_000_000_000n,
     fee = 50_000_000n,
+    /** ADR-0033: the buyer's payment address (an actor, since it signs the funding) and the seller's payout address. */
+    private readonly money?: { payment: TestActor; payout: Address },
   ) {
     const now = chain.now();
     const amt = (v: bigint) => ({ token: chain.token, amount: v.toString() }) as TokenAmount;
@@ -131,8 +133,8 @@ export class EvmDeal {
       rulebookHash: club.rulebookHash,
       buyer: cast.buyer.address,
       seller: cast.seller.address,
-      buyerPaymentAddress: cast.buyer.address,
-      sellerPayoutAddress: cast.seller.address,
+      buyerPaymentAddress: money?.payment.address ?? cast.buyer.address,
+      sellerPayoutAddress: money?.payout ?? cast.seller.address,
       deliverable: { kind: 'dataset', description: `EVM deal ${tag}`, format: 'text/csv' },
       acceptance: { deterministicChecks: [], rubric: { criteria: [{ id: 'quality', description: 'Rows cleaned.', weight: 1, anchors: { '0': 'No', '2': 'Partly', '4': 'Yes' } }], passThreshold: 300 } },
       price: amt(price),
@@ -182,25 +184,25 @@ export class EvmDeal {
       type: 'FundingAuthorization' as const,
       scheme: 'erc3009' as const,
       commitmentId: this.id,
-      from: this.cast.buyer.address,
+      from: this.terms.buyerPaymentAddress,
       value: f.value.toString(),
       token: this.chain.token,
       validAfter: f.validAfter,
       validBefore: f.validBefore,
       nonce: f.nonce,
       expiresAt: this.terms.timing.fundBy,
-      signature: await sign({ hash: f.digest, privateKey: (o.fundingSigner ?? this.cast.buyer).key, to: 'hex' }),
+      signature: await sign({ hash: f.digest, privateKey: (o.fundingSigner ?? this.payer()).key, to: 'hex' }),
     };
     if (!o.operatorFee) return { kind: 'agree_and_fund', agree, funding };
     const validAfter = '1970-01-01T00:00:00Z';
     const validBefore = this.terms.timing.fundBy;
-    const fee = await this.chain.operatorFeeAuthorization(this.id, this.cast.buyer.address, o.operatorFee.to, o.operatorFee.value, validAfter, validBefore);
+    const fee = await this.chain.operatorFeeAuthorization(this.id, this.terms.buyerPaymentAddress, o.operatorFee.to, o.operatorFee.value, validAfter, validBefore);
     const operatorFee = {
       type: 'TransferAuthorization' as const,
       scheme: 'erc3009' as const,
       purpose: 'operator_fee' as const,
       commitmentId: this.id,
-      from: this.cast.buyer.address,
+      from: this.terms.buyerPaymentAddress,
       to: o.operatorFee.to,
       value: o.operatorFee.value.toString(),
       token: this.chain.token,
@@ -208,9 +210,14 @@ export class EvmDeal {
       validBefore,
       nonce: fee.nonce,
       expiresAt: validBefore,
-      signature: await sign({ hash: fee.digest, privateKey: this.cast.buyer.key, to: 'hex' }),
+      signature: await sign({ hash: fee.digest, privateKey: this.payer().key, to: 'hex' }),
     };
     return { kind: 'agree_and_fund', agree, funding, operatorFee };
+  }
+
+  /** The actor whose key signs the funding and the operator fee: the payment address's (ADR-0033 §3). */
+  private payer(): TestActor {
+    return this.money?.payment ?? this.cast.buyer;
   }
 
   envelope(recipient: Address): EncryptedKey {
@@ -271,8 +278,8 @@ export class EvmDeal {
   async mutual(toSeller: bigint, releaseKey: boolean, carry?: Delivery): Promise<Submission> {
     const price = BigInt(this.terms.price.amount);
     const payouts = [
-      { to: this.terms.seller, amount: { token: this.chain.token, amount: toSeller.toString() } as TokenAmount },
-      { to: this.terms.buyer, amount: { token: this.chain.token, amount: (price - toSeller).toString() } as TokenAmount },
+      { to: this.terms.sellerPayoutAddress, amount: { token: this.chain.token, amount: toSeller.toString() } as TokenAmount },
+      { to: this.terms.buyerPaymentAddress, amount: { token: this.chain.token, amount: (price - toSeller).toString() } as TokenAmount },
     ].filter((p) => p.amount.amount !== '0');
     const body = { type: 'MutualSettlement' as const, commitmentId: this.id, deliveryHash: this.delivery ? deliveryHash(this.delivery) : null, payouts, releaseKey, nonce: this.nonce(), expiresAt: plusSeconds(this.chain.now(), 86400) };
     const buyerSignature = await signMessage(this.cast.buyer.key, this.chain.domain, body);

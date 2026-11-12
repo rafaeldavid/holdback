@@ -2213,7 +2213,8 @@ export class EvmSettlement implements Settlement {
           }
         };
         const signed = async () => (await verifyMessage(this.domain, acceptance, a.adjudicator)) && (await verifyMessage(this.domain, agree, terms.buyer));
-        return { fn: call.fn, steps, actor: relayed ? funding.from : terms.buyer, ctx: { mined }, signed };
+        // ADR-0033 §4: the funding's actor is the payment address, whichever route sent it.
+        return { fn: call.fn, steps, actor: relayed ? funding.from : terms.buyerPaymentAddress, ctx: { mined }, signed };
       }
       case 'deliver': {
         if (s.kind !== 'Held') return { fail: `a delivery in transaction ${tx.hash} found this node's book ${s.kind}.` };

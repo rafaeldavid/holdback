@@ -6936,7 +6936,7 @@
       },
       "Messages": {
         "title": "Signed protocol messages (EIP-712)",
-        "description": "Every state-changing message other than Delivery and Appeal. Each carries its EIP-712 domain implicitly: name Holdback, version 0.7, chainId, verifyingContract (ADR-0016, ADR-0029).",
+        "description": "Every state-changing message other than Delivery and Appeal. Each carries its EIP-712 domain implicitly: name Holdback, version 0.8, chainId, verifyingContract (ADR-0016, ADR-0029, ADR-0033).",
         "oneOf": [
           {
             "$ref": "#/components/schemas/Offer"

@@ -59,7 +59,7 @@ describe.skipIf(!ready)(`an outside adjudicator on a live chain (anvil; T-221)${
       lap('registered');
 
       // Deal 1: the outsider accepts and decides by script; the deal is Released and the buyer opens its copy.
-      const timing = { judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 60, appealDecideSec: 120 };
+      const timing = { judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 0, appealDecideSec: 120 }; // phase one: no party appeal (ADR-0033 §2b)
       const one = await outsideDeal(demo.urls, deployment, outsider, { work: CSV, timing });
       expect((await outsider.runOnce()).decided).toEqual([{ commitmentId: one.id, role: 'primary', outcome: 'accept' }]);
       await untilBoth(one.buyer, one.id, ['Released'], 60_000);
