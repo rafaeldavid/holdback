@@ -5,7 +5,7 @@
 - **Depends on:** T-379 (the buyer signer and the deal record with the two addresses, merged to `contracts-audit-ready` at `100cde3`), T-378 part 4 (the late-work settlement route, rafaeldavid/holdback#408), T-387 (the pilot kit's rehearsal, which found both defects)
 - **Paths this task may touch:** `examples/buyer-signer.ts`, `examples/buy-with-signer.ts`, `examples/deal-record.ts`, their tests, this task file. Never `packages/settlement`
 - **Human gate:** no
-- **Status:** done on the merge of its second pull request (part 2, the offer's clock)
+- **Status:** done on the merge of its third pull request (part 3, bundle-safe commands)
 - **Agent/session:** the T-379 session, change kind 4: one reviewer
 
 ## Intent
@@ -39,6 +39,12 @@ Part 2 (the coordinator, 2026-11-12, from T-388's review of the buyer signer, fi
 - [x] Tests, failing first: postdated five years and backdated beyond the band each stop with exit status 3 and fund nothing; inside the band funds as before; one end-to-end run on the local world.
 - [x] One reviewer and one red team on part 2, because it decides when an unattended buyer pays.
 
+Part 3 (the coordinator, 2026-11-12, from T-393, the short guides): the buyer's commands can be published as one pinned file, as `site/try.mjs` is
+
+- [x] A file runs its main only when it is the program, also inside a bundle that inlines it: `isMain(import.meta.url, name)` in `examples/entry.ts`, true unbundled when `node` was given the file, and in a bundle only for the command the bundle declares as `globalThis.crowEntry`. `examples/deal-record.ts` uses it, so `buyer-signer.ts`'s import of it runs nothing.
+- [x] One place says how a command names itself and its siblings: `command(name, import.meta.url)`, the bundle's words from `globalThis.crowCommands`, else `node <path of examples/<name>.ts>` as before. The buyer's command's approve and fund lines, the signer's `check` line and `pay-from-wallet.ts`'s resume line use it.
+- [x] Tests for both, with the unbundled behaviour unchanged. One reviewer; no red team.
+
 ## Out of scope
 
 - SimChain's and the EVM adapter's event payloads.
@@ -67,6 +73,10 @@ Labels: measured, inferred, guessed.
 - **Red team of part 2** (red-team subagent, Opus 5.5, 8 attacks run in-process) [measured: its report]: ISSUES, one Medium, two Low, three Info; no single actor could make the one-run buy fund far deadlines. Fixed: the Medium, both operators lying about `settlementTime` together, by checking `createdAt` against this machine's clock too, and taking "from now" from it (`Options.clock`, default `Date.now`; the rehearsal's local world, whose clock its tests move, passes its own). Held [measured by the red team]: one operator lying by five years, one going silent, odd timestamp formats, `checkOffer` after time passes. Left in the Handoff: the two Lows and the Info.
 - **Review of PR 446** (reviewer subagent, Opus 5.5) [measured: its report]: three Lows and two Infos; nothing blocks. Fixed: the stop line names clock differences apart from the terms' ("against the clock: createdAt (see timeline)"), the warning line states the distance first, the two doc comments sit above their own code again, and the Handoff names every file outside the paths and the local-chain case.
 
+### Part 3: bundle-safe commands
+
+- [measured, `examples/entry.test.ts`, 4 tests]: `isMain` is true for the file `node` runs and false for another; with `crowEntry` declared, only the named command is the program though every inlined file has the bundle's URL; `command` names a sibling by its path unbundled and by the bundle's words when declared; a child process that imports `deal-record.ts` as a bundle would (its URL as `process.argv[1]`, an entry declared) runs no main, and the same import with no entry declared runs it as before (exit status 2, its usage). `pnpm exec vitest run examples/ tests/cut-feature-alignment.test.ts` passed 413 tests in 35 files on PR 446's head plus this branch; `pnpm typecheck`, `npx eslint examples site tests` and `node site/build.mjs && node site/check.mjs` passed; `site/try.mjs` does not change (none of its three files uses `entry.ts`).
+
 ## Decisions
 
 - **Part 2: the clock is judged when the offer is shown.** A `createdAt` grows older while an offer waits for an approval, so `checkOffer` keeps the shown verdict rather than judging again: a slow approval must not refuse a valid offer, and an approval cannot clear a difference the person was shown.
@@ -82,6 +92,7 @@ Labels: measured, inferred, guessed.
 - **For the record on a chain:** a release's or refund's money is in the token's Transfer logs, which the record does not read; its postings checks say so and are not run.
 - **Part 2, left from its red team:** one operator whose clock is 600 s to 660 s off stops every one-run buy for approval (Low; the approve path still works), and the 660 s spread it allows is looser than the 5 s that funding then requires (`examples/agent.ts`, `settlementNow`), which fails closed. An offer postdated inside the band (up to 60 s) is refused by SimChain until `createdAt` passes (Low; no money moves). `fromNow` counts 365-day years and is computed when the offer is shown (Info). A machine whose own clock is off by more than the band stops honest offers for approval.
 - **Part 2, outside the listed paths:** `examples/audit-deal.ts`'s `LocalWorld` gains `now()`, and the rehearsal passes it to the signer as its clock. `examples/verify.ts` holds `CREATED_AT_BAND`, so `site/try.mjs` and `site/index.html` change with it: the next site deploy changes the public try command (its SHA-256 goes from `1b5187d9…` to `ec49d496…`) because of that constant and the moved comment.
+- **Part 3, for T-393:** a bundle of the buyer's commands sets, in a banner that runs before its modules, `globalThis.crowEntry` (the one command it runs) and `globalThis.crowCommands` (how a person runs each command it holds, such as `{ "buy-with-signer": "node buy.mjs", "pay-from-wallet": "node buy.mjs pay" }`). The other `examples/` files keep their path-comparison guards; only the buyer's path is made bundle-safe here. New file outside the listed paths: `examples/entry.ts` and its test.
 - **Part 2, a local chain:** on an anvil world the operators' settlement time follows the scenario's clock, not this machine's, so every one-run buy against it stops for approval [inferred, PR 446 review]. It fails safe; approve still works; no documented flow runs the buyer signer there. A test or tool that does passes its world's clock as `Options.clock`.
 - **For T-387:** rerun the settlement cases; `resume` takes `--delivery <file>` for late work.
 - **Left from the review:** no test makes the operators agree on `Settled` while serving different payouts, and the `unconfirmed` report then shows `agreeing` equal to `answered` (Low 2). The settlement branch of the record cannot see where the adjudication fee went, and `refundedTo` stays null when the whole price goes to the seller although the fee went back (Low 3). `#openLate` binds the handed-over delivery to the deal by the buyer's envelope; it does not check the settlement's `deliveryHash`, which no public read carries, so the outcome now prints the delivery's own hash for the buyer to compare (Low 1).

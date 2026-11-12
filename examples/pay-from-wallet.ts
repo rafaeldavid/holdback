@@ -15,6 +15,7 @@
 // Env: HOLDBACK_OPERATORS (files, fund); CROW_EXPECT as for buy-with-signer.ts. Exit status 0 when done, 3 on a refusal.
 import { readFileSync } from 'node:fs';
 import { loadKeys, printable } from './buyer-signer.ts';
+import { command as commandFor } from './entry.ts';
 import { checkPaymentFile, commitmentIdOf, knownPins, pinOf, Refusal } from './verify.ts';
 import { SEPOLIA } from './deployments.ts';
 
@@ -39,7 +40,7 @@ try {
     const signer = await loadKeys(a, b, expect());
     const paid = await signer.agreeAndFund(b, { funding: c, operatorFee: d });
     out({ funded: signer.commitmentId, paid: paid.total, from: signer.paymentAddress });
-    console.error(`Funded. Follow the deal with: node examples/buy-with-signer.ts resume ${a}`);
+    console.error(`Funded. Follow the deal with: ${commandFor('buy-with-signer', import.meta.url)} resume ${a}`);
   } else if (command === 'check' && a && b && c) {
     if (fee && !(/^0x[0-9a-fA-F]{40}$/.test(fee[0] ?? '') && /^(0|[1-9][0-9]*)$/.test(fee[1] ?? ''))) throw new Refusal('refusing to sign: --fee takes the fee\'s recipient (an address) and its amount (base units as a decimal string)');
     // The holder's own pinned settlement layer, never one an operator or the file names.
