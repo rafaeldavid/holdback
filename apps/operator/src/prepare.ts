@@ -48,6 +48,7 @@ import {
   validateTiming,
   APPEAL_WINDOW_PROBLEM,
   ZERO_HOLD_PROBLEM,
+  PHASE_ONE_NO_APPEAL,
 } from '@holdback/core';
 import type { ApiProblem } from './problems.js';
 import { freeBond, hasBond, type Bond } from './registrations.js';
@@ -83,13 +84,8 @@ export interface Prepared {
   notices?: string[];
 }
 
-/**
- * ADR-0031 §8 (D57): the phase-one contracts take no party appeal, so this node prepares and relays none on them. The
- * agent gets the reason and what it can still do, not a revert.
- */
-export const PHASE_ONE_NO_APPEAL =
-  'this settlement runs the phase-one contracts, which have no party appeals and no bonds (ADR-0031, D57): the first decision by the primary or the fallback adjudicator is final on chain. ' +
-  'Nothing reopens it. The signed decision and its judgment record are your evidence (D26); before you sign your next deal, choose the three adjudicators and the default outcome you can rely on';
+/** The reason a phase-one settlement gives a party appeal, from core, where it is written once (ADR-0031 §8). */
+export { PHASE_ONE_NO_APPEAL };
 
 /** What preparing needs from the operator's view of the settlement layer. Reads only. */
 export interface PrepareContext {

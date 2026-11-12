@@ -78,6 +78,7 @@ import {
   type Timestamp,
   type TokenAmount,
   type TransferAuthorization,
+  PHASE_ONE_NO_APPEAL,
 } from '@holdback/core';
 import { decodeEventLog, decodeFunctionData, encodeFunctionData, encodePacked, getAddress, hashTypedData, keccak256, parseTransaction, stringToBytes, toHex, type Abi, type AbiEvent, type Hex, type Log } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -283,13 +284,8 @@ const signedEnvelope = (k: EncryptedKey): EncryptedKey => ({
 
 /** On-chain Stage enum (HoldbackRules.Stage) as core kinds; None is any pre-funding kind, and an expired offer. */
 const STAGES = ['None', 'Held', 'Delivered', 'FallbackJudging', 'Escalated', 'Released', 'Refunded', 'Settled'] as const;
-/**
- * ADR-0031 §8 (D57): the phase-one contracts take no party appeal. An agent that sends one, or its expiry, gets this
- * reason before any transaction, never a revert it cannot read.
- */
-export const PHASE_ONE_NO_APPEAL =
-  'this settlement runs the phase-one contracts, which have no party appeals and no bonds (ADR-0031, D57): the first decision by the primary or the fallback adjudicator is final on chain. ' +
-  'Nothing reopens it. The signed decision and its judgment record are your evidence (D26); before you sign your next deal, choose the three adjudicators and the default outcome you can rely on';
+/** The reason a phase-one settlement gives a party appeal, from core, where it is written once (ADR-0031 §8). */
+export { PHASE_ONE_NO_APPEAL };
 const PRE_FUNDING: readonly EscrowStateKind[] = ['Offered', 'AcceptedByAdjudicator', 'Agreed'];
 /** The chain's stage for a book's kind: None for a pre-funding kind and for an expired offer, which the phase-one
  *  contracts never record (ADR-0031 §7, SC-6); the kind itself otherwise. */
@@ -960,9 +956,10 @@ export class EvmSettlement implements Settlement {
         const book = this.bookOf(m.commitmentId);
         this.useNonce(book, `${lc(m.adjudicator)}:${m.nonce}`, true);
         // ADR-0031 §8 point 2: the phase-one contracts hold no bond, and agreeAndFund refuses an acceptance that says
-        // otherwise. Refused here, before the buyer signs a funding the contract would revert.
+        // otherwise. Refused here, before the buyer signs a funding the contract would revert, with the problem type
+        // core's phase-one rule gives the same acceptance (T-349 review).
         if (BigInt(m.bondReserved.amount) !== 0n) {
-          refuse('invalid_terms', `the acceptance reserves a bond of ${m.bondReserved.amount}; this settlement runs the phase-one contracts, which hold no bonds, so bondReserved must be 0 (ADR-0031 §8). Ask the adjudicator to sign its acceptance again with bondReserved 0`);
+          refuse('acceptance_mismatch', `the acceptance reserves a bond of ${m.bondReserved.amount}; this settlement runs the phase-one contracts, which hold no bonds, so bondReserved must be 0 (ADR-0031 §8). Ask the adjudicator to sign its acceptance again with bondReserved 0`);
         }
         const next = this.stepped(book.state, { type: 'adjudicator_accept', at, message: m, unencumberedBond: this.amount(0n) });
         if (dryRun) return m.commitmentId;
@@ -1489,6 +1486,9 @@ export class EvmSettlement implements Settlement {
       if (type === 'key.released' && log) {
         const a = log.args as { recipient: Address; path: number; scheme: string; ciphertext: string };
         const envelope = { recipient: getAddress(a.recipient), scheme: a.scheme, ciphertext: a.ciphertext } as EncryptedKey;
+        // A node behind the chain recorded this envelope already when it read the transaction (`behind`); the join
+        // records it once, as that path does (T-357 review, L4).
+        if (book.released.some((k) => lc(k.recipient) === lc(envelope.recipient) && k.ciphertext === envelope.ciphertext)) continue;
         book.released.push(envelope);
         this.emit(type, id, actor, via, { recipient: envelope.recipient, envelope, path: KEY_PATHS[a.path] ?? String(a.path), ...tx }, true, blockAt);
       } else {
