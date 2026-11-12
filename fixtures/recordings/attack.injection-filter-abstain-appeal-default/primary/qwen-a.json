@@ -1,13 +1,13 @@
 {
   "format": "holdback.recording/v1",
-  "scenario": "panel-disagreement-escalates",
+  "scenario": "attack.injection-filter-abstain-appeal-default",
   "role": "primary",
-  "judgeId": "gpt-b",
+  "judgeId": "qwen-a",
   "provider": "openai-compatible",
-  "family": "gpt",
-  "model": "placeholder-gpt-b-20260601",
+  "family": "qwen",
+  "model": "placeholder-qwen-a-20260601",
   "promptTemplateHash": "0xabb5ec9b33cf9a936e140bf8530c217f6629fdf1e08a46fbdf6bd7363ce84dd2",
-  "inputHash": "0x2fcaa9d252b35625fcd551ad5d5fa28131431e334a9335da91f201b90f5f5a0f",
+  "inputHash": "0x79c522f5663fdcc43e55771ed9ea7b63a3d0f62490baf4207012ee6db43f694b",
   "rubricHash": "0x4201c2a950347823c494fcfc89f88fab1ca670b2086f66ed726aa9c7b0ec7925",
   "capturedFrom": "fake",
   "verdict": {

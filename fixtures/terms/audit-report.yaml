@@ -15,7 +15,7 @@
 # The json_schema check walks a subset of JSON Schema and refuses any keyword outside it
 # (packages/judgment/src/checks/json-schema.ts); site/llms.txt, "Writing checks for a report", lists the
 # subset. Field rules are as in clean-customers-2000.yaml.
-schemaVersion: "0.7"
+schemaVersion: "0.8"
 clubId: data-services-v1
 deliverable:
   kind: document
@@ -148,7 +148,7 @@ timing:
   deliverWithinSec: 604800
   judgeWithinSec: 120
   fallbackWithinSec: 120
-  appealWindowSec: 300
+  appealWindowSec: 0
   appealDecideSec: 300
   maxSubmissions: 1
 settlement: { mode: guaranteed_on_decision, token: tUSD }

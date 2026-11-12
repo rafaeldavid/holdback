@@ -12,10 +12,10 @@ Threat T18. Bench A secretly controls Tidewater and wants to judge a $2,000 job 
 | Prefix | attack. (adversarial input: must not auto-accept) |
 | Settlement | SimChain (T-006) driving @holdback/core `step` |
 | Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x8cb8…ea79 |
-| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
+| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0xd9bc…492d |
 | Buyer | atlas-buyer 0x42B0…99C6 |
 | Seller | tidewater-seller 0x90D8…7d98 |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x3f7b…8380 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x1ccb…d292 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0x12d0…fb36 · fallback bench-b 0x8CA4…8cbB · appeal bench-c 0x19db…1580 |
 | Operators | op-1 · op-2 |
 
@@ -51,7 +51,7 @@ Outages:
 
 ## Receipts and log
 
-- Events 0–1. Chain head 0x3097…3bd7. Replay of 2 SimChain submissions from genesis matches the settlement state.
+- Events 0–1. Chain head 0x91ee…ca92. Replay of 2 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 1 (rcpt-0001–rcpt-0001). The runner labels them without signing; the operator API signs real receipts.
 - Receipts from op-2: 1 (rcpt-0002–rcpt-0002). The runner labels them without signing; the operator API signs real receipts.
 

@@ -6,7 +6,7 @@
 # tests/audit-report-template.test.ts holds this file's deliverable and checks equal to audit-report.yaml's,
 # and its rubric equal to the one in spec/examples/commitment.audit-report.example.json. Change
 # audit-report.yaml first, then copy the change here.
-schemaVersion: "0.7"
+schemaVersion: "0.8"
 clubId: data-services-v1
 deliverable:
   kind: document
@@ -174,7 +174,7 @@ timing:
   deliverWithinSec: 604800
   judgeWithinSec: 120
   fallbackWithinSec: 120
-  appealWindowSec: 300
+  appealWindowSec: 0
   appealDecideSec: 300
   maxSubmissions: 1
 settlement: { mode: guaranteed_on_decision, token: tUSD }

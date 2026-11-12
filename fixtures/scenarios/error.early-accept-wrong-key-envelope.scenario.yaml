@@ -10,7 +10,7 @@ description: >-
   buyer's check before signing; the signed record is the evidence (D26). Prefixed error., not attack.: the
   attack. rule requires that nothing is paid out, and here the release is the buyer's own signed choice.
 club: fixtures/clubs/data-services-v1.yaml
-terms: fixtures/terms/clean-customers-2000.yaml
+terms: fixtures/terms/clean-customers-2000-appeals.yaml
 parties:
   buyer: atlas-buyer
   seller: tidewater-seller

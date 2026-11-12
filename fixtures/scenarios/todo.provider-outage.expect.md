@@ -12,10 +12,10 @@ The scenario index's neutrality.provider-outage row, recorded as a known gap. Th
 | Prefix | todo. (known gap: records current behavior) |
 | Settlement | SimChain (T-006) driving @holdback/core `step` |
 | Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x8cb8…ea79 |
-| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
+| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0xd9bc…492d |
 | Buyer | atlas-buyer 0x90F9…53dC |
 | Seller | tidewater-seller 0xA884…b13B |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0xf50d…acf1 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x0cb1…a2e8 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xe321…af56 · fallback bench-b 0x6A72…54B9 · appeal bench-c 0xc843…9512 |
 | Operators | op-1 · op-2 |
 
@@ -45,15 +45,15 @@ The scenario index's neutrality.provider-outage row, recorded as a known gap. Th
 - **Deterministic checks:** cols ✓ · rows ✓ · uniq ✓ · dates ✓ · id_nulls ✓ · name_nulls ✓ · email_nulls ✓ · emails (optional) ✓ · hidden ✓
 - **Screen:** clean
 - **Panel:** 3 judges from 2 families (policy: 3 seats, at least 2 families) · first-instance template 0xabb5…4dd2 · rubric 0x4201…7925 · seed source: commit-reveal (commitment 0xf23c…182c, seed 0x7178…7261, recomputed: match)
-  - gpt-a · openai-compatible/gpt · placeholder-gpt-a-20260601 · recorded (authored) · abstain · input 0x4f30…6a5d
-  - claude-a · anthropic/claude · placeholder-claude-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0xb2cd…5605
-  - claude-b · anthropic/claude · placeholder-claude-b-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x51e5…8996
+  - gpt-b · openai-compatible/gpt · placeholder-gpt-b-20260601 · recorded (authored) · abstain · input 0xedd0…dbd8
+  - claude-a · anthropic/claude · placeholder-claude-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0xc60b…fe76
+  - claude-b · anthropic/claude · placeholder-claude-b-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0xb4c6…6040
 - **Aggregate:** escalate (weighted score 4.00; 2 pass, 0 fail of 2 valid; pass families claude). Reasons: 2 pass, 0 fail of 2 valid: pass verdicts from 1 family.
 - **Signed:** escalate.
 
 ## Receipts and log
 
-- Events 0–7. Chain head 0x2b0d…08b4. Replay of 6 SimChain submissions from genesis matches the settlement state.
+- Events 0–7. Chain head 0xc8d3…725d. Replay of 6 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). The runner labels them without signing; the operator API signs real receipts.
 
 ## Invariants

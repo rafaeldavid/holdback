@@ -5,7 +5,7 @@
 # timing: offerExpiresInSec, fundWithinSec and deliverWithinSec count from createdAt; judgeWithinSec counts
 # from deliverBy and fallbackWithinSec from judgeBy. policyHash and registryHash come from the adjudicator
 # (T-009's registry); until then the caller supplies them.
-schemaVersion: "0.7"
+schemaVersion: "0.8"
 clubId: data-services-v1
 deliverable:
   kind: dataset
@@ -50,7 +50,7 @@ timing:
   deliverWithinSec: 172800
   judgeWithinSec: 120
   fallbackWithinSec: 120
-  appealWindowSec: 300
+  appealWindowSec: 0
   appealDecideSec: 300
   maxSubmissions: 1
 settlement: { mode: guaranteed_on_decision, token: tUSD }

@@ -3,7 +3,7 @@
 # the reference when the adjudicators agreed to serve the deal and lost or withheld it afterwards: the adjudicator
 # service declines an offer whose reference its store does not return, and the runner does not model that check.
 # Field rules are as in clean-customers-2000.yaml.
-schemaVersion: "0.7"
+schemaVersion: "0.8"
 clubId: data-services-v1
 deliverable:
   kind: dataset
@@ -37,7 +37,7 @@ timing:
   deliverWithinSec: 172800
   judgeWithinSec: 120
   fallbackWithinSec: 120
-  appealWindowSec: 300
+  appealWindowSec: 0
   appealDecideSec: 300
   maxSubmissions: 1
 settlement: { mode: guaranteed_on_decision, token: tUSD }

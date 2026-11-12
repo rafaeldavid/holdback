@@ -1,0 +1,40 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 359
+name: two-addresses-refunded
+description: >-
+  T-358, ADR-0033. The same four addresses as two-addresses-released. Tidewater delivers the row-drop CSV, the
+  required checks fail, and Bench A rejects. The price goes back to Atlas's treasury, the address that funded
+  the hold, and Bench A keeps the fee. Atlas's signing key, Tidewater's signing key and Tidewater's payout
+  account hold nothing.
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+  buyer_payment: atlas-treasury
+  seller_payout: tidewater-payout
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-treasury: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.row-drop.csv }
+  - advance_clock:      { seconds: 5 }
+  - judge:              { adjudicator: bench-a }
+  - settle:             { trigger: anyone }
+expect:
+  terminal: Refunded
+  balances:
+    atlas-buyer: "0"
+    tidewater-seller: "0"
+    atlas-treasury: "9950000000"
+    tidewater-payout: "0"
+    bench-a: "25050000000"

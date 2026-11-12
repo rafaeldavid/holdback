@@ -1,39 +1,29 @@
 {
   "format": "holdback.recording/v1",
-  "scenario": "audit-report-rubric-accepted",
+  "scenario": "attack.injection-steers-appeal-supermajority",
   "role": "primary",
-  "judgeId": "gpt-a",
+  "judgeId": "qwen-a",
   "provider": "openai-compatible",
-  "family": "gpt",
-  "model": "placeholder-gpt-a-20260601",
+  "family": "qwen",
+  "model": "placeholder-qwen-a-20260601",
   "promptTemplateHash": "0xabb5ec9b33cf9a936e140bf8530c217f6629fdf1e08a46fbdf6bd7363ce84dd2",
-  "inputHash": "0x5ea8a67c1022102e6ae71c9fae368a64a97a0e6d3cf76cde073dff133ab3f95e",
-  "rubricHash": "0x0fdbdfe2b3b351efd10175b9f139df1a92ad06345e6a29b03b72b116d27c5167",
+  "inputHash": "0x79c522f5663fdcc43e55771ed9ea7b63a3d0f62490baf4207012ee6db43f694b",
+  "rubricHash": "0x4201c2a950347823c494fcfc89f88fab1ca670b2086f66ed726aa9c7b0ec7925",
   "capturedFrom": "fake",
   "verdict": {
     "criteria": [
       {
-        "id": "root_cause",
+        "id": "dedupe_quality",
         "score": 4,
         "evidence": "fake judge: fixed score"
       },
       {
-        "id": "impact",
+        "id": "no_fabrication",
         "score": 4,
         "evidence": "fake judge: fixed score"
       },
       {
-        "id": "severity",
-        "score": 4,
-        "evidence": "fake judge: fixed score"
-      },
-      {
-        "id": "fix",
-        "score": 4,
-        "evidence": "fake judge: fixed score"
-      },
-      {
-        "id": "distinct",
+        "id": "notes",
         "score": 4,
         "evidence": "fake judge: fixed score"
       }

@@ -81,7 +81,8 @@ export interface Scenario {
   pragmas: Pragmas;
   club?: string;
   terms?: string;
-  parties: { buyer: string; seller: string };
+  /** ADR-0033: `buyerPayment` funds the hold and is refunded, `sellerPayout` is paid; each defaults to its party. */
+  parties: { buyer: string; seller: string; buyerPayment?: string; sellerPayout?: string };
   /** neutrality. fixtures: the actor that refuses or disappears. */
   fails?: string;
   adjudicators: { primary: string; fallback: string; appeal: string };
@@ -358,17 +359,23 @@ export function parseScenario(source: string, fileName: string): Scenario {
   const top = object(data, fileName, TOP, ['name', 'parties', 'adjudicators', 'steps']);
   const scenarioName = name(top.name, 'name');
   if (scenarioName !== fileName) fail('name', `"${scenarioName}" must match the file name "${fileName}"`);
-  const partiesObj = object(top.parties, 'parties', ['buyer', 'seller'], ['buyer', 'seller']);
+  const partiesObj = object(top.parties, 'parties', ['buyer', 'seller', 'buyer_payment', 'seller_payout'], ['buyer', 'seller']);
   const adjObj = object(top.adjudicators, 'adjudicators', ['primary', 'fallback', 'appeal'], ['primary', 'fallback', 'appeal']);
   const operators = top.operators === undefined ? [] : Array.isArray(top.operators) ? top.operators.map((o, i) => name(o, `operators[${i}]`)) : fail('operators', 'must be a list');
   if (!Array.isArray(top.steps)) fail('steps', 'must be a list');
-  const parties = { buyer: name(partiesObj.buyer, 'parties.buyer'), seller: name(partiesObj.seller, 'parties.seller') };
+  const parties = {
+    buyer: name(partiesObj.buyer, 'parties.buyer'),
+    seller: name(partiesObj.seller, 'parties.seller'),
+    ...(partiesObj.buyer_payment !== undefined ? { buyerPayment: name(partiesObj.buyer_payment, 'parties.buyer_payment') } : {}),
+    ...(partiesObj.seller_payout !== undefined ? { sellerPayout: name(partiesObj.seller_payout, 'parties.seller_payout') } : {}),
+  };
   const adjudicators = {
     primary: name(adjObj.primary, 'adjudicators.primary'),
     fallback: name(adjObj.fallback, 'adjudicators.fallback'),
     appeal: name(adjObj.appeal, 'adjudicators.appeal'),
   };
-  const actors = [parties.buyer, parties.seller, ...Object.values(adjudicators), ...operators];
+  const money = [parties.buyerPayment, parties.sellerPayout].filter((n): n is string => n !== undefined);
+  const actors = [parties.buyer, parties.seller, ...money, ...Object.values(adjudicators), ...operators];
   for (const a of actors) if (RESERVED_NAMES.includes(a)) fail('parties', `"${a}" is reserved for the runner (${RESERVED_NAMES.join(', ')})`);
   if (new Set(actors).size !== actors.length) fail('parties', 'buyer, seller, adjudicators and operators must all have distinct names');
 
