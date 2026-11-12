@@ -4072,7 +4072,10 @@ var init_buy_with_signer = __esmMin((async () => {
 		`       ${me} approve <key store directory> <commitment ID> <the most you pay, base units> [--stop-after-funding]`,
 		`       ${me} resume <key store directory> [<commitment ID>] [--delivery <file>]`
 	].join("\n");
-	if (first === void 0) throw new Error(usage);
+	if (first === void 0) {
+		console.error(usage);
+		process.exit(2);
+	}
 	if (at >= 0 && (!termsFile || termsFile.startsWith("--"))) throw new Error("--expect-terms takes the path of your terms file");
 	else if (first !== "resume" && !/^[0-9]+$/.test(fourth ?? "")) throw new Error(`the most you pay is base units as a decimal string, the fourth argument\n${usage}`);
 	say = (x) => console.error(printable(JSON.stringify(x)));

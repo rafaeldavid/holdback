@@ -358,10 +358,11 @@ interface Journal {
   /** Answers by Idempotency-Key, with the hash of the request they answered. */
   quotes: Record<string, { bodyHash: string; answer: J }>;
   /**
-   * Whether this journal has seen the seller hold a mandate in the club (T-396). Until it has, a start on the test
-   * service asks the faucet first: a fresh seller address holds none, and reading it only draws a 404.
+   * The seller addresses and clubs this journal has seen hold a mandate, as `<address> <clubId>` (T-396). Until it has
+   * seen the one it runs as, a start on the test service asks the faucet first: a fresh address holds none, and
+   * reading it only draws a 404. A journal from before T-396 has no list and asks the faucet first once.
    */
-  mandateSeen?: boolean;
+  mandatesSeen?: string[];
 }
 
 export interface RunningAdapter {
@@ -806,18 +807,20 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   const at = (ms: number) => new Date(ms).toISOString();
   let warned = 0;
   let faucetAfter = 0; // local time before which the faucet is not asked again, after it refused
-  /** Makes sure a mandate covers the next `renewBeforeSec`: reads it, and on the test service asks the faucet. */
-  /** Records that the seller holds a mandate, once, so a later start reads it before it asks the faucet. */
+  /** This seller and club, as the journal's `mandatesSeen` lists them. */
+  const seenKey = `${seller.address.toLowerCase()} ${clubId}`;
+  /** Records that this seller holds a mandate in the club, once, so a later start reads it before it asks the faucet. */
   const seen = () => {
-    if (journal.mandateSeen === true) return;
-    journal.mandateSeen = true;
+    if (journal.mandatesSeen?.includes(seenKey)) return;
+    journal.mandatesSeen = [...(journal.mandatesSeen ?? []), seenKey];
     save();
   };
+  /** Makes sure a mandate covers the next `renewBeforeSec`: reads it, and on the test service asks the faucet. */
   async function checkMandate(now: number): Promise<void> {
     if (mandateUntil - now > renewBeforeMs) return;
-    // On the test service a journal that has seen no mandate goes to the faucet first (T-396): the grant is the
-    // mandate, and a read before it finds none. Every other case reads first, as a new one may have come from elsewhere.
-    if (!(faucet && journal.mandateSeen !== true)) {
+    // On the test service a seller this journal has not seen hold a mandate goes to the faucet first (T-396): the grant
+    // is the mandate, and a read before it finds none. Every other case reads first, as one may have come from elsewhere.
+    if (!(faucet && !journal.mandatesSeen?.includes(seenKey))) {
       mandateUntil = await mandateEnd();
       if (mandateUntil > now) seen();
       if (mandateUntil - now > renewBeforeMs) return;
@@ -843,6 +846,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     } catch (e) {
       faucetAfter = Date.now() + 60_000;
       mandateUntil = await mandateEnd();
+      if (mandateUntil > now) seen(); // a seller that holds one reads first from now on, so a refusal does not repeat
       if (mandateUntil > now) return log(`The faucet did not renew the seller's mandate (${plain((e as Error).message)}); the current one ends ${at(mandateUntil)}. The adapter asks again in a minute at the earliest.`);
       throw new Error(`the seller ${seller.address} holds no mandate in club ${clubId}, and the faucet refused: ${plain((e as Error).message)}`);
     }

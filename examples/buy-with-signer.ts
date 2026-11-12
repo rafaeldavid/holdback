@@ -14,7 +14,7 @@ const [first, store, third, fourth, defaults, options] = args.filter((a, i) => a
 // The usage, in the order site/buy.txt gives the call (T-396), named as this file is run: unbundled or in buy.mjs (entry.ts).
 const me = command('buy-with-signer', import.meta.url);
 const usage = [`usage: ${me} <quote URL> <key store directory> '<scope as JSON>' <the most you pay, base units> [<defaults URL> [<options as JSON>]] [--expect-terms <file>] [--stop-after-funding]`, `       ${me} approve <key store directory> <commitment ID> <the most you pay, base units> [--stop-after-funding]`, `       ${me} resume <key store directory> [<commitment ID>] [--delivery <file>]`].join('\n');
-if (first === undefined) throw new Error(usage);
+if (first === undefined) { console.error(usage); process.exit(2); }
 if (at >= 0 && (!termsFile || termsFile.startsWith('--'))) throw new Error('--expect-terms takes the path of your terms file'); else if (first !== 'resume' && !/^[0-9]+$/.test(fourth ?? '')) throw new Error(`the most you pay is base units as a decimal string, the fourth argument\n${usage}`);
 const say = (x: unknown) => console.error(printable(JSON.stringify(x))); // seller text, with no hidden or reordering characters
 const expect = () => ({ expect: JSON.parse(process.env['CROW_EXPECT'] || '{}') }), sh = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
