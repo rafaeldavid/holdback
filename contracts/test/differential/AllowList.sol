@@ -19,7 +19,7 @@ import {Field, Obs} from "./Observation.sol";
 ///        `test_sideBySide_reachesEveryRow` fails when more than a quarter of its seeds diverge, so an entry cannot
 ///        quietly switch the gate off.
 ///
-///      T-375, RF-2 (`decide` reads the word once and writes it once): no entry. The change must show no difference.
+///      T-375, RF-3 (each deadline in one place): no entry. The change must show no difference.
 library AllowList {
     struct Verdict {
         string change; // the change that allows the difference; "" when none does
