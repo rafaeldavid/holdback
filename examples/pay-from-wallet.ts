@@ -29,7 +29,7 @@ const fee = flag('--fee', 2), sim = flag('--sim', 0) !== undefined;
 const [command, a, b, c, d] = args;
 const out = (x: unknown) => console.log(printable(JSON.stringify(x)));
 const expect = () => ({ expect: JSON.parse(process.env['CROW_EXPECT'] || '{}') });
-const usage = 'usage: pay-from-wallet.ts files <store> <id> | fund <store> <id> <funding signature> [<operator-fee signature>] | check <file> <terms file> <buyer address> [--fee <to> <base units>] [--sim]';
+const usage = `usage: ${commandFor('pay-from-wallet', import.meta.url)} files <store> <id> | fund <store> <id> <funding signature> [<operator-fee signature>] | check <file> <terms file> <buyer address> [--fee <to> <base units>] [--sim]`;
 
 try {
   if (command === 'files' && a && b) {

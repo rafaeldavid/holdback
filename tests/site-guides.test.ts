@@ -87,13 +87,14 @@ describe('the checks on the guides', () => {
     copyFileSync(new URL('../site/buy.mjs', import.meta.url), join(dir, 'buy.mjs'));
     const run = (...args: string[]) => spawnSync(process.execPath, ['buy.mjs', ...args], { cwd: dir, encoding: 'utf8', env: { PATH: process.env['PATH'] ?? '' } });
     const pay = run('pay');
-    expect(pay.stderr).toMatch(/files <store> <id> \| fund <store> <id>/);
+    expect(pay.stderr).toMatch(/usage: node buy\.mjs pay files <store> <id> \| fund <store> <id>/);
     expect(pay.stderr).not.toMatch(/usage: approve|deal-record/);
     const record = run('record');
-    expect(record.stderr).toMatch(/<commitmentId> --as buyer\|seller/);
+    expect(record.stderr).toMatch(/usage: node buy\.mjs record <commitmentId> --as buyer\|seller/);
     expect(record.stderr).not.toMatch(/files <store>/);
     const approve = run('approve', 'deal-1', 'not-an-id', '1');
-    expect(approve.stderr).toMatch(/usage: approve <key store directory> <commitment ID>/);
+    expect(approve.stderr).toMatch(/usage: node buy\.mjs <quote URL> <key store directory> '<scope as JSON>' <the most you pay, base units>/);
+    expect(approve.stderr).toMatch(/node buy\.mjs approve <key store directory> <commitment ID>/);
     expect(approve.stderr).not.toMatch(/--as buyer\|seller|files <store>/);
   });
 });

@@ -2612,7 +2612,7 @@ async function main(argv) {
 	};
 	const party = flag("--as");
 	if (!id || party !== "buyer" && party !== "seller") {
-		process.stderr.write("usage: node examples/deal-record.ts <commitmentId> --as buyer|seller [--delivery <file>] [--settlement <file>] [--out <file>]\n");
+		process.stderr.write(`usage: ${command$1("deal-record", import.meta.url)} <commitmentId> --as buyer|seller [--delivery <file>] [--settlement <file>] [--out <file>]\n`);
 		return 2;
 	}
 	const operators = (process.env["HOLDBACK_OPERATORS"] || "https://api.crow.direct,https://api2.crow.direct").split(",");
@@ -3973,7 +3973,7 @@ var init_buyer_signer = __esmMin((() => {
 
 // examples/pay-from-wallet.ts
 var pay_from_wallet_exports = /* @__PURE__ */ __exportAll({});
-var args$1, flag, fee, sim, command, a, b, c, d, out, expect$1, usage;
+var args$1, flag, fee, sim, command, a, b, c, d, out, expect$1, usage$1;
 var init_pay_from_wallet = __esmMin((async () => {
 	init_buyer_signer();
 	init_entry();
@@ -3989,7 +3989,7 @@ var init_pay_from_wallet = __esmMin((async () => {
 	[command, a, b, c, d] = args$1;
 	out = (x) => console.log(printable(JSON.stringify(x)));
 	expect$1 = () => ({ expect: JSON.parse(process.env["CROW_EXPECT"] || "{}") });
-	usage = "usage: pay-from-wallet.ts files <store> <id> | fund <store> <id> <funding signature> [<operator-fee signature>] | check <file> <terms file> <buyer address> [--fee <to> <base units>] [--sim]";
+	usage$1 = `usage: ${command$1("pay-from-wallet", import.meta.url)} files <store> <id> | fund <store> <id> <funding signature> [<operator-fee signature>] | check <file> <terms file> <buyer address> [--fee <to> <base units>] [--sim]`;
 	try {
 		if (command === "files" && a && b) {
 			const signer = await loadKeys(a, b, {
@@ -4043,7 +4043,7 @@ var init_pay_from_wallet = __esmMin((async () => {
 				summary: r.summary
 			});
 		} else {
-			console.error(usage);
+			console.error(usage$1);
 			process.exitCode = 2;
 		}
 	} catch (e) {
@@ -4054,7 +4054,7 @@ var init_pay_from_wallet = __esmMin((async () => {
 
 // examples/buy-with-signer.ts
 var buy_with_signer_exports = /* @__PURE__ */ __exportAll({});
-var args, stop, at, termsFile, dl, deliveryFile, first, store, third, fourth, defaults, options, say, expect, sh, finish, pay;
+var args, stop, at, termsFile, dl, deliveryFile, first, store, third, fourth, defaults, options, me, usage, say, expect, sh, finish, pay;
 var init_buy_with_signer = __esmMin((async () => {
 	init_entry();
 	init_buyer_signer();
@@ -4066,8 +4066,15 @@ var init_buy_with_signer = __esmMin((async () => {
 	dl = args.indexOf("--delivery");
 	deliveryFile = dl >= 0 ? args[dl + 1] : void 0;
 	[first, store, third, fourth, defaults, options] = args.filter((a, i) => a !== "--stop-after-funding" && (at < 0 || i !== at && i !== at + 1) && (dl < 0 || i !== dl && i !== dl + 1));
+	me = command$1("buy-with-signer", import.meta.url);
+	usage = [
+		`usage: ${me} <quote URL> <key store directory> '<scope as JSON>' <the most you pay, base units> [<defaults URL> [<options as JSON>]] [--expect-terms <file>] [--stop-after-funding]`,
+		`       ${me} approve <key store directory> <commitment ID> <the most you pay, base units> [--stop-after-funding]`,
+		`       ${me} resume <key store directory> [<commitment ID>] [--delivery <file>]`
+	].join("\n");
+	if (first === void 0) throw new Error(usage);
 	if (at >= 0 && (!termsFile || termsFile.startsWith("--"))) throw new Error("--expect-terms takes the path of your terms file");
-	else if (first !== "resume" && !/^[0-9]+$/.test(fourth ?? "")) throw new Error("the most you pay is base units as a decimal string");
+	else if (first !== "resume" && !/^[0-9]+$/.test(fourth ?? "")) throw new Error(`the most you pay is base units as a decimal string, the fourth argument\n${usage}`);
 	say = (x) => console.error(printable(JSON.stringify(x)));
 	expect = () => ({ expect: JSON.parse(process.env["CROW_EXPECT"] || "{}") });
 	sh = (s) => /^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`;
@@ -4116,7 +4123,7 @@ var init_buy_with_signer = __esmMin((async () => {
 		for (const f of failed) say({ error: String(f.reason?.message ?? f.reason) });
 		process.exitCode = failed.length > 0 ? 1 : 0;
 	} else if (first === "approve") {
-		if (!/^0x[0-9a-fA-F]{64}$/.test(third ?? "") || !/^[0-9]+$/.test(fourth ?? "")) throw new Error("usage: approve <key store directory> <commitment ID> <the most you pay, base units>");
+		if (!/^0x[0-9a-fA-F]{64}$/.test(third ?? "") || !/^[0-9]+$/.test(fourth ?? "")) throw new Error(`approve takes <key store directory> <commitment ID> <the most you pay, base units>\n${usage}`);
 		const signer = await loadKeys(store, third, expect()), shown = signer.shownOffer;
 		if (shown?.commitmentId !== third.toLowerCase()) throw new Error(`no stop showed ${third} with a key in ${store}: nothing is approved`);
 		await pay(signer, shown, fourth);

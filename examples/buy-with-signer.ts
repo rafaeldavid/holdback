@@ -11,7 +11,11 @@ import { loadKeys, makeKeys, openDeals, printable, type BuyerSigner, type Offer 
 import { jcs } from './verify.ts';
 const args = process.argv.slice(2), stop = args.includes('--stop-after-funding'), at = args.indexOf('--expect-terms'), termsFile = at >= 0 ? args[at + 1] : undefined, dl = args.indexOf('--delivery'), deliveryFile = dl >= 0 ? args[dl + 1] : undefined;
 const [first, store, third, fourth, defaults, options] = args.filter((a, i) => a !== '--stop-after-funding' && (at < 0 || (i !== at && i !== at + 1)) && (dl < 0 || (i !== dl && i !== dl + 1)));
-if (at >= 0 && (!termsFile || termsFile.startsWith('--'))) throw new Error('--expect-terms takes the path of your terms file'); else if (first !== 'resume' && !/^[0-9]+$/.test(fourth ?? '')) throw new Error('the most you pay is base units as a decimal string');
+// The usage, in the order site/buy.txt gives the call (T-396), named as this file is run: unbundled or in buy.mjs (entry.ts).
+const me = command('buy-with-signer', import.meta.url);
+const usage = [`usage: ${me} <quote URL> <key store directory> '<scope as JSON>' <the most you pay, base units> [<defaults URL> [<options as JSON>]] [--expect-terms <file>] [--stop-after-funding]`, `       ${me} approve <key store directory> <commitment ID> <the most you pay, base units> [--stop-after-funding]`, `       ${me} resume <key store directory> [<commitment ID>] [--delivery <file>]`].join('\n');
+if (first === undefined) throw new Error(usage);
+if (at >= 0 && (!termsFile || termsFile.startsWith('--'))) throw new Error('--expect-terms takes the path of your terms file'); else if (first !== 'resume' && !/^[0-9]+$/.test(fourth ?? '')) throw new Error(`the most you pay is base units as a decimal string, the fourth argument\n${usage}`);
 const say = (x: unknown) => console.error(printable(JSON.stringify(x))); // seller text, with no hidden or reordering characters
 const expect = () => ({ expect: JSON.parse(process.env['CROW_EXPECT'] || '{}') }), sh = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
 // Waits, reports each step, reclaims the hold if deliverBy passes undelivered, decrypts, checks the hash. The work is the seller's data: printed as JSON, never run.
@@ -24,7 +28,7 @@ const pay = async (s: BuyerSigner, offer: Offer, budget: string) => {
   if (!stop) await finish(s); // with --stop-after-funding the key store keeps the deal: run resume later
 };
 if (first === 'resume') { const failed = (await Promise.allSettled((third ? [await loadKeys(store!, third, expect())] : await openDeals(store!, expect())).map(finish))).filter((r): r is PromiseRejectedResult => r.status === 'rejected'); for (const f of failed) say({ error: String(f.reason?.message ?? f.reason) }); process.exitCode = failed.length > 0 ? 1 : 0; } else if (first === 'approve') {
-  if (!/^0x[0-9a-fA-F]{64}$/.test(third ?? '') || !/^[0-9]+$/.test(fourth ?? '')) throw new Error('usage: approve <key store directory> <commitment ID> <the most you pay, base units>');
+  if (!/^0x[0-9a-fA-F]{64}$/.test(third ?? '') || !/^[0-9]+$/.test(fourth ?? '')) throw new Error(`approve takes <key store directory> <commitment ID> <the most you pay, base units>\n${usage}`);
   const signer = await loadKeys(store!, third!, expect()), shown = signer.shownOffer; // the approval names the offer the stop showed, by its ID
   if (shown?.commitmentId !== third!.toLowerCase()) throw new Error(`no stop showed ${third} with a key in ${store}: nothing is approved`);
   await pay(signer, shown, fourth!);
