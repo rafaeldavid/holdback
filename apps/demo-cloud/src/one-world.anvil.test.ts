@@ -9,12 +9,12 @@
 // and no secret: CI's anvil step can require
 // it. Needs `anvil` on PATH and `forge build` output.
 import type { Hex } from 'viem';
-import { DRAND_QUICKNET, DRAND_QUICKNET_CHAIN_HASH, type Commitment, type Hex32 } from '@holdback/core';
+import { canonicalKeccak, DRAND_QUICKNET, DRAND_QUICKNET_CHAIN_HASH, wholeSecond, type Commitment, type Hex32 } from '@holdback/core';
 import type { RandomnessSource } from '@holdback/adjudicator';
 import { LiveChain, type DeploymentFile, type EvmSettlement } from '@holdback/settlement/live';
 import { EvmWorld } from '@holdback/settlement/evm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { CSV, deploymentOf, ENV, host, party, PRICE, ready, RELAYER, root, sleep, untilBoth, type J } from '../test/anvil.ts';
+import { CSV, deploymentOf, ENV, estimateShim, host, lc, Outsider, outsideDeal, party, PRICE, ready, RELAYER, root, serve, sleep, untilBoth, type J } from '../test/anvil.ts';
 import { MemoryStorage, PublicWorld } from './index.js';
 
 describe.skipIf(!ready)(`one world through the drand rulebook (anvil; T-220, D49)${ready ? '' : ' (SKIPPED: needs anvil on PATH and forge build output in contracts/out)'}`, () => {
@@ -127,4 +127,63 @@ describe.skipIf(!ready)(`one world through the drand rulebook (anvil; T-220, D49
       await demo.close();
     }
   }, 600_000);
+});
+
+// T-378 part 6 (ADR-0032 §3.5): on a rules contract with a beacon margin, the demo fallback is woken when its round is
+// public, so it decides a short fallback window. Here the margin is 7 s over the sim beacon, so the fallback's round is
+// judgeBy + 7. The old schedule (judgeBy, then 2, 6 and 14 s after the trigger) would first see the round 14 s after
+// judgeBy, past this deal's 12 s fallback window, and the deal would take its default outcome.
+describe.skipIf(!ready)(`the fallback woken when its round is public (anvil, a 7 s beacon margin; T-378, ADR-0032)${ready ? '' : ' (SKIPPED: needs anvil on PATH and forge build output in contracts/out)'}`, () => {
+  const MARGIN = 7;
+  let anvil: EvmWorld;
+  let deployment: DeploymentFile;
+  // anvil cannot estimate a relayed trigger (the takeover); the shim answers from eth_call, as for the operators' timeouts.
+  let shim: Awaited<ReturnType<typeof estimateShim>>;
+  beforeAll(async () => {
+    anvil = await EvmWorld.start(root, { blockTimeSec: 1, token: 'test-usdc', beaconMarginSec: MARGIN });
+    deployment = { ...deploymentOf(anvil), beaconMarginSec: MARGIN };
+    shim = await estimateShim(anvil.rpcUrl);
+  }, 120_000);
+  afterAll(async () => {
+    await shim?.close();
+    await anvil?.stop();
+  });
+
+  it('a silent primary: the demo fallback decides a 12 s fallback window on its first wake after the round', async () => {
+    const storage = new MemoryStorage();
+    const chain = new LiveChain({ deployment, rpcUrls: [shim.url], relayerKey: RELAYER, pollMs: 200, rebroadcastMs: 10_000, mintBatchMs: 200 });
+    const errors: string[] = [];
+    const world = await PublicWorld.open({ storage, env: ENV, live: { chain, beacon: 'sim' }, minWindowSec: 5, faucetPerClient: 100, onError: (e) => errors.push(e.message) });
+    // Opening reads no chain: reseed the sim beacon now, before the world's first pass sends anything.
+    const { start } = (await storage.get<{ start: string }>('meta'))!;
+    await anvil.fresh(canonicalKeccak({ sim: 'holdback/demo-cloud/v1', start }));
+    const demo = await serve(world);
+    try {
+      for (const end = Date.now() + 90_000; !world.ready() && Date.now() < end; ) await sleep(250);
+      expect(world.ready()).toBe(true);
+      const evm = world.chain as EvmSettlement;
+      expect(evm.beaconMarginSec).toBe(MARGIN);
+      const d = (await (await fetch(`${demo.urls[0]}/.well-known/holdback.json`)).json()) as J;
+      const [, fallback, appeal] = d.demo.adjudicators.map((a: J) => a.address as string);
+      // A primary that accepts and then says nothing: the takeover is the fallback's.
+      const silent = new Outsider(world, demo.urls, 't-378/margin-silent', { trusted: [fallback, appeal] });
+      expect((await silent.register(wholeSecond(Date.now() - 120_000))).status).toBe(200);
+      const deal = await outsideDeal(demo.urls, deployment, silent, { work: CSV, timing: { offerExpiresInSec: 30, fundWithinSec: 45, deliverWithinSec: 60, judgeWithinSec: 5, fallbackWithinSec: 12, appealWindowSec: 0, appealDecideSec: 60 } });
+      const judgeBy = Date.parse(deal.terms.timing.judgeBy);
+      const fallbackBy = Date.parse(deal.terms.timing.fallbackBy);
+      const end = await untilBoth(deal.buyer, deal.id, ['Released', 'Refunded', 'Defaulted'], fallbackBy - Date.now() + 30_000).catch((e: Error) => {
+        throw new Error(`${e.message}; world errors: ${errors.join(' | ') || 'none'}; events: ${evm.log().filter((x) => x.commitmentId === deal.id).map((x) => x.type).join(', ')}`);
+      });
+      expect(end.escrowState).toBe('Released');
+      const decided = evm.log().find((e) => e.commitmentId === deal.id && e.type === 'judgment.decided')!;
+      expect(lc(String(decided.actor))).toBe(lc(fallback));
+      // Decided after its round was public (judgeBy + 7 s on the sim beacon) and before fallbackBy.
+      const at = Date.parse(decided.at);
+      expect(at).toBeGreaterThanOrEqual(judgeBy + MARGIN * 1000);
+      expect(at).toBeLessThan(fallbackBy);
+      expect(errors).toEqual([]);
+    } finally {
+      await demo.close();
+    }
+  }, 300_000);
 });

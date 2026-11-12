@@ -47,6 +47,7 @@ import {
   type UnsignedMessage,
   validateTiming,
   APPEAL_WINDOW_PROBLEM,
+  beaconClockOf,
   ZERO_HOLD_PROBLEM,
   PHASE_ONE_NO_APPEAL,
 } from '@holdback/core';
@@ -124,6 +125,8 @@ export interface PrepareContext {
   contracts?: ReadonlyArray<{ name: string; address: Address }>;
   /** The one token this deployment settles in (the plan's 2c): terms in another are refused before anything is signed. Absent: no check. */
   token?: AcceptedToken;
+  /** The rules contract's beacon margin in seconds (ADR-0032), as the settlement layer reports it. Absent: 0. */
+  beaconMarginSec?: number;
 }
 
 /**
@@ -419,7 +422,7 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
   const shortfall = await fallbackBondRefusal(ctx, terms);
   if (shortfall) bad(shortfall, 'adjudicators.fallback');
   const notices = [
-    ...escalationWindowNotices(club, terms),
+    ...beaconWindowNotices(club, terms, ctx.beaconMarginSec ?? 0),
     ...addressDefaultNotices(terms, { payment: buyer!['paymentAddress'] === undefined, payout: input['sellerPayoutAddress'] === undefined }),
     ...moneyAddressNotices(ctx, terms),
     ...(await bondNotices(ctx, terms)),
@@ -507,22 +510,45 @@ async function turnProblems(ctx: Pick<PrepareContext, 'declines'>, c: AnyCommitm
   return out;
 }
 
-/**
- * ADR-0032: on a chain whose rules contract takes drand quicknet's rounds with a 29 s margin (Sepolia, Ethereum mainnet),
- * the appeal adjudicator cannot decide an escalation in a window below 37 s: no block inside it is built after the round
- * is public, and every escalation under those terms defaults to a refund. The local chain and SimChain run the sim beacon,
- * whose floor is 2 s, so a club on it gets no warning.
- */
-export const SMALLEST_DECIDABLE_ESCALATION_SEC = 37;
+/** The slot time of the chains a non-zero beacon margin runs on, Ethereum mainnet and Sepolia (ADR-0032 §5). */
+export const CHAIN_BLOCK_SEC = 12;
 
-/** ADR-0032 §5, gate line BR-5: an advisory notice, never a refusal (D31), for an escalation window below the chain's floor. */
-export function escalationWindowNotices(club: Pick<Club, 'rulebook'>, t: Pick<AnyCommitmentTerms, 'timing'>): string[] {
-  if (club.rulebook.randomness?.source !== 'drand-quicknet') return [];
+/**
+ * ADR-0032 §5: the smallest escalation window (`appealDecideSec`) the appeal adjudicator can always decide in. The round
+ * is public at most `margin + period` s after the escalation's block; the decision needs the first block after that,
+ * and a second more, because the contract refuses a decision at the deadline itself. 37 s at the 29 s margin.
+ */
+export const escalationFloorSec = (marginSec: number, periodSec: number, blockSec = CHAIN_BLOCK_SEC): number => blockSec * (Math.floor((marginSec + periodSec) / blockSec) + 1) + 1;
+
+/**
+ * ADR-0032 §5: a fallback window (`fallbackBy − judgeBy`) that can always be decided, whatever slot `judgeBy` falls in:
+ * the round is public at most `margin + period − 1` s after judgeBy, a block follows within a slot, and a second more.
+ * 44 s at the 29 s margin; ADR-0032 measured 44 s on Sepolia and 43 s on mainnet, whose beacon phase is kinder.
+ */
+export const fallbackFloorSec = (marginSec: number, periodSec: number, blockSec = CHAIN_BLOCK_SEC): number => marginSec + periodSec + blockSec;
+
+/**
+ * ADR-0032 §5, gate line BR-5: advisory notices, never refusals (D31), for an escalation window or a fallback window
+ * below the floor this deployment can decide in. The floors follow from the rules contract's beacon margin, which the
+ * settlement layer reports (`beaconMarginSec`), and the rulebook's beacon clock. A margin of 0 (SimChain, a local chain)
+ * leaves a floor of a second or two, so no notice is given there.
+ */
+export function beaconWindowNotices(club: Pick<Club, 'rulebook'>, t: Pick<AnyCommitmentTerms, 'timing'>, marginSec: number): string[] {
+  if (!(marginSec > 0)) return [];
+  const clock = beaconClockOf(club.rulebook.randomness?.source);
+  if (!clock) return [];
+  const out: string[] = [];
+  const esc = escalationFloorSec(marginSec, clock.period);
   const w = t.timing.appealDecideSec;
-  if (w >= SMALLEST_DECIDABLE_ESCALATION_SEC) return [];
-  return [
-    `timing.appealDecideSec is ${w} s, below the ${SMALLEST_DECIDABLE_ESCALATION_SEC} s the appeal adjudicator needs to decide an escalation after the beacon's round is public, on a rules contract with the 29 s beacon margin of ADR-0032 (Sepolia and Ethereum mainnet from the phase-one deployment on): there, every escalation under these terms would end in the default outcome, a refund. A panel needs more; the repository's terms use 300 s. You may still choose it`,
-  ];
+  if (w < esc) {
+    out.push(`timing.appealDecideSec is ${w} s, below the ${esc} s the appeal adjudicator needs on this deployment to decide an escalation after the beacon's round is public (its beacon margin is ${marginSec} s, ADR-0032): every escalation under these terms would end in the default outcome, a refund. A panel needs more; the repository's terms use 300 s. You may still choose it`);
+  }
+  const fb = fallbackFloorSec(marginSec, clock.period);
+  const fw = (Date.parse(t.timing.fallbackBy) - Date.parse(t.timing.judgeBy)) / 1000;
+  if (fw < fb) {
+    out.push(`the fallback window (fallbackBy − judgeBy) is ${fw} s, below the ${fb} s that can always be decided on this deployment once the beacon's round is public (its beacon margin is ${marginSec} s, ADR-0032): a fallback decision may not fit, and the deal would take its default outcome. The repository's terms use 120 s. You may still choose it`);
+  }
+  return out;
 }
 
 /** ADR-0033 §7: one line for each money address the request left out, so the party knows its signing address holds the money. */
