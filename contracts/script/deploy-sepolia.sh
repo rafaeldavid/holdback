@@ -9,6 +9,13 @@
 #
 # Usage: contracts/script/deploy-sepolia.sh <rpc-url> <keystore-file> <password-file>
 #        contracts/script/deploy-sepolia.sh --check <rpc-url>
+#        contracts/script/deploy-sepolia.sh --verify <rpc-url>
+#
+# --verify runs --check first, then publishes each of the five contracts' source on the block explorers with the
+# constructor arguments the checked record holds (`forge verify-contract`, T-383): Sourcify always, with no key and no
+# account; Etherscan too when ETHERSCAN_API_KEY is in the environment, which forge reads by that name (it is never put
+# on a command line). A contract already verified is skipped, so a rerun is safe. VERIFY_DRY_RUN=1 prints the
+# commands instead of running them.
 #
 # A rehearsal (T-383): the same routine on a local anvil (chain 31337, an RPC on 127.0.0.1 or localhost only), with
 # DEPLOY_RECORD naming the record to write or check, so a rehearsal never writes over contracts/deployments/sepolia.json.
@@ -50,9 +57,11 @@ fail() {
   exit 1
 }
 
-if [ "${1:-}" = --check ]; then
-  [ "$#" -eq 2 ] || fail "usage: deploy-sepolia.sh --check <rpc-url>"
+VERIFY=no
+if [ "${1:-}" = --check ] || [ "${1:-}" = --verify ]; then
+  [ "$#" -eq 2 ] || fail "usage: deploy-sepolia.sh $1 <rpc-url>"
   MODE=check
+  [ "$1" = --check ] || VERIFY=yes
   RPC="$2"
 else
   [ "$#" -eq 3 ] || fail "usage: deploy-sepolia.sh <rpc-url> <keystore-file> <password-file>"
@@ -351,11 +360,65 @@ RECORD="$(jq -n \
     }
   }')"
 
+# run_verify <explorer> <command...>: runs one verification, or prints it under VERIFY_DRY_RUN=1. No key is ever on
+# the command line: forge reads ETHERSCAN_API_KEY from the environment itself.
+run_verify() {
+  local who="$1"
+  shift
+  if [ "${VERIFY_DRY_RUN:-}" = 1 ]; then
+    echo "deploy-sepolia: would run: $*"
+  else
+    "$@" || fail "$who verification failed: $*"
+  fi
+}
+
+# verify_one <path:Contract> <address> [constructor-signature args...]: Sourcify, then Etherscan when a key is set.
+verify_one() {
+  local id="$1" address="$2" encoded=""
+  shift 2
+  if [ "$#" -gt 0 ]; then
+    encoded="$(cast abi-encode "$@")" || fail "encoding the constructor arguments of $id failed"
+  fi
+  local base=(forge verify-contract "$address" "$id" --root "$ROOT" --chain "$CHAIN" --watch)
+  if [ -n "$encoded" ]; then base+=(--constructor-args "$encoded"); fi
+  # Sourcify takes no key, so none goes to it.
+  run_verify Sourcify env -u ETHERSCAN_API_KEY "${base[@]}" --verifier sourcify
+  if [ -n "${ETHERSCAN_API_KEY:-}" ]; then run_verify Etherscan "${base[@]}" --verifier etherscan; fi
+}
+
+# verify_all: the five contracts, each with the constructor arguments the checked record holds.
+verify_all() {
+  if [ "$CHAIN" = "$LOCAL" ] && [ "${VERIFY_DRY_RUN:-}" != 1 ]; then
+    fail "no explorer serves the local chain; a rehearsal runs --verify with VERIFY_DRY_RUN=1"
+  fi
+  local c3009_text rules_text c3009_args rules_args
+  c3009_text="$(jq -er '.contracts.ERC3009PaymentCollector.args | join(" ")' "$OUT")" || fail "the record has no collector arguments"
+  rules_text="$(jq -er '.contracts.HoldbackRules.args | join(" ")' "$OUT")" || fail "the record has no rules arguments"
+  read -r -a c3009_args <<<"$c3009_text"
+  read -r -a rules_args <<<"$rules_text"
+  [ "${#c3009_args[@]}" -eq 2 ] || fail "the record's collector has ${#c3009_args[@]} arguments, not 2"
+  [ "${#rules_args[@]}" -eq 6 ] || fail "the record's rules contract has ${#rules_args[@]} arguments, not 6"
+  # The addresses are the record's, which --check has just matched against the chain and this build.
+  verify_one "$ESCROW_ID" "$ESCROW"
+  verify_one "$C3009_ID" "$C3009" 'constructor(address,address)' "${c3009_args[@]}"
+  verify_one "$BEACON_ID" "$BEACON"
+  verify_one "$TOKEN_ID" "$TOKEN"
+  verify_one "$RULES_ID" "$RULES" 'constructor(address,address,uint64,address,address,uint64)' "${rules_args[@]}"
+  if [ "${VERIFY_DRY_RUN:-}" = 1 ]; then
+    echo "deploy-sepolia: dry run: nothing was sent to an explorer"
+  elif [ -n "${ETHERSCAN_API_KEY:-}" ]; then
+    echo "deploy-sepolia: the five contracts are verified on Sourcify and Etherscan"
+  else
+    echo "deploy-sepolia: the five contracts are verified on Sourcify; set ETHERSCAN_API_KEY to verify on Etherscan too"
+  fi
+}
+
 if [ "$MODE" = check ]; then
   RECORDED="$(jq -S . "$OUT")"
   DERIVED="$(jq -S . <<<"$RECORD")"
   [ "$RECORDED" = "$DERIVED" ] || fail "the record $OUT differs from what the chain and this build give"
   echo "deploy-sepolia: $OUT matches the chain and the build at $COMMIT"
+  if [ "$VERIFY" = yes ]; then verify_all; fi
 else
   mkdir -p "$(dirname "$OUT")"
   printf '%s\n' "$RECORD" >"$OUT"

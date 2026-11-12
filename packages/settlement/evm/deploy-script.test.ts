@@ -108,6 +108,11 @@ export class Rehearsal {
     return run('bash', [SCRIPT, this.rpc, this.keystore, this.passwordFile], { DEPLOY_RECORD: record, ...env });
   }
 
+  /** The script with any arguments. */
+  run(args: string[], env: Record<string, string> = {}): Promise<Run> {
+    return run('bash', [SCRIPT, ...args], env);
+  }
+
   /** The script's read-only check of `record`. */
   check(record: string, env: Record<string, string> = {}): Promise<Run> {
     return run('bash', [SCRIPT, '--check', this.rpc], { DEPLOY_RECORD: record, ...env });
@@ -218,6 +223,53 @@ describe.skipIf(!ready)(`the deploy script on a local chain (T-383)${ready ? '' 
     // The rules contract's creation input carries its token, so the creation-code check is the first to refuse.
     expect(c.stderr).toContain('src/HoldbackRules.sol:HoldbackRules: the creation input differs from this build');
   }, 300_000);
+
+  // Explorer verification (T-383 item 4). No explorer serves chain 31337 and no test reaches the network, so the
+  // rehearsal prints the commands; what Sourcify and Etherscan answer on Sepolia is untested here.
+  describe('--verify', () => {
+    const lines = (out: string) => out.split('\n').filter((l) => l.startsWith('deploy-sepolia: would run: '));
+
+    it('checks first, then names each of the five contracts with the record’s constructor arguments, on Sourcify only without a key', async () => {
+      const r = JSON.parse(readFileSync(record, 'utf8'));
+      const v = await chain.run(['--verify', chain.rpc], { DEPLOY_RECORD: record, VERIFY_DRY_RUN: '1', ETHERSCAN_API_KEY: '' });
+      expect(v.stderr).toBe('');
+      expect(v.code).toBe(0);
+      expect(v.stdout).toContain(`${record} matches the chain and the build`);
+      const runs = lines(v.stdout);
+      expect(runs).toHaveLength(5);
+      for (const l of runs) expect(l).toMatch(/ env -u ETHERSCAN_API_KEY forge verify-contract 0x[0-9a-fA-F]{40} \S+ --root \S+ --chain 31337 --watch( --constructor-args 0x[0-9a-f]+)? --verifier sourcify$/);
+      const rulesArgs = (await run('cast', ['abi-encode', 'constructor(address,address,uint64,address,address,uint64)', ...r.contracts.HoldbackRules.args])).stdout.trim();
+      const collectorArgs = (await run('cast', ['abi-encode', 'constructor(address,address)', ...r.contracts.ERC3009PaymentCollector.args])).stdout.trim();
+      expect(runs.find((l) => l.includes(` ${r.rules} src/HoldbackRules.sol:HoldbackRules `))).toContain(`--constructor-args ${rulesArgs} `);
+      expect(runs.find((l) => l.includes(` ${r.erc3009Collector} `))).toContain(`--constructor-args ${collectorArgs} `);
+      for (const [address, id] of [[r.escrow, 'AuthCaptureEscrow'], [r.beacon, 'DrandQuicknetBeacon'], [r.token.address, 'TestUSDC']]) {
+        const l = runs.find((x) => x.includes(` ${address} `));
+        expect(l).toContain(`:${id} `);
+        expect(l).not.toContain('--constructor-args');
+      }
+      expect(v.stdout).toContain('dry run: nothing was sent to an explorer');
+    }, 300_000);
+
+    it('adds Etherscan when ETHERSCAN_API_KEY is set, and never puts the key on a command line', async () => {
+      const key = 'REHEARSAL-NOT-A-KEY';
+      const v = await chain.run(['--verify', chain.rpc], { DEPLOY_RECORD: record, VERIFY_DRY_RUN: '1', ETHERSCAN_API_KEY: key });
+      expect(v.code).toBe(0);
+      const runs = lines(v.stdout);
+      expect(runs.filter((l) => l.endsWith('--verifier sourcify'))).toHaveLength(5);
+      expect(runs.filter((l) => l.endsWith('--verifier etherscan'))).toHaveLength(5);
+      expect(v.stdout + v.stderr).not.toContain(key);
+    }, 300_000);
+
+    it('refuses to send a local rehearsal to an explorer, and verifies nothing when the check fails', async () => {
+      const live = await chain.run(['--verify', chain.rpc], { DEPLOY_RECORD: record });
+      expect(live.code).not.toBe(0);
+      expect(live.stderr).toContain('no explorer serves the local chain');
+      const wrong = chain.planted(record, 'verify-wrong-margin', (r) => (r['beaconMarginSec'] = 30));
+      const bad = await chain.run(['--verify', chain.rpc], { DEPLOY_RECORD: wrong, VERIFY_DRY_RUN: '1' });
+      expect(bad.code).not.toBe(0);
+      expect(lines(bad.stdout)).toHaveLength(0);
+    }, 300_000);
+  });
 
   it('a rehearsal needs DEPLOY_RECORD and never names the Sepolia record', async () => {
     const none = await run('bash', [SCRIPT, '--check', chain.rpc], { DEPLOY_RECORD: '' });
