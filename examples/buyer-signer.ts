@@ -34,7 +34,8 @@
 // The work a seller delivers is untrusted data. This file returns it; it never prints it, runs it or reads
 // instructions from it. Neither should the client around it.
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import nacl from 'tweetnacl';
 import { recoverTypedDataAddress, type Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
@@ -829,7 +830,8 @@ export class BuyerSigner {
       const file = typedDataFile(s.typed);
       const path = join(this.store, `${this.address}.${name}.typed.json`);
       const fee = name === 'operator-fee' ? ` --fee ${file.message.to} ${file.message.value}` : '';
-      const check = `node examples/pay-from-wallet.ts check ${sh(path)} ${sh(termsPath)} ${this.address}${fee}${pin.chain ? '' : ' --sim'}`;
+      // From wherever the command runs, as buy-with-signer.ts builds its own lines.
+      const check = `node ${sh(relative(process.cwd(), fileURLToPath(new URL('./pay-from-wallet.ts', import.meta.url))))} check ${sh(path)} ${sh(termsPath)} ${this.address}${fee}${pin.chain ? '' : ' --sim'}`;
       return { file, name, slot: s.slot, path, digest: s.digest, check, summary: `The ${name === 'funding' ? 'funding' : 'operator fee'} (digest ${s.digest}): ${paymentSentence(file, id, pin.token, checked.terms)}` };
     });
     // The record first, so a crash before the files leaves a record that writes the same files again (red team I-2).

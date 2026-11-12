@@ -236,7 +236,6 @@ describe('a wallet outside the signer pays (ADR-0033 §3)', () => {
     expect(await balance(signer.address)).toBe(signingBefore);
     expect(await balance(pay.address)).toBe(TOTAL);
     await expect(signer.agreeAndFund(id)).rejects.toThrow(/call fundingFiles/);
-    const lines: string[] = [];
     const files = await signer.fundingFiles(id);
     expect(files.map((f) => f.name)).toEqual(['funding', 'operator-fee']);
     for (const f of files) {
@@ -249,7 +248,6 @@ describe('a wallet outside the signer pays (ADR-0033 §3)', () => {
     }
     expect(JSON.parse(readFileSync(files[0]!.path, 'utf8')).message).toMatchObject({ commitmentId: id, value: '26000000', token: 'tUSD' });
     expect(files[1]!.summary).toMatch(/pays 10000 base units of tUSD \(0\.010000 tUSD\) to 0x[0-9a-f]{40}, the operator's fee/);
-    void lines;
     // Writing them again gives the same messages.
     expect((await signer.fundingFiles(id)).map((f) => f.digest)).toEqual(files.map((f) => f.digest));
     const paid = await signer.agreeAndFund(id, { funding: await pay.sign(files[0]!.path), operatorFee: await pay.sign(files[1]!.path) });
@@ -346,7 +344,7 @@ describe('a wallet outside the signer pays (ADR-0033 §3)', () => {
     const other = await readyToFund(pay); // another deal this payment address could be led to pay
     const [funding, fee] = await signer.fundingFiles(id);
     const [otherFunding] = await other.signer.fundingFiles(other.id);
-    expect(funding!.check).toMatch(new RegExp(`^node examples/pay-from-wallet\\.ts check \\S+\\.funding\\.typed\\.json \\S+\\.terms\\.json ${signer.address} --sim$`));
+    expect(funding!.check).toMatch(new RegExp(`^node \\S*pay-from-wallet\\.ts check \\S+\\.funding\\.typed\\.json \\S+\\.terms\\.json ${signer.address} --sim$`));
     writeFileSync(funding!.path, readFileSync(otherFunding!.path)); // the attacker's file, same payer and amounts
     const terms = JSON.parse(readFileSync(join(signer.store, `${signer.address}.terms.json`), 'utf8'));
     expect(() => checkPaymentFile(JSON.parse(readFileSync(funding!.path, 'utf8')), terms, { kind: 'funding', domain: SIMCHAIN_DOMAIN, buyer: signer.address })).toThrow(/^refusing to sign: the message is for deal /);
