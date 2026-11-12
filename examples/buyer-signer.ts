@@ -41,7 +41,7 @@ import { recoverTypedDataAddress, type Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { Agent } from './agent.ts';
 import { dealRecord, type DealRecord } from './deal-record.ts';
-import { commitmentIdOf, deliveryHashOf, digestOfFile, isAddressText, jcs, knownPins, moneyAddressWarnings, openEnvelopeKey, operatorFeeOf, paymentSentence, Refusal, typedDataFile, typedOf, type Intent, type Pin } from './verify.ts';
+import { commitmentIdOf, CREATED_AT_BAND, deliveryHashOf, digestOfFile, isAddressText, jcs, knownPins, moneyAddressWarnings, openEnvelopeKey, operatorFeeOf, paymentSentence, Refusal, typedDataFile, typedOf, type Intent, type Pin } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -97,7 +97,16 @@ export type Offer = {
   createdAt: string;
   /** The one token of the deal: the price's, the fee's and the settlement's, checked against the pinned settlement layer and discovery. */
   token: { id: string; symbol: string; decimals: number };
-  /** With `defaults` given to readOffer: what this offer changes from the seller's published defaults (T-330). */
+  /**
+   * When the offer was shown: `createdAt` and each deadline as a date and its distance from settlement time then, so
+   * a far date shows at a glance (T-390). Shown only, never compared: it changes as time passes.
+   */
+  timeline?: Record<string, { at: string; fromNow: string }>;
+  /**
+   * With `defaults` given to readOffer: what this offer changes from the seller's published defaults (T-330). Also,
+   * with or without defaults, `createdAt` outside the band around the operators' clock, and the operators' clocks
+   * apart by more than it (T-390).
+   */
   differences?: Difference[];
 };
 /** The seven signed fields T-332 shows, and maxSubmissions on its own: an approval may name each. */
@@ -191,6 +200,11 @@ export type Options = {
   quoteCredentialEnv?: string | undefined;
   /** What the buyer expects of the seven signed fields (T-332). Not saved: give it again to loadKeys or openDeals. */
   expect?: Expect | undefined;
+  /**
+   * This machine's clock, in ms since 1970, which readOffer checks an offer's createdAt against besides the operators'
+   * (T-390). Default: Date.now. A world whose clock a test moves passes its own.
+   */
+  clock?: (() => number) | undefined;
   /** Where the signer's one-line notices and advisory warnings go (ADR-0033 §7). Default: standard error. */
   log?: ((line: string) => void) | undefined;
 };
@@ -381,6 +395,18 @@ function defaultsOf(d: J): Defaults {
   };
 }
 
+/** The differences readOffer finds against the clock, which checkOffer keeps from the shown offer (T-390). */
+const CLOCK_FIELDS = ['createdAt', 'settlementTime'];
+/** A distance in seconds as a person reads it: "in 5 years 1 day", "12 min ago". A year is 365 days here. */
+export function fromNow(sec: number): string {
+  const r = Math.abs(Math.round(sec));
+  const a = r >= 86_400 ? Math.round(r / 60) * 60 : r; // past a day, to the minute: seconds of drift do not change the words
+  const y = Math.floor(a / (365 * 86_400)), d = Math.floor((a % (365 * 86_400)) / 86_400), h = Math.floor((a % 86_400) / 3600), m = Math.floor((a % 3600) / 60);
+  const n = (v: number, unit: string) => `${v} ${unit}${v === 1 ? '' : 's'}`;
+  const text = y ? [n(y, 'year'), ...(d ? [n(d, 'day')] : [])].join(' ') : d ? [n(d, 'day'), ...(h ? [`${h} h`] : [])].join(' ') : h ? `${h} h ${m} min` : m ? `${m} min` : `${a} s`;
+  return a === 0 ? 'now' : sec > 0 ? `in ${text}` : `${text} ago`;
+}
+
 /**
  * What an offer changes from a seller's defaults (filled with the scope): each changed deliverable field, check,
  * rubric, adjudication fee and window, old value and new. Shown to the buyer's agent so it can decide; the signer
@@ -483,6 +509,7 @@ export class BuyerSigner {
   readonly #expect: Expect;
   readonly #saved: Saved;
   readonly #log: (line: string) => void;
+  readonly #clockNow: () => number;
   #connected: Promise<{ agent: Agent; pin: Pin }> | undefined;
 
   /**
@@ -514,6 +541,7 @@ export class BuyerSigner {
     this.#quoteCredentialEnv = options.quoteCredentialEnv;
     this.#expect = expectOf(options.expect);
     this.#log = options.log ?? ((line) => console.error(line));
+    this.#clockNow = options.clock ?? Date.now;
     this.address = privateKeyToAccount(s.privateKey).address.toLowerCase();
     this.encryptionPublicKey = Buffer.from(nacl.box.keyPair.fromSecretKey(new Uint8Array(Buffer.from(s.encryptionSecretKey, 'base64url'))).publicKey).toString('base64url');
     if (s.version !== 1 || s.address !== this.address) throw new Error(`the key file for ${s.address} in ${store} is not one this file wrote`);
@@ -675,6 +703,35 @@ export class BuyerSigner {
     return { token: grant?.granted?.token ?? pin.token.id, amount: grant?.granted?.amount ?? '0' };
   }
 
+  /**
+   * The offer against every configured operator's settlement time (T-390, T-388 H1): a difference when `createdAt` is
+   * outside CREATED_AT_BAND of any operator's time or of this machine's clock, or when the operators' times are further
+   * apart than the band; and the timeline from this machine's clock. Advisory: a difference stops a one-run buy for approval and refuses nothing (D31).
+   */
+  async #clock(sources: string[], offer: Offer): Promise<{ clock: Difference[]; timeline: NonNullable<Offer['timeline']> }> {
+    const answers = await this.#answers(sources, '/.well-known/holdback.json');
+    const times = answers.map((a) => ({ api: a.api, at: Date.parse(String(a.body?.settlementTime)) })).filter((x) => Number.isFinite(x.at));
+    if (times.length === 0) throw new Error('no operator reports its settlement time: the offer cannot be read against the clock');
+    const { behindSec, aheadSec } = CREATED_AT_BAND;
+    const clock: Difference[] = [];
+    const spread = (Math.max(...times.map((t) => t.at)) - Math.min(...times.map((t) => t.at))) / 1000;
+    if (spread > behindSec + aheadSec) clock.push({ field: 'settlementTime', old: `the operators' clocks within ${behindSec + aheadSec} s of each other`, new: Object.fromEntries(times.map((t) => [t.api, new Date(t.at).toISOString()])) });
+    const created = Date.parse(String(offer.createdAt));
+    // This machine's clock too (PR red team, Medium): both configured operators may be one party, and a time only they
+    // report is a time they choose. A machine whose own clock is off stops honest offers for approval, and loses nothing.
+    const local = this.#clockNow();
+    const offsets = [...times.map((t) => t.at), local].map((at) => (created - at) / 1000);
+    if (!Number.isFinite(created) || offsets.some((o) => o > aheadSec || o < -behindSec)) clock.push({ field: 'createdAt', old: `within ${behindSec} s behind and ${aheadSec} s ahead of every operator's settlement time and of this machine's clock`, new: offer.createdAt });
+    // From now on this machine's clock: the distances a person reads, which no operator sets.
+    const now = local;
+    const timeline: NonNullable<Offer['timeline']> = {};
+    for (const [k, v] of [['createdAt', offer.createdAt], ...['offerExpiresAt', 'fundBy', 'deliverBy', 'judgeBy', 'fallbackBy'].map((k) => [k, offer.deadlines?.[k]])] as Array<[string, J]>) {
+      const ms = Date.parse(String(v));
+      timeline[k] = { at: String(v), fromNow: Number.isFinite(ms) ? fromNow((ms - now) / 1000) : 'not a date' };
+    }
+    return { clock, timeline };
+  }
+
   /** The terms of `id` as both operators serve them, with the ID recomputed and the seller's signature recovered. */
   async #served(id: Hex): Promise<{ terms: J; offer: Offer }> {
     const { agent, pin } = await this.#connect();
@@ -777,10 +834,19 @@ export class BuyerSigner {
       defaults = fillWith(defaultsOf(given), this.#saved.scope) as Defaults;
     }
     const { offer } = await this.#served(id);
-    const { pin } = await this.#connect();
+    const { pin, agent } = await this.#connect();
     // ADR-0033 §7: advisory lines for an odd money address. They refuse nothing; checkOffer refuses a payment address that is not this buyer's.
     for (const w of [...moneyAddressWarnings('payout', offer.sellerPayoutAddress, pin, offer.adjudicators), ...moneyAddressWarnings('payment', offer.buyerPaymentAddress, pin, offer.adjudicators)]) this.#log(w);
-    const showing: Offer = defaults ? { ...offer, differences: differencesOf(defaults, offer) } : offer;
+    // T-390 (T-388 H1): the windows count from the seller's createdAt, so a createdAt far from the clock moves every
+    // deadline though no window differs. Judged now, when the offer is shown; checkOffer keeps this verdict.
+    const { clock, timeline } = await this.#clock(agent.sources(), offer);
+    for (const d of clock) {
+      this.#log(d.field === 'createdAt'
+        ? `Warning: the offer's createdAt, ${shown(d.new)}, is ${timeline['createdAt']?.fromNow ?? 'off'} by this machine's clock, and every deadline moves with it: deliverBy is ${timeline['deliverBy']?.fromNow ?? 'unknown'}. An honest offer's createdAt is ${d.old}. Approve it only if you mean these deadlines.`
+        : `Warning: the operators' clocks are further apart than ${CREATED_AT_BAND.behindSec + CREATED_AT_BAND.aheadSec} s (${shown(d.new)}): the offer's times cannot be read against one clock. Approve it only if you mean its deadlines.`);
+    }
+    const found = defaults ? differencesOf(defaults, offer) : [];
+    const showing: Offer = { ...offer, timeline, ...(defaults || clock.length ? { differences: [...found, ...clock] } : {}) };
     this.#saved.shown = { commitmentId: id, offer: showing, defaults };
     save(this.store, this.#saved);
     return showing;
@@ -802,7 +868,9 @@ export class BuyerSigner {
     this.#bind(id);
     const { terms, offer: read } = await this.#served(id);
     // The offer read again from every operator, compared with what the buyer's agent was shown.
-    const offer: Offer = shownBefore.defaults ? { ...read, differences: differencesOf(shownBefore.defaults, read) } : read;
+    // The clock's verdict is the one made when the offer was shown (readOffer): createdAt grows older while it waits.
+    const clock = (shownBefore.offer.differences ?? []).filter((d) => CLOCK_FIELDS.includes(d.field));
+    const offer: Offer = { ...read, ...(shownBefore.offer.timeline ? { timeline: shownBefore.offer.timeline } : {}), ...(shownBefore.defaults || clock.length ? { differences: [...(shownBefore.defaults ? differencesOf(shownBefore.defaults, read) : []), ...clock] } : {}) };
     for (const [field, of] of OFFER_FIELDS) if (!same(of(offer), of(shownBefore.offer))) refuse(`${field} is ${shown(of(offer))}, not the shown ${shown(of(shownBefore.offer))}`);
     const want: Array<[string, J, J]> = [
       ['buyer', terms.buyer, this.address],
