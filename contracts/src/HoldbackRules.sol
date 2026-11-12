@@ -38,6 +38,9 @@ contract HoldbackRules is EIP712, IHoldbackRules {
     /// @dev anvil's chain ID: the one chain where a beacon margin of 0 deploys (ADR-0032 §3.4), as for the sim beacon.
     uint256 internal constant LOCAL_CHAIN_ID = 31337;
 
+    /// @dev The one delivery attempt phase one takes: the terms' `maxSubmissions` and every delivery's attempt number.
+    uint8 internal constant ONLY_ATTEMPT = 1;
+
     AuthCaptureEscrow public immutable ESCROW;
     /// @notice CPP's ERC-3009 collector, the one way a phase-one deal funds (ADR-0031 §3, SC-2).
     address public immutable ERC3009_COLLECTOR;
@@ -148,7 +151,7 @@ contract HoldbackRules is EIP712, IHoldbackRules {
         H.Timing calldata tm = t.timing;
         if (
             tm.offerExpiresAt >= tm.fundBy || tm.fundBy >= tm.deliverBy || tm.deliverBy >= tm.judgeBy
-                || tm.judgeBy >= tm.fallbackBy || tm.maxSubmissions != 1 || tm.appealDecideSec == 0
+                || tm.judgeBy >= tm.fallbackBy || tm.maxSubmissions != ONLY_ATTEMPT || tm.appealDecideSec == 0
                 || tm.appealWindowSec != 0
         ) {
             revert InvalidMessage();
@@ -513,7 +516,7 @@ contract HoldbackRules is EIP712, IHoldbackRules {
         returns (bytes32 dh)
     {
         if (block.timestamp >= t.timing.deliverBy) revert DeadlinePassed();
-        if (dv.attempt != 1) revert InvalidMessage();
+        if (dv.attempt != ONLY_ATTEMPT) revert InvalidMessage();
         dh = H.deliveryHash(id, dv);
         _requireSigned(t.seller, dh, sellerSignature);
         deliveryHashOf[id] = dh;
