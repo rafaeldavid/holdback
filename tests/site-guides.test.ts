@@ -2,7 +2,7 @@
 // checks site/check.mjs runs on the guides. No network: the provider is a fake fetch.
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error plain JavaScript module with no declarations
-import { apiRoutes, countTokens, duplicateSentences, estimateTokens, FIRST_DEAL_BUDGET, guideFiles, measurePaths, namedCalls, namedReferences, routeKnown } from '../site/guides.mjs';
+import { apiRoutes, citedSections, countTokens, duplicateSentences, estimateTokens, FIRST_DEAL_BUDGET, guideFiles, hasSection, measurePaths, namedCalls, namedReferences, routeKnown } from '../site/guides.mjs';
 
 const answer = (status: number, body: unknown) => async () => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
@@ -57,5 +57,14 @@ describe('the checks on the guides', () => {
 
   it('lists the reference files a guide names', () => {
     expect(namedReferences('See `ref/http.txt`, https://crow.direct/ref/signing.txt and ref/http.txt again.')).toEqual(['ref/http.txt', 'ref/signing.txt']);
+  });
+
+  it('reads the sections a guide cites and finds them as headings or bold leads', () => {
+    const cited = citedSections('See `ref/http.txt`, "Make your keys", and the front door\'s "Try it".');
+    expect(cited).toEqual([{ file: 'ref/http.txt', title: 'Make your keys' }, { file: 'llms.txt', title: 'Try it' }]);
+    expect(hasSection('# T\n\n## Make your keys\n', 'Make your keys')).toBe(true);
+    expect(hasSection('## Try it: one test deal\n', 'Try it')).toBe(true);
+    expect(hasSection('- **Run it as a service.** text\n', 'Run it as a service')).toBe(true);
+    expect(hasSection('## Make your keys now\n', 'Make your keys')).toBe(false);
   });
 });

@@ -23,7 +23,7 @@
 // 10. The role pages (T-359, T-393): site/buy.txt and site/sell.txt each open with a numbered first hour whose every
 //    step says what it looks like when it worked, link the front door, and keep local addresses to sell.txt's first hour.
 // 11. The guides together (T-393): the front door lists exactly the reference files in site/ref/, every reference a
-//    guide names exists, every crow.direct link resolves, no sentence is in two guides, every call a guide names is a
+//    guide names exists and so does every section it cites by name, every crow.direct link resolves, no sentence is in two guides, every call a guide names is a
 //    route in docs/api.md, every file under examples/, fixtures/ or spec/ and every pnpm script a guide names exists,
 //    and the deployment's addresses are in llms.txt alone (scripts/record-copies.mjs rewrites them there). A publish build writes every guide.
 // 12. The budget (T-393): each role's first-deal path, the front door plus its page, is within FIRST_DEAL_BUDGET
@@ -31,7 +31,7 @@
 //    pinned model; without it, bytes divided by four. It says which.
 import { existsSync, readFileSync } from 'node:fs';
 import { ASSETS, BASE, BUY_URL, filled, page, pins, problemPages, publishedGuides, SELL_URL, SITE_URL, strip, TEST_SELLER_URL, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
-import { apiRoutes, duplicateSentences, FIRST_DEAL_BUDGET, guideFiles, guideSource, measurePaths, namedCalls, namedReferences, referenceFiles, routeKnown } from './guides.mjs';
+import { apiRoutes, citedSections, duplicateSentences, hasSection, FIRST_DEAL_BUDGET, guideFiles, guideSource, measurePaths, namedCalls, namedReferences, referenceFiles, routeKnown } from './guides.mjs';
 
 const here = (p) => new URL(p, import.meta.url);
 const read = (p) => readFileSync(here(p), 'utf8');
@@ -236,6 +236,7 @@ const listed = [...sectionOf(md, 'Reference').matchAll(/^- `([a-z0-9-]+\.txt)`/g
 expect(refs.length > 0 && JSON.stringify(listed) === JSON.stringify(refs), `the front door's "Reference" lists ${listed.join(', ') || 'nothing'}, and site/ref/ holds ${refs.join(', ')}`);
 for (const [p, text] of guides) {
   for (const r of namedReferences(text)) expect(refs.includes(r), `${p} names ${r}, which is not in site/ref/`);
+  for (const { file, title } of citedSections(text)) expect(guides.has(file) && hasSection(guides.get(file), title), `${p} cites "${title}" in ${file}, which has no such section`);
   for (const u of links(text)) {
     if (u.host !== new URL(SITE_URL).host) continue;
     const path = u.pathname.slice(BASE.length);

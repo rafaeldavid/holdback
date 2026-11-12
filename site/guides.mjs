@@ -133,3 +133,19 @@ export function routeKnown(call, routes) {
 
 /** The reference files a guide names, as `ref/<name>.txt` (inline or as a crow.direct link). */
 export const namedReferences = (text) => [...new Set([...text.matchAll(/\bref\/([a-z0-9-]+\.txt)\b/g)].map((m) => `ref/${m[1]}`))];
+
+/**
+ * The sections a guide cites by name, as `{file, title}`: "`ref/<name>.txt`, \"<title>\"" and the front door's
+ * "\"<title>\"" after `llms.txt` or "the front door's". A title is a heading (`## ` or `### `) of that file, or the
+ * bold lead of a paragraph or list item (`**<title>.**`).
+ */
+export function citedSections(text) {
+  const out = [];
+  for (const [, file, title] of text.matchAll(/`(ref\/[a-z0-9-]+\.txt)`, "([^"]+)"/g)) out.push({ file, title });
+  for (const [, title] of text.matchAll(/front door's "([^"]+)"/g)) out.push({ file: 'llms.txt', title });
+  return out;
+}
+
+/** Whether `title` is a heading or a bold lead in `text`. */
+export const hasSection = (text, title) => text.split('\n').some((l) => l === `## ${title}` || l === `### ${title}` || l.startsWith(`## ${title}: `) || l.replace(/^\s*(?:[-*]|\d+\.)\s+/, '').startsWith(`**${title}.**`) || l.replace(/^\s*(?:[-*]|\d+\.)\s+/, '').startsWith(`**${title}**`));
+

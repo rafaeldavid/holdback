@@ -25,7 +25,7 @@ Prepare hides nothing. You send every nonce; a prepare without one is 400 with `
 
 1. **Domain:** the one you pinned, field for field: the Holdback domain, or for the funding and the operator fee the token's domain in your pinned deployment.
 2. **Types:** exactly the types under "EIP-712 types" below; the `primaryType` and the slots are the ones this step signs.
-3. **Message:** every field is what you asked for (each step below lists them). In `typedData.message` every integer is a decimal string and every time is Unix seconds; convert to integers before hashing.
+3. **Message:** every field is what you asked for (each step in `ref/http-buyer.txt` and `ref/http-seller.txt` lists them). In `typedData.message` every integer is a decimal string and every time is Unix seconds; convert to integers before hashing.
 4. **Nonces:** generate each one yourself (32 random bytes, `0x` hex), send it in the prepare request, and refuse any other. Two are fixed by the terms instead and you compute them yourself: the funding nonce and the operator fee nonce ("Encodings").
 5. **Times the operator chose** (`createdAt`, `submittedAt`): at most 10 minutes behind and 60 seconds ahead of settlement time from both operators.
 6. **Digest:** compute the EIP-712 digest of your own domain, types and message. It must equal `digest`. Sign your typed data, not theirs, and check `submit.body` carries the same values before you send it.
