@@ -43,7 +43,7 @@ This task confirms or refutes that finding, then writes the decision record that
   - The file is in the sessions' shared notes folder as `t-373-scratch-test.ts.txt`. To run it again, copy it to `apps/adjudicator/src/` with a `.test.ts` name, after `pnpm exec tsc -b apps/adjudicator`.
 - **The contract is not touched** [measured by reading]: `contracts/src/HoldbackTypes.sol:296-311` and `:361-384` rebuild the acceptance's and the decision's digest from the terms' `policyHash` and `registryHash`; the same on `origin/contracts-audit-ready` at `6230b46`.
 - **Nothing else was run.** Change kind 10 has no local checks.
-- **Red team:** one `red-teamer` pass on the first draft; its findings and what changed are in the record's section "Red team".
+- **Red team:** one `red-teamer` pass on the first draft (`fc0ed8d`): no Critical, 2 High, 6 Medium, 6 Low, all fixed or stated in the record's section "Red team". It opened the cited lines and confirmed them; four attacks failed. It used about 200,000 tokens [measured, the subagent's usage line].
 
 ## Decisions
 
@@ -56,7 +56,9 @@ This task confirms or refutes that finding, then writes the decision record that
 
 **Done:** the finding confirmed; ADR-0036 written, Proposed; D65 recorded.
 
-**Not done:** the build. Its task is the record's last-but-two section, "The build's task", in one paragraph for the coordinator's brief. It goes to the judgment lane after T-372 merges.
+**Not done:** the build. Its task is the record's section "The build's task", one paragraph for the coordinator's brief. It goes to the judgment lane after T-372 merges.
+
+**Length.** The record runs to about 4,300 words with its tables and paths. Its summary says how to read it in ten minutes: the summary, the finding's table and the seven bold recommendations.
 
 **For the coordinator:**
 - **A merge note.** PR 386 also appends to `docs/decisions-today.md`. Whichever of the two merges second resolves the conflict by keeping both entries, D64 then D65.
