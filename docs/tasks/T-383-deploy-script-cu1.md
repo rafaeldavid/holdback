@@ -6,7 +6,7 @@
 - **Paths this task may touch:** `contracts/script/deploy-sepolia.sh`; `packages/settlement/evm/live.ts` with its tests, and one data file beside it (the accepted-token table); one new command under `scripts/` with its test; the two lines that name a world (`apps/demo-cloud/src/worker.ts`, `apps/test-agents/src/worker.ts`) and the one test line that pins the first (`apps/demo-cloud/src/worker.test.ts`); `examples/deployments.ts` only as the copies command's target; `docs/cutover-phase-one.md` where a step's command changes; this file. Nothing under `contracts/src` or `contracts/test`.
 - **Human gate:** no. The task builds and tests on a local chain only. The deploy on Sepolia, and any explorer key, are Rafa's at the cutover.
 - **Change kind:** 7 for the script, 5 for the start-up check; one reviewer per pull request.
-- **Status:** done on the merge of PR 425 (PRs 422 to 425, into `contracts-audit-ready`)
+- **Status:** done on the merge of PR 430 (PRs 422, 423, 429 and 430, into `contracts-audit-ready`)
 - **Agent/session:** the T-383 session (Opus 5.5), started 2026-11-12 by the coordinator
 
 ## Intent
@@ -62,7 +62,8 @@ All measured on 2026-11-12 on this Mac (forge, cast and anvil 1.0.0, bash 3.2.57
 - **The copies command** (`tests/record-copies.test.ts`): on a copy of all 1,247 tracked files with a made-up phase-one record, it replaces 10 pins in `site/llms.txt` and the Sepolia table entry, regenerates `examples/deployments.ts`, rebuilds `site/try.mjs`, and its sweep fails on exactly the two `site/llms.txt` lines that name the cut vault. A pin planted outside the list fails it in three other spellings (no `0x`, padded, embedded), and in `docs/quickstart.md`.
 - **Mainnet USDC:** `0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48`, from Circle's page and Etherscan's token page, both read on 2026-11-12; the checksum matches `cast to-check-sum-address`.
 - **Other suites:** `pnpm typecheck`; eslint on every touched file; `apps/demo-cloud/src/worker.test.ts`, `examples/deployments.test.ts`, `apps/test-agents`, `tests/cut-feature-alignment.test.ts`, `apps/demo-cloud/src/live.test.ts`: pass. `forge test`: see the merge message of PR 425.
-- **Reviews:** one reviewer per pull request. PR 422: H1 (a relative spelling of the Sepolia record passed the rehearsal guard) and L2 fixed. PR 423: M4 fixed; M3 fixed in PR 425's doc. PR 424: H1 (forge prints the key in a failed request's URL), M3, L4 to L6 fixed; M2 recorded below. PR 425: M1 (padded and unprefixed spellings) and L2 to L4 fixed; L5 is this section.
+- **gitleaks:** it flagged the literal stand-in key in commit `e6b79fa` of PR 424 (`generic-api-key`; a made-up string, not a secret). On the coordinator's decision, PRs 424 and 425 were closed and restacked as 429 and 430 without that commit; the stand-in is built in the test from words. `git merge-base --is-ancestor e6b79fa… <head>` answers no for both. gitleaks is not installed on this Mac, so CI's job is the only scan.
+- **Reviews:** one reviewer per pull request (PRs 424 and 425 below are the reviews' names; their changes are in 429 and 430). PR 422: H1 (a relative spelling of the Sepolia record passed the rehearsal guard) and L2 fixed. PR 423: M4 fixed; M3 fixed in PR 425's doc. PR 424: H1 (forge prints the key in a failed request's URL), M3, L4 to L6 fixed; M2 recorded below. PR 425: M1 (padded and unprefixed spellings) and L2 to L4 fixed; L5 is this section.
 - **Not tested here:** anything on Sepolia; what Sourcify and Etherscan answer; the Workers on Cloudflare with the derived names.
 
 ## Decisions
@@ -76,7 +77,7 @@ All measured on 2026-11-12 on this Mac (forge, cast and anvil 1.0.0, bash 3.2.57
 
 ## Handoff
 
-**Done:** all six items, in PRs 422 (margin, rehearsal), 423 (token checks, old-world test), 424 (`--verify`) and 425 (copies command, world names, cutover doc).
+**Done:** all six items, in PRs 422 (margin, rehearsal), 423 (token checks, old-world test), 429 (`--verify`) and 430 (copies command, world names, cutover doc).
 
 **For Rafa:**
 
