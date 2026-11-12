@@ -40,7 +40,7 @@ Non-goals: no change to SimChain's or the EVM adapter's events (the record reads
 
 Labels: measured, inferred, guessed.
 
-- **Commands run, on the lane at `e4e930c` plus this branch** [measured]: `pnpm typecheck` passed; `npx eslint examples site tests` passed; `pnpm exec vitest run examples/ tests/cut-feature-alignment.test.ts` passed 398 tests in 32 files (23 skipped); `pnpm snap` passed 43 of 43, no snapshot diff; `node site/check.mjs` passed, and the site files did not change.
+- **Commands run, on the lane at `690edfd` plus this branch** [measured]: `pnpm typecheck` passed; `npx eslint examples site tests` passed; `pnpm exec vitest run examples/ tests/cut-feature-alignment.test.ts` passed 398 tests in 32 files (23 skipped); `pnpm snap` passed 43 of 43, no snapshot diff; `node site/check.mjs` passed, and the site files did not change.
 - **The buyer's tools** [measured, `examples/buyer-signer-settled.test.ts`, 3 tests, on demo-cloud's world in phase one]:
   - A settlement after a posted delivery, with the key released: `watch` reports `settled` and returns `Settled` with the key released; `buy-with-signer.ts resume` exits 0, prints the payouts, and opens the work.
   - A settlement that releases no key: `resume` exits 0 with the payouts, `work: null` and the note "the settlement released no key: there is no work to open".
