@@ -2242,7 +2242,9 @@ async function main() {
 	}
 	step = "final";
 	const party = deal ? "with Crow's test seller as the other party" : SELLER ? "with both sides played here, since the test seller was unavailable" : "with both sides played here";
-	say(`${done.escrowState} in ${Math.round((Date.now() - started) / 1e3)} s ${party}; final at ${done.deadlines?.appealBy ?? "the end of the appeal window"}, when the 60 s appeal window closes, with nobody needing to act`);
+	const appealWindow = Number(terms.timing?.appealWindowSec ?? 0);
+	const finality = appealWindow === 0 ? "final at the decision, since the terms have no appeal window" : `final at ${done.deadlines?.appealBy ?? "the end of the appeal window"}, when the ${appealWindow} s appeal window closes, with nobody needing to act`;
+	say(`${done.escrowState} in ${Math.round((Date.now() - started) / 1e3)} s ${party}; ${finality}`);
 	step = "done";
 	say(`commitment ${id} ${done.escrowState}`);
 }

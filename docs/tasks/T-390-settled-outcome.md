@@ -44,6 +44,7 @@ Part 3 (the coordinator, 2026-11-12, from T-393, the short guides): the buyer's 
 - [x] A file runs its main only when it is the program, also inside a bundle that inlines it: `isMain(import.meta.url, name)` in `examples/entry.ts`, true unbundled when `node` was given the file, and in a bundle only for the command the bundle declares as `globalThis.crowEntry`. `examples/deal-record.ts` uses it, so `buyer-signer.ts`'s import of it runs nothing.
 - [x] One place says how a command names itself and its siblings: `command(name, import.meta.url)`, the bundle's words from `globalThis.crowCommands`, else `node <path of examples/<name>.ts>` as before. The buyer's command's approve and fund lines, the signer's `check` line and `pay-from-wallet.ts`'s resume line use it.
 - [x] Tests for both, with the unbundled behaviour unchanged. One reviewer; no red team.
+- [x] `examples/try.ts`'s closing line is true of the world it ran on (the coordinator, from the cutover rehearsal): with the terms' appeal window at 0, as phase one requires, it says the decision is final; it names the appeal window, with the terms' own length, only when the terms have one. `site/try.mjs` changes with it.
 
 ## Out of scope
 
@@ -75,7 +76,8 @@ Labels: measured, inferred, guessed.
 
 ### Part 3: bundle-safe commands
 
-- [measured, `examples/entry.test.ts`, 4 tests]: `isMain` is true for the file `node` runs and false for another; with `crowEntry` declared, only the named command is the program though every inlined file has the bundle's URL; `command` names a sibling by its path unbundled and by the bundle's words when declared; a child process that imports `deal-record.ts` as a bundle would (its URL as `process.argv[1]`, an entry declared) runs no main, and the same import with no entry declared runs it as before (exit status 2, its usage). `pnpm exec vitest run examples/ tests/cut-feature-alignment.test.ts` passed 413 tests in 35 files on PR 446's head plus this branch; `pnpm typecheck`, `npx eslint examples site tests` and `node site/build.mjs && node site/check.mjs` passed; `site/try.mjs` does not change (none of its three files uses `entry.ts`).
+- [measured, `examples/entry.test.ts`, 4 tests]: `isMain` is true for the file `node` runs and false for another; with `crowEntry` declared, only the named command is the program though every inlined file has the bundle's URL; `command` names a sibling by its path unbundled and by the bundle's words when declared; a child process that imports `deal-record.ts` as a bundle would (its URL as `process.argv[1]`, an entry declared) runs no main, and the same import with no entry declared runs it as before (exit status 2, its usage). `pnpm exec vitest run examples/ tests/cut-feature-alignment.test.ts` passed 413 tests in 35 files on PR 446's head plus this branch; `pnpm typecheck`, `npx eslint examples site tests` and `node site/build.mjs && node site/check.mjs` passed; `entry.ts` itself changes nothing in `site/try.mjs` (none of its three files uses it).
+- **`try.ts`'s closing line** [measured, `examples/try.test.ts`, 7 tests]: every run's last line before the commitment now reads "…; final at the decision, since the terms have no appeal window", and no run prints "appeal window closes". `site/try.mjs` is rebuilt (SHA-256 `00041e5b…`), so the site's command changes again on the next deploy.
 
 ## Decisions
 

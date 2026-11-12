@@ -38,7 +38,7 @@ const CHECKS = [
   { id: 'rows', type: 'row_count_range', required: true, min: 3, max: 3 },
   { id: 'uniq', type: 'unique_key', required: true, columns: ['customer_id'] },
 ];
-// The demo club's shortest judge, fallback and appeal windows: the deal is final a minute after the decision.
+// The demo club's shortest judge, fallback and appeal-decision windows, and no appeal window (phase one): the decision is final.
 const TIMING = { judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 0, appealDecideSec: 60 };
 const CSV = 'customer_id,email\n1,ada@example.com\n2,alan@example.com\n3,grace@example.com\n';
 /** What this script's own seller delivers when asked for a refund: 2 rows, which fail the rows check. */
@@ -340,7 +340,10 @@ async function main() {
 
   step = 'final';
   const party = deal ? "with Crow's test seller as the other party" : SELLER ? 'with both sides played here, since the test seller was unavailable' : 'with both sides played here';
-  say(`${done.escrowState} in ${Math.round((Date.now() - started) / 1000)} s ${party}; final at ${done.deadlines?.appealBy ?? 'the end of the appeal window'}, when the 60 s appeal window closes, with nobody needing to act`);
+  // True of the world it ran on: phase one's terms have no appeal window, so the decision is final; the full protocol's may have one.
+  const appealWindow = Number(terms.timing?.appealWindowSec ?? 0);
+  const finality = appealWindow === 0 ? 'final at the decision, since the terms have no appeal window' : `final at ${done.deadlines?.appealBy ?? 'the end of the appeal window'}, when the ${appealWindow} s appeal window closes, with nobody needing to act`;
+  say(`${done.escrowState} in ${Math.round((Date.now() - started) / 1000)} s ${party}; ${finality}`);
   step = 'done';
   say(`commitment ${id} ${done.escrowState}`);
 }

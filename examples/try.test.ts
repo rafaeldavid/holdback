@@ -45,6 +45,9 @@ function expectDeal(r: Run): string {
   expect(r.code, r.out).toBe(0);
   for (const step of ['keys', 'faucet', 'offer', 'accepted', 'check', 'fund', 'deliver', 'outcome', 'open', 'balances', 'final']) expect(r.out, step).toMatch(new RegExp(`^${step} +\\S`, 'm'));
   expect(r.out).toMatch(/^faucet +1000 tUSD each, both admitted to demo-club$/m);
+  // T-390: phase one's terms have no appeal window, so the closing line says the decision is final, and names no window.
+  expect(r.out).toMatch(/^final +\S.*; final at the decision, since the terms have no appeal window$/m);
+  expect(r.out).not.toMatch(/appeal window closes/);
   expect(r.out).toMatch(/^offer +0x[0-9a-f]{6}…[0-9a-f]{4} Offered: 3 rows of customer_id,email for 25 tUSD/m);
   expect(r.out).toMatch(/^fund +Held: 26 tUSD held \(25 price \+ 1 adjudication fee\), operator fee 0\.01 tUSD$/m);
   expect(r.out).toMatch(/^outcome +Released: checks cols pass, rows pass, uniq pass; decision accept$/m);
