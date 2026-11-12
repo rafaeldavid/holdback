@@ -8,7 +8,7 @@ import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 import {IHoldbackBeacon} from "../parent/IHoldbackBeacon.sol";
 import {HoldbackTypes as H, Money} from "../parent/HoldbackTypes.sol";
 
-// T-341, PLANTED BEHAVIOUR CHANGE. A test fixture, never deployed: the pinned copy `../parent/HoldbackRules.b5d198c.sol`
+// T-341, PLANTED BEHAVIOUR CHANGE. A test fixture, never deployed: the pinned copy `../parent/HoldbackRules.f47a96a.sol`
 // with two edits, these imports and one deleted line in `_acceptDelivery` (`deliveryHashOf[id] = dh;`). It is the
 // "stores no delivery hash" mutant of known issue G-5. `SideBySide.t.sol` and `StateOracle.t.sol` prove that the
 // side-by-side harness and the delivery liveness invariant both fail on it. T-356 re-based it on each change's parent.
@@ -33,8 +33,7 @@ contract HoldbackRules is EIP712 {
         Escalated,
         Released,
         Refunded,
-        Settled,
-        Expired
+        Settled
     }
 
     /// @notice One storage word per commitment. Phase one has no party appeal and no bond (ADR-0031 §8): the first
@@ -430,15 +429,8 @@ contract HoldbackRules is EIP712 {
 
     // Timeouts (TimeoutKind), anyone may call
 
-    /// @notice expire_offer: after offerExpiresAt or fundBy nothing can fund the commitment; this records it.
-    function expireOffer(H.Terms calldata t) external {
-        bytes32 id = H.commitmentId(t);
-        Deal storage d = _deals[id];
-        if (d.stage != Stage.None) revert WrongStage(d.stage);
-        if (block.timestamp < t.timing.offerExpiresAt && block.timestamp < t.timing.fundBy) revert TooEarly();
-        d.stage = Stage.Expired;
-        emit JobExpired(id);
-    }
+    // No expire_offer on chain (ADR-0031 §7, SC-6): an unfunded offer stores nothing, and from offerExpiresAt (or
+    // fundBy) agreeAndFund refuses it, so the operators mark it expired by their own clock and send nothing.
 
     /// @notice reclaim: nothing delivered on chain by deliverBy; price + fee back to the buyer.
     function reclaim(H.Terms calldata t) external {

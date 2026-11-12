@@ -983,6 +983,23 @@ describe('phase_one profile', () => {
     if (!r.ok) expect(r.error.type).toBe('acceptance_mismatch');
   });
 
+  // T-356 (SC-3, ADR-0031 §4): the phase-one contracts pay a mutual settlement to the parties only, whatever the
+  // rulebook's payoutsTo says.
+  it('refuses a payout to a third address, even when the rulebook allows any recipient', () => {
+    const held = phaseOne(toHeldP1);
+    const third = ev.mutual(T.deliver, { payouts: [...split('1000000000', '500000000'), { to: outsider, amount: tusd('500000000') }] }, { allowed: true, payoutsTo: 'any' });
+    const r = step(held, fill(held, third), 'phase_one');
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.type).toBe('invalid_terms');
+      expect(r.error.detail).toContain('neither the buyer nor the seller');
+    }
+    expect(step(held, fill(held, ev.mutual(T.deliver, { payouts: split('1500000000', '500000000') }, { allowed: true, payoutsTo: 'any' })), 'phase_one').ok).toBe(true);
+    // The full protocol keeps D23: the same payout settles there.
+    const full = run([ev.accept(), ev.agree(), ev.fund()]);
+    expect(step(full, fill(full, third)).ok).toBe(true);
+  });
+
   // T-356 (SC-2, ADR-0031 §3): the phase-one contracts fund by ERC-3009 only.
   it('refuses a Permit2 funding authorization, which the full protocol takes', () => {
     const agreed = phaseOne([ev.accept(zeroBond, T.accept, tusd('0')), ev.agree()]);

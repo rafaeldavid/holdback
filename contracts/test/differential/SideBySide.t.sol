@@ -63,10 +63,14 @@ contract SideBySideTest is Test {
     uint8[WEIGHTS] internal _weight; // indices into _sel, each repeated by its weight
 
     function setUp() public {
-        // offer 3, agreeAndFund 4, deliver 3, decide 3, warp 2, decideFallback 2, every other action 1: 28 in all.
-        // T-346 (SC-7): the bond actions and `appealPath` left with the vault and the appeal rows; the three removed
-        // appeal paths stay at weight 1 each, so the old side still files, expires and decides appeals.
-        _weight = [0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 14, 15, 16, 16];
+        // offer 3, agreeAndFund 5, deliver 4, decide 5, warp 2, decideFallback 2, the four removed actions 0, every
+        // other action 1: 28 in all.
+        // T-346 (SC-7): the bond actions and `appealPath` left with the vault and the appeal rows. T-356: since SC-6 the
+        // old side is a parent with no party appeal and no `expireOffer` either, so the four removed actions
+        // (`fileAppeal`, `expireOffer`, `expireAppeal`, `decideAppeal`) are refused alike on both sides and compare
+        // nothing; their four weight slots went to agreeAndFund, deliver and decide (twice). They stay in `_sel` so a
+        // replay's action names still read.
+        _weight = [0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 5, 3, 3, 8, 9, 10, 1, 12, 13, 14, 14, 2, 16, 16];
         _sel = [
             RulesHandler.offer.selector,
             RulesHandler.agreeAndFund.selector,
@@ -305,9 +309,10 @@ contract SideBySideTest is Test {
         bytes32[] memory nd = _digests(n);
         address served = b.tokens()[0];
         address funded = b.fundToken();
+        bool thirdParty = b.thirdPartyPayout();
         for (uint256 f; f < Fields.COUNT; f++) {
             if (od[f] == nd[f]) continue;
-            AllowList.Verdict memory v = AllowList.allowed(Field(f), i, o, n, served, funded);
+            AllowList.Verdict memory v = AllowList.allowed(Field(f), i, o, n, served, funded, thirdParty);
             if (bytes(v.change).length == 0) {
                 (r.differs, r.step, r.field, r.action) = (true, i, Field(f), n.action);
                 return;

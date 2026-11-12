@@ -1043,7 +1043,13 @@ export class EvmSettlement implements Settlement {
         const late = book.state.kind === 'Held' && m.releaseKey ? s.delivery : undefined;
         const d = book.state.kind === 'Held' ? late : book.delivery;
         const proof = m.releaseKey && d ? (keyProof(d, t.buyer) ?? NO_KEY) : NO_KEY;
-        await this.call(m.commitmentId, 'mutualSettle', [termsView(t), mutualView(m), m.releaseKey && d ? deliveryView(d) : NO_DELIVERY, proof], (at) => [{ type: 'mutual_settle', at, message: m, rule: { allowed: true, payoutsTo: 'any' }, ...(late ? { delivery: late } : {}) }], options, dryRun, 'anyone');
+        // ADR-0031 §4 (SC-3): the phase-one contracts pay the parties only (core's phase-one profile says the same, whatever
+        // the rulebook's payoutsTo). Checked first, so a payout to a third address is refused with its reason before any
+        // simulation or transaction; the contract would revert InvalidMessage, which names no reason.
+        const other = m.payouts.find((p) => lc(p.to) !== lc(t.buyer) && lc(p.to) !== lc(t.seller));
+        if (other) refuse('invalid_terms', `payout recipient ${other.to} is neither the buyer nor the seller: the phase-one contracts pay a mutual settlement to the parties only (ADR-0031 §4)`);
+        const settle = (at: Timestamp): EscrowEvent[] => [{ type: 'mutual_settle', at, message: m, rule: { allowed: true, payoutsTo: 'parties' }, ...(late ? { delivery: late } : {}) }];
+        await this.call(m.commitmentId, 'mutualSettle', [termsView(t), mutualView(m), m.releaseKey && d ? deliveryView(d) : NO_DELIVERY, proof], settle, options, dryRun, 'anyone');
         return m.commitmentId;
       }
       case 'trigger':
@@ -2095,13 +2101,12 @@ export class EvmSettlement implements Settlement {
         const s = has('MutuallySettled');
         const m = r.settlement!;
         if (!s || Boolean(s.args['keyReleased']) !== m.releaseKey) return 'no matching MutuallySettled';
-        // The payouts as the contract paid them: PaymentReleased to the seller, Paid to anyone but the buyer.
+        // The payouts as the contract paid them: PaymentReleased to the seller, the rest back to the buyer. The phase-one
+        // contracts pay the parties only (ADR-0031 §4, SC-3), so a payout to anyone else cannot have landed.
         const toSeller = m.payouts.filter((p) => same(p.to, terms.seller)).reduce((n, p) => n + BigInt(p.amount.amount), 0n);
         const released = logs.find((l) => l.eventName === 'PaymentReleased');
         if ((released ? BigInt(released.args['amount'] as bigint) : 0n) !== toSeller) return 'its payout to the seller differs';
-        const paid = logs.filter((l) => l.eventName === 'Paid').map((l) => `${lc(String(l.args['to']))}:${String(l.args['amount'])}`).sort();
-        const others = m.payouts.filter((p) => !same(p.to, terms.seller) && !same(p.to, terms.buyer)).map((p) => `${lc(p.to)}:${p.amount.amount}`).sort();
-        return JSON.stringify(paid) === JSON.stringify(others) ? null : 'its other payouts differ';
+        return m.payouts.every((p) => same(p.to, terms.seller) || same(p.to, terms.buyer)) ? null : 'it names a payee other than the buyer and the seller';
       }
       // Timeouts are read from the logs alone; one read from calldata is checked against its own log all the same.
       case 'reclaim':
@@ -2259,7 +2264,7 @@ export class EvmSettlement implements Settlement {
           if (!late) return { wait: `a settlement in transaction ${tx.hash} released the key of delivery ${m.deliveryHash}, which was never posted and did not pass through this node, so this node holds no copy of it.` };
         }
         const carriedBy = late;
-        return { fn: call.fn, steps: (at) => [{ type: 'mutual_settle', at, message: m, rule: { allowed: true, payoutsTo: 'any' }, ...(carriedBy ? { delivery: carriedBy } : {}) }], actor: 'anyone', ctx: {}, signed: () => verifyMutualSettlement(this.domain, m, terms.buyer, terms.seller), settlement: m };
+        return { fn: call.fn, steps: (at) => [{ type: 'mutual_settle', at, message: m, rule: { allowed: true, payoutsTo: 'parties' }, ...(carriedBy ? { delivery: carriedBy } : {}) }], actor: 'anyone', ctx: {}, signed: () => verifyMutualSettlement(this.domain, m, terms.buyer, terms.seller), settlement: m };
       }
       case 'reclaim':
         return { fn: call.fn, steps: (at) => [{ type: 'reclaim', at }], actor: 'anyone', ctx: {}, signed: yes };

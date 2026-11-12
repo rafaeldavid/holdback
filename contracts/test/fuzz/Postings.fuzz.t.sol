@@ -93,7 +93,9 @@ contract PostingsFuzzTest is Base {
         _closed(t);
     }
 
-    /// A random three-way split of the price; the fee share is 0 bps, so the whole fee is the buyer's remainder.
+    /// A random split of the price between the seller and the buyer, the buyer named twice; the fee share is 0 bps, so
+    /// the whole fee is the buyer's remainder. Since SC-3 (ADR-0031 §4) a settlement pays the parties only, so the
+    /// third address (THIRD) receives nothing.
     function testFuzz_mutualSettlement(uint256 price, uint256 fee, uint256 a, uint256 b) public {
         (H.Terms memory t, bytes32 id) = _fundedWith(price, fee);
         a = bound(a, 0, t.price);
@@ -103,7 +105,7 @@ contract PostingsFuzzTest is Base {
         m.payouts = new H.Payout[]((a > 0 ? 1 : 0) + (b > 0 ? 1 : 0) + (c > 0 ? 1 : 0));
         uint256 j;
         if (a > 0) m.payouts[j++] = H.Payout(seller, a);
-        if (b > 0) m.payouts[j++] = H.Payout(THIRD, b);
+        if (b > 0) m.payouts[j++] = H.Payout(buyer, b);
         if (c > 0) m.payouts[j++] = H.Payout(buyer, c);
         m.expiresAt = type(uint64).max;
         bytes32 h = hx.mutual(id, t.token, m);
@@ -115,8 +117,8 @@ contract PostingsFuzzTest is Base {
         Snap memory s1 = _snap();
         (uint256 share, uint256 rest) = Money.split(t.fee, rules.MUTUAL_FEE_SHARE_BPS());
         assertEq(s1.seller - s0.seller, a);
-        assertEq(s1.third - s0.third, b);
-        assertEq(s1.buyer - s0.buyer, c + rest);
+        assertEq(s1.third, s0.third, "a third address is never paid");
+        assertEq(s1.buyer - s0.buyer, b + c + rest);
         assertEq(s1.adj - s0.adj, share);
         _closed(t);
     }

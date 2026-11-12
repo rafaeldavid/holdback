@@ -711,6 +711,12 @@ async function settlement(ctx: PrepareContext, input: Record<string, unknown>): 
       { to: c.buyer, amount: split.value.remainder },
     ].filter((p) => p.amount.amount !== '0');
   }
+  // ADR-0031 §4 (SC-3): the phase-one contracts pay a settlement to the buyer and the seller only. Said here, before
+  // either party signs a settlement the contract would refuse.
+  if (ctx.phaseOne) {
+    const i = payouts.findIndex((p) => lc(p.to) !== lc(c.seller) && lc(p.to) !== lc(c.buyer));
+    if (i >= 0) bad(`payouts[${i}].to ${payouts[i]!.to} is neither the buyer nor the seller: the phase-one contracts pay a mutual settlement to the parties only (ADR-0031 §4)`, `payouts.${i}.to`);
+  }
   const posted = await ctx.delivery(c.id);
   // SC-5b (T-357): with nothing posted, the agent may name the late delivery it holds, as the seller signed it. Its hash
   // is rebuilt here from that delivery, never taken from the caller, and the agent recomputes it before signing.

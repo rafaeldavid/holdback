@@ -10,7 +10,7 @@ import {HoldbackRules} from "../../src/HoldbackRules.sol";
 import {SimBeacon} from "../../script/SimBeacon.sol";
 import {HoldbackRules as OldRules} from "./old/HoldbackRules.64be1f1.sol";
 import {SimBeacon as OldSimBeacon} from "./old/SimBeacon.sol";
-import {HoldbackRules as ParentRules} from "./parent/HoldbackRules.b5d198c.sol";
+import {HoldbackRules as ParentRules} from "./parent/HoldbackRules.f47a96a.sol";
 import {HoldbackRules as PlantedRules} from "./planted/HoldbackRules.planted.sol";
 
 /// @title The pinned old side is the deployed commit (T-341)
@@ -34,10 +34,10 @@ contract PinnedSourceTest is Test {
     bytes32 internal constant BEACON_IFACE = 0x91f6b5fa005d7ea75b872d7dc19293167379c43e0e61550f25f9e65db476de28;
     bytes32 internal constant SIM = 0x674a26c77a2803179c8b0e9e2571c2bf16e785126f022e2a3c151cc86b968a41;
     string internal constant PARENT = "test/differential/parent/";
-    bytes32 internal constant PARENT_RULES = 0x4d861a969061e40794ce926055b60097c3d31b19675075476e7286b76f354be4;
+    bytes32 internal constant PARENT_RULES = 0x0b69049d9220edd320eaafacb88d06739c652d0af7496d2edfa0070e418ab6b2;
     bytes32 internal constant PARENT_TYPES = 0xc75379a48cbbf57708810ca66142f140ed4a5179978f8137f1ff86474ddf9ec4;
     bytes32 internal constant PARENT_BEACON_IFACE = 0xd9a32bbbbf432f05199e0fb35c82aff4f944783ffd9fc59816d094fba5db2ae3;
-    bytes32 internal constant PLANTED = 0xe53f912beeb0eebc54cd251bdc0521f84900fa20539ebbf09e25ea20642f951b;
+    bytes32 internal constant PLANTED = 0xa3dc6cec0af99c5ff2eb7ffb0b5d651af9364c4526a0e0c9a9be4a16f4587cb2;
 
     /// The keccak256 the compiler recorded for `source` in the artifact at `artifact`.
     function _compiled(string memory artifact, string memory source) internal view returns (bytes32) {
@@ -54,18 +54,18 @@ contract PinnedSourceTest is Test {
         assertEq(_compiled("old/SimBeacon.sol/SimBeacon.json", string.concat(OLD, "SimBeacon.sol")), SIM, "old/SimBeacon");
     }
 
-    /// T-356: the harness's old side is the change's parent commit, `parent/`: `contracts/src/` at `b5d198c`, the
+    /// T-356: the harness's old side is the change's parent commit, `parent/`: `contracts/src/` at `f47a96a`, the
     /// three files the pinned side deploys (the sim beacon is `script/SimBeacon.sol`, unchanged since). Each file has
-    /// the same git blob id as `b5d198c:contracts/src/<file>` (measured 2026-11-12 with `git hash-object` against
+    /// the same git blob id as `f47a96a:contracts/src/<file>` (measured 2026-11-12 with `git hash-object` against
     /// `git rev-parse`); the values below are the compiler's keccak256 of those bytes.
     function test_parentIsTheChangesParent() public view {
-        string memory a = "HoldbackRules.b5d198c.sol/HoldbackRules.json";
-        assertEq(_compiled(a, string.concat(PARENT, "HoldbackRules.b5d198c.sol")), PARENT_RULES, "parent/HoldbackRules");
+        string memory a = "HoldbackRules.f47a96a.sol/HoldbackRules.json";
+        assertEq(_compiled(a, string.concat(PARENT, "HoldbackRules.f47a96a.sol")), PARENT_RULES, "parent/HoldbackRules");
         assertEq(_compiled(a, string.concat(PARENT, "HoldbackTypes.sol")), PARENT_TYPES, "parent/HoldbackTypes");
         assertEq(_compiled(a, string.concat(PARENT, "IHoldbackBeacon.sol")), PARENT_BEACON_IFACE, "parent/IHoldbackBeacon");
     }
 
-    /// The planted copy: `parent/HoldbackRules.b5d198c.sol`, its imports pointed at `../parent/`, a header comment,
+    /// The planted copy: `parent/HoldbackRules.f47a96a.sol`, its imports pointed at `../parent/`, a header comment,
     /// and the line `deliveryHashOf[id] = dh;` deleted. It compiles against the pinned parent files.
     function test_plantedCopyIsPinned() public view {
         string memory a = "HoldbackRules.planted.sol/HoldbackRules.json";

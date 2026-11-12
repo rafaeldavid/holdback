@@ -28,8 +28,7 @@ contract HoldbackRules is EIP712 {
         Escalated,
         Released,
         Refunded,
-        Settled,
-        Expired
+        Settled
     }
 
     /// @notice One storage word per commitment. Phase one has no party appeal and no bond (ADR-0031 §8): the first
@@ -425,15 +424,8 @@ contract HoldbackRules is EIP712 {
 
     // Timeouts (TimeoutKind), anyone may call
 
-    /// @notice expire_offer: after offerExpiresAt or fundBy nothing can fund the commitment; this records it.
-    function expireOffer(H.Terms calldata t) external {
-        bytes32 id = H.commitmentId(t);
-        Deal storage d = _deals[id];
-        if (d.stage != Stage.None) revert WrongStage(d.stage);
-        if (block.timestamp < t.timing.offerExpiresAt && block.timestamp < t.timing.fundBy) revert TooEarly();
-        d.stage = Stage.Expired;
-        emit JobExpired(id);
-    }
+    // No expire_offer on chain (ADR-0031 §7, SC-6): an unfunded offer stores nothing, and from offerExpiresAt (or
+    // fundBy) agreeAndFund refuses it, so the operators mark it expired by their own clock and send nothing.
 
     /// @notice reclaim: nothing delivered on chain by deliverBy; price + fee back to the buyer.
     function reclaim(H.Terms calldata t) external {

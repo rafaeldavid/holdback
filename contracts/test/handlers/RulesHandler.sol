@@ -129,6 +129,8 @@ contract RulesHandler is Base {
     address public fundToken;
     /// T-356 (SC-6): offers whose expiry the parent's `expireOffer` recorded. The phase-one contract records none.
     mapping(bytes32 => bool) public offerExpired;
+    /// T-356 (SC-3): whether the last `mutualSettle` relayed named a payee other than the buyer and the seller.
+    bool public thirdPartyPayout;
 
     constructor() {
         setUp();
@@ -708,6 +710,10 @@ contract RulesHandler is Base {
         bytes32 id = _ids[i];
         HoldbackRules.Stage before = _dealOf(id).stage;
         H.Mutual memory m = _mutual(t, id, before, splitSeed);
+        thirdPartyPayout = false;
+        for (uint256 k; k < m.payouts.length; k++) {
+            if (m.payouts[k].to != t.buyer && m.payouts[k].to != t.seller) thirdPartyPayout = true;
+        }
         (H.Delivery memory dv, H.KeyProof memory kp) = _delivery();
         bytes32 h = hx.mutual(id, t.token, m);
         uint256 bk = _signer(signerSeed, BUYER_PK);
@@ -727,7 +733,8 @@ contract RulesHandler is Base {
     }
 
     /// Splits the price between the seller, the buyer and a third party (the operator or the unrelated address);
-    /// one time in sixteen the payouts overshoot the price by one unit.
+    /// one time in sixteen the payouts overshoot the price by one unit. T-356 (SC-3): phase one pays the parties only,
+    /// so one settlement in 32 names a third party (refused there); otherwise the third share goes to the buyer.
     function _mutual(H.Terms memory t, bytes32 id, HoldbackRules.Stage s, uint256 seed)
         internal
         view
@@ -737,6 +744,7 @@ contract RulesHandler is Base {
         uint256 b = ((seed >> 48) & 0xffffffffffff) % (t.price - a + 1);
         uint256 c = t.price - a - b;
         if ((seed >> 200) % 16 == 15) c += 1;
+        if (uint256(keccak256(abi.encode("third party", seed))) % 32 != 0) (b, c) = (b + c, 0);
         uint256 n = (a > 0 ? 1 : 0) + (b > 0 ? 1 : 0) + (c > 0 ? 1 : 0);
         m.payouts = new H.Payout[](n);
         uint256 j;

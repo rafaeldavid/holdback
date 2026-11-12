@@ -567,9 +567,15 @@ function lateDelivery(s: Extract<Settleable, { kind: 'Held' }>, m: MutualSettlem
 }
 
 /** ADR-0019: a settlement both parties signed closes a funded, undecided commitment. Signatures are checked before step. */
-function mutualSettle(s: Settleable, e: Extract<EscrowEvent, { type: 'mutual_settle' }>): R {
+function mutualSettle(s: Settleable, e: Extract<EscrowEvent, { type: 'mutual_settle' }>, profile: SettlementProfile): R {
   const m = e.message;
   if (m.commitmentId !== s.id) return fail('invalid_terms', 'settlement is for another commitment');
+  // ADR-0031 §4 (SC-3): the phase-one contracts pay a settlement to the buyer and the seller only, whatever the
+  // rulebook's payoutsTo says; D23's payouts to other addresses are deferred past phase one.
+  if (profile === 'phase_one') {
+    const other = m.payouts.find((p) => !sameAddress(p.to, s.terms.buyer) && !sameAddress(p.to, s.terms.seller));
+    if (other) return fail('invalid_terms', `payout recipient ${other.to} is neither the buyer nor the seller: the phase-one contracts pay a mutual settlement to the parties only (ADR-0031 §4)`);
+  }
   const live = messageLive(m, e.at);
   if (!live.ok) return live;
   if (s.kind === 'Held') {
@@ -600,7 +606,7 @@ const tooEarly = (deadline: Timestamp): R => fail('invalid_state', `deadline ${d
 /** One transition. `profile` is the protocol the settlement layer enforces (`full` unless it says otherwise). */
 export function step(s: EscrowState, e: EscrowEvent, profile: SettlementProfile = 'full'): R {
   if (!validTime(e.at)) return fail('invalid_terms', `event time ${e.at} is not a timestamp`);
-  if (e.type === 'mutual_settle' && (s.kind === 'Held' || s.kind === 'Delivered' || s.kind === 'FallbackJudging' || s.kind === 'Escalated')) return mutualSettle(s, e);
+  if (e.type === 'mutual_settle' && (s.kind === 'Held' || s.kind === 'Delivered' || s.kind === 'FallbackJudging' || s.kind === 'Escalated')) return mutualSettle(s, e, profile);
   switch (s.kind) {
     case 'Offered':
       if (e.type === 'adjudicator_accept') return adjudicatorAccept(s, e, profile);
