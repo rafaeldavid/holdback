@@ -1027,9 +1027,12 @@ export class EvmSettlement implements Settlement {
         const book = this.bookOf(m.commitmentId);
         const t = book.state.terms;
         if (!(await verifyMutualSettlement(this.domain, m, t.buyer, t.seller))) refuse('invalid_signature', 'the settlement is not signed by both the buyer and the seller');
-        const d = book.delivery;
+        // SC-5b (T-357): in Held the settlement carries the unposted delivery it names, as the contract's `dv` and key
+        // proof; core checks it first, as the contract does (:380-381). The contract stores no delivery for it.
+        const late = book.state.kind === 'Held' && m.releaseKey ? s.delivery : undefined;
+        const d = book.state.kind === 'Held' ? late : book.delivery;
         const proof = m.releaseKey && d ? (keyProof(d, t.buyer) ?? NO_KEY) : NO_KEY;
-        await this.call(m.commitmentId, 'mutualSettle', [termsView(t), mutualView(m), m.releaseKey && d ? deliveryView(d) : NO_DELIVERY, proof], (at) => [{ type: 'mutual_settle', at, message: m, rule: { allowed: true, payoutsTo: 'any' } }], options, dryRun, 'anyone');
+        await this.call(m.commitmentId, 'mutualSettle', [termsView(t), mutualView(m), m.releaseKey && d ? deliveryView(d) : NO_DELIVERY, proof], (at) => [{ type: 'mutual_settle', at, message: m, rule: { allowed: true, payoutsTo: 'any' }, ...(late ? { delivery: late } : {}) }], options, dryRun, 'anyone');
         return m.commitmentId;
       }
       case 'trigger':
@@ -2193,7 +2196,18 @@ export class EvmSettlement implements Settlement {
           buyerSignature: v['buyerSignature'] as Hex,
           sellerSignature: v['sellerSignature'] as Hex,
         };
-        return { fn: call.fn, steps: (at) => [{ type: 'mutual_settle', at, message: m, rule: { allowed: true, payoutsTo: 'any' } }], actor: 'anyone', ctx: {}, signed: () => verifyMutualSettlement(this.domain, m, terms.buyer, terms.seller), settlement: m };
+        // SC-5b (T-357): a settlement in Held that released a key carried an unposted delivery. The calldata holds it only
+        // as hashes, so core steps it from a copy this node holds (its own relay, a carried or kept copy) that hashes to
+        // the signed deliveryHash; without one the node waits, as for a carried decision it never saw (residual 13).
+        let late: Delivery | undefined;
+        if (s.kind === 'Held' && m.releaseKey && m.deliveryHash) {
+          const want = lc(m.deliveryHash);
+          const copies = [sub?.kind === 'mutual_settle' ? sub.delivery : undefined, book.carried, book.delivery, postedOf(book)];
+          late = copies.find((d): d is Delivery => !!d && lc(deliveryHash(d)) === want);
+          if (!late) return { wait: `a settlement in transaction ${tx.hash} released the key of delivery ${m.deliveryHash}, which was never posted and did not pass through this node, so this node holds no copy of it.` };
+        }
+        const carriedBy = late;
+        return { fn: call.fn, steps: (at) => [{ type: 'mutual_settle', at, message: m, rule: { allowed: true, payoutsTo: 'any' }, ...(carriedBy ? { delivery: carriedBy } : {}) }], actor: 'anyone', ctx: {}, signed: () => verifyMutualSettlement(this.domain, m, terms.buyer, terms.seller), settlement: m };
       }
       case 'expireOffer':
         return { fn: call.fn, steps: (at) => [{ type: 'expire', at }], actor: 'anyone', ctx: {}, signed: yes };
