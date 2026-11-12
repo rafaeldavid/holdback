@@ -5,7 +5,7 @@
 - **Depends on:** T-361 (PR 376: the audit-report fixture and the known-gap tests)
 - **Paths this task may touch:** `examples/check-delivery.test.ts` line 374 and `packages/testkit/src/runner.test.ts` lines 168 and 191 to 197 (added by the coordinator for the two edits under Evidence), `fixtures/` (the re-seat), `packages/judgment/src/screen.ts`, `packages/judgment/src/prompt.ts`, their tests, the fixtures they need, `docs/judgment-and-defenses.md`, `docs/decisions-today.md` (one entry), one ADR under `docs/decisions/`, this file
 - **Human gate:** no
-- **Status:** review
+- **Status:** done (PR 386)
 - **Agent/session:** T-367 implementer session, started by the coordinator on 2026-11-12. Roadmap row N87.
 - **Change kind:** 5, settlement and judgment code (`docs/team.md`, Change recipes). Local checks: the judgment package's tests, plus `pnpm typecheck`, `pnpm lint` and `pnpm snap`. Review: one red team, blocking findings only. Budget 250,000 tokens.
 
@@ -98,7 +98,7 @@ The rule behind the table: a phrase that is ordinary in audit prose becomes a **
 
 ## Handoff
 
-**Done:** `screen-1` and the stride sampler, their tests, the paired attacks, the red team's tests, the re-seated recordings, `docs/judgment-and-defenses.md`, ADR-0035 and D64.
+**Done (merged in PR 386):** `screen-1` and the stride sampler, their tests, the paired attacks, the red team's tests, the re-seated recordings, `docs/judgment-and-defenses.md`, ADR-0035 and D64.
 
 **What a buyer of a rubric deal can now rely on** [inferred from the tests above]:
 - An honest audit report with exploit code, attack steps, test output, JWTs and hex-encoded strings does not escalate for its wording.
