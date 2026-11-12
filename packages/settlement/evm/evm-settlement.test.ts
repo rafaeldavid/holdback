@@ -317,7 +317,8 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     const late = ((await d.deliver()) as Extract<Submission, { kind: 'deliver' }>).delivery; // signed, never posted
     const other = { ...late, plaintextSha256: `sha256:${'f'.repeat(64)}` as typeof late.plaintextSha256 };
     const wrong = await chain.submit(await d.mutual(1_400_000_000n, true, other), { sender: cast.buyer.key });
-    expect(wrong.ok ? 'ok' : [wrong.problem.type, wrong.problem.detail]).toEqual(['invalid_terms', expect.stringMatching(/does not hash to the signed deliveryHash/)]);
+    // The contract's simulation refuses first, by name; core refuses the same settlement (SimChain test, same block).
+    expect(wrong.ok ? 'ok' : [wrong.problem.type, wrong.problem.detail]).toEqual(['invalid_terms', expect.stringMatching(/BadKeyProof/)]);
     expect((await chain.stage(d.id)).stage).toBe('Held');
     const r = await chain.submit(await d.mutual(1_400_000_000n, true, late), { sender: cast.buyer.key });
     expect(r.ok ? r.state.escrowState : r.problem.detail).toBe('Settled');

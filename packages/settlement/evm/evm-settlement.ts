@@ -1443,6 +1443,8 @@ export class EvmSettlement implements Settlement {
       if (type === 'key.released' && log) {
         const a = log.args as { recipient: Address; path: number; scheme: string; ciphertext: string };
         const envelope = { recipient: getAddress(a.recipient), scheme: a.scheme, ciphertext: a.ciphertext } as EncryptedKey;
+        // A deal behind the chain already served this key from the same log (custodyBehind); joining it later records it once.
+        if (book.released.some((k) => lc(k.recipient) === lc(envelope.recipient) && k.ciphertext === envelope.ciphertext)) continue;
         book.released.push(envelope);
         this.emit(type, id, actor, via, { recipient: envelope.recipient, envelope, path: KEY_PATHS[a.path] ?? String(a.path), ...tx }, true, blockAt);
       } else {
