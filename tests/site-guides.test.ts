@@ -67,4 +67,11 @@ describe('the checks on the guides', () => {
     expect(hasSection('- **Run it as a service.** text\n', 'Run it as a service')).toBe(true);
     expect(hasSection('## Make your keys now\n', 'Make your keys')).toBe(false);
   });
+
+  it("fills buy.txt's install command, and only buy.txt's", async () => {
+    // @ts-expect-error plain JavaScript module with no declarations
+    const { guidePage } = await import('../site/build.mjs');
+    expect(guidePage('Run:\n{{BUY_INSTALL}}\n', 'buy.txt', () => 'mkdir -p crow-buy')).toBe('Run:\nmkdir -p crow-buy\n');
+    expect(() => guidePage('Run {{BUY_INSTALL}}', 'sell.txt')).toThrow('sell.txt has a {{placeholder}}');
+  });
 });

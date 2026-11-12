@@ -95,6 +95,14 @@ What the reviewer could not run: anything on Sepolia ("Try it", `sell.txt` step 
 
 **The cutover's sweep still passes** [measured]. On a throwaway copy of this branch, I gave `scripts/record-copies.mjs` a made-up record that changes the 4 deployment values `site/llms.txt` names. It replaced 5 occurrences in `site/llms.txt`, the sweep passed, and `node site/check.mjs` passed after. To finish the sweep in a fresh worktree, I removed the unchecked-out submodule's gitlink from the copy's index; that finding went to T-383.
 
+**The buyer's one file, run end to end** [measured, 2026-11-12, on `pnpm sim` with the stub and the adapter from `sell.txt`'s first hour, `buy.mjs` beside the two pinned packages, no clone]:
+- `node buy.mjs <quote> deal-1 '<scope>' 3000000000 <defaults>` stopped with exit status 3 and printed `node buy.mjs approve deal-1 0x… 3000000000`.
+- The approve line funded the deal; it ended `Released`, and the buyer opened 4,860 characters of work.
+- `node buy.mjs record <id> --as buyer` wrote the record: 17 checks passed, 2 not run, 0 failed.
+- With `CROW_PAYMENT_ADDRESS` set, the approve line stopped with exit status 4 and printed `node buy.mjs pay check …`, which passed. A test key signed the file, and `node buy.mjs pay fund …` printed `Funded. Follow the deal with: node buy.mjs resume deal-2`. `node buy.mjs resume deal-2` ended `Released`.
+- The cutover rehearsal ran again with `buy.mjs` in the tree: `record-copies.mjs` rebuilt it, and its sweep and the site check both passed.
+- `site/buy.mjs`: 194,213 bytes, SHA-256 578096e5… at this commit. The buyer's first-deal path is 18,926 bytes, about 4,732 of 5,000 tokens.
+
 **Commands run and results** [measured]:
 - `node site/build.mjs && node site/check.mjs`: PASS, with the two path counts above.
 - `pnpm vitest run tests/site-guides.test.ts tests/site-deploy.test.ts examples/try.test.ts tools/duet`: 4 files, 50 tests passed.
@@ -140,7 +148,13 @@ What the reviewer could not run: anything on Sepolia ("Try it", `sell.txt` step 
 ## Decisions
 
 - **The buyer's first hour uses the buyer's tools from the public repository** (`buy-with-signer`, `pay-from-wallet`, `deal-record`), not raw HTTP signing. The tools check every message before they sign, and the two-agent run's buyer uses them already. A raw-HTTP buyer path (keys, faucet, check, the funding nonce, the types) measured about 7,800 tokens before trimming, well over the budget. The page says in one sentence that nothing requires Crow's code, and names the HTTP path in `ref/http.txt`, `ref/signing.txt` and `ref/http-buyer.txt`; `sell.txt` does the same for the adapter. The coordinator approved this on 2026-11-12 and is putting it to Rafa, because the product is "API first".
-- **The buyer's tools stay "clone and build" for now.** One pinned file like `site/try.mjs` is possible: the three commands and their imports use only Node built-ins, viem and tweetnacl. But two things in `examples/` break inside one bundle. `deal-record.ts` runs `main()` whenever `import.meta.url` is the running file, which is always true in a bundle, and `buyer-signer.ts` imports it. And the tools print their next command from their own paths: `buy-with-signer.ts` builds its approve and fund lines that way, and `buyer-signer.ts` its `pay-from-wallet` check line (`new URL('./pay-from-wallet.ts', import.meta.url)`). Both live in `examples/`, outside this task. T-390's session is making them bundle-safe; the coordinator routes the bundle as a follow-up.
+- **The buyer's tools were "clone and build" until T-390 part 3, then one pinned file** (see "The buyer's one file" below). One pinned file like `site/try.mjs` is possible: the three commands and their imports use only Node built-ins, viem and tweetnacl. But two things in `examples/` break inside one bundle. `deal-record.ts` runs `main()` whenever `import.meta.url` is the running file, which is always true in a bundle, and `buyer-signer.ts` imports it. And the tools print their next command from their own paths: `buy-with-signer.ts` builds its approve and fund lines that way, and `buyer-signer.ts` its `pay-from-wallet` check line (`new URL('./pay-from-wallet.ts', import.meta.url)`). Both live in `examples/`, outside this task. T-390 part 3 (PR 451, 935ac6c) made them bundle-safe with `examples/entry.ts`.
+- **The buyer's one file** (follow-up pull request after PR 451). `site/buy.mjs` bundles the buyer's three commands:
+  - `site/buy-entry.mjs` is the dispatcher. It picks `pay` (pay-from-wallet), `record` (deal-record) or the default (buy-with-signer), removes the word from `process.argv`, sets `globalThis.crowEntry`, and imports that one command dynamically. Two of the commands run on import, so they must not both load.
+  - `site/build.mjs` bundles it with `codeSplitting: false` and a banner that declares `globalThis.crowCommands` (`BUY_COMMANDS`), so every line a command prints reads `node buy.mjs …`.
+  - `buy.txt` step 1 is the one install command (`{{BUY_INSTALL}}`), filled by the build with the file's SHA-256: two pinned packages and the file, kept only if its hash matches.
+  - The old step 2 (`pnpm audit-deal`) needed a clone, so it went. Step 9's own run of the checks still names a clone.
+  - The site check holds the bundle current and checks its imports (`node:*`, viem, tweetnacl), its banner, the install line, and that `buy.txt` runs each command as `node buy.mjs …`.
 - **The reference is eleven files, not one file with anchors.** An agent fetches a text file whole, so an anchor saves nothing. Each file holds one topic a step can name.
 - **The deployment's pins stay in `llms.txt`**, the one file `scripts/record-copies.mjs` rewrites. They cost both paths about 330 tokens. Moving them to `ref/signing.txt` would have needed a change in `scripts/`, outside this task. The site check fails if any other guide names a deployment address.
 - **The token count uses the agents' own key, `HOLDBACK_AGENT_ANTHROPIC_API_KEY`,** as the two-agent run does, and never the live judges' key.
@@ -151,6 +165,7 @@ What the reviewer could not run: anything on Sepolia ("Try it", `sell.txt` step 
 **Done.** The front door, the two role pages and eleven reference files are written; the budget is stated in `site/guides.mjs`; the site check counts it and covers every guide. Merged into `contracts-audit-ready` (merge commit in the coordinator's report).
 
 **The first site deploy after the lane reaches main must carry:**
+- `site/buy.mjs`, which the publish build copies. After the deploy, check that `https://crow.direct/buy.mjs` answers 200 and hashes to the SHA-256 in `buy.txt`'s install command. `site/deploy.mjs` probes only `llms.txt` and `try.mjs`; adding `buy.mjs` to its probe is a follow-up.
 - `site/llms.txt`, `site/buy.txt`, `site/sell.txt` and `site/ref/*.txt`, built by `node site/build.mjs --op1 … --op2 … --out reports/site-out`. The publish build writes every guide, `ref/` included, and `wrangler` uploads the whole folder (`apps/site/wrangler.jsonc`). Check after the deploy that `https://crow.direct/buy.txt` and `https://crow.direct/ref/http.txt` answer 200.
 - `site/deploy.mjs` checks only `llms.txt` and `try.mjs` on the live site. A later change could add `buy.txt` and `sell.txt` to its probe; that is outside this task.
 
