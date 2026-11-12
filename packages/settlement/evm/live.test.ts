@@ -36,6 +36,7 @@ const deployment: DeploymentFile = {
 
 /** What the stub's rules contract answers for eip712Domain(). */
 let onChain = { name: 'Holdback', version: '0.6' };
+let onChainMargin = 0n;
 
 function answer(method: string, params: unknown[]): unknown {
   if (method === 'eth_chainId') return '0x7a69';
@@ -47,6 +48,7 @@ function answer(method: string, params: unknown[]): unknown {
       return encodeFunctionResult({ abi: LIVE_ABIS.rules, functionName, result: ['0x0f', onChain.name, onChain.version, 31337n, RULES, `0x${'00'.repeat(32)}`, []] });
     }
     if (functionName === 'EXPIRY_MARGIN') return encodeFunctionResult({ abi: LIVE_ABIS.rules, functionName, result: 86_400n });
+    if (functionName === 'BEACON_MARGIN') return encodeFunctionResult({ abi: LIVE_ABIS.rules, functionName, result: onChainMargin });
   }
   throw new Error(`the stub does not answer ${method}`);
 }
@@ -87,6 +89,25 @@ describe('LiveChain refuses a rules contract under another EIP-712 domain (ADR-0
   it("starts against a contract under core's domain", async () => {
     onChain = { name: 'Holdback', version: holdbackDomain(31337).version };
     await expect(chainOf().verify()).resolves.toBeUndefined();
+  });
+
+  // ADR-0032 (T-380): the fallback and escalation rounds add the contract's BEACON_MARGIN. A deployment file that states
+  // another margin would ask the adjudicators for rounds the contract refuses, so the chain does not start.
+  it("refuses a deployment file whose beacon margin is not the contract's", async () => {
+    onChain = { name: 'Holdback', version: holdbackDomain(31337).version };
+    onChainMargin = 29n;
+    try {
+      await expect(chainOf().verify()).rejects.toThrow(/BEACON_MARGIN is 29, the deployment file says 0/);
+      await expect(new LiveChain({ deployment: { ...deployment, beaconMarginSec: 29 }, rpcUrls: [rpc], relayerKey: RELAYER }).verify()).resolves.toBeUndefined();
+    } finally {
+      onChainMargin = 0n;
+    }
+  });
+
+  it('refuses a beacon margin that is not whole non-negative seconds before it reads the chain', () => {
+    for (const bad of ['29', 29.5, -1, '0x1d']) {
+      expect(() => new LiveChain({ deployment: { ...deployment, beaconMarginSec: bad as never }, rpcUrls: [rpc], relayerKey: RELAYER })).toThrow(/beaconMarginSec must be whole non-negative seconds/);
+    }
   });
 
   it('compares the name too', () => {

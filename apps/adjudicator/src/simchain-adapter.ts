@@ -27,7 +27,7 @@ import {
 } from '@holdback/core';
 import type { Settlement, SubmitResult } from '@holdback/settlement';
 import type { AdjudicatorSettlement, DecisionTask, OfferTask } from './settlement-port.js';
-import type { RandomnessSource } from './randomness.js';
+import { withMargin, type RandomnessSource } from './randomness.js';
 
 /**
  * The Settlement interface plus the reads SimChain offers beyond it: the clock, the sim beacon, the full escrow
@@ -102,7 +102,8 @@ export class SettlementAdapter implements AdjudicatorSettlement {
     if (!s) return null;
     // A state saved before the source was kept has none: every such commitment named sim.
     const source = s.beaconSource ?? 'sim';
-    return source === 'sim' ? this.#sim : source === 'drand-quicknet' ? (this.#o.drand ?? null) : null;
+    // ADR-0032: the source carries the chain's beacon margin, which the service's roundFor adds.
+    return withMargin(source === 'sim' ? this.#sim : source === 'drand-quicknet' ? (this.#o.drand ?? null) : null, this.#o.chain.beaconMarginSec ?? 0);
   }
 
   now(): Timestamp {

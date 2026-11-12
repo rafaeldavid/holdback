@@ -71,6 +71,8 @@ abstract contract Base is Test, DeployPermit2 {
     bytes32 internal constant TOKEN_PERMISSIONS_TYPEHASH = keccak256("TokenPermissions(address token,uint256 amount)");
     address internal constant MULTICALL3 = 0xcA11bde05977b3631167028862bE2a173976CA11;
     uint64 internal constant MARGIN = 1 days;
+    /// ADR-0032: the beacon margin of Ethereum mainnet and Sepolia, which the drand suites deploy with.
+    uint64 internal constant DRAND_MARGIN = 29;
 
     AuthCaptureEscrow internal escrow;
     ERC3009PaymentCollector internal collector3009;
@@ -103,6 +105,12 @@ abstract contract Base is Test, DeployPermit2 {
 
     uint256 internal salt;
 
+    /// The rules contract's beacon margin (ADR-0032): 0 on the local chain, which keeps the sim rounds at judgeBy and
+    /// t1 + 1. A suite that tests the margin on the sim beacon overrides it.
+    function _beaconMargin() internal view virtual returns (uint64) {
+        return 0;
+    }
+
     function setUp() public virtual {
         vm.chainId(31337);
         vm.warp(1_790_000_000);
@@ -112,7 +120,7 @@ abstract contract Base is Test, DeployPermit2 {
         collectorPermit2 = new Permit2PaymentCollector(address(escrow), permit2, MULTICALL3);
         usdc = new MockERC3009Token("Mock USDC", "mUSDC", 6);
         sim = new SimBeacon(SIM_SEED);
-        rules = new HoldbackRules(escrow, address(collector3009), MARGIN, sim, address(usdc));
+        rules = new HoldbackRules(escrow, address(collector3009), MARGIN, sim, address(usdc), _beaconMargin());
         hx = new TypesHarness();
 
         buyer = vm.addr(BUYER_PK);

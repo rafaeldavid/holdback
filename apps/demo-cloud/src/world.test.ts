@@ -748,7 +748,8 @@ describe('a checks-only deal between two fresh agents, over HTTP', () => {
     running.splice(running.indexOf(first), 1);
     const digest = first.world.digest();
     // A changed configuration does not change a world already created: its club keeps the windows it began with.
-    const second = await serve({ minWindowSec: 99 }, storage);
+    // Without passes: a pass of the reopened world could move its clock before the digest is read (T-378).
+    const second = await serve({ minWindowSec: 99 }, storage, undefined, { passes: false });
     expect(second.world.digest()).toBe(digest);
     expect(((await (await fetch(`${second.urls[0]}/`)).json()) as J).demo.minWindowSec).toBe(2);
     const again = new Agent(second.urls, generatePrivateKey(), nacl.randomBytes(32));

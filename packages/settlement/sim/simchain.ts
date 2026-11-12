@@ -245,6 +245,8 @@ const TRIGGER_EVENT: Record<Exclude<TimeoutKind, 'settle'>, EscrowEvent['type']>
 
 export class SimChain implements Settlement {
   readonly kind = 'sim' as const;
+  /** ADR-0032: SimChain takes the rounds with no margin (judgeBy, and t + 1 after an escalation). */
+  readonly beaconMarginSec = 0;
   private readonly domain;
   private readonly w: Stores = { ledger: new Map(), recs: new Map(), nonces: new Set(), reserved: new Map(), spent: new Map(), log: [] };
   private readonly idempotency = new Map<string, { body: Hex32; result: Extract<SubmitResult, { ok: true }> }>();

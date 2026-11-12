@@ -22,14 +22,16 @@ contract BeaconHarness is DrandQuicknetBeacon {
 contract SeedGatedFiler {
     error SeedDoesNotSuit(bytes32 seed);
 
-    function _seed(HoldbackRules rules, bytes32 id, uint8 attempt, bytes calldata nextRoundSignature)
+    /// The appeal seed the gate believes `decide` will demand: from round roundAt(now + margin) + 1. A gate that
+    /// knows the rules contract passes its BEACON_MARGIN; a gate written for the rule before ADR-0032 passes 0.
+    function _seed(HoldbackRules rules, bytes32 id, uint8 attempt, bytes calldata roundSignature, uint256 margin)
         internal
         view
         returns (bytes32)
     {
         IHoldbackBeacon beacon = rules.BEACON();
-        uint64 round = beacon.roundAt(block.timestamp) + 1; // the round HoldbackRules.decide will demand
-        return H.panelSeed(id, H.ROLE_APPEAL, attempt, beacon.beaconValue(round, nextRoundSignature));
+        uint64 round = beacon.roundAt(block.timestamp + margin) + 1;
+        return H.panelSeed(id, H.ROLE_APPEAL, attempt, beacon.beaconValue(round, roundSignature));
     }
 
     function escalateIfSeedSuits(
@@ -38,11 +40,12 @@ contract SeedGatedFiler {
         H.Decision calldata m,
         H.Delivery calldata dv,
         bytes32 id,
-        bytes calldata nextRoundSignature,
+        bytes calldata roundSignature,
+        uint256 margin,
         uint256 modulus,
         uint256 wanted
     ) external returns (bytes32 seed) {
-        seed = _seed(rules, id, m.attempt, nextRoundSignature);
+        seed = _seed(rules, id, m.attempt, roundSignature, margin);
         if (uint256(seed) % modulus != wanted) revert SeedDoesNotSuit(seed);
         rules.decide(t, m, dv, "");
     }
@@ -70,11 +73,19 @@ contract DrandRedTeamTest is Base {
         hex"b55e7cb2d5c613ee0b2e28d6750aabbb78c39dcc96bd9d38c2c2e12198df95571de8e8e402a0cc48871c7089a2b3af4b";
     bytes internal constant SIG_1000 =
         hex"b44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39";
-    uint64 internal constant FALLBACK_ROUND = 32_456_478; // the round at judgeBy 1790172800 (the Base terms)
+    // ADR-0032 (T-380): the rounds the rules contract demands with the margin of Ethereum mainnet and Sepolia, 29 s.
+    uint64 internal constant FALLBACK_ROUND = 32_456_489; // the first after judgeBy - 1 + 29 (judgeBy 1790172800)
     bytes internal constant FALLBACK_SIG =
-        hex"b528568aa3bcf0f15bd15391bfd424012dfa4efae8a9b335e3c7aa98871a9108220ac137cf5626cc732db3e1a2e5cdc6";
-    uint64 internal constant APPEAL_ROUND = 32_398_879; // roundAt(1790000000) + 1; drand publishes it at 1790000001
+        hex"80e0f0939fbf00616f0b7c6c72f49ac3830e71a9de74caf893d8e2ab87e09cf4c4c25e22ade438341af31e5b8e8ef19a";
+    uint64 internal constant APPEAL_ROUND = 32_398_889; // the first after 1790000000 + 29; published at 1790000031
     bytes internal constant APPEAL_SIG =
+        hex"aadc47543192e0e9a42d523c61497580755ffa8b27904517dfe9fe8598405ae9b31d5193ece7c71e38cada7d76581584";
+    // The rounds of the rule before ADR-0032, which finding X-1 and T-225 item 1 are about.
+    uint64 internal constant JUDGEBY_ROUND = 32_456_478; // roundAt(judgeBy), published 2 s before judgeBy
+    bytes internal constant JUDGEBY_SIG =
+        hex"b528568aa3bcf0f15bd15391bfd424012dfa4efae8a9b335e3c7aa98871a9108220ac137cf5626cc732db3e1a2e5cdc6";
+    uint64 internal constant NEXT_ROUND = 32_398_879; // roundAt(1790000000) + 1; drand publishes it at 1790000001
+    bytes internal constant NEXT_SIG =
         hex"8692364a570f4638daa28f489f6ab6c3a3daafc5e80b5fa203f54969b9d104cd2342539a141574dadf291fd1af2df219";
 
     // The G2 generator (EIP-2537, "Curve parameters", H2) and its negation, as EIP-2537 points.
@@ -185,7 +196,7 @@ contract DrandRedTeamTest is Base {
         drand = new DrandQuicknetBeacon();
         harness = new BeaconHarness();
         filer = new SeedGatedFiler();
-        rules = new HoldbackRules(escrow, address(collector3009), MARGIN, drand, address(usdc));
+        rules = new HoldbackRules(escrow, address(collector3009), MARGIN, drand, address(usdc), DRAND_MARGIN);
     }
 
     // ------------------------------------------------------------ helpers
@@ -281,7 +292,7 @@ contract DrandRedTeamTest is Base {
         _deliver(t, id);
         vm.warp(t.timing.judgeBy);
         rules.triggerFallback(t);
-        assertEq(drand.roundAt(t.timing.judgeBy), FALLBACK_ROUND);
+        assertEq(drand.roundAt(t.timing.judgeBy - 1 + DRAND_MARGIN) + 1, FALLBACK_ROUND);
     }
 
     function _timeOf(uint256 round) internal pure returns (uint256) {
@@ -586,57 +597,119 @@ contract DrandRedTeamTest is Base {
 
     // ============================================================ goal 4: wrong round
 
-    /// Measure: when the rounds `decide` uses are published, against the time that fixes them. The appeal round,
-    /// roundAt(t) + 1, is published 3 - ((t - genesis) mod 3) seconds after t: 1, 2 or 3 s. The fallback round,
-    /// roundAt(judgeBy), is published (judgeBy - genesis) mod 3 seconds before judgeBy: 0, 1 or 2 s (known, T-225 M1).
-    function test_measure_wrongRound_appealRoundPublishesOneToThreeSecondsAfterItsTimestamp() public view {
+    /// Measure: when the rounds `decide` uses are published, against the time that fixes them (ADR-0032). The rule is
+    /// roundAt(lastChoice + 29) + 1, published 29 + 3 - ((lastChoice + 29 - genesis) mod 3) seconds after lastChoice: 30
+    /// to 32 s. The rule before ADR-0032 published the appeal round 1 to 3 s after the escalation and the fallback round
+    /// 0 to 2 s before judgeBy (finding X-1, T-225 item 1).
+    function test_measure_wrongRound_roundsPublishThirtyToThirtyTwoSecondsAfterTheLastChoice() public view {
         for (uint256 t = 1_790_000_000; t < 1_790_000_300; t++) {
-            uint256 residue = (t - GENESIS) % 3;
-            uint256 appealRound = uint256(drand.roundAt(t)) + 1;
-            assertEq(_timeOf(appealRound) - t, 3 - residue);
-            assertEq(t - _timeOf(drand.roundAt(t)), residue);
+            uint256 residue = (t + DRAND_MARGIN - GENESIS) % 3;
+            uint256 round = uint256(drand.roundAt(t + DRAND_MARGIN)) + 1;
+            assertEq(_timeOf(round) - t, DRAND_MARGIN + 3 - residue);
+            assertGe(_timeOf(round) - t, DRAND_MARGIN + 1);
+            assertLe(_timeOf(round) - t, DRAND_MARGIN + 3);
+            assertEq(_timeOf(uint256(drand.roundAt(t)) + 1) - t, 3 - (t - GENESIS) % 3, "the old rule: 1 to 3 s");
         }
-        assertEq((uint256(1_790_000_000) - GENESIS) % 3, 2, "the Base clock is 1 s before a round");
-        assertEq(_timeOf(APPEAL_ROUND), 1_790_000_001);
+        assertEq((uint256(1_790_000_000) - GENESIS) % 3, 2, "the Base clock is 2 mod 3, as a mainnet block's time");
+        assertEq(_timeOf(NEXT_ROUND), 1_790_000_001);
+        assertEq(_timeOf(APPEAL_ROUND), 1_790_000_031);
+        assertEq(_timeOf(FALLBACK_ROUND), 1_790_172_831);
+        assertEq(_timeOf(JUDGEBY_ROUND), 1_790_172_798);
     }
 
-    /// Issue: the appeal round is "the first round strictly after" the block timestamp of the step that fixes it,
-    /// and the contract takes that round's proof in a block with the same timestamp. drand published round 32398879
-    /// at 1790000001. Here the escalation and the appeal decision that carries that round's signature both land at
-    /// block time 1790000000. On a real chain that means the block was put together at least 1 s after its own
-    /// timestamp, which block producers do. Expected if the round were unknowable at the fixing step: no
-    /// transaction with that timestamp could carry the proof. Result: the contract accepts it.
-    function test_issue_wrongRound_appealRoundIsProvenAtTheTimestampThatFixesIt() public {
+    /// Attack (X-1, rewritten by T-380 from `test_issue_wrongRound_appealRoundIsProvenAtTheTimestampThatFixesIt`): the
+    /// escalation lands at 1790000000; a decision that names the round drand publishes 1 s later, with its real
+    /// signature, in a block with the same time. Before ADR-0032 the contract took it. Expected and result: BadSeed. The
+    /// round the contract demands is 32398889, published 31 s after the escalation, and a decision for it settles then.
+    function test_attack_wrongRound_appealRoundIsNotProvenAtTheTimestampThatFixesIt() public {
         (H.Terms memory t, bytes32 id) = _funded();
         _deliver(t, id);
         rules.decide(t, _primary(t, id, H.OUTCOME_ESCALATE), _noDelivery(), "");
         assertEq(block.timestamp, 1_790_000_000);
         assertEq(rules.dealOf(id).t1, 1_790_000_000);
-        assertGt(_timeOf(APPEAL_ROUND), block.timestamp, "the round is published after this block's timestamp");
 
+        // (a) the round published 1 s after the escalation, at the same timestamp: refused.
+        H.Decision memory early = _drandDecision(id, H.ROLE_APPEAL, H.OUTCOME_REJECT, NEXT_ROUND, NEXT_SIG);
+        early = _signDecision(t, id, early, appealAdj, AP_PK);
+        vm.expectRevert(HoldbackRules.BadSeed.selector);
+        rules.decide(t, early, _noDelivery(), "");
+
+        // (b) the demanded round, 31 s after the escalation; (c) its decision settles from that time on.
+        assertEq(drand.roundAt(uint256(rules.dealOf(id).t1) + rules.BEACON_MARGIN()) + 1, APPEAL_ROUND);
+        assertEq(_timeOf(APPEAL_ROUND), block.timestamp + 31);
+        vm.warp(_timeOf(APPEAL_ROUND));
         H.Decision memory m = _drandDecision(id, H.ROLE_APPEAL, H.OUTCOME_REJECT, APPEAL_ROUND, APPEAL_SIG);
         m = _signDecision(t, id, m, appealAdj, AP_PK);
-        rules.decide(t, m, _noDelivery(), ""); // no warp: the same timestamp
+        rules.decide(t, m, _noDelivery(), "");
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
     }
 
-    /// Issue: a gate on the escalation (the party-appeal variant of this finding left with `fileAppeal`, T-346,
-    /// ADR-0031 §8). Whoever relays the primary's signed escalation (anyone may) lands it
-    /// only in a block whose next round gives the appeal panel it wants.
-    function test_issue_wrongRound_relayerLandsTheEscalationOnlyWhenTheAppealSeedSuitsIt() public {
+    /// Attack (X-1, rewritten by T-380 from `test_issue_wrongRound_relayerLandsTheEscalationOnlyWhenTheAppealSeedSuitsIt`):
+    /// a gate contract that lands the primary's signed escalation only when the appeal seed suits it. A gate that asks
+    /// for the round the rules contract demands, roundAt(now + 29) + 1, cannot compute it: with the signature of a round
+    /// drand has published by the block's time, and with round 32398879's, published 1 s later, the beacon refuses
+    /// (InvalidSignature), and the escalation does not land through the gate. A gate written for the old rule lands the
+    /// escalation, but the seed it checked is not the deal's: the decision for its round reverts with BadSeed.
+    /// (The InvalidSignature assertions exercise the beacon alone; the BadSeed assertion is the one the parent fails.)
+    function test_attack_wrongRound_relayerCannotLearnTheAppealSeedBeforeTheEscalationLands() public {
         (H.Terms memory t, bytes32 id) = _funded();
         _deliver(t, id);
         H.Decision memory esc = _primary(t, id, H.OUTCOME_ESCALATE);
-        bytes32 seed = hx.panelSeed(id, H.ROLE_APPEAL, 1, sha256(APPEAL_SIG));
-        uint256 suits = uint256(seed) % 18;
+        uint256 margin = rules.BEACON_MARGIN();
+        assertEq(margin, 29);
 
-        vm.expectRevert(abi.encodeWithSelector(SeedGatedFiler.SeedDoesNotSuit.selector, seed));
-        filer.escalateIfSeedSuits(rules, t, esc, _noDelivery(), id, APPEAL_SIG, 18, (suits + 5) % 18);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Delivered));
+        bytes[3] memory published = [SIG_1000, JUDGEBY_SIG, NEXT_SIG];
+        for (uint256 i; i < published.length; i++) {
+            vm.expectRevert(INVALID);
+            filer.escalateIfSeedSuits(rules, t, esc, _noDelivery(), id, published[i], margin, 1, 0);
+        }
+        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Delivered), "the gate landed the escalation");
 
-        assertEq(filer.escalateIfSeedSuits(rules, t, esc, _noDelivery(), id, APPEAL_SIG, 18, suits), seed);
+        // The old gate: it reads round 32398879, which is public 1 s after this block, and lands the escalation.
+        bytes32 seed = hx.panelSeed(id, H.ROLE_APPEAL, 1, sha256(NEXT_SIG));
+        assertEq(filer.escalateIfSeedSuits(rules, t, esc, _noDelivery(), id, NEXT_SIG, 0, 1, 0), seed);
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Escalated));
-        assertEq(rules.dealOf(id).t1, 1_790_000_000);
+        vm.warp(_timeOf(NEXT_ROUND));
+        H.Decision memory m = _drandDecision(id, H.ROLE_APPEAL, H.OUTCOME_REJECT, NEXT_ROUND, NEXT_SIG);
+        m = _signDecision(t, id, m, appealAdj, AP_PK);
+        vm.expectRevert(HoldbackRules.BadSeed.selector);
+        rules.decide(t, m, _noDelivery(), "");
+    }
+
+    /// Attack (T-225 item 1, ADR-0032 §3.3): the fallback decision for the round at judgeBy, which drand publishes 2 s
+    /// before judgeBy here, while the primary can still decide. Expected and result: BadSeed. The demanded round is
+    /// 32456489, published 31 s after judgeBy, and FallbackTriggered names it.
+    function test_attack_wrongRound_fallbackRoundAtJudgeByIsRefused() public {
+        (H.Terms memory t, bytes32 id) = _funded();
+        _deliver(t, id);
+        assertEq(_timeOf(JUDGEBY_ROUND), uint256(t.timing.judgeBy) - 2, "public before judgeBy");
+        vm.warp(t.timing.judgeBy);
+        vm.expectEmit(address(rules));
+        emit HoldbackRules.FallbackTriggered(id, FALLBACK_ROUND);
+        rules.triggerFallback(t);
+        H.Decision memory old = _drandDecision(id, H.ROLE_FALLBACK, H.OUTCOME_ACCEPT, JUDGEBY_ROUND, JUDGEBY_SIG);
+        old = _signDecision(t, id, old, fallbackAdj, FB_PK);
+        vm.expectRevert(HoldbackRules.BadSeed.selector);
+        rules.decide(t, old, _noDelivery(), "");
+
+        vm.warp(_timeOf(FALLBACK_ROUND));
+        assertEq(block.timestamp, uint256(t.timing.judgeBy) + 31);
+        H.Decision memory m = _drandDecision(id, H.ROLE_FALLBACK, H.OUTCOME_ACCEPT, FALLBACK_ROUND, FALLBACK_SIG);
+        m = _signDecision(t, id, m, fallbackAdj, FB_PK);
+        rules.decide(t, m, _noDelivery(), "");
+        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
+    }
+
+    /// Boundary (ADR-0032 §3.6): the beacon checks a signature, not a clock. Handed round 32398889's real signature at
+    /// block time 1790000000, 31 s before drand publishes it, the gate's read succeeds. No forge test can show that a
+    /// round is unpublished: that rests on drand, not on the contract.
+    function test_boundary_wrongRound_theBeaconChecksASignatureNotAClock() public {
+        (H.Terms memory t, bytes32 id) = _funded();
+        _deliver(t, id);
+        assertLt(block.timestamp, _timeOf(APPEAL_ROUND));
+        H.Decision memory esc = _primary(t, id, H.OUTCOME_ESCALATE);
+        bytes32 seed = hx.panelSeed(id, H.ROLE_APPEAL, 1, sha256(APPEAL_SIG));
+        assertEq(filer.escalateIfSeedSuits(rules, t, esc, _noDelivery(), id, APPEAL_SIG, 29, 1, 0), seed);
     }
 
     /// Attack: an appeal decision that names a round other than the one state fixes (the round at the fixing time,

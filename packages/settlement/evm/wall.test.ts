@@ -16,6 +16,7 @@ class HeldChain implements EvmChain {
   readonly clock = 'wall' as const;
   readonly chainId = 31337;
   readonly expiryMargin = 86_400n;
+  readonly beaconMarginSec = 0;
   readonly tokenDomain = { name: 'Crow Test USDC', version: '1' };
   readonly abis = LIVE_ABIS;
   readonly deployment = { token: address('a'), escrow: address('e'), erc3009Collector: address('c'), multicall: address('f'), rules: address('b'), beacon: address('8'), fromBlock: 0n };
