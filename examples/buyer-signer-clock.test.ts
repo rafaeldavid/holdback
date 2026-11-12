@@ -32,13 +32,22 @@ let seller: Agent;
 let server: Server;
 let quoteUrl: string;
 let shiftSec = 0; // how far the next offer's createdAt is from settlement time
+let lieSec = 0;
 let found: J;
 const stores: string[] = [];
 const iso = (ms: number) => new Date(Math.floor(ms / 1000) * 1000).toISOString().replace('.000Z', 'Z');
 
 beforeAll(async () => {
   const world = await PublicWorld.open({ storage: new MemoryStorage(), env: { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '10000' }, faucetPerClient: 100 });
-  demo = await serveTwoOrigins(world, { tickMs: 100 });
+  // lieSec: how far both operators move the settlementTime their discovery documents report (red team, Medium).
+  demo = await serveTwoOrigins(world, {
+    tickMs: 100,
+    rewrite: (_node, path, body) => {
+      if (lieSec === 0 || !path.startsWith('/.well-known/holdback.json')) return undefined;
+      const x = JSON.parse(body) as J;
+      return JSON.stringify({ ...x, settlementTime: iso(Date.parse(x.settlementTime) + lieSec * 1000) });
+    },
+  });
   seller = new Agent(demo.urls, generatePrivateKey(), nacl.randomBytes(32));
   await seller.call('POST', '/v1/faucet', { address: seller.address });
   found = await seller.trusted('/.well-known/holdback.json', (x) => ({ clubId: x.demo.clubId, adjudicators: x.demo.adjudicators }));
@@ -114,6 +123,20 @@ describe('an offer whose createdAt is far from the operators\' clock stops the o
     expect(stop.differences.map((d: J) => d.field)).toContain('createdAt');
     expect(stop.timeline.createdAt.fromNow).toMatch(/ago$/);
     expect(await stateOf(stop.commitmentId)).not.toBe('Held');
+  }, 60_000);
+
+  it('both operators report a clock five years ahead and the seller postdates by as much: this machine\'s clock stops the buy', async () => {
+    lieSec = 5 * YEAR;
+    try {
+      const r = await buy(0); // createdAt is the lying operators' "now"
+      expect(r.code, r.err).toBe(3);
+      const stop = JSON.parse(r.out) as J;
+      expect(stop.differences.map((d: J) => d.field)).toContain('createdAt');
+      expect(stop.timeline.deliverBy.fromNow).toMatch(/^in 5 years/);
+      expect(await stateOf(stop.commitmentId)).not.toBe('Held');
+    } finally {
+      lieSec = 0;
+    }
   }, 60_000);
 
   it('inside the band: no difference, and the one-run buy funds as before', async () => {
