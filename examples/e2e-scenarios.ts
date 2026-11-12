@@ -30,6 +30,7 @@ import {
   type Scenario,
 } from './e2e-scenario-kit.ts';
 import { APPEAL, closeOnSimChain } from './e2e-scenarios-appeal.ts';
+import { ADDRESSES } from './e2e-scenarios-addresses.ts';
 import { DIRECT } from './e2e-scenarios-direct.ts';
 import { ESCALATION } from './e2e-scenarios-escalation.ts';
 import { SILENT } from './e2e-scenarios-silent.ts';
@@ -261,7 +262,7 @@ function registry(...lists: Scenario[][]): Scenario[] {
   return all.sort(order);
 }
 
-export const SCENARIOS: Scenario[] = registry(BUILT, SILENT, APPEAL, ESCALATION, DIRECT);
+export const SCENARIOS: Scenario[] = registry(BUILT, SILENT, APPEAL, ESCALATION, DIRECT, ADDRESSES);
 
 /** A scenario by its ID ("1", "3a"), or every one for "all". */
 export function pick(ids: readonly string[]): Scenario[] {
