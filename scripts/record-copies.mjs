@@ -7,7 +7,9 @@
 //      gets the new record as its SEPOLIA constant, whole.
 //   2. Rebuild: `node site/build.mjs` regenerates site/try.mjs and site/index.html from the files above.
 //   3. Sweep: it fails if any old address or hash, the ones the new record dropped included, remains in a tracked file
-//      outside the history files listed in HISTORY below. So the step cannot pass with a pin missed.
+//      outside the history files listed in HISTORY below, so the step cannot pass with a pin missed in a file it reads.
+//      It reads every tracked regular file, and follows a tracked link to one. It does not read a submodule, a file
+//      over 8 MB or a binary file, and it prints each path it did not read, with the reason, for a person to check.
 //
 //   node scripts/record-copies.mjs keep --rpc <url> [--root <dir>]
 //   node scripts/record-copies.mjs --old contracts/deployments/sepolia-<YYYY-MM-DD>T<HHMM>Z-domain-<version>.json \
@@ -224,7 +226,8 @@ export function trackedFiles(root) {
 const inHistory = (file) => HISTORY.some((h) => (typeof h.path === 'string' ? file.startsWith(h.path) : h.path.test(file)));
 
 /**
- * Every line of a tracked file outside HISTORY that still names an old value: `file:line: value`. A value is found by
+ * Every line of a tracked file outside HISTORY that still names an old value, as `found` (`file:line: value`), with
+ * the count of files `read` and the paths `skipped` by reason (`paths`). A value is found by
  * its hex body, in any letter case and anywhere in the line, so a pin with no `0x`, padded to 32 bytes (a log topic,
  * ABI data) or inside a longer hex string is found too (review of PR 425). Substitution rewrites whole `0x` values
  * only; any other spelling the sweep finds is fixed by hand.
@@ -233,32 +236,44 @@ export function sweep(root, oldValues) {
   const bodies = [...oldValues].map((v) => v.slice(2));
   const found = [];
   let read = 0;
-  /** Paths not read, by reason. A tracked path need not be a regular file: a submodule's gitlink is a folder, or nothing, in a worktree that has not checked it out (T-393). */
-  const skipped = { history: 0, 'not a regular file (a submodule, a folder or a link)': 0, 'not on disk': 0, 'larger than 8 MB': 0, 'binary (holds a NUL byte)': 0 };
+  // Paths not read, by reason, each with its paths (history files by count only). A tracked path need not be a regular
+  // file: a submodule's gitlink is a folder, or nothing, in a worktree that has not checked it out (T-393). A tracked
+  // link is followed: its target is read when it is a regular file (review of PR 447).
+  const skipped = { history: 0 };
+  const paths = {};
+  const skip = (reason, file) => {
+    skipped[reason] = (skipped[reason] ?? 0) + 1;
+    (paths[reason] ??= []).push(file);
+  };
+  const submodules = gitlinks(root);
   for (const file of trackedFiles(root)) {
     if (inHistory(file)) {
       skipped.history++;
       continue;
     }
+    if (submodules.has(file)) {
+      skip('a submodule', file);
+      continue;
+    }
     const path = join(root, file);
     let st;
     try {
-      st = lstatSync(path);
+      st = statSync(path);
     } catch {
-      skipped['not on disk']++;
+      skip(lstatOrNull(path) ? 'a link to nothing' : 'not on disk', file);
       continue;
     }
     if (!st.isFile()) {
-      skipped['not a regular file (a submodule, a folder or a link)']++;
+      skip('a folder that is not a submodule', file);
       continue;
     }
     if (st.size > 8_000_000) {
-      skipped['larger than 8 MB']++;
+      skip('larger than 8 MB', file);
       continue;
     }
     const text = readFileSync(path, 'utf8');
     if (text.includes('\0')) {
-      skipped['binary (holds a NUL byte)']++;
+      skip('binary (holds a NUL byte)', file);
       continue;
     }
     read++;
@@ -269,13 +284,28 @@ export function sweep(root, oldValues) {
       for (const b of bodies) if (l.includes(b)) found.push(`${file}:${i + 1}: 0x${b}`);
     });
   }
-  return { found, read, skipped };
+  return { found, read, skipped, paths };
 }
 
-/** The sweep's count, for the command's output: what it read, and what it skipped and why. */
-export function sweepSummary({ read, skipped }) {
-  const why = Object.entries(skipped).filter(([, n]) => n > 0).map(([reason, n]) => `${n} ${reason}`);
-  return `the sweep read ${read} tracked file(s)${why.length ? `; skipped ${why.join(', ')}` : ''}`;
+/** The tracked paths git records as submodules (mode 160000); none outside a git checkout. */
+export function gitlinks(root) {
+  const git = spawnSync('git', ['-C', root, 'ls-files', '-s', '-z'], { encoding: 'utf8' });
+  if (git.status !== 0 || !existsSync(join(root, '.git'))) return new Set();
+  return new Set(git.stdout.split('\0').filter((l) => l.startsWith('160000 ')).map((l) => l.slice(l.indexOf('\t') + 1)));
+}
+
+const lstatOrNull = (p) => {
+  try {
+    return lstatSync(p);
+  } catch {
+    return null;
+  }
+};
+
+/** The sweep's count, for the command's output: what it read, and what it skipped, why, and which paths. */
+export function sweepSummary({ read, skipped, paths = {} }) {
+  const why = Object.entries(skipped).filter(([, n]) => n > 0).map(([reason, n]) => `${n} ${reason}${paths[reason] ? ` (${paths[reason].join(', ')})` : ''}`);
+  return `the sweep read ${read} tracked file(s)${why.length ? `; skipped ${why.join('; ')}` : ''}`;
 }
 
 /** The whole command. Returns the lines it printed and an exit code; throws nothing a user should see as a stack. */

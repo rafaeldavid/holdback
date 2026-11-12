@@ -137,29 +137,36 @@ describe('keep: the live record copied to its dated name', () => {
 });
 
 // T-393 found it: in a worktree whose submodule is not checked out, the gitlink is a tracked path that is a folder or
-// nothing, and the sweep read it as a file and stopped (EISDIR). It skips what is not a regular file and says so.
+// nothing, and the sweep read it as a file and stopped (EISDIR). It skips submodules and says so, by path.
 describe('the sweep over tracked paths that are not regular files', () => {
-  it('skips a gitlink that is an empty folder or absent, counts each reason, and still finds a pin in a file', () => {
+  it('skips a gitlink that is an empty folder or absent, follows a link to a file, names each skipped path, and still finds every pin', () => {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), 't383-gitlink-')));
-    const git = (...args: string[]) => {
-      const r = spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8' });
-      if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
-    };
-    git('init', '-q');
-    const pin = `0x${'ab'.repeat(20)}`;
-    mkdirSync(join(dir, 'apps'), { recursive: true });
-    writeFileSync(join(dir, 'apps/pin.ts'), `export const RULES = '${pin}';\n`);
-    git('add', 'apps/pin.ts');
-    // Two submodules in the index only, as a fresh worktree has them: one with its empty folder, one with none.
-    for (const sub of ['lib/checked-out-empty', 'lib/absent']) git('update-index', '--add', '--cacheinfo', `160000,${'1'.repeat(40)},${sub}`);
-    mkdirSync(join(dir, 'lib/checked-out-empty'), { recursive: true });
-    const s = sweep(dir, new Set([pin.toLowerCase()]));
-    expect(s.found).toEqual([`apps/pin.ts:1: ${pin}`]);
-    expect(s.read).toBe(1);
-    expect(s.skipped['not a regular file (a submodule, a folder or a link)']).toBe(1);
-    expect(s.skipped['not on disk']).toBe(1);
-    expect(sweepSummary(s)).toBe('the sweep read 1 tracked file(s); skipped 1 not a regular file (a submodule, a folder or a link), 1 not on disk');
-    rmSync(dir, { recursive: true, force: true });
+    try {
+      const git = (...args: string[]) => {
+        const r = spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8' });
+        if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
+      };
+      git('init', '-q');
+      const pin = `0x${'ab'.repeat(20)}`;
+      mkdirSync(join(dir, 'apps'), { recursive: true });
+      writeFileSync(join(dir, 'apps/pin.ts'), `export const RULES = '${pin}';\n`);
+      // A tracked link to an untracked file that holds a pin (review of PR 447): the sweep reads the target.
+      writeFileSync(join(dir, 'outside.txt'), `rules ${pin}\n`);
+      symlinkSync(join(dir, 'outside.txt'), join(dir, 'apps/linked.txt'));
+      symlinkSync(join(dir, 'gone.txt'), join(dir, 'apps/dangling.txt'));
+      git('add', 'apps/pin.ts', 'apps/linked.txt', 'apps/dangling.txt');
+      // Two submodules in the index only, as a fresh worktree has them: one with its empty folder, one with none.
+      for (const sub of ['lib/checked-out-empty', 'lib/absent']) git('update-index', '--add', '--cacheinfo', `160000,${'1'.repeat(40)},${sub}`);
+      mkdirSync(join(dir, 'lib/checked-out-empty'), { recursive: true });
+      const s = sweep(dir, new Set([pin.toLowerCase()]));
+      expect(s.found.sort()).toEqual([`apps/linked.txt:1: ${pin}`, `apps/pin.ts:1: ${pin}`]);
+      expect(s.read).toBe(2);
+      expect(s.paths['a submodule'].sort()).toEqual(['lib/absent', 'lib/checked-out-empty']);
+      expect(s.paths['a link to nothing']).toEqual(['apps/dangling.txt']);
+      expect(sweepSummary(s)).toBe(`the sweep read 2 tracked file(s); skipped ${s.paths['a link to nothing'].length} a link to nothing (apps/dangling.txt); 2 a submodule (${s.paths['a submodule'].join(', ')})`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
