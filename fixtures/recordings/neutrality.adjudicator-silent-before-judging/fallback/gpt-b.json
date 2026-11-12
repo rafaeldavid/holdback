@@ -1,13 +1,13 @@
 {
   "format": "holdback.recording/v1",
-  "scenario": "neutrality.adjudicator-offline",
+  "scenario": "neutrality.adjudicator-silent-before-judging",
   "role": "fallback",
-  "judgeId": "gpt-a",
+  "judgeId": "gpt-b",
   "provider": "openai-compatible",
   "family": "gpt",
-  "model": "placeholder-gpt-a-20260601",
+  "model": "placeholder-gpt-b-20260601",
   "promptTemplateHash": "0xabb5ec9b33cf9a936e140bf8530c217f6629fdf1e08a46fbdf6bd7363ce84dd2",
-  "inputHash": "0xe9f928aa360f92f6c81ac6ed7c62dd041196a236b0b06e08efd98b78b479b6f8",
+  "inputHash": "0x9ebf99728256378f74d72ae4d88976405322e9d517466ca0d826f17c6f594b8a",
   "rubricHash": "0x4201c2a950347823c494fcfc89f88fab1ca670b2086f66ed726aa9c7b0ec7925",
   "capturedFrom": "fake",
   "verdict": {

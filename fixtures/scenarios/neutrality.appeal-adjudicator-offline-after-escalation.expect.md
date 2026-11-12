@@ -11,11 +11,11 @@ Bench A's panel splits (one judge passes, one fails, one abstains: no supermajor
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=37 |
 | Prefix | neutrality. (an actor fails: terms-compliant terminal state anyway) |
 | Settlement | SimChain (T-006) driving @holdback/core `step` |
-| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x8cb8…ea79 |
+| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0xd136…9300 |
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0xd9bc…492d |
 | Buyer | atlas-buyer 0xBA96…bcA3 |
 | Seller | tidewater-seller 0xb25F…D818 |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x20e0…d152 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0xb823…cb32 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xb9A5…9664 · fallback bench-b 0x46A5…E16C · appeal bench-c 0x7228…645f |
 | Operators | op-1 · op-2 |
 
@@ -55,15 +55,15 @@ Outages:
 - **Deterministic checks:** cols ✓ · rows ✓ · uniq ✓ · dates ✓ · id_nulls ✓ · name_nulls ✓ · email_nulls ✓ · emails (optional) ✓ · hidden ✓
 - **Screen:** clean
 - **Panel:** 3 judges from 2 families (policy: 3 seats, at least 2 families) · first-instance template 0xabb5…4dd2 · rubric 0x4201…7925 · seed source: commit-reveal (commitment 0x7f3c…10a5, seed 0x06fd…fa18, recomputed: match)
-  - gpt-a · openai-compatible/gpt · placeholder-gpt-a-20260601 · recorded (authored) · abstain · input 0xda30…04bc
-  - gpt-b · openai-compatible/gpt · placeholder-gpt-b-20260601 · recorded (authored) · fail · scores 2/1/2 · input 0x0f74…3959
-  - claude-b · anthropic/claude · placeholder-claude-b-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0xb2a0…6f1c
+  - claude-a · anthropic/claude · placeholder-claude-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0xa75b…3ab6
+  - gpt-a · openai-compatible/gpt · placeholder-gpt-a-20260601 · recorded (authored) · abstain · input 0xdae7…f0d6
+  - gpt-b · openai-compatible/gpt · placeholder-gpt-b-20260601 · recorded (authored) · fail · scores 2/1/2 · input 0x70f3…0d06
 - **Aggregate:** escalate (weighted score 2.80; 1 pass, 1 fail of 2 valid; pass families claude). Reasons: 1 pass, 1 fail of 2 valid: no supermajority.
 - **Signed:** escalate.
 
 ## Receipts and log
 
-- Events 0–10. Chain head 0x93a2…84db. Replay of 8 SimChain submissions from genesis matches the settlement state.
+- Events 0–10. Chain head 0x53dc…b2fa. Replay of 8 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). The runner labels them without signing; the operator API signs real receipts.
 - Receipts from op-2: 2 (rcpt-0006–rcpt-0007). The runner labels them without signing; the operator API signs real receipts.
 
