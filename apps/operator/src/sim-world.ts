@@ -57,6 +57,11 @@ export interface SimInfo {
 }
 
 export interface SimWorldOptions {
+  /**
+   * The protocol the world's SimChain enforces (T-378). `full` (the default) keeps party appeals and bonds. `pnpm sim`
+   * passes `phase_one`, the contracts' rules, so a partner rehearsing locally is refused what the chain refuses.
+   */
+  profile?: 'full' | 'phase_one';
   host?: string;
   /** Port of the sim service; 0 picks a free one. */
   port?: number;
@@ -181,6 +186,7 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
     members: [],
     balances: Object.fromEntries(accounts.map((a) => [a.address, balance.toString()])),
     bonds: Object.fromEntries(adjKeys.map((a) => [a.keys.address, { junior: bond.toString(), senior: '0' }])),
+    ...(options.profile ? { profile: options.profile } : {}),
   };
   const chain = new SimChain(genesis);
   const tick = () => chain.advanceTo(wholeSecond(Date.now() + offsetMs));

@@ -44,6 +44,7 @@ import {
   type Scope,
   type SettlementEvent,
   type SettlementEventType,
+  type SettlementProfile,
   type SignableMessage,
   type Timestamp,
   type TokenAmount,
@@ -72,6 +73,12 @@ export interface Genesis {
    * the expiry. Default DEFAULT_EXPIRY_MARGIN_SEC, the local deployment's value; T-206 chooses the public one.
    */
   expiryMarginSec?: number;
+  /**
+   * The protocol this SimChain enforces (T-378): `full` (the default) keeps party appeals and bonds, for `pnpm snap` and the
+   * SimChain-only fixtures; `phase_one` runs core's phase-one profile, as the contracts do (ADR-0031 §8), for the local
+   * worlds partners rehearse on, so a local rehearsal refuses what the chain refuses. On `phase_one` no bond is reserved.
+   */
+  profile?: SettlementProfile;
 }
 
 export const DEFAULT_EXPIRY_MARGIN_SEC = 86_400;
@@ -604,13 +611,19 @@ export class SimChain implements Settlement {
     if (Date.parse(at) >= Date.parse(expiry)) refuse('deadline_passed', `${what}, and no payment can be captured at or after authorizationExpiry ${expiry}; only a refund remains`);
   }
 
+  /** The protocol this chain enforces: the genesis's `profile`, `full` when it names none. */
+  get profile(): SettlementProfile {
+    return this.genesis.profile ?? 'full';
+  }
+
   private stepped(state: EscrowState, e: EscrowEvent): EscrowState {
-    const r = step(state, e);
+    const r = step(state, e, this.profile);
     return r.ok ? r.value : refuse(r.error.type, r.error.detail);
   }
 
   private reserve(tx: Tx, id: Hex32, a: string, amount: bigint): void {
-    if (amount === 0n) return;
+    // The phase-one contracts hold no bond (ADR-0031 §8), so a phase-one SimChain reserves none.
+    if (amount === 0n || this.profile === 'phase_one') return;
     const r = tx.rec(id)!;
     tx.setRec(id, { ...r, reservations: { ...r.reservations, [lc(a)]: (r.reservations[lc(a)] ?? 0n) + amount } });
     tx.reserved.set(lc(a), tx.reservedOf(a) + amount);
@@ -694,7 +707,7 @@ export class SimChain implements Settlement {
         const club = this.genesis.clubs.find((k) => k.id === t.clubId && k.rulebookHash === t.rulebookHash);
         const sellerScope = this.scopeFor(t.seller, t.clubId, { terms: t, club });
         const nonce = `${lc(t.seller)}:terms:${t.nonce}`;
-        const r = offer({ commitment: c, at, sellerScope, rulebook: club?.rulebook ?? null, nonceUsed: tx.nonceUsed(nonce) });
+        const r = offer({ commitment: c, at, sellerScope, rulebook: club?.rulebook ?? null, nonceUsed: tx.nonceUsed(nonce), profile: this.profile });
         if (!r.ok) refuse(r.error.type, r.error.detail);
         tx.useNonce(nonce);
         tx.setRec(c.id, { state: r.ok ? r.value : (undefined as never), club: club!, reservations: {}, held: [], released: [], lastEventSeq: 0, updatedAt: at });
@@ -711,7 +724,8 @@ export class SimChain implements Settlement {
         // Guaranteed mode: 100% of the price, rounded up (ADR-0007, ADR-0022 rule 1).
         const required = mulBps(next.terms.price, ALL_BPS, 'ceil');
         if (!required.ok) refuse('invalid_terms', required.error.kind);
-        const need = BigInt(required.ok ? required.value.amount : '0');
+        // Phase one reserves nothing, as the contracts (ADR-0031 §8 point 2): core has refused an acceptance that reserves a bond.
+        const need = this.profile === 'phase_one' ? 0n : BigInt(required.ok ? required.value.amount : '0');
         if (unencumbered < need) refuse('coverage_exceeded', `free bond ${unencumbered} is below ${need}`);
         this.reserve(tx, m.commitmentId, m.adjudicator, need);
         tx.emit('adjudicator.accepted', m.commitmentId, m.adjudicator, { seedCommitment: m.seedCommitment, bondReserved: tx.amount(need) });
@@ -1083,7 +1097,8 @@ export class SimChain implements Settlement {
         return s.settledAt;
       case 'Released':
       case 'Refunded': {
-        if (s.via.kind !== 'first_instance') return s.settledAt;
+        // Phase one: the first decision is final when it settles (ADR-0031 §8 point 7), as the EVM adapter reports it.
+        if (s.via.kind !== 'first_instance' || this.profile === 'phase_one') return s.settledAt;
         const a = s.via.appeal;
         if (a.kind === 'none') return passed(a.appealBy) ? a.appealBy : null;
         if (a.kind === 'open') return passed(a.appealDecideBy) ? a.appealDecideBy : null;

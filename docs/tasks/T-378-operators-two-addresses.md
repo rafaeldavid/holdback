@@ -88,12 +88,45 @@ Labels: measured, inferred, guessed. All runs are on this task's branches, 2026-
   - Info 6 is this section;
   - Info 7 belongs to T-357's residual.
 
+**Part 3, the partner-facing local tools run phase-one rules (this PR):**
+
+- `apps/operator/src/sim-world-phase-one.test.ts`, on `pnpm sim`'s world: 5 of 5 tests pass [measured]:
+  - a non-zero appeal window is refused with core's `APPEAL_WINDOW_PROBLEM`, at prepare and on SimChain itself;
+  - a deal that holds nothing is refused with `ZERO_HOLD_PROBLEM` (AL-1's leftover route test);
+  - a party appeal is refused;
+  - the full protocol prepares all three.
+- demo-cloud `world.test.ts`: `PublicWorld` on SimChain runs phase one by default and refuses the same appeal window, and a world created before the profile existed reopens on the full protocol [measured].
+- Two gaps that phase one exposed in SimChain, fixed in `packages/settlement/sim/simchain.ts`:
+  - SimChain reserved the price as a bond at acceptance;
+  - a decided deal never became final, because core closes the appeal state at once on phase one.
+
+  On phase one SimChain now reserves no bond, and a decision is final when it settles, as the EVM adapter reports it.
+- The examples that open these worlds pass [measured]:
+  - the rehearsal (`audit-deal`, 26, its seven cases included);
+  - the seller adapter's three files (40, 10, 18);
+  - buyer-signer, buy-with-signer (5), buyer-signer-outcome (9), deal-record (9), try (7);
+  - the round's direct (8), silent (3), run (17) and adjudicator (6) files;
+  - examples (9), early-accept (5), private (8), verify (19).
+
+  The round's scripted and escalation files run SimChain-only scenarios, and pass with `examples/e2e-world.ts` on the full profile.
+- `pnpm snap`: 43 passed. `pnpm snap --settlement=local`: 36 passed, 0 failed, 7 excluded. No snapshot changed [measured].
+
 ## Decisions
 
 1. **`pnpm demo` stays on the full protocol** (the coordinator, 2026-11-12, on this task's question). Phase one goes to `pnpm sim` and `PublicWorld` on SimChain. The Handoff lists any other local entry point that takes a party's own terms, with the profile it runs.
 2. **The offer's request field names** for the two addresses are `buyer.paymentAddress` and a top-level `sellerPayoutAddress`, both optional. T-379 proposed them on 2026-11-12, and the clients and `examples/verify.ts` use the same names.
 3. **`spec/openapi/paths.json`** is the source of `spec/openapi.json` (`pnpm openapi`). This task edits the source and regenerates the output (the coordinator, 2026-11-12).
 4. **The late delivery travels flat beside the settlement** as `delivery`, as `fund` does beside an `Agree`. It is not wrapped as `{settlement, delivery}`, so the route keeps one body form. The deal record gets no new marker in any event payload; the events already tell late work apart (the coordinator, 2026-11-12).
+6. **Which local worlds run phase one** (the coordinator, 2026-11-12):
+   - **Phase one:**
+     - `pnpm sim` (`sim-bin.ts`), which the seller adapter's `--sim` connects to;
+     - demo-cloud's `PublicWorld` on SimChain, by default, fixed when a world is created; the rehearsal opens this one.
+   - **Full protocol:**
+     - `pnpm demo`, a scripted show with its appeal beat;
+     - `pnpm snap` and the SimChain-only fixtures, where the cut features live;
+     - `startSimWorld`'s default, used by `tools/sim` and the examples' own SimChain worlds;
+     - the round's SimChain world (`examples/e2e-world.ts`, `simProfile: 'full'`), which runs the party-appeal and bond scenarios;
+     - a stored `PublicWorld` created before the profile existed.
 
 ## Handoff
 
