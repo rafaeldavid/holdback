@@ -15,14 +15,16 @@
 // The sender key comes from TIMEOUT_SENDER_KEY, only for a real send; it is never printed. Exit 0 when the timeout was
 // sent (or the dry run printed it), 1 on a refusal or a failed send, 2 on a bad command line.
 //
-// It sends only expireOffer, reclaim, triggerFallback, triggerDefault and expireAppeal, the timeouts of the contracts
-// on main (EIP-712 domain 0.7). It never signs or sends a party's message, a decision, a delivery or a settlement.
+// It sends only reclaim, triggerFallback and triggerDefault, the timeouts of the phase-one contracts (EIP-712 domain
+// 0.8, ADR-0031). An unfunded offer stores nothing on chain, so it has no timeout to send (§7), and a decision is final
+// when written, so no appeal expires (§8). It never signs or sends a party's message, a decision, a delivery or a
+// settlement. The contracts on main (domain 0.7) take main's version of this command, from a checkout of main.
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { getAddress, hashStruct, isHex, keccak256, toBytes, type Abi, type Address, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { DeploymentFile } from './deployments.ts';
-import { assertRoundChain, RoundChain, STAGES, APPEAL_STATES, type TxRecord } from './e2e-chain.ts';
+import { assertRoundChain, RoundChain, STAGES, type TxRecord } from './e2e-chain.ts';
 import { jcsHash, Refusal, TYPES } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -30,8 +32,8 @@ type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 /** The environment variable that holds the sender's key: any funded key, since a timeout needs no party's signature. */
 export const SENDER_KEY_VAR = 'TIMEOUT_SENDER_KEY';
 
-/** The timeouts HoldbackRules on main exposes, and nothing else this command can send. */
-export const TIMEOUT_FUNCTIONS = ['expireOffer', 'reclaim', 'triggerFallback', 'triggerDefault', 'expireAppeal'] as const;
+/** The timeouts the phase-one HoldbackRules exposes, and nothing else this command can send. */
+export const TIMEOUT_FUNCTIONS = ['reclaim', 'triggerFallback', 'triggerDefault'] as const;
 export type TimeoutFunction = (typeof TIMEOUT_FUNCTIONS)[number];
 
 const ABIS = JSON.parse(readFileSync(new URL('../packages/settlement/evm/abis.json', import.meta.url), 'utf8')) as Record<'rules', Abi>;
@@ -90,7 +92,6 @@ export function deploymentOf(d: J, file = 'the deployment record'): DeploymentFi
   if (!d || typeof d !== 'object' || Array.isArray(d)) throw new Refusal(`refusing: ${file} is not a deployment record`);
   if (!Number.isSafeInteger(d.chainId)) throw new Refusal(`refusing: ${file} has no chainId`);
   for (const k of ['rules', 'escrow', 'multicall'] as const) if (!isAddress(d[k])) throw new Refusal(`refusing: ${file} has no ${k} address`);
-  if (!isAddress(d.bonds)) throw new Refusal(`refusing: ${file} has no bonds address; this command serves the contracts on main, which have HoldbackBonds, not the phase-one contracts`);
   if (!isAddress(d.token?.address)) throw new Refusal(`refusing: ${file} has no token address`);
   return d as DeploymentFile;
 }
@@ -120,9 +121,11 @@ const count = (v: unknown, name: string): bigint => {
 
 /** The terms, normalized once: the commitment ID and the HoldbackRules tuple are both built from these values. */
 function normalized(t: J) {
-  const required = ['schemaVersion', 'clubId', 'rulebookHash', 'buyer', 'seller', 'price', 'adjudication', 'timing', 'settlement', 'remedy', 'disclosure', 'buyerEncryptionPublicKey', 'nonce', 'createdAt'];
+  const required = ['schemaVersion', 'clubId', 'rulebookHash', 'buyer', 'seller', 'buyerPaymentAddress', 'sellerPayoutAddress', 'price', 'adjudication', 'timing', 'settlement', 'remedy', 'disclosure', 'buyerEncryptionPublicKey', 'nonce', 'createdAt'];
   const missing = required.filter((k) => t?.[k] === undefined);
   if (missing.length) throw new Refusal(`refusing: the terms lack ${missing.join(', ')}; pass the deal's full signed terms`);
+  // ADR-0033: the two money addresses are signed fields; a refund goes to the payment address, a release to the payout address.
+  for (const k of ['buyerPaymentAddress', 'sellerPayoutAddress'] as const) if (!isAddress(t[k])) throw new Refusal(`refusing: the terms' ${k} is not an address`);
   // HoldbackRules hashes the settlement as guaranteed_on_decision in the price's token (HoldbackTypes.commitmentId):
   // terms with another mode or token would name a different commitment on chain from the one they sign.
   if (t.settlement.mode !== 'guaranteed_on_decision' || t.settlement.token !== t.price.token) {
@@ -152,7 +155,8 @@ const idOf = (n: Normalized): Hex => {
   const { t } = n;
   const amt = (a: J) => ({ token: a.token, amount: BigInt(a.amount) });
   const message = {
-    schemaVersion: t.schemaVersion, clubId: t.clubId, rulebookHash: t.rulebookHash, buyer: t.buyer, seller: t.seller, deliverableHash: n.deliverableHash, acceptanceHash: n.acceptanceHash,
+    schemaVersion: t.schemaVersion, clubId: t.clubId, rulebookHash: t.rulebookHash, buyer: t.buyer, seller: t.seller,
+    buyerPaymentAddress: t.buyerPaymentAddress, sellerPayoutAddress: t.sellerPayoutAddress, deliverableHash: n.deliverableHash, acceptanceHash: n.acceptanceHash,
     price: amt(t.price), adjudication: { ...t.adjudication, fee: amt(t.adjudication.fee) }, timing: n.timing, settlement: t.settlement, remedy: t.remedy, disclosure: t.disclosure,
     buyerEncryptionPublicKey: t.buyerEncryptionPublicKey, nonce: t.nonce, createdAt: n.createdAt,
   };
@@ -166,6 +170,7 @@ const tupleOf = (n: Normalized) => {
   const str = (s: string): Hex => keccak256(toBytes(s));
   return {
     schemaVersionHash: str(t.schemaVersion), clubIdHash: str(t.clubId), rulebookHash: t.rulebookHash as Hex, buyer: getAddress(t.buyer), seller: getAddress(t.seller),
+    buyerPaymentAddress: getAddress(t.buyerPaymentAddress), sellerPayoutAddress: getAddress(t.sellerPayoutAddress), // ADR-0033
     deliverableHash: n.deliverableHash, acceptanceHash: n.acceptanceHash, token: getAddress(t.price.token), price: BigInt(t.price.amount),
     adjudicator: getAddress(t.adjudication.adjudicator), fallbackAdjudicator: getAddress(t.adjudication.fallbackAdjudicator), appealAdjudicator: getAddress(t.adjudication.appealAdjudicator),
     policyIdHash: str(t.adjudication.policyId), fee: BigInt(t.adjudication.fee.amount), registryHash: t.adjudication.registryHash as Hex, policyHash: t.adjudication.policyHash as Hex,
@@ -194,7 +199,8 @@ export function dealOfTerms(raw: J): Deal {
 
 // The plan
 
-export type OnChain = { stage: string; appeal: string; t1: bigint; t2: bigint };
+/** `dealOf` as this command reads it: the stage and `t1` (the time of the decision, the escalation or the takeover). */
+export type OnChain = { stage: string; t1: bigint };
 
 export type Plan =
   | { kind: 'due'; fn: TimeoutFunction; deadline: string; at: bigint; effect: string }
@@ -202,35 +208,31 @@ export type Plan =
   | { kind: 'closed'; why: string };
 
 /**
- * The timeout due for a deal in `d` at chain time `now` (seconds), by HoldbackRules' own checks on main: each timeout's
- * stage and appeal guards, and its `block.timestamp < deadline` refusal. The next block's time is at least `now`, so a
+ * The timeout due for a deal in `d` at chain time `now` (seconds), by the phase-one HoldbackRules' own checks: each
+ * timeout's stage guard and its `block.timestamp < deadline` refusal. The next block's time is at least `now`, so a
  * deadline at or before `now` is due when the transaction lands.
  */
 export function planTimeout(d: OnChain, timing: Deal['timing'], now: bigint): Plan {
   const at = (fn: TimeoutFunction, deadline: string, when: bigint, effect: string): Plan => (now >= when ? { kind: 'due', fn, deadline, at: when, effect } : { kind: 'wait', fn, deadline, at: when });
+  const refund = "the price and fee go back to the buyer's payment address";
   switch (d.stage) {
-    case 'None': {
-      // expireOffer: after offerExpiresAt or fundBy, whichever comes first, nothing can fund the commitment.
-      const first = timing.offerExpiresAt < timing.fundBy ? 'offerExpiresAt' : 'fundBy';
-      return at('expireOffer', first, timing[first], 'records the unfunded offer as expired; nothing is held');
-    }
+    case 'None':
+      // ADR-0031 §7: no on-chain record of an unfunded offer, so nothing to expire; the operators mark it by their clock.
+      return { kind: 'closed', why: 'it is None: nothing is held on chain. An unfunded offer stores nothing on these contracts, and from offerExpiresAt or fundBy it can no longer be funded' };
     case 'Held':
-      return at('reclaim', 'deliverBy', timing.deliverBy, 'nothing was delivered: the price and fee go back to the buyer');
+      return at('reclaim', 'deliverBy', timing.deliverBy, `nothing was delivered: ${refund}`);
     case 'Delivered':
       return at('triggerFallback', 'judgeBy', timing.judgeBy, 'the primary adjudicator missed judgeBy: the fallback adjudicator takes over until fallbackBy');
     case 'FallbackJudging':
-      return at('triggerDefault', 'fallbackBy', timing.fallbackBy, 'the fallback adjudicator missed fallbackBy: the price and fee go back to the buyer');
+      return at('triggerDefault', 'fallbackBy', timing.fallbackBy, `the fallback adjudicator missed fallbackBy: ${refund}`);
     case 'Escalated':
-      return at('triggerDefault', `appealDecideBy (escalated at ${iso(d.t1)} + appealDecideSec ${timing.appealDecideSec} s)`, d.t1 + timing.appealDecideSec, 'the appeal adjudicator missed its deadline: the price and fee go back to the buyer');
+      return at('triggerDefault', `appealDecideBy (escalated at ${iso(d.t1)} + appealDecideSec ${timing.appealDecideSec} s)`, d.t1 + timing.appealDecideSec, `the appeal adjudicator missed its deadline: ${refund}`);
     case 'Released':
     case 'Refunded':
-      if (d.appeal === 'none') return at('expireAppeal', `appealBy (decided at ${iso(d.t1)} + appealWindowSec ${timing.appealWindowSec} s)`, d.t1 + timing.appealWindowSec, 'the appeal window closed with no appeal: the first decision is final and the decider\'s bond is released');
-      if (d.appeal === 'open') return at('expireAppeal', `appealDecideBy (decided at ${iso(d.t1)} + appealWindowSec ${timing.appealWindowSec} s + appealDecideSec ${timing.appealDecideSec} s)`, d.t1 + timing.appealWindowSec + timing.appealDecideSec, 'the appeal went undecided: the appellant\'s bond goes back and the first decision stands');
-      return { kind: 'closed', why: `it is ${d.stage} with its appeal ${d.appeal}: the decision is final` };
+      // ADR-0031 §8: no party appeal, so a decision is final when written.
+      return { kind: 'closed', why: `it is ${d.stage}: the decision is final` };
     case 'Settled':
       return { kind: 'closed', why: 'it is Settled: both parties signed a settlement' };
-    case 'Expired':
-      return { kind: 'closed', why: 'it is Expired: its offer was never funded' };
     default:
       return { kind: 'closed', why: `dealOf reads an unknown stage, ${d.stage}` };
   }
@@ -241,8 +243,9 @@ export function planTimeout(d: OnChain, timing: Deal['timing'], now: bigint): Pl
 export type Io = { say(line: string): void; env: Record<string, string | undefined> };
 
 /**
- * The rules contract must have code, sign under Holdback's EIP-712 domain at the terms' version on the record's chain
- * and address, and be the contracts on main: its BONDS() is the record's HoldbackBonds.
+ * The rules contract must have code and sign under Holdback's EIP-712 domain at the terms' version on the record's
+ * chain and address. The phase-one contracts sign under 0.8 (T-358), so the domain check alone refuses the contracts on
+ * main, which sign under 0.7 and keep other timeouts.
  */
 async function checkDomain(chain: RoundChain, d: DeploymentFile, terms: J): Promise<void> {
   const rules = getAddress(d.rules);
@@ -258,21 +261,12 @@ async function checkDomain(chain: RoundChain, d: DeploymentFile, terms: J): Prom
   const want = `Holdback ${terms.schemaVersion}, chain ${d.chainId}, ${lc(rules)}`;
   const got = `${name} ${version}, chain ${chainId}, ${lc(verifyingContract)}`;
   if (got !== want) throw new Refusal(`refusing: the rules contract signs under ${got}, and the terms are signed under ${want}`);
-  // The contracts on main create HoldbackBonds and expose it as BONDS(). The phase-one contracts on
-  // contracts-audit-ready still sign under 0.7 but have no bonds, another dealOf and fewer timeouts: refused here.
-  let bonds: Address;
-  try {
-    bonds = (await chain.client.readContract({ address: rules, abi: ABIS.rules, functionName: 'BONDS' })) as Address;
-  } catch {
-    throw new Refusal(`refusing: ${rules} has no BONDS(); this command serves the contracts on main (with HoldbackBonds), not the phase-one contracts`);
-  }
-  if (lc(bonds) !== lc(d.bonds)) throw new Refusal(`refusing: the rules contract's HoldbackBonds is ${lc(bonds)}, and the deployment record names ${lc(d.bonds)}`);
 }
 
 /** Reads dealOf at block `at`. */
 async function onChain(chain: RoundChain, d: DeploymentFile, id: Hex, at: bigint): Promise<OnChain> {
-  const r = (await chain.client.readContract({ address: getAddress(d.rules), abi: ABIS.rules, functionName: 'dealOf', args: [id], blockNumber: at })) as { stage: number; appeal: number; t1: number; t2: number };
-  return { stage: STAGES[r.stage] ?? `stage ${r.stage}`, appeal: APPEAL_STATES[r.appeal] ?? `appeal ${r.appeal}`, t1: BigInt(r.t1), t2: BigInt(r.t2) };
+  const r = (await chain.client.readContract({ address: getAddress(d.rules), abi: ABIS.rules, functionName: 'dealOf', args: [id], blockNumber: at })) as { stage: number; t1: number | bigint };
+  return { stage: STAGES[r.stage] ?? `stage ${r.stage}`, t1: BigInt(r.t1) };
 }
 
 /** The sender's key from the environment, checked for shape only; no message carries its value. */
@@ -307,11 +301,11 @@ export async function sendTimeout(args: Args, io: Io): Promise<number> {
   const plan = planTimeout(before, deal.timing, now);
   const where = `on chain ${deployment.chainId} (rules ${lc(deployment.rules)})`;
   const clock = `the latest block ${block.number} is at ${iso(now)}`;
-  if (plan.kind === 'closed') throw new Refusal(`refusing: ${deal.id} is closed ${where}: ${plan.why}. No timeout remains`);
+  if (plan.kind === 'closed') throw new Refusal(`refusing: no timeout remains for ${deal.id} ${where}: ${plan.why}`);
   if (plan.kind === 'wait') {
     throw new Refusal(`refusing: no timeout is due for ${deal.id}, ${before.stage} ${where}. The next one, ${plan.fn}, opens at ${plan.deadline} ${iso(plan.at)}, in ${plan.at - now} s; ${clock}`);
   }
-  io.say(`${deal.id} is ${before.stage}${before.appeal === 'none' ? '' : `, appeal ${before.appeal},`} ${where}: ${plan.deadline} passed at ${iso(plan.at)} and ${clock}. Due: ${plan.fn}, which ${plan.effect}.`);
+  io.say(`${deal.id} is ${before.stage} ${where}: ${plan.deadline} passed at ${iso(plan.at)} and ${clock}. Due: ${plan.fn}, which ${plan.effect}.`);
   if (args.dryRun) {
     io.say('dry run: nothing signed or sent');
     return 0;
@@ -325,16 +319,16 @@ export async function sendTimeout(args: Args, io: Io): Promise<number> {
     tx = await chain.send(key!, 'rules', plan.fn, [deal.tuple]);
   } catch (e) {
     const after = await onChain(chain, deployment, deal.id, await chain.fresh()).catch(() => null);
-    io.say(`${plan.fn} failed: ${(e as Error).message.split('\n')[0]}${after ? `; dealOf now reads ${after.stage}, appeal ${after.appeal}` : ''}`);
+    io.say(`${plan.fn} failed: ${(e as Error).message.split('\n')[0]}${after ? `; dealOf now reads ${after.stage}` : ''}`);
     return 1;
   }
   const after = await onChain(chain, deployment, deal.id, BigInt(tx.block));
   const named = eventsFor(tx, deal.id);
   if (tx.status !== 'success' || named.length === 0) {
-    io.say(`${plan.fn} did not move ${deal.id}: transaction ${tx.tx} ${tx.status} in block ${tx.block}, with ${named.length ? named.join(', ') : 'no event naming the deal'}; dealOf reads ${after.stage}, appeal ${after.appeal}`);
+    io.say(`${plan.fn} did not move ${deal.id}: transaction ${tx.tx} ${tx.status} in block ${tx.block}, with ${named.length ? named.join(', ') : 'no event naming the deal'}; dealOf reads ${after.stage}`);
     return 1;
   }
-  io.say(`sent ${plan.fn} from ${sender}: transaction ${tx.tx} in block ${tx.block}, ${Number(tx.gasUsed).toLocaleString('en-US')} gas, events ${named.join(', ')}. ${deal.id} is now ${after.stage}, appeal ${after.appeal}.`);
+  io.say(`sent ${plan.fn} from ${sender}: transaction ${tx.tx} in block ${tx.block}, ${Number(tx.gasUsed).toLocaleString('en-US')} gas, events ${named.join(', ')}. ${deal.id} is now ${after.stage}.`);
   return 0;
 }
 
