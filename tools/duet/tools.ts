@@ -68,6 +68,12 @@ export interface ToolboxOptions {
   timeoutMs?: { short: number; long: number };
   /** The most characters one tool result gives the model. */
   resultLimit?: number;
+  /**
+   * One origin answered from another: on a local run, https://crow.direct is answered from this machine's copy of
+   * the site, so an agent finds the guides from the front door as a visitor would. The allowlist checks the address
+   * the agent asked for; the record keeps both.
+   */
+  alias?: { from: string; to: string };
   /** Ends a running command when the run ends (SIGTERM, then SIGKILL after 3 s). */
   signal?: AbortSignal;
 }
@@ -162,16 +168,17 @@ export class Toolbox {
   private async fetchUrl(raw: string, offset: number): Promise<ToolResult> {
     const u = this.allowed(raw);
     const started = Date.now();
+    const alias = this.o.alias && u.origin === this.o.alias.from ? new URL(`${u.pathname}${u.search}`, this.o.alias.to) : null;
     let res: Response;
     try {
-      res = await fetch(u, { method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(30_000) });
+      res = await fetch(alias ?? u, { method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(30_000) });
     } catch (e) {
       this.o.rec.add(this.o.role, 'http', { via: 'fetch_url', method: 'GET', url: u.href, status: 0, ms: Date.now() - started, error: (e as Error).name });
       return { content: `GET ${u.href} failed: ${(e as Error).name === 'TimeoutError' ? 'no answer in 30 s' : 'could not connect'}`, isError: true };
     }
     const text = await res.text();
     const body = this.o.rec.body(text);
-    this.o.rec.add(this.o.role, 'http', { via: 'fetch_url', method: 'GET', url: u.href, status: res.status, ms: Date.now() - started, bytes: body.bytes, body: body.text, trimmed: body.trimmed });
+    this.o.rec.add(this.o.role, 'http', { via: 'fetch_url', method: 'GET', url: u.href, ...(alias ? { servedBy: 'this machine\'s copy of the site' } : {}), status: res.status, ms: Date.now() - started, bytes: body.bytes, body: body.text, trimmed: body.trimmed });
     const from = Number.isSafeInteger(offset) && offset > 0 ? offset : 0;
     const page = 60_000;
     const slice = text.slice(from, from + page);

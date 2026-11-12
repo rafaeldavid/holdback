@@ -1,33 +1,41 @@
 {
-  "note": "The limits a duet run is held to, per scenario (T-391). Over any of them, or a stalled agent, and the runner writes ticket.md beside the record. Tokens: an agent's limit is Crow's guides read once, their size as the run served them (measured each run; with the short guides of T-393 on 2026-11-12: llms.txt 6,294 bytes, buy.txt 11,916, sell.txt 9,729, about 6,985 tokens at four bytes a token), plus workTokensPerAgent, an allowance for the work; the deal's limit is both agents' together. The billed count also carries the guides again on every turn after they are read, so a run goes over when carrying them costs more than the allowance; the ticket then says so, with the split. With the short guides the scripted runs stay under (paid: buyer 41,685 tokens, 27,426 of them carrying the guides; seller 68,284, 44,275 carrying the guides). Every number here is a GUESS: there is no live baseline yet. workTokensPerAgent is the scripted run's measured work share for its busier agent times 3 (paid 24,009; refund 48,453; bad-offer 31,233; late-offer 31,355), rounded up. Turns and tool calls are the scripted counts times 4, API calls times 3 (set from the first scripted runs; the short guides change them little: paid's busier agent took 12 turns, 18 tool calls and 70 API calls), and 60 s from the work passing to the seller being paid (0 s measured on the simulator; a Sepolia block is about 12 s). Tune them after the first live runs. Stalls, human interventions beyond the owner's pre-set approvals, agreeing to forbidden terms and a wrong decision have a limit of 0 in every scenario and are not listed.",
+  "note": "The limits a duet run is held to, per scenario (T-391). PROVISIONAL: set on 2026-11-12 from the first live baseline, one run of paid (DeepSeek buying from Claude Opus, the guided brief, the local simulator): buyer 388,270 tokens (349,952 of them cache reads), 18 turns, 30 tool calls, 99 API calls; seller 335,068 tokens (292,718 cache reads), 15 turns, 26 tool calls, 70 API calls; deal 723,338 tokens, of which 642,670 cache reads, 69,968 fresh input and 10,700 output; peak context about 36,000 tokens (buyer) and 37,000 (seller); USD 0.43 at list price (427,536 micro-USD). Paid's limits are the busier agent's count times 1.5, rounded up. The other scenarios have no live run yet: each scales paid's limit by the ratio its scripted run had to paid's (refund about 2 times paid's work, 1.5 times its turns; bad-offer and late-offer about 1.3 times), so they are guesses. Tokens: an agent's limit is Crow's guides read once, their size as the run served them (measured each run; 21,127 tokens in the baseline), plus workTokensPerAgent; the deal's limit is both agents' together. The billed count carries every page read on each later turn, so most of it is cache reads; the ticket shows the split. peakContextPerAgent is the largest input of one turn, in tokens; costPerDealMicroUsd is the deal's list-price cost, both agents together, not checked for scripted runs. workPassesToPaidSec stays 60 s: the simulator does not measure it, and a Sepolia block is about 12 s. Stalls, human interventions beyond the company's preset approvals, agreeing to forbidden terms and a wrong decision have a limit of 0 in every scenario and are not listed. Retune after more live runs, and after the first direct-brief runs.",
   "scenarios": {
     "paid": {
-      "workTokensPerAgent": 75000,
-      "turnsPerAgent": 40,
-      "toolCallsPerAgent": 60,
-      "apiCallsPerAgent": 210,
-      "workPassesToPaidSec": 60
+      "workTokensPerAgent": 550000,
+      "turnsPerAgent": 30,
+      "toolCallsPerAgent": 45,
+      "apiCallsPerAgent": 150,
+      "workPassesToPaidSec": 60,
+      "peakContextPerAgent": 56000,
+      "costPerDealMicroUsd": 650000
     },
     "refund": {
-      "workTokensPerAgent": 150000,
-      "turnsPerAgent": 60,
-      "toolCallsPerAgent": 85,
-      "apiCallsPerAgent": 255,
-      "workPassesToPaidSec": 60
+      "workTokensPerAgent": 1100000,
+      "turnsPerAgent": 45,
+      "toolCallsPerAgent": 65,
+      "apiCallsPerAgent": 185,
+      "workPassesToPaidSec": 60,
+      "peakContextPerAgent": 75000,
+      "costPerDealMicroUsd": 1300000
     },
     "bad-offer": {
-      "workTokensPerAgent": 95000,
-      "turnsPerAgent": 52,
-      "toolCallsPerAgent": 90,
-      "apiCallsPerAgent": 150,
-      "workPassesToPaidSec": 60
+      "workTokensPerAgent": 700000,
+      "turnsPerAgent": 40,
+      "toolCallsPerAgent": 70,
+      "apiCallsPerAgent": 110,
+      "workPassesToPaidSec": 60,
+      "peakContextPerAgent": 60000,
+      "costPerDealMicroUsd": 850000
     },
     "late-offer": {
-      "workTokensPerAgent": 95000,
-      "turnsPerAgent": 56,
-      "toolCallsPerAgent": 100,
-      "apiCallsPerAgent": 150,
-      "workPassesToPaidSec": 60
+      "workTokensPerAgent": 700000,
+      "turnsPerAgent": 42,
+      "toolCallsPerAgent": 75,
+      "apiCallsPerAgent": 110,
+      "workPassesToPaidSec": 60,
+      "peakContextPerAgent": 60000,
+      "costPerDealMicroUsd": 850000
     }
   }
 }

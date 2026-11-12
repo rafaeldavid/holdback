@@ -69,6 +69,8 @@ export interface Scenario {
   sellerRule?: string;
   /** The seller's rule as the replay page says it, in plain words. */
   sellerRulePlain?: string;
+  /** The seller's rule in the direct brief: the company's intent, with no Crow how-to. */
+  sellerRuleDirect?: string;
   buyerRule?: string;
   /** What a reader of the replay must know about this scenario's set-up, in plain words. */
   note?: string;
@@ -87,6 +89,7 @@ export const scenario = (name: ScenarioName): Scenario => {
       policy,
       sellerRule: 'Every report our job API returns is final, as it is: we do not edit reports. If your adapter holds a report back, deliver that same report anyway, by hand, before the delivery deadline; the agreed checks decide whether we are paid.',
       sellerRulePlain: 'Send every report exactly as the order system produces it, even one the selling tool holds back.',
+      sellerRuleDirect: 'Every report our job API returns is final, as it is: we do not edit reports. If your selling service holds a report back, deliver that same report anyway, before the delivery deadline; the agreed checks decide whether we are paid.',
       note: "The seller told its agent to send whatever its order system produced. Crow's selling tool runs the agreed checks before it sends a report, and would have held this one back. The agent sent it by hand instead, and the independent reviewer's checks turned it down.",
     };
   if (name === 'late-offer')
@@ -99,6 +102,7 @@ export const scenario = (name: ScenarioName): Scenario => {
       policy,
       sellerRule: 'We deliver at our own pace: every offer gives us three years (94,608,000 seconds) to deliver. A terms rule that applies always can set the delivery window.',
       sellerRulePlain: 'Give the seller three years to deliver in every offer.',
+      sellerRuleDirect: 'We deliver at our own pace: every offer gives us three years to deliver.',
       note: "The buyer set its answer to approval requests in advance: within the budget, with the required checks, the report due within three days, and an offer dated now. An offer outside that is refused, whoever asks.",
     };
   return {
@@ -110,6 +114,7 @@ export const scenario = (name: ScenarioName): Scenario => {
     policy,
     sellerRule: 'We do not offer the `coverage` check: drop it from every offer you make (a terms rule that applies always can drop a check by its id).',
     sellerRulePlain: 'Leave the check that every file was reviewed out of every offer.',
+    sellerRuleDirect: 'We do not offer the check that every file in scope was reviewed: leave it out of every offer you make.',
   };
 };
 
@@ -125,6 +130,39 @@ export interface BriefFacts {
 }
 
 const money = (base: string) => `${(Number(BigInt(base) / 10_000n) / 100).toFixed(2)}`; // display only: two decimals of a 6-decimal amount
+
+/**
+ * The brief's style (Rafa, 2026-11-12, "After the baseline"). `guided`, the default: the company's brief names Crow's
+ * guides and how to use its tools. `direct`: the cold start. The brief holds only the company's intent, its limits
+ * and facts about its own setup, and names Crow only as crow.direct; the agent finds the guides from the front door.
+ */
+export type BriefMode = 'guided' | 'direct';
+
+export function sellerBriefDirect(s: Scenario, f: BriefFacts): string {
+  return [
+    'You work for our company. We run an API that writes security audit reports for smart contracts, and we sell its reports to other agents through crow.direct.',
+    `Our job API: POST ${f.jobApi.quote} prices a job from its scope, POST ${f.jobApi.start} starts one, and GET ${f.jobApi.result} returns the report when the job is done.`,
+    `We opened port ${f.adapterPort} on this machine for the service that sells for us: buyers reach it at http://127.0.0.1:${f.adapterPort}. We have set HOLDBACK_KEY (our signing key) and HOLDBACK_OPERATORS for your commands; you never see the key.`,
+    `Our public page is served from the folder public/ in your folder, at ${f.sellerPage}.`,
+    `${f.local ? 'This is a test, on a local test setup with test money: nothing is real money.' : 'This is a test, with test money: nothing is real money.'}`,
+    ...(s.sellerRuleDirect ? [`Our rule for you: ${s.sellerRuleDirect}`] : []),
+    'Serve one buyer. When its deal ends, or no buyer pays within the offer\'s window, call finish with the outcome and what we were paid.',
+  ].join('\n\n');
+}
+
+export function buyerBriefDirect(s: Scenario, f: BriefFacts): string {
+  return [
+    'You work for our company. We need a security audit report for three smart contract files, and we will pay through crow.direct.',
+    `The work: an audit of ${SCOPE.files.join(', ')} at commit ${SCOPE.commit}, ${SCOPE.lines} lines in all. As a scope: ${JSON.stringify(SCOPE)}.`,
+    `A seller we found: ${f.sellerPage}.`,
+    `Our budget: at most ${s.policy.budget} base units of the test token (${money(s.policy.budget)} test tokens), everything included: the price and every fee.`,
+    `Our requirement: the offer must carry, as required checks, ${s.policy.requiredChecks.map((c) => `"${c}"`).join(' and ')}: every file in the scope is reviewed, and every finding is located inside the scope. We do not buy without them.`,
+    `Our dates: the report must be due within ${s.policy.latestDeliverySec / 86_400} days of now, and the offer must be dated now, not in the future or the past.`,
+    `Your key store is ${f.keyStore}: we keep your keys there, and your commands use it; you cannot read it. Our approval policy is preset: it answers any approval you ask for.`,
+    `${f.local ? 'This is a test, on a local test setup with test money: nothing is real money.' : 'This is a test, with test money: nothing is real money.'}`,
+    'When the deal ends, call finish with the outcome, what you paid, and, if you received the report, what it found in a few lines. If you refuse an offer, finish and say why.',
+  ].join('\n\n');
+}
 
 export function sellerBrief(s: Scenario, f: BriefFacts): string {
   return [
