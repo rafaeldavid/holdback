@@ -164,8 +164,8 @@ describe('pnpm snap', () => {
 
   it('fails loudly when a recording no longer matches the judge input', async () => {
     const root = sandbox();
-    // _example's primary panel under agg-3 (the policy hash seeds the panel): claude-b, gpt-a, qwen-a.
-    const rec = join(root, 'fixtures/recordings/_example/primary/claude-b.json');
+    // _example's primary panel under screen-1 (the policy hash seeds the panel): claude-a, gpt-a, gpt-b.
+    const rec = join(root, 'fixtures/recordings/_example/primary/claude-a.json');
     const json = JSON.parse(readFileSync(rec, 'utf8'));
     writeFileSync(rec, JSON.stringify({ ...json, promptTemplateHash: `0x${'0'.repeat(64)}` }));
     const r = await snap(root);
@@ -188,13 +188,13 @@ describe('pnpm snap', () => {
   it('--migrate-recordings moves v0 recordings under their role and runs alone', async () => {
     const root = sandbox();
     const dir = join(root, 'fixtures/recordings/_example');
-    const v1 = JSON.parse(readFileSync(join(dir, 'primary/claude-b.json'), 'utf8'));
+    const v1 = JSON.parse(readFileSync(join(dir, 'primary/claude-a.json'), 'utf8'));
     delete v1.role;
-    writeFileSync(join(dir, 'claude-b.json'), JSON.stringify({ ...v1, format: 'holdback.recording/v0' }));
-    rmSync(join(dir, 'primary/claude-b.json'));
+    writeFileSync(join(dir, 'claude-a.json'), JSON.stringify({ ...v1, format: 'holdback.recording/v0' }));
+    rmSync(join(dir, 'primary/claude-a.json'));
     const r = await snap(root, '--migrate-recordings');
     expect(r.code).toBe(0);
-    expect(r.out).toContain('moved  fixtures/recordings/_example/claude-b.json -> fixtures/recordings/_example/primary/claude-b.json');
+    expect(r.out).toContain('moved  fixtures/recordings/_example/claude-a.json -> fixtures/recordings/_example/primary/claude-a.json');
     expect((await snap(root, '_example')).code).toBe(0);
     expect((await snap(root, '--migrate-recordings', '_example')).code).toBe(2);
   });
