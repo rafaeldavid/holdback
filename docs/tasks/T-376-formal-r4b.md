@@ -237,8 +237,13 @@ pass, from the lane's tip `74fa299`, models both. All measured on 2026-11-12 on 
 
 **The RF-4 second pass is done** (Evidence, "The second pass"). Nothing of this task waits on another.
 
-**If a later refactor moves lines** (RF-2, RF-3, RF-5, RF-6 or the NatSpec package): re-read the README's `R:`
-citations; they are at `74fa299`. None of those changes a stored field, so none should touch the model.
+**The README's `R:` citations are pinned at `74fa299` and are already behind the lane's tip.** RF-2 (pull request
+407) and RF-3 (pull request 409) merged while the second pass ran. Neither touches the model [measured: this
+session read their diff of `HoldbackRules.sol`; the guards, deadlines and stored writes are the same, moved into
+`_turn`, `_escalationDecideBy`, `_escrowExpiry`, `_fallbackRound` and `_escalationRound`]. Both move lines. RF-5,
+RF-6 and the NatSpec package will move them again, so the citations are pinned once more when the lane freezes:
+one pass over the README's two mapping tables, for whoever owns the audit docs at the freeze, or this task on
+request.
 
 **For the owners of other files** (outside this task's paths):
 

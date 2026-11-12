@@ -262,7 +262,10 @@ others, one config per profile: it removes the refusal and shows that `ExpiryAft
 
 `R:` is `contracts/src/HoldbackRules.sol` and `E:` is
 `contracts/lib/commerce-payments/src/AuthCaptureEscrow.sol` (the pinned commit `6b0a5ef`). Lines are at the lane's
-commit `74fa299`. The mapping was read, not checked by a tool [inferred].
+commit `74fa299`. The mapping was read, not checked by a tool [inferred]. Later refactors on the lane change no
+behaviour the model describes and move these lines: RF-2 took the turn, its deadline and its round out of `decide`
+into `_turn`, and RF-3 gave each deadline one function. Read the cited lines with
+`git show 74fa299:contracts/src/HoldbackRules.sol`. The citations are pinned again when the lane freezes.
 
 | Model action | Contract function and line |
 | --- | --- |
