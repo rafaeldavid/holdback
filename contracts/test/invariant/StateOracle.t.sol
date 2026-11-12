@@ -156,7 +156,7 @@ contract StateOracleTest is Test {
 
     /// The rules contract keeps `_deals` at storage slot 0 and `deliveryHashOf` at slot 1 (Solady's EIP712 keeps no
     /// storage); the phase-one word packs stage and attempt into its two low bytes, then t1 (5 bytes from bit 16),
-    /// then the seed tag.
+    /// then the seed tag (18 bytes from bit 56), then the closing reason (byte 25) and the decider (byte 26; RF-4).
     function _slot(bytes32 id, uint256 base) internal pure returns (bytes32) {
         return keccak256(abi.encode(id, base));
     }
@@ -166,6 +166,40 @@ contract StateOracleTest is Test {
         assertEq(StateOracle.checkDeal(h, 0), why);
         vm.expectRevert();
         this.assertAllLegal(h);
+    }
+
+    /// T-375 (RF-4): a stored closing reason or decider that is not how the deal closed fails the oracle, even when
+    /// every other field matches the row: a reclaimed deal (P14) whose word says it defaulted, and a deal the primary
+    /// decided (P06) whose word names the fallback.
+    function test_planted_wrongStoredReasonOrDeciderFailsTheOracle() public {
+        h.offer(OFFER);
+        h.agreeAndFund(PICK, 0, 0);
+        vm.warp(h.termsOf(0).timing.deliverBy);
+        h.reclaim(PICK, 6);
+        _at("P14");
+        bytes32 slot = _slot(h.dealId(0), 0);
+        uint256 word = uint256(vm.load(address(rules), slot));
+        assertEq((word >> 200) & 0xff, uint8(HoldbackRules.Reason.Reclaimed), "byte 25 is not the closing reason");
+        _plantFails(
+            slot,
+            (word & ~(uint256(0xff) << 200)) | (uint256(uint8(HoldbackRules.Reason.Defaulted)) << 200),
+            "P14: the stored closing reason or decider is not how the deal closed"
+        );
+
+        setUp();
+        h.offer(OFFER);
+        h.agreeAndFund(PICK, 0, 0);
+        h.deliver(PICK, 5, 0);
+        h.decide(PICK, 6, 0, H.OUTCOME_ACCEPT);
+        _at("P06");
+        slot = _slot(h.dealId(0), 0);
+        word = uint256(vm.load(address(rules), slot));
+        assertEq((word >> 208) & 0xff, uint8(HoldbackRules.Decider.Primary), "byte 26 is not the decider");
+        _plantFails(
+            slot,
+            (word & ~(uint256(0xff) << 208)) | (uint256(uint8(HoldbackRules.Decider.Fallback)) << 208),
+            "P06: the stored closing reason or decider is not how the deal closed"
+        );
     }
 
     function test_planted_illegalStatesFailTheOracle() public {
@@ -227,7 +261,14 @@ contract StateOracleTest is Test {
         t = h.termsOf(0);
         t.timing.judgeBy = judgeBy;
         t.timing.fallbackBy = fallbackBy;
-        s.d = HoldbackRules.Deal({stage: HoldbackRules.Stage.Escalated, attempt: 1, t1: t1, seedTag: h.seedTag()});
+        s.d = HoldbackRules.Deal({
+            stage: HoldbackRules.Stage.Escalated,
+            attempt: 1,
+            t1: t1,
+            seedTag: h.seedTag(),
+            reason: HoldbackRules.Reason.Open,
+            decider: HoldbackRules.Decider.None
+        });
         s.deliveryHash = keccak256("a delivery");
         s.seedTag = h.seedTag();
         s.capturable = uint120(t.price + t.fee);

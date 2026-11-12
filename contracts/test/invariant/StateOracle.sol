@@ -15,13 +15,13 @@ import {RulesHandler} from "../handlers/RulesHandler.sol";
 ///         `RulesInvariants.invariant_legalDealStates` checks every deal against it after every step of the
 ///         invariant campaign.
 /// @dev The deployed machine's rows L11 to L30 and every vault column left with SC-7 (T-346): phase one has no
-///      party appeal and no bond. The closing reason and the decider (section 9.2) are not yet stored on chain;
-///      refactor RF-4 adds them to the word. Until then the oracle takes them from the handler's record of the
-///      action that closed the deal (`RulesHandler.closedBy`, `closedDecider`), as it takes the buyer's own reclaim
-///      on the escrow, and checks the stored word against the row that reason names. A deal is legal when, together:
+///      party appeal and no bond. Since refactor RF-4 (T-375) the word stores the closing reason and the decider
+///      (section 9.2). The oracle matches the row on the handler's record of the action that closed the deal
+///      (`RulesHandler.closedBy`, `closedDecider`), as it takes the buyer's own reclaim on the escrow, and requires
+///      the stored reason and decider to equal that record. A deal is legal when, together:
 ///      1. its stored word, its stored delivery hash and its closing reason match exactly one row (the stage, the
 ///         attempt, the reason, the decider, whether t1 is zero, and whether the delivery hash is zero; and the seed
-///         tag is zero exactly in P01);
+///         tag is zero exactly in P01), and the word's own reason and decider are the handler's record;
 ///      2. its times keep the row's bounds against its terms;
 ///      3. the escrow's capturable and refundable amounts are the row's (section 9.4, illegal class I16). A funded
 ///         row (P02 to P05) may show an empty escrow only after the buyer's own reclaim on the escrow (section 5.2).
@@ -151,6 +151,9 @@ library StateOracle {
         uint256 n = rowIndex(s, table);
         if (n == 0) return string.concat("no legal row (section 9): ", describe(s));
         string memory row = table[n - 1].id;
+        if (uint8(d.reason) != s.reason || uint8(d.decider) != s.decider) {
+            return string.concat(row, ": the stored closing reason or decider is not how the deal closed");
+        }
         bool unfunded = d.stage == HoldbackRules.Stage.None;
         if (d.seedTag != (unfunded ? 0 : s.seedTag)) {
             return string.concat(row, ": the seed tag is not the primary's seed commitment");
@@ -228,6 +231,7 @@ library StateOracle {
         return string.concat(
             string.concat("stage ", _u(uint8(d.stage)), ", attempt ", _u(d.attempt), ", reason ", _u(s.reason)),
             string.concat(", decider ", _u(s.decider), d.t1 == 0 ? ", t1 zero" : ", t1 set"),
+            string.concat(", stored reason ", _u(uint8(d.reason)), ", stored decider ", _u(uint8(d.decider))),
             s.deliveryHash == 0 ? ", no delivery hash" : ", a delivery hash"
         );
     }

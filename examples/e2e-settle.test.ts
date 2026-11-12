@@ -211,7 +211,7 @@ async function standIn(o: { terms: J; stage: string; answers?: [Answer, Answer] 
           calls.push({ fn: functionName, block: params[1] });
           const after = settled && params[1] !== 'latest' && BigInt(params[1]) >= SETTLED_AT;
           const result = {
-            dealOf: { stage: STAGES.indexOf(after ? 'Settled' : (o.stage as (typeof STAGES)[number])), attempt: 1, t1: 0, seedTag: 0n },
+            dealOf: { stage: STAGES.indexOf(after ? 'Settled' : (o.stage as (typeof STAGES)[number])), attempt: 1, t1: 0, seedTag: 0n, reason: after ? 3 : 0, decider: 0 },
             deliveryHashOf: o.stage === 'Held' ? ZERO32 : POSTED,
             paymentState: [true, after ? 0n : hold, 0n],
           }[functionName];
