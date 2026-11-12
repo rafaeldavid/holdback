@@ -7,7 +7,7 @@
 // trivially. The money is checked on a chain.
 import { RoundAdjudicator, type AdjudicatorRole, type Serving } from './e2e-adjudicator.ts';
 import { buyerKeys, buyerOpens, deliver, delta, eventsOf, finish, fund, get, logsOf, openDeal, reason, short, shortWindows, trigger, until, waitPast, type Deal, type Run } from './e2e-run.ts';
-import { CHECKS, CSV, DATASET, PRICE, expireAppeal, lc, paidCheck, requires, settledChecks, type J, type Scenario } from './e2e-scenario-kit.ts';
+import { CHECKS, CSV, DATASET, PRICE, expireAppeal, lastBlock, lc, paidCheck, requires, settledChecks, type J, type Scenario } from './e2e-scenario-kit.ts';
 import { deliveryHashOf, freshNonce } from './verify.ts';
 
 /** A beacon's clock (ADR-0018): round 1 at genesis, then one round per period. */
@@ -76,7 +76,7 @@ const callsOf = (deal: Deal, fn: string) => deal.record.transactions.flatMap((t)
  * A timeout trigger through the API, as any party may send it, recorded as a check. When another sender got there
  * first (the deal has left every state in `from`), it says so. When the operator fails it, the round sends the call
  * directly from the buyer's key instead (the escape hatch, ADR-0005), so the deal still ends: anvil 1.0.0 refuses to
- * estimate a call whose EIP-7623 calldata floor exceeds its execution gas, a cheap trigger among them (docs/backlog.md).
+ * estimate a call whose EIP-7623 calldata floor exceeds its execution gas, a cheap trigger among them (backlog).
  * Returns who sent it.
  */
 async function sendTrigger(r: Run, deal: Deal, kind: 'fallback' | 'default', fn: 'triggerFallback' | 'triggerDefault', from: string[]): Promise<string> {
@@ -140,7 +140,7 @@ async function namesPosted(r: Run, deal: Deal, what: string, fn: string): Promis
   const same = [...posted, ...served].every((h) => h === lc(signed));
   if (r.round.chain) {
     const named = lc(callsOf(deal, fn).at(-1)?.args?.[1]?.deliveryHash ?? 'none');
-    const onChain = lc(await r.round.chain.deliveryHashOf(deal.id));
+    const onChain = lc(await r.round.chain.deliveryHashOf(deal.id, lastBlock(deal)));
     r.check(`${what} names the posted delivery (D44)`, same && named === onChain && onChain === lc(signed), `${fn} names ${short(named)}; deliveryHashOf ${short(onChain)}; both operators' delivery.submitted ${posted.map(short).join(', ')}; the signed delivery ${short(signed)}`);
   } else {
     r.check(`${what} names the posted delivery (D44)`, same, `both operators' delivery.submitted ${posted.map(short).join(', ')} and the deliveryHash they serve after it ${served.map(short).join(', ')} equal the signed delivery ${short(signed)}`);

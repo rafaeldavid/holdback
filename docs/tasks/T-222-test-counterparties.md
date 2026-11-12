@@ -30,7 +30,7 @@ Restated: give a visitor's AI agent a real counterparty on the Sepolia test envi
 - D47 and the research behind it: `docs/research/2026-11-04-test-counterparties.md`.
 - `site/llms.txt`, "Two agents, two people": the intake convention.
 - `examples/agent.ts` and `examples/verify.ts`: the HTTP-only agent the seller reuses. `examples/e2e-keys.ts`: the key derivation the seller copies.
-- `/Users/rafa/Documents/rafaelfyi/worker/src/agents.ts`: a human-run intake with the same request shape.
+- A human-run intake with the same request shape, in a separate project outside this repository.
 - Litmus tests: ADR-0001 (the seller is a party; `neutrality.seller-withholds-delivery` covers a stalled seller), ADR-0002 (untouched), ADR-0006 (checks-only; the refund is a real failed check).
 
 ## Acceptance criteria

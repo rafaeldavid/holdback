@@ -17,7 +17,7 @@
 // It prints one line per step, then the commitment ID and the final state. It exits 0 when the deal ends as asked
 // (Released, or Refunded with --outcome refund), 3 when it refuses to sign something, and 1 when anything else stops it.
 //
-//   node try.mjs [--seller <url>] [--outcome refund]   the bundle served at https://escrow.stream/try.mjs (node site/build.mjs)
+//   node try.mjs [--seller <url>] [--outcome refund]   the bundle served at https://crow.direct/try.mjs (node site/build.mjs)
 //   node examples/try.ts [--seller <url>]              from the repository
 //   HOLDBACK_OPERATORS=<url>,<url>                     other operators (two distinct origins)
 //
@@ -30,7 +30,7 @@ import { commitmentIdOf, jcs, knownPins, operatorFeeOf, Refusal, sealKeyTo, type
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
-const OPERATORS = (process.env['HOLDBACK_OPERATORS'] || 'https://api.escrow.stream,https://api2.escrow.stream').split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean);
+const OPERATORS = (process.env['HOLDBACK_OPERATORS'] || 'https://api.crow.direct,https://api2.crow.direct').split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean);
 const PRICE_UNITS = '25000000'; // 25 tUSD: 6 decimals
 const DELIVERABLE = { kind: 'dataset', description: 'customers.csv, one row per customer', format: 'text/csv' };
 const CHECKS = [
@@ -171,7 +171,7 @@ async function main() {
   console.log(`’crow test deal on ${OPERATORS.join(' and ')}: test tokens only, nothing here is real money`);
   if (!globalThis.crypto?.subtle || typeof fetch !== 'function') throw new Error(`this needs Node 20 or later (Web Crypto and fetch); this is Node ${process.versions.node}`);
   if (OUTCOME !== 'release' && OUTCOME !== 'refund') throw new Error(`--outcome is release or refund, not ${OUTCOME}`);
-  if (args.includes('--seller') && !/^https?:\/\/\S+$/.test(SELLER ?? '')) throw new Error('--seller takes the intake URL, such as https://escrow.stream/agents/test-seller');
+  if (args.includes('--seller') && !/^https?:\/\/\S+$/.test(SELLER ?? '')) throw new Error('--seller takes the intake URL, such as https://crow.direct/agents/test-seller');
 
   step = 'keys';
   // Discovery as every operator serves it, and the settlement layers this script pins (never the operator's):

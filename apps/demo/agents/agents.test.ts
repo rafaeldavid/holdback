@@ -1,6 +1,6 @@
 // The scripted demo agents (T-012) drive each beat through the SDK and an operator over SimChain; Clearfield,
 // Northgate and Atrium are T-009's adjudicator service on that SimChain with fake judges (no models, no keys).
-// Keys, clock and randomness come from the testkit context. Honest parties only (docs/backlog.md has the rest).
+// Keys, clock and randomness come from the testkit context. Honest parties only (the backlog has the rest).
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseAdjudicator, parseJudgment } from '@holdback/core';
@@ -398,7 +398,7 @@ describe('determinism', () => {
     expect(b.delivery).toEqual(a.delivery);
     expect(b.record!.recordHash).toBe(a.record!.recordHash);
     // The settlement log is identical except the key Clearfield seals to Ledger: T-009's service draws that
-    // envelope's ephemeral key from system randomness (no injectable source yet; docs/backlog.md).
+    // envelope's ephemeral key from system randomness (no injectable source yet; backlog).
     const masked = (w: DemoWorld) =>
       w.chain.log().map((e) => JSON.stringify({ ...e, hash: null, prevHash: null }).replace(/"ciphertext":"[A-Za-z0-9_-]{100,}"/g, '"ciphertext":"<sealed>"'));
     expect(masked(worlds[1]!)).toEqual(masked(worlds[0]!));

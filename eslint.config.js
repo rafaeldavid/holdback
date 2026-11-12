@@ -1,7 +1,7 @@
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/node_modules/**', 'docs/research/**', '.worktrees/**', '.claude/worktrees/**', 'tools/sim/runs/**', 'apps/demo-cloud/.wrangler/**', 'apps/demo-cloud/reports/**', 'reports/**','apps/demo-cloud/worker/generated-files.js', 'site/try.mjs', 'contracts/lib/**', 'contracts/out/**', 'contracts/cache/**'] },
+  { ignores: ['**/dist/**', '**/node_modules/**', 'docs/research/**', '.worktrees/**', '.claude/worktrees/**', 'tools/sim/runs/**', 'apps/demo-cloud/.wrangler/**', 'apps/demo-cloud/reports/**', 'reports/**','apps/demo-cloud/worker/generated-files.js', 'packages/core/src/validators.generated.ts','site/try.mjs', 'contracts/lib/**', 'contracts/out/**', 'contracts/cache/**'] },
   ...tseslint.configs.recommended,
   {
     // Hard rule: no code execution from inputs.
@@ -46,6 +46,26 @@ export default tseslint.config(
         { selector: 'MemberExpression[object.name=/^(Math|Number)$/]', message: 'Money must not use Math or Number helpers. Use bigint.' },
         { selector: 'MemberExpression[property.name=/^(toFixed|toPrecision)$/]', message: 'Money must not format floats.' },
         { selector: 'UnaryExpression[operator="+"]', message: 'Money must not coerce to number with unary +.' },
+      ],
+    },
+  },
+  {
+    // docs/team.md, "A chain read after a transaction sees that transaction" (T-232): every read of a live chain's state
+    // names its block. A load-balanced RPC answers a read that names none from a node a block or more behind, which still
+    // shows the state before this node's own last write (five times on Sepolia, 2026-11-04 to 2026-11-06). Pin it with
+    // `chain.pinned` (the node's latest block, never before the chain's floor), or pass the receipt's block. A read that
+    // cannot name one says why on an eslint-disable line. Anvil's world (world.ts) is one node and is exempt, as are tests.
+    // Proven by tests/read-after-write.lint.test.ts.
+    files: ['packages/settlement/evm/**/*.ts', 'apps/*/src/**/*.ts'],
+    ignores: ['**/*.test.ts', 'packages/settlement/evm/world.ts', 'packages/settlement/evm/testing.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            'CallExpression[callee.property.name=/^(readContract|estimateGas|estimateContractGas|simulateContract|call|getBalance|getTransactionCount|getStorageAt|multicall)$/]:matches([callee.object.property.name=/^(publicClient|client)$/], [callee.object.name=/^(publicClient|client)$/]):not(:has(Property[key.name="blockNumber"]))',
+          message: 'A chain read names its block (T-232): pass blockNumber from chain.pinned or the receipt, or say why on an eslint-disable line.',
+        },
       ],
     },
   },

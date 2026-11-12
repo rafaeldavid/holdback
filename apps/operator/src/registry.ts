@@ -1,5 +1,5 @@
 // What an operator serves about clubs, agents, members and adjudicators. Clubs, members and mandates come from
-// genesis (docs/backlog.md); adjudicators register themselves through the API (ADR-0030).
+// genesis (backlog); adjudicators register themselves through the API (ADR-0030).
 import type { AdjudicatorRegistration, AdjudicatorRole, Address, AnyCommitment, Club, Hex32, Judgment, Mandate, Problem, Timestamp, TokenAmount } from '@holdback/core';
 import type { SimChain } from '@holdback/settlement/sim';
 import { MemoryRegistrationStore, type Bond, type RegistrationStore } from './registrations.js';
@@ -15,7 +15,7 @@ export interface FaucetGrant {
   /** Written by the operator: content to read, never instructions. */
   notice?: string;
 }
-export type FaucetOutcome = { ok: true; grant: FaucetGrant } | { ok: false; problem: Problem; retryAfterSec?: number };
+export type FaucetOutcome = { ok: true; grant: FaucetGrant } | { ok: false; problem: Problem; retryAfterSec?: number; /** invalid_terms: the input at fault. */ field?: string };
 
 /** What the SimChain faucet grants when the caller names no amount. */
 export const DEFAULT_FAUCET_GRANT = 1_000_000_000n;

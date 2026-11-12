@@ -1,10 +1,14 @@
-// crow-site: serves the ’crow site (index.html, llms.txt, images) at escrow.stream as static assets.
-// Build the files first: node site/build.mjs --op1 … --op2 … --out reports/site-out
+// crow-site: serves the ’crow site (index.html, llms.txt, images) at crow.direct as static assets, and answers the old
+// escrow.stream hostnames with a 301 to crow.direct (worker.js, T-312). The old Custom Domains stay while the
+// forwarding runs. Build the files first: node site/build.mjs --op1 … --op2 … --out reports/site-out
 {
   "name": "crow-site",
+  "main": "worker.js",
   "compatibility_date": "2025-09-15",
-  "assets": { "directory": "../../reports/site-out", "html_handling": "auto-trailing-slash", "not_found_handling": "404-page" },
+  "assets": { "directory": "../../reports/site-out", "binding": "ASSETS", "run_worker_first": true, "html_handling": "auto-trailing-slash", "not_found_handling": "404-page" },
   "routes": [
+    { "pattern": "crow.direct", "custom_domain": true },
+    { "pattern": "www.crow.direct", "custom_domain": true },
     { "pattern": "escrow.stream", "custom_domain": true },
     { "pattern": "www.escrow.stream", "custom_domain": true }
   ],

@@ -9,7 +9,7 @@ import { buildThroughput } from '../../scripts/metrics/throughput.mjs';
 import { COMMIT, EVENT_LOG, LANE, NOW, NO_REQUESTS, TAIL, config, json, onceBlocks, onceEvents, sampleRun } from './helpers';
 
 const schemas = loadSchemas();
-const SOURCES = [{ id: 'events', url: 'https://api.escrow.stream/v1/events?from=0', readAt: '2026-11-05T15:00:00Z', ok: true, ms: 68, error: null }];
+const SOURCES = [{ id: 'events', url: 'https://api.crow.direct/v1/events?from=0', readAt: '2026-11-05T15:00:00Z', ok: true, ms: 68, error: null }];
 const wrap = (name: string, body: { gaps: string[] } & Record<string, unknown>) => {
   const { gaps, ...rest } = body;
   return { ...envelope(name, { script: `scripts/metrics/${name}.mjs`, commit: COMMIT, generatedAt: NOW, sources: SOURCES, gaps }), ...rest };

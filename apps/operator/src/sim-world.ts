@@ -9,7 +9,7 @@
 import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { canonicalKeccak, holdbackDomain, parseAdjudicator, wholeSecond, type AdjudicatorRegistration, type Address, type Hex32, type Judgment, type Timestamp } from '@holdback/core';
+import { canonicalKeccak, holdbackDomain, parseAdjudicator, wholeSecond, type AdjudicatorRegistration, type AdjudicatorRole, type Address, type Hex32, type Judgment, type Timestamp } from '@holdback/core';
 import { MemoryCiphertextStore } from '@holdback/core/store';
 import { declinesOf, FAIL_MARKER, testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
 import type { FakeScript } from '@holdback/judgment';
@@ -20,8 +20,6 @@ import { register, signRegistration } from './registrations.js';
 import { DEFAULT_FAUCET_GRANT, simRegistry } from './registry.js';
 import { startOperator, type DemoFacts, type RunningOperator } from './server.js';
 import { TUSD } from './units.js';
-
-export type SimRole = 'primary' | 'fallback' | 'appeal';
 
 /** A test account as the sim service lists it when it keeps secrets: no signing or encryption secret key. */
 export interface SimPublicAccount {
@@ -50,7 +48,7 @@ export interface SimInfo {
   /** Operator base URLs (each serves /v1 and /.well-known/holdback.json). */
   operators: string[];
   token: { symbol: 'tUSD'; decimals: 6 };
-  adjudicators: Array<{ role: SimRole; name: string; address: Address; fakeJudges: true }>;
+  adjudicators: Array<{ role: AdjudicatorRole; name: string; address: Address; fakeJudges: true }>;
   /** Funded test accounts. TEST KEYS ONLY: each derives from its label (and, without publishSecrets, a per-world secret). */
   accounts: SimAccount[];
   /** The club rulebook's economics: base units and basis points. */
@@ -84,7 +82,7 @@ export interface SimWorldOptions {
   /** Each adjudicator's minimum fee in base units. Default 1 tUSD. */
   fee?: bigint;
   /** Fake-judge scripts per adjudicator role; unscripted judges pass. */
-  judges?: Partial<Record<SimRole, FakeScript>>;
+  judges?: Partial<Record<AdjudicatorRole, FakeScript>>;
   /** How often the adjudicators look for work, in ms. Default 100. */
   pollMs?: number;
   /** Checked by the operators' startup guards (no real money). Default: process.env. */
@@ -113,9 +111,9 @@ export interface SimWorld {
   keysOf(label: string): TestAccount;
   chain: SimChain;
   operators: readonly RunningOperator[];
-  adjudicators: Record<SimRole, TestAdjudicator>;
+  adjudicators: Record<AdjudicatorRole, TestAdjudicator>;
   /** Stops (or restarts) an adjudicator looking for work, to try fallback and default paths. */
-  silence(role: SimRole, silent: boolean): void;
+  silence(role: AdjudicatorRole, silent: boolean): void;
   /** Moves the clock forward (the sim clock otherwise follows the wall clock). */
   advance(seconds: number): Timestamp;
   close(): Promise<void>;
@@ -123,13 +121,16 @@ export interface SimWorld {
 
 export const DEFAULT_ACCOUNTS = ['buyer-1', 'seller-1', 'buyer-2', 'seller-2'] as const;
 export const SIM_CLUB_ID = 'sim-club';
-const ADJUDICATORS: ReadonlyArray<{ role: SimRole; label: string; name: string }> = [
+const ADJUDICATORS: ReadonlyArray<{ role: AdjudicatorRole; label: string; name: string }> = [
   { role: 'primary', label: 'sim-adjudicator-a', name: 'Sim Adjudicator A (fake judges)' },
   { role: 'fallback', label: 'sim-adjudicator-b', name: 'Sim Adjudicator B (fake judges)' },
   { role: 'appeal', label: 'sim-adjudicator-c', name: 'Sim Adjudicator C (fake judges)' },
 ];
-/** Bond pool terms the test adjudicators publish (adjudicator.schema.json). */
-const POOL_TERMS = { capitalChargeRateBps: 0, capitalChargeToPoolRateBps: 0, firstLossShareBps: 10000, noticePeriodSec: 691200 } as const;
+/**
+ * Bond pool terms every test adjudicator publishes (adjudicator.schema.json): this world's, the public demo's and the
+ * scripted demo's benches. Each registration binds their hash, so the three worlds read this one definition.
+ */
+export const POOL_TERMS = { capitalChargeRateBps: 0, capitalChargeToPoolRateBps: 0, firstLossShareBps: 10000, noticePeriodSec: 691200 } as const;
 
 async function listen(server: Server, port: number, host: string): Promise<string> {
   await new Promise<void>((resolve, reject) => {
@@ -200,14 +201,14 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
 
   const operators: RunningOperator[] = [];
   // ADR-0030 §4: the world's three adjudicators are its nodes' defaults, by role.
-  const defaultAdjudicators = Object.fromEntries(adjKeys.map((a) => [a.role, a.keys.address])) as Record<SimRole, Address>;
+  const defaultAdjudicators = Object.fromEntries(adjKeys.map((a) => [a.role, a.keys.address])) as Record<AdjudicatorRole, Address>;
   const of = options.operatorFee;
   const operatorFee = of
     ? { fee: { to: of.to ?? worldAccount('sim-operator-fees').address, token: TOKEN, bps: of.bps, min: of.min, max: of.max, appliesAt: 'agree-and-fund' as const, refundable: false as const } }
     : {};
   // Discovery's demo facts (D39): the club, the token, the adjudicators by role and the faucet, where an agent with
   // only an operator URL finds them. Filled in once the adjudicators below exist.
-  const adjudicators = {} as Record<SimRole, TestAdjudicator>;
+  const adjudicators = {} as Record<AdjudicatorRole, TestAdjudicator>;
   const demo = (): DemoFacts => ({
     clubId: club.id,
     token: { id: TOKEN, decimals: 6 },
@@ -280,11 +281,11 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
 
   // The adjudicators look for work in turn, one pass at a time.
   let running = true;
-  const silent = new Set<SimRole>();
+  const silent = new Set<AdjudicatorRole>();
   const loop = (async () => {
     while (running) {
       tick();
-      for (const [role, a] of Object.entries(adjudicators) as Array<[SimRole, TestAdjudicator]>) {
+      for (const [role, a] of Object.entries(adjudicators) as Array<[AdjudicatorRole, TestAdjudicator]>) {
         if (silent.has(role)) continue;
         try {
           const r = await a.runOnce();
@@ -359,7 +360,7 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
       nextSpare++;
       return send(res, 200, accountView(a)); // to this caller only; no other route lists a spare's keys
     }
-    const role = /^\/adjudicators\/(primary|fallback|appeal)$/.exec(path)?.[1] as SimRole | undefined;
+    const role = /^\/adjudicators\/(primary|fallback|appeal)$/.exec(path)?.[1] as AdjudicatorRole | undefined;
     if (req.method === 'POST' && role) {
       const s = (await json(req))['silent'];
       if (typeof s !== 'boolean') return send(res, 400, { type: 'invalid_terms', detail: 'takes {"silent": true | false}' });

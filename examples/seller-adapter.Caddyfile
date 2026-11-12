@@ -1,0 +1,11 @@
+# The seller adapter behind HTTPS (T-324; seller-adapter-service.md). Replace quote.example.com with your own
+# name, whose DNS points at this machine. Caddy gets and renews the certificate itself. The adapter limits quotes
+# overall (`quoteRateLimit.overall`); a limit per client address, if you want one, belongs here in the proxy.
+quote.example.com {
+	handle /quote {
+		reverse_proxy 127.0.0.1:8791
+	}
+	handle {
+		respond 404
+	}
+}

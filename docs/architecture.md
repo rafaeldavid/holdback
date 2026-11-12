@@ -1,6 +1,6 @@
 # Architecture v0.1
 
-Reflects ADR-0001 to ADR-0026 and the reviews in `docs/reviews/`. Decisions D1 to D40 are in `docs/decisions-today.md`; this page has not been revised for each of the later ones.
+Reflects the ADRs and the reviews it cites. `docs/decisions-today.md` and `docs/decisions/` record every decision and ADR; this page has not been revised for each decision after D40.
 
 ## Shape of the system
 
@@ -35,7 +35,7 @@ flowchart LR
   RAMP -- deal token to the buyer's address --> BA
 ```
 
-**Settlement layer.** Escrow plus rules, with no owner. In Phase 1 it is **SimChain**: an in-process, deterministic implementation of the same rules. From Phase 2 it is an EVM contract on a local chain and then a testnet (ADR-0003, ADR-0004). One `Settlement` interface covers both, and the scenario fixtures run against each (differential testing).
+**Settlement layer.** Escrow plus rules, with no owner. In Phase 1 it is **SimChain**: an in-process, deterministic implementation of the same rules. From Phase 2 it is an EVM contract on a local chain and then a testnet (ADR-0003, ADR-0004); the public demo settles on Ethereum Sepolia since 2026-11-03 (D41, ADR-0028). One `Settlement` interface covers both, and the scenario fixtures run against each (differential testing).
 
 **Operator node.** Exposes the REST API, verifies and relays signed messages, sponsors gas, indexes events and serves receipts. Anyone can run one. An operator adds speed and convenience, never authority.
 
@@ -45,7 +45,7 @@ flowchart LR
 
 **Ramps.** Convert fiat to the settlement token and back. They act only before funds are held and after they are released.
 
-**Funding service (planned, ADR-0026).** A separate service the unified API calls through `/v1/funding/*`, so a buyer agent can fund from whatever it holds: another ERC-20 (a swap), ETH (wrapped to WETH), another chain (a bridge) or fiat (a card or bank on-ramp). It delivers the deal's token to the buyer's address, and the buyer then funds the hold as usual. It never holds escrowed funds or signs for the buyer, and a buyer that already holds the token skips it. Today the routes answer 404 and the typed interface is `FundingService` in `apps/operator/src/registry.ts`. The deal's token is any ERC-20 the parties name in the terms, with ETH as WETH; ERC-3009 tokens fund with one signature, others through Permit2. A club may narrow this with `allowedTokens`.
+**Funding service (planned, ADR-0026).** A separate service the unified API calls through `/v1/funding/*`, so a buyer agent can fund from whatever it holds: another ERC-20 (a swap), ETH (wrapped to WETH), another chain (a bridge) or fiat (a card or bank on-ramp). It delivers the deal's token to the buyer's address, and the buyer then funds the hold as usual. It never holds escrowed funds or signs for the buyer, and a buyer that already holds the token skips it. Today the routes answer 501 `not_implemented`, as every planned route does (D39), and the typed interface is `FundingService` in `apps/operator/src/registry.ts`. The deal's token is any ERC-20 the parties name in the terms, with ETH as WETH; ERC-3009 tokens fund with one signature, others through Permit2. A club may narrow this with `allowedTokens`. The first wave of the service accepts USDC only, funded through a USD to USDC on-ramp (D42); other assets wait for Phase 6.
 
 ## Domain objects
 
@@ -92,7 +92,7 @@ stateDiagram-v2
   Escalated --> Released: appeal adjudicator accepts
   Escalated --> Refunded: appeal adjudicator rejects
   Escalated --> Defaulted: appealDecideBy passed (anyone)
-  Defaulted --> Refunded: default outcome (seller compensated from bonds)
+  Defaulted --> Refunded: default outcome (SimChain: seller compensated from bonds; the contract: no compensation until Phase 4)
   Held --> Settled: buyer and seller co-sign a settlement
   Delivered --> Settled: buyer and seller co-sign a settlement
   FallbackJudging --> Settled: buyer and seller co-sign a settlement
@@ -127,7 +127,7 @@ Rules the types must enforce. Illegal states are unrepresentable (ADR-0009): a d
 | Fund | Anyone holding the buyer's funding authorization | A valid adjudicator acceptance; balance ≥ price + fee + gas buffer; before fundBy |
 | Deliver | Seller signature | Before deliverBy; attempt ≤ maxSubmissions; ciphertext and hashes present |
 | Reclaim | Anyone | After deliverBy with no delivery |
-| Accept early | Buyer signature | State Delivered |
+| Accept early | Buyer signature | State Delivered. The rules contract also takes it in Held when the same call carries the seller-signed delivery (`HoldbackRules.sol:398-403`) |
 | Decide | The adjudicator whose turn it is | Before its deadline; seed valid for the role (primary: preimage of the acceptance's `seedCommitment`; fallback and appeal: the beacon seed for the round fixed by `judgeBy`, the escalation or the appeal filing, ADR-0018); policy and registry hashes equal the commitment's; judgment record hash included |
 | Fallback / default | Anyone | After judgeBy / fallbackBy; for an escalated case, after appealDecideBy |
 | Appeal | Party signature + bond + appeal fee | Within appealWindow after a first-instance decision. Grounds: wrong outcome, missing or wrong key, policy or panel violation, mislabeled model |
@@ -186,8 +186,8 @@ Keys go only to those who need them. Whoever wants judgment carries the key; the
 | Early acceptance | The buyer, with the payment |
 | Optimistic mode | The buyer at delivery. A `Dispute` carries keys for all three adjudicators |
 | Guaranteed mode, primary | At delivery |
-| Fallback | Released on takeover: SimChain holds the envelope in Phase 1; time-locked to the beacon round at `judgeBy` in Phase 2 |
-| Appeal | Carried by the `escalate` decision or the appeal; time-locked to `appealBy` as a backstop in Phase 2 |
+| Fallback | Released on takeover: SimChain holds the envelope in Phase 1; time-locked to the beacon round at `judgeBy` later, with T-207's private-deal slices (Phase 8) |
+| Appeal | Carried by the `escalate` decision or the appeal; time-locked to `appealBy` as a backstop later, with the same slices (Phase 8) |
 
 Disclosure levels are a signed term: `private`, `judgment` or `public`. A rulebook sets `disclosureMin`, an adjudicator policy may require a minimum, and a co-signed `Publish` can raise the level, never lower it. Phase 1 admits `public` only. Bond backers see aggregate signals recomputed from skeleton events, not cases.
 
@@ -264,7 +264,7 @@ The operator API and the internal SDK call only this interface. Chain details st
 ## Identity and signing
 
 - Agents, principals and adjudicators are EVM addresses: externally owned accounts, or smart accounts later.
-- Signed messages are EIP-712 typed data, with domain `{name: "Holdback", version: "0.6", chainId, verifyingContract}`. SimChain uses a fixed placeholder contract address. The domain version tracks the signed encoding: it moves when an existing typed-data struct or the terms encoding changes, so a signature made under one encoding never verifies under another. Additive schema versions leave it (ADR-0023: schema 0.7 keeps domain version 0.6).
+- Signed messages are EIP-712 typed data, with domain `{name: "Holdback", version: "0.7", chainId, verifyingContract}`. SimChain uses a fixed placeholder contract address. The domain version tracks the signed encoding: it moves when an existing typed-data struct or the terms encoding changes, so a signature made under one encoding never verifies under another. Additive schema versions leave it (ADR-0023: schema 0.7 kept domain version 0.6; schema 0.10 keeps 0.7, which ADR-0029 set with schema 0.9).
 - Funding is gasless for agents. The buyer signs a token transfer authorization (ERC-3009 `transferWithAuthorization` or Permit2), and any relayer can submit it.
 - A mandate is the principal's EIP-712 signature over the agent's scope: caps, roles, categories, expiry. It is checked at agree and fund.
 
@@ -284,6 +284,8 @@ The operator API and the internal SDK call only this interface. Chain details st
 - Agents never see card hold windows. Card and Stripe funding converts to tokens before the hold, so card authorization lifetimes do not bound the escrow.
 
 ## Repository layout (proposed for T-001)
+
+This is the layout as proposed; the repository map in `README.md` lists the paths as they are today, including `apps/demo-cloud/`, `apps/site/`, `apps/early-access/` and `apps/test-agents/`. The operator API does not use Fastify or any other web framework.
 
 ```
 apps/

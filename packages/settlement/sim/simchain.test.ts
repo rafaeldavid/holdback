@@ -1,5 +1,5 @@
 // SimChain demo paths and guards, end to end through signed submissions (docs/architecture.md postings table).
-import { parseCommitmentState, parseEvent, type Hex32, type ProblemType, type SealedKey, type Timestamp } from '@holdback/core';
+import { MAINNET_CHAIN_IDS, parseCommitmentState, parseEvent, type Hex32, type ProblemType, type SealedKey, type Timestamp } from '@holdback/core';
 import { encodePacked, keccak256 } from 'viem';
 import { describe, expect, it } from 'vitest';
 import type { Submission, SubmitResult } from '../src/interface.js';
@@ -59,6 +59,26 @@ async function delivered(w: World): Promise<void> {
 
 const types = (r: { events: Array<{ type: string }> }) => r.events.map((e) => e.type);
 const secondsAt = (ts: Timestamp) => Math.floor(Date.parse(ts) / 1000);
+
+describe('startup guard (hard rule: no real money)', () => {
+  it.each([1, 8453])('refuses to sign under mainnet chain ID %i', async (chainId) => {
+    const { genesis } = await world();
+    expect(() => new SimChain({ ...genesis, chainId })).toThrow(/SimChain refuses mainnet chain ID \d+ \(hard rule: no real money\)/);
+  });
+
+  // T-313: SimChain's own list had 10 IDs; it now reads the 21 in @holdback/core. Gnosis, Celo, Blast and Zora were not on it.
+  it.each([100, 42220, 81457, 7777777])('refuses mainnet chain ID %i, which only the longer list names', async (chainId) => {
+    const { genesis } = await world();
+    expect(() => new SimChain({ ...genesis, chainId })).toThrow(RangeError);
+    expect(() => new SimChain({ ...genesis, chainId })).toThrow(new RegExp(`SimChain refuses mainnet chain ID ${chainId} `));
+  });
+
+  it('refuses every chain ID on the list in @holdback/core, and still starts on its own chain ID', async () => {
+    const { genesis } = await world();
+    for (const chainId of MAINNET_CHAIN_IDS) expect(() => new SimChain({ ...genesis, chainId })).toThrow(/refuses mainnet chain ID/);
+    expect(() => new SimChain(genesis)).not.toThrow();
+  });
+});
 
 describe('beacon (ADR-0018)', () => {
   it('is keccak256(simSeed || round), one round per simulated second, available only once the clock reaches it', async () => {

@@ -60,7 +60,7 @@ export function routeOf(method: string, pathname: string): string {
   return served.find((r) => r.method === method && r.match.test(pathname))?.path ?? plannedRoute(method, pathname)?.path ?? 'unmatched';
 }
 
-export const AGENT_GUIDE = 'https://escrow.stream/llms.txt';
+export const AGENT_GUIDE = 'https://crow.direct/llms.txt';
 export const API_REFERENCE = 'https://raw.githubusercontent.com/rafaeldavid/holdback/main/docs/api.md';
 
 /** llms.txt (llmstxt.org): what this node is, and links to the guide, the reference and its machine-readable API. */

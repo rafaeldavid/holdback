@@ -10,3 +10,4 @@ export * from './runner.js';
 export * from './scenario.js';
 export * from './stub-settlement.js';
 export * from './stub-terms.js';
+export * from './untrusted.js';

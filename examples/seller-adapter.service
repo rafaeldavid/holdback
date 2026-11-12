@@ -1,0 +1,29 @@
+# The seller adapter as a systemd service (T-324; seller-adapter-service.md).
+# Install: copy to /etc/systemd/system/seller-adapter.service, then `systemctl enable --now seller-adapter`.
+[Unit]
+Description=Crow seller adapter (examples/seller-adapter.ts)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=crow-seller
+# The adapter's journal (`journal` in the configuration, relative by default) lands in the state directory.
+StateDirectory=crow-seller
+WorkingDirectory=/var/lib/crow-seller
+# HOLDBACK_KEY, HOLDBACK_OPERATORS and the quote credentials, one NAME=value per line. Owned by root, mode 0600:
+# systemd reads it before it drops to User, so the adapter's own user cannot read the file.
+EnvironmentFile=/etc/crow-seller/environment
+# The one configuration file (T-331): your API's addresses and any setting you change. It holds no secret.
+ExecStart=/usr/bin/node /opt/holdback/examples/seller-adapter.ts /etc/crow-seller/seller-adapter.json
+# On SIGTERM the adapter finishes the step in progress and records it, then exits; the next start resumes.
+KillSignal=SIGTERM
+TimeoutStopSec=60
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

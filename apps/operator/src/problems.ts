@@ -1,6 +1,6 @@
 // The problem types an operator answers (RFC 9457; docs/api.md, Errors; D39). One table: each type's HTTP status,
 // a short title, and what a caller does next. The OpenAPI document builds its Problem enum from it
-// (scripts/openapi.mjs) and the site renders one page per type at https://escrow.stream/problems/<type>
+// (scripts/openapi.mjs) and the site renders one page per type at https://crow.direct/problems/<type>
 // (site/build.mjs), so the `Link: <…>; rel="type"` on every problem resolves. `type` stays the short token every
 // client already branches on; the page is where it resolves (moving `type` to the absolute URI is T-033's call).
 import type { Address, ProblemType } from '@holdback/core';
@@ -16,7 +16,7 @@ export interface ProblemDoc {
   next: string;
 }
 
-export const PROBLEM_BASE = 'https://escrow.stream/problems/';
+export const PROBLEM_BASE = 'https://crow.direct/problems/';
 
 const ADJUDICATOR = 'An adjudicator-side refusal: the adjudicator corrects its message; a party has nothing to change.';
 
@@ -36,7 +36,7 @@ export const PROBLEMS = {
   coverage_exceeded: { status: 422, title: "The adjudicator's free bond does not cover this price", next: 'Choose an adjudicator with more free bond (GET /v1/adjudicators), or a lower price.' },
   adjudicator_affiliated: { status: 403, title: 'The adjudicator is affiliated with a party', next: 'Choose an adjudicator with no affiliation to either party.' },
   mime_not_allowed: { status: 400, title: "The delivery's media type is not allowed", next: 'Deliver in a format the terms name and the adjudicator accepts.' },
-  payload_too_large: { status: 413, title: 'The body is too large', next: 'JSON bodies are limited to 1 MiB and ciphertext to the limit this node states; send less.' },
+  payload_too_large: { status: 413, title: 'The body is too large', next: 'Send at most `maxBytes`, when the problem carries it. JSON bodies are limited to 1 MiB (1,048,576 bytes) and ciphertext to `limits.maxCiphertextBytes` in discovery.' },
   acceptance_missing: { status: 422, title: 'The primary adjudicator has not accepted the offer', next: 'Wait until GET /v1/commitments/{id} reads AcceptedByAdjudicator. An offer the adjudicator declines (its notices say why) expires unaccepted.' },
   acceptance_mismatch: { status: 422, title: "The adjudicator's acceptance does not match the terms", next: ADJUDICATOR },
   seed_mismatch: { status: 422, title: 'The panel seed does not match its commitment', next: ADJUDICATOR },
@@ -68,6 +68,8 @@ export interface ProblemMembers {
   fee?: { to: Address; token: string; amount: string };
   /** rate_limited: whole seconds to wait, as in Retry-After. */
   retryAfterSec?: number;
+  /** payload_too_large: the largest body this route takes, in bytes. */
+  maxBytes?: number;
   /** invalid_terms: the input at fault, a dotted path into the JSON body, or a query parameter or header name. */
   field?: string;
 }

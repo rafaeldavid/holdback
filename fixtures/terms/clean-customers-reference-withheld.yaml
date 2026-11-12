@@ -1,0 +1,45 @@
+# Terms for T-327's review fixes (neutrality.store-withholds-reference): clean-customers-reference.yaml with a
+# reference whose hash the runner's store (fixtures/data/reference/) does not hold. It stands for a store that held
+# the reference when the adjudicators agreed to serve the deal and lost or withheld it afterwards: the adjudicator
+# service declines an offer whose reference its store does not return, and the runner does not model that check.
+# Field rules are as in clean-customers-2000.yaml.
+schemaVersion: "0.7"
+clubId: data-services-v1
+deliverable:
+  kind: dataset
+  description: "Clean customers.csv: deduplicate on customer_id keeping the most recent record, normalize signup_date to ISO 8601, validate email format, flag (do not fill) missing or invalid emails."
+  format: text/csv
+  inputs:
+    - uri: file:///fixtures/data/dataset-cleaning/customers.raw.csv
+      sha256: "sha256:67051d4c1ab2bc2f85dcfe39f63221615b9d41c5a029ddb6f719a3616bdb14d9"
+acceptance:
+  deterministicChecks:
+    - { id: cols, type: csv_columns_exact, required: true, columns: [customer_id, name, email, signup_date, email_valid] }
+    - { id: uniq, type: unique_key, required: true, columns: [customer_id] }
+    - id: known_customers
+      type: reference_row_match_min
+      required: true
+      reference:
+        uri: "https://op-1.sim.holdback.test/v1/ciphertext/sha256:7e57ab1e00000000000000000000000000000000000000000000000000000327"
+        sha256: "sha256:7e57ab1e00000000000000000000000000000000000000000000000000000327"
+      keyColumn: customer_id
+      minBps: 10000
+  rubric:
+    passThreshold: 0
+    criteria: []
+price: { token: tUSD, amount: "2000000000" }
+adjudication:
+  policyId: bench-a/p1
+  fee: { token: tUSD, amount: "50000000" }
+timing:
+  offerExpiresInSec: 900
+  fundWithinSec: 1800
+  deliverWithinSec: 172800
+  judgeWithinSec: 120
+  fallbackWithinSec: 120
+  appealWindowSec: 300
+  appealDecideSec: 300
+  maxSubmissions: 1
+settlement: { mode: guaranteed_on_decision, token: tUSD }
+remedy: { onReject: full_refund }
+disclosure: { level: public }

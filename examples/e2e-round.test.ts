@@ -2,15 +2,16 @@
 // derives its keys from E2E_SEPOLIA_SEED. The operators here are the public demo's own world (apps/demo-cloud, the
 // code the live nodes run) served in this process on two origins: on SimChain always, and on the contracts deployed
 // to anvil, as Sepolia's stand-in, when anvil and `forge build` output are present (as apps/demo-cloud/src/live.test.ts).
-import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SEPOLIA } from './deployments.ts';
 import { roundKey } from './e2e-keys.ts';
+import { lockFile } from './e2e-run.ts';
 import { ANVIL_SKIP, anvilReady, anvilWorld, driver, expectNoSecrets, results, simWorld, type AnvilWorld, type Served } from './e2e-world.ts';
 import { pinOf } from './verify.ts';
 
@@ -28,6 +29,25 @@ describe('e2e-round.ts', () => {
     const r = await driver(['run', '1'], { HOLDBACK_OPERATORS: 'http://127.0.0.1:9,http://localhost:9' });
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/E2E_SEPOLIA_SEED is not set/);
+  });
+
+  it("refuses with exit 3 while another run of the round's keys holds the lock, before any network call, and frees its own lock when it stops", async () => {
+    // Round 1's runs 2026-11-05T190711Z and 2026-11-05T193705Z overlapped on the same keys, each counting the other's deals.
+    const seed = generatePrivateKey();
+    const out = mkdtempSync(join(tmpdir(), 'e2e-round-lock-'));
+    const lock = lockFile(out, privateKeyToAccount(roundKey(seed, 'master')).address);
+    const unreachable = { E2E_SEPOLIA_SEED: seed, HOLDBACK_OPERATORS: 'http://127.0.0.1:9,http://localhost:9', E2E_OUT: out };
+    writeFileSync(lock, JSON.stringify({ pid: process.pid, startedAt: '2026-11-05T19:07:11Z', folder: join(out, '2026-11-05T190711Z') }));
+    const refused = await driver(['run', '1'], unreachable);
+    expect(refused.code, refused.out).toBe(3);
+    expect(refused.out).toMatch(new RegExp(`^refused: refusing to start: another run of the round's keys is in progress \\(process ${process.pid}, started 2026-11-05T19:07:11Z, writing .*2026-11-05T190711Z\\)`, 'm'));
+    expect(readdirSync(out)).toEqual([basename(lock)]);
+    // Once that run has ended, a run takes the lock, and gives it back when it stops (here: no operator answers).
+    unlinkSync(lock);
+    const stopped = await driver(['run', '1'], unreachable);
+    expect(stopped.code, stopped.out).toBe(1);
+    expect(stopped.out).toMatch(/^stopped: /m);
+    expect(existsSync(lock)).toBe(false);
   });
 
   describe('against operators pinned to Sepolia and a stand-in RPC', () => {
@@ -135,7 +155,7 @@ describe('e2e-round.ts', () => {
       expect(r.out).toMatch(/^results: 1 fail, 2 (pass|fail), 3a pass, 3d pass, 6 waits, 10a pass$/m);
       const { folder, byId } = results(out);
       // anvil 1.0.0's eth_estimateGas sometimes refuses expireAppeal ("gas floor exceeds the gas limit"), so the
-      // operator's relay answers 500 and the driver closes the window directly (docs/backlog.md); on Sepolia the run shows it.
+      // operator's relay answers 500 and the driver closes the window directly (backlog); on Sepolia the run shows it.
       const known = ['a live panel judged', 'appeal-expiry relayed through the API'];
       for (const id of ['1', '2']) for (const c of byId[id].checks.filter((x: J) => !x.ok)) expect(known, `${id}: ${c.name}: ${c.detail}`).toContain(c.name);
       expect(byId['6']).toMatchObject({ status: 'waits', waitsFor: ['T-217'] });

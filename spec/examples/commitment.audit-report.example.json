@@ -1,0 +1,393 @@
+{
+  "schemaVersion": "0.7",
+  "id": "0xcf678d47c93b1a9937bb78480600a29b094f8c59be3f872be57a765019ef2618",
+  "clubId": "data-services-v1",
+  "rulebookHash": "0x140edd090559cb7dd3950b3a8b755b9cca7b81a37d11359738e1b9df7d0d971e",
+  "buyer": "0x04d6c65223896ba94e731bc9eb765c19bd289b0d",
+  "seller": "0x9ff412388f11e58327e71f841705dbc739c8cc46",
+  "deliverable": {
+    "kind": "document",
+    "description": "Security review of the lending-vault code at commit 7c1e4b9a2d3f5068a1b2c3d4e5f60718293a4b5c. Scope: contracts/Vault.sol, contracts/InterestModel.sol and contracts/PriceFeed.sol. Deliver one JSON report with the commit reviewed, the files reviewed and the findings; it may add a summary and the report's date. Each finding has an id, a severity, a title, one or more locations, the root cause and a recommended fix; it may add its impact and a status (open, fixed or acknowledged). Each location names a file in scope and may add a line range and the code excerpt it is about. A finding rated Medium or higher also carries the proof-of-concept files that show it. Severity scale: Critical, anyone can take or lock funds with no special access; High, funds can be taken or locked only with a precondition such as a privileged role or an unusual market state; Medium, the code breaks a stated rule or loses a bounded amount; Low, a defect that puts no funds at risk; Info, a note on clarity, style or cost. A report with no findings is a complete report.",
+    "format": "application/json"
+  },
+  "acceptance": {
+    "deterministicChecks": [
+      {
+        "id": "report",
+        "type": "json_schema",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "commit",
+            "filesReviewed",
+            "findings"
+          ],
+          "properties": {
+            "commit": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "reportDate": {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+            },
+            "summary": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 5000
+            },
+            "filesReviewed": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "findings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "severity",
+                  "title",
+                  "locations",
+                  "rootCause",
+                  "recommendedFix"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^F-[0-9]{2,4}$"
+                  },
+                  "severity": {
+                    "enum": [
+                      "Critical",
+                      "High",
+                      "Medium",
+                      "Low",
+                      "Info"
+                    ]
+                  },
+                  "status": {
+                    "enum": [
+                      "open",
+                      "fixed",
+                      "acknowledged"
+                    ]
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "locations": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "file"
+                      ],
+                      "properties": {
+                        "file": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "lines": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "start",
+                            "end"
+                          ],
+                          "properties": {
+                            "start": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "end": {
+                              "type": "integer",
+                              "minimum": 1
+                            }
+                          }
+                        },
+                        "excerpt": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 2000
+                        }
+                      }
+                    }
+                  },
+                  "rootCause": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  },
+                  "impact": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  },
+                  "recommendedFix": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  },
+                  "pocFiles": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "path",
+                        "content"
+                      ],
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "content": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 20000
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "proof",
+        "type": "json_schema",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "required": [
+            "findings"
+          ],
+          "properties": {
+            "findings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "severity"
+                ],
+                "anyOf": [
+                  {
+                    "properties": {
+                      "severity": {
+                        "enum": [
+                          "Low",
+                          "Info"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "required": [
+                      "pocFiles"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "scope",
+        "type": "json_schema",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "required": [
+            "commit",
+            "findings"
+          ],
+          "properties": {
+            "commit": {
+              "const": "7c1e4b9a2d3f5068a1b2c3d4e5f60718293a4b5c"
+            },
+            "findings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "locations"
+                ],
+                "properties": {
+                  "locations": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "file"
+                      ],
+                      "properties": {
+                        "file": {
+                          "enum": [
+                            "contracts/Vault.sol",
+                            "contracts/InterestModel.sol",
+                            "contracts/PriceFeed.sol"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "coverage",
+        "type": "json_schema",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "required": [
+            "filesReviewed"
+          ],
+          "properties": {
+            "filesReviewed": {
+              "type": "array",
+              "uniqueItems": true,
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {
+                "enum": [
+                  "contracts/Vault.sol",
+                  "contracts/InterestModel.sol",
+                  "contracts/PriceFeed.sol"
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "hidden",
+        "type": "hidden_characters_max",
+        "required": true,
+        "max": {
+          "total": 0
+        }
+      }
+    ],
+    "rubric": {
+      "criteria": [
+        {
+          "id": "root_cause",
+          "description": "Each finding's root cause matches the code its locations quote, or names the code at fault where a location quotes none. A report with no findings scores 4.",
+          "weight": 30,
+          "anchors": {
+            "0": "A root cause contradicts an excerpt at its locations, or describes code that is at none of its locations.",
+            "2": "Every root cause is consistent with its locations, but some do not say which statement is at fault.",
+            "4": "Every root cause names the statement at fault at its locations and says why it is wrong."
+          }
+        },
+        {
+          "id": "impact",
+          "description": "Each impact a finding states follows from its root cause. A finding that states no impact is not scored here. A report with no findings, or with no stated impact, scores 4.",
+          "weight": 20,
+          "anchors": {
+            "0": "An impact does not follow from its root cause, or claims more than the root cause allows.",
+            "2": "Every impact is plausible, but some skip a step between the root cause and the result.",
+            "4": "Every impact follows from its root cause step by step and says who loses what."
+          }
+        },
+        {
+          "id": "severity",
+          "description": "Each finding's severity fits the severity scale in the deliverable description. A report with no findings scores 4.",
+          "weight": 20,
+          "anchors": {
+            "0": "A severity is two or more levels away from what the scale gives for what the finding describes.",
+            "2": "Every severity is within one level of what the scale gives for what the finding describes.",
+            "4": "Every severity is the level the scale gives for what the finding describes."
+          }
+        },
+        {
+          "id": "fix",
+          "description": "Each recommended fix addresses the finding's root cause. A report with no findings scores 4.",
+          "weight": 20,
+          "anchors": {
+            "0": "A fix leaves its root cause in place, or changes unrelated code.",
+            "2": "Every fix addresses its root cause, but some are too vague to apply.",
+            "4": "Every fix removes its root cause and is specific enough to apply."
+          }
+        },
+        {
+          "id": "distinct",
+          "description": "No two findings describe the same bug. A report with no findings scores 4.",
+          "weight": 10,
+          "anchors": {
+            "0": "Two findings describe the same root cause in the same code.",
+            "2": "Two findings overlap in part, but each adds something the other lacks.",
+            "4": "Every finding describes a different bug."
+          }
+        }
+      ],
+      "passThreshold": 300
+    }
+  },
+  "price": {
+    "token": "tUSD",
+    "amount": "1500000000"
+  },
+  "adjudication": {
+    "adjudicator": "0x5d10fecab9242e66cb134b77309a3566ed75e3dd",
+    "fallbackAdjudicator": "0xf9e6283d068ff7016653ab6d36a7fab0294f4b8a",
+    "appealAdjudicator": "0xc372bd536a0f63fe9fde6bca1db179ce93612520",
+    "policyId": "bench-a/p1",
+    "fee": {
+      "token": "tUSD",
+      "amount": "50000000"
+    },
+    "registryHash": "0x8aa41fa98b874dca122885418370c665a9ec04911d03dc7a877ccd2772274549",
+    "policyHash": "0x8cb8dea5cd6984958b3453d2e79ed3b72c41f6d110f7351b3c1f2c025ccfea79"
+  },
+  "timing": {
+    "offerExpiresAt": "2026-11-11T10:15:00Z",
+    "fundBy": "2026-11-11T10:30:00Z",
+    "deliverBy": "2026-11-18T10:00:00Z",
+    "judgeBy": "2026-11-18T10:02:00Z",
+    "fallbackBy": "2026-11-18T10:04:00Z",
+    "appealWindowSec": 300,
+    "appealDecideSec": 300,
+    "maxSubmissions": 1
+  },
+  "settlement": {
+    "mode": "guaranteed_on_decision",
+    "token": "tUSD"
+  },
+  "remedy": {
+    "onReject": "full_refund"
+  },
+  "disclosure": {
+    "level": "public"
+  },
+  "buyerEncryptionPublicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "nonce": "0x021fff876fbef18b93247b07e38f30e761ea5cf120310fdb3bb745b777031f9d",
+  "createdAt": "2026-11-11T10:00:00Z",
+  "signatures": {
+    "seller": "0xababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab"
+  }
+}

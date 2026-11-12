@@ -5,11 +5,10 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { MemoryStorage, PublicWorld } from '@holdback/demo-cloud';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { serveTwoOrigins } from './two-origins.ts';
 
 const here = (f: string) => fileURLToPath(new URL(f, import.meta.url));
 
@@ -19,37 +18,7 @@ const here = (f: string) => fileURLToPath(new URL(f, import.meta.url));
  */
 async function serve(rewrite?: (path: string, body: string) => string, lying: number[] = [0]): Promise<{ urls: [string, string]; close(): Promise<void> }> {
   const world = await PublicWorld.open({ storage: new MemoryStorage(), env: { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '10000' } });
-  const server: Server = createServer(async (req, res) => {
-    const host = req.headers.host ?? '';
-    const node = host.startsWith('localhost') ? 1 : 0;
-    const chunks: Buffer[] = [];
-    for await (const c of req) chunks.push(c as Buffer);
-    const body = ['GET', 'HEAD'].includes(req.method ?? 'GET') ? undefined : Buffer.concat(chunks);
-    const headers = Object.fromEntries(Object.entries(req.headers).filter(([, v]) => typeof v === 'string')) as Record<string, string>;
-    const r = await world.fetch(new Request(`http://${host}${req.url}`, { method: req.method ?? 'GET', headers, ...(body ? { body } : {}) }), { node, origin: `http://${host}`, client: req.socket.remoteAddress ?? 'unknown' });
-    const out = Buffer.from(await r.arrayBuffer());
-    const text = rewrite && lying.includes(node) && r.ok ? rewrite(req.url ?? '', out.toString()) : undefined;
-    res.writeHead(r.status, Object.fromEntries([...r.headers].filter(([k]) => k !== 'content-length')));
-    res.end(text ?? out);
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const port = (server.address() as AddressInfo).port;
-  let ticking = true;
-  const loop = (async () => {
-    while (ticking) {
-      await world.work();
-      await new Promise((r) => setTimeout(r, 100));
-    }
-  })();
-  return {
-    urls: [`http://127.0.0.1:${port}`, `http://localhost:${port}`],
-    close: async () => {
-      ticking = false;
-      await loop;
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-      server.closeAllConnections();
-    },
-  };
+  return serveTwoOrigins(world, { tickMs: 100, rewrite: rewrite && ((node, path, body) => (lying.includes(node) ? rewrite(path, body) : undefined)) });
 }
 
 let demo: Awaited<ReturnType<typeof serve>>;
@@ -173,7 +142,7 @@ describe('try.ts', () => {
     const v = (name: string) => (JSON.parse(readFileSync(here(`./node_modules/${name}/package.json`), 'utf8')) as { version: string }).version;
     expect(pins()).toEqual({ viem: v('viem'), tweetnacl: v('tweetnacl') });
     const command = tryCommand();
-    expect(command).toBe(`mkdir -p crow-try && cd crow-try && npm init -y >/dev/null && npm install --silent --ignore-scripts viem@${v('viem')} tweetnacl@${v('tweetnacl')} && curl -fsSLO https://escrow.stream/try.mjs && echo "${sha}  try.mjs" | shasum -a 256 -c && node try.mjs --seller https://escrow.stream/agents/test-seller`);
+    expect(command).toBe(`mkdir -p crow-try && cd crow-try && npm init -y >/dev/null && npm install --silent --ignore-scripts viem@${v('viem')} tweetnacl@${v('tweetnacl')} && curl -fsSLO https://crow.direct/try.mjs && echo "${sha}  try.mjs" | shasum -a 256 -c && node try.mjs --seller https://crow.direct/agents/test-seller`);
     const md = readFileSync(here('../site/llms.txt'), 'utf8');
     const html = readFileSync(here('../site/index.html'), 'utf8');
     expect(html === page(md), 'site/index.html is stale: run node site/build.mjs').toBe(true);
@@ -182,7 +151,7 @@ describe('try.ts', () => {
     const span = /<span id="prompt" hidden>([^<]*)<\/span>/.exec(html);
     const prompt = (span?.[1] ?? '').replaceAll('&quot;', '"').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&');
     expect(prompt.split('\n')).toContain(command);
-    expect(prompt).toContain('https://escrow.stream/llms.txt');
+    expect(prompt).toContain('https://crow.direct/llms.txt');
     const visible = html.replace(span?.[0] ?? '', '');
     expect(visible).not.toContain('mkdir -p crow-try');
     expect(visible).not.toContain(sha);
@@ -190,7 +159,7 @@ describe('try.ts', () => {
     const tryIt = txt.slice(txt.indexOf('## Try it'), txt.indexOf('\n## ', txt.indexOf('## Try it') + 3));
     expect(tryIt.split('\n').find((l) => l.startsWith('mkdir '))).toBe(command);
     // Each fetch before the command is one more approval: "Try it" asks for none, and keeps the sha256 pin and the source.
-    expect(tryIt).not.toMatch(/before you ask|fetch https:\/\/escrow\.stream\/try\.mjs/);
+    expect(tryIt).not.toMatch(/before you ask|fetch https:\/\/crow\.direct\/try\.mjs/);
     expect(tryIt).toContain('runs it only if its SHA-256 matches the one in the command');
     expect(tryIt).toContain('`examples/try.ts`, `agent.ts` and `verify.ts` in https://github.com/rafaeldavid/holdback');
   });

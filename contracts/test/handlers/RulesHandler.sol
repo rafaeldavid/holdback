@@ -29,7 +29,8 @@ contract RulesHandler is Base {
 
     uint256 internal constant OP_PK = 0x0BE7;
     uint256 internal constant N = 7;
-    uint256 public constant MAX_DEALS = 8;
+    // T-341 raised it from 8 (refinement plan, gate VG-2): more deals contend for bonds, timeouts and picks at once.
+    uint256 public constant MAX_DEALS = 16;
     uint256 internal constant I_OP = 5;
     uint256 internal constant I_OTHER = 6;
 
@@ -55,7 +56,22 @@ contract RulesHandler is Base {
     uint256 public withdrawMismatch; // a bond withdrawal of free funds refused, or of encumbered funds allowed
     uint256 public keyWithoutPayment; // a KeyReleased on a deal that does not stand Released or Settled
     uint256 public overturnMispaid; // an appeal paid other than its verdict requires, or filed by the favoured party (T-206 I-8, L-7)
+    // T-336 (known issue G-5): the liveness counter. Every delivery that lands, whichever call carries it, is counted
+    // with the hash of the delivery the handler posted, so an invariant can check the chain stores exactly that hash.
+    uint256 public deliveries; // deliveries that landed on chain (a deal's attempt went from 0 to 1 in Held)
+    mapping(bytes32 => bytes32) public postedHash; // the hash of the delivery the handler posted, once it landed
+    uint256 public deliveryHashLost; // a delivery landed but the chain does not store its hash (ADR-0029)
+    uint256 public deliverRefused; // an authorised `deliver` on a Held deal before deliverBy was refused
     string public lastViolation;
+
+    // ------------------------------------------------------------ the trace (T-341)
+
+    /// T-341: set only by the side-by-side harness's subclasses (`test/differential/Sides.sol`). In trace mode a
+    /// refused call returns instead of re-reverting `Refused()`, so the trace below survives the call; both sides
+    /// run in this mode, so they stay comparable. The invariant campaign never sets it.
+    bool internal traceMode;
+    bytes[] internal _calls; // every checked call's outcome, in order: abi.encode(ok, return or revert data)
+    bytes[] internal _events; // every event emitted, in order: abi.encode(emitter, topics, data)
 
     constructor() {
         setUp();
@@ -173,16 +189,61 @@ contract RulesHandler is Base {
         }
     }
 
+    /// The seed tag every funded deal stores: the low 144 bits of the primary's seed commitment, which every
+    /// acceptance this handler signs carries (`Base._acceptance`). The state oracle checks it (T-341).
+    function seedTag() external pure returns (uint144) {
+        return uint144(uint256(keccak256(abi.encodePacked(SEED))));
+    }
+
+    /// CPP's whole payment state for commitment i (T-341: the side-by-side harness compares it).
+    function holdOf(uint256 i) external view returns (bool collected, uint120 capturable_, uint120 refundable) {
+        return escrow.paymentState(escrow.getHash(_pi(_terms_[i])));
+    }
+
+    /// T-341: returns the trace since the last call and clears it. The events still in the log recorder are
+    /// drained first, so the trace ends with the last event of the last action.
+    function takeTrace() external returns (bytes[] memory calls, bytes[] memory events) {
+        _drainLogs();
+        calls = _calls;
+        events = _events;
+        delete _calls;
+        delete _events;
+    }
+
     // ------------------------------------------------------------ helpers
 
     function _violations() internal view returns (uint256) {
         return reopened + unauthorisedSuccess + unexpectedMovement + strangerSuccess + timeoutMismatch
-            + withdrawMismatch + keyWithoutPayment + overturnMispaid;
+            + withdrawMismatch + keyWithoutPayment + overturnMispaid + deliveryHashLost + deliverRefused;
     }
 
-    /// Re-reverts a refused call so the metrics count it, unless the refusal itself was a violation.
+    /// Re-reverts a refused call so the metrics count it, unless the refusal itself was a violation. In trace mode
+    /// it returns: the side-by-side harness reads the refusal from the trace.
     function _end(bool ok, uint256 v0) internal view {
-        if (!ok && _violations() == v0) revert Refused();
+        if (!ok && _violations() == v0 && !traceMode) revert Refused();
+    }
+
+    /// T-341: records a checked call's outcome in trace mode: abi.encode(ok, data), where data is the revert data,
+    /// or on success the return data where the call site has it (`_relay`, `stranger`) and "" where it does not.
+    function _note(bool ok, bytes memory data) internal {
+        if (traceMode) _calls.push(abi.encode(ok, data));
+    }
+
+    /// Returns the events recorded since the last drain (and clears the recorder); in trace mode it also appends
+    /// them to the trace.
+    function _drainLogs() internal returns (Vm.Log[] memory logs) {
+        logs = vm.getRecordedLogs();
+        if (!traceMode) return logs;
+        for (uint256 i; i < logs.length; i++) {
+            _events.push(abi.encode(logs[i].emitter, logs[i].topics, logs[i].data));
+        }
+    }
+
+    /// Starts a fresh recording for the checked call; the events recorded before it are drained into the trace
+    /// first, so none is lost when `vm.recordLogs` clears them.
+    function _recordLogs() internal {
+        _drainLogs();
+        vm.recordLogs();
     }
 
     function _caller(uint256 seed) internal view returns (address) {
@@ -251,6 +312,17 @@ contract RulesHandler is Base {
             timeoutMismatch++;
             lastViolation = "a delivery landed at or after deliverBy";
         }
+        // T-336: a delivery landed (deliver, or a decision or early accept that carried it). Every handler path posts
+        // the fixture's delivery, so its hash is known; the chain must store exactly it (ADR-0029).
+        if (before == HoldbackRules.Stage.Held && rules.dealOf(id).attempt != 0 && postedHash[id] == bytes32(0)) {
+            (H.Delivery memory dv,) = _delivery();
+            postedHash[id] = hx.delivery(id, dv);
+            deliveries++;
+            if (rules.deliveryHashOf(id) != postedHash[id]) {
+                deliveryHashLost++;
+                lastViolation = "a delivery landed but the chain does not store its hash";
+            }
+        }
     }
 
     function _noMove(string memory name, uint256 i, uint256 c0) internal {
@@ -288,6 +360,9 @@ contract RulesHandler is Base {
         H.Terms memory t = _terms();
         t.token = seed & 1 == 0 ? address(usdc) : address(tusd2);
         t.price = _bound((seed >> 8) & 0xffffffff, 1, 60_000_000);
+        // T-341: one offer in eight has price 0, which phase one keeps legal (Rafa, 2026-11-11: a deal may carry no
+        // token value). With a fee above 0 it funds; with fee 0 the escrow refuses to hold nothing, on both sides.
+        if (uint256(keccak256(abi.encode("zero price", seed))) % 8 == 0) t.price = 0;
         t.fee = _bound((seed >> 40) & 0xffffffff, 0, 5_000_000);
         uint256[3] memory r;
         for (uint256 k; k < 3; k++) {
@@ -335,12 +410,8 @@ contract RulesHandler is Base {
         H.Agree memory ag = _agree(t, bk);
         H.Funding memory f = _erc3009(t, fk);
         HoldbackRules.Stage before = rules.dealOf(id).stage;
-        bool ok;
-        vm.prank(_caller(callerSeed));
-        try rules.agreeAndFund(t, ss, acc, ag, f) {
-            ok = true;
-            _authorised("agreeAndFund", sk == SELLER_PK && ak == good && bk == BUYER_PK && fk == BUYER_PK);
-        } catch {}
+        bool ok = _relay(_caller(callerSeed), abi.encodeCall(HoldbackRules.agreeAndFund, (t, ss, acc, ag, f)));
+        if (ok) _authorised("agreeAndFund", sk == SELLER_PK && ak == good && bk == BUYER_PK && fk == BUYER_PK);
         _track(id, before);
         _end(ok, v0);
     }
@@ -359,8 +430,16 @@ contract RulesHandler is Base {
         vm.prank(_caller(callerSeed));
         try rules.deliver(t, d, sig) {
             ok = true;
+            _note(true, "");
             _authorised("deliver", k == SELLER_PK);
-        } catch {}
+        } catch (bytes memory e) {
+            _note(false, e);
+        }
+        // T-336: the seller's own delivery on a Held deal before deliverBy always lands, from any relayer.
+        if (!ok && k == SELLER_PK && before == HoldbackRules.Stage.Held && block.timestamp < _deliverBy[id]) {
+            deliverRefused++;
+            lastViolation = "deliver: the seller's delivery before deliverBy was refused";
+        }
         _noMove("deliver", i, c0);
         _track(id, before);
         _end(ok, v0);
@@ -410,13 +489,9 @@ contract RulesHandler is Base {
             sk = _signer(signerSeed >> 8, SELLER_PK);
             dsig = _deliverySig(id, dv, sk);
         }
-        bool ok;
-        vm.recordLogs();
-        vm.prank(_caller(callerSeed));
-        try rules.decide(t, m, dv, dsig) {
-            ok = true;
-            _authorised("decide", k == good && sk == SELLER_PK && m.deliveryHash == rules.deliveryHashOf(id));
-        } catch {}
+        _recordLogs();
+        bool ok = _relayDecide(_caller(callerSeed), t, m, dv, dsig);
+        if (ok) _authorised("decide", k == good && sk == SELLER_PK && m.deliveryHash == rules.deliveryHashOf(id));
         _keyOnlyWithPayment();
         _track(id, d.stage);
         _end(ok, v0);
@@ -425,8 +500,40 @@ contract RulesHandler is Base {
     /// Decides an open appeal with the right key and round, outcome and key presence independent, so the key rule
     /// (T-206 H-2) is reached on every outcome; `decide` rarely builds this sequence.
     function decideAppeal(uint256 dealSeed, uint256 callerSeed, uint256 outcomeSeed) external {
+        _decideAppeal(_violations(), _pickFor(dealSeed, A_OPEN), callerSeed, outcomeSeed);
+    }
+
+    /// T-341: files the appeal of the party the decision went against (its key, a bond from 0 to 5 tUSD) on a
+    /// decided deal whose window is open, then, three times in four, has the appeal adjudicator decide it as
+    /// `decideAppeal` does. The separate actions rarely line up, so without this the appeal rows of the state
+    /// model (L11 to L22, L27 to L30) were rarely reached. Left open, the appeal waits for `expireAppeal`.
+    function appealPath(uint256 dealSeed, uint256 callerSeed, uint256 outcomeSeed) external {
         uint256 v0 = _violations();
-        uint256 i = _pickFor(dealSeed, A_OPEN);
+        uint256 i = _pickFor(dealSeed, A_NONE);
+        H.Terms memory t = _terms_[i];
+        bytes32 id = _ids[i];
+        HoldbackRules.Stage before = rules.dealOf(id).stage;
+        uint8 who = before == HoldbackRules.Stage.Released ? 0 : 1;
+        H.Appeal memory a = H.Appeal({
+            appellant: who,
+            groundsHash: keccak256("fails the agreed checks"),
+            bond: _bound(outcomeSeed >> 8, 0, 5_000_000),
+            filedAt: uint64(block.timestamp),
+            signature: ""
+        });
+        a.signature = _sign(who == 0 ? BUYER_PK : SELLER_PK, hx.appeal(id, who == 0 ? buyer : seller, t.token, a));
+        uint256 c0 = capturable(i);
+        bool filed = _relay(_caller(callerSeed), abi.encodeCall(HoldbackRules.fileAppeal, (t, a)));
+        _noMove("appealPath", i, c0);
+        _track(id, before);
+        if (!filed || (outcomeSeed >> 4) % 4 == 3) {
+            _end(filed, v0);
+            return;
+        }
+        _decideAppeal(v0, i, callerSeed, outcomeSeed);
+    }
+
+    function _decideAppeal(uint256 v0, uint256 i, uint256 callerSeed, uint256 outcomeSeed) internal {
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
         HoldbackRules.Deal memory d = rules.dealOf(id);
@@ -442,13 +549,9 @@ contract RulesHandler is Base {
         uint256 bond0 = bonds.bondOf(first, t.token);
         uint256 bal0 = IERC20(t.token).balanceOf(wronged);
         (, uint96 appealBond) = bonds.appealBondOf(id);
-        bool ok;
-        vm.recordLogs();
-        vm.prank(_caller(callerSeed));
-        try rules.decide(t, m, _noDelivery(), "") {
-            ok = true;
-            _overturnPaid(t, id, first, wronged, bond0, bal0, appealBond);
-        } catch {}
+        _recordLogs();
+        bool ok = _relayDecide(_caller(callerSeed), t, m, _noDelivery(), "");
+        if (ok) _overturnPaid(t, id, first, wronged, bond0, bal0, appealBond);
         _keyOnlyWithPayment();
         _track(id, d.stage);
         _end(ok, v0);
@@ -489,32 +592,63 @@ contract RulesHandler is Base {
         HoldbackRules.Stage before = rules.dealOf(id).stage;
         if (before == HoldbackRules.Stage.Held) {
             (H.Delivery memory dv,) = _delivery();
-            try rules.deliver(t, dv, _deliverySig(id, dv, SELLER_PK)) {} catch {}
+            try rules.deliver(t, dv, _deliverySig(id, dv, SELLER_PK)) {
+                _note(true, "");
+            } catch (bytes memory e) {
+                _note(false, e);
+            }
             _track(id, before); // the delivery's own deadline check, before the warp below
             before = rules.dealOf(id).stage;
         }
         if (rules.dealOf(id).stage == HoldbackRules.Stage.Delivered) {
             if (block.timestamp < t.timing.judgeBy) vm.warp(t.timing.judgeBy);
-            try rules.triggerFallback(t) {} catch {}
+            try rules.triggerFallback(t) {
+                _note(true, "");
+            } catch (bytes memory e) {
+                _note(false, e);
+            }
         }
         H.Decision memory m = _beaconDecision(id, H.ROLE_FALLBACK, uint8(outcomeSeed % 3), t.timing.judgeBy);
         uint256 pk = _rolePk[id][H.ROLE_FALLBACK];
         m = _signDecision(t, id, m, vm.addr(pk), pk);
-        bool ok;
-        vm.recordLogs();
-        vm.prank(_caller(callerSeed));
-        try rules.decide(t, m, _noDelivery(), "") {
-            ok = true;
-        } catch {}
+        _recordLogs();
+        bool ok = _relayDecide(_caller(callerSeed), t, m, _noDelivery(), "");
         _keyOnlyWithPayment();
         _track(id, before);
         _end(ok, v0);
     }
 
+    /// Sends `data` to the rules contract from `caller`, as a `try` would, and notes the outcome in trace mode
+    /// (T-341). The wide entry points go through here, which keeps their actions' stacks shallow.
+    function _relay(address caller, bytes memory data) internal returns (bool ok) {
+        bytes memory ret;
+        vm.prank(caller);
+        (ok, ret) = address(rules).call(data);
+        _note(ok, ret);
+    }
+
+    /// Relays a decision from `caller`; in trace mode it notes the outcome (T-341). One helper for the three
+    /// decide paths keeps their stack shallow.
+    function _relayDecide(
+        address caller,
+        H.Terms memory t,
+        H.Decision memory m,
+        H.Delivery memory dv,
+        bytes memory dsig
+    ) internal returns (bool ok) {
+        vm.prank(caller);
+        try rules.decide(t, m, dv, dsig) {
+            ok = true;
+            _note(true, "");
+        } catch (bytes memory e) {
+            _note(false, e);
+        }
+    }
+
     /// The formal model's KeyOnlyWithPayment: every KeyReleased the checked call emitted leaves its deal Released or
     /// Settled. Each action that can release a key records its own call (vm.recordLogs clears what came before).
     function _keyOnlyWithPayment() internal {
-        Vm.Log[] memory logs = vm.getRecordedLogs();
+        Vm.Log[] memory logs = _drainLogs();
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].emitter != address(rules) || logs[i].topics[0] != HoldbackRules.KeyReleased.selector) continue;
             HoldbackRules.Stage s = rules.dealOf(logs[i].topics[1]).stage;
@@ -542,14 +676,13 @@ contract RulesHandler is Base {
         bytes memory dsig = _deliverySig(id, dv, sk);
         HoldbackRules.Stage before = rules.dealOf(id).stage;
         bool ok;
-        vm.recordLogs();
-        vm.prank(_caller(callerSeed));
-        try rules.earlyAccept(t, m, dv, dsig, kp) {
-            ok = true;
+        _recordLogs();
+        ok = _relay(_caller(callerSeed), abi.encodeCall(HoldbackRules.earlyAccept, (t, m, dv, dsig, kp)));
+        if (ok) {
             // After `deliver` the carried signature is not read: the posted delivery was verified when it landed.
             bool sellerSigned = sk == SELLER_PK || before == HoldbackRules.Stage.Delivered;
             _authorised("earlyAccept", bk == BUYER_PK && sellerSigned && named == rules.deliveryHashOf(id));
-        } catch {}
+        }
         _keyOnlyWithPayment();
         _track(id, before);
         _end(ok, v0);
@@ -571,12 +704,9 @@ contract RulesHandler is Base {
         H.KeyProof memory none;
         if (m.releaseKey) none = kp;
         bool ok;
-        vm.recordLogs();
-        vm.prank(_caller(callerSeed));
-        try rules.mutualSettle(t, m, dv, none) {
-            ok = true;
-            _authorised("mutualSettle", bk == BUYER_PK && sk == SELLER_PK);
-        } catch {}
+        _recordLogs();
+        ok = _relay(_caller(callerSeed), abi.encodeCall(HoldbackRules.mutualSettle, (t, m, dv, none)));
+        if (ok) _authorised("mutualSettle", bk == BUYER_PK && sk == SELLER_PK);
         _keyOnlyWithPayment();
         _track(id, before);
         _end(ok, v0);
@@ -631,13 +761,16 @@ contract RulesHandler is Base {
         vm.prank(_caller(callerSeed));
         try rules.fileAppeal(t, a) {
             ok = true;
+            _note(true, "");
             _authorised("fileAppeal", k == good);
             // T-206 L-7: only the party the decision went against may appeal (the buyer after Released).
             if ((before == HoldbackRules.Stage.Released) != (who == 0)) {
                 overturnMispaid++;
                 lastViolation = "the party the decision favoured filed an appeal";
             }
-        } catch {}
+        } catch (bytes memory e) {
+            _note(false, e);
+        }
         _noMove("fileAppeal", i, c0);
         _track(id, before);
         _end(ok, v0);
@@ -660,7 +793,10 @@ contract RulesHandler is Base {
         vm.prank(_caller(callerSeed));
         try rules.expireOffer(t) {
             ok = true;
-        } catch {}
+            _note(true, "");
+        } catch (bytes memory e) {
+            _note(false, e);
+        }
         _timeout("expireOffer", due, ok);
         _noMove("expireOffer", i, c0);
         _track(id, before);
@@ -679,7 +815,10 @@ contract RulesHandler is Base {
         vm.prank(_caller(callerSeed));
         try rules.reclaim(t) {
             ok = true;
-        } catch {}
+            _note(true, "");
+        } catch (bytes memory e) {
+            _note(false, e);
+        }
         _timeout("reclaim", due, ok);
         _track(id, before);
         _end(ok, v0);
@@ -698,7 +837,10 @@ contract RulesHandler is Base {
         vm.prank(_caller(callerSeed));
         try rules.triggerFallback(t) {
             ok = true;
-        } catch {}
+            _note(true, "");
+        } catch (bytes memory e) {
+            _note(false, e);
+        }
         _timeout("triggerFallback", due, ok);
         _noMove("triggerFallback", i, c0);
         _track(id, before);
@@ -723,7 +865,10 @@ contract RulesHandler is Base {
         vm.prank(_caller(callerSeed));
         try rules.triggerDefault(t) {
             ok = true;
-        } catch {}
+            _note(true, "");
+        } catch (bytes memory e) {
+            _note(false, e);
+        }
         _timeout("triggerDefault", due, ok);
         _track(id, d.stage);
         _end(ok, v0);
@@ -749,7 +894,10 @@ contract RulesHandler is Base {
         vm.prank(_caller(callerSeed));
         try rules.expireAppeal(t) {
             ok = true;
-        } catch {}
+            _note(true, "");
+        } catch (bytes memory e) {
+            _note(false, e);
+        }
         _timeout("expireAppeal", due, ok);
         _noMove("expireAppeal", i, c0);
         _track(id, d.stage);
@@ -778,7 +926,10 @@ contract RulesHandler is Base {
         vm.prank(a);
         try bonds.withdraw(token, amount) {
             ok = true;
-        } catch {}
+            _note(true, "");
+        } catch (bytes memory e) {
+            _note(false, e);
+        }
         if (ok != (amount <= free)) {
             withdrawMismatch++;
             lastViolation = ok ? "withdraw: took encumbered bond" : "withdraw: refused free bond";
@@ -826,7 +977,8 @@ contract RulesHandler is Base {
             else data = abi.encodeCall(HoldbackBonds.slash, (id, adj, token, amount, caller));
         }
         vm.prank(caller);
-        (bool ok,) = target.call(data);
+        (bool ok, bytes memory ret) = target.call(data);
+        _note(ok, ret);
         if (ok) {
             strangerSuccess++;
             lastViolation = "a stranger reached CPP's operator functions or the vault's rules-only functions";

@@ -1,6 +1,7 @@
 // What the demo world's anvil tests share (live.test.ts, registration.anvil.test.ts): the world served as two nodes
 // over HTTP, the deployment anvil's contracts make, fresh parties, and the outside adjudicator of T-221 with the deal
 // it is named primary in. Not a test file and not in the build: only tests import it.
+import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -57,38 +58,9 @@ export function deploymentOf(anvil: EvmWorld): DeploymentFile {
   };
 }
 
+import { serveTwoOrigins } from '../../../examples/two-origins.ts';
 /** Serves a world as two nodes (127.0.0.1 is node 0, localhost node 1), with its passes every 200 ms. */
-export async function serve(world: PublicWorld): Promise<{ urls: [string, string]; close(): Promise<void> }> {
-  const server: Server = createServer(async (req, res) => {
-    const host = req.headers.host ?? '';
-    const node = host.startsWith('localhost') ? 1 : 0;
-    const chunks: Buffer[] = [];
-    for await (const c of req) chunks.push(c as Buffer);
-    const body = ['GET', 'HEAD'].includes(req.method ?? 'GET') ? undefined : Buffer.concat(chunks);
-    const headers = Object.fromEntries(Object.entries(req.headers).filter(([, v]) => typeof v === 'string')) as Record<string, string>;
-    const r = await world.fetch(new Request(`http://${host}${req.url}`, { method: req.method ?? 'GET', headers, ...(body ? { body } : {}) }), { node, origin: `http://${host}`, client: req.socket.remoteAddress ?? 'unknown' });
-    res.writeHead(r.status, Object.fromEntries([...r.headers].filter(([k]) => k !== 'content-length')));
-    res.end(Buffer.from(await r.arrayBuffer()));
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const port = (server.address() as AddressInfo).port;
-  let ticking = true;
-  const loop = (async () => {
-    while (ticking) {
-      await world.work();
-      await new Promise((r) => setTimeout(r, 200));
-    }
-  })();
-  return {
-    urls: [`http://127.0.0.1:${port}`, `http://localhost:${port}`],
-    close: async () => {
-      ticking = false;
-      await loop;
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-      server.closeAllConnections();
-    },
-  };
-}
+export const serve = (world: PublicWorld): Promise<{ urls: [string, string]; close(): Promise<void> }> => serveTwoOrigins(world, { tickMs: 200 });
 
 /**
  * anvil 1.0.0 cannot estimate a call whose calldata floor (EIP-7623, Prague) exceeds its execution gas: it answers "gas
@@ -346,4 +318,15 @@ export async function outsideDeal(
   await s.agent.deliver(offer.terms, new TextEncoder().encode(o.work));
   await untilBoth(b.agent, offer.id, ['Delivered'], 60_000);
   return { id: offer.id as Hex32, terms: offer.terms, offered: offer.state, buyer: b.agent, buyerKey: b.key, seller: s.agent };
+}
+
+/** Runs a script of the repository in its own process, as an agent would, and keeps its output. */
+export function runTry(env: Record<string, string>, script = 'examples/try.ts'): Promise<{ code: number | null; out: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [`${root}${script}`], { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    child.stdout.on('data', (d) => (out += String(d)));
+    child.stderr.on('data', (d) => (out += String(d)));
+    child.on('close', (code) => resolve({ code, out }));
+  });
 }
