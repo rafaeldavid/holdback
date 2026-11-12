@@ -130,6 +130,7 @@ export const TYPES = {
   KeyUnlock: [f('kind', 'string'), f('round', 'uint64')],
   EncryptedKey: [f('recipient', 'address'), f('scheme', 'string'), f('ciphertext', 'string'), f('unlock', 'KeyUnlock')],
   Delivery: [f('commitmentId', 'bytes32'), f('attempt', 'uint8'), f('ciphertext', 'Ciphertext'), f('plaintextSha256', 'string'), f('plaintextMime', 'string'), f('encryptedKeys', 'EncryptedKey[]'), f('submittedAt', 'uint64')],
+  // SimChain only: a party appeal, which the full protocol keeps and phase one cuts (ADR-0031 §8).
   Appeal: [f('commitmentId', 'bytes32'), f('appellant', 'string'), f('appellantAddress', 'address'), f('grounds', 'string'), f('bond', 'TokenAmount'), f('filedAt', 'uint64')],
   Payout: [f('to', 'address'), f('amount', 'TokenAmount')],
   MutualSettlement: [f('commitmentId', 'bytes32'), f('hasDelivery', 'bool'), f('deliveryHash', 'bytes32'), f('payouts', 'Payout[]'), f('releaseKey', 'bool'), ...exp],
@@ -176,6 +177,7 @@ const nearTo = (now: number) => (ts: J, behind: number, ahead: number, name: str
   return typeof ts === 'string' && d >= -behind && d <= ahead ? ts : refuse(`${name} ${ts} is not within the expected window around settlement time`);
 };
 /** An appeal bond is the rulebook's rate of the price, rounded up; the settlement layer would accept more. */
+// SimChain only (ADR-0031 §8): phase one has no party appeal and no bond, and a chain's operators refuse one at prepare.
 export const appealBondOf = (price: J, rateBps: number): string => ((BigInt(price.amount) * BigInt(rateBps) + 9_999n) / 10_000n).toString();
 const DEC = /^(0|[1-9][0-9]{0,77})$/;
 /**
@@ -242,8 +244,13 @@ export type Intent =
    */
   | { kind: 'early-accept'; terms: J; nonce: Hex; deliveryHash: Hex }
   /** appealBondRateBps: from the club rulebook as at least two operators serve it. */
+  // SimChain only (ADR-0031 §8): examples/e2e-scenarios-appeal.ts files party appeals on SimChain's full protocol.
   | { kind: 'appeal'; terms: J; me: string; grounds?: string; appealBondRateBps: number }
-  | { kind: 'settlement'; terms: J; payouts: J[]; releaseKey: boolean; deliveryHash: Hex | null; nonce: Hex };
+  /**
+   * delivery (SC-5b, the late-work settlement): the seller-signed delivery that was never posted, which the body
+   * carries; the settlement names it by deliveryHash, which must be that delivery's hash, and it must release the key.
+   */
+  | { kind: 'settlement'; terms: J; payouts: J[]; releaseKey: boolean; deliveryHash: Hex | null; nonce: Hex; delivery?: J };
 /** A slot's typed data is the message under the pinned Holdback domain, unless `typed` gives another (ERC-3009 on a chain). */
 type Plan = { path: string; body: J; slots: Array<{ slot: string; primaryType: string; signer: string; message: J; typed?: J }> };
 
@@ -352,13 +359,19 @@ function expected(intent: Intent, op: J, now: number): Plan {
   if (intent.kind === 'appeal') {
     const role = intent.me.toLowerCase() === t.buyer.toLowerCase() ? 'buyer' : intent.me.toLowerCase() === t.seller.toLowerCase() ? 'seller' : refuse('you are neither party');
     if (!Number.isSafeInteger(intent.appealBondRateBps) || intent.appealBondRateBps < 0 || intent.appealBondRateBps > 10_000) refuse('appealBondRateBps must come from the club rulebook');
+    // SimChain only (ADR-0031 §8): the full protocol's appeal and its bond; phase one's operators refuse it at prepare.
     const bond = { token: t.price.token, amount: appealBondOf(t.price, intent.appealBondRateBps) };
     const m = { commitmentId: id, appellant: role, appellantAddress: intent.me.toLowerCase(), grounds: intent.grounds ?? 'wrong-outcome', bond, filedAt: near(op.filedAt, 600, 60, 'filedAt') };
     return { path: `/v1/commitments/${id}/appeals`, body: { ...m, signature: null }, slots: [{ slot: 'signature', primaryType: 'Appeal', signer: intent.me, message: m }] };
   }
   const m = { type: 'MutualSettlement', commitmentId: id, deliveryHash: intent.deliveryHash, payouts: intent.payouts, releaseKey: intent.releaseKey, nonce: own(intent.nonce, op.nonce, 'nonce'), expiresAt: near(op.expiresAt, 0, 86_400, 'expiresAt') };
   const slots = [{ slot: 'buyerSignature', signer: t.buyer }, { slot: 'sellerSignature', signer: t.seller }].map((s) => ({ ...s, primaryType: 'MutualSettlement', message: m }));
-  return { path: `/v1/commitments/${id}/settlements`, body: { ...m, buyerSignature: null, sellerSignature: null }, slots };
+  if (intent.delivery !== undefined) {
+    if (!intent.releaseKey) refuse('a settlement that carries late work releases its key');
+    if (String(intent.delivery?.commitmentId).toLowerCase() !== id.toLowerCase()) refuse('the delivery you carry is for another commitment');
+    if (deliveryHashOf(intent.delivery).toLowerCase() !== String(intent.deliveryHash).toLowerCase()) refuse("deliveryHash is not the hash of the delivery you carry");
+  }
+  return { path: `/v1/commitments/${id}/settlements`, body: { ...m, buyerSignature: null, sellerSignature: null, ...(intent.delivery !== undefined ? { delivery: intent.delivery } : {}) }, slots };
 }
 
 /** The first path where two JSON values differ, for a refusal message. */
