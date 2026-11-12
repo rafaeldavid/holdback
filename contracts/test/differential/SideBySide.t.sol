@@ -312,10 +312,11 @@ contract SideBySideTest is Test {
         bytes32[] memory nd = _digests(n);
         address served = b.tokens()[0];
         address funded = b.fundToken();
-        bool appealWindow = b.fundAppealWindow() && !b.fundOutOfOrder();
+        // T-380: the step's agreeAndFund terms are in order but carry a value core cannot represent.
+        bool unrepresentable = b.fundUnrepresentable() && !b.fundOutOfOrder();
         for (uint256 f; f < Fields.COUNT; f++) {
             if (od[f] == nd[f]) continue;
-            AllowList.Verdict memory v = AllowList.allowed(Field(f), i, o, n, served, funded, appealWindow);
+            AllowList.Verdict memory v = AllowList.allowed(Field(f), i, o, n, served, funded, unrepresentable);
             if (bytes(v.change).length == 0) {
                 (r.differs, r.step, r.field, r.action) = (true, i, Field(f), n.action);
                 return;

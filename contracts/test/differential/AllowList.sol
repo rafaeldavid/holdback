@@ -2,6 +2,8 @@
 pragma solidity ^0.8.28;
 
 import {Field, Obs} from "./Observation.sol";
+import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {RulesHandler} from "../handlers/RulesHandler.sol";
 
 /// @title The side-by-side harness's allow-list (T-341, refinement gate VG-1)
 /// @notice The differences between the old contracts (`parent/`, the change's parent commit) and the source under
@@ -19,61 +21,66 @@ import {Field, Obs} from "./Observation.sol";
 ///        `test_sideBySide_reachesEveryRow` fails when more than a quarter of its seeds diverge, so an entry cannot
 ///        quietly switch the gate off.
 ///
-///      T-380, R8 fix 1 (known issue L-4): the primary's seed tag hashes its whole seed commitment with the
-///      commitment ID (`HoldbackTypes.seedTag`). Exactly this difference, and no other: in the Words field, for every
-///      deal, the raw words are equal but for the fourth value, the seed tag; where it differs, the parent's is the low
-///      144 bits of the handler's one seed commitment (`keccak256(SEED)`, `Base._acceptance`) and the new one is
-///      `uint144(keccak256(abi.encode(that commitment, the deal's ID)))`; the stored delivery hashes are equal.
+///      T-380, R8 fix 3: `agreeAndFund` refuses with `Unrepresentable` terms that core cannot represent, a fallbackBy
+///      after 9999-12-31T23:59:59Z or an escalation window above 2^32 - 1 s. The handler draws them only in two of the
+///      eight boundary cases (`RulesHandler._boundary`, one offer in 16); `RulesHandler.fundUnrepresentable` says
+///      whether the step's `agreeAndFund` relayed such terms with deadlines in strict order. Exactly these
+///      differences, and no other:
+///      1. the old side funds such terms; the new side refuses the same one checked call with exactly
+///         `Unrepresentable()` and emits nothing. The sides then hold different deals by design: diverged.
+///      2. both refuse, the old side for a reason it checks after the new check (a signature from the wrong key, a
+///         token the deployment does not serve, the escrow's refusal to hold nothing or more than 120 bits): only the
+///         refusal reason (Calls) and the events the old side's reverted call recorded (Events) differ.
+///      The parent's unreachable check of fundBy above 48 bits is gone with it; no call reached it [inferred: fundBy is
+///      below fallbackBy, and the escrow's expiry, already checked against 48 bits, is above fallbackBy].
 library AllowList {
     struct Verdict {
         string change; // the change that allows the difference; "" when none does
         bool diverged; // the sides now differ in shared state by design: stop comparing this seed
     }
 
-    uint256 private constant WORD = 192; // abi.encode of (stage, attempt, t1, seedTag, reason, decider)
-    uint256 private constant TAG = 3; // the seed tag's place in it
-    bytes32 private constant COMMITMENT = keccak256(abi.encodePacked(keccak256("primary seed"))); // Base.SEED's
-
     /// The verdict for field `f` differing between `o` (old) and `n` (new) at step `step`. `served` and `funded` are
-    /// the new side's token and the token of the step's `agreeAndFund` terms; `appealWindow` says whether that call's
-    /// terms had an appeal window other than 0 and deadlines in strict order (`RulesHandler.fundAppealWindow`). No
-    /// entry reads them now; they stay for the next change that needs one.
-    function allowed(Field f, uint256 step, Obs memory o, Obs memory n, address served, address funded, bool appealWindow)
-        internal
-        pure
-        returns (Verdict memory v)
-    {
-        (step, served, funded, appealWindow);
-        if (f == Field.Words && _tagBindsTheCommitment(o.words, n.words, n.stages)) {
-            return Verdict("T-380 L-4: seed tag", false);
+    /// the new side's token and the token of the step's `agreeAndFund` terms (no T-380 entry reads them);
+    /// `unrepresentable` says whether that call's terms were in order and carried a value core cannot represent
+    /// (`RulesHandler.fundUnrepresentable`; the same terms on both sides, picked from shared state).
+    function allowed(
+        Field f,
+        uint256 step,
+        Obs memory o,
+        Obs memory n,
+        address served,
+        address funded,
+        bool unrepresentable
+    ) internal pure returns (Verdict memory v) {
+        (step, served, funded);
+        if (o.action != RulesHandler.agreeAndFund.selector || !unrepresentable || n.events.length != 0) return v;
+        if (!_onlyRefused(n.calls, abi.encodeWithSelector(HoldbackRules.Unrepresentable.selector))) return v;
+        // Entry 1: the old side funded the terms; the new side refused them.
+        if (_landed(o.calls)) return Verdict("T-380 fix 3: unrepresentable terms refused", true);
+        // Entry 2: both refused, the old side for a reason it checks later.
+        if ((f == Field.Calls || f == Field.Events) && _refused(o.calls)) {
+            return Verdict("T-380 fix 3: refused as unrepresentable first", false);
         }
+        return v;
     }
 
-    /// `n` (abi.encode(raw dealOf returns, stored delivery hashes)) is `o` with each deal's seed tag bound to its ID,
-    /// as the entry above states. `stages` is the new side's abi.encode(ids, stages).
-    function _tagBindsTheCommitment(bytes memory o, bytes memory n, bytes memory stages) private pure returns (bool) {
-        (bytes[] memory ow, bytes32[] memory od) = abi.decode(o, (bytes[], bytes32[]));
-        (bytes[] memory nw, bytes32[] memory nd) = abi.decode(n, (bytes[], bytes32[]));
-        (bytes32[] memory ids,) = abi.decode(stages, (bytes32[], uint8[]));
-        if (ow.length != nw.length || ids.length != nw.length) return false;
-        if (keccak256(abi.encode(od)) != keccak256(abi.encode(nd))) return false;
-        for (uint256 i; i < ow.length; i++) {
-            if (ow[i].length != WORD || nw[i].length != WORD) return false;
-            for (uint256 k; k < WORD / 32; k++) {
-                if (k != TAG && _at(ow[i], k) != _at(nw[i], k)) return false;
-            }
-            (bytes32 ot, bytes32 nt) = (_at(ow[i], TAG), _at(nw[i], TAG));
-            if (ot == nt) continue;
-            if (uint256(ot) != uint144(uint256(COMMITMENT))) return false;
-            if (uint256(nt) != uint144(uint256(keccak256(abi.encode(COMMITMENT, ids[i]))))) return false;
-        }
-        return true;
+    /// The step made exactly one checked call, and it reverted with exactly `data`.
+    function _onlyRefused(bytes[] memory calls, bytes memory data) private pure returns (bool) {
+        if (calls.length != 1) return false;
+        (bool ok, bytes memory ret) = abi.decode(calls[0], (bool, bytes));
+        return !ok && keccak256(ret) == keccak256(data);
     }
 
-    /// The k-th 32-byte word of `b`.
-    function _at(bytes memory b, uint256 k) private pure returns (bytes32 w) {
-        assembly {
-            w := mload(add(add(b, 32), mul(k, 32)))
-        }
+    /// The step made exactly one checked call, and it reverted.
+    function _refused(bytes[] memory calls) private pure returns (bool) {
+        if (calls.length != 1) return false;
+        (bool ok,) = abi.decode(calls[0], (bool, bytes));
+        return !ok;
+    }
+
+    function _landed(bytes[] memory calls) private pure returns (bool) {
+        if (calls.length != 1) return false;
+        (bool ok,) = abi.decode(calls[0], (bool, bytes));
+        return ok;
     }
 }

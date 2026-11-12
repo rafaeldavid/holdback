@@ -131,6 +131,15 @@ export interface OfferInput {
  * fee. The escrow refuses to hold nothing (`AuthCaptureEscrow` reverts `ZeroAmount`; pinned by
  * `contracts/test/unit/ZeroPrice.t.sol`, `test_zeroPriceZeroFee_cannotFund_escrowRefusesZeroAmount`).
  */
+/**
+ * T-380 (R8 fix 3): the phase-one escrow holds price + fee in a uint120 (`AuthCaptureEscrow.PaymentInfo.maxAmount`),
+ * and the rules contract refuses a larger hold at funding (`Unrepresentable`). Core refuses it at the offer, the same
+ * bound, for that reason only (D31). The contract's other two bounds (a deadline after 9999, an escalation window
+ * above 32 bits) are core's own encoding limits, which the parser refuses (`parse.ts`).
+ */
+export const MAX_HOLD = 2n ** 120n - 1n;
+export const HOLD_TOO_LARGE_PROBLEM = `price plus adjudication fee is above ${MAX_HOLD}, the largest hold the phase-one escrow can represent (a uint120; the rules contract refuses it as Unrepresentable)`;
+
 export const ZERO_HOLD_PROBLEM =
   'price and adjudication fee are both 0, and the phase-one contracts cannot fund a deal that holds nothing: the escrow refuses to hold 0 (AuthCaptureEscrow ZeroAmount; ADR-0031 §6). A zero price is allowed with a fee above 0; give the deal a price or a fee of at least one base unit';
 
@@ -244,6 +253,7 @@ export function offer(input: OfferInput): R<Extract<EscrowState, { kind: 'Offere
     if (terms.timing.maxSubmissions !== 1) return fail('invalid_terms', `timing.maxSubmissions ${terms.timing.maxSubmissions}: the phase-one contracts take one delivery (1 only)`);
     if (terms.timing.appealDecideSec < 1) return fail('invalid_terms', 'timing.appealDecideSec must be at least 1: with 0 no escalation could be decided');
     if (BigInt(terms.price.amount) === 0n && BigInt(terms.adjudication.fee.amount) === 0n) return fail('invalid_terms', ZERO_HOLD_PROBLEM);
+    if (BigInt(terms.price.amount) + BigInt(terms.adjudication.fee.amount) > MAX_HOLD) return fail('invalid_terms', HOLD_TOO_LARGE_PROBLEM);
   }
   if (!rulebook.allowedSettlementModes.includes(terms.settlement.mode)) return fail('invalid_terms', `the rulebook does not allow ${terms.settlement.mode}`);
   if (terms.timing.maxSubmissions > rulebook.maxSubmissions) return fail('invalid_terms', 'maxSubmissions exceeds the rulebook maximum');
