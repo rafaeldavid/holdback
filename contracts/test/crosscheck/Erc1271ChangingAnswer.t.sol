@@ -19,6 +19,7 @@ contract Erc1271ChangingAnswerTest is SignerBase {
         SwitchWallet w = _wallet(SW_PK);
         H.Terms memory t = _terms();
         t.seller = address(w);
+        t.sellerPayoutAddress = address(w); // ADR-0033: the wallet also holds the money
         uint256 buyerStart = usdc.balanceOf(buyer);
         uint256 walletStart = usdc.balanceOf(address(w));
         bytes32 id = _fundAs(t, BUYER_PK, SW_PK, ADJ_PK);
@@ -55,6 +56,7 @@ contract Erc1271ChangingAnswerTest is SignerBase {
         SwitchWallet w = _wallet(SW_PK);
         H.Terms memory t = _terms();
         t.seller = address(w);
+        t.sellerPayoutAddress = address(w); // ADR-0033: the wallet also holds the money
         bytes32 id = _fundAs(t, BUYER_PK, SW_PK, ADJ_PK);
         (H.Delivery memory d, H.KeyProof memory k) = _deliverAs(t, id, SW_PK);
         H.Mutual memory mu = _mutualFor(t, id, BUYER_PK, SW_PK, 10_000_000);
@@ -77,6 +79,7 @@ contract Erc1271ChangingAnswerTest is SignerBase {
         SwitchWallet w = _wallet(SW_PK);
         H.Terms memory t = _terms();
         t.seller = address(w);
+        t.sellerPayoutAddress = address(w); // ADR-0033: the wallet also holds the money
         bytes32 id = _fundAs(t, BUYER_PK, SW_PK, ADJ_PK);
         (H.Delivery memory d, H.KeyProof memory k) = _deliverAs(t, id, SW_PK);
         H.Mutual memory mu = _mutualFor(t, id, BUYER_PK, SW_PK, 10_000_000);
@@ -100,6 +103,7 @@ contract Erc1271ChangingAnswerTest is SignerBase {
         SwitchWallet w = _wallet(BW_PK);
         H.Terms memory t = _terms();
         t.buyer = address(w);
+        t.buyerPaymentAddress = address(w); // ADR-0033: the wallet also holds the money
         bytes32 id = _fundAs(t, BW_PK, SELLER_PK, ADJ_PK);
         (H.Delivery memory d, H.KeyProof memory k) = _deliverAs(t, id, SELLER_PK);
 

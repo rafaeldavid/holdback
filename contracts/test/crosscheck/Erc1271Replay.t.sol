@@ -44,6 +44,7 @@ contract Erc1271ReplayTest is Base {
     function _dealFor(address who) internal returns (H.Terms memory t) {
         t = _terms();
         t.buyer = who;
+        t.buyerPaymentAddress = who; // ADR-0033: the wallet also holds the money
         t.nonce = keccak256("same nonce for both wallets");
     }
 

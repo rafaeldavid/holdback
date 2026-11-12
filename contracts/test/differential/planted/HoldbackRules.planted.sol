@@ -8,7 +8,7 @@ import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 import {IHoldbackBeacon} from "../parent/IHoldbackBeacon.sol";
 import {HoldbackTypes as H, Money} from "../parent/HoldbackTypes.sol";
 
-// T-341, PLANTED BEHAVIOUR CHANGE. A test fixture, never deployed: the pinned copy `../parent/HoldbackRules.ebb77da.sol`
+// T-341, PLANTED BEHAVIOUR CHANGE. A test fixture, never deployed: the pinned copy `../parent/HoldbackRules.02ddb24.sol`
 // with two edits, these imports and one deleted line in `_acceptDelivery` (`deliveryHashOf[id] = dh;`). It is the
 // "stores no delivery hash" mutant of known issue G-5. `SideBySide.t.sol` and `StateOracle.t.sol` prove that the
 // side-by-side harness and the delivery liveness invariant both fail on it. T-356 re-based it on each change's parent.
@@ -137,7 +137,7 @@ contract HoldbackRules is EIP712 {
     }
 
     /// @notice The EIP-712 digest a party signs for a struct hash under this contract's domain
-    ///         ("Holdback", "0.7", chain ID, this address).
+    ///         ("Holdback", "0.8", chain ID, this address).
     function typedDataHash(bytes32 structHash) external view returns (bytes32) {
         return _hashTypedData(structHash);
     }
@@ -189,6 +189,16 @@ contract HoldbackRules is EIP712 {
         // Phase one has no bond (ADR-0031 §8, point 2): the acceptance must say that nothing is reserved. The terms
         // must name this deployment's token (§2, SC-1); every later step finds the deal by the ID that hashes it.
         if (acc.bondReserved != 0 || t.token != TOKEN) revert InvalidMessage();
+        // Terms settlement cannot process (ADR-0031 §6, SC-5), refused as packages/core refuses them: the five deadlines
+        // strictly in order, compared as timing.ts compares them (an equal pair would give a step a window of zero);
+        // one delivery attempt, the only one this contract takes; and an escalation window of at least one second.
+        H.Timing calldata tm = t.timing;
+        if (
+            tm.offerExpiresAt >= tm.fundBy || tm.fundBy >= tm.deliverBy || tm.deliverBy >= tm.judgeBy
+                || tm.judgeBy >= tm.fallbackBy || tm.maxSubmissions != 1 || tm.appealDecideSec == 0
+        ) {
+            revert InvalidMessage();
+        }
         _requireSigned(t.seller, id, sellerSignature);
         _requireSigned(t.adjudicator, H.acceptanceHash(id, t, acc), acc.signature);
         _requireSigned(t.buyer, H.agreeHash(id, t.buyer, ag), ag.signature);
@@ -528,6 +538,6 @@ contract HoldbackRules is EIP712 {
     }
 
     function _domainNameAndVersion() internal pure override returns (string memory, string memory) {
-        return ("Holdback", "0.7");
+        return ("Holdback", "0.8");
     }
 }

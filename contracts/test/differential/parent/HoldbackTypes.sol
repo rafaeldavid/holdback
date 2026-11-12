@@ -33,8 +33,10 @@ library HoldbackTypes {
         bytes32 schemaVersionHash; // keccak256(schemaVersion)
         bytes32 clubIdHash; // keccak256(clubId)
         bytes32 rulebookHash;
-        address buyer;
-        address seller;
+        address buyer; // signs: Agree, EarlyAccept, MutualSettlement; receives the content key
+        address seller; // signs: the terms, the Delivery, MutualSettlement
+        address buyerPaymentAddress; // the escrow's payer: funds the hold, receives every refund (ADR-0033)
+        address sellerPayoutAddress; // the escrow's receiver: receives every payment to the seller (ADR-0033)
         bytes32 deliverableHash;
         bytes32 acceptanceHash;
         address token; // price, fee and settlement token (one token, as core requires)
@@ -168,7 +170,7 @@ library HoldbackTypes {
     bytes32 internal constant SETTLEMENT_TYPEHASH = keccak256(bytes(SETTLEMENT_T));
     bytes32 internal constant TERMS_TYPEHASH = keccak256(
         abi.encodePacked(
-            "CommitmentTerms(string schemaVersion,string clubId,bytes32 rulebookHash,address buyer,address seller,bytes32 deliverableHash,bytes32 acceptanceHash,TokenAmount price,Adjudication adjudication,Timing timing,Settlement settlement,Remedy remedy,Disclosure disclosure,string buyerEncryptionPublicKey,bytes32 nonce,uint64 createdAt)",
+            "CommitmentTerms(string schemaVersion,string clubId,bytes32 rulebookHash,address buyer,address seller,address buyerPaymentAddress,address sellerPayoutAddress,bytes32 deliverableHash,bytes32 acceptanceHash,TokenAmount price,Adjudication adjudication,Timing timing,Settlement settlement,Remedy remedy,Disclosure disclosure,string buyerEncryptionPublicKey,bytes32 nonce,uint64 createdAt)",
             ADJUDICATION_T,
             "Disclosure(string level)",
             "Remedy(string onReject)",
@@ -262,6 +264,8 @@ library HoldbackTypes {
             t.rulebookHash,
             t.buyer,
             t.seller,
+            t.buyerPaymentAddress,
+            t.sellerPayoutAddress,
             t.deliverableHash,
             t.acceptanceHash,
             tokenAmountHash(tokenHash, t.price)

@@ -58,6 +58,7 @@ contract Erc3009OnlyTest is Base {
         H.Terms memory t = _terms();
         t.token = address(tusdc);
         t.buyer = address(w);
+        t.buyerPaymentAddress = address(w); // ADR-0033: the wallet also holds the money
         bytes memory ss = _sellerSig(t, SELLER_PK);
         H.Acceptance memory acc = _acceptance(t, ADJ_PK);
         H.Agree memory ag = _agree(t, ownerPk);

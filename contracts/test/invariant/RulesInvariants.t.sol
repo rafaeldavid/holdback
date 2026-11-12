@@ -117,6 +117,15 @@ contract RulesInvariants is Test {
         assertEq(h.strangerSuccess(), 0, h.lastViolation());
     }
 
+    /// T-358 (ADR-0033): on a deal whose payment and payout addresses are apart from its signing addresses (one deal
+    /// in four), no call moves the signing addresses' money: the payment address funds and is refunded, the payout
+    /// address is paid, and `buyer` and `seller` only sign.
+    /// forge-config: default.invariant.runs = 256
+    /// forge-config: default.invariant.depth = 100
+    function invariant_signingAddressesMoveNoMoney() public view {
+        assertEq(h.signerMoved(), 0, h.lastViolation());
+    }
+
     /// The buyer's key only with payment (formal model KeyOnlyWithPayment, ADR-0012): no decision releases it on a
     /// deal that does not stand Released (T-206 H-2).
     /// forge-config: default.invariant.runs = 256

@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
-import {Base} from "./Base.sol";
+import {Base, TypesHarness} from "./Base.sol";
 
 // The pinned deployed contracts (commit 64be1f1), as the side-by-side harness deploys them (test/differential/Sides.sol).
 import {HoldbackRules as OldRules} from "../differential/old/HoldbackRules.64be1f1.sol";
@@ -19,6 +19,80 @@ import {IHoldbackBeacon as OldBeacon} from "../differential/old/IHoldbackBeacon.
 /// "Failed before" is shown on the same fixture against the pinned deployed contracts (`64be1f1`): they refuse
 /// `bondReserved` = 0 and fund with the price (and with uint256 max), so the refusals below are new behaviour.
 /// `bondReserved` = 1 was refused before too (it is below the price), for another reason.
+/// T-358 (ADR-0033): the pinned contracts' `Terms` has no payment or payout address. This adapter answers Base's
+/// `TypesHarness` calls (`id`, `acceptance`) for terms in the current layout by hashing them in the pinned layout,
+/// so Base's signing helpers sign what the pinned contract checks. The two new addresses must equal the signing
+/// addresses, which is what the pinned contract pays.
+contract PinnedTypesAdapter {
+    function id(H.Terms calldata t) external view returns (bytes32) {
+        return this.pinnedId(PinnedTerms.from(t));
+    }
+
+    function pinnedId(OldH.Terms calldata t) external pure returns (bytes32) {
+        return OldH.commitmentId(t);
+    }
+
+    function acceptance(bytes32 i, H.Terms calldata t, H.Acceptance calldata a) external view returns (bytes32) {
+        return this.pinnedAcceptance(
+            i, PinnedTerms.from(t), OldH.Acceptance(a.seedCommitment, a.bondReserved, a.nonce, a.expiresAt, a.signature)
+        );
+    }
+
+    function pinnedAcceptance(bytes32 i, OldH.Terms calldata t, OldH.Acceptance calldata a)
+        external
+        pure
+        returns (bytes32)
+    {
+        return OldH.acceptanceHash(i, t, a);
+    }
+
+    function agree(bytes32 i, address b, H.Agree calldata a) external pure returns (bytes32) {
+        return H.agreeHash(i, b, a);
+    }
+}
+
+library PinnedTerms {
+    /// The current terms in the pinned layout: every field but the two addresses ADR-0033 added.
+    function from(H.Terms memory t) internal pure returns (OldH.Terms memory o) {
+        require(t.buyerPaymentAddress == t.buyer && t.sellerPayoutAddress == t.seller, "the pinned contract pays the signers");
+        OldH.Timing memory tm = OldH.Timing(
+            t.timing.offerExpiresAt,
+            t.timing.fundBy,
+            t.timing.deliverBy,
+            t.timing.judgeBy,
+            t.timing.fallbackBy,
+            t.timing.appealWindowSec,
+            t.timing.appealDecideSec,
+            t.timing.maxSubmissions,
+            t.timing.disputeBy,
+            t.timing.disputeJudgeSec,
+            t.timing.disputeFallbackSec
+        );
+        o.schemaVersionHash = t.schemaVersionHash;
+        o.clubIdHash = t.clubIdHash;
+        o.rulebookHash = t.rulebookHash;
+        o.buyer = t.buyer;
+        o.seller = t.seller;
+        o.deliverableHash = t.deliverableHash;
+        o.acceptanceHash = t.acceptanceHash;
+        o.token = t.token;
+        o.price = t.price;
+        o.adjudicator = t.adjudicator;
+        o.fallbackAdjudicator = t.fallbackAdjudicator;
+        o.appealAdjudicator = t.appealAdjudicator;
+        o.policyIdHash = t.policyIdHash;
+        o.fee = t.fee;
+        o.registryHash = t.registryHash;
+        o.policyHash = t.policyHash;
+        o.timing = tm;
+        o.remedyHash = t.remedyHash;
+        o.disclosureHash = t.disclosureHash;
+        o.buyerKeyHash = t.buyerKeyHash;
+        o.nonce = t.nonce;
+        o.createdAt = t.createdAt;
+    }
+}
+
 contract PhaseOneNoBondsTest is Base {
     /// The settlement view's ABI tuple, from `HoldbackTypes.Terms` (unchanged by T-346).
     string internal constant TERMS_T = "(bytes32,bytes32,bytes32,address,address,bytes32,bytes32,address,uint256,"
@@ -58,7 +132,9 @@ contract PhaseOneNoBondsTest is Base {
         returns (bool ok, bytes memory ret)
     {
         bytes memory data = pinned
-            ? abi.encodeWithSelector(OldRules.agreeAndFund.selector, t, s, a, g, OldH.Funding(0, f.signature))
+            ? abi.encodeWithSelector(
+                OldRules.agreeAndFund.selector, PinnedTerms.from(t), s, a, g, OldH.Funding(0, f.signature)
+            )
             : abi.encodeCall(HoldbackRules.agreeAndFund, (t, s, a, g, f));
         vm.prank(relayer);
         (ok, ret) = address(rules).call(data);
@@ -135,6 +211,7 @@ contract PhaseOneNoBondsTest is Base {
         vault.deposit(address(usdc), 2 * PRICE);
         vm.stopPrank();
         rules = HoldbackRules(address(old)); // Base's signing and hold helpers now target the pinned contract
+        hx = TypesHarness(address(new PinnedTypesAdapter())); // and hash the terms in its layout (T-358)
         pinned = true;
 
         _assertRefused(0);

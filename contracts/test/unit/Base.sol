@@ -137,11 +137,13 @@ abstract contract Base is Test, DeployPermit2 {
     function _terms() internal returns (H.Terms memory t) {
         uint64 now_ = uint64(block.timestamp);
         t = H.Terms({
-            schemaVersionHash: keccak256("0.7"),
+            schemaVersionHash: keccak256("0.8"),
             clubIdHash: keccak256("data-services-v1"),
             rulebookHash: keccak256("rulebook"),
             buyer: buyer,
             seller: seller,
+            buyerPaymentAddress: buyer, // ADR-0033: equal to the signing addresses unless a test sets them apart
+            sellerPayoutAddress: seller,
             deliverableHash: keccak256("deliverable"),
             acceptanceHash: keccak256("acceptance"),
             token: address(usdc),
@@ -159,7 +161,7 @@ abstract contract Base is Test, DeployPermit2 {
                 deliverBy: now_ + 1 days,
                 judgeBy: now_ + 2 days,
                 fallbackBy: now_ + 3 days,
-                appealWindowSec: 1 days,
+                appealWindowSec: 0, // phase one has no party appeal (ADR-0033 §2b)
                 appealDecideSec: 1 days,
                 maxSubmissions: 1,
                 disputeBy: 0,
@@ -189,8 +191,8 @@ abstract contract Base is Test, DeployPermit2 {
         uint48 expiry = uint48(t.timing.fallbackBy + t.timing.appealDecideSec + MARGIN);
         return AuthCaptureEscrow.PaymentInfo({
             operator: address(rules),
-            payer: t.buyer,
-            receiver: t.seller,
+            payer: t.buyerPaymentAddress,
+            receiver: t.sellerPayoutAddress,
             token: t.token,
             maxAmount: uint120(t.price + t.fee),
             preApprovalExpiry: uint48(t.timing.fundBy),
