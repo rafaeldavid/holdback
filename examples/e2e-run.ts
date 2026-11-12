@@ -500,6 +500,7 @@ async function fundPayer(run: Run, deal: Deal, need: bigint): Promise<void> {
 async function agreeAndFundFrom(buyer: Agent, buyerKey: Hex, payerKey: Hex, terms: J, maxTotal: bigint): Promise<J> {
   const payer = privateKeyToAccount(payerKey);
   const signer = privateKeyToAccount(buyerKey);
+  if (signer.address.toLowerCase() !== buyer.address) throw new Error(`the buyer's key signs for ${signer.address}, not the agent's ${buyer.address}`);
   const schedule = await buyer.operatorFeeSchedule();
   const id = commitmentIdOf(terms);
   const c = buyer.chain;

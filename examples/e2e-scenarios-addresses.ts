@@ -77,6 +77,10 @@ export const ADDRESSES: Scenario[] = [
       r.check('the seller and its payout address are paid nothing', delta(refunded.record, seller) === 0n && delta(refunded.record, payout) === 0n, `seller ${round.amount(delta(refunded.record, seller))}, payout ${round.amount(delta(refunded.record, payout))}`);
       settledChecks(r, refunded, 'Refunded');
       paidCheck(r, refunded, 'the price returns to the payment address on chain', payment, price);
+      if (round.chain) {
+        const signerTransfers = logsOf(refunded.record, 'Transfer').filter((l) => [buyer, seller].includes(lc(l.args.to)) || [buyer, seller].includes(lc(l.args.from)));
+        r.check('no token transfer of the refund names a signing address on chain', signerTransfers.length === 0, `${signerTransfers.length} Transfer log(s)`);
+      }
     },
   },
 ];

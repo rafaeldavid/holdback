@@ -6,7 +6,7 @@
 - **Depends on:** T-358 (the two address fields, ADR-0033), T-378 part 1 (PR 403: the prepare routes take `buyer.paymentAddress` and `sellerPayoutAddress`), T-374 (AL-1: the round on the phase-one contracts)
 - **Paths this task may touch:** `examples/e2e-*.ts` and their tests, this file. Never: T-379's files (`examples/buyer-signer.ts`, `buy-with-signer.ts`, `seller-adapter.ts`, `audit-deal.ts`, `deal-record.ts`, `agent.ts`, `verify.ts`) or T-378's (`apps/`, `packages/sdk/`)
 - **Human gate:** no. The live round on Sepolia runs at the cutover
-- **Status:** review
+- **Status:** done (PR 413)
 - **Agent/session:** the T-374 session, 2026-11-12, branch `t-381-round-two-addresses`
 
 ## Intent
@@ -78,5 +78,12 @@ Not run here: the round's other anvil scenario files (silent, direct, escalation
 **For T-379 (`examples/agent.ts`):** the agent's `agreeAndFund` refuses terms whose payment address is not its own. The round signs the funding with two keys in its own helper (`e2e-run.ts`, `agreeAndFundFrom`). If the agent gains an outside payment signer, the round can call it instead.
 
 **For T-378:** nothing. The scenario uses `appealWindowSec: 0` (`shortWindows`) and the offer route's `buyer.paymentAddress` and `sellerPayoutAddress`. On SimChain it gets the payment address's tokens from `POST /v1/faucet` with that address; the faucet's own `paymentAddress` input would do the same.
+
+**Review** (one reviewer pass): PASS, no Critical or High. Fixed from it:
+- L2: the refund deal also checks that no `Transfer` log names a signing address.
+- L3: `agreeAndFundFrom` refuses a buyer key that is not the agent's.
+- L4: a unit test of `paymentHashOf` with the money addresses apart.
+
+Left, L1: on Sepolia, `signersUntouched` reads wallet balances. A second run of the round on the same seed at the same moment would fail it falsely; the round's lock (`e2e-round.ts`, exit 3) prevents that.
 
 **Not covered:** a reclaim with two addresses in the round. `examples/send-timeout.test.ts` shows on anvil that the contract's reclaim refunds the payment address (T-374).
