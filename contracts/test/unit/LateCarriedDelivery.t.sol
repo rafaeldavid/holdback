@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -22,10 +23,10 @@ contract LateCarriedDeliveryTest is Base {
         (H.Terms memory t, bytes32 id) = _funded();
         (H.Decision memory m, H.Delivery memory dv, bytes memory sig) = _carried(t, id, H.OUTCOME_ACCEPT);
         vm.warp(t.timing.deliverBy);
-        vm.expectRevert(HoldbackRules.DeadlinePassed.selector);
+        vm.expectRevert(IHoldbackRules.DeadlinePassed.selector);
         rules.decide(t, m, dv, sig);
         rules.reclaim(t);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
     }
 
     /// A late reject would also have beaten the reclaim, and cost the buyer the fee.
@@ -33,7 +34,7 @@ contract LateCarriedDeliveryTest is Base {
         (H.Terms memory t, bytes32 id) = _funded();
         (H.Decision memory m, H.Delivery memory dv, bytes memory sig) = _carried(t, id, H.OUTCOME_REJECT);
         vm.warp(t.timing.deliverBy);
-        vm.expectRevert(HoldbackRules.DeadlinePassed.selector);
+        vm.expectRevert(IHoldbackRules.DeadlinePassed.selector);
         rules.decide(t, m, dv, sig);
         uint256 b0 = usdc.balanceOf(buyer);
         rules.reclaim(t);
@@ -45,10 +46,10 @@ contract LateCarriedDeliveryTest is Base {
         (H.Terms memory t, bytes32 id) = _funded();
         (H.Decision memory m, H.Delivery memory dv, bytes memory sig) = _carried(t, id, H.OUTCOME_ESCALATE);
         vm.warp(t.timing.deliverBy);
-        vm.expectRevert(HoldbackRules.DeadlinePassed.selector);
+        vm.expectRevert(IHoldbackRules.DeadlinePassed.selector);
         rules.decide(t, m, dv, sig);
         rules.reclaim(t);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
     }
 
     function test_carriedDeliveryBeforeDeliverBy_settles() public {
@@ -56,7 +57,7 @@ contract LateCarriedDeliveryTest is Base {
         (H.Decision memory m, H.Delivery memory dv, bytes memory sig) = _carried(t, id, H.OUTCOME_ACCEPT);
         vm.warp(t.timing.deliverBy - 1);
         rules.decide(t, m, dv, sig);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Released));
     }
 
     /// A delivery posted before deliverBy may be judged until judgeBy.
@@ -65,7 +66,7 @@ contract LateCarriedDeliveryTest is Base {
         _deliver(t, id);
         vm.warp(t.timing.deliverBy);
         rules.decide(t, _primary(t, id, H.OUTCOME_ACCEPT), _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Released));
     }
 
     /// An early accept carries the delivery under the same deadline, so a late delivery cannot beat the buyer's
@@ -76,7 +77,7 @@ contract LateCarriedDeliveryTest is Base {
         bytes memory sig = _deliverySig(id, dv, SELLER_PK);
         H.EarlyAccept memory m = _early(t, id, BUYER_PK);
         vm.warp(t.timing.deliverBy);
-        vm.expectRevert(HoldbackRules.DeadlinePassed.selector);
+        vm.expectRevert(IHoldbackRules.DeadlinePassed.selector);
         rules.earlyAccept(t, m, dv, sig, k);
     }
 
@@ -96,6 +97,6 @@ contract LateCarriedDeliveryTest is Base {
         mu.sellerSignature = _sign(SELLER_PK, h);
         vm.warp(t.timing.deliverBy);
         rules.mutualSettle(t, mu, dv, k);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Settled));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Settled));
     }
 }

@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Vm} from "forge-std/Vm.sol";
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -36,9 +37,9 @@ contract PartiesOnlyPayoutTest is Base {
         H.Delivery memory none;
         H.KeyProof memory k;
         uint256 s0 = usdc.balanceOf(seller);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, m, none, k);
-        assertEq(uint8(rules.dealOf(id).stage), uint8(HoldbackRules.Stage.Held), "the deal stays open");
+        assertEq(uint8(rules.dealOf(id).stage), uint8(IHoldbackRules.Stage.Held), "the deal stays open");
         assertEq(_held(t), PRICE + FEE, "nothing moved");
         assertEq(usdc.balanceOf(THIRD), 0);
         assertEq(usdc.balanceOf(seller), s0);
@@ -52,7 +53,7 @@ contract PartiesOnlyPayoutTest is Base {
         H.Mutual memory m = _mutual(t, id, p);
         H.Delivery memory none;
         H.KeyProof memory k;
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, m, none, k);
         assertEq(_held(t), PRICE + FEE);
     }
@@ -74,9 +75,9 @@ contract PartiesOnlyPayoutTest is Base {
         bytes32 h = hx.mutual(id, t.token, m);
         m.buyerSignature = _sign(BUYER_PK, h);
         m.sellerSignature = _sign(SELLER_PK, h);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, m, d, k);
-        assertEq(uint8(rules.dealOf(id).stage), uint8(HoldbackRules.Stage.Delivered));
+        assertEq(uint8(rules.dealOf(id).stage), uint8(IHoldbackRules.Stage.Delivered));
         assertEq(_held(t), PRICE + FEE);
     }
 
@@ -105,6 +106,6 @@ contract PartiesOnlyPayoutTest is Base {
         assertEq(usdc.balanceOf(seller), s0 + 20_000_000);
         assertEq(usdc.balanceOf(buyer), b0 + PRICE - 20_000_000 + FEE);
         assertEq(_held(t), 0);
-        assertEq(uint8(rules.dealOf(id).stage), uint8(HoldbackRules.Stage.Settled));
+        assertEq(uint8(rules.dealOf(id).stage), uint8(IHoldbackRules.Stage.Settled));
     }
 }

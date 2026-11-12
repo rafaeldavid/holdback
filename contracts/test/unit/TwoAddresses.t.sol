@@ -5,6 +5,7 @@ import {Vm} from "forge-std/Vm.sol";
 import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 import {MockERC3009Token} from "commerce-payments-test/mocks/MockERC3009Token.sol";
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {TestUSDC} from "../../script/TestUSDC.sol";
 import {SwitchWallet} from "../crosscheck/ContractSigners.sol";
@@ -203,20 +204,20 @@ contract TwoAddressesTest is Base {
         H.Mutual memory m = _mutual(t, id, _two(payout, share, pay, PRICE - share));
         rules.mutualSettle(t, m, _noDelivery(), _buyerKey());
         _moved(b0, share, PRICE - share + FEE);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Settled));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Settled));
     }
 
     function test_08_settlementToTheSigningSeller_reverts() public {
         (H.Terms memory t, bytes32 id,) = _fundedApart();
         H.Mutual memory m = _mutual(t, id, _two(seller, PRICE / 2, pay, PRICE - PRICE / 2));
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, m, _noDelivery(), _buyerKey());
     }
 
     function test_08_settlementToTheSigningBuyer_reverts() public {
         (H.Terms memory t, bytes32 id,) = _fundedApart();
         H.Mutual memory m = _mutual(t, id, _two(payout, PRICE / 2, buyer, PRICE - PRICE / 2));
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, m, _noDelivery(), _buyerKey());
     }
 
@@ -255,7 +256,7 @@ contract TwoAddressesTest is Base {
         H.Funding memory byBuyer = _erc3009(t, BUYER_PK); // the right nonce, signed by the signing key
         vm.expectRevert("MockERC3009: invalid signature");
         rules.agreeAndFund(t, ss, acc, ag, byBuyer);
-        assertEq(uint8(_stage(hx.id(t))), uint8(HoldbackRules.Stage.None), "nothing stored");
+        assertEq(uint8(_stage(hx.id(t))), uint8(IHoldbackRules.Stage.None), "nothing stored");
         _moved(b0, 0, PRICE + FEE);
     }
 
@@ -271,7 +272,7 @@ contract TwoAddressesTest is Base {
         // The right one funds once; the same authorization again finds the deal funded.
         H.Funding memory f = _erc3009(b, PAY_PK);
         rules.agreeAndFund(b, ss, acc, ag, f);
-        vm.expectRevert(abi.encodeWithSelector(HoldbackRules.WrongStage.selector, HoldbackRules.Stage.Held));
+        vm.expectRevert(abi.encodeWithSelector(IHoldbackRules.WrongStage.selector, IHoldbackRules.Stage.Held));
         rules.agreeAndFund(b, ss, acc, ag, f);
     }
 
@@ -307,7 +308,7 @@ contract TwoAddressesTest is Base {
         H.Acceptance memory acc = _acceptance(u, ADJ_PK);
         H.Agree memory ag = _agree(u, BUYER_PK);
         H.Funding memory f = _erc3009(u, PAY_PK);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.agreeAndFund(u, oldSig, acc, ag, f);
     }
 
@@ -331,7 +332,7 @@ contract TwoAddressesTest is Base {
         escrow.reclaim(pi);
         _moved(b0, 0, PRICE + FEE);
         rules.reclaim(t);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded), "the deal still closes");
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded), "the deal still closes");
         _moved(b0, 0, PRICE + FEE);
     }
 
@@ -380,7 +381,7 @@ contract TwoAddressesTest is Base {
         bytes32 id = _fundWith(t, PAY_PK);
         _deliver(t, id);
         rules.decide(t, _primary(t, id, H.OUTCOME_ACCEPT), _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released), "the seller named the address; its loss");
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Released), "the seller named the address; its loss");
     }
 
     function test_19_rulesContractAsPayout_andAllFourEqual_fund() public {
@@ -391,7 +392,7 @@ contract TwoAddressesTest is Base {
         (u.seller, u.buyerPaymentAddress, u.sellerPayoutAddress) = (buyer, buyer, buyer);
         vm.prank(relayer);
         rules.agreeAndFund(u, _sellerSig(u, BUYER_PK), _acceptance(u, ADJ_PK), _agree(u, BUYER_PK), _erc3009(u, BUYER_PK));
-        assertEq(uint8(_stage(hx.id(u))), uint8(HoldbackRules.Stage.Held), "all four equal funds");
+        assertEq(uint8(_stage(hx.id(u))), uint8(IHoldbackRules.Stage.Held), "all four equal funds");
     }
 
     function test_19_zeroPaymentAddress_neverFunds() public {
@@ -403,7 +404,7 @@ contract TwoAddressesTest is Base {
         H.Funding memory f = _erc3009(t, PAY_PK);
         vm.expectRevert();
         rules.agreeAndFund(t, ss, acc, ag, f);
-        assertEq(uint8(_stage(hx.id(t))), uint8(HoldbackRules.Stage.None));
+        assertEq(uint8(_stage(hx.id(t))), uint8(IHoldbackRules.Stage.None));
     }
 
     /// The token store as one deal's payout address: its accept leaves the price in the store, and a second deal

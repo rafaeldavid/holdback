@@ -5,6 +5,7 @@ import {Vm} from "forge-std/Vm.sol";
 import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "../unit/Base.sol";
 
@@ -25,7 +26,7 @@ contract PhaseOneRedTeamTest is Base {
         _deliver(t, id);
         at = uint64(block.timestamp);
         rules.decide(t, _primary(t, id, H.OUTCOME_ESCALATE), _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Escalated));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Escalated));
     }
 
     /// The appeal adjudicator's signed decision on a case escalated at `at` (round at + 1 on the sim beacon).
@@ -64,7 +65,7 @@ contract PhaseOneRedTeamTest is Base {
         uint256 b0 = usdc.balanceOf(buyer);
         uint256 s0 = usdc.balanceOf(seller);
         vm.recordLogs();
-        vm.expectRevert(abi.encodeWithSelector(HoldbackRules.WrongStage.selector, HoldbackRules.Stage.Refunded));
+        vm.expectRevert(abi.encodeWithSelector(IHoldbackRules.WrongStage.selector, IHoldbackRules.Stage.Refunded));
         rules.decide(t, m, _noDelivery(), "");
         assertEq(_keyReleases(vm.getRecordedLogs()), 0, "no key left");
         assertEq(usdc.balanceOf(buyer), b0);
@@ -79,9 +80,9 @@ contract PhaseOneRedTeamTest is Base {
         vm.warp(t.timing.judgeBy);
         H.Decision memory m = _beaconDecision(id, H.ROLE_FALLBACK, H.OUTCOME_REJECT, t.timing.judgeBy);
         m = _signDecision(t, id, m, fallbackAdj, FB_PK);
-        vm.expectRevert(abi.encodeWithSelector(HoldbackRules.WrongStage.selector, HoldbackRules.Stage.Released));
+        vm.expectRevert(abi.encodeWithSelector(IHoldbackRules.WrongStage.selector, IHoldbackRules.Stage.Released));
         rules.decide(t, m, _noDelivery(), "");
-        vm.expectRevert(abi.encodeWithSelector(HoldbackRules.WrongStage.selector, HoldbackRules.Stage.Released));
+        vm.expectRevert(abi.encodeWithSelector(IHoldbackRules.WrongStage.selector, IHoldbackRules.Stage.Released));
         rules.triggerFallback(t);
     }
 
@@ -93,7 +94,7 @@ contract PhaseOneRedTeamTest is Base {
         H.Decision memory m = _decision(H.ROLE_PRIMARY, H.OUTCOME_ACCEPT);
         m.nonce = keccak256("second");
         m = _signDecision(t, id, m, adjudicator, ADJ_PK);
-        vm.expectRevert(abi.encodeWithSelector(HoldbackRules.WrongStage.selector, HoldbackRules.Stage.Refunded));
+        vm.expectRevert(abi.encodeWithSelector(IHoldbackRules.WrongStage.selector, IHoldbackRules.Stage.Refunded));
         rules.decide(t, m, _noDelivery(), "");
     }
 
@@ -103,7 +104,7 @@ contract PhaseOneRedTeamTest is Base {
         _deliver(t, id);
         rules.decide(t, _primary(t, id, H.OUTCOME_ACCEPT), _noDelivery(), "");
         vm.warp(t.timing.fallbackBy + t.timing.appealDecideSec + MARGIN);
-        bytes memory wrong = abi.encodeWithSelector(HoldbackRules.WrongStage.selector, HoldbackRules.Stage.Released);
+        bytes memory wrong = abi.encodeWithSelector(IHoldbackRules.WrongStage.selector, IHoldbackRules.Stage.Released);
         vm.expectRevert(wrong);
         rules.reclaim(t);
         vm.expectRevert(wrong);
@@ -120,7 +121,7 @@ contract PhaseOneRedTeamTest is Base {
         H.Decision memory m = _beaconDecision(id, H.ROLE_APPEAL, H.OUTCOME_REJECT, at + 1);
         (m.keyScheme, m.keyCiphertext) = (KEY_SCHEME, KEY_CT);
         m = _signDecision(t, id, m, appealAdj, AP_PK);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.decide(t, m, _noDelivery(), "");
     }
 
@@ -133,11 +134,11 @@ contract PhaseOneRedTeamTest is Base {
         H.Decision memory p = _decision(H.ROLE_PRIMARY, H.OUTCOME_ACCEPT);
         p.nonce = keccak256("after escalation");
         p = _signDecision(t, id, p, adjudicator, ADJ_PK);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.decide(t, p, _noDelivery(), "");
         H.Decision memory f = _beaconDecision(id, H.ROLE_FALLBACK, H.OUTCOME_ACCEPT, t.timing.judgeBy);
         f = _signDecision(t, id, f, fallbackAdj, FB_PK);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.decide(t, f, _noDelivery(), "");
     }
 
@@ -173,7 +174,7 @@ contract PhaseOneRedTeamTest is Base {
         vm.warp(t.timing.fallbackBy);
         vm.prank(stranger);
         rules.triggerDefault(t);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
         assertEq(usdc.balanceOf(buyer), b0, "price + fee back to the buyer");
         assertEq(_held(t), 0);
     }
@@ -185,12 +186,12 @@ contract PhaseOneRedTeamTest is Base {
         (H.Terms memory t, bytes32 id) = _funded();
         uint64 at = _escalateByPrimary(t, id);
         vm.warp(uint256(at) + t.timing.appealDecideSec - 1);
-        vm.expectRevert(HoldbackRules.TooEarly.selector);
+        vm.expectRevert(IHoldbackRules.TooEarly.selector);
         rules.triggerDefault(t);
         vm.warp(uint256(at) + t.timing.appealDecideSec);
         vm.prank(makeAddr("stranger"));
         rules.triggerDefault(t);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
         assertEq(usdc.balanceOf(buyer), b0);
     }
 
@@ -209,7 +210,7 @@ contract PhaseOneRedTeamTest is Base {
         vm.warp(uint256(at) + t.timing.appealDecideSec - 1);
         assertLt(block.timestamp, _pi(t).authorizationExpiry, "before the escrow's expiry");
         rules.decide(t, _appealDecision(t, id, H.OUTCOME_ACCEPT, at), _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Released));
         assertEq(usdc.balanceOf(appealAdj), FEE);
     }
 
@@ -225,7 +226,7 @@ contract PhaseOneRedTeamTest is Base {
         escrow.reclaim(pi);
         assertEq(usdc.balanceOf(buyer), b0, "the buyer has everything back");
         rules.triggerDefault(t);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded), "the deal still closes");
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded), "the deal still closes");
     }
 
     // ------------------------------------------------------------ issues
@@ -241,7 +242,7 @@ contract PhaseOneRedTeamTest is Base {
         m.appealGroundHash = keccak256("the buyer appealed and won");
         m = _signDecision(t, id, m, appealAdj, AP_PK);
         rules.decide(t, m, _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded), "accepted with a nonempty appeal ground");
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded), "accepted with a nonempty appeal ground");
     }
 
     /// Finding RT-1 (Low): the stored word does not record who decided. A primary's accept (§9.3 row P06, fee to the
@@ -256,8 +257,8 @@ contract PhaseOneRedTeamTest is Base {
         vm.warp(at + 1);
         rules.decide(tb, _appealDecision(tb, b, H.OUTCOME_ACCEPT, at), _noDelivery(), "");
 
-        HoldbackRules.Deal memory da = rules.dealOf(a);
-        HoldbackRules.Deal memory db = rules.dealOf(b);
+        IHoldbackRules.Deal memory da = rules.dealOf(a);
+        IHoldbackRules.Deal memory db = rules.dealOf(b);
         assertEq(uint8(da.stage), uint8(db.stage), "stage");
         assertEq(da.attempt, db.attempt, "attempt");
         assertEq(da.t1, db.t1, "t1");
@@ -281,9 +282,9 @@ contract PhaseOneRedTeamTest is Base {
         vm.warp(uint256(at) + tb.timing.appealDecideSec);
         rules.triggerDefault(tb);
 
-        HoldbackRules.Deal memory da = rules.dealOf(a);
-        HoldbackRules.Deal memory db = rules.dealOf(b);
-        assertEq(uint8(da.stage), uint8(HoldbackRules.Stage.Refunded));
+        IHoldbackRules.Deal memory da = rules.dealOf(a);
+        IHoldbackRules.Deal memory db = rules.dealOf(b);
+        assertEq(uint8(da.stage), uint8(IHoldbackRules.Stage.Refunded));
         assertEq(uint8(da.stage), uint8(db.stage), "stage");
         assertEq(da.attempt, db.attempt, "attempt");
         assertEq(da.t1, db.t1, "t1");

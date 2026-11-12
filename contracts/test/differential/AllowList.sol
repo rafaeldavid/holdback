@@ -19,8 +19,8 @@ import {Field, Obs} from "./Observation.sol";
 ///        `test_sideBySide_reachesEveryRow` fails when more than a quarter of its seeds diverge, so an entry cannot
 ///        quietly switch the gate off.
 ///
-///      T-380, R8 fix 4 (the constructor's zero-address checks): no entry. The harness deploys every address, so the
-///      change must show no difference.
+///      T-384, R9 pull request 1 (the interface layout, ONLY_ATTEMPT, the explicit outcome check, the renames): no
+///      entry. Every change in it is a rename or an equivalent check, so it must show no difference.
 library AllowList {
     struct Verdict {
         string change; // the change that allows the difference; "" when none does

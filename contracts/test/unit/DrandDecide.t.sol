@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {DrandQuicknetBeacon} from "../../src/DrandQuicknetBeacon.sol";
 import {Base} from "./Base.sol";
@@ -48,7 +49,7 @@ contract DrandDecideTest is Base {
         _deliver(t, id);
         vm.warp(t.timing.judgeBy);
         vm.expectEmit(address(rules));
-        emit HoldbackRules.FallbackTriggered(id, FALLBACK_ROUND);
+        emit IHoldbackRules.FallbackTriggered(id, FALLBACK_ROUND);
         rules.triggerFallback(t);
         assertEq(drand.roundAt(t.timing.judgeBy - 1 + DRAND_MARGIN) + 1, FALLBACK_ROUND, "the fixture round");
         vm.warp(1_790_172_831); // round 32456489 is published at judgeBy + 31 s
@@ -60,7 +61,7 @@ contract DrandDecideTest is Base {
         assertEq(m.beaconValue, FALLBACK_RAND, "value = sha256(signature) = drand's randomness");
         m = _signDecision(t, id, m, fallbackAdj, FB_PK);
         rules.decide(t, m, _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Released));
     }
 
     function test_appeal_afterEscalation_decidesWithTheNextRealRound() public {
@@ -73,7 +74,7 @@ contract DrandDecideTest is Base {
         assertEq(m.beaconValue, APPEAL_RAND);
         m = _signDecision(t, id, m, appealAdj, AP_PK);
         rules.decide(t, m, _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
     }
 
     function test_fallback_refusesTheSimBeaconValue() public {
@@ -91,7 +92,7 @@ contract DrandDecideTest is Base {
         m.beaconValue = keccak256("chosen value");
         m.seed = hx.panelSeed(id, H.ROLE_FALLBACK, m.attempt, m.beaconValue);
         m = _signDecision(t, id, m, fallbackAdj, FB_PK);
-        vm.expectRevert(HoldbackRules.BadSeed.selector);
+        vm.expectRevert(IHoldbackRules.BadSeed.selector);
         rules.decide(t, m, _noDelivery(), "");
     }
 
@@ -100,7 +101,7 @@ contract DrandDecideTest is Base {
         H.Decision memory m = _drandDecision(id, H.ROLE_FALLBACK, H.OUTCOME_ACCEPT, FALLBACK_ROUND, FALLBACK_SIG);
         m.seed = keccak256("shopped panel");
         m = _signDecision(t, id, m, fallbackAdj, FB_PK);
-        vm.expectRevert(HoldbackRules.BadSeed.selector);
+        vm.expectRevert(IHoldbackRules.BadSeed.selector);
         rules.decide(t, m, _noDelivery(), "");
     }
 
@@ -114,7 +115,7 @@ contract DrandDecideTest is Base {
         // And the matching round: the round is fixed by state, not by the message.
         m = _drandDecision(id, H.ROLE_FALLBACK, H.OUTCOME_ACCEPT, APPEAL_ROUND, APPEAL_SIG);
         m = _signDecision(t, id, m, fallbackAdj, FB_PK);
-        vm.expectRevert(HoldbackRules.BadSeed.selector);
+        vm.expectRevert(IHoldbackRules.BadSeed.selector);
         rules.decide(t, m, _noDelivery(), "");
     }
 
@@ -126,7 +127,7 @@ contract DrandDecideTest is Base {
         m.beaconSignature = "";
         m = _signDecision(t, id, m, fallbackAdj, FB_PK); // signed without the proof
         m.beaconSignature = FALLBACK_SIG; // the relayer attaches it
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.decide(t, m, _noDelivery(), "");
     }
 }

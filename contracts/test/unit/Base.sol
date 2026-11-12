@@ -11,6 +11,7 @@ import {IPermit2} from "permit2/interfaces/IPermit2.sol";
 import {DeployPermit2} from "permit2/../test/utils/DeployPermit2.sol";
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {SimBeacon} from "../../script/SimBeacon.sol";
 
@@ -400,7 +401,7 @@ abstract contract Base is Test, DeployPermit2 {
         return _signDecision(t, id, _decision(H.ROLE_PRIMARY, outcome), adjudicator, ADJ_PK);
     }
 
-    function _stage(bytes32 id) internal view returns (HoldbackRules.Stage) {
+    function _stage(bytes32 id) internal view returns (IHoldbackRules.Stage) {
         return rules.dealOf(id).stage;
     }
 

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {LocalMulticall3} from "../../script/LocalMulticall3.sol";
 import {LocalUSDC} from "../../script/LocalUSDC.sol";
@@ -70,7 +71,7 @@ contract OperatorFeeFrontRunTest is Base {
         vm.prank(relayer);
         (bool ok,) = address(mc).call(bundle);
         assertTrue(ok);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Held));
         assertEq(usdc.balanceOf(operatorFeeTo), OPERATOR_FEE);
     }
 
@@ -92,9 +93,9 @@ contract OperatorFeeFrontRunTest is Base {
             (ok,) = address(mc).call(bundle);
             assertFalse(ok, "the bundle reverts on the spent fee nonce");
         }
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.None));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.None));
 
         _fund(t);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held), "funding without the fee leg still works");
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Held), "funding without the fee leg still works");
     }
 }
