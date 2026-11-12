@@ -67,7 +67,7 @@ node apps/test-agents/scripts/sell-to-test-buyer.mjs
 2. It exits 0 on a pass. It exits 1 when an upload is refused or a later step fails, after it rolls back each Worker that changed.
 3. Paste the Markdown line it prints into this file, under a heading for the task. The line gives the date, the commit and its branch, each new version and its rollback target, the smoke deal's ID and time, and pass or fail.
 
-**Before an operator deploy that changes the screen version** (since PR 386, T-367): check that no deal is open first. The adjudicator then refuses every deal accepted before the deploy and still open, with `policy_mismatch`. Each such deal runs down to its default outcome with no judgment. Deploy only when no such deal is open. The three reads that list the open deals are in `docs/tasks/T-367-screen-audit-lines.md`, Handoff. This holds until the fix that T-373's decision record tracks is built.
+**Before an operator deploy that changes the screen version** (since PR 386, T-367; the first such deploy is the one after 2026-11-12 06:53 UTC): check that no deal is open first. After such a deploy the adjudicator refuses every deal accepted before the deploy and still open, with `policy_mismatch`. Each such deal runs down to its default outcome with no judgment. Deploy only when no such deal is open. The three reads that list the open deals are in `docs/tasks/T-367-screen-audit-lines.md`, Handoff. This holds until the fix that T-373's decision record tracks is built.
 
 **To roll back by hand**, use the rollback targets the line names, both operators together:
 - `npx wrangler@4 rollback <holdback-op1 target> --name holdback-op1`
@@ -125,6 +125,12 @@ Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wra
 - holdback-op1 `50fd05c4` and holdback-op2 `1a95b960`, with T-210's and T-211's fixes.
 
 After the deploy, a smoke deal ended Released in 44 s, and the test seller sold once each way (T-222 Evidence) [measured]. To roll back: holdback-op1 `5d369b0e`, holdback-op2 `1f169857` and crow-site `cb0adcb5` (`npx wrangler@4 rollback <version> --name <worker>`); `npx wrangler@4 delete --name crow-test-agents` removes the seller.
+
+### T-366, T-368 and T-370: the seller adapter's API shapes, the buyer's approval stop and the discovery fields (operators deployed 2026-11-12)
+
+Rafa ran this deploy on 2026-11-12. It is from `00be274`, before PR 386 (T-367), so the live operators still run the earlier screen; the next operator deploy carries the screen change, and the caution under "A demo deploy" applies to it. PR 216's discovery fields are live on both operators [measured by the coordinating session at 06:56 UTC: `demo.build.commit` is `00be274…` on both, with one funding lane and three deal lanes, `mintsPerDay` 600, and `byModel` empty].
+
+**Deploy 2026-11-12 06:53 UTC, commit `00be274` on branch `main`: pass.** holdback-op1 `08524578-c766-4633-8b95-e9dc9e153b72` (rollback target `b531c0bc-c1b9-407a-b2d3-8f9cadd7bc4b`), holdback-op2 `c3c15379-fedb-4533-8941-0ac762d61a2a` (rollback target `aacbd652-ca95-4815-9223-93121806ca95`). Smoke deal `0x0ceb3fd15dd9a0f244ee9e87c22ca31002bb21f0741e5ddfda1ae44386dc1a66` Released in 42 s.
 
 ### T-359: the seller's page (site deployed 2026-11-12)
 

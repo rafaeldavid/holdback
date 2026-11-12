@@ -147,7 +147,7 @@ Focus (Rafa, 2026-11-06; D53, narrowed the same day by D54 after his walkthrough
 - [x] T-367 (done: PR 386, 2026-11-12) The screen passes honest audit reports, and no judge reads past the limit.
 - [x] T-368 (done: PR 384, 2026-11-12) The buyer's command stops for approval before it funds, and the simulator's faucet grants a mandate.
 - T-369 A task in the maintainers' private repository, with no file here.
-- [x] T-370 (done: PRs 217 and 216, 2026-11-12) The One-Click harness and the discovery fields of T-066, brought up to date, reviewed and merged. The live harness run and the deploys that make the fields live are Rafa's.
+- [x] T-370 (done: PRs 217 and 216, 2026-11-12) The One-Click harness and the discovery fields of T-066, brought up to date, reviewed and merged. The discovery fields are live on both operators since the deploy of 06:53 UTC; the live harness run is Rafa's.
 - T-371 A task in the maintainers' private repository, with no file here.
 - [ ] T-372 (in progress: PR 389 open) A hung store read never stalls the adjudicator; refusals show, declines clear, and the relay checks the store.
 - [ ] T-373 (in progress) No task file or pull request on `main` yet.
