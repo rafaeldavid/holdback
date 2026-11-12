@@ -47,6 +47,7 @@ export interface DecisionTask {
    * escalated). A service that made that decision already consented to the deal (T-211); absent, it has not.
    */
   firstDecider?: Address;
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   /** Appeal ground the appellant named, if the settlement layer could classify it. */
   appealGround?: AppealGround;
   deadline: Timestamp;
@@ -83,7 +84,9 @@ export interface AdjudicatorSettlement {
    */
   appealExpiriesDue(adjudicator: Hex32): Promise<Hex32[]>;
   /** The permissionless appeal expiry. */
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   expireAppeal(commitmentId: Hex32): Promise<Result<unknown, Problem>>;
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   /**
    * The bond this adjudicator could put behind its decision on the commitment now, in base units of the price token:
    * its free bond (the contract's `freeOf`) plus what the commitment already holds on it. The contract reserves a

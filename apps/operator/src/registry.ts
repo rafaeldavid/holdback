@@ -43,7 +43,7 @@ export interface FundingService {
 export interface FundingRequest {
   /** The buyer's address, which receives the token. */
   to: Address;
-  /** What the hold needs: the deal's token (any ERC-20; WETH for ETH) and price + fee in base units. */
+  /** What the hold needs: the deployment's one token (SC-1) and price + fee in base units. */
   deliver: TokenAmount;
   /** What the buyer pays with. */
   source: { kind: 'token'; token: string; chainId: number } | { kind: 'eth'; chainId: number } | { kind: 'fiat'; currency: string };

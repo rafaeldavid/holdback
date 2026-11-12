@@ -87,9 +87,13 @@ export class SettlementAdapter implements AdjudicatorSettlement {
     };
   }
 
-  /** Every chain settlement runs the phase-one contracts, which have no bonds and no party appeals (ADR-0031 §8). */
+  /**
+   * Every chain settlement runs the phase-one contracts, which have no bonds and no party appeals (ADR-0031 §8). A SimChain
+   * runs them too when its genesis chose the `phase_one` profile (T-378), as the local worlds partners rehearse on do.
+   */
   get phaseOne(): boolean {
-    return this.#o.chain.kind !== 'sim';
+    const chain = this.#o.chain as SettlementReads & { profile?: string };
+    return chain.kind !== 'sim' || chain.profile === 'phase_one';
   }
 
   /** The source the commitment's rulebook names, which core keeps in the escrow state from the offer (T-217). */
@@ -220,6 +224,7 @@ export class SettlementAdapter implements AdjudicatorSettlement {
       .map(({ c }) => c.id);
   }
 
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   async expireAppeal(commitmentId: Hex32): Promise<Result<unknown, Problem>> {
     return fromSubmit(await this.#o.chain.trigger(commitmentId, 'appeal_expiry'));
   }
