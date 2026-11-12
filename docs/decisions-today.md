@@ -1068,3 +1068,16 @@ The full text is kept privately (`docs/private-materials.md`).
 - **The reviewer** confirmed nine of ten facts it chose and found one wrong, a fallback deal's gas (698,528 gas, not 562,648), now corrected. **The red team** found no Critical issue: 6 High, 9 Medium, 8 Low, 2 Info, each answered in ADR-0034's section 13. Its Highs: the pending accept, the wrapped step, a cap that held only in the relayers, the escrow replay, a path for a session to deploy, and no gate line on the judgment.
 - **Litmus tests.** Neutrality: Ethereum adds no chain actor; real USDC makes the issuer a live actor, and on an L2 the sequencer becomes a named control point before the chain is used. The hold: the gate proves which escrow code holds the money; a pending accept that shows the key is a new, stated residual. Defended judgment: the on-chain proof stays, and the gate forbids a verdict from a scripted judge; on an L2 the beacon's margin does not bind the sequencer, which is stated.
 - **Research pass:** seven `web-fetch` lookups of published sources and read-only calls to public RPC endpoints on 2026-11-11; no transaction was sent.
+
+## D62. Rafa's answers to ADR-0033's open points: the field names are final and the new event stays
+
+**Decided 2026-11-11 by Rafa,** in the coordinating session, after a walk-through of the first three open points of ADR-0033 (D60). He said: "Accept all three". Two of the three were put to him as the ADR states them, and they are decided. The third was put to him the wrong way round, so it is not. ADR-0033 stays Proposed and records each; Rafa may overrule any line.
+
+1. **The field names are final:** `buyerPaymentAddress` and `sellerPayoutAddress`. He was told that a rename after the contract package merges would be another change to the signed terms.
+2. **The new event stays:** `SettlementAddresses`, emitted once per deal when it is funded. His standing rule is that events are kept, for tracing, telemetry and monitoring. He was given the cost, about 1,900 gas per deal [inferred from the gas schedule; the contract package measures].
+3. **Not decided: whether schema v0.11 allows an appeal window of 0.** He was asked: "Add one more rule in the same version? Refusing an appeal window of zero ... a value of zero makes no sense in any case, and the format could refuse it." The schema already refuses zero (`spec/schemas/commitment.schema.json:307-310`, `minimum: 1`). ADR-0031's candidate is the reverse: allow 0, and have a phase-one deployment refuse any other value, because phase one has no party appeal. His answer was to a question that did not describe the candidate, so nothing is recorded as decided. The coordinating session puts it to him again.
+   - ADR-0033 states the point as ADR-0031 has it, with two options: the contract, core and the prepare routes all require 0 (recommended, as for `maxSubmissions` and `bondReserved`), or core and the prepare routes only.
+   - Until he decides, v0.11 keeps `minimum: 1`, and the field stays signed and not read.
+
+- **Still open, and his:** point 3 above, which address is the pilot's payment address, and the Sepolia redeploy. None blocks the contract package.
+- **Litmus tests.** Unchanged from D60: no answer here moves funds or changes who signs.
