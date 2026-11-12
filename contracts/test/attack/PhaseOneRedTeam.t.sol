@@ -110,8 +110,6 @@ contract PhaseOneRedTeamTest is Base {
         rules.triggerFallback(t);
         vm.expectRevert(wrong);
         rules.triggerDefault(t);
-        vm.expectRevert(wrong);
-        rules.expireOffer(t);
     }
 
     /// An escalation's reject cannot carry the buyer's key.

@@ -139,14 +139,7 @@ contract RelayFromContractTest is SignerBase {
         _is(id, HoldbackRules.Stage.Settled);
     }
 
-    /// expireOffer relayed from a contract records the expiry exactly as a direct relay does.
-    function test_relay_expireOffer() public {
-        H.Terms memory t = _terms();
-        bytes32 id = hx.id(t);
-        vm.warp(t.timing.offerExpiresAt);
-        _landsAlike(t, id, _one(abi.encodeCall(HoldbackRules.expireOffer, (t))));
-        _is(id, HoldbackRules.Stage.Expired);
-    }
+    // T-356 (SC-6): `test_relay_expireOffer` left with `expireOffer`; no other entry point changed.
 
     /// reclaim relayed from a contract returns price and fee to the buyer exactly as a direct relay does.
     function test_relay_reclaim() public {

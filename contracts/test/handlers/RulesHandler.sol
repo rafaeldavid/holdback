@@ -25,6 +25,13 @@ interface IDeployedAppeals {
     function expireAppeal(H.Terms calldata t) external;
 }
 
+/// @notice The unfunded offer's on-chain expiry, which phase one cuts (ADR-0031 §7, SC-6). Not in the phase-one ABI:
+///         the handler calls it by selector so the side-by-side harness can drive the parent's `expireOffer` and see
+///         the new side refuse it (T-356).
+interface IDeployedOffers {
+    function expireOffer(H.Terms calldata t) external;
+}
+
 /// @notice The bond vault of the deployed contracts (64be1f1's HoldbackBonds), which phase one cuts. The pinned side
 ///         of the side-by-side harness funds it, and the harness reads it.
 interface IDeployedVault {
@@ -120,6 +127,8 @@ contract RulesHandler is Base {
     bytes[] internal _events; // every event emitted, in order: abi.encode(emitter, topics, data)
     /// T-356 (SC-1): the token of the terms the last `agreeAndFund` relayed, for the harness's allow-list.
     address public fundToken;
+    /// T-356 (SC-6): offers whose expiry the parent's `expireOffer` recorded. The phase-one contract records none.
+    mapping(bytes32 => bool) public offerExpired;
 
     constructor() {
         setUp();
@@ -785,6 +794,9 @@ contract RulesHandler is Base {
 
     // ------------------------------------------------------------ actions: timeouts (TimeoutKind), any caller
 
+    /// Removed in phase one (SC-6), kept for the side-by-side harness: the parent's `expireOffer`, through its
+    /// selector. Phase one has no such function, so the call reverts with empty data and is never due there. The
+    /// parent records the expiry once (`offerExpired`), after which its own `WrongStage(Expired)` answers.
     function expireOffer(uint256 dealSeed, uint256 callerSeed) external {
         uint256 v0 = _violations();
         uint256 i = _pickFor(dealSeed, M_NONE);
@@ -793,17 +805,11 @@ contract RulesHandler is Base {
         uint256 first = t.timing.offerExpiresAt < t.timing.fundBy ? t.timing.offerExpiresAt : t.timing.fundBy;
         _warpNear(first, callerSeed);
         HoldbackRules.Stage before = _dealOf(id).stage;
-        bool due = before == HoldbackRules.Stage.None
+        bool due = _hasExpireOffer() && !offerExpired[id] && before == HoldbackRules.Stage.None
             && (block.timestamp >= t.timing.offerExpiresAt || block.timestamp >= t.timing.fundBy);
         uint256 c0 = capturable(i);
-        bool ok;
-        vm.prank(_caller(callerSeed));
-        try rules.expireOffer(t) {
-            ok = true;
-            _note(true, "");
-        } catch (bytes memory e) {
-            _note(false, e);
-        }
+        bool ok = _relay(_caller(callerSeed), abi.encodeCall(IDeployedOffers.expireOffer, (t)));
+        if (ok) offerExpired[id] = true;
         _timeout("expireOffer", due, ok);
         _noMove("expireOffer", i, c0);
         _track(id, before);
@@ -910,6 +916,11 @@ contract RulesHandler is Base {
 
     /// Whether this side's rules contract is the deployed one, with party appeals. Phase one: no.
     function _hasDeployedAppeals() internal view virtual returns (bool) {
+        return false;
+    }
+
+    /// Whether this side's rules contract records an unfunded offer's expiry (`expireOffer`). Phase one: no (SC-6).
+    function _hasExpireOffer() internal view virtual returns (bool) {
         return false;
     }
 

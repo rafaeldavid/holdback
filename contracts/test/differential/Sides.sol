@@ -13,10 +13,8 @@ import {RulesHandler} from "../handlers/RulesHandler.sol";
 
 // The pinned copies carry a suffix in their file names, so a lookup by "HoldbackRules.sol:HoldbackRules"
 // (`deployCodeTo`, `vm.getCode`) still finds only src/. Nothing imports them by name, so their bytes are unchanged.
-import {HoldbackRules as ParentRules} from "./parent/HoldbackRules.0786180.sol";
-import {HoldbackTypes as ParentH} from "./parent/HoldbackTypes.sol";
+import {HoldbackRules as ParentRules} from "./parent/HoldbackRules.b5d198c.sol";
 import {IHoldbackBeacon as ParentBeacon} from "./parent/IHoldbackBeacon.sol";
-import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {HoldbackRules as PlantedRules} from "./planted/HoldbackRules.planted.sol";
 
 /// @title The sides of the side-by-side harness (T-341, refinement gate VG-1)
@@ -24,14 +22,15 @@ import {HoldbackRules as PlantedRules} from "./planted/HoldbackRules.planted.sol
 ///         - `NewSide`: the source under test, `contracts/src/`, deployed by `Base.setUp` unchanged;
 ///         - `OldSide`: the pinned copy of `contracts/src/` at the change's parent commit (`parent/`). Since T-356
 ///           each change on `contracts-audit-ready` is compared with its parent, not with the deployed commit
-///           (the refinement plan, R6c's harness row): the parent here is `0786180`, the lane after SC-1;
+///           (the refinement plan, R6c's harness row): the parent here is `b5d198c`, the lane after SC-2;
 ///         - `PlantedSide`: the pinned copy with one planted behaviour change (`planted/`), for the tests that
 ///           prove the harness and the liveness invariant fail on a real change.
 ///         The handler drives every side through the new source's ABI (`HoldbackRules`, `HoldbackTypes`), so the
-///         sides receive the same calls. The parent's ABI equals the new one apart from the constructor (it still
-///         takes the Permit2 collector), `PERMIT2_COLLECTOR()`, and the `Funding` struct, which still carries `method`
-///         (SC-2 cut both). So the pinned side encodes `agreeAndFund` in the parent's layout, with `method` 0 and the
-///         same ERC-3009 signature (`_agreeAndFundCall`): the two sides fund with the same bytes the buyer signed.
+///         sides receive the same calls. The parent's ABI equals the new one apart from `expireOffer`, which the
+///         handler calls by selector (`IDeployedOffers`), and the stage `Expired` (8), which the new enum lacks: the
+///         pinned side reads an offer the parent recorded as expired as `None`, the stage the new side holds for it,
+///         so both sides choose their next steps alike (`_dealOf`). The raw stored word still shows the 8, and the
+///         allow-list names exactly that difference.
 /// @dev Same addresses on both sides. The harness creates each side from the same snapshot, so a side lands at
 ///      the same address, and every contract it creates lands at the same address as on the other side, as long as
 ///      the sides create the same number of contracts in the same order. That is why `PinnedSide.setUp` repeats
@@ -47,6 +46,9 @@ contract NewSide is RulesHandler {
 
 /// The old side's world, the pinned parent contracts deployed exactly as `Base.setUp` deploys the new ones.
 abstract contract PinnedSide is RulesHandler {
+    /// The parent's `Stage.Expired`, which phase one no longer has (SC-6).
+    uint8 internal constant PARENT_EXPIRED = 8;
+
     function _rulesWith(SimBeacon beacon) internal virtual returns (HoldbackRules);
 
     function setUp() public override {
@@ -71,17 +73,18 @@ abstract contract PinnedSide is RulesHandler {
         usdc.mint(seller, 1_000_000_000);
     }
 
-    /// The parent's `agreeAndFund(Terms, bytes, Acceptance, Agree, Funding(uint8 method, bytes signature))`: the same
-    /// arguments, the funding as ERC-3009 (`method` 0). Every other struct has the same layout in both builds.
-    function _agreeAndFundCall(
-        H.Terms memory t,
-        bytes memory ss,
-        H.Acceptance memory acc,
-        H.Agree memory ag,
-        H.Funding memory f
-    ) internal pure override returns (bytes memory) {
-        ParentH.Funding memory pf = ParentH.Funding({method: 0, signature: f.signature});
-        return abi.encodeWithSelector(ParentRules.agreeAndFund.selector, t, ss, acc, ag, pf);
+    /// The parent's word, decoded by hand: its stage 8 (`Expired`) reads as `None`, the stage the new side holds for
+    /// the same unfunded offer. Every other field is the parent's own.
+    function _dealOf(bytes32 id) internal view override returns (HoldbackRules.Deal memory d) {
+        (bool ok, bytes memory ret) = address(rules).staticcall(abi.encodeCall(HoldbackRules.dealOf, (id)));
+        require(ok && ret.length == 128, "the pinned side's dealOf is not the parent's four-field word");
+        (uint8 stage, uint8 attempt, uint40 t1, uint144 tag) = abi.decode(ret, (uint8, uint8, uint40, uint144));
+        if (stage == PARENT_EXPIRED) stage = 0;
+        d = HoldbackRules.Deal({stage: HoldbackRules.Stage(stage), attempt: attempt, t1: t1, seedTag: tag});
+    }
+
+    function _hasExpireOffer() internal pure override returns (bool) {
+        return true;
     }
 }
 
@@ -92,16 +95,7 @@ contract OldSide is PinnedSide {
 
     function _rulesWith(SimBeacon beacon) internal override returns (HoldbackRules) {
         return HoldbackRules(
-            address(
-                new ParentRules(
-                    escrow,
-                    address(collector3009),
-                    address(collectorPermit2),
-                    MARGIN,
-                    ParentBeacon(address(beacon)),
-                    address(usdc)
-                )
-            )
+            address(new ParentRules(escrow, address(collector3009), MARGIN, ParentBeacon(address(beacon)), address(usdc)))
         );
     }
 }
@@ -113,16 +107,7 @@ contract PlantedSide is PinnedSide {
 
     function _rulesWith(SimBeacon beacon) internal override returns (HoldbackRules) {
         return HoldbackRules(
-            address(
-                new PlantedRules(
-                    escrow,
-                    address(collector3009),
-                    address(collectorPermit2),
-                    MARGIN,
-                    ParentBeacon(address(beacon)),
-                    address(usdc)
-                )
-            )
+            address(new PlantedRules(escrow, address(collector3009), MARGIN, ParentBeacon(address(beacon)), address(usdc)))
         );
     }
 }
@@ -131,16 +116,7 @@ contract PlantedSide is PinnedSide {
 contract PlantedHandler is PinnedSide {
     function _rulesWith(SimBeacon beacon) internal override returns (HoldbackRules) {
         return HoldbackRules(
-            address(
-                new PlantedRules(
-                    escrow,
-                    address(collector3009),
-                    address(collectorPermit2),
-                    MARGIN,
-                    ParentBeacon(address(beacon)),
-                    address(usdc)
-                )
-            )
+            address(new PlantedRules(escrow, address(collector3009), MARGIN, ParentBeacon(address(beacon)), address(usdc)))
         );
     }
 }

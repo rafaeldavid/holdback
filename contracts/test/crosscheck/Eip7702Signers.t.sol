@@ -204,8 +204,10 @@ contract Eip7702SignersTest is SignerBase {
         rules.agreeAndFund(t, sellerSig, acc, ag, f);
         assertEq(usdc.balanceOf(buyer), buyerStart);
 
+        // The offer lapses unfunded: nothing is recorded on chain (SC-6), and funding it is now refused for its deadline.
         vm.warp(t.timing.offerExpiresAt);
-        rules.expireOffer(t);
-        _is(hx.id(t), HoldbackRules.Stage.Expired);
+        vm.expectRevert(HoldbackRules.DeadlinePassed.selector);
+        rules.agreeAndFund(t, sellerSig, acc, ag, f);
+        _is(hx.id(t), HoldbackRules.Stage.None);
     }
 }
