@@ -71,7 +71,7 @@ export function finish(dir: string, events: readonly Event[], limits?: Partial<L
   const page = join(dir, 'replay.html');
   const ticketPath = over.length ? join(dir, 'ticket.md') : null;
   if (ticketPath) writeFileSync(ticketPath, ticket(summary, over, { record, replay: page }));
-  const withLimits = { ...summary, limits: over.length ? { within: false, over: over.map((x) => ({ measure: x.measure, value: x.value, limit: x.limit })), ticket: ticketPath } : { within: true, note: 'Every measure is within its limit (tools/duet/limits.json).' } };
+  const withLimits = { ...summary, limits: summary.notStarted ? { within: null, note: `The run did not start (the ${summary.notStarted.role}'s model provider refused its first request), so it was not measured against its limits.` } : over.length ? { within: false, over: over.map((x) => ({ measure: x.measure, value: x.value, limit: x.limit })), ticket: ticketPath } : { within: true, note: 'Every measure is within its limit (tools/duet/limits.json).' } };
   writeFileSync(join(dir, 'summary.json'), `${JSON.stringify(withLimits, null, 2)}\n`);
   writeFileSync(page, replayPage(events, summary, { over, ticket: ticketPath }));
   return { summary, over, ticket: ticketPath, page };
@@ -154,7 +154,13 @@ export async function runDuet(o: RunOptions): Promise<RunResult> {
     const play = (role: 'buyer' | 'seller', tools: Toolbox) =>
       runAgent({ role, provider: providerOf(role, role === 'buyer' ? o.buyer : o.seller), brief: briefs[role], tools, caps: o.caps, rec, signal: stops[role].signal }).then((end) => {
         say(`The ${AGENT_NAME[role]} ${end.status}: ${end.outcome}`);
-        timers.push(grace(role === 'buyer' ? 'seller' : 'buyer'));
+        const other = role === 'buyer' ? 'seller' : 'buyer';
+        if (end.status === 'error' && !end.started) {
+          // One side never took a turn: there is no deal to watch, so the other stops now, with no grace, and the run
+          // is marked as not started. Nothing it did after this point is a finding about the docs or the tools.
+          rec.add('runner', 'run.not-started', { role, reason: end.outcome });
+          stops[other].abort(`the ${AGENT_NAME[role]} could not start`);
+        } else timers.push(grace(other));
         return end;
       });
     say('Both agents start.');

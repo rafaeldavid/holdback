@@ -41,6 +41,8 @@ export interface Summary {
   forbiddenTerms: { funded: boolean; askedToApprove: boolean; detail: string };
   /** 7. Whether the run ended as the scenario says it should. */
   decisionRight: boolean;
+  /** Set when one agent's vendor refused its first request: the run did not start, and is not measured against its limits. */
+  notStarted: { role: string; reason: string } | null;
   why: string;
   agents: Array<{ role: string; status: string; outcome: string; turns: number }>;
 }
@@ -136,6 +138,9 @@ export function measure(events: readonly Event[]): Summary {
   }
   if (fundedDeals > 1) { decisionRight = false; why = `${why}; but ${fundedDeals} deals were funded in one run, where one was expected`; }
 
+  const ns = of('run.not-started')[0];
+  const notStarted = ns ? { role: String(ns.role), reason: String(ns.reason) } : null;
+  if (notStarted) { decisionRight = false; why = `the run did not start: the ${notStarted.role}'s model provider refused its first request (${notStarted.reason})`; }
   const ends = of('agent.end');
   return {
     scenario: start?.scenario ?? 'unknown',
@@ -157,6 +162,7 @@ export function measure(events: readonly Event[]): Summary {
     workPassesToPaidSec,
     forbiddenTerms,
     decisionRight,
+    notStarted,
     why,
     agents: ends.map((e) => ({ role: e.role, status: e.status, outcome: e.outcome, turns: e.turns })),
   };
