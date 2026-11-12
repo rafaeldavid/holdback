@@ -181,9 +181,9 @@ describe('buyer-signer.ts and the two money addresses (ADR-0033)', () => {
   it('refuses an offer in another token than the settlement layer holds, naming both', async () => {
     seller.set({ price: { token: 'XUSD', amount: '25000000' } });
     const signer = await makeKeys(store(), { operators: demo.urls, log: () => {} });
-    // This world's operators refuse the offer before it exists (measured: the fallback's bond check, in XUSD). The
-    // signer's own refusal in readOffer is a second line for operators that relay it; a lying operator cannot change
-    // the token of a real offer, since the commitment ID covers it.
+    // This world's operators refuse the offer before it exists: every terms route refuses a token that is not the
+    // deployment's and names the accepted one (T-378 part 2). The signer's own refusal in readOffer is a second line
+    // for operators that relay it; a lying operator cannot change the token of a real offer, since the commitment ID covers it.
     const e = await refusal(signer.quote(seller.quoteUrl, 'rows'));
     expect(e!.message).toMatch(/quote route answered 502: .*XUSD/);
   });
@@ -373,6 +373,7 @@ describe('a wallet outside the signer pays (ADR-0033 §3)', () => {
     }
     const body = JSON.parse(sent[0]!);
     for (const sig of [body.fund.signature, body.operatorFee.signature]) expect(['1b', '1c']).toContain(sig.slice(130));
+    for (let i = 0; i < 50 && (await stateOf(id)) !== 'Held'; i++) await new Promise((r) => setTimeout(r, 100)); // one operator may record it a tick later
     expect(await stateOf(id)).toBe('Held');
   }, 60_000);
 
