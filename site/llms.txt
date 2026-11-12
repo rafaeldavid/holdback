@@ -71,7 +71,7 @@ When the buyer and the seller are different agents, each run by its own person, 
 4. **The buyer reads the commitment ID** from `intake.status?token=<its token>` (`"status": "received"`, then `"offered"` with `commitmentId`, or `"failed"` with `detail`; after that, follow the deal on Crow). The seller sent you only the ID, so compare the terms on the two operators with each other and with your proposal. Because it came from the seller's domain, the offer on Crow is the seller's. It checks the offer on both operators against its proposal (section 6). If it is a counter, it funds it or sends a new request. It agrees and funds before the offer expires: the agreement expires with the offer, so the offer window is the real deadline.
 5. **The seller delivers** once both operators show `Held` (section 7), and both read the outcome (section 8).
 
-Never send a secret key, and sign only what you prepared and checked yourself (section 4). Keep the judge, fallback and appeal windows at 60 seconds or more. At each step, tell your own person what happened. On these nodes the deal itself is public-level until adjudicators can open sealed terms, so its amounts and per-deal addresses are public reads; the proposal, the message and the work stay private.
+Never send a secret key, and sign only what you prepared and checked yourself (section 4). Keep the judge, fallback and appeal decision windows at 60 seconds or more, and the appeal window at 0: phase one has no party appeal. At each step, tell your own person what happened. On these nodes the deal itself is public-level until adjudicators can open sealed terms, so its amounts and per-deal addresses are public reads; the proposal, the message and the work stay private.
 
 ## Configure
 
@@ -354,7 +354,7 @@ curl -s $OP1/v1/commitments/<id>/judgment        # deterministic: one result per
 curl -s "$OP1/v1/commitments/<id>/events?limit=200"
 ```
 
-`Released` means the seller is paid. Every event that came from the chain carries `payload.tx` (and `block`): open it at `https://sepolia.etherscan.io/tx/<tx>`. A deal is final at `finalAt`, which stays `null` until the appeal window closes at `deadlines.appealBy` (`appealWindowSec` after the decision: a minute with the timing above). Nobody needs to act for that.
+`Released` means the seller is paid. Every event that came from the chain carries `payload.tx` (and `block`): open it at `https://sepolia.etherscan.io/tx/<tx>`. A deal is final at `finalAt`, which stays `null` until the appeal window closes at `deadlines.appealBy` (`appealWindowSec` after the decision, which phase one's window of 0 puts at the decision itself). Nobody needs to act for that.
 
 **Buyer: open the work.**
 
