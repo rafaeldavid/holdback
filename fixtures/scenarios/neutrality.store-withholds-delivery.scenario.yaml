@@ -1,0 +1,46 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 347
+name: neutrality.store-withholds-delivery
+description: >-
+  T-347. Tidewater signs a delivery whose ciphertext no store returns: it never uploaded it, or the store lost or
+  withholds it, and no adjudicator can tell which. The runner's store returns no file under fixtures/data/unstored/.
+  Bench A does not judge bytes it cannot read, and publishes and signs nothing; after judgeBy anyone triggers the
+  fallback, and Bench B does not judge either; after fallbackBy anyone triggers the default and applies the default
+  outcome from the signed rulebook. Each refusal names the missing ciphertext's URI and SHA-256. No store's refusal
+  signs a verdict: the deal settles by the path the terms set for adjudicators that do not decide. Atlas gets its price
+  and fee back; on SimChain the two bonds pay Tidewater, as when both adjudicators are offline (the phase-one contracts
+  pay no bond on a default). Each adjudicator reads its own store, so the failing actor is the adjudicator whose store
+  does not return the bytes; `fails:` takes one name, so it names Bench B, the last one to miss its deadline.
+fails: bench-b
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:                 { by: seller, via: op-1 }
+  - adjudicator_accept:    { via: op-1 }
+  - agree_and_fund:        { by: buyer, via: op-1 }
+  - deliver:               { by: seller, via: op-1, file: data/unstored/customers.clean.csv }
+  - judge:                 { adjudicator: bench-a }   # refused: the store does not return the ciphertext
+  - judge:                 { adjudicator: bench-a }   # the retry: still refused, still nothing signed
+  - advance_clock:         { seconds: 172920 }        # past judgeBy (offer + 48 h + 120 s)
+  - trigger_fallback:      { via: op-2 }
+  - judge:                 { adjudicator: bench-b }   # refused: the store does not return the ciphertext
+  - advance_clock:         { seconds: 120 }           # past fallbackBy (judgeBy + 120 s)
+  - trigger_default:       { via: op-2 }
+  - apply_default_outcome: { via: op-2 }
+expect:
+  terminal: Refunded
+  balances:
+    atlas-buyer: "10000000000"        # price and fee returned
+    escrow: "0"

@@ -97,7 +97,7 @@ As of 2026-11-06:
 - **Measured:**
   - A deal with no dispute (the happy path) costs 440,005 gas in two transactions on a local chain (T-209). The deal pays the operator fee, which the demo charges, as part of funding. Gas is the chain's unit of computation, paid for in ETH.
   - The same deal on Sepolia took 1,636,242 gas in three transactions on the 0.7 contracts (T-215, 2026-11-04). On 2026-11-05 the median deal used 1,261,428 gas, its appeal expiry included, from per-step medians over 15 and 16 deals (T-066's metrics). The demo's minimum operator fee, 4.71 tUSDC, prices the first figure: 4.70 for the gas, at a fixed and fictional rate, and 0.01 for relaying (T-215, the gas share on small deals).
-  - On 2026-11-06, at `5cb8c25`, `pnpm snap` passed all 30 scenarios in `fixtures/scenarios/`: 29 fixtures, plus 1 `todo.` record of a known gap. `forge test` passed 241 contract tests.
+  - `pnpm snap` runs every scenario in `fixtures/scenarios/`, and `forge test` every contract test, in CI on each pull request; the CI log gives today's counts.
 - **Limits,** as "Honest limits" in https://crow.direct/llms.txt lists them:
   - test tokens only;
   - both public nodes run as one process;

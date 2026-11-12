@@ -1,8 +1,8 @@
 # @settlement sim @judges recorded @mode guaranteed_on_decision @seed 59
 name: todo.provider-outage
 description: >-
-  The scenario index's neutrality.provider-outage row, recorded as a known gap. The second-family provider
-  is down, so its judge abstains (authored recording; the GPT judge since the agg-3 re-seat). The two Claude judges pass, but
+  The scenario index's neutrality.provider-outage row, recorded as a known gap. The GPT family's provider
+  is down, so its judges abstain (authored recordings; both GPT judges since the screen-1 re-seat, T-367). The Qwen judge passes, but
   one family is below the panel's two-family minimum, so Bench A escalates instead of accepting. A model
   provider is not a scenario actor, so the neutrality. prefix (fails:) cannot name it, and the appeal panel
   replays the same recordings, so the run stops at Escalated. Promote once the testkit models providers.

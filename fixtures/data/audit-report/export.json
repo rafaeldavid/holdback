@@ -1,0 +1,60 @@
+{
+  "job": {
+    "id": "job-7f3a",
+    "state": "completed",
+    "request": {
+      "target": "vault-repo",
+      "commit": "9b1d4e7a3c5f20864d1e3b5a7c9f0e2d4b6a8c1e",
+      "files": ["src/Vault.sol", "src/Oracle.sol", "src/Fees.sol"]
+    },
+    "result": {
+      "state": "completed",
+      "targets": [{ "target": "vault-repo", "commit": "9b1d4e7a3c5f20864d1e3b5a7c9f0e2d4b6a8c1e" }],
+      "fileCount": 3
+    }
+  },
+  "artifacts": [
+    {
+      "type": "scope",
+      "target": "vault-repo",
+      "commit": "9b1d4e7a3c5f20864d1e3b5a7c9f0e2d4b6a8c1e",
+      "paths": ["src/Oracle.sol", "src/Vault.sol", "src/Fees.sol"]
+    },
+    {
+      "type": "finding",
+      "target": "vault-repo",
+      "commit": "9b1d4e7a3c5f20864d1e3b5a7c9f0e2d4b6a8c1e",
+      "data": {
+        "title": "Withdrawals read a stale share price",
+        "severity": "high",
+        "where": [{ "path": "vault-repo/src/Vault.sol", "from": 88, "to": 104 }],
+        "cause": "withdraw() reads the share price before it accrues interest, so the first withdrawal after a quiet period pays out at the old price.",
+        "impact": "A depositor who withdraws first takes interest that belongs to the others.",
+        "fix": "Accrue interest at the top of withdraw(), before the price is read.",
+        "poc": "Deposit, wait one period with no calls, withdraw: the payout is below the accrued value by the period's interest.",
+        "status": "open"
+      }
+    },
+    {
+      "type": "finding",
+      "target": "vault-repo",
+      "commit": "9b1d4e7a3c5f20864d1e3b5a7c9f0e2d4b6a8c1e",
+      "data": {
+        "title": "The fee setter emits no event",
+        "severity": "low",
+        "where": [{ "path": "vault-repo/src/Fees.sol", "from": 12, "to": 19 }],
+        "cause": "setFee() changes the fee rate without an event.",
+        "impact": "Indexers miss fee changes.",
+        "fix": "Emit FeeSet(old, new) in setFee().",
+        "poc": null,
+        "status": "open"
+      }
+    },
+    {
+      "type": "note",
+      "target": "vault-repo",
+      "commit": "9b1d4e7a3c5f20864d1e3b5a7c9f0e2d4b6a8c1e",
+      "text": "Two findings. The oracle has none."
+    }
+  ]
+}
