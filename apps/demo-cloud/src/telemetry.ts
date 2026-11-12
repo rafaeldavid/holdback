@@ -352,6 +352,7 @@ const OUTCOME_OF: Partial<Record<SettlementEventType, string>> = {
   'commitment.settled': 'settled',
   'offer.expired': 'expired',
   'fallback.triggered': 'escalated',
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   'appeal.filed': 'appealed',
   'default.triggered': 'defaulted',
 };

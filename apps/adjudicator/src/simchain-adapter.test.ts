@@ -276,6 +276,7 @@ describe('the adjudicator service on the real SimChain (T-006)', () => {
     chain.advance(30);
     expect((await w.primary.adj.runOnce()).decided).toEqual([{ commitmentId: id, role: 'primary', outcome: 'reject' }]);
     chain.advance(10);
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     const body = { commitmentId: id, appellant: 'seller' as const, appellantAddress: cast.seller.address, grounds: 'wrong-outcome', bond: tusd('100000000'), filedAt: chain.now() };
     const { signature } = await sign(cast.seller, { ...body, type: 'Appeal' as const });
     must(await chain.submit({ kind: 'appeal', appeal: { ...body, signature } }));
@@ -363,6 +364,7 @@ describe('the adjudicator service on the real SimChain (T-006)', () => {
     chain.advanceTo(judgeBy);
     must(await chain.trigger(id, 'fallback')); // at the drained moment: SimChain reserves nothing for the fallback
     chain.advanceTo(drain.timing.offerExpiresAt);
+    // SimChain only: this test drives the adapter on SimChain, whose operators' clock expires the unfunded offer.
     must(await chain.trigger(drainId, 'expire_offer'));
     const sellerBefore = await sellerBalance(w);
     expect((await w.fallback.adj.runOnce()).decided).toEqual([{ commitmentId: id, role: 'fallback', outcome: 'accept' }]);
@@ -375,6 +377,7 @@ describe('the adjudicator service on the real SimChain (T-006)', () => {
     chain.advance(30);
     expect((await w.primary.adj.runOnce()).decided.map((d) => d.outcome)).toEqual(['accept']);
     chain.advance(10);
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     const body = { commitmentId: id, appellant: 'buyer' as const, appellantAddress: cast.buyer.address, grounds: 'wrong-outcome', bond: tusd('100000000'), filedAt: chain.now() };
     const { signature } = await sign(cast.buyer, { ...body, type: 'Appeal' as const });
     must(await chain.submit({ kind: 'appeal', appeal: { ...body, signature } }));

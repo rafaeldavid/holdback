@@ -205,6 +205,37 @@ export const ALLOWED: ReadonlyArray<{ path: string; name: string; reason: string
     name: '- expire: (fixture step)',
     reason: "the parser's test of the `expire` step, the operators' clock expiry that phase one keeps",
   },
+  // T-378: the operators, the demo world, the SDK and the API contract test drive the same clock record, with the same reason.
+  {
+    path: 'apps/demo-cloud/src/world.ts',
+    name: 'expire_offer',
+    reason: "the operators' clock record of an unfunded offer's expiry, which phase one keeps with no transaction (ADR-0031 §7; T-378)",
+  },
+  {
+    path: 'apps/demo-cloud/src/world.test.ts',
+    name: 'expire_offer',
+    reason: "the operators' clock record of an unfunded offer's expiry, which phase one keeps with no transaction (ADR-0031 §7; T-378)",
+  },
+  {
+    path: 'apps/demo-cloud/src/timeouts.anvil.test.ts',
+    name: 'expire_offer',
+    reason: "the operators' clock record of an unfunded offer's expiry, which phase one keeps with no transaction (ADR-0031 §7; T-378)",
+  },
+  {
+    path: 'apps/operator/src/server.ts',
+    name: 'expire_offer',
+    reason: "the operators' clock record of an unfunded offer's expiry, which phase one keeps with no transaction (ADR-0031 §7; T-378)",
+  },
+  {
+    path: 'packages/sdk/src/operations.ts',
+    name: 'expire-offer',
+    reason: "the operators' clock record of an unfunded offer's expiry, which phase one keeps with no transaction (ADR-0031 §7; T-378)",
+  },
+  {
+    path: 'tests/contract/openapi.contract.test.ts',
+    name: 'expire-offer',
+    reason: "the operators' clock record of an unfunded offer's expiry, which phase one keeps with no transaction (ADR-0031 §7; T-378)",
+  },
   {
     path: 'tests/metrics/fixtures/deal-once.events.json',
     name: 'appeal.expired',

@@ -171,6 +171,7 @@ describe('operator API: prepare, sign, submit', () => {
     await deliver(id, 'seller-2', 'id,email\n');
     expect((await waitFor(id, ['Released', 'Refunded'])).escrowState).toBe('Refunded');
     expect(BigInt((await call('GET', `/v1/balances/${acct('buyer-2').address}`)).body.amount)).toBe(before - 1_000_000n);
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     const appeal = (await call<Prepared>('POST', '/v1/prepare/appeal', { commitmentId: id, appellant: acct('seller-2').address })).body;
     expect(appeal.check.join(' ')).toMatch(/bond of 1\.25 tUSD .* fee of 25 tUSD, 26\.25 tUSD in all/);
     await submit(await sign(appeal, 'seller-2'));
@@ -400,6 +401,7 @@ describe('operator API: sim batch 1 friction', () => {
     const early = await call('POST', '/v1/prepare/early-accept', { commitmentId: id, nonce: nonce() });
     expect([early.status, early.body.type]).toEqual([409, 'invalid_state']);
     expect(early.body.detail).toMatch(/is Held; early-accept needs Delivered/);
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     const appeal = await call('POST', '/v1/prepare/appeal', { commitmentId: id, appellant: acct('buyer-1').address });
     expect([appeal.status, appeal.body.type]).toEqual([409, 'invalid_state']);
     expect(appeal.body.detail).toMatch(/is Held; an appeal needs a first-instance decision/);
@@ -410,12 +412,15 @@ describe('operator API: sim batch 1 friction', () => {
     expect([late.status, late.body.type]).toEqual([409, 'invalid_state']);
     expect(late.body.detail).toMatch(/is Released; a settlement needs Held, Delivered, FallbackJudging or Escalated/);
     expect((await call('POST', '/v1/prepare/early-accept', { commitmentId: id, nonce: nonce() })).status).toBe(409);
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     expect((await call('POST', '/v1/prepare/appeal', { commitmentId: id, appellant: acct('buyer-1').address })).status).toBe(200); // window open
     // T-206 L-7: the accept went for the seller, so only the buyer may appeal it.
     const favoured = await call('POST', '/v1/prepare/appeal', { commitmentId: id, appellant: acct('seller-1').address });
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     expect([favoured.status, favoured.body.type, favoured.body.field]).toEqual([400, 'invalid_terms', 'appellant']);
     // Past appealBy (default window 300 s) the decision is final and an appeal is refused at prepare.
     await fetch(`${world.url}/advance`, { method: 'POST', body: JSON.stringify({ seconds: 400 }) });
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     const closed = await call('POST', '/v1/prepare/appeal', { commitmentId: id, appellant: acct('buyer-1').address });
     expect([closed.status, closed.body.type]).toEqual([409, 'invalid_state']);
     expect(closed.body.detail).toMatch(/is Released, final since .*; an appeal needs/);
@@ -432,6 +437,7 @@ describe('operator API: sim batch 1 friction', () => {
     await waitFor(offer.commitmentId, ['Released', 'Refunded']);
     const roles = (await call('GET', `/v1/commitments/${offer.commitmentId}/events?limit=200`)).body.items.filter((e: { type: string }) => e.type === 'judgment.decided').map((e: { payload: { role: string; outcome: string } }) => `${e.payload.role}:${e.payload.outcome}`);
     expect(roles).toContain('primary:escalate'); // the screen flagged the injection
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     const r = await call('POST', '/v1/prepare/appeal', { commitmentId: offer.commitmentId, appellant: acct('buyer-2').address });
     expect([r.status, r.body.type]).toEqual([409, 'invalid_state']);
     expect(r.body.detail).toMatch(/final since .*escalated decisions are final/);

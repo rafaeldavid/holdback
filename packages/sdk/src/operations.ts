@@ -33,6 +33,7 @@ export type Operation =
   | { kind: 'deliver'; delivery: Delivery }
   | { kind: 'early_accept'; message: EarlyAccept }
   | { kind: 'decide'; message: Decision }
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   | { kind: 'appeal'; appeal: Appeal }
   /**
    * A mutual settlement. In Held it may carry the late work it names (SC-5b, T-357), the seller-signed delivery that was
@@ -41,6 +42,7 @@ export type Operation =
   | { kind: 'settle'; message: MutualSettlement; delivery?: Delivery }
   | { kind: 'trigger'; commitmentId: Hex32; timeout: TimeoutKind };
 
+// SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
 /** Trigger kinds as they appear in a path: `expire-offer`, `appeal-expiry`, ... */
 export const triggerPath = (t: TimeoutKind): string => t.replace(/_/g, '-');
 
@@ -145,6 +147,7 @@ export function operationOf(segments: readonly string[], body: unknown): Result<
       op = { kind: 'decide', message: b as unknown as Decision };
       break;
     case 'appeals':
+      // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
       op = { kind: 'appeal', appeal: b as unknown as Appeal };
       break;
     case 'settlements': {
@@ -185,6 +188,7 @@ export function submissionsOf(op: Operation): Submission[] {
     case 'decide':
       return [{ kind: 'decide', message: op.message }];
     case 'appeal':
+      // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
       return [{ kind: 'appeal', appeal: op.appeal }];
     case 'settle':
       return [{ kind: 'mutual_settle', message: op.message, ...(op.delivery ? { delivery: op.delivery } : {}) }];
