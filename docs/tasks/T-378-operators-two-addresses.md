@@ -73,15 +73,33 @@ Labels: measured, inferred, guessed. All runs are on this task's branches, 2026-
   - 1 and 4 are in the Handoff;
   - 3 is this section.
 
+**Part 4, the late-work settlement through the API (holdback PR 408):**
+
+- `apps/operator/src/sim-world.test.ts` [measured]: on the local world over HTTP, a settlement in `Held` reaches `Settled`; its body carries the unposted delivery that prepare put there. The dry run answers `Settled` with the signatures verified, and the state stays `Held`. The buyer's envelope from the carried delivery is released. The events tell the late work apart:
+  - `commitment.settled {keyReleased: true}` comes before `key.released`;
+  - there is no `delivery.submitted`;
+  - `deliveryHash` is the carried delivery's.
+- A second test covers the refusals: `releaseKey` false, another commitment, a non-object, a delivery that does not hash to the signed one. The same `Idempotency-Key` replays the stored answer, and with another delivery it gets 409. A body signed before the same delivery was posted still settles.
+- `packages/sdk`: 39 of 39 tests pass, with a round trip that carries the delivery. `tests/contract`: 25 of 25 [measured].
+- The reviewer (one `reviewer` subagent) gave ISSUES, all Low or Info:
+  - Lows 1 and 2 and Info 5 are fixed;
+  - Low 3 is in the Handoff;
+  - Info 4 keeps the route's existing order (shape checks before idempotency);
+  - Info 6 is this section;
+  - Info 7 belongs to T-357's residual.
+
 ## Decisions
 
 1. **`pnpm demo` stays on the full protocol** (the coordinator, 2026-11-12, on this task's question). Phase one goes to `pnpm sim` and `PublicWorld` on SimChain. The Handoff lists any other local entry point that takes a party's own terms, with the profile it runs.
 2. **The offer's request field names** for the two addresses are `buyer.paymentAddress` and a top-level `sellerPayoutAddress`, both optional. T-379 proposed them on 2026-11-12, and the clients and `examples/verify.ts` use the same names.
 3. **`spec/openapi/paths.json`** is the source of `spec/openapi.json` (`pnpm openapi`). This task edits the source and regenerates the output (the coordinator, 2026-11-12).
+4. **The late delivery travels flat beside the settlement** as `delivery`, as `fund` does beside an `Agree`. It is not wrapped as `{settlement, delivery}`, so the route keeps one body form. The deal record gets no new marker in any event payload; the events already tell late work apart (the coordinator, 2026-11-12).
 
 ## Handoff
 
 **Open, for later work:**
+
+- **No anvil test of the late-work route over the EVM settlement** (PR 408 review, Low 3). The EVM adapter's own late-work test covers the settlement step. The HTTP route is measured on SimChain only.
 
 - **No warning for the escrow's token store as a payout address** (PR 403 review, Low 1). The store's address comes from a chain call (`getTokenStore(rules)`), and opening a world may not make one. A later change can read it after the first pass and add it to `contracts`.
 - **Concurrent faucet grants** (PR 403 review, Info 4). Two grants from two signing keys to one payment address may both mint on the live faucet. The per-client window and the day's mint cap bound it, as rotating addresses always could.

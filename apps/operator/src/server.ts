@@ -733,16 +733,18 @@ export class Operator {
   }
 
   /**
-   * SC-5b (T-357, T-378): a settlement carries a delivery only for the late work, the case it exists for: nothing is
-   * posted, the settlement releases the key, and the delivery is the one both signatures name (core checks its hash and
-   * the buyer's envelope again). Any other carried delivery is refused here with the field named, as prepare refuses it,
-   * so a body that would be accepted for the wrong reason never reaches the settlement layer.
+   * SC-5b (T-357, T-378): a settlement carries a delivery only for the late work, the case it exists for: the settlement
+   * releases the key and names the delivery both signatures cover (core checks its hash and the buyer's envelope again).
+   * A carried delivery is refused here with the field named when the key is not released, when it is for another
+   * commitment, or when a different delivery is posted. When the same delivery was posted since, the body still settles.
    */
   private async lateDeliveryRule(m: MutualSettlement, d: Delivery): Promise<void> {
     if (!m.releaseKey) fail('invalid_terms', 'delivery travels with a settlement only to release its key: leave delivery out when releaseKey is false; the settlement names the delivery by deliveryHash alone', { field: 'delivery' });
     if (lc(d.commitmentId) !== lc(m.commitmentId)) fail('invalid_terms', `delivery is for ${d.commitmentId}, not ${m.commitmentId}`, { field: 'delivery.commitmentId' });
+    // PR 408 review, Low 2: once the same delivery is posted, the settlement layer uses the posted one and ignores the
+    // carried copy, so the body still settles (D31). Only a body that names another delivery than the posted one is refused.
     const posted = await this.prepareContext().delivery(m.commitmentId);
-    if (posted) fail('invalid_terms', `a delivery is posted for ${m.commitmentId} (${posted.deliveryHash}); the settlement names that one, so leave delivery out`, { field: 'delivery' });
+    if (posted && lc(posted.deliveryHash) !== lc(m.deliveryHash ?? '')) fail('invalid_terms', `a delivery is posted for ${m.commitmentId} (${posted.deliveryHash}) and the settlement names ${m.deliveryHash}; prepare the settlement again, naming the posted delivery, and leave delivery out`, { field: 'delivery' });
   }
 
   /**

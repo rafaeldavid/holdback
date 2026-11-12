@@ -265,6 +265,16 @@ describe('operator API: prepare, sign, submit', () => {
     expect((p.submit.body as unknown as MutualSettlement).deliveryHash).toBe(deliveryHash(late));
   });
 
+  it('POST /settlements still settles a late-work body after the same delivery was posted (PR 408 review, Low 2)', async () => {
+    const id = await heldDeal('buyer-1', 'seller-1', '2000000');
+    const late = await unposted(id, 'seller-1');
+    const p = (await call<Prepared>('POST', '/v1/prepare/settlement', { commitmentId: id, nonce: nonce(), toSellerBps: 5000, delivery: late })).body;
+    await sign(await sign(p, 'buyer-1'), 'seller-1');
+    // The seller posts the same delivery after both signed; the decision has not come yet.
+    expect((await call('POST', `/v1/commitments/${id}/deliveries`, late)).body.escrowState).toBe('Delivered');
+    expect((await call('POST', p.submit.path, p.submit.body)).body.escrowState).toBe('Settled');
+  });
+
   it('POST /settlements refuses a carried delivery that does not name the late work, and keys its idempotency on the delivery too', async () => {
     const id = await heldDeal('buyer-2', 'seller-2', '3000000');
     const late = await unposted(id, 'seller-2');
@@ -280,8 +290,11 @@ describe('operator API: prepare, sign, submit', () => {
     expect((await call('POST', p.submit.path, { ...body, delivery: other })).status).toBe(400);
     // The same Idempotency-Key with another delivery is a conflict; with the same body it replays.
     const post = (b: unknown) => fetch(`${api}${p.submit.path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': `late-${id}` }, body: JSON.stringify(b) });
-    expect((await post(body)).status).toBe(200);
-    expect((await post(body)).status).toBe(200);
+    const first = await post(body);
+    const replay = await post(body);
+    expect([first.status, replay.status]).toEqual([200, 200]);
+    // The replay is the stored answer, receipt included, not a second relay.
+    expect(await replay.json()).toEqual(await first.json());
     expect((await post({ ...body, delivery: other })).status).toBe(409);
   });
 
