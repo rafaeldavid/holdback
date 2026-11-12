@@ -103,6 +103,7 @@ Each item is labelled measured, inferred or guessed.
   - One High, fixed: a required check was matched by ID only, so a hollow "coverage" check let the refund case end Released. The policy now compares the owner's own copy of each check, whole.
   - One Medium, fixed: one operator's clock decided the dates. The policy now takes every operator's clock and the local clock.
   - Lows, fixed: deadlines in seconds, uppercase and base64 secret forms, whole log lines.
+- **/verify, kind 4** (measured, after merging the lane tip with T-389): `pnpm exec vitest run tools/duet tests` passes 471 of 471 tests in 21 files; `npx tsc -p tools/duet` exit 0; `pnpm lint` exit 0. No snapshot diffs.
 - **What the scripted runs do not show** (stated plainly): whether a model can do the deal from the docs. Only Rafa's live run shows that.
 - Snapshot diffs: none; no scenario fixture changes.
 
