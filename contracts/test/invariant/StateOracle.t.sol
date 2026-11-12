@@ -143,11 +143,13 @@ contract StateOracleTest is Test {
         h.mutualSettle(PICK, 0, 0, 10 | (uint256(20) << 48));
         _at("P17");
 
+        // SC-6 (T-356): no expiry is recorded on chain, so an unfunded offer past its expiry is still P01.
         setUp();
         h.offer(OFFER);
         vm.warp(h.termsOf(0).timing.offerExpiresAt);
+        vm.expectRevert(RulesHandler.Refused.selector);
         h.expireOffer(PICK, 6);
-        _at("L02");
+        _at("P01");
     }
 
     // ------------------------------------------------------------ planted: illegal states

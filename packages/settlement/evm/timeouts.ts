@@ -69,6 +69,9 @@ export interface TimeoutReport {
   /** The block the pass checked at, or null when nothing was due. */
   block: string | null;
   sent: Array<{ commitmentId: Hex32; kind: TimeoutKind }>;
+  /** Run in this node's own record with no transaction: an unfunded offer's expiry, which the phase-one contracts
+   *  never record (ADR-0031 §7, SC-6). Costs no gas and no budget. */
+  marked: Array<{ commitmentId: Hex32; kind: TimeoutKind }>;
   /** Refused by the contract at the pinned block, or by the relay: not sent, and backed off. */
   refused: Array<{ commitmentId: Hex32; kind: TimeoutKind; detail: string }>;
   /** Due and left for a later pass: the caps, the budget, a lane row still open, a block behind this node's view. */
@@ -77,10 +80,10 @@ export interface TimeoutReport {
   reads: number;
 }
 
-/** The contract function of each timeout this module sends. */
-const FN: Partial<Record<TimeoutKind, string>> = { expire_offer: 'expireOffer', reclaim: 'reclaim', fallback: 'triggerFallback', default: 'triggerDefault' };
+/** The contract function of each timeout this module sends. An unfunded offer's expiry has none (SC-6): it is marked. */
+const FN: Partial<Record<TimeoutKind, string>> = { reclaim: 'reclaim', fallback: 'triggerFallback', default: 'triggerDefault' };
 /** HoldbackRules.Stage, as dealOf returns it. */
-const STAGES = ['None', 'Held', 'Delivered', 'FallbackJudging', 'Escalated', 'Released', 'Refunded', 'Settled', 'Expired'] as const;
+const STAGES = ['None', 'Held', 'Delivered', 'FallbackJudging', 'Escalated', 'Released', 'Refunded', 'Settled'] as const;
 const PER_PASS = 4;
 const READS_PER_PASS = 16;
 const GRACE_MS = 60_000;
@@ -109,7 +112,8 @@ export function nextTimeout(s: EscrowState): DueTimeout | null {
   switch (s.kind) {
     case 'AcceptedByAdjudicator':
     case 'Agreed':
-      // After either deadline nothing can fund it (agreeAndFund reverts DeadlinePassed); the expiry records it.
+      // After either deadline nothing can fund it (agreeAndFund reverts DeadlinePassed). The expiry is this node's own
+      // record (ADR-0031 §7, SC-6): it is marked, with no transaction.
       return { kind: 'expire_offer', at: Math.min(Date.parse(t.offerExpiresAt), Date.parse(t.fundBy)), rank: 1 };
     case 'Held':
       return { kind: 'reclaim', at: Date.parse(t.deliverBy), rank: 0 };
@@ -207,7 +211,9 @@ export class OperatorTimeouts {
 
   /** Before this (ms) nothing of `kind` may go: the budget is closed, or the relay refused a send. */
   private closedFor(kind: TimeoutKind | undefined): number {
-    return Math.max(this.closed.all, this.pausedUntil, kind === 'expire_offer' ? this.closed.offers : 0);
+    // An offer's expiry sends nothing (SC-6): neither the budget nor a paused relay holds it back.
+    if (kind === 'expire_offer') return 0;
+    return Math.max(this.closed.all, this.pausedUntil);
   }
 
   /** When a pass should next run to send a timeout (ms), or null when none is ahead. */
@@ -234,7 +240,7 @@ export class OperatorTimeouts {
   async run(floor?: bigint): Promise<TimeoutReport> {
     this.ingest();
     const now = this.now();
-    const report: TimeoutReport = { block: null, sent: [], refused: [], deferred: 0, reads: 0 };
+    const report: TimeoutReport = { block: null, sent: [], marked: [], refused: [], deferred: 0, reads: 0 };
     const due: Array<{ id: Hex32; w: Watch; c: DueTimeout | undefined }> = [];
     for (const [id, w] of this.watched) {
       if (w.notBefore > now) continue;
@@ -264,13 +270,15 @@ export class OperatorTimeouts {
     const readsPerPass = this.o.readsPerPass ?? READS_PER_PASS;
     let attempts = 0;
     let stop = false;
-    for (const { id, w } of due) {
-      if (stop || attempts >= perPass || report.reads >= readsPerPass) {
+    for (const { id, w, c: planned } of due) {
+      // An offer's expiry sends nothing (SC-6), so the caps on sends and reads do not hold it back.
+      if (planned?.kind !== 'expire_offer' && (stop || attempts >= perPass || report.reads >= readsPerPass)) {
         report.deferred++;
         continue;
       }
       // A transaction of this deal still has its lane row (T-219): in flight, mined with its receipt not applied yet (a
-      // read after it failed), or left by a restart for the world's recovery. The sync or the recovery lands it first.
+      // read after it failed), or left by a restart for the world's recovery. The sync or the recovery lands it first;
+      // an offer's expiry waits for it too, since a funding mined before the deadline is not an expired offer.
       if ((chain.openRows?.() ?? chain.inFlight?.() ?? []).some((r) => r.note && r.note.commitmentId.toLowerCase() === id.toLowerCase())) {
         report.deferred++;
         continue;
@@ -278,6 +286,18 @@ export class OperatorTimeouts {
       try {
         const c = await this.dueNow(id, w, block, now, report);
         if (!c) continue;
+        if (c.kind === 'expire_offer') {
+          // SC-6: no contract call to check or send, so no read, no budget and no relay; the adapter steps its book.
+          const r = await this.evm.trigger(id, c.kind, { idempotencyKey: this.o.key(id, c.kind), via: this.o.via });
+          if (r.ok) {
+            this.watched.set(id, { notBefore: 0, misses: 0 });
+            if (!r.replayed && r.events.length > 0) report.marked.push({ commitmentId: id, kind: c.kind });
+          } else {
+            report.refused.push({ commitmentId: id, kind: c.kind, detail: `${r.problem.type}: ${r.problem.detail}` });
+            this.backOff(w, now, BACKOFF.refused);
+          }
+          continue;
+        }
         if (this.closedFor(c.kind) > now) {
           report.deferred++;
           continue;

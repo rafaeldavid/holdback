@@ -123,8 +123,12 @@ contract Erc1271GasBurnTest is SignerBase {
         _refusedAtBothLimits(t, id, data, "agreeAndFund");
         _is(id, HoldbackRules.Stage.None);
 
+        // The offer lapses unfunded: nothing is recorded on chain (SC-6), and funding it is refused for its deadline
+        // before the wallet is asked anything.
         vm.warp(t.timing.offerExpiresAt);
-        rules.expireOffer(t);
-        _is(id, HoldbackRules.Stage.Expired);
+        (bool ok, bytes memory ret) = address(rules).call(data);
+        assertFalse(ok);
+        assertEq(ret, abi.encodeWithSelector(HoldbackRules.DeadlinePassed.selector));
+        _is(id, HoldbackRules.Stage.None);
     }
 }

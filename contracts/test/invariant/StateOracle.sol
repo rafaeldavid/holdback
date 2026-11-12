@@ -9,8 +9,9 @@ import {RulesHandler} from "../handlers/RulesHandler.sol";
 /// @notice The legal states of one deal on the phase-one contracts, from the state model:
 ///         `docs/audit/state-model.md` (task T-340, refinement package R2), section 9.3 (the phase-one rows P01 to
 ///         P17, with their closing reason and decider) and section 9.4 (their time bounds and what the escrow holds).
-///         One row of the deployed machine stays until scope cut SC-6 removes `expireOffer`: L02, an unfunded
-///         offer's recorded expiry. Each row below carries the table's row ID; change the two together.
+///         The deployed machine's row L02, an unfunded offer's recorded expiry, left with `expireOffer` (scope cut
+///         SC-6, T-356): an unfunded offer is P01 until it funds, whatever the clock says. Each row below carries the
+///         table's row ID; change the two together.
 ///         `RulesInvariants.invariant_legalDealStates` checks every deal against it after every step of the
 ///         invariant campaign.
 /// @dev The deployed machine's rows L11 to L30 and every vault column left with SC-7 (T-346): phase one has no
@@ -20,7 +21,7 @@ import {RulesHandler} from "../handlers/RulesHandler.sol";
 ///      on the escrow, and checks the stored word against the row that reason names. A deal is legal when, together:
 ///      1. its stored word, its stored delivery hash and its closing reason match exactly one row (the stage, the
 ///         attempt, the reason, the decider, whether t1 is zero, and whether the delivery hash is zero; and the seed
-///         tag is zero exactly in P01 and L02);
+///         tag is zero exactly in P01);
 ///      2. its times keep the row's bounds against its terms;
 ///      3. the escrow's capturable and refundable amounts are the row's (section 9.4, illegal class I16). A funded
 ///         row (P02 to P05) may show an empty escrow only after the buyer's own reclaim on the escrow (section 5.2).
@@ -88,30 +89,29 @@ library StateOracle {
         return Row(id, s, attempt, reason, decider, t1);
     }
 
-    /// Section 9.3's table, row for row, and L02 until SC-6.
+    /// Section 9.3's table, row for row. L02 left with SC-6.
     function rows() internal pure returns (Row[] memory r) {
         HoldbackRules.Stage rel = HoldbackRules.Stage.Released;
         HoldbackRules.Stage ref = HoldbackRules.Stage.Refunded;
         HoldbackRules.Stage set = HoldbackRules.Stage.Settled;
-        r = new Row[](18);
+        r = new Row[](17);
         r[0] = _r("P01", HoldbackRules.Stage.None, 0, OPEN, NOBODY, ZERO);
-        r[1] = _r("L02", HoldbackRules.Stage.Expired, 0, OPEN, NOBODY, ZERO);
-        r[2] = _r("P02", HoldbackRules.Stage.Held, 0, OPEN, NOBODY, ZERO);
-        r[3] = _r("P03", HoldbackRules.Stage.Delivered, 1, OPEN, NOBODY, ZERO);
-        r[4] = _r("P04", HoldbackRules.Stage.FallbackJudging, 1, OPEN, NOBODY, SET);
-        r[5] = _r("P05", HoldbackRules.Stage.Escalated, 1, OPEN, NOBODY, SET);
-        r[6] = _r("P06", rel, 1, DECIDED, PRIMARY, SET);
-        r[7] = _r("P07", ref, 1, DECIDED, PRIMARY, SET);
-        r[8] = _r("P08", rel, 1, DECIDED, FALLBACK, SET);
-        r[9] = _r("P09", ref, 1, DECIDED, FALLBACK, SET);
-        r[10] = _r("P10", rel, 1, DECIDED, APPEAL, SET);
-        r[11] = _r("P11", ref, 1, DECIDED, APPEAL, SET);
-        r[12] = _r("P12", ref, 1, DEFAULTED, NOBODY, SET);
-        r[13] = _r("P13", rel, 1, ACCEPTED_EARLY, NOBODY, ZERO);
-        r[14] = _r("P14", ref, 0, RECLAIMED, NOBODY, ZERO);
-        r[15] = _r("P15", set, 0, SETTLED, NOBODY, ZERO);
-        r[16] = _r("P16", set, 1, SETTLED, NOBODY, ZERO);
-        r[17] = _r("P17", set, 1, SETTLED, NOBODY, SET);
+        r[1] = _r("P02", HoldbackRules.Stage.Held, 0, OPEN, NOBODY, ZERO);
+        r[2] = _r("P03", HoldbackRules.Stage.Delivered, 1, OPEN, NOBODY, ZERO);
+        r[3] = _r("P04", HoldbackRules.Stage.FallbackJudging, 1, OPEN, NOBODY, SET);
+        r[4] = _r("P05", HoldbackRules.Stage.Escalated, 1, OPEN, NOBODY, SET);
+        r[5] = _r("P06", rel, 1, DECIDED, PRIMARY, SET);
+        r[6] = _r("P07", ref, 1, DECIDED, PRIMARY, SET);
+        r[7] = _r("P08", rel, 1, DECIDED, FALLBACK, SET);
+        r[8] = _r("P09", ref, 1, DECIDED, FALLBACK, SET);
+        r[9] = _r("P10", rel, 1, DECIDED, APPEAL, SET);
+        r[10] = _r("P11", ref, 1, DECIDED, APPEAL, SET);
+        r[11] = _r("P12", ref, 1, DEFAULTED, NOBODY, SET);
+        r[12] = _r("P13", rel, 1, ACCEPTED_EARLY, NOBODY, ZERO);
+        r[13] = _r("P14", ref, 0, RECLAIMED, NOBODY, ZERO);
+        r[14] = _r("P15", set, 0, SETTLED, NOBODY, ZERO);
+        r[15] = _r("P16", set, 1, SETTLED, NOBODY, ZERO);
+        r[16] = _r("P17", set, 1, SETTLED, NOBODY, SET);
     }
 
     function matches(Row memory r, State memory s) internal pure returns (bool) {
@@ -129,7 +129,7 @@ library StateOracle {
         return 0;
     }
 
-    /// The row's position in the phase-one table (1 for P01 to 18 for P17), or 0 for none.
+    /// The row's position in the phase-one table (1 for P01 to 17 for P17), or 0 for none.
     function rowNumber(State memory s) internal pure returns (uint256) {
         return rowIndex(s, rows());
     }
@@ -151,7 +151,7 @@ library StateOracle {
         uint256 n = rowIndex(s, table);
         if (n == 0) return string.concat("no legal row (section 9): ", describe(s));
         string memory row = table[n - 1].id;
-        bool unfunded = d.stage == HoldbackRules.Stage.None || d.stage == HoldbackRules.Stage.Expired;
+        bool unfunded = d.stage == HoldbackRules.Stage.None;
         if (d.seedTag != (unfunded ? 0 : s.seedTag)) {
             return string.concat(row, ": the seed tag is not the primary's seed commitment");
         }
@@ -190,7 +190,7 @@ library StateOracle {
     function _holds(string memory row, State memory s, H.Terms memory t) private pure returns (string memory) {
         uint256 hold = t.price + t.fee;
         HoldbackRules.Stage st = s.d.stage;
-        if (st == HoldbackRules.Stage.None || st == HoldbackRules.Stage.Expired) {
+        if (st == HoldbackRules.Stage.None) {
             if (s.capturable != 0 || s.refundable != 0) return string.concat(row, ": an unfunded deal holds money");
             return "";
         }

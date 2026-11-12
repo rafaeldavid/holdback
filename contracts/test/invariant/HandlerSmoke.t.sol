@@ -124,11 +124,18 @@ contract HandlerSmokeTest is Test {
         assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Refunded));
     }
 
-    function test_expireOffer() public {
+    /// SC-6 (T-356): the phase-one contract has no `expireOffer`. The handler's action, kept for the side-by-side
+    /// harness, is refused with no violation, and the offer past its expiry stays unfunded and cannot fund.
+    function test_expireOffer_isGone_offerStaysUnfundedAndCannotFund() public {
         h.offer(OFFER);
         _warpTo(h.termsOf(0).timing.offerExpiresAt);
+        vm.expectRevert(RulesHandler.Refused.selector);
         h.expireOffer(PICK, 6);
-        assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Expired));
+        assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.None));
+        vm.expectRevert(RulesHandler.Refused.selector);
+        h.agreeAndFund(PICK, 0, 0);
+        assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.None));
+        assertEq(h.timeoutMismatch(), 0);
     }
 
     function test_cppReclaim_afterAuthorizationExpiry() public {

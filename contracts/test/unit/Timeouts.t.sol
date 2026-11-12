@@ -10,18 +10,7 @@ import {Base} from "./Base.sol";
 contract TimeoutsTest is Base {
     address internal anyone = address(0xA11);
 
-    function test_expireOffer() public {
-        H.Terms memory t = _terms();
-        bytes32 id = hx.id(t);
-        vm.expectRevert(HoldbackRules.TooEarly.selector);
-        rules.expireOffer(t);
-        vm.warp(t.timing.offerExpiresAt);
-        vm.prank(anyone);
-        rules.expireOffer(t);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Expired));
-        vm.expectRevert(abi.encodeWithSelector(HoldbackRules.WrongStage.selector, HoldbackRules.Stage.Expired));
-        rules.expireOffer(t);
-    }
+    // T-356 (SC-6): `test_expireOffer` left with `expireOffer`; `NoOfferExpiry.t.sol` shows what replaces it.
 
     function test_reclaim_refundsPricePlusFee() public {
         (H.Terms memory t, bytes32 id) = _funded();

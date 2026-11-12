@@ -277,7 +277,9 @@ describe.skipIf(!ready)(`the operators send due timeouts on their own, on anvil 
     expect(pass.nextAt()).toBeNull();
   }, 120_000);
 
-  it('offer expiry: an accepted offer expires on chain with no caller; an offer no adjudicator accepted gets no transaction', async () => {
+  // ADR-0031 §7 (SC-6): the phase-one contracts keep no record of an unfunded offer's expiry, so the pass marks it in
+  // this node's record by its clock and sends nothing.
+  it('offer expiry: an accepted offer is marked expired with no caller and no transaction; an offer no adjudicator accepted is not marked', async () => {
     const { s, pass } = await node();
     const accepted = new EvmDeal(s, cast, club, 't-231-accepted');
     await ok(s, await accepted.offer());
@@ -288,13 +290,14 @@ describe.skipIf(!ready)(`the operators send due timeouts on their own, on anvil 
     expect(sent(await pass.run())).toEqual([]);
     await jump(901);
     const r = await pass.run();
-    expect(sent(r)).toEqual(['expire_offer']);
-    expect(r.sent[0]!.commitmentId).toBe(accepted.id);
+    expect(sent(r)).toEqual([]);
+    expect(r.marked).toEqual([{ commitmentId: accepted.id, kind: 'expire_offer' }]);
     expect((await s.state(accepted.id))!.escrowState).toBe('Expired');
-    expect((await s.stage(accepted.id)).stage).toBe('Expired');
+    expect(s.log().filter((e) => e.commitmentId === accepted.id).at(-1)).toMatchObject({ type: 'offer.expired', actor: 'anyone' });
+    expect((await s.stage(accepted.id)).stage).toBe('None');
     expect((await s.state(unaccepted.id))!.escrowState).toBe('Offered');
-    expect((await lanes()) - before).toBe(1);
-    expect(await pass.run()).toMatchObject({ sent: [], reads: 0 });
+    expect((await lanes()) - before).toBe(0);
+    expect(await pass.run()).toMatchObject({ sent: [], marked: [], reads: 0 });
   }, 120_000);
 
   it('no appeal expiry: a decided deal is final at once, and no pass sends anything for it once the old window would have passed (ADR-0031 §8)', async () => {
@@ -491,10 +494,12 @@ describe.skipIf(!ready)(`the operators send due timeouts on their own, on anvil 
     const held = [await funded('t-231-cap-1', s), await funded('t-231-cap-2', s), await funded('t-231-cap-3', s)];
     await jump(3_601);
     const before = await lanes();
-    // Two sends a pass, reclaims first: the offer holds no money.
+    // Two sends a pass, reclaims first. The offer's expiry is no send (SC-6): it is marked at once, outside the cap
+    // and the budget.
     const first = await pass.run();
     expect(sent(first)).toEqual(['reclaim', 'reclaim']);
-    expect(first.deferred).toBe(2);
+    expect(first.marked.map((x) => x.commitmentId)).toEqual([offer.id]);
+    expect(first.deferred).toBe(1);
     expect(pass.nextAt()).toBeLessThanOrEqual(wall());
     // The budget is spent: nothing more until it opens, and no pass is due before then.
     const second = await pass.run();
@@ -502,7 +507,7 @@ describe.skipIf(!ready)(`the operators send due timeouts on their own, on anvil 
     expect(pass.nextAt()).toBeGreaterThanOrEqual(opensAt() - 5_000);
     expect((await lanes()) - before).toBe(2);
     expect(held.map((d) => s.escrowState(d.id)!.kind).sort()).toEqual(['Held', 'Refunded', 'Refunded']);
-    expect(s.escrowState(offer.id)!.kind).toBe('AcceptedByAdjudicator');
+    expect(s.escrowState(offer.id)!.kind).toBe('Expired');
   }, 120_000);
 
   // T-313: whether a send went out is a flag on the relay's answer (`reverted`), set where the relay learns it. The pass

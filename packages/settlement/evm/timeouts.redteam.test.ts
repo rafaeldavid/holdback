@@ -370,7 +370,9 @@ describe.skipIf(!ready)(`red team of the operators' own timeouts, on anvil stand
     await ok(s, await escalated.decide('primary', 'escalate'));
     await jump(910);
     const r = await pass.run();
-    expect(sent(r).sort()).toEqual(['default', 'expire_offer']);
+    // SC-6: the offer's expiry is marked in this node's record; only the default is a transaction.
+    expect(sent(r)).toEqual(['default']);
+    expect(r.marked.map((x) => x.kind)).toEqual(['expire_offer']);
     const before = await lanes();
     const late = await Promise.all([s.trigger(offer.id, 'expire_offer', { via: 'op-2', idempotencyKey: 't-231-rt/late-1' }), s.trigger(escalated.id, 'default', { via: 'op-2', idempotencyKey: 't-231-rt/late-2' })]);
     expect(late.map((x) => (x.ok ? `${x.state.escrowState} ${x.events.length}` : x.problem.type))).toEqual(['Expired 0', 'Refunded 0']);

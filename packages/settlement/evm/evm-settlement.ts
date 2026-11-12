@@ -281,8 +281,8 @@ const signedEnvelope = (k: EncryptedKey): EncryptedKey => ({
   ...(k.unlock ? { unlock: { kind: k.unlock.kind, ...(k.unlock.round !== undefined ? { round: k.unlock.round } : {}) } } : {}),
 });
 
-/** On-chain Stage enum (HoldbackRules.Stage) as core kinds; None is any pre-funding kind. */
-const STAGES = ['None', 'Held', 'Delivered', 'FallbackJudging', 'Escalated', 'Released', 'Refunded', 'Settled', 'Expired'] as const;
+/** On-chain Stage enum (HoldbackRules.Stage) as core kinds; None is any pre-funding kind, and an expired offer. */
+const STAGES = ['None', 'Held', 'Delivered', 'FallbackJudging', 'Escalated', 'Released', 'Refunded', 'Settled'] as const;
 /**
  * ADR-0031 §8 (D57): the phase-one contracts take no party appeal. An agent that sends one, or its expiry, gets this
  * reason before any transaction, never a revert it cannot read.
@@ -291,6 +291,9 @@ export const PHASE_ONE_NO_APPEAL =
   'this settlement runs the phase-one contracts, which have no party appeals and no bonds (ADR-0031, D57): the first decision by the primary or the fallback adjudicator is final on chain. ' +
   'Nothing reopens it. The signed decision and its judgment record are your evidence (D26); before you sign your next deal, choose the three adjudicators and the default outcome you can rely on';
 const PRE_FUNDING: readonly EscrowStateKind[] = ['Offered', 'AcceptedByAdjudicator', 'Agreed'];
+/** The chain's stage for a book's kind: None for a pre-funding kind and for an expired offer, which the phase-one
+ *  contracts never record (ADR-0031 §7, SC-6); the kind itself otherwise. */
+const chainStageOf = (kind: EscrowStateKind): string => (PRE_FUNDING.includes(kind) || kind === 'Expired' ? 'None' : kind);
 /** How long a live chain's balance reads are reused: a block is about 12 s on Sepolia. */
 const BALANCE_TTL_MS = 4000;
 /**
@@ -310,7 +313,6 @@ const LOG_TYPES: Record<string, Record<string, SettlementEventType>> = {
   decide: { JobSubmitted: 'delivery.submitted', Decided: 'judgment.decided', PaymentReleased: 'settlement.released', Refunded: 'settlement.refunded', KeyReleased: 'key.released' },
   earlyAccept: { JobSubmitted: 'delivery.submitted', PaymentReleased: 'settlement.released', KeyReleased: 'key.released' },
   mutualSettle: { MutuallySettled: 'commitment.settled', KeyReleased: 'key.released' },
-  expireOffer: { JobExpired: 'offer.expired' },
   reclaim: { Refunded: 'settlement.reclaimed' },
   triggerFallback: { FallbackTriggered: 'fallback.triggered' },
   triggerDefault: { Defaulted: 'default.triggered', Refunded: 'settlement.refunded' },
@@ -330,7 +332,7 @@ const RECENT_MS = 86_400_000;
 /** The most extra Idempotency-Keys a kept copy answers (T-230): the same copy posted again, under other keys, before it joins. */
 const POSTED_KEYS_MAX = 16;
 /** Permissionless timeouts: the sync reads them from the logs alone, never from calldata (T-218). */
-const TIMEOUTS: ReadonlySet<string> = new Set(['expireOffer', 'reclaim', 'triggerFallback', 'triggerDefault']);
+const TIMEOUTS: ReadonlySet<string> = new Set(['reclaim', 'triggerFallback', 'triggerDefault']);
 /** The event each timeout leaves in its deal's log: a trigger that comes after it sends nothing (T-231). */
 const RAN: Partial<Record<TimeoutKind, SettlementEventType>> = { expire_offer: 'offer.expired', reclaim: 'settlement.reclaimed', fallback: 'fallback.triggered', default: 'default.triggered' };
 /** 9999-12-31T23:59:59Z: a later chain time (the contract takes any uint64) reads as never expiring (review H2). */
@@ -1307,9 +1309,34 @@ export class EvmSettlement implements Settlement {
     if (ran && !book.behind && this.log_.some((e) => e.commitmentId === id && e.type === ran)) return id;
     const t = termsView(book.state.terms);
     switch (timeout) {
-      case 'expire_offer':
-        await this.call(id, 'expireOffer', [t], (at) => [{ type: 'expire', at }], options, dryRun, 'anyone');
+      case 'expire_offer': {
+        // ADR-0031 §7 (SC-6): the phase-one contracts keep no record of an unfunded offer's expiry, and from its
+        // deadline agreeAndFund refuses it. So the expiry is this node's own record, by its clock: core steps it, the
+        // log says `offer.expired`, and no transaction goes out. The contract still holds the deal as None.
+        // Behind the chain (T-218), the contract has moved this deal: it is no unfunded offer.
+        if (book.behind) refuse('invalid_state', this.lag(id)!);
+        const at = this.now();
+        const before = book.state;
+        const next = this.stepped(before, { type: 'expire', at });
+        // Before SC-6 the contract closed two races by refusing expireOffer: a funding this node has not synced (relayed by
+        // another operator, or sent directly), and a node clock ahead of the chain's. One free read of one block closes
+        // both: the deal is None there, and on a live chain that block's own time has passed the deadline after which
+        // agreeAndFund refuses it (min of offerExpiresAt and fundBy), so no later block can fund it.
+        const block = await this.world.publicClient.getBlock({ blockTag: 'latest' });
+        const timing = before.terms.timing;
+        const due = Math.min(Date.parse(timing.offerExpiresAt), Date.parse(timing.fundBy));
+        if (this.wall && Number(block.timestamp) * 1000 < due) {
+          refuse('invalid_state', `the chain's latest block (${toTimestamp(Number(block.timestamp) * 1000)}) is still before this offer's deadline ${toTimestamp(due)}, so it can still be funded; ask again after that block time`);
+        }
+        const onChain = await this.stage(id, block.number ?? undefined);
+        if (onChain.stage !== 'None') {
+          refuse('invalid_state', `the contract holds this deal ${onChain.stage}: it was funded, so it is not an expired offer. This node applies the funding at its next sync`);
+        }
+        if (dryRun) return id;
+        book.state = next;
+        this.emit('offer.expired', id, 'anyone', options.via ?? 'direct', { from: before.kind }, false, at);
         return id;
+      }
       case 'reclaim':
         await this.call(id, 'reclaim', [t], (at) => [{ type: 'reclaim', at }], options, dryRun, 'anyone');
         return id;
@@ -1402,7 +1429,7 @@ export class EvmSettlement implements Settlement {
     // mined call as a missed receipt (review M2). Both read at the receipt's block: at the latest block, an RPC node a
     // block behind can answer the state before this call, and the call's events are lost (the inferred cause of T-216
     // round 1's lost delivery, 2026-11-04).
-    const expect = PRE_FUNDING.includes(after.kind) ? 'None' : after.kind;
+    const expect = chainStageOf(after.kind);
     const onChain = await this.atReceipt(() => this.stage(id, mined.blockNumber), (s) => s.stage === expect);
     if (onChain.stage !== expect) throw new Error(`EVM/core divergence after ${fn}: the contract is ${onChain.stage}, core is ${after.kind}`);
     // ADR-0029: the delivery the contract stored is the one the mirror holds, since every later signature names it.
@@ -1674,7 +1701,7 @@ export class EvmSettlement implements Settlement {
       const book = this.books.get(id);
       if (!book || book.behind || (this.relayedAt.get(id) ?? -1) > mark) continue;
       const s = book.state;
-      const expect = PRE_FUNDING.includes(s.kind) ? 'None' : s.kind;
+      const expect = chainStageOf(s.kind);
       if (stage.stage !== expect) {
         this.fallBehind(id, book, { hash: last.get(id) ?? ('0x' as Hex) }, stage, `the contract holds this deal ${stage.stage}, while this node's book rebuilt it to ${s.kind}.`);
         report.behind++;
@@ -2034,9 +2061,6 @@ export class EvmSettlement implements Settlement {
         out.push({ fn: 'reclaim', steps: (at) => [{ type: 'reclaim', at }], logs: pair });
         i += pair.length - 1;
         kind = 'Refunded';
-      } else if (l.eventName === 'JobExpired' && PRE_FUNDING.includes(kind)) {
-        out.push({ fn: 'expireOffer', steps: (at) => [{ type: 'expire', at }], logs: [l] });
-        kind = 'Expired';
       } else {
         return null;
       }
@@ -2080,7 +2104,6 @@ export class EvmSettlement implements Settlement {
         return JSON.stringify(paid) === JSON.stringify(others) ? null : 'its other payouts differ';
       }
       // Timeouts are read from the logs alone; one read from calldata is checked against its own log all the same.
-      case 'expireOffer':
       case 'reclaim':
         return has('JobExpired') ? null : 'no JobExpired';
       case 'triggerFallback':
@@ -2238,8 +2261,6 @@ export class EvmSettlement implements Settlement {
         const carriedBy = late;
         return { fn: call.fn, steps: (at) => [{ type: 'mutual_settle', at, message: m, rule: { allowed: true, payoutsTo: 'any' }, ...(carriedBy ? { delivery: carriedBy } : {}) }], actor: 'anyone', ctx: {}, signed: () => verifyMutualSettlement(this.domain, m, terms.buyer, terms.seller), settlement: m };
       }
-      case 'expireOffer':
-        return { fn: call.fn, steps: (at) => [{ type: 'expire', at }], actor: 'anyone', ctx: {}, signed: yes };
       case 'reclaim':
         return { fn: call.fn, steps: (at) => [{ type: 'reclaim', at }], actor: 'anyone', ctx: {}, signed: yes };
       case 'triggerFallback':

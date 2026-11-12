@@ -36,21 +36,22 @@ contract RulesInvariants is Test {
         }
         codehash = [address(rules).codehash, address(escrow).codehash, tk[0].codehash];
 
-        bytes4[] memory s = new bytes4[](14);
+        // T-356 (SC-6): `expireOffer` left the phase-one contract; like the appeal actions, its handler action stays
+        // for the side-by-side harness only, where it is always refused, so the campaign does not target it.
+        bytes4[] memory s = new bytes4[](13);
         s[0] = RulesHandler.offer.selector;
         s[1] = RulesHandler.agreeAndFund.selector;
         s[2] = RulesHandler.deliver.selector;
         s[3] = RulesHandler.decide.selector;
         s[4] = RulesHandler.earlyAccept.selector;
         s[5] = RulesHandler.mutualSettle.selector;
-        s[6] = RulesHandler.expireOffer.selector;
-        s[7] = RulesHandler.reclaim.selector;
-        s[8] = RulesHandler.triggerFallback.selector;
-        s[9] = RulesHandler.triggerDefault.selector;
-        s[10] = RulesHandler.cppReclaim.selector;
-        s[11] = RulesHandler.stranger.selector;
-        s[12] = RulesHandler.warp.selector;
-        s[13] = RulesHandler.decideFallback.selector;
+        s[6] = RulesHandler.reclaim.selector;
+        s[7] = RulesHandler.triggerFallback.selector;
+        s[8] = RulesHandler.triggerDefault.selector;
+        s[9] = RulesHandler.cppReclaim.selector;
+        s[10] = RulesHandler.stranger.selector;
+        s[11] = RulesHandler.warp.selector;
+        s[12] = RulesHandler.decideFallback.selector;
         targetContract(address(h));
         targetSelector(StdInvariant.FuzzSelector({addr: address(h), selectors: s}));
     }

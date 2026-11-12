@@ -33,8 +33,8 @@ contract SideBySideTest is Test {
     uint256 internal constant DEPTH = 100;
     uint256 internal constant ACTIONS = 17;
     uint256 internal constant WEIGHTS = 28;
-    /// The phase-one rows of the state oracle (`StateOracle.rows`): P01 to P17 and L02.
-    uint256 internal constant ROWS = 18;
+    /// The phase-one rows of the state oracle (`StateOracle.rows`): P01 to P17 (L02 left with SC-6, T-356).
+    uint256 internal constant ROWS = 17;
     uint256 internal constant WARM_UP = 12;
     uint256 internal constant COVERAGE_SEEDS = 48;
 
@@ -126,7 +126,7 @@ contract SideBySideTest is Test {
     }
 
     /// The gate is not vacuous. Over COVERAGE_SEEDS fixed seeds the sequences reach every stage and every phase-one
-    /// row of the state oracle (P01 to P17, and L02 until SC-6 lands), land at least 12 checked calls a sequence on
+    /// row of the state oracle (P01 to P17), land at least 12 checked calls a sequence on
     /// average, and at most a quarter of them diverge by an allowed change. Gas metering is off here: this test
     /// measures reach, and the gate itself (`testFuzz_sideBySide`) meters every action.
     function test_sideBySide_reachesEveryRow() public {
@@ -144,7 +144,8 @@ contract SideBySideTest is Test {
         for (uint256 row = 1; row <= ROWS; row++) {
             assertTrue(rowBits & (1 << row) != 0, string.concat("row ", StateOracle.rowId(row), " never reached"));
         }
-        assertEq(stages >> 1, uint256(0xff), "some stage was never reached");
+        // Held to Settled: seven stages (`Expired` left with SC-6, T-356).
+        assertEq(stages >> 1, uint256(0x7f), "some stage was never reached");
         // 772 landed over the 48 seeds on 2026-11-11 (measured); the floor leaves room for changes to the mix.
         assertGe(landed, 12 * COVERAGE_SEEDS, "too few checked calls landed");
         assertLe(diverged * 4, COVERAGE_SEEDS, "more than a quarter of the seeds diverged by allowed changes");

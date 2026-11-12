@@ -52,8 +52,8 @@ contract HoldbackRules is EIP712 {
     uint256 public constant MUTUAL_FEE_SHARE_BPS = 0;
 
     AuthCaptureEscrow public immutable ESCROW;
+    /// @notice CPP's ERC-3009 collector, the one way a phase-one deal funds (ADR-0031 §3, SC-2).
     address public immutable ERC3009_COLLECTOR;
-    address public immutable PERMIT2_COLLECTOR;
     /// @notice Added after the last moment a capture can happen (fallbackBy + appealDecideSec) to get CPP's
     ///         authorizationExpiry, after which only the buyer's own reclaim on CPP remains (ADR-0003).
     uint64 public immutable EXPIRY_MARGIN;
@@ -116,14 +116,12 @@ contract HoldbackRules is EIP712 {
     constructor(
         AuthCaptureEscrow escrow,
         address erc3009Collector,
-        address permit2Collector,
         uint64 expiryMargin,
         IHoldbackBeacon beacon,
         address token
     ) {
         ESCROW = escrow;
         ERC3009_COLLECTOR = erc3009Collector;
-        PERMIT2_COLLECTOR = permit2Collector;
         EXPIRY_MARGIN = expiryMargin;
         BEACON = beacon;
         TOKEN = token;
@@ -187,7 +185,7 @@ contract HoldbackRules is EIP712 {
         if (block.timestamp >= acc.expiresAt || block.timestamp >= ag.expiresAt) revert MessageExpired();
         // Phase one has no bond (ADR-0031 §8, point 2): the acceptance must say that nothing is reserved. The terms
         // must name this deployment's token (§2, SC-1); every later step finds the deal by the ID that hashes it.
-        if (acc.bondReserved != 0 || f.method > 1 || t.token != TOKEN) revert InvalidMessage();
+        if (acc.bondReserved != 0 || t.token != TOKEN) revert InvalidMessage();
         _requireSigned(t.seller, id, sellerSignature);
         _requireSigned(t.adjudicator, H.acceptanceHash(id, t, acc), acc.signature);
         _requireSigned(t.buyer, H.agreeHash(id, t.buyer, ag), ag.signature);
@@ -197,7 +195,7 @@ contract HoldbackRules is EIP712 {
         d.seedTag = uint144(uint256(acc.seedCommitment));
         emit JobCreated(id, t.buyer, t.seller, t.adjudicator, pi.authorizationExpiry);
         emit JobFunded(id, t.buyer, pi.maxAmount);
-        ESCROW.authorize(pi, pi.maxAmount, f.method == 0 ? ERC3009_COLLECTOR : PERMIT2_COLLECTOR, f.signature);
+        ESCROW.authorize(pi, pi.maxAmount, ERC3009_COLLECTOR, f.signature);
     }
 
     // Deliver

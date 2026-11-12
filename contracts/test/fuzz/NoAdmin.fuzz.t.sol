@@ -72,7 +72,8 @@ contract NoAdminFuzzTest is Base {
             // T-346 (ADR-0031 §8): BONDS(), KEY_APPEAL(), expireAppeal( and fileAppeal( left with the phase-one cut.
             // T-356 (ADR-0031 §2, SC-1): TOKEN(), the deployment's one token, an immutable set at deploy.
             // T-356 (ADR-0031 §3, SC-2): PERMIT2_COLLECTOR() left with the Permit2 path; TOKEN() takes its index.
-            s = new string[](22);
+            // T-356 (ADR-0031 §7, SC-6): expireOffer( left; deliveryHashOf(bytes32) takes its index.
+            s = new string[](21);
             s[0] = "BEACON()";
             s[1] = "ERC3009_COLLECTOR()";
             s[2] = "ESCROW()";
@@ -88,13 +89,12 @@ contract NoAdminFuzzTest is Base {
             s[12] = "deliver(";
             s[13] = "earlyAccept(";
             s[14] = "eip712Domain()";
-            s[15] = "expireOffer(";
+            s[15] = "deliveryHashOf(bytes32)"; // a read: the posted delivery every signature names (ADR-0029)
             s[16] = "mutualSettle(";
             s[17] = "reclaim(";
             s[18] = "triggerDefault(";
             s[19] = "triggerFallback(";
             s[20] = "typedDataHash(bytes32)";
-            s[21] = "deliveryHashOf(bytes32)"; // a read: the posted delivery every signature names (ADR-0029)
         } else if (i == 1) {
             s = new string[](11);
             s[0] = "PAYMENT_INFO_TYPEHASH()";
