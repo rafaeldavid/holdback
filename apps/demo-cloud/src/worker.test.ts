@@ -1,6 +1,7 @@
 // T-057: the World Durable Object (worker.ts) in Node, behind both Workers. A fake Durable Object state over memory
 // storage holds the alarm in a field the test fires, on a fake clock. Cloudflare bills each setAlarm as a row written
 // and each alarm as a request, so the alarm is what an idle world must not cost.
+import { readFileSync } from 'node:fs';
 import nacl from 'tweetnacl';
 import { generatePrivateKey } from 'viem/accounts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -241,7 +242,9 @@ describe('the SETTLEMENT variable (T-313)', () => {
   };
 
   it('`sim` and `sepolia` each forward to their own world, and name the settlement to it', async () => {
-    for (const [value, name] of [['sim', 'holdback-public-demo-2026-11-04'], ['sepolia', 'holdback-public-demo-sepolia-2026-11-04']] as const) {
+    // T-383: the Sepolia world's name is the record's rules address, so a new record is a new world.
+    const record = JSON.parse(readFileSync(new URL('../../../contracts/deployments/sepolia.json', import.meta.url), 'utf8')) as { rules: string };
+    for (const [value, name] of [['sim', 'holdback-public-demo-sim-2026-11-12'], ['sepolia', `holdback-public-demo-sepolia-${record.rules.toLowerCase()}`]] as const) {
       const b = binding();
       const r = await worker.fetch(new Request('https://api.crow.direct/v1/status', { headers: { 'x-holdback-settlement': 'spoofed' } }), b.env(value));
       expect(await r.text()).toBe('from the world');
