@@ -5,7 +5,7 @@
 - **Depends on:** T-358 (R6c-1, the two addresses in the signed terms, holdback PR 387, `a37a48d`); T-374 part 1 (the lane takes main, holdback PR 398)
 - **Paths this task may touch:** `packages/sdk/`, `apps/operator/`, `apps/demo-cloud/` except its fork tests, `apps/adjudicator/` except `drand-fork.test.ts`, `apps/test-agents/`, `spec/openapi.json` and its source `spec/openapi/paths.json`, this file. Named exceptions: the profile option in `packages/settlement/sim/` and `packages/core/` (item 4), and one line in ADR-0033 (item 5)
 - **Human gate:** no. The operator deploy that carries this work is Rafa's, after the Sepolia redeploy
-- **Status:** in progress
+- **Status:** done (parts 1 to 5, holdback PRs 403, 408, 412, 416 and the alignment PR). Part 6 follows as its own pull request, placed by the coordinator on 2026-11-12 (Handoff)
 - **Agent/session:** Opus 5.5, high effort; change kind 4 (API and operator code); one reviewer per pull request
 
 ## Intent
@@ -143,6 +143,18 @@ Labels: measured, inferred, guessed. All runs are on this task's branches, 2026-
   - Info 8 is as intended.
 - CI found two races in tests on this branch: the demo world's rebuild test took its digest before closing the world, and the posted-delivery settlement test (PR 412) did not silence the primary. Both are fixed; each passed three runs in a row [measured].
 
+**Part 5, my files leave the alignment list (the alignment PR):**
+
+- `tests/cut-feature-alignment.known.json` [measured]: 83 files on the lane's tip `5091dd7`, 61 with this PR. The 22 files that leave are T-378's in `apps/operator`, `apps/demo-cloud`, `apps/adjudicator`, `packages/sdk` and `tests/contract/openapi.contract.test.ts`; the list stood at 87 before other sessions' changes.
+  - Each use of an appeal or bond feature in them is the full protocol's, which SimChain keeps, and carries a "SimChain only" mark.
+  - The offer expiry's uses get six ALLOWED entries with the testkit entry's reason: the operators' clock record stays in phase one (the coordinator, 2026-11-12).
+  - One stale line in `registry.ts` now names the deployment's one token.
+- `apps/adjudicator/scripts/mutants.mjs` [measured]: T-380's rounds change (PR 418) left four rows matching nothing. Each is retargeted by its search text, and two rows test the beacon margin.
+  - All 84 rows apply.
+  - The six changed rows are killed, each run alone.
+  - The two margin rows are killed only where anvil and `contracts/out` exist: their tests are the anvil red-team suite.
+- The touched suites pass on the lane's tip: 749 tests in 54 files, 12 skipped [measured].
+
 ## Decisions
 
 1. **`pnpm demo` stays on the full protocol** (the coordinator, 2026-11-12, on this task's question). Phase one goes to `pnpm sim` and `PublicWorld` on SimChain. The Handoff lists any other local entry point that takes a party's own terms, with the profile it runs.
@@ -162,6 +174,8 @@ Labels: measured, inferred, guessed. All runs are on this task's branches, 2026-
      - a stored `PublicWorld` created before the profile existed.
 
 ## Handoff
+
+**State on 2026-11-12:** parts 1 to 5 are merged into `contracts-audit-ready`. Part 6 follows on its own branch. The operator deploy that carries this work is Rafa's, after the Sepolia redeploy.
 
 **Open, for later work:**
 
