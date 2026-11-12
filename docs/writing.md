@@ -10,7 +10,7 @@ Write for a reader who is new to the project, a newly promoted product manager f
 - **Use the present tense** for how things work, and the past tense, with a date, for what happened: "On 2026-11-03 the demo moved to Sepolia."
 - **One idea per sentence,** and about 25 words at most. Use a list for three or more parallel items.
 - **Use plain words.** Write "use", not "leverage"; "check", not "validate" (unless you mean schema validation); "about", not "approximately".
-- **Define a term at its first use,** or link the glossary in `docs/architecture.md`. Put a plain phrase beside every internal label: "the overturn payout from the decider's bond (D43)", not "D43"; "the refunded-buyer key fix (T-206 H-2)", not "H-2".
+- **Define a term at its first use,** or link the glossary in `docs/architecture.md`. Put a plain phrase beside every internal label: "the phase-one cut of appeals and bonds (D57)", not "D57"; "the refunded-buyer key fix (T-206 H-2)", not "H-2".
 - **Avoid:** asides set off by em dashes, "not X but Y" framing, scare quotes, "worth noting", "honest caveat", apologies, exclamation marks, and "please" in interface text.
 
 ## Findings, alerts and status lines
