@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {IHoldbackBeacon} from "../../src/IHoldbackBeacon.sol";
 import {Base} from "./Base.sol";
 
@@ -26,7 +27,7 @@ contract ConstructorChecksTest is Base {
     function _refused(AuthCaptureEscrow e, address c, IHoldbackBeacon b, address tok) internal {
         (bool ok, bytes memory ret) = _deploy(e, c, b, tok);
         assertFalse(ok, "deployed");
-        assertEq(ret, abi.encodeWithSelector(HoldbackRules.ZeroAddress.selector));
+        assertEq(ret, abi.encodeWithSelector(IHoldbackRules.ZeroAddress.selector));
     }
 
     function test_zeroEscrow_refused() public {

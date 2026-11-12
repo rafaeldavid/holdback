@@ -5,6 +5,7 @@ import {Vm} from "forge-std/Vm.sol";
 import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -101,8 +102,8 @@ contract ZeroPriceDealTest is Base {
 
     /// The stored word and `deliveryHashOf` against a row of state-model.md section 9.3. `seedTag` is the primary's
     /// from funding on.
-    function _word(bytes32 id, HoldbackRules.Stage stage, uint8 attempt, uint256 t1) internal view {
-        HoldbackRules.Deal memory d = rules.dealOf(id);
+    function _word(bytes32 id, IHoldbackRules.Stage stage, uint8 attempt, uint256 t1) internal view {
+        IHoldbackRules.Deal memory d = rules.dealOf(id);
         assertEq(uint8(d.stage), uint8(stage), "stage");
         assertEq(d.attempt, attempt, "attempt");
         assertEq(d.t1, t1, "t1");
@@ -208,46 +209,46 @@ contract ZeroPriceDealTest is Base {
         view
         returns (Ev memory)
     {
-        return _ev(address(rules), HoldbackRules.Decided.selector, id, _a(who), abi.encode(role, outcome, RECORD, seed));
+        return _ev(address(rules), IHoldbackRules.Decided.selector, id, _a(who), abi.encode(role, outcome, RECORD, seed));
     }
 
     function _completed(bytes32 id, address who, bytes32 reason) internal view returns (Ev memory) {
-        return _ev(address(rules), HoldbackRules.JobCompleted.selector, id, _a(who), abi.encode(reason));
+        return _ev(address(rules), IHoldbackRules.JobCompleted.selector, id, _a(who), abi.encode(reason));
     }
 
     function _rejected(bytes32 id, address who) internal view returns (Ev memory) {
-        return _ev(address(rules), HoldbackRules.JobRejected.selector, id, _a(who), abi.encode(RECORD));
+        return _ev(address(rules), IHoldbackRules.JobRejected.selector, id, _a(who), abi.encode(RECORD));
     }
 
     function _released(bytes32 id, uint256 amount) internal view returns (Ev memory) {
-        return _ev(address(rules), HoldbackRules.PaymentReleased.selector, id, _a(seller), abi.encode(amount));
+        return _ev(address(rules), IHoldbackRules.PaymentReleased.selector, id, _a(seller), abi.encode(amount));
     }
 
     function _refunded(bytes32 id, uint256 amount) internal view returns (Ev memory) {
-        return _ev(address(rules), HoldbackRules.Refunded.selector, id, _a(buyer), abi.encode(amount));
+        return _ev(address(rules), IHoldbackRules.Refunded.selector, id, _a(buyer), abi.encode(amount));
     }
 
     function _feePaid(bytes32 id, address who, uint256 amount) internal view returns (Ev memory) {
-        return _ev(address(rules), HoldbackRules.FeePaid.selector, id, _a(who), abi.encode(amount));
+        return _ev(address(rules), IHoldbackRules.FeePaid.selector, id, _a(who), abi.encode(amount));
     }
 
     function _key(bytes32 id, uint8 path, string memory ciphertext) internal view returns (Ev memory) {
         return _ev(
-            address(rules), HoldbackRules.KeyReleased.selector, id, _a(buyer), abi.encode(path, KEY_SCHEME, ciphertext)
+            address(rules), IHoldbackRules.KeyReleased.selector, id, _a(buyer), abi.encode(path, KEY_SCHEME, ciphertext)
         );
     }
 
     function _jobExpired(bytes32 id) internal view returns (Ev memory v) {
         v.emitter = address(rules);
         v.topics = new bytes32[](2);
-        v.topics[0] = HoldbackRules.JobExpired.selector;
+        v.topics[0] = IHoldbackRules.JobExpired.selector;
         v.topics[1] = id;
     }
 
-    function _defaulted(bytes32 id, HoldbackRules.Stage from) internal view returns (Ev memory v) {
+    function _defaulted(bytes32 id, IHoldbackRules.Stage from) internal view returns (Ev memory v) {
         v.emitter = address(rules);
         v.topics = new bytes32[](2);
-        v.topics[0] = HoldbackRules.Defaulted.selector;
+        v.topics[0] = IHoldbackRules.Defaulted.selector;
         v.topics[1] = id;
         v.data = abi.encode(from);
     }
@@ -255,7 +256,7 @@ contract ZeroPriceDealTest is Base {
     function _settled(bytes32 id, bool keyReleased) internal view returns (Ev memory v) {
         v.emitter = address(rules);
         v.topics = new bytes32[](2);
-        v.topics[0] = HoldbackRules.MutuallySettled.selector;
+        v.topics[0] = IHoldbackRules.MutuallySettled.selector;
         v.topics[1] = id;
         v.data = abi.encode(keyReleased);
     }
@@ -263,13 +264,13 @@ contract ZeroPriceDealTest is Base {
     function _fallbackTriggered(bytes32 id, uint64 round) internal view returns (Ev memory v) {
         v.emitter = address(rules);
         v.topics = new bytes32[](2);
-        v.topics[0] = HoldbackRules.FallbackTriggered.selector;
+        v.topics[0] = IHoldbackRules.FallbackTriggered.selector;
         v.topics[1] = id;
         v.data = abi.encode(round);
     }
 
     function _submitted(bytes32 id) internal view returns (Ev memory) {
-        return _ev(address(rules), HoldbackRules.JobSubmitted.selector, id, _a(seller), abi.encode(_postedHash(id)));
+        return _ev(address(rules), IHoldbackRules.JobSubmitted.selector, id, _a(seller), abi.encode(_postedHash(id)));
     }
 
     // Escrow events.
@@ -315,16 +316,16 @@ contract ZeroPriceDealTest is Base {
         Ev[] memory w = new Ev[](4);
         w[0] = _ev(
             address(rules),
-            HoldbackRules.JobCreated.selector,
+            IHoldbackRules.JobCreated.selector,
             id,
             _a(buyer),
             _a(seller),
             abi.encode(adjudicator, uint256(pi.authorizationExpiry))
         );
-        w[1] = _ev(address(rules), HoldbackRules.JobFunded.selector, id, _a(buyer), abi.encode(FEE));
+        w[1] = _ev(address(rules), IHoldbackRules.JobFunded.selector, id, _a(buyer), abi.encode(FEE));
         w[2] = _ev(
             address(rules),
-            HoldbackRules.SettlementAddresses.selector,
+            IHoldbackRules.SettlementAddresses.selector,
             id,
             _a(t.buyerPaymentAddress),
             _a(t.sellerPayoutAddress),
@@ -339,7 +340,7 @@ contract ZeroPriceDealTest is Base {
         _check(w);
 
         assertEq(b0.buyer - usdc.balanceOf(buyer), FEE, "the buyer paid the fee only");
-        _word(id, HoldbackRules.Stage.Held, 0, 0); // P02
+        _word(id, IHoldbackRules.Stage.Held, 0, 0); // P02
         _escrowHolds(t, FEE, 0);
     }
 
@@ -365,7 +366,7 @@ contract ZeroPriceDealTest is Base {
         _check(w);
 
         _gained(b0, 0, 0, FEE, 0, 0);
-        _word(id, HoldbackRules.Stage.Released, 1, block.timestamp); // P06, final
+        _word(id, IHoldbackRules.Stage.Released, 1, block.timestamp); // P06, final
         _escrowHolds(t, 0, FEE);
     }
 
@@ -388,7 +389,7 @@ contract ZeroPriceDealTest is Base {
         _check(w);
 
         _gained(b0, 0, 0, FEE, 0, 0);
-        _word(id, HoldbackRules.Stage.Refunded, 1, block.timestamp); // P07, final
+        _word(id, IHoldbackRules.Stage.Refunded, 1, block.timestamp); // P07, final
         _escrowHolds(t, 0, FEE);
     }
 
@@ -402,7 +403,7 @@ contract ZeroPriceDealTest is Base {
         Ev[] memory w = new Ev[](1);
         w[0] = _fallbackTriggered(id, uint64(t.timing.judgeBy));
         _check(w);
-        _word(id, HoldbackRules.Stage.FallbackJudging, 1, t.timing.judgeBy); // P04
+        _word(id, IHoldbackRules.Stage.FallbackJudging, 1, t.timing.judgeBy); // P04
         _escrowHolds(t, FEE, 0);
     }
 
@@ -431,7 +432,7 @@ contract ZeroPriceDealTest is Base {
         _check(w);
 
         _gained(b0, 0, 0, 0, FEE, 0);
-        _word(id, HoldbackRules.Stage.Released, 1, block.timestamp); // P08, final
+        _word(id, IHoldbackRules.Stage.Released, 1, block.timestamp); // P08, final
         _escrowHolds(t, 0, FEE);
     }
 
@@ -453,7 +454,7 @@ contract ZeroPriceDealTest is Base {
         _check(w);
 
         _gained(b0, 0, 0, 0, FEE, 0);
-        _word(id, HoldbackRules.Stage.Refunded, 1, block.timestamp); // P09, final
+        _word(id, IHoldbackRules.Stage.Refunded, 1, block.timestamp); // P09, final
         _escrowHolds(t, 0, FEE);
     }
 
@@ -475,7 +476,7 @@ contract ZeroPriceDealTest is Base {
         _check(w);
 
         _gained(b0, FEE, 0, 0, 0, 0);
-        _word(id, HoldbackRules.Stage.Refunded, 0, 0); // P14
+        _word(id, IHoldbackRules.Stage.Refunded, 0, 0); // P14
         _escrowHolds(t, 0, 0);
     }
 
@@ -491,14 +492,14 @@ contract ZeroPriceDealTest is Base {
         _start();
         rules.triggerDefault(t);
         Ev[] memory w = new Ev[](4);
-        w[0] = _defaulted(id, HoldbackRules.Stage.FallbackJudging);
+        w[0] = _defaulted(id, IHoldbackRules.Stage.FallbackJudging);
         w[1] = _voided(t, FEE);
         w[2] = _storeCreated();
         w[3] = _refunded(id, FEE);
         _check(w);
 
         _gained(b0, FEE, 0, 0, 0, 0);
-        _word(id, HoldbackRules.Stage.Refunded, 1, t.timing.judgeBy); // P12
+        _word(id, IHoldbackRules.Stage.Refunded, 1, t.timing.judgeBy); // P12
         _escrowHolds(t, 0, 0);
     }
 
@@ -513,14 +514,14 @@ contract ZeroPriceDealTest is Base {
         _start();
         rules.triggerDefault(t);
         Ev[] memory w = new Ev[](4);
-        w[0] = _defaulted(id, HoldbackRules.Stage.Escalated);
+        w[0] = _defaulted(id, IHoldbackRules.Stage.Escalated);
         w[1] = _voided(t, FEE);
         w[2] = _storeCreated();
         w[3] = _refunded(id, FEE);
         _check(w);
 
         _gained(b0, FEE, 0, 0, 0, 0);
-        _word(id, HoldbackRules.Stage.Refunded, 1, at); // P12
+        _word(id, IHoldbackRules.Stage.Refunded, 1, at); // P12
         _escrowHolds(t, 0, 0);
     }
 
@@ -533,7 +534,7 @@ contract ZeroPriceDealTest is Base {
         Ev[] memory w = new Ev[](1);
         w[0] = _decided(id, adjudicator, H.ROLE_PRIMARY, H.OUTCOME_ESCALATE, SEED);
         _check(w);
-        _word(id, HoldbackRules.Stage.Escalated, 1, at); // P05
+        _word(id, IHoldbackRules.Stage.Escalated, 1, at); // P05
         _escrowHolds(t, FEE, 0);
     }
 
@@ -566,7 +567,7 @@ contract ZeroPriceDealTest is Base {
         _check(w);
 
         _gained(b0, 0, 0, 0, 0, FEE);
-        _word(id, HoldbackRules.Stage.Released, 1, at); // P10: t1 stays the escalation's time
+        _word(id, IHoldbackRules.Stage.Released, 1, at); // P10: t1 stays the escalation's time
         _escrowHolds(t, 0, FEE);
     }
 
@@ -589,7 +590,7 @@ contract ZeroPriceDealTest is Base {
         _check(w);
 
         _gained(b0, 0, 0, 0, 0, FEE);
-        _word(id, HoldbackRules.Stage.Refunded, 1, at); // P11
+        _word(id, IHoldbackRules.Stage.Refunded, 1, at); // P11
         _escrowHolds(t, 0, FEE);
     }
 
@@ -616,7 +617,7 @@ contract ZeroPriceDealTest is Base {
         _check(w);
 
         _gained(b0, FEE, 0, 0, 0, 0);
-        _word(id, HoldbackRules.Stage.Released, 1, 0); // P13
+        _word(id, IHoldbackRules.Stage.Released, 1, 0); // P13
         _escrowHolds(t, 0, 0);
     }
 
@@ -640,7 +641,7 @@ contract ZeroPriceDealTest is Base {
         _check(w);
 
         _gained(b0, FEE, 0, 0, 0, 0);
-        _word(id, HoldbackRules.Stage.Released, 1, 0); // P13
+        _word(id, IHoldbackRules.Stage.Released, 1, 0); // P13
         _escrowHolds(t, 0, 0);
     }
 
@@ -661,7 +662,7 @@ contract ZeroPriceDealTest is Base {
         w[0] = _decided(id, fallbackAdj, H.ROLE_FALLBACK, H.OUTCOME_ESCALATE, e.seed);
         _check(w);
         _gained(b0, 0, 0, 0, 0, 0);
-        _word(id, HoldbackRules.Stage.Escalated, 1, at); // P05
+        _word(id, IHoldbackRules.Stage.Escalated, 1, at); // P05
         _escrowHolds(t, FEE, 0);
 
         H.Decision memory m = _appealDecision(t, id, at, H.OUTCOME_ACCEPT);
@@ -678,7 +679,7 @@ contract ZeroPriceDealTest is Base {
         _check(w);
 
         _gained(b0, 0, 0, 0, 0, FEE);
-        _word(id, HoldbackRules.Stage.Released, 1, at); // P10
+        _word(id, IHoldbackRules.Stage.Released, 1, at); // P10
         _escrowHolds(t, 0, FEE);
     }
 
@@ -702,17 +703,17 @@ contract ZeroPriceDealTest is Base {
         w[1] = _storeCreated();
         _check(w);
         _gained(b0, FEE, 0, 0, 0, 0);
-        _word(id, HoldbackRules.Stage.FallbackJudging, 1, t.timing.judgeBy); // P04
+        _word(id, IHoldbackRules.Stage.FallbackJudging, 1, t.timing.judgeBy); // P04
         _escrowHolds(t, 0, 0);
 
         _start();
         rules.triggerDefault(t);
         w = new Ev[](1);
-        w[0] = _defaulted(id, HoldbackRules.Stage.FallbackJudging);
+        w[0] = _defaulted(id, IHoldbackRules.Stage.FallbackJudging);
         _check(w);
 
         _gained(b0, FEE, 0, 0, 0, 0); // nothing more moved
-        _word(id, HoldbackRules.Stage.Refunded, 1, t.timing.judgeBy); // P12
+        _word(id, IHoldbackRules.Stage.Refunded, 1, t.timing.judgeBy); // P12
         _escrowHolds(t, 0, 0);
     }
 
@@ -736,7 +737,7 @@ contract ZeroPriceDealTest is Base {
         _check(w);
 
         _gained(b0, FEE, 0, 0, 0, 0);
-        _word(id, HoldbackRules.Stage.Settled, 1, t.timing.judgeBy); // P17
+        _word(id, IHoldbackRules.Stage.Settled, 1, t.timing.judgeBy); // P17
         _escrowHolds(t, 0, 0);
     }
 
@@ -757,7 +758,7 @@ contract ZeroPriceDealTest is Base {
         _check(w);
 
         _gained(b0, FEE, 0, 0, 0, 0);
-        _word(id, HoldbackRules.Stage.Settled, 0, 0); // P15
+        _word(id, IHoldbackRules.Stage.Settled, 0, 0); // P15
         _escrowHolds(t, 0, 0);
     }
 
@@ -778,7 +779,7 @@ contract ZeroPriceDealTest is Base {
         _check(w);
 
         _gained(b0, FEE, 0, 0, 0, 0);
-        _word(id, HoldbackRules.Stage.Settled, 1, 0); // P16
+        _word(id, IHoldbackRules.Stage.Settled, 1, 0); // P16
         _escrowHolds(t, 0, 0);
     }
 
@@ -801,7 +802,7 @@ contract ZeroPriceDealTest is Base {
         _check(w);
 
         _gained(b0, FEE, 0, 0, 0, 0);
-        _word(id, HoldbackRules.Stage.Settled, 1, at); // P17
+        _word(id, IHoldbackRules.Stage.Settled, 1, at); // P17
         _escrowHolds(t, 0, 0);
     }
 
@@ -814,25 +815,25 @@ contract ZeroPriceDealTest is Base {
         H.Payout[] memory one = new H.Payout[](1);
         one[0] = H.Payout(t.sellerPayoutAddress, 1);
         H.Mutual memory m = _mutualMsg(t, id, one, false, bytes32(0));
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, m, _noDelivery(), none);
 
         one[0] = H.Payout(t.buyerPaymentAddress, 1);
         m = _mutualMsg(t, id, one, false, bytes32(0));
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, m, _noDelivery(), none);
 
         one[0] = H.Payout(address(0x9999), 1); // a third party
         m = _mutualMsg(t, id, one, false, bytes32(0));
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, m, _noDelivery(), none);
 
         one[0] = H.Payout(t.sellerPayoutAddress, 0);
         m = _mutualMsg(t, id, one, false, bytes32(0));
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, m, _noDelivery(), none);
 
-        _word(id, HoldbackRules.Stage.Held, 0, 0); // still P02
+        _word(id, IHoldbackRules.Stage.Held, 0, 0); // still P02
         _escrowHolds(t, FEE, 0);
     }
 
@@ -856,8 +857,8 @@ contract ZeroPriceDealTest is Base {
         vm.expectRevert(AuthCaptureEscrow.ZeroAmount.selector);
         rules.agreeAndFund(t, sellerSig, acc, ag, f);
 
-        HoldbackRules.Deal memory d = rules.dealOf(id);
-        assertEq(uint8(d.stage), uint8(HoldbackRules.Stage.None), "still P01");
+        IHoldbackRules.Deal memory d = rules.dealOf(id);
+        assertEq(uint8(d.stage), uint8(IHoldbackRules.Stage.None), "still P01");
         assertEq(d.attempt, 0);
         assertEq(d.t1, 0);
         assertEq(d.seedTag, 0);
@@ -869,8 +870,8 @@ contract ZeroPriceDealTest is Base {
 
         // From offerExpiresAt (here at fundBy, after it) the deadline check refuses the offer before the escrow sees it.
         vm.warp(t.timing.fundBy);
-        vm.expectRevert(HoldbackRules.DeadlinePassed.selector);
+        vm.expectRevert(IHoldbackRules.DeadlinePassed.selector);
         rules.agreeAndFund(t, sellerSig, acc, ag, f);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.None), "still P01");
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.None), "still P01");
     }
 }

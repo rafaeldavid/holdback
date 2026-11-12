@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -11,7 +12,7 @@ import {Base} from "./Base.sol";
 /// adjudicator could pick among 256 valid seeds for one beacon round. Fixed in PR #120: `decide` compares the attempt
 /// for every role. The attacks are regressions now; the fallback control kept its name. The party-appeal attack left
 /// with `fileAppeal` (T-346, ADR-0031 §8): the two that remain run after an escalation.
-contract AppealSeedAttemptTest is Base {
+contract EscalationSeedAttemptTest is Base {
     function _appealWithAttempt(bytes32 id, uint8 outcome, uint64 round, uint8 attempt)
         internal
         view
@@ -42,14 +43,14 @@ contract AppealSeedAttemptTest is Base {
         H.Decision memory m = _appealWithAttempt(id, H.OUTCOME_ACCEPT, at + 1, 7);
         assertTrue(m.seed != honest, "attempt 7 names a different panel");
         m = _signDecision(t, id, m, appealAdj, AP_PK);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.decide(t, m, _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Escalated), "nothing settled");
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Escalated), "nothing settled");
 
         H.Decision memory ok = _appealWithAttempt(id, H.OUTCOME_ACCEPT, at + 1, 1);
         assertEq(ok.seed, honest);
         rules.decide(t, _signDecision(t, id, ok, appealAdj, AP_PK), _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Released));
         assertEq(rules.dealOf(id).attempt, 1, "the chain records delivery attempt 1");
     }
 
@@ -63,9 +64,9 @@ contract AppealSeedAttemptTest is Base {
             vm.warp(at + 1);
             H.Decision memory m = _appealWithAttempt(id, H.OUTCOME_REJECT, at + 1, attempts[i]);
             m = _signDecision(t, id, m, appealAdj, AP_PK);
-            vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+            vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
             rules.decide(t, m, _noDelivery(), "");
-            assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Escalated));
+            assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Escalated));
         }
         bytes32 v = _simValue(12345);
         bytes32 id0 = keccak256("any commitment");
@@ -89,7 +90,7 @@ contract AppealSeedAttemptTest is Base {
         m.beaconValue = _simValue(t.timing.judgeBy);
         m.seed = hx.panelSeed(id, H.ROLE_FALLBACK, 7, m.beaconValue);
         m = _signDecision(t, id, m, fallbackAdj, FB_PK);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.decide(t, m, _noDelivery(), "");
     }
 }

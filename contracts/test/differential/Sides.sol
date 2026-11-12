@@ -13,7 +13,7 @@ import {RulesHandler} from "../handlers/RulesHandler.sol";
 
 // The pinned copies carry a suffix in their file names, so a lookup by "HoldbackRules.sol:HoldbackRules"
 // (`deployCodeTo`, `vm.getCode`) still finds only src/. Nothing imports them by name, so their bytes are unchanged.
-import {HoldbackRules as ParentRules} from "./parent/HoldbackRules.d0daf3e.sol";
+import {HoldbackRules as ParentRules} from "./parent/HoldbackRules.73bbafa.sol";
 import {IHoldbackBeacon as ParentBeacon} from "./parent/IHoldbackBeacon.sol";
 import {HoldbackRules as PlantedRules} from "./planted/HoldbackRules.planted.sol";
 
@@ -22,8 +22,8 @@ import {HoldbackRules as PlantedRules} from "./planted/HoldbackRules.planted.sol
 ///         - `NewSide`: the source under test, `contracts/src/`, deployed by `Base.setUp` unchanged;
 ///         - `OldSide`: the pinned copy of `contracts/src/` at the change's parent commit (`parent/`). Since T-356
 ///           each change on `contracts-audit-ready` is compared with its parent, not with the deployed commit
-///           (the refinement plan, R6c's harness row). The parent here is `d0daf3e`, the lane after the
-///           refusals (T-380, holdback PR 420), copied unchanged. Both sides pay the terms' money addresses (ADR-0033), so deals with those addresses
+///           (the refinement plan, R6c's harness row). The parent here is `73bbafa` (holdback
+///           PR 431), whose contracts are R8's last fix as merged in PR 426 (`7a9f1d2`), copied unchanged. Both sides pay the terms' money addresses (ADR-0033), so deals with those addresses
 ///           apart from the signing addresses run on both sides too;
 ///         - `PlantedSide`: the pinned copy with one planted behaviour change (`planted/`), for the tests that
 ///           prove the harness and the liveness invariant fail on a real change.

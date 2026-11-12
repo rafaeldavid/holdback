@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "../unit/Base.sol";
 
@@ -20,7 +21,7 @@ contract TokenAndDomainTest is Base {
 
         vm.chainId(11155111);
         assertTrue(rules.typedDataHash(bytes32(0)) != separator, "the domain follows the chain ID");
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.agreeAndFund(t, sellerSig, acc, ag, f);
     }
 }

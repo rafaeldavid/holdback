@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -38,14 +39,14 @@ contract EarlyAcceptDeliverySwapTest is Base {
         assertTrue(hx.delivery(id, a) != hx.delivery(id, b));
         H.EarlyAccept memory m = _early(t, id, BUYER_PK); // names A, the posted delivery
         bytes memory sigB = _deliverySig(id, b, SELLER_PK);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.earlyAccept(t, m, b, sigB, kb);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Delivered), "nothing settled");
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Delivered), "nothing settled");
 
         vm.expectEmit(true, true, false, true, address(rules));
         emit KeyReleased(id, buyer, 1, KEY_SCHEME, ka.ciphertext);
         rules.earlyAccept(t, m, a, "", ka);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Released));
     }
 
     /// L-1, fixed in PR #161. Was test_attack_early_accept_in_held_records_a_delivery_the_buyer_never_saw: in `Held`
@@ -57,9 +58,9 @@ contract EarlyAcceptDeliverySwapTest is Base {
         H.EarlyAccept memory m = _early(t, id, BUYER_PK); // names `_delivery()`, the one the buyer opened
         assertTrue(m.deliveryHash != hx.delivery(id, b));
         bytes memory sigB = _deliverySig(id, b, SELLER_PK);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.earlyAccept(t, m, b, sigB, kb);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Held));
         assertEq(rules.deliveryHashOf(id), bytes32(0), "no delivery recorded");
     }
 }

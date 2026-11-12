@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -34,15 +35,15 @@ contract UnrepresentableTest is Base {
         uint256 b0 = usdc.balanceOf(buyer);
         (bool ok, bytes memory ret) = _fundCall(t);
         assertFalse(ok, "funded");
-        assertEq(ret, abi.encodeWithSelector(HoldbackRules.Unrepresentable.selector));
-        assertEq(uint8(rules.dealOf(hx.id(t)).stage), uint8(HoldbackRules.Stage.None), "nothing stored");
+        assertEq(ret, abi.encodeWithSelector(IHoldbackRules.Unrepresentable.selector));
+        assertEq(uint8(rules.dealOf(hx.id(t)).stage), uint8(IHoldbackRules.Stage.None), "nothing stored");
         assertEq(usdc.balanceOf(buyer), b0, "no token moved");
     }
 
     function _funds(H.Terms memory t) internal {
         (bool ok, bytes memory ret) = _fundCall(t);
         assertTrue(ok, string(ret));
-        assertEq(uint8(rules.dealOf(hx.id(t)).stage), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(rules.dealOf(hx.id(t)).stage), uint8(IHoldbackRules.Stage.Held));
     }
 
     // ------------------------------------------------------------ the last RFC 3339 instant
@@ -118,6 +119,6 @@ contract UnrepresentableTest is Base {
         uint64 appealRound = LAST_TIMESTAMP; // t1 + 1
         m = _signDecision(t, id, _beaconDecision(id, H.ROLE_APPEAL, H.OUTCOME_REJECT, appealRound), appealAdj, AP_PK);
         rules.decide(t, m, _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
     }
 }

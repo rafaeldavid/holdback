@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -53,7 +54,7 @@ contract MutualSettleNamedDeliveryTest is Base {
         vm.expectEmit(true, true, false, true, address(rules));
         emit KeyReleased(id, buyer, rules.KEY_MUTUAL(), ka.scheme, "buyer-envelope");
         rules.mutualSettle(t, mu, a, ka);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Settled));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Settled));
         assertEq(usdc.balanceOf(seller), s0 + (t.price * 7) / 10, "the seller's share");
         assertEq(rules.deliveryHashOf(id), bytes32(0), "nothing was posted: the settlement names the delivery, the contract stores none");
     }
@@ -65,9 +66,9 @@ contract MutualSettleNamedDeliveryTest is Base {
         (H.Delivery memory b, H.KeyProof memory kb) = _otherDelivery();
         H.Mutual memory mu = _settlement(t, id, hx.delivery(id, a));
         vm.warp(t.timing.deliverBy + 60);
-        vm.expectRevert(HoldbackRules.BadKeyProof.selector);
+        vm.expectRevert(IHoldbackRules.BadKeyProof.selector);
         rules.mutualSettle(t, mu, b, kb);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held), "nothing moved");
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Held), "nothing moved");
     }
 
     /// Named and carried A, with B's envelope and key list: the proof is not against A's key list.
@@ -77,7 +78,7 @@ contract MutualSettleNamedDeliveryTest is Base {
         (, H.KeyProof memory kb) = _otherDelivery();
         H.Mutual memory mu = _settlement(t, id, hx.delivery(id, a));
         vm.warp(t.timing.deliverBy + 60);
-        vm.expectRevert(HoldbackRules.BadKeyProof.selector);
+        vm.expectRevert(IHoldbackRules.BadKeyProof.selector);
         rules.mutualSettle(t, mu, a, kb);
     }
 
@@ -88,7 +89,7 @@ contract MutualSettleNamedDeliveryTest is Base {
         H.Mutual memory mu = _settlement(t, id, hx.delivery(id, a));
         ka.ciphertext = "other-buyer-envelope";
         vm.warp(t.timing.deliverBy + 60);
-        vm.expectRevert(HoldbackRules.BadKeyProof.selector);
+        vm.expectRevert(IHoldbackRules.BadKeyProof.selector);
         rules.mutualSettle(t, mu, a, ka);
     }
 
@@ -98,7 +99,7 @@ contract MutualSettleNamedDeliveryTest is Base {
         (H.Delivery memory a, H.KeyProof memory ka) = _delivery();
         H.Mutual memory mu = _settlement(t, id, hx.delivery(id, a));
         ka.index = 0; // the primary's envelope
-        vm.expectRevert(HoldbackRules.BadKeyProof.selector);
+        vm.expectRevert(IHoldbackRules.BadKeyProof.selector);
         rules.mutualSettle(t, mu, a, ka);
     }
 
@@ -108,7 +109,7 @@ contract MutualSettleNamedDeliveryTest is Base {
         _deliver(t, id);
         (H.Delivery memory b, H.KeyProof memory kb) = _otherDelivery();
         H.Mutual memory mu = _settlement(t, id, hx.delivery(id, b));
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, mu, b, kb);
     }
 
@@ -118,7 +119,7 @@ contract MutualSettleNamedDeliveryTest is Base {
         (H.Delivery memory a, H.KeyProof memory ka) = _delivery();
         H.Mutual memory mu = _settlement(t, id, hx.delivery(id, a));
         mu.sellerSignature = mu.buyerSignature;
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.mutualSettle(t, mu, a, ka);
     }
 }
