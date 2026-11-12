@@ -210,7 +210,9 @@ for (const t of ["Sell a priced API service", "A seller's client can carry the b
 const llmsSections = new Set(sections(md));
 for (const t of sellSections) expect(!llmsSections.has(t), `"${t}" is in both llms.txt and sell.txt: one source`);
 expect(md.includes(SELL_URL) && sectionOf(md, 'Sell on Crow').includes(SELL_URL), `llms.txt has a "Sell on Crow" section that links ${SELL_URL}`);
-expect(sell.includes(`${SITE_URL}llms.txt`) && sell.includes('https://github.com/rafaeldavid/holdback'), 'sell.txt links the agent guide and the public repo');
+// Parsed, as in group 2, so a look-alike host or a longer path does not count.
+const sellLinks = (sell.match(/https:\/\/[^\s<)`]+[^\s<).,;:`]/g) ?? []).filter((u) => URL.canParse(u)).map((u) => new URL(u));
+expect(sellLinks.some((u) => u.href === `${SITE_URL}llms.txt`) && sellLinks.some((u) => u.host === 'github.com' && u.pathname === '/rafaeldavid/holdback'), 'sell.txt links the agent guide and the public repo');
 for (const [, p] of sell.matchAll(/`((?:examples|fixtures|spec)\/[A-Za-z0-9_./-]+\.[a-z]+)`/g)) expect(existsSync(here(`../${p}`)), `sell.txt names ${p}, which is not in the repository`);
 const scripts = JSON.parse(read('../package.json')).scripts;
 for (const [, name] of sell.matchAll(/\bpnpm ([a-z][a-z:-]*)/g)) expect(name === 'install' || name in scripts, `sell.txt runs pnpm ${name}, which is not a script in package.json`);
