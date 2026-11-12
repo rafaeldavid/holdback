@@ -94,7 +94,7 @@ async function restartableAnvil(): Promise<Restartable> {
   const open = async (inner: MemoryStorage): Promise<Node> => {
     const storage = new Watched(inner);
     const chain = new live.LiveChain({ deployment, rpcUrls: [anvil.rpcUrl], relayerKey, pollMs: 200, rebroadcastMs: 10_000, mintBatchMs: 200 });
-    return { world: await PublicWorld.open({ storage, env: { ...ENV, OPERATOR_FEE_GAS: '4700000' }, ...WORLD, live: { chain } }), storage, dead: false };
+    return { world: await PublicWorld.open({ storage, env: ENV, ...WORLD, live: { chain } }), storage, dead: false };
   };
   let current = await open(new MemoryStorage());
   let hold: Promise<void> | null = null;

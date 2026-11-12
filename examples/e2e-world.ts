@@ -19,8 +19,29 @@ import { serveTwoOrigins } from './two-origins.ts';
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 const here = (f: string) => fileURLToPath(new URL(f, import.meta.url));
 export const root = here('../');
-/** The demo's fee: 1 bp, minimum 0.01 test token. Short windows keep each scenario to seconds. */
-export const ENV = { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '10000' };
+/** The operator fee's variables (ADR-0023, D33), as the World Durable Object reads them. */
+export type FeeEnv = { OPERATOR_FEE_BPS?: string; OPERATOR_FEE_MIN?: string; OPERATOR_FEE_MAX?: string; OPERATOR_FEE_GAS?: string };
+
+/**
+ * The fee the live operators are deployed with: the fee variables of `apps/demo-cloud/wrangler.op1.jsonc`, whose
+ * World serves both nodes (T-392). The round's local worlds run with it, so a local run tests what deploys; at the
+ * first pilots' fee of 0 the prepare route returns no fee slot and no fee moves (T-389).
+ */
+export function deployedFee(file = join(root, 'apps/demo-cloud/wrangler.op1.jsonc')): FeeEnv {
+  // JSONC with whole-line comments only; a `//` inside a string (a URL) stays.
+  const text = readFileSync(file, 'utf8').split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+  const vars = (JSON.parse(text) as { vars?: Record<string, string> }).vars ?? {};
+  return Object.fromEntries(['OPERATOR_FEE_BPS', 'OPERATOR_FEE_MIN', 'OPERATOR_FEE_MAX', 'OPERATOR_FEE_GAS'].filter((k) => vars[k] !== undefined).map((k) => [k, vars[k]!])) as FeeEnv;
+}
+
+/** The round's default world: the deployed fee. Short windows (WORLD) keep each scenario to seconds. */
+export const ENV: FeeEnv = deployedFee();
+
+/**
+ * An operator that charges (ADR-0023): 1 bp, minimum 0.01 test token, and a gas quote of 4.70 test tokens. Not what
+ * Crow's operators deploy for the first pilots; another operator may charge, so one round test keeps this case alive.
+ */
+export const NONZERO_FEE: FeeEnv = { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '10000', OPERATOR_FEE_GAS: '4700000' };
 export const WORLD = { minWindowSec: 4, faucetPerClient: 100 };
 /** anvil's default mnemonic, published with Foundry: its accounts guard no value. */
 const ANVIL_MNEMONIC = 'test test test test test test test test test test test junk';
@@ -34,10 +55,10 @@ export type Served = { urls: [string, string]; requests: string[]; close(): Prom
 export const serve = (world: PublicWorld, tickMs: number): Promise<Served> => serveTwoOrigins(world, { tickMs });
 
 /** The demo's world on SimChain, served as two nodes. */
-export async function simWorld(): Promise<Served> {
+export async function simWorld(env: FeeEnv = ENV): Promise<Served> {
   // The round's own harness runs the SimChain-only scenarios here (party appeals, the bond's default compensation), so this
   // world keeps the full protocol; the round's chain leg tests phase one (T-378).
-  return serve(await PublicWorld.open({ storage: new MemoryStorage(), env: ENV, ...WORLD, simProfile: 'full' }), 100);
+  return serve(await PublicWorld.open({ storage: new MemoryStorage(), env, ...WORLD, simProfile: 'full' }), 100);
 }
 
 /** anvil on PATH and `forge build` output: the anvil tests run, else they skip and say why (CI's test shards have neither). */
@@ -51,7 +72,7 @@ export type AnvilWorld = Served & { rpcUrl: string; deployment: J; setBalance(ad
  * reached through apps/demo-cloud, whose dependency they are; examples/ depends only on what an outside agent has.
  * Resolves once the world is ready; `close` stops the world and anvil.
  */
-export async function anvilWorld(): Promise<AnvilWorld> {
+export async function anvilWorld(env: FeeEnv = ENV): Promise<AnvilWorld> {
   const fromDemo = createRequire(join(root, 'apps/demo-cloud/package.json'));
   const evm = await import(pathToFileURL(fromDemo.resolve('@holdback/settlement/evm')).href);
   const live = await import(pathToFileURL(fromDemo.resolve('@holdback/settlement/live')).href);
@@ -68,7 +89,7 @@ export async function anvilWorld(): Promise<AnvilWorld> {
   // costs less to run than its calldata floor, and anvil 1.0.0 cannot estimate it (Sepolia's nodes can).
   const shim = await estimateShim(anvil.rpcUrl);
   const chain = new live.LiveChain({ deployment, rpcUrls: [shim.url], relayerKey, pollMs: 200, rebroadcastMs: 10_000, mintBatchMs: 200 });
-  const world = await PublicWorld.open({ storage: new MemoryStorage(), env: { ...ENV, OPERATOR_FEE_GAS: '4700000' }, ...WORLD, live: { chain } });
+  const world = await PublicWorld.open({ storage: new MemoryStorage(), env, ...WORLD, live: { chain } });
   const served = await serve(world, 200);
   for (const end = Date.now() + 90_000; !world.ready() && Date.now() < end; ) await new Promise((r) => setTimeout(r, 250));
   return {

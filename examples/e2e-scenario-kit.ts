@@ -99,9 +99,12 @@ export function settledChecks(r: Run, deal: Deal, stage: string): void {
   // ADR-0033: the payment address pays the operator fee; it is the buyer's signing address unless the terms name another.
   const payer = lc(deal.terms.buyerPaymentAddress ?? deal.buyer.address);
   const fees = logsOf(rec, 'Transfer').filter((l) => lc(l.args.from) === payer && lc(l.args.to) === to);
-  if (deal.operatorFee !== undefined) {
-    r.check('the operator fee is paid once', fees.length === 1 && BigInt(fees[0]!.args.amount) === deal.operatorFee, `${fees.length} transfer(s) from the payment address to the fee address ${short(to)}: ${fees.map((f) => r.round.amount(f.args.amount)).join(', ') || 'none'}`);
-  }
+  // A fee above 0 is one transfer of exactly that amount; a fee of 0 is no transfer at all, since the prepare route
+  // then returns no fee slot and the buyer signs none (T-389). A transfer of 0 would fail it (T-392).
+  const fee = deal.operatorFee ?? 0n;
+  const seen = `${fees.length} transfer(s) from the payment address to the fee address ${short(to)}: ${fees.map((f) => r.round.amount(f.args.amount)).join(', ') || 'none'}`;
+  if (fee > 0n) r.check('the operator fee is paid once', fees.length === 1 && BigInt(fees[0]!.args.amount) === fee, seen);
+  else r.check('no operator fee moves: the fee is 0', fees.length === 0, seen);
 }
 
 /**
