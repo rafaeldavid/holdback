@@ -41,7 +41,7 @@ and wall time for each config.
 ## The two profiles
 
 The constant `Profile` is `"full"` or `"phase_one"`, the same two names as core's `SettlementProfile`
-(`packages/core/src/state.ts:179`). `P1` is true in the phase-one profile, and it gates every difference:
+(`packages/core/src/state.ts:188`). `P1` is true in the phase-one profile, and it gates every difference:
 
 | | Full (SimChain) | Phase one (the contracts) |
 | --- | --- | --- |
@@ -75,7 +75,7 @@ a step from the base's `Next`.
 | Appeal states | Every `AppealState.kind`, plus `na` where no appeal state exists. In phase one a first-instance decision writes `expired`, as core does: closed, with no appeal. |
 | Money | Abstract units in the holders' wallets, `escrow[c]`, adjudicator fee accounts and, in the full profile, adjudicator bonds, `apBond[c]` and `apFee[c]`. Postings follow `docs/architecture.md`, "Hold and settlement postings". Values: price 2, fee 1, appeal bond 1, appeal fee 1, default compensation 1 per liable bond. |
 | The ledger | `out[c]` records what `escrow[c]` paid to the payment address, to the payout address and to each fee account. It is an observer: in each step that debits the escrow it adds what that step itself credited to those accounts. The properties compare it with how the deal closed. |
-| The closing reason and the decider | `reason[c]` and `decider[c]` are the two fields the contract stores in the deal's word when it closes a deal (`docs/audit/state-model.md`, section 9.2). The model writes them in the closing step, in both profiles. SimChain stores no such fields: its state keeps the same fact as `via`. |
+| The closing reason and the decider | `reason[c]` and `decider[c]` are the two fields the contract stores in the deal's word when it closes a deal (`docs/audit/state-model.md`, section 9.2). The model writes them in the closing step, in both profiles. SimChain stores no such fields: its state keeps the same fact as `via`. In the full profile "closed" means the escrow is paid out: a first-instance decision there can still be appealed, and the decider stays what it was after an overturn. |
 | Time | The absolute deadlines are strictly ordered, so `clk[c]` counts how many have passed (1 offerExpiresAt, 2 fundBy, 3 deliverBy, 4 judgeBy, 5 fallbackBy). Core refuses any other order (`packages/core/src/timing.ts:35-49`), and so does the contract at funding (`HoldbackRules.sol:222-228`). Relative deadlines get their own counters: `escClk` for the escalation's appealDecideBy, `apClk` for appealBy and then appealDecideBy. Each tick is its own step, so TLC explores every interleaving of deadlines across commitments and actions. An action is on time iff its deadline has not passed. A timeout fires iff it has. |
 | Halting | `Halted` names one actor, or `"any"` to let the check choose it. A weakly fair `Crash` step stops that actor at some point, which may be any point, and it never acts after that. |
 | Signatures | A signature is "the named actor took the step". A step that needs an actor's signature needs that actor not crashed, and each step records its signers. `Signed` holds every step to that record. It can fail only where an actor halts, so the `safety-halting` and `live-*` configs are the ones that check it. |
@@ -94,6 +94,9 @@ a step from the base's `Next`.
 - **The content of a delivery.** The model has no delivery hash. It does not check that a decision, an early
   accept or a settlement names the posted delivery (ADR-0029), nor that a late-work settlement releases the key of
   the delivery it names. Forge tests cover both (`contracts/test/unit/MutualSettleNamedDelivery.t.sol`).
+- **The rest of the stored word.** The contract also stores the delivery attempt, a time (`t1`) and the posted
+  delivery's hash. The model has none of them, so `ReasonRules` does not state the ties
+  `docs/audit/state-model.md`, section 9.3, makes between them and the closing reason.
 - **The beacon round and its margin.** The model knows only whether the beacon answers. Which round fixes a
   seed, and the margin after an escalation, are tested in forge (ADR-0032).
 - **Amounts other than the fixed ones.** A zero price or a zero fee takes other branches in the contract
@@ -141,7 +144,7 @@ a step from the base's `Next`.
 | `EscrowLedger` | invariant | both | Whatever left an escrow reached the payment address, the payout address or a fee account. A unit paid anywhere else leaves the sum short. |
 | `PaidAsClosed` | invariant | both | The money matches how the deal closed. A decision's accept paid the price to the payout address, a reject paid it to the payment address, and either paid the fee to the adjudicator that decided and to no other. An early accept paid the price to the payout address and returned the fee. A reclaim or a default returned the whole hold to the payment address. A settlement split the price between the two and returned the fee. After the payment address's reclaim on the escrow, that address has the whole hold and nobody else has anything. |
 | `ReasonRules` | invariant | both | The stored closing reason and decider keep the rules of `docs/audit/state-model.md`, section 9.2: the reason is `open` exactly while the deal is not closed; a decider is named exactly when the reason is `decided`; the reason fixes the stage. |
-| `ReasonMatchesMoney` | invariant | both | The stored reason matches the money that moved, read from the ledger and not from `via`. Decided: the price went to the payout address on a release and to the payment address on a refund, and the fee went to the stored decider and to no other adjudicator. Accepted early: the price to the payout address, the fee back. Settled: the price split between the two addresses, the fee back. Reclaimed or defaulted: the whole hold back to the payment address. |
+| `ReasonMatchesMoney` | invariant | both | The stored reason matches the money that moved, read from the ledger and not from `via`. Decided: the price went to the payout address on a release and to the payment address on a refund, and the fee went to the stored decider and to no other adjudicator. Accepted early: the price to the payout address, the fee back. Settled: the price split between the two addresses, the fee back. Reclaimed or defaulted: the whole hold back to the payment address. After the payment address's own reclaim on the escrow the reason is `open`, `reclaimed` or `defaulted`, and that address has the whole hold. |
 | `DefaultRefundsBuyer` | invariant | both | After a default the payment address has the whole hold back, and the escrow paid nothing to the payout address or to any adjudicator. |
 | `SignersHoldNothing` | invariant | phase one | A signing address that is apart from its money address holds nothing, at any step. |
 | `KeyOnlyWithPayment` | invariant | both | The buyer holds the content key only in Released, or in Settled when the settlement released it, and always holds it in Released. |
@@ -302,7 +305,7 @@ commit `74fa299`. The mapping was read, not checked by a tool [inferred].
 | `fees` | the deciding adjudicator's token balance (the fee capture, `R:356`, `R:361`) |
 | `cppExp` | `block.timestamp >= authorizationExpiry` (`R:188`) |
 | `cppRec` | the escrow's `paymentState` after the payer's `reclaim`: nothing capturable, read in `_refundAll` (`R:519-520`) |
-| `moves`, `out`, `up`, `act` | none: counters, the ledger, environment and history |
+| `moves`, `out`, `down`, `act` | none: a counter, the ledger, the crashed actor and history |
 
 **Where the model's shape differs from the contract's.** The model takes the offer, the acceptance and the
 agreement as three steps before `Fund`; the contract checks the three signatures in the one call that funds. The
@@ -341,16 +344,17 @@ follows the contract.
 ## Run times
 
 A dated measurement, not a standing figure [measured on 2026-11-12, one run of `formal/check.sh` with no
-argument, at commit `6a15d2a`]. Machine: Apple M1 Pro, 8 cores, 16 GB, macOS 26.6; TLC 2.19 from tla2tools
-v1.7.4 with 8 workers, on the pinned Temurin 21 JRE. The whole run took 32 min 48 s, and all 120 configs met
+argument, at commit `ff1c371`]. Machine: Apple M1 Pro, 8 cores, 16 GB, macOS 26.6; TLC 2.19 from tla2tools
+v1.7.4 with 8 workers, on the pinned Temurin 21 JRE. The whole run took 30 min 4 s, and all 124 configs met
 expectations.
 
 | What | Full profile | Phase-one profile |
 | --- | --- | --- |
-| Safety, no actor halted | 8 s and 9 s (2 configs); 169,621 distinct states each, depth 31 | 3 s to 4 s (4 configs); 64,225 distinct states each, depth 27 |
-| Safety, any one actor halting | 202 s; 1,841,663 distinct states, depth 32 | 19 s; 644,257 distinct states, depth 28 |
-| Liveness, one config per halted actor | 138 s to 240 s each, 1,360 s (22 min 40 s) for the 8; 326,648 to 405,290 distinct states, depth 32 | 13 s to 70 s each, 241 s (4 min 1 s) for the 8; 105,985 to 149,185 distinct states, depth 28 |
+| Safety, no actor halted | 5 s and 6 s (2 configs); 169,621 distinct states each, depth 31 | 3 s to 4 s (4 configs); 64,225 distinct states each, depth 27 |
+| Safety, any one actor halting | 56 s; 1,841,663 distinct states, depth 32 | 37 s; 644,257 distinct states, depth 28 |
+| Liveness, one config per halted actor | 138 s to 238 s each, 1,417 s (23 min 37 s) for the 8; 326,648 to 405,290 distinct states, depth 32 | 11 s to 25 s each, 139 s (2 min 19 s) for the 8; 105,985 to 149,185 distinct states, depth 28 |
 
-The 52 broken variants and the 44 reach witnesses took 1 s to 5 s each, 113 s together. Wall times vary between
-runs with the machine's load: an earlier run of the same liveness configs, beside another job, took 139 s to
-1,773 s each in the full profile.
+The 56 broken variants and the 44 reach witnesses took 1 s to 4 s each, 128 s together. Wall times vary between
+runs with the machine's load. The run of the first pass, at `6a15d2a` on the same machine, took 32 min 48 s; its
+halting-actor safety configs took 202 s (full) and 19 s (phase one), and its liveness configs 1,360 s and 241 s.
+An earlier run beside another job took up to 1,773 s for one full-profile liveness config.
