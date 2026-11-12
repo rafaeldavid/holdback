@@ -74,9 +74,9 @@ contract HoldbackRules is EIP712 {
     ///         No code here reads it; the getter stays in the ABI, and `Postings.fuzz.t.sol` fails if it leaves 0.
     uint256 public constant MUTUAL_FEE_SHARE_BPS = 0;
 
-    /// @dev 9999-12-31T23:59:59Z in unix seconds: the last instant core's RFC 3339 timestamps, with their four-digit
-    ///      years, can state (T-380). A deadline after it is unrepresentable off chain.
-    uint256 internal constant LAST_TIMESTAMP = 253_402_300_799;
+    /// @dev 9999-12-31T23:59:59-23:59 in unix seconds: the last instant an RFC 3339 timestamp can state (a four-digit
+    ///      year and the largest offset), so the last one core's terms can carry (T-380). Later is unrepresentable.
+    uint256 internal constant LAST_TIMESTAMP = 253_402_387_139;
 
     /// @dev anvil's chain ID: the one chain where a beacon margin of 0 deploys (ADR-0032 §3.4), as for the sim beacon.
     uint256 internal constant LOCAL_CHAIN_ID = 31337;
@@ -248,10 +248,12 @@ contract HoldbackRules is EIP712 {
         ) {
             revert InvalidMessage();
         }
-        // Values core cannot represent, refused for that reason only (D31; T-380): a deadline after the year 9999 (the
-        // deadlines are in order, so fallbackBy bounds them all) and an escalation window above 32 bits, core's window
-        // type. With both, every time the word stores in `t1` (a block time before fallbackBy + appealDecideSec) fits
-        // its 40 bits, and the escrow's expiry fits 48 bits whenever EXPIRY_MARGIN does. A hold above 120 bits is
+        // Values core cannot represent, refused for that reason only (D31; T-380): a deadline after the last RFC 3339
+        // instant (the deadlines are in order, so fallbackBy bounds them all) and an escalation window above 32 bits,
+        // core's window type. With both, an escalation's `t1` and every decision's (block times before
+        // fallbackBy + appealDecideSec) fit the word's 40 bits, and the escrow's expiry fits 48 bits whenever
+        // EXPIRY_MARGIN does. `triggerFallback`'s `t1` has no upper bound in time (it may run long after fallbackBy) and
+        // wraps only from 2^40 s, about the year 36,812; nothing reads it but `dealOf`. A hold above 120 bits is
         // refused in `_paymentInfo`, as before.
         if (tm.fallbackBy > LAST_TIMESTAMP || tm.appealDecideSec > type(uint32).max) revert Unrepresentable();
         _requireSigned(t.seller, id, sellerSignature);

@@ -127,19 +127,20 @@ export interface OfferInput {
 }
 
 /**
- * ADR-0031 §6 (SC-5; Rafa, 2026-11-11): on the phase-one contracts a deal holds at least one base unit, as price or as
- * fee. The escrow refuses to hold nothing (`AuthCaptureEscrow` reverts `ZeroAmount`; pinned by
- * `contracts/test/unit/ZeroPrice.t.sol`, `test_zeroPriceZeroFee_cannotFund_escrowRefusesZeroAmount`).
- */
-/**
  * T-380 (R8 fix 3): the phase-one escrow holds price + fee in a uint120 (`AuthCaptureEscrow.PaymentInfo.maxAmount`),
  * and the rules contract refuses a larger hold at funding (`Unrepresentable`). Core refuses it at the offer, the same
- * bound, for that reason only (D31). The contract's other two bounds (a deadline after 9999, an escalation window
- * above 32 bits) are core's own encoding limits, which the parser refuses (`parse.ts`).
+ * bound, for that reason only (D31). The contract's other two bounds (a deadline after 9999-12-31T23:59:59-23:59, the
+ * last RFC 3339 instant, and an escalation window above 32 bits) are core's own encoding limits, which the parser
+ * refuses (`parse.ts`).
  */
 export const MAX_HOLD = 2n ** 120n - 1n;
 export const HOLD_TOO_LARGE_PROBLEM = `price plus adjudication fee is above ${MAX_HOLD}, the largest hold the phase-one escrow can represent (a uint120; the rules contract refuses it as Unrepresentable)`;
 
+/**
+ * ADR-0031 §6 (SC-5; Rafa, 2026-11-11): on the phase-one contracts a deal holds at least one base unit, as price or as
+ * fee. The escrow refuses to hold nothing (`AuthCaptureEscrow` reverts `ZeroAmount`; pinned by
+ * `contracts/test/unit/ZeroPrice.t.sol`, `test_zeroPriceZeroFee_cannotFund_escrowRefusesZeroAmount`).
+ */
 export const ZERO_HOLD_PROBLEM =
   'price and adjudication fee are both 0, and the phase-one contracts cannot fund a deal that holds nothing: the escrow refuses to hold 0 (AuthCaptureEscrow ZeroAmount; ADR-0031 §6). A zero price is allowed with a fee above 0; give the deal a price or a fee of at least one base unit';
 

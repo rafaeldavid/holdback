@@ -144,7 +144,7 @@ contract RulesHandler is Base {
     /// T-358 (ADR-0033 §2b): whether the terms the last `agreeAndFund` relayed had an appeal window other than 0.
     bool public fundAppealWindow;
     /// T-380 (R8 fix 3): whether the terms the last `agreeAndFund` relayed had a value core cannot represent: a
-    /// fallbackBy after 9999-12-31T23:59:59Z or an escalation window above 2^32 - 1 s.
+    /// fallbackBy after 9999-12-31T23:59:59-23:59 or an escalation window above 2^32 - 1 s.
     bool public fundUnrepresentable;
 
     // ------------------------------------------------------------ T-358: money addresses apart (ADR-0033)
@@ -466,10 +466,10 @@ contract RulesHandler is Base {
         if (target > block.timestamp) vm.warp(target);
     }
 
-    /// T-380 (R8 fix 3): 9999-12-31T23:59:59Z, the last deadline the rules contract funds. Every warp target is a
-    /// funded deal's deadline or a sum below fallbackBy + appealDecideSec + MARGIN < 2^40 s, so the clock never passes
-    /// the 40 bits of the word's `t1`; T-375's `CLOCK_CAP` is gone with the bound.
-    uint64 internal constant LAST_TIMESTAMP = 253_402_300_799;
+    /// T-380 (R8 fix 3): 9999-12-31T23:59:59-23:59, the last deadline the rules contract funds. Every warp target is a
+    /// drawn offer's deadline (at most LAST_TIMESTAMP + 1 + 2^32 + MARGIN, about 2.577e11 s) or a step of at most 12 h,
+    /// so the clock stays far below 2^40 s, the word's `t1` width, in any campaign's length; T-375's `CLOCK_CAP` goes.
+    uint64 internal constant LAST_TIMESTAMP = 253_402_387_139;
 
     function _off(uint256 seed, uint256 shift, uint256 lo, uint256 hi) internal pure returns (uint64) {
         return uint64(_bound((seed >> shift) & 0xffffffff, lo, hi));
@@ -540,7 +540,7 @@ contract RulesHandler is Base {
     /// 2, 3: since T-380, the escalation window at the largest `uint32`, core's window type, and one above it
     ///       (`Unrepresentable`). T-375's case of the escrow's expiry at the largest `uint48` is gone: a window that
     ///       large is now refused for its 32 bits first, and the expiry fits 48 bits for every window that funds;
-    /// 4, 5: since T-380, fallbackBy at 9999-12-31T23:59:59Z, the last second core can state, and one after it
+    /// 4, 5: since T-380, fallbackBy at 9999-12-31T23:59:59-23:59, the last second core can state, and one after it
     ///       (`Unrepresentable`);
     /// 6, 7: every deadline one second after the one before, the smallest gap SC-5 allows, and an escalation window
     ///       of one second, the smallest SC-5 allows (6), or of two seconds, the smallest the sim beacon can decide

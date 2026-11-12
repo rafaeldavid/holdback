@@ -22,7 +22,7 @@ import {RulesHandler} from "../handlers/RulesHandler.sol";
 ///        quietly switch the gate off.
 ///
 ///      T-380, R8 fix 3: `agreeAndFund` refuses with `Unrepresentable` terms that core cannot represent, a fallbackBy
-///      after 9999-12-31T23:59:59Z or an escalation window above 2^32 - 1 s. The handler draws them only in two of the
+///      after 9999-12-31T23:59:59-23:59 or an escalation window above 2^32 - 1 s. The handler draws them only in two of the
 ///      eight boundary cases (`RulesHandler._boundary`, one offer in 16); `RulesHandler.fundUnrepresentable` says
 ///      whether the step's `agreeAndFund` relayed such terms with deadlines in strict order. Exactly these
 ///      differences, and no other:
