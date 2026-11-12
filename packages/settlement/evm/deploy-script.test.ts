@@ -215,16 +215,28 @@ describe.skipIf(!ready)(`the deploy script on a local chain (T-383)${ready ? '' 
     const none = await run('bash', [SCRIPT, '--check', chain.rpc], { DEPLOY_RECORD: '' });
     expect(none.code).not.toBe(0);
     expect(none.stderr).toContain('needs DEPLOY_RECORD');
-    const sepolia = join(root, 'contracts', 'deployments', 'sepolia.json');
-    const live = await chain.check(sepolia);
-    expect(live.code).not.toBe(0);
-    expect(live.stderr).toContain('must not write or check');
-  });
+    // Every spelling of the Sepolia record, and any other file beside it (review of PR 422, H1).
+    for (const spelling of [
+      join(root, 'contracts', 'deployments', 'sepolia.json'),
+      'contracts/deployments/sepolia.json',
+      join(root, 'contracts', 'deployments', '.', 'sepolia.json'),
+      join(root, 'contracts', 'script', '..', 'deployments', 'sepolia.json'),
+      join(root, 'contracts', 'deployments', 'rehearsal.json'),
+    ]) {
+      const live = await chain.check(spelling);
+      expect(live.code, spelling).not.toBe(0);
+      expect(live.stderr, spelling).toContain('a rehearsal must not write or check');
+    }
+    const deployed = await chain.deploy('contracts/deployments/sepolia.json');
+    expect(deployed.code).not.toBe(0);
+    expect(deployed.stderr).toContain('a rehearsal must not write or check');
+  }, 120_000);
 
   it('the local chain id behind a URL that is not exactly a local origin is refused', async () => {
     // The same anvil, reached with user info in the URL: the chain answers 31337, and the script still refuses it.
     const c = await run('bash', [SCRIPT, '--check', chain.rpc.replace('http://', 'http://rehearsal@')], { DEPLOY_RECORD: record });
     expect(c.code).not.toBe(0);
     expect(c.stderr).toContain('is not a local RPC');
+    expect(c.stderr).not.toContain('rehearsal@');
   });
 });

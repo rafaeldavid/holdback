@@ -140,9 +140,15 @@ case "$CHAIN" in
   ;;
 "$LOCAL")
   LOCAL_RPC='^http://(127\.0\.0\.1|localhost)(:[0-9]+)?/?$'
-  [[ "$RPC" =~ $LOCAL_RPC ]] || fail "chain id $LOCAL is a rehearsal on this machine only; $RPC is not a local RPC"
+  # The URL stays out of the message: a hosted RPC's URL may carry its key.
+  [[ "$RPC" =~ $LOCAL_RPC ]] || fail "chain id $LOCAL is a rehearsal on this machine only; the RPC URL is not a local RPC (http://127.0.0.1 or http://localhost)"
   [ -n "${DEPLOY_RECORD:-}" ] || fail "a rehearsal on the local chain needs DEPLOY_RECORD, the record to write or check"
-  [ "$OUT" != "$SEPOLIA_RECORD" ] || fail "a rehearsal must not write or check $SEPOLIA_RECORD"
+  # Compared as folders, resolved, not as strings: a relative or dotted spelling of sepolia.json names the same file.
+  # A rehearsal's record lives anywhere but contracts/deployments/, so it can never write over a kept record.
+  OUT_DIR="$(cd "$(dirname "$OUT")" 2>/dev/null && pwd -P)" || fail "the folder of DEPLOY_RECORD ($OUT) does not exist"
+  DEPLOYMENTS_DIR="$(cd "$ROOT/deployments" && pwd -P)" || fail "contracts/deployments is missing"
+  [ "$OUT_DIR" != "$DEPLOYMENTS_DIR" ] || fail "a rehearsal must not write or check a record in $DEPLOYMENTS_DIR; name a scratch file in DEPLOY_RECORD"
+  [ ! "$OUT" -ef "$SEPOLIA_RECORD" ] || fail "a rehearsal must not write or check $SEPOLIA_RECORD"
   ;;
 *) fail "chain id $CHAIN is not Sepolia ($SEPOLIA), nor the local chain ($LOCAL) for a rehearsal" ;;
 esac
