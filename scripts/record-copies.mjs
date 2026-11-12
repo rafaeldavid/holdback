@@ -9,10 +9,15 @@
 //   3. Sweep: it fails if any old address or hash, the ones the new record dropped included, remains in a tracked file
 //      outside the history files listed in HISTORY below. So the step cannot pass with a pin missed.
 //
-//   node scripts/record-copies.mjs --old contracts/deployments/sepolia-<date>-domain-<version>.json \
+//   node scripts/record-copies.mjs keep --rpc <url> [--root <dir>]
+//   node scripts/record-copies.mjs --old contracts/deployments/sepolia-<YYYY-MM-DD>T<HHMM>Z-domain-<version>.json \
 //                                  --new contracts/deployments/sepolia.json [--root <dir>] [--no-build]
 //
-// It reads and writes files in the checkout only: no network, no key, no chain.
+// `keep` runs before the deploy (cutover step 2.3). It copies the live record, contracts/deployments/sepolia.json, to
+// its dated name, sepolia-<YYYY-MM-DD>T<HHMM>Z-domain-<version>.json: the UTC time the deployment happened (the record's
+// `deployedAt`, or for a record without one the block time of its `fromBlock`) and the EIP-712 domain version its
+// rules contract signs under. Both reads are read-only calls through `cast`; it prints the dated name for --old. The
+// copies themselves read and write files in the checkout only: no network, no key, no chain.
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
@@ -26,13 +31,67 @@ export const PINNED = [
   'packages/settlement/evm/accepted-tokens.json',
 ];
 export const DEPLOYMENTS_TS = 'examples/deployments.ts';
+export const LIVE_RECORD = 'contracts/deployments/sepolia.json';
+/** A dated record's path: the date, and since T-383 the UTC time, of its deployment, then its domain version. */
+export const DATED = /^contracts\/deployments\/sepolia-\d{4}-\d{2}-\d{2}(T\d{4}Z)?-domain-[\d.]+\.json$/;
+
+/** The dated name of a record deployed at `deployedAt` (an ISO time) whose rules contract signs under `version`. */
+export function datedName(deployedAt, version) {
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(String(deployedAt));
+  if (!m || Number.isNaN(Date.parse(deployedAt))) throw new Error(`the deployment time ${JSON.stringify(deployedAt)} is not an ISO time`);
+  const utc = new Date(deployedAt).toISOString();
+  if (!/^[\d.]+$/.test(String(version))) throw new Error(`the domain version ${JSON.stringify(version)} is not a version number`);
+  return `contracts/deployments/sepolia-${utc.slice(0, 10)}T${utc.slice(11, 13)}${utc.slice(14, 16)}Z-domain-${version}.json`;
+}
+
+/** The chain reads `keep` needs, through `cast`: the chain ID, a block's time (ISO, UTC) and the domain version. */
+export const castReads = {
+  chainId: (rpc) => Number(cast(['chain-id', '--rpc-url', rpc])),
+  blockTime: (rpc, block) => new Date(Number(cast(['to-dec', cast(['block', String(block), '--field', 'timestamp', '--rpc-url', rpc])])) * 1000).toISOString(),
+  domainVersion: (rpc, rules) => {
+    const lines = cast(['call', rules, 'eip712Domain()(bytes1,string,string,uint256,address,bytes32,uint256[])', '--rpc-url', rpc]).split('\n');
+    return JSON.parse(lines[2] ?? '""');
+  },
+};
+
+function cast(args) {
+  const r = spawnSync('cast', args, { encoding: 'utf8' });
+  // The RPC URL can carry a key: the error names the subcommand only.
+  if (r.status !== 0) throw new Error(`cast ${args[0]} failed: ${(r.stderr || '').split('\n')[0].replace(/https?:\/\/\S+/g, '<rpc>')}`);
+  return r.stdout.trim();
+}
+
+/**
+ * Step 2.3: the live record copied to its dated name, before a deploy writes over it. Refuses a chain other than the
+ * record's, and a dated file of that name with other content; the same content again is a no-op, so a rerun is safe.
+ * Returns the dated name.
+ */
+export function keep({ root, rpc, reads = castReads, log = console.log }) {
+  const livePath = join(root, LIVE_RECORD);
+  const text = readFileSync(livePath, 'utf8');
+  const record = JSON.parse(text);
+  const chain = reads.chainId(rpc);
+  if (chain !== record.chainId) throw new Error(`the RPC serves chain ${chain}, the live record chain ${record.chainId}`);
+  const at = record.deployedAt ?? reads.blockTime(rpc, record.fromBlock);
+  const name = datedName(at, reads.domainVersion(rpc, record.rules));
+  const path = join(root, name);
+  if (existsSync(path)) {
+    if (readFileSync(path, 'utf8') !== text) throw new Error(`${name} exists with other content: two deployments in the same minute, or an edited copy; nothing was written`);
+    log(`record-copies: ${name} already holds the live record`);
+  } else {
+    writeFileSync(path, text);
+    log(`record-copies: kept ${LIVE_RECORD} as ${name}`);
+  }
+  log(`record-copies: after the deploy, run: node scripts/record-copies.mjs --old ${name} --new ${LIVE_RECORD}`);
+  return name;
+}
 
 /**
  * Where an old value may stay, and why. Anything else that names one fails the sweep.
  * Each entry is a path prefix, or a regular expression on the path.
  */
 export const HISTORY = [
-  { path: /^contracts\/deployments\/sepolia-\d{4}-\d{2}-\d{2}-domain-[\d.]+\.json$/, why: 'a dated record: the deployment it names' },
+  { path: DATED, why: 'a dated record: the deployment it names' },
   { path: 'docs/tasks/', why: 'dated history: task files' },
   { path: 'docs/reviews/', why: 'dated history: reviews' },
   { path: 'docs/research/', why: 'dated history: research and its recorded runs' },
@@ -229,12 +288,18 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   };
   const oldPath = flag('--old');
   const newPath = flag('--new');
-  if (!oldPath || !newPath) {
-    console.error('usage: node scripts/record-copies.mjs --old <dated old record> --new <new record> [--root <dir>] [--no-build]');
+  const rpc = flag('--rpc');
+  const keeping = args[0] === 'keep';
+  if (keeping ? !rpc : !oldPath || !newPath) {
+    console.error('usage: node scripts/record-copies.mjs keep --rpc <url> [--root <dir>]\n       node scripts/record-copies.mjs --old <dated old record> --new <new record> [--root <dir>] [--no-build]');
     process.exit(2);
   }
   const root = resolve(flag('--root') ?? fileURLToPath(new URL('..', import.meta.url)));
   try {
+    if (keeping) {
+      keep({ root, rpc });
+      process.exit(0);
+    }
     process.exit(recordCopies({ root, oldPath, newPath, build: !args.includes('--no-build') }));
   } catch (e) {
     console.error(`record-copies: ${e.message}`);

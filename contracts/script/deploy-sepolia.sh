@@ -311,6 +311,12 @@ if [ -n "$TOKEN" ]; then
       domainSeparator: $domainSeparator, tx: $tx, block: $block}')"
 fi
 
+# When the deployment happened: the first creation's block time, in UTC. The dated copy of this record is named by it
+# (scripts/record-copies.mjs keep), so two deployments on one day get two names.
+DEPLOYED_TS="$(cast block "$ESCROW_BLOCK" --field timestamp --rpc-url "$RPC")" || fail "reading block $ESCROW_BLOCK failed"
+DEPLOYED_TS="$(cast to-dec "$DEPLOYED_TS")" || fail "bad block time $DEPLOYED_TS"
+DEPLOYED_AT="$(jq -rn --argjson t "$DEPLOYED_TS" '$t | todate')" || fail "formatting the block time failed"
+
 SETTINGS_RAW="$(forge config --root "$ROOT" --json)"
 SETTINGS="$(jq -e '{solc: .solc, viaIR: .via_ir, optimizer: .optimizer, optimizerRuns: .optimizer_runs, evmVersion: .evm_version}' <<<"$SETTINGS_RAW")"
 
@@ -318,7 +324,7 @@ RECORD="$(jq -n \
   --arg commit "$COMMIT" \
   --arg deployer "$DEPLOYER" \
   --argjson compiler "$SETTINGS" \
-  --argjson fromBlock "$ESCROW_BLOCK" \
+  --argjson fromBlock "$ESCROW_BLOCK" --arg deployedAt "$DEPLOYED_AT" \
   --arg escrow "$ESCROW" --arg escrowTx "$ESCROW_TX" --argjson escrowBlock "$ESCROW_BLOCK" \
   --arg tokenStoreImplementation "$TOKEN_STORE_IMPL" \
   --arg c3009 "$C3009" --arg c3009Tx "$C3009_TX" --argjson c3009Block "$C3009_BLOCK" \
@@ -335,6 +341,7 @@ RECORD="$(jq -n \
     compiler: $compiler,
     deployer: $deployer,
     fromBlock: $fromBlock,
+    deployedAt: $deployedAt,
     escrow: $escrow,
     erc3009Collector: $c3009,
     multicall: $multicall,
