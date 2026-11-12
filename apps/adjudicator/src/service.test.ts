@@ -549,6 +549,7 @@ describe('escalation and appeal', () => {
     s.at('2026-11-01T10:00:30Z');
     await a.adj.runOnce();
     s.at('2026-11-01T10:01:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(id, 'missing-or-wrong-key');
     s.at('2026-11-01T10:01:05Z');
     await c.adj.runOnce();
@@ -637,6 +638,7 @@ describe('escalation and appeal', () => {
     await a.adj.runOnce();
     expect(s.state(id).kind).toBe('Released');
     s.at('2026-11-01T10:01:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(id, 'wrong-outcome');
     s.at('2026-11-01T10:01:05Z');
     await c.adj.runOnce();
@@ -649,6 +651,7 @@ describe('escalation and appeal', () => {
     s.at('2026-11-01T10:00:30Z');
     await a.adj.runOnce();
     s.at('2026-11-01T10:01:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(id, 'wrong-outcome');
     s.at('2026-11-01T10:01:05Z');
     await c.adj.runOnce();
@@ -694,6 +697,7 @@ describe('drand quicknet rounds for the fallback and appeal panels (T-217, ADR-0
     s.at('2026-11-01T10:00:30Z');
     await a.adj.runOnce();
     s.at('2026-11-01T10:01:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(id, 'wrong-outcome');
     s.at('2026-11-01T10:01:05Z');
     await c.adj.runOnce();
@@ -925,6 +929,7 @@ describe('review item 4: rules the mutation sweep found untested', () => {
     await a.adj.runOnce();
     expect(s.state(id).kind).toBe('Refunded');
     s.at('2026-11-01T10:01:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(id, 'missing-or-wrong-key');
     s.at('2026-11-01T10:01:05Z');
     await c.adj.runOnce();
@@ -997,6 +1002,7 @@ describe("the buyer's key travels only with an accept, never on a deal that stan
       await a.adj.runOnce();
       if (o.appeal) {
         s.at('2026-11-01T10:01:00Z');
+        // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
         s.fileAppeal(id, o.appeal);
       }
       s.at('2026-11-01T10:01:05Z');
@@ -1048,6 +1054,7 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
     s.at('2026-11-01T10:00:30Z');
     await a.adj.runOnce();
     s.at('2026-11-01T10:01:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(id, 'wrong-outcome');
     s.bonds.set(C.address, 0n);
     s.at('2026-11-01T10:01:05Z');
@@ -1074,6 +1081,7 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
     s.at('2026-11-01T10:00:30Z');
     await a.adj.runOnce();
     s.at('2026-11-01T10:01:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(id, 'wrong-outcome'); // appealDecideBy 10:11:00; the appeal adjudicator stays silent
     s.at('2026-11-01T10:10:59Z');
     expect((await a.adj.runOnce()).expired).toEqual([]);
@@ -1103,6 +1111,7 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
         s.at('2026-11-01T10:00:30Z');
         expect((await lone.adj.runOnce()).decided.map((d) => d.outcome)).toEqual(['reject']);
         s.at('2026-11-01T10:01:00Z');
+        // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
         s.fileAppeal(c.id, 'wrong-outcome');
         s.at('2026-11-01T10:01:05Z');
         expect((await later.adj.runOnce()).decided).toEqual([{ commitmentId: c.id, role: 'appeal', outcome: 'accept' }]);
@@ -1117,6 +1126,7 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
     s.at('2026-11-01T10:02:00Z');
     const report = await b.adj.runOnce();
     expect(report.triggered).toEqual([]);
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     expect(report.refused).toEqual([{ commitmentId: id, problem: { type: 'coverage_exceeded', detail: expect.stringMatching(/free bond/) } }]);
     await s.triggerFallback(id);
     expect((await b.adj.runOnce()).refused.map((r) => r.problem.type)).toEqual(['coverage_exceeded']);
@@ -1145,6 +1155,7 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
     await b.adj.runOnce(); // triggered and judged; the submission failed
     expect(b.calls).toHaveLength(3);
     s.bonds.set(B.address, 0n);
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     expect((await b.adj.runOnce()).refused.map((r) => r.problem.type)).toEqual(['coverage_exceeded']);
     expect(s.state(id).kind).toBe('FallbackJudging');
     s.bonds.delete(B.address);
@@ -1163,6 +1174,7 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
     const report = await b.adj.runOnce();
     expect(report.triggered).toEqual([id]);
     expect(b.calls).toHaveLength(3);
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     expect(report.refused.map((r) => r.problem.type)).toEqual(['coverage_exceeded']);
     expect(s.decisions(id)).toEqual([]);
     expect(s.records.size).toBe(0);
@@ -1186,6 +1198,7 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
     s.at('2026-11-01T10:00:30Z');
     await a.adj.runOnce();
     s.at('2026-11-01T10:01:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(id, 'missing-or-wrong-key');
     const raised = bench(C, 'bench-c', s, {}, undefined, reg, undefined, { fee: { min: tusd('60000000') } });
     s.at('2026-11-01T10:01:05Z');
@@ -1208,6 +1221,7 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
     s.at('2026-11-01T10:02:00Z');
     expect((await b.adj.runOnce()).decided).toEqual([{ commitmentId: c.id, role: 'fallback', outcome: 'reject' }]);
     s.at('2026-11-01T10:03:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(c.id, 'wrong-outcome');
     const raised = bench(B, 'bench-b', s, {}, undefined, reg, undefined, { fee: { min: tusd('60000000') } });
     s.at('2026-11-01T10:03:05Z');
@@ -1229,6 +1243,7 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
     expect((await a.adj.runOnce()).decided.map((d) => d.outcome)).toEqual([kind === 'escalation' ? 'escalate' : 'accept']);
     if (kind === 'party appeal') {
       s.at('2026-11-01T10:01:00Z');
+      // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
       s.fileAppeal(c.id, 'wrong-outcome');
     }
     s.at('2026-11-01T10:01:05Z');
@@ -1329,6 +1344,7 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
         const { s, who, task } = await turn();
         s.bonds.set(who.adj.address, BigInt(task.commitment.price.amount) - 1n);
         const r = await who.adj.decideTask(task);
+        // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
         expect(!r.ok && r.error.type).toBe('coverage_exceeded');
         expect(who.calls).toHaveLength(0);
       });
@@ -1449,6 +1465,7 @@ describe('attack.untrusted-appeal-adjudicator-via-fallback', () => {
     s.at('2026-11-01T10:00:30Z');
     expect((await o.adj.runOnce()).decided).toEqual([{ commitmentId: terms.id, role: 'primary', outcome: 'reject' }]);
     s.at('2026-11-01T10:01:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(terms.id, 'wrong-outcome');
     s.at('2026-11-01T10:01:05Z');
     expect((await c.adj.runOnce()).decided).toEqual([{ commitmentId: terms.id, role: 'appeal', outcome: 'accept' }]);
@@ -1499,6 +1516,7 @@ describe('attack.outside-primary-rotates-policy', () => {
     expect((await o.adj.runOnce()).decided).toEqual([{ commitmentId: terms.id, role: 'primary', outcome: 'reject' }]);
     rotate(s, terms);
     s.at('2026-11-01T10:01:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(terms.id, 'wrong-outcome');
     s.at('2026-11-01T10:01:05Z');
     const report = await c.adj.runOnce();
@@ -1523,6 +1541,7 @@ describe('attack.outside-primary-rotates-policy', () => {
     rotate(s, terms);
     s.policies.delete(terms.adjudication.policyHash);
     s.at('2026-11-01T10:01:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(terms.id, 'wrong-outcome');
     s.at('2026-11-01T10:01:05Z');
     const report = await c.adj.runOnce();

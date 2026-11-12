@@ -33,6 +33,7 @@ export const PROBLEMS = {
   invalid_state: { status: 409, title: "The commitment's state does not take this call", next: "Read `state` (the commitment's escrowState now) and `needs` (the states that take this call): wait for one of them, or do what the state needs first." },
   submission_limit_reached: { status: 409, title: 'No more deliveries are allowed', next: 'The terms allow maxSubmissions deliveries; wait for the decision.' },
   adjudicator_unavailable: { status: 422, title: 'The adjudicator cannot take this', next: 'Read the detail; choose another adjudicator, or terms this one runs.' },
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   coverage_exceeded: { status: 422, title: "The adjudicator's free bond does not cover this price", next: 'Choose an adjudicator with more free bond (GET /v1/adjudicators), or a lower price.' },
   adjudicator_affiliated: { status: 403, title: 'The adjudicator is affiliated with a party', next: 'Choose an adjudicator with no affiliation to either party.' },
   mime_not_allowed: { status: 400, title: "The delivery's media type is not allowed", next: 'Deliver in a format the terms name and the adjudicator accepts.' },

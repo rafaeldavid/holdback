@@ -13,7 +13,7 @@ import {RulesHandler} from "../handlers/RulesHandler.sol";
 
 // The pinned copies carry a suffix in their file names, so a lookup by "HoldbackRules.sol:HoldbackRules"
 // (`deployCodeTo`, `vm.getCode`) still finds only src/. Nothing imports them by name, so their bytes are unchanged.
-import {HoldbackRules as ParentRules} from "./parent/HoldbackRules.7f99f90.sol";
+import {HoldbackRules as ParentRules} from "./parent/HoldbackRules.cd88cca.sol";
 import {IHoldbackBeacon as ParentBeacon} from "./parent/IHoldbackBeacon.sol";
 import {HoldbackRules as PlantedRules} from "./planted/HoldbackRules.planted.sol";
 
@@ -22,8 +22,8 @@ import {HoldbackRules as PlantedRules} from "./planted/HoldbackRules.planted.sol
 ///         - `NewSide`: the source under test, `contracts/src/`, deployed by `Base.setUp` unchanged;
 ///         - `OldSide`: the pinned copy of `contracts/src/` at the change's parent commit (`parent/`). Since T-356
 ///           each change on `contracts-audit-ready` is compared with its parent, not with the deployed commit
-///           (the refinement plan, R6c's harness row). The parent here is `7f99f90`, the lane after L-4 (T-380,
-///           holdback PR 414), copied unchanged. Both sides pay the terms' money addresses (ADR-0033), so deals with those addresses
+///           (the refinement plan, R6c's harness row). The parent here is `cd88cca`, the lane after the
+///           rounds (T-380, holdback PR 418), copied unchanged. Both sides pay the terms' money addresses (ADR-0033), so deals with those addresses
 ///           apart from the signing addresses run on both sides too;
 ///         - `PlantedSide`: the pinned copy with one planted behaviour change (`planted/`), for the tests that
 ///           prove the harness and the liveness invariant fail on a real change.
@@ -77,7 +77,7 @@ contract OldSide is PinnedSide {
 
     function _rulesWith(SimBeacon beacon) internal override returns (HoldbackRules) {
         return HoldbackRules(
-            address(new ParentRules(escrow, address(collector3009), MARGIN, ParentBeacon(address(beacon)), address(usdc)))
+            address(new ParentRules(escrow, address(collector3009), MARGIN, ParentBeacon(address(beacon)), address(usdc), 0))
         );
     }
 }
@@ -89,7 +89,7 @@ contract PlantedSide is PinnedSide {
 
     function _rulesWith(SimBeacon beacon) internal override returns (HoldbackRules) {
         return HoldbackRules(
-            address(new PlantedRules(escrow, address(collector3009), MARGIN, ParentBeacon(address(beacon)), address(usdc)))
+            address(new PlantedRules(escrow, address(collector3009), MARGIN, ParentBeacon(address(beacon)), address(usdc), 0))
         );
     }
 }
@@ -98,7 +98,7 @@ contract PlantedSide is PinnedSide {
 contract PlantedHandler is PinnedSide {
     function _rulesWith(SimBeacon beacon) internal override returns (HoldbackRules) {
         return HoldbackRules(
-            address(new PlantedRules(escrow, address(collector3009), MARGIN, ParentBeacon(address(beacon)), address(usdc)))
+            address(new PlantedRules(escrow, address(collector3009), MARGIN, ParentBeacon(address(beacon)), address(usdc), 0))
         );
     }
 }

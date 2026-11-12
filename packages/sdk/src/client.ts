@@ -218,6 +218,7 @@ export class Holdback {
   deliver = (delivery: Extract<Operation, { kind: 'deliver' }>['delivery'], o?: SubmitCallOptions) => this.submit({ kind: 'deliver', delivery }, o);
   earlyAccept = (message: Extract<Operation, { kind: 'early_accept' }>['message'], o?: SubmitCallOptions) => this.submit({ kind: 'early_accept', message }, o);
   decide = (message: Extract<Operation, { kind: 'decide' }>['message'], o?: SubmitCallOptions) => this.submit({ kind: 'decide', message }, o);
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   appeal = (appeal: Extract<Operation, { kind: 'appeal' }>['appeal'], o?: SubmitCallOptions) => this.submit({ kind: 'appeal', appeal }, o);
   /** A co-signed MutualSettlement (ADR-0019, D23); preview it unsigned with preview({ kind: 'settle', ... }). */
   settle = (message: Extract<Operation, { kind: 'settle' }>['message'], o?: SubmitCallOptions) => this.submit({ kind: 'settle', message }, o);

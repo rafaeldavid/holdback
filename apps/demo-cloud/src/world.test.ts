@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { Agent } from '../../../examples/agent.ts';
 import { serveTwoOrigins } from '../../../examples/two-origins.ts';
 import { LIVE_REGISTRY_URI, liveRegistry, markerFake, placeholderRegistry } from '@holdback/adjudicator';
-import { canonicalKeccak, DRAND_QUICKNET_CHAIN_HASH, holdbackDomain, verifyRegistration, type AdjudicatorRegistration, type RegisteredAdjudicator } from '@holdback/core';
+import { APPEAL_WINDOW_PROBLEM, canonicalKeccak, DRAND_QUICKNET_CHAIN_HASH, holdbackDomain, verifyRegistration, type AdjudicatorRegistration, type RegisteredAdjudicator } from '@holdback/core';
 import { LiveChain, type DeploymentFile } from '@holdback/settlement/live';
 import { encodePublicKey, generateEncryptionKeyPair } from '@holdback/core/crypto';
 import { MemoryFeedbackStore, signRegistration, testAccount, type StoredRegistration, type TestAccount } from '@holdback/operator';
@@ -31,13 +31,15 @@ afterEach(async () => void (await Promise.all(running.splice(0).map((r) => r.clo
  * Serves a world as two nodes: http://127.0.0.1:<port> is node 0, http://localhost:<port> node 1. Adjudicator passes run
  * every 100 ms, or only when the test calls `world.work()` with `passes: false`.
  */
-async function serve(options: Partial<PublicWorldOptions> = {}, storage = new MemoryStorage(), client?: string, { passes = true } = {}): Promise<Running> {
+async function serveWorld(options: Partial<PublicWorldOptions> = {}, storage = new MemoryStorage(), client?: string, { passes = true } = {}): Promise<Running> {
   const world = await PublicWorld.open({ storage, env: {}, minWindowSec: 2, ...options });
   const { urls, close } = await serveTwoOrigins(world, { tickMs: passes ? 100 : undefined, client, keepContentLength: true });
   const r: Running = { world, urls, close };
   running.push(r);
   return r;
 }
+/** A world as the rehearsal opens it: on SimChain, phase one's rules by default (T-378). */
+const serve = serveWorld;
 
 const freshAgent = (urls: string[]) => new Agent(urls, generatePrivateKey(), nacl.randomBytes(32));
 /** The offer route's two lines for money addresses it filled with the signing addresses (ADR-0033 §7, T-378). */
@@ -70,6 +72,38 @@ describe('public mode', () => {
     // Malformed input and a missing Idempotency-Key are refused.
     expect((await post(`${urls[0]}/v1/faucet`, { address: 'nope' }, 'k-5')).status).toBe(400);
     expect((await post(`${urls[0]}/v1/faucet`, { address: freshAgent(urls).address })).status).toBe(400);
+  });
+
+  // T-378 (the plan's 2b): the rehearsal tool opens this world in process (examples/audit-deal.ts, startLocalWorld), so on
+  // SimChain it runs the phase-one contracts' rules unless it is created on the full protocol, and refuses an appeal
+  // window the chain would refuse, with the chain's own problem, at prepare and on the settlement layer itself.
+  it('on SimChain runs phase one by default: a non-zero appeal window is refused with the chain\'s problem', async () => {
+    const { urls, world } = await serve();
+    const d = await discovery(urls);
+    const [seller, buyer] = [freshAgent(urls), freshAgent(urls)];
+    const r = await post(`${urls[0]}/v1/prepare/offer`, offerRequest(d, seller, buyer, { timing: { appealWindowSec: 300 } }));
+    expect([r.status, await r.json()]).toEqual([400, expect.objectContaining({ type: 'invalid_terms', field: 'timing.appealWindowSec', detail: APPEAL_WINDOW_PROBLEM })]);
+    expect((world.chain as unknown as { profile: string }).profile).toBe('phase_one');
+    const fullWorld = await serve({ simProfile: 'full' });
+    expect((fullWorld.world.chain as unknown as { profile: string }).profile).toBe('full');
+    const d2 = await discovery(fullWorld.urls);
+    expect((await post(`${fullWorld.urls[0]}/v1/prepare/offer`, offerRequest(d2, freshAgent(fullWorld.urls), freshAgent(fullWorld.urls), { timing: { appealWindowSec: 300 } }))).status).toBe(200);
+  });
+
+  it('a world created before the profile existed keeps the full protocol on reopen (T-378)', async () => {
+    const storage = new MemoryStorage();
+    const first = await serve({ simProfile: 'full' }, storage);
+    await first.close();
+    running.splice(running.indexOf(first), 1);
+    const meta = (await storage.get<Record<string, unknown>>('meta'))!;
+    delete meta['profile'];
+    await storage.put({ meta });
+    const again = await serve({}, storage);
+    expect((again.world.chain as unknown as { profile: string }).profile).toBe('full');
+    await again.close();
+    running.splice(running.indexOf(again), 1);
+    // Asking a stored world for another protocol is an error, as asking it for another settlement is (PR 416 review L4).
+    await expect(PublicWorld.open({ storage, env: {}, simProfile: 'phase_one' })).rejects.toThrow(/runs the full protocol; it cannot open as phase_one/);
   });
 
   it('sends the tokens to a payment address and the mandate to the signing address (ADR-0033 §5, T-378)', async () => {
@@ -156,7 +190,7 @@ describe('public mode', () => {
     const early = await grant(seller);
     expect(Date.parse(early.scope.expiresAt)).toBe(t + 30 * 86_400_000);
     // A deal in flight continues across a renewal: both parties renew between the offer and the agreement.
-    const timing = { offerExpiresInSec: 7200, fundWithinSec: 7300, deliverWithinSec: 7400, judgeWithinSec: 600, fallbackWithinSec: 600, appealWindowSec: 60, appealDecideSec: 60 };
+    const timing = { offerExpiresInSec: 7200, fundWithinSec: 7300, deliverWithinSec: 7400, judgeWithinSec: 600, fallbackWithinSec: 600, appealWindowSec: 0, appealDecideSec: 60 };
     const offer = await seller.offer(offerRequest(d, seller, buyer, { timing }));
     await world.work();
     t += 3_600_000;
@@ -335,7 +369,7 @@ async function rubricDeal(urls: string[], diff: string): Promise<{ id: string; s
         { id: 'minimal', description: 'No unrelated changes.', weight: 30, anchors: { '0': 'Rewrites everything', '2': 'Some noise', '4': 'Minimal' } },
       ],
     },
-    timing: { judgeWithinSec: 2, fallbackWithinSec: 2, appealWindowSec: 2, appealDecideSec: 2 },
+    timing: { judgeWithinSec: 2, fallbackWithinSec: 2, appealWindowSec: 0, appealDecideSec: 2 },
   });
   await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);
   await buyer.agreeAndFund(offer.terms, 40_000_000n);
@@ -393,6 +427,8 @@ describe('two hostnames per operator node (T-312)', () => {
 });
 
 describe('adjudicator registrations in the world store (T-221 slice 2, ADR-0030)', () => {
+  // Bonds exist on the full protocol only (ADR-0031 §8): these worlds are created on it (T-378).
+  const serve = (options: Partial<PublicWorldOptions> = {}, storage = new MemoryStorage(), client?: string, o: { passes?: boolean } = {}) => serveWorld({ simProfile: 'full', ...options }, storage, client, o);
   const page = async (url: string, q = ''): Promise<J> => (await (await fetch(`${url}/v1/adjudicators${q}`)).json()) as J;
   const rows = async (storage: MemoryStorage) => [...(await storage.list<StoredRegistration>({ prefix: 'ar:' })).values()];
 
@@ -574,6 +610,7 @@ describe('the daily budget for the timeouts the operators send (T-231)', () => {
     expect(await storage.get('ot:2026-11-06')).toEqual({ sent: 3, offers: 1 });
     // A restart reads the day's row: what was spent stays spent.
     const restarted = new TimeoutBudgetRows(storage, () => t, { perDay: 3, offersPerDay: 1 });
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     expect(await restarted.take('appeal_expiry')).toEqual({ opensAt: midnight, offersOnly: false });
     // A new UTC day starts from zero.
     t = midnight + 1;
@@ -688,7 +725,7 @@ describe('a checks-only deal between two fresh agents, over HTTP', () => {
       price: { token: 'tUSD', amount: '25000000' },
       deliverable: { kind: 'dataset', description: 'customers.csv', format: 'text/csv' },
       checks: [{ id: 'cols', type: 'csv_columns_exact', required: true, columns: ['customer_id', 'email'] }],
-      timing: { judgeWithinSec: 2, fallbackWithinSec: 2, appealWindowSec: 2, appealDecideSec: 2 },
+      timing: { judgeWithinSec: 2, fallbackWithinSec: 2, appealWindowSec: 0, appealDecideSec: 2 },
     });
     await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);
     await buyer.agreeAndFund(offer.terms, 30_000_000n);
@@ -705,11 +742,14 @@ describe('a checks-only deal between two fresh agents, over HTTP', () => {
     expect([await balance(buyer), await balance(seller)]).toEqual(['974000000', '1025000000']);
 
     // Eviction: a new world over the same storage replays the journal to the same state.
-    const digest = first.world.digest();
+    // Closed first, so no pass of the first world writes after the digest (on phase one the deal is final at once, and a
+    // pass could still land between the two in CI; T-378).
     await first.close();
     running.splice(running.indexOf(first), 1);
+    const digest = first.world.digest();
     // A changed configuration does not change a world already created: its club keeps the windows it began with.
-    const second = await serve({ minWindowSec: 99 }, storage);
+    // Without passes: a pass of the reopened world could move its clock before the digest is read (T-378).
+    const second = await serve({ minWindowSec: 99 }, storage, undefined, { passes: false });
     expect(second.world.digest()).toBe(digest);
     expect(((await (await fetch(`${second.urls[0]}/`)).json()) as J).demo.minWindowSec).toBe(2);
     const again = new Agent(second.urls, generatePrivateKey(), nacl.randomBytes(32));
@@ -758,7 +798,7 @@ describe('adjudicator passes (T-057)', () => {
     const d = await discovery(first.urls);
     const [seller, buyer] = [freshAgent(first.urls), freshAgent(first.urls)];
     for (const a of [seller, buyer]) await a.call('POST', '/v1/faucet', { address: a.address });
-    const timing = { judgeWithinSec: 7200, fallbackWithinSec: 7200, appealWindowSec: 2, appealDecideSec: 2 };
+    const timing = { judgeWithinSec: 7200, fallbackWithinSec: 7200, appealWindowSec: 0, appealDecideSec: 2 };
     const offer = await seller.offer(offerRequest(d, seller, buyer, { timing }));
     await first.world.work();
     await buyer.agreeAndFund(offer.terms, 30_000_000n);
@@ -791,7 +831,7 @@ describe('adjudicator passes (T-057)', () => {
     const d = await discovery(urls);
     const [seller, buyer] = [freshAgent(urls), freshAgent(urls)];
     for (const a of [seller, buyer]) await a.call('POST', '/v1/faucet', { address: a.address });
-    const timing = { offerExpiresInSec: 30, fundWithinSec: 45, deliverWithinSec: 60, judgeWithinSec: 600, fallbackWithinSec: 600, appealWindowSec: 60, appealDecideSec: 60 };
+    const timing = { offerExpiresInSec: 30, fundWithinSec: 45, deliverWithinSec: 60, judgeWithinSec: 600, fallbackWithinSec: 600, appealWindowSec: 0, appealDecideSec: 60 };
     const offer = await seller.offer(offerRequest(d, seller, buyer, { timing }));
     await world.work();
     await buyer.agreeAndFund(offer.terms, 30_000_000n);
@@ -886,7 +926,7 @@ describe('telemetry (T-031)', () => {
       price: { token: 'tUSD', amount: '25000000' },
       deliverable: { kind: 'dataset', description: 'customers.csv', format: 'text/csv' },
       checks: [{ id: 'cols', type: 'csv_columns_exact', required: true, columns: ['customer_id', 'email'] }],
-      timing: { judgeWithinSec: 2, fallbackWithinSec: 2, appealWindowSec: 2, appealDecideSec: 2 },
+      timing: { judgeWithinSec: 2, fallbackWithinSec: 2, appealWindowSec: 0, appealDecideSec: 2 },
     });
     await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);
     await buyer.agreeAndFund(offer.terms, 30_000_000n);

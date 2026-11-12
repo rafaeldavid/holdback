@@ -196,7 +196,7 @@ abstract contract Base is Test, DeployPermit2 {
 
     /// The CPP PaymentInfo the rules contract derives (ADR-0025).
     function _pi(H.Terms memory t) internal view returns (AuthCaptureEscrow.PaymentInfo memory) {
-        uint48 expiry = uint48(t.timing.fallbackBy + t.timing.appealDecideSec + MARGIN);
+        uint48 expiry = uint48(t.timing.fallbackBy + t.timing.appealDecideSec + rules.EXPIRY_MARGIN()); // the deployment's
         return AuthCaptureEscrow.PaymentInfo({
             operator: address(rules),
             payer: t.buyerPaymentAddress,

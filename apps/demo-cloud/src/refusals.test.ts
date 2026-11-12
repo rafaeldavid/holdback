@@ -46,7 +46,7 @@ async function offerFrom(urls: string[], seller: Agent, buyer: Agent, checks: J[
     price: { token: 'tUSD', amount: '25000000' },
     deliverable: { kind: 'dataset', description: 'customers.csv', format: 'text/csv' },
     checks,
-    timing: { judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 2, appealDecideSec: 2 },
+    timing: { judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 0, appealDecideSec: 2 },
   });
 }
 

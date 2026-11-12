@@ -17,10 +17,12 @@ const cases: Array<[Operation, string, string[]]> = [
   [{ kind: 'deliver', delivery: m('x') }, `/v1/commitments/${ID}/deliveries`, ['deliver']],
   [{ kind: 'early_accept', message: m('EarlyAccept') }, `/v1/commitments/${ID}/accept`, ['early_accept']],
   [{ kind: 'decide', message: m('Decision') }, `/v1/commitments/${ID}/decisions`, ['decide']],
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   [{ kind: 'appeal', appeal: m('x') }, `/v1/commitments/${ID}/appeals`, ['appeal']],
   [{ kind: 'settle', message: m('MutualSettlement') }, `/v1/commitments/${ID}/settlements`, ['mutual_settle']],
   // T-378: the late work's delivery travels beside the settlement and reaches the settlement layer with it (SC-5b).
   [{ kind: 'settle', message: m('MutualSettlement'), delivery: m('x') }, `/v1/commitments/${ID}/settlements`, ['mutual_settle']],
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   [{ kind: 'trigger', commitmentId: ID, timeout: 'appeal_expiry' }, `/v1/commitments/${ID}/triggers/appeal-expiry`, ['trigger']],
 ];
 

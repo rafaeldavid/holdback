@@ -35,7 +35,9 @@ export const serve = (world: PublicWorld, tickMs: number): Promise<Served> => se
 
 /** The demo's world on SimChain, served as two nodes. */
 export async function simWorld(): Promise<Served> {
-  return serve(await PublicWorld.open({ storage: new MemoryStorage(), env: ENV, ...WORLD }), 100);
+  // The round's own harness runs the SimChain-only scenarios here (party appeals, the bond's default compensation), so this
+  // world keeps the full protocol; the round's chain leg tests phase one (T-378).
+  return serve(await PublicWorld.open({ storage: new MemoryStorage(), env: ENV, ...WORLD, simProfile: 'full' }), 100);
 }
 
 /** anvil on PATH and `forge build` output: the anvil tests run, else they skip and say why (CI's test shards have neither). */
