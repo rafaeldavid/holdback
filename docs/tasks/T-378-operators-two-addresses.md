@@ -55,7 +55,23 @@ Non-goals: the client tools under `examples/` and `site/llms.txt` (T-379, R6c-3)
 
 ## Evidence
 
-Fill this in before review. Label each item measured, inferred or guessed.
+Labels: measured, inferred, guessed. All runs are on this task's branches, 2026-11-12.
+
+**Part 1, the two addresses (holdback PR 403):**
+
+- `apps/operator/src/sim-world-two-addresses.test.ts`: on the local world (`startSimWorld`) over HTTP, with an operator fee of 1 bp and at least 0.01 tUSD, 2 of 2 tests pass [measured]:
+  - one deal ends Released and one Refunded;
+  - the per-deal buyer signing key holds 0 tUSD at every step;
+  - the standing payment address funds, pays the 0.01 tUSD operator fee and receives the refund of the 25 tUSD price;
+  - the payout address receives the price on the release;
+  - the seller's signing address does not move.
+- **The reference adjudicator accepts and pays the payout address:** the world's three test adjudicators accepted those offers and decided both deals; the release paid the payout address [measured by the test above]. No adjudicator file changed for it [measured].
+- `apps/operator/src/prepare-two-addresses.test.ts`: 10 of 10 tests pass [measured]. They cover the default notices, both inputs, hash-only, malformed inputs, each warning, the slot signers, settlement payouts and the early-accept line.
+- demo-cloud `world.test.ts`: the faucet sends tokens to the payment address and the mandate to the signing address [measured]. The test buyer refuses another payment address (`buyer.test.ts`) [measured].
+- The reviewer (one `reviewer` subagent) gave ISSUES, all Low or Info:
+  - 2 and 5 are fixed;
+  - 1 and 4 are in the Handoff;
+  - 3 is this section.
 
 ## Decisions
 
@@ -64,3 +80,8 @@ Fill this in before review. Label each item measured, inferred or guessed.
 3. **`spec/openapi/paths.json`** is the source of `spec/openapi.json` (`pnpm openapi`). This task edits the source and regenerates the output (the coordinator, 2026-11-12).
 
 ## Handoff
+
+**Open, for later work:**
+
+- **No warning for the escrow's token store as a payout address** (PR 403 review, Low 1). The store's address comes from a chain call (`getTokenStore(rules)`), and opening a world may not make one. A later change can read it after the first pass and add it to `contracts`.
+- **Concurrent faucet grants** (PR 403 review, Info 4). Two grants from two signing keys to one payment address may both mint on the live faucet. The per-client window and the day's mint cap bound it, as rotating addresses always could.

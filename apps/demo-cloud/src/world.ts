@@ -742,8 +742,9 @@ export class PublicWorld {
     };
     const chainFacts = o.live ? { chainId, rules: o.live.chain.deployment.rules, token, symbol, funding: o.live.chain.funding, explorer: o.live.explorer ?? SEPOLIA_EXPLORER, gas: gasQuote } : undefined;
     const evm = chain instanceof EvmSettlement ? chain : undefined;
-    // ADR-0033 §7: a money address equal to one of these gets a notice at prepare. The escrow's token store is a clone the
-    // escrow derives per operator, not in the deployment record, so it is not listed.
+    // ADR-0033 §7: a money address equal to one of these gets a notice at prepare. The escrow's token store is not in the
+    // deployment record: reading it (getTokenStore) is a chain call, which opening a world may not make. So it is not listed
+    // (T-378 Handoff).
     const d = o.live?.chain.deployment;
     const contracts = d
       ? [
@@ -1292,7 +1293,8 @@ function grantFrom(w: {
   let today = { day: '', minted: 0 };
   // ADR-0033 §5: the tokens go to the payment address when the request names one, the mandate always to `address`, the
   // signing address. The per-address window counts the signing address, so one standing payment address can fund many
-  // per-deal keys; the per-client window and the day's mints still bound what one caller takes.
+  // per-deal keys; the per-client window and the day's mints still bound what one caller takes. Two grants from two keys
+  // to one payment address may both mint, as two grants to two addresses always could.
   return async (address, { client, amount = w.amount, paymentAddress = address }): Promise<FaucetOutcome> => {
     // Refused before any limit is counted: a corrected call keeps its turn.
     if (amount > w.maxAmount) return { ok: false, problem: problem('invalid_terms', `amount ${amount} is above this faucet's cap of ${w.maxAmount} base units a grant (${tokenText(w.maxAmount.toString(), w.symbol)}; demo.faucet.maxGrant in discovery)`), field: 'amount' };

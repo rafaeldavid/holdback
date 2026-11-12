@@ -760,6 +760,13 @@ function lateDeliveryIn(c: AnyCommitment, v: unknown): Delivery | undefined {
   return d;
 }
 
+/** Which money address a payout names, for the check line; both roles when the two addresses are one (ADR-0033 §8). */
+function payeeLabel(c: Pick<AnyCommitmentTerms, 'sellerPayoutAddress' | 'buyerPaymentAddress'>, to: Address): string {
+  const payout = lc(to) === lc(c.sellerPayoutAddress);
+  const payment = lc(to) === lc(c.buyerPaymentAddress);
+  return payout && payment ? " (the seller's payout address and the buyer's payment address)" : payout ? " (the seller's payout address)" : payment ? " (the buyer's payment address)" : '';
+}
+
 async function settlement(ctx: PrepareContext, input: Record<string, unknown>): Promise<Prepared> {
   const c = await commitmentIn(ctx, input);
   const nonce = nonceIn(input['nonce'], 'nonce');
@@ -817,7 +824,7 @@ async function settlement(ctx: PrepareContext, input: Record<string, unknown>): 
     ],
     submit: { method: 'POST', path: `/v1/commitments/${c.id}/settlements`, body: { ...m, buyerSignature: null, sellerSignature: null } },
     check: [
-      `payouts: ${payouts.map((p) => `${amountText(p.amount)} to ${p.to}${lc(p.to) === lc(c.sellerPayoutAddress) ? " (the seller's payout address)" : lc(p.to) === lc(c.buyerPaymentAddress) ? " (the buyer's payment address)" : ''}`).join('; ')} (they must sum to the price ${amountText(c.price)})`,
+      `payouts: ${payouts.map((p) => `${amountText(p.amount)} to ${p.to}${payeeLabel(c, p.to)}`).join('; ')} (they must sum to the price ${amountText(c.price)})`,
       `the fee ${amountText(c.adjudication.fee)} returns to the buyer's payment address ${c.buyerPaymentAddress}`,
       releaseKey ? 'the buyer receives the content key' : 'the content key is not released',
       'both parties sign the identical typed data; either may submit once both signatures are in',
