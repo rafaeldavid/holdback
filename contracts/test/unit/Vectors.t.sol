@@ -82,8 +82,9 @@ contract VectorsTest is Test {
     /// commitment ID is core's terms digest, and `_digest` (used by the vectors below) builds the same domain.
     function test_termsDigest_matchesCore() public {
         vm.chainId(31337);
-        // The constructor: escrow, collector, expiry margin, beacon, token, beacon margin (ADR-0032).
-        bytes memory args = abi.encode(address(0), address(0), uint64(0), address(0), TOKEN, uint64(0));
+        // The constructor: escrow, collector, expiry margin, beacon, token, beacon margin (ADR-0032). The digest
+        // depends on the domain alone, so the addresses are placeholders, non-zero as the constructor requires (T-380).
+        bytes memory args = abi.encode(address(0xE5), address(0xC0), uint64(0), address(0xBE), TOKEN, uint64(0));
         deployCodeTo("HoldbackRules.sol:HoldbackRules", args, VERIFYING);
         bytes32 core = 0x2bb88f88c30641ab49ab6823d4cf2e692d1772f9137f681191123f4c19b46724;
         assertEq(HoldbackRules(VERIFYING).typedDataHash(ID), core);
