@@ -17,11 +17,14 @@ if (!Number.isInteger(port) || operatorPorts.some((p) => !Number.isInteger(p))) 
   process.exit(2);
 }
 
+/** The rules this sim runs, and the ones its start-up text describes (T-378, T-389). */
+const PROFILE = 'phase_one' as const;
+
 let world: Awaited<ReturnType<typeof startSimWorld>>;
 try {
   // One developer owns every account here, so GET / lists their keys (a shared world turns this off: tools/sim). Phase
   // one's rules (T-378): the seller adapter's --sim and any agent rehearsing here is refused what the chain refuses.
-  world = await startSimWorld({ port, operatorPorts, publishSecrets: true, profile: 'phase_one' });
+  world = await startSimWorld({ port, operatorPorts, publishSecrets: true, profile: PROFILE });
 } catch (e) {
   const err = e as NodeJS.ErrnoException & { port?: number };
   if (err.code !== 'EADDRINUSE') throw e;
@@ -30,7 +33,7 @@ try {
 }
 // The operator fee the nodes publish (fees.operator), so the first lines say what a deal costs here (T-389).
 const discovery = (await (await fetch(`${world.info.operators[0]}/.well-known/holdback.json`)).json()) as { fees?: { operator?: OperatorFeeSchedule } };
-console.log(simStartText(world.info, world.url, { profile: 'phase_one', fee: discovery.fees?.operator ?? null }));
+console.log(simStartText(world.info, world.url, { profile: PROFILE, fee: discovery.fees?.operator ?? null }));
 
 const stop = async () => {
   await world.close();

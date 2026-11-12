@@ -20,7 +20,8 @@ describe('pnpm sim start-up text (T-389)', () => {
     expect(lines[1]).toBe('Phase-one rules, as the contracts on chain: no bonds and no party appeals; the first decision, by the primary or the fallback adjudicator, is final.');
     expect(text).not.toMatch(/bond(ed)? [0-9]|appeal: bond|compensated/);
     expect(text).toContain('  minimum fee 1 tUSD each');
-    expect(text).toContain('  default outcome (no adjudicator decided in time): the buyer is refunded');
+    expect(text).toContain('  the adjudication fee is paid on a judged refund: the buyer gets the price back, not the fee');
+    expect(text).toContain('  default outcome (no adjudicator decided in time): the buyer gets the price and the adjudication fee back; nothing compensates the seller');
     // The sim's nodes publish no fee by default: the third line says so.
     expect(lines[2]).toBe('Operator fee: none (the nodes publish no fees.operator): a buyer pays the price plus the adjudication fee.');
   });
@@ -30,12 +31,12 @@ describe('pnpm sim start-up text (T-389)', () => {
     expect(text).not.toContain('Phase-one rules');
     expect(text).toContain('  each bonded 25,000 tUSD, minimum fee 1 tUSD');
     expect(text).toMatch(/ {2}appeal: bond [0-9.]+% of the price \(rounded up\) plus a [0-9.,]+ tUSD fee/);
-    expect(text).toMatch(/the seller is compensated [0-9.]+% of the price/);
+    expect(text).toMatch(/default outcome \(no adjudicator decided in time\): the buyer gets the price and the adjudication fee back, and the seller is compensated [0-9.]+% of the price from the bond/);
   });
 
   it('names the operator fee as published: at 0, and above 0', () => {
     const base = { to: `0x${'ab'.repeat(20)}`, token: 'tUSD', max: null, appliesAt: 'agree-and-fund', refundable: false } as unknown as OperatorFeeSchedule;
-    expect(operatorFeeLine({ ...base, bps: 0, min: '0' } as OperatorFeeSchedule)).toBe('Operator fee: 0 (fees.operator published at 0): a buyer pays the price plus the adjudication fee, and asks for no fee signature.');
+    expect(operatorFeeLine({ ...base, bps: 0, min: '0' } as OperatorFeeSchedule)).toBe('Operator fee: 0 (fees.operator published at 0): a buyer pays the price plus the adjudication fee; no fee signature is asked for.');
     expect(operatorFeeLine({ ...base, bps: 1, min: '10000' } as OperatorFeeSchedule)).toBe(`Operator fee: 1 bp of the price rounded up, at least 0.01 tUSD, paid to 0x${'ab'.repeat(20)} with the funded agreement, outside the hold and not refunded (fees.operator).`);
   });
 });

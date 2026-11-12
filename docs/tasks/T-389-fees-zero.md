@@ -3,7 +3,7 @@
 - **Lane:** api
 - **Phase:** 2
 - **Depends on:** T-029 (the operator fee, ADR-0023, D33)
-- **Paths this task may touch:** `apps/demo-cloud/wrangler.op1.jsonc` and `wrangler.op2.jsonc`, `apps/test-agents/wrangler.jsonc`; `apps/operator`, `apps/demo-cloud`, `packages/sdk` and `examples/` only where a zero fee needs a code change, with their tests; this task file
+- **Paths this task may touch:** `apps/demo-cloud/wrangler.op1.jsonc` and `wrangler.op2.jsonc`, `apps/test-agents/wrangler.jsonc`; `apps/operator`, `apps/demo-cloud`, `packages/sdk` and `examples/` only where a zero fee needs a code change, with their tests; `apps/operator/src/sim-bin.ts` and a new `sim-text.ts` (the coordinator's addition, 2026-11-12); this task file
 - **Human gate:** no (lands on `contracts-audit-ready`; the switch-over deploy that carries it is T-383's and Rafa's)
 - **Status:** done
 - **Agent/session:** T-389 session, change kind 4
@@ -70,10 +70,10 @@ Non-goals: the adjudication fee stays as it is (it pays the adjudicator and is p
 
 Fill this in before review. Label each item measured, inferred or guessed.
 
-- **Commands run and results** (2026-11-12, on commit 414fcacc plus a comment fix):
+- **Commands run and results** (2026-11-12, on the branch after merging `origin/contracts-audit-ready` at 690edfd, with the sim addition):
   - `pnpm typecheck`: exit 0. `pnpm lint`: exit 0. [measured]
   - `pnpm snap`: exit 0. `pnpm snap --settlement=local`: exit 0. [measured]
-  - `npx vitest run apps/demo-cloud apps/operator apps/test-agents examples`, with anvil on PATH and `forge build` output: 74 files and 870 tests passed. 1 file (2 tests) skipped: `apps/demo-cloud/src/live-fork.test.ts`, which needs a Sepolia RPC. [measured]
+  - `npx vitest run apps/demo-cloud apps/operator apps/test-agents examples`, with anvil on PATH and `forge build` output: 76 files and 898 tests passed. 1 file (2 tests) skipped: `apps/demo-cloud/src/live-fork.test.ts`, which needs a Sepolia RPC. [measured]
   - New `apps/demo-cloud/src/pilot-fee.anvil.test.ts`: 3 of 3 passed in 22 s. [measured] It reads the fee variables from `wrangler.op1.jsonc`, checks that both nodes publish the schedule at 0, and funds two deals from a payment address apart from the signing key:
     - prepare asks for the agreement and the funding only (two slots, no `operatorFee` body);
     - the payment address gets exactly the price plus the adjudication fee;
@@ -81,9 +81,10 @@ Fill this in before review. Label each item measured, inferred or guessed.
     - no `fee.operator` event.
   - New block in `examples/buyer-signer-addresses.test.ts` (SimChain, fee 0): the signer writes the funding file only, with no `--fee` check line. It refuses an operator-fee signature, and the deal record's operator-fee check passes at 0. 15 of 15 passed. [measured]
   - Non-zero fee tests unchanged and passing with their own values: `apps/operator/src/fee.test.ts`, `apps/demo-cloud/src/live.test.ts` (4.71 tUSDC on anvil), `world.test.ts`, `examples/buyer-signer*.test.ts`. [measured, in the run above]
+  - The sim addition (`apps/operator/src/sim-text.ts`, asked for by the coordinator): `pnpm sim`'s start-up text is true of its profile. On phase one, one line says there are no bonds and no party appeals and the first decision is final; no bond or appeal figure is printed; on a default outcome the buyer gets the price and the adjudication fee back and nothing compensates the seller. The full profile keeps its bond and appeal economics. The third line is the operator fee the nodes publish ("none" in the sim by default). `sim-text.test.ts` pins both texts; `sim-world-phase-one.test.ts` pins that the one profile constant drives both the world and the text. 9 of 9 passed; `pnpm sim` itself printed the phase-one text. [measured]
 - **Snapshot diffs:** none. [measured]
 - **Metrics:** a buyer on a 25 tUSDC deal pays 30.71 tUSDC before (25 price + 1 adjudication fee + 4.71 operator fee; `live.test.ts` on anvil) and 26.00 tUSDC after (`pilot-fee.anvil.test.ts`). [measured]
-- **Review:** one reviewer subagent with CLAUDE.md, ADR-0023, D33 and the threat model returned PASS. It had 3 non-blocking findings: Handoff and Evidence were empty (filled here), and a stale comment in `apps/test-agents/src/test-world.ts` (fixed). [measured]
+- **Review:** one reviewer subagent with CLAUDE.md, ADR-0023, D33 and the threat model returned PASS. It had 3 non-blocking findings: Handoff and Evidence were empty (filled here), and a stale comment in `apps/test-agents/src/test-world.ts` (fixed). On the sim addition it found 3 non-blocking issues: the default-outcome refund wording, the profile written in two places, and the zero-fee wording. All 3 are fixed. [measured]
 
 ## Decisions
 

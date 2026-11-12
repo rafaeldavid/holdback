@@ -8,7 +8,7 @@ import { formatTusd } from './units.js';
 /** The operator fee in one line, from the schedule the nodes publish (or none). */
 export function operatorFeeLine(fee: OperatorFeeSchedule | null): string {
   if (!fee) return 'Operator fee: none (the nodes publish no fees.operator): a buyer pays the price plus the adjudication fee.';
-  if (fee.bps === 0 && fee.min === '0') return 'Operator fee: 0 (fees.operator published at 0): a buyer pays the price plus the adjudication fee, and asks for no fee signature.';
+  if (fee.bps === 0 && fee.min === '0') return 'Operator fee: 0 (fees.operator published at 0): a buyer pays the price plus the adjudication fee; no fee signature is asked for.';
   return `Operator fee: ${operatorFeeRule(fee, (a) => formatTusd(a))}, paid to ${fee.to} with the funded agreement, outside the hold and not refunded (fees.operator).`;
 }
 
@@ -36,12 +36,12 @@ export function simStartText(info: SimInfo, simUrl: string, o: { profile: 'full'
     ...info.accounts.map((a) => `  ${a.label.padEnd(9)} ${a.address}  ${formatTusd(a.balance)}  signing key ${a.privateKey}`),
     '',
     'Economics (club rulebook):',
-    `  the adjudication fee is paid on a refund too: a refunded buyer gets the price back, not the fee`,
+    `  the adjudication fee is paid on a judged refund: the buyer gets the price back, not the fee`,
     ...(phaseOne
-      ? ['  default outcome (no adjudicator decided in time): the buyer is refunded']
+      ? ['  default outcome (no adjudicator decided in time): the buyer gets the price and the adjudication fee back; nothing compensates the seller']
       : [
           `  appeal: bond ${pct(e['appealBondRateBps']!)} of the price (rounded up) plus a ${formatTusd(e['appealFee']!)} fee`,
-          `  default outcome (no adjudicator decided in time): the buyer is refunded and the seller is compensated ${pct(e['defaultOutcomeSellerCompensationRateBps']!)} of the price`,
+          `  default outcome (no adjudicator decided in time): the buyer gets the price and the adjudication fee back, and the seller is compensated ${pct(e['defaultOutcomeSellerCompensationRateBps']!)} of the price from the bond`,
         ]),
     '',
     `Fresh funded accounts: POST ${simUrl}/accounts. Work containing FAIL-ME fails the fake judges. Silence an adjudicator: POST ${simUrl}/adjudicators/primary {"silent": true}.`,
