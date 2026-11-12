@@ -395,11 +395,6 @@ function defaultsOf(d: J): Defaults {
   };
 }
 
-/**
- * What an offer changes from a seller's defaults (filled with the scope): each changed deliverable field, check,
- * rubric, adjudication fee and window, old value and new. Shown to the buyer's agent so it can decide; the signer
- * judges none of them (D28).
- */
 /** The differences readOffer finds against the clock, which checkOffer keeps from the shown offer (T-390). */
 const CLOCK_FIELDS = ['createdAt', 'settlementTime'];
 /** A distance in seconds as a person reads it: "in 5 years 1 day", "12 min ago". A year is 365 days here. */
@@ -412,6 +407,11 @@ export function fromNow(sec: number): string {
   return a === 0 ? 'now' : sec > 0 ? `in ${text}` : `${text} ago`;
 }
 
+/**
+ * What an offer changes from a seller's defaults (filled with the scope): each changed deliverable field, check,
+ * rubric, adjudication fee and window, old value and new. Shown to the buyer's agent so it can decide; the signer
+ * judges none of them (D28).
+ */
 export function differencesOf(defaults: Defaults, offer: Offer): Difference[] {
   const out: Difference[] = [];
   // Exact canonical JSON: a change of case in a check's value is a change (no address lowercasing here).
@@ -840,7 +840,11 @@ export class BuyerSigner {
     // T-390 (T-388 H1): the windows count from the seller's createdAt, so a createdAt far from the clock moves every
     // deadline though no window differs. Judged now, when the offer is shown; checkOffer keeps this verdict.
     const { clock, timeline } = await this.#clock(agent.sources(), offer);
-    for (const d of clock) this.#log(`Warning: ${d.field} is outside the band: ${shown(d.new)}, not ${d.old}. Approve it only if you mean these deadlines.`);
+    for (const d of clock) {
+      this.#log(d.field === 'createdAt'
+        ? `Warning: the offer's createdAt, ${shown(d.new)}, is ${timeline['createdAt']?.fromNow ?? 'off'} by this machine's clock, and every deadline moves with it: deliverBy is ${timeline['deliverBy']?.fromNow ?? 'unknown'}. An honest offer's createdAt is ${d.old}. Approve it only if you mean these deadlines.`
+        : `Warning: the operators' clocks are further apart than ${CREATED_AT_BAND.behindSec + CREATED_AT_BAND.aheadSec} s (${shown(d.new)}): the offer's times cannot be read against one clock. Approve it only if you mean its deadlines.`);
+    }
     const found = defaults ? differencesOf(defaults, offer) : [];
     const showing: Offer = { ...offer, timeline, ...(defaults || clock.length ? { differences: [...found, ...clock] } : {}) };
     this.#saved.shown = { commitmentId: id, offer: showing, defaults };

@@ -44,7 +44,7 @@ if (first === 'resume') { const failed = (await Promise.allSettled((third ? [awa
   else { // the approval stop: every signed field, the total, the deadlines with their times, the adjudicators, each difference named
     const approve = [...['HOLDBACK_OPERATORS', 'CROW_EXPECT'].filter((k) => process.env[k]).map((k) => `${k}=${sh(process.env[k]!)}`), 'node', sh(relative(process.cwd(), process.argv[1]!)), 'approve', sh(store!), offer.commitmentId, fourth!, ...(stop ? ['--stop-after-funding'] : [])].join(' ');
     console.log(printable(JSON.stringify({ approval: 'needed', budget: fourth, ...offer, differences, approve })));
-    console.error(printable(`Stopped before funding: nothing is signed or paid. ${differences.length} ${differences.length === 1 ? 'difference' : 'differences'} from ${own ? 'your terms' : defaults ? "the seller's defaults" : 'no defaults (none given)'}${differences.length ? `: ${differences.map((d) => d.field).join(', ')}` : ''}. To fund exactly this offer, run:`)); console.error(printable(approve));
+    const clock = differences.filter((d) => ['createdAt', 'settlementTime'].includes(d.field)), terms = differences.filter((d) => !clock.includes(d)); console.error(printable(`Stopped before funding: nothing is signed or paid. ${terms.length} ${terms.length === 1 ? 'difference' : 'differences'} from ${own ? 'your terms' : defaults ? "the seller's defaults" : 'no defaults (none given)'}${terms.length ? `: ${terms.map((d) => d.field).join(', ')}` : ''}${clock.length ? `; against the clock: ${clock.map((d) => d.field).join(', ')} (see timeline)` : ''}. To fund exactly this offer, run:`)); console.error(printable(approve));
     process.exitCode = 3;
   }
 }
