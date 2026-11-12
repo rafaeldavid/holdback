@@ -1855,6 +1855,14 @@ const CSV = "customer_id,email\n1,ada@example.com\n2,alan@example.com\n3,grace@e
 /** What this script's own seller delivers when asked for a refund: 2 rows, which fail the rows check. */
 const BAD_CSV = "customer_id,email\n1,ada@example.com\n2,alan@example.com\n";
 const args = process.argv.slice(2);
+if (args.some((a) => a === "--help" || a === "-h")) {
+	(args[0] === "--help" || args[0] === "-h" ? console.log : console.error)([
+		"try: runs one test deal on Crow's demo with fresh keys, test tokens only. With --seller it is the buyer and Crow's test seller the other party; without, it plays both sides. --outcome refund asks for a refund.",
+		"usage: node try.mjs [--seller <test seller URL>] [--outcome release|refund]",
+		"example: node try.mjs --seller https://crow.direct/agents/test-seller"
+	].join("\n"));
+	process.exit(args[0] === "--help" || args[0] === "-h" ? 0 : 2);
+}
 const option = (name) => {
 	const i = args.indexOf(name);
 	return i >= 0 ? args[i + 1] : void 0;

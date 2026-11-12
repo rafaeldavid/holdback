@@ -9,11 +9,13 @@
 // delivered changes nothing.
 import { readFileSync } from 'node:fs';
 import { plain } from '@holdback/testkit';
+import { help, helpAsked } from './help.ts';
 import { pinnedSeller } from './seller-adapter.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
-const USAGE = 'usage: node examples/seal.ts <terms.json> <file>\n       node examples/seal.ts <journal.json> <file> <commitmentId>';
+/** What the command does, its usage and one example (examples/help.ts). */
+const USAGE = help('seal', import.meta.url);
 
 /** The signed terms: the file itself, or the deal `commitmentId` in a seller adapter's journal. */
 function termsFrom(path: string, commitmentId: string | undefined): J {
@@ -26,9 +28,10 @@ function termsFrom(path: string, commitmentId: string | undefined): J {
 }
 
 const [termsFile, file, commitmentId] = process.argv.slice(2);
-if (!termsFile || !file) {
-  console.error(USAGE);
-  process.exit(2);
+const asked = helpAsked(process.argv.slice(2));
+if (asked !== null || !termsFile || !file) {
+  (asked === 0 ? console.log : console.error)(USAGE);
+  process.exit(asked ?? 2);
 }
 try {
   const operators = (process.env['HOLDBACK_OPERATORS'] ?? 'http://127.0.0.1:8787,http://127.0.0.1:8788').split(',').filter(Boolean);

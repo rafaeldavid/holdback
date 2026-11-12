@@ -1112,6 +1112,13 @@ export function parseArgs(argv: readonly string[]): AuditDealArgs {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   let args: AuditDealArgs;
+  // T-397: --help or -h first answers with what it does, the usage and an example (exit 0); anywhere else it is a wrong call.
+  const argv = process.argv.slice(2), isHelp = (a: string | undefined) => a === '--help' || a === '-h';
+  if (argv.some(isHelp)) {
+    const text = `audit-deal: rehearses whole deals between the seller adapter and the buyer's signer, on a local chain by default (one process, its own clock) or with --live on the test service.\n${USAGE}\nexample: pnpm audit-deal --case released`;
+    (isHelp(argv[0]) ? console.log : console.error)(text);
+    process.exit(isHelp(argv[0]) ? 0 : 2);
+  }
   try {
     args = parseArgs(process.argv.slice(2));
   } catch (e) {
