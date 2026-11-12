@@ -5,7 +5,7 @@
 - **Depends on:** the merged pull requests of T-329 to T-357
 - **Paths this task may touch:** `docs/` (not `docs/audit/` rows that describe the phase-one contracts), `contracts/README.md`; a second pull request for `CLAUDE.md` only
 - **Human gate:** no for pull request 1; pull request 2 changes `CLAUDE.md`, a tier 3 file that Rafa merges
-- **Status:** done on the merge of pull request 1 (the docs batch); pull request 2 (`CLAUDE.md`) waits for Rafa
+- **Status:** done (PR 374, merged 2026-11-12 as `826ace3`; its `CLAUDE.md` change, PR 375, became T-364's and merged 2026-11-12 as `36030d7`)
 - **Agent/session:** T-362 implementer session, 2026-11-12
 
 ## Intent
