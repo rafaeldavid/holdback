@@ -26,6 +26,7 @@ import nacl from 'tweetnacl';
 import { recoverTypedDataAddress, type Hex } from 'viem';
 import { generatePrivateKey } from 'viem/accounts';
 import { Agent } from './agent.ts';
+import { finality } from './finality.ts';
 import { commitmentIdOf, jcs, knownPins, operatorFeeOf, Refusal, sealKeyTo, typedOf } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -340,10 +341,7 @@ async function main() {
 
   step = 'final';
   const party = deal ? "with Crow's test seller as the other party" : SELLER ? 'with both sides played here, since the test seller was unavailable' : 'with both sides played here';
-  // True of the world it ran on: phase one's terms have no appeal window, so the decision is final; the full protocol's may have one.
-  const appealWindow = Number(terms.timing?.appealWindowSec ?? 0);
-  const finality = appealWindow === 0 ? 'final at the decision, since the terms have no appeal window' : `final at ${done.deadlines?.appealBy ?? 'the end of the appeal window'}, when the ${appealWindow} s appeal window closes, with nobody needing to act`;
-  say(`${done.escrowState} in ${Math.round((Date.now() - started) / 1000)} s ${party}; ${finality}`);
+  say(`${done.escrowState} in ${Math.round((Date.now() - started) / 1000)} s ${party}; ${finality(terms.timing?.appealWindowSec, done.deadlines?.appealBy)}`);
   step = 'done';
   say(`commitment ${id} ${done.escrowState}`);
 }

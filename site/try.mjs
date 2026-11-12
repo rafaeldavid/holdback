@@ -1808,6 +1808,14 @@ var Agent = class Agent {
 	}
 };
 
+// examples/finality.ts
+/** The finality clause for terms whose appeal window is `appealWindowSec` seconds and whose appeal deadline is `appealBy`. */
+function finality(appealWindowSec, appealBy) {
+	const window = Number(appealWindowSec ?? 0);
+	if (window === 0) return "final at the decision, since the terms have no appeal window";
+	return `final at ${appealBy ?? "the end of the appeal window"}, when the ${window} s appeal window closes, with nobody needing to act`;
+}
+
 // examples/try.ts
 const OPERATORS = (process.env["HOLDBACK_OPERATORS"] || "https://api.crow.direct,https://api2.crow.direct").split(",").map((s) => s.trim().replace(/\/+$/, "")).filter(Boolean);
 const PRICE_UNITS = "25000000";
@@ -2242,9 +2250,7 @@ async function main() {
 	}
 	step = "final";
 	const party = deal ? "with Crow's test seller as the other party" : SELLER ? "with both sides played here, since the test seller was unavailable" : "with both sides played here";
-	const appealWindow = Number(terms.timing?.appealWindowSec ?? 0);
-	const finality = appealWindow === 0 ? "final at the decision, since the terms have no appeal window" : `final at ${done.deadlines?.appealBy ?? "the end of the appeal window"}, when the ${appealWindow} s appeal window closes, with nobody needing to act`;
-	say(`${done.escrowState} in ${Math.round((Date.now() - started) / 1e3)} s ${party}; ${finality}`);
+	say(`${done.escrowState} in ${Math.round((Date.now() - started) / 1e3)} s ${party}; ${finality(terms.timing?.appealWindowSec, done.deadlines?.appealBy)}`);
 	step = "done";
 	say(`commitment ${id} ${done.escrowState}`);
 }

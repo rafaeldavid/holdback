@@ -12,15 +12,15 @@
 import { relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-type Declared = { crowEntry?: unknown; crowCommands?: unknown };
-const declared = () => globalThis as unknown as Declared;
+/** A global the bundle itself set on `globalThis`, never one inherited through its prototype chain. */
+const declared = (key: 'crowEntry' | 'crowCommands'): unknown => (Object.hasOwn(globalThis, key) ? (globalThis as Record<string, unknown>)[key] : undefined);
 
 /**
  * Whether the module at `metaUrl`, a command named `name` (its file name without `.ts`), is the program being run.
  * In a bundle that declares `crowEntry`, only the command it names is; otherwise the file `node` was given is.
  */
 export function isMain(metaUrl: string, name: string): boolean {
-  const entry = declared().crowEntry;
+  const entry = declared('crowEntry');
   if (entry !== undefined) return entry === name;
   return Boolean(process.argv[1]) && metaUrl === pathToFileURL(process.argv[1]!).href;
 }
@@ -31,10 +31,13 @@ const sh = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, 
 /**
  * How a person runs the command `name` (a file in examples/, without `.ts`), as text to print: the bundle's own words
  * when it declares `crowCommands[name]`, else `node <path of examples/<name>.ts, relative to where this runs>`.
- * `from` is the caller's `import.meta.url`, which locates examples/ unbundled.
+ * `from` is the caller's `import.meta.url`, which locates examples/ unbundled. A bundle that declares an entry but not
+ * this command does not hold it, and no file beside the bundle does: the line names the repository's own file,
+ * `node examples/<name>.ts`, which runs from a checkout of the repository.
  */
 export function command(name: string, from: string): string {
-  const named = declared().crowCommands;
-  if (named !== null && typeof named === 'object' && typeof (named as Record<string, unknown>)[name] === 'string') return (named as Record<string, string>)[name]!;
+  const named = declared('crowCommands');
+  if (named !== null && typeof named === 'object' && Object.hasOwn(named, name) && typeof (named as Record<string, unknown>)[name] === 'string') return (named as Record<string, string>)[name]!;
+  if (declared('crowEntry') !== undefined) return `node examples/${name}.ts`;
   return `node ${sh(relative(process.cwd(), fileURLToPath(new URL(`./${name}.ts`, from))))}`;
 }

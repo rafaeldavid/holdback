@@ -317,7 +317,7 @@ describe('a wallet outside the signer pays (ADR-0033 §3)', () => {
     const lines = files.err.trimEnd().split('\n');
     const signs = lines.filter((l) => l.startsWith('{"sign":')).map((l) => JSON.parse(l) as { sign: string; summary: string });
     expect(signs.map((s) => s.sign.split('.').slice(-3, -2)[0])).toEqual(['funding', 'operator-fee']);
-    expect(lines.at(-1)).toMatch(new RegExp(`Stopped for the payment address's signatures: nothing is paid\\. .* fund ${dir} ${shown.commitmentId} <funding signature> \\[<operator-fee signature>\\]$`));
+    expect(lines.at(-1)).toMatch(new RegExp(`Stopped for the payment address's signatures: nothing is paid\\. .* node examples/pay-from-wallet\\.ts fund ${dir} ${shown.commitmentId} <funding signature> \\[<operator-fee signature>\\]$`));
     expect(await stateOf(shown.commitmentId)).toBe('AcceptedByAdjudicator');
     // The holder's own check, from the terms and its pinned layer (SimChain here), with no access to the key store.
     const termsFile = join(store(), 'terms.json');
@@ -332,6 +332,7 @@ describe('a wallet outside the signer pays (ADR-0033 §3)', () => {
     const funded = await node([here('./pay-from-wallet.ts'), 'fund', dir, shown.commitmentId, await pay.sign(signs[0]!.sign), await pay.sign(signs[1]!.sign)]);
     expect(funded.code, funded.err).toBe(0);
     expect(JSON.parse(funded.out)).toMatchObject({ funded: shown.commitmentId, paid: { token: 'tUSD', amount: TOTAL }, from: pay.address });
+    expect(funded.err.trimEnd().split('\n').at(-1)).toBe(`Funded. Follow the deal with: node examples/buy-with-signer.ts resume ${dir}`); // the tests run from the repository's root
     const done = await node([here('./buy-with-signer.ts'), 'resume', dir]);
     expect(done.code, done.err).toBe(0);
     expect(JSON.parse(done.out)).toMatchObject({ outcome: 'Released', work: CSV });

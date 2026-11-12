@@ -59,6 +59,30 @@ describe('entry.ts: which file is the program, and how commands name each other'
     expect(command('deal-record', import.meta.url)).toBe('node examples/deal-record.ts'); // a name the bundle does not declare
   });
 
+  it('a bundle that declares an entry but not a sibling names the repository\'s file, not one beside the bundle; only the bundle\'s own globals count', () => {
+    const cwd = process.cwd();
+    try {
+      process.chdir(here('./'));
+      expect(command('pay-from-wallet', import.meta.url)).toBe('node pay-from-wallet.ts'); // unbundled: relative to where it runs
+      g.crowEntry = 'buy-with-signer';
+      g.crowCommands = { 'buy-with-signer': 'node buy.mjs' };
+      expect(command('pay-from-wallet', import.meta.url)).toBe('node examples/pay-from-wallet.ts');
+    } finally {
+      process.chdir(cwd);
+    }
+    delete g.crowEntry;
+    delete g.crowCommands;
+    const proto = Object.prototype as unknown as Record<string, unknown>;
+    try {
+      proto.crowEntry = 'deal-record'; // as a polluted prototype would: inherited, not the bundle's own
+      expect(isMain('file:///nowhere/x.ts', 'deal-record')).toBe(false);
+      g.crowCommands = { 'buy-with-signer': 'node buy.mjs' };
+      expect(command('toString', import.meta.url)).toBe('node examples/toString.ts');
+    } finally {
+      delete proto.crowEntry;
+    }
+  });
+
   it('deal-record.ts runs its main as the program, and not when a program that declared another entry imports it', async () => {
     const url = pathToFileURL(here('./deal-record.ts')).href;
     // As a bundle would: process.argv[1] is the very file whose code runs, and the entry is declared first.
