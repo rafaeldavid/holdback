@@ -76,3 +76,5 @@ e444e0864c3aabafdb544052abc5d54261abe373:site/llms.txt:generic-api-key:161
 59b13228fa5131784ae607501b09dae6a964dfb7:tests/metrics/fixtures/deal-once.events.json:generic-api-key:130
 59b13228fa5131784ae607501b09dae6a964dfb7:tests/metrics/fixtures/deal-once.events.json:generic-api-key:166
 59b13228fa5131784ae607501b09dae6a964dfb7:tests/metrics/fixtures/deal-once.events.json:generic-api-key:186
+# False positive: a made-up curl user and URL password in a scrub test (T-370), the input the run file must drop.
+d977f8a676caa22c9b6b380db94fea50b3d1d2ed:tests/metrics/one-click.test.ts:curl-auth-user:140

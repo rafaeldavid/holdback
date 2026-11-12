@@ -5,7 +5,8 @@
 //   2. build;
 //   3. read each Worker's live version: its rollback target;
 //   4. deploy holdback-op1 (it defines the World Durable Object), then holdback-op2; a refused upload stops here;
-//   5. wait until /v1/status answers 200 on both nodes;
+//   5. wait until /v1/status answers 200 on both nodes, then until both nodes' discovery names the deployed commit
+//      (demo.build.commit), since the World Durable Object can serve the previous version for minutes (T-370);
 //   6. one examples/try.ts deal against both operators must end Released within 180 s;
 //   7. when a step after an upload fails, roll back each Worker whose live version changed, and exit 1;
 //   8. print one Markdown record line for docs/operations.md, with the commit and its branch.
@@ -14,7 +15,7 @@
 // and the startup guards refuse anything else at run time. A cutover deploys the Workers one at a time instead
 // (docs/operations.md, Settlement).
 import { fileURLToPath } from 'node:url';
-import { checkout, liveVersion, recordLine, rollback, sh } from '../../../scripts/deploy-lib.mjs';
+import { checkout, liveVersion, recordLine, rollback, sh, waitForCommit } from '../../../scripts/deploy-lib.mjs';
 
 const NODES = ['https://api.crow.direct', 'https://api2.crow.direct'];
 const WORKERS = [
@@ -22,6 +23,9 @@ const WORKERS = [
   { name: 'holdback-op2', config: 'wrangler.op2.jsonc' },
 ];
 const STATUS_TIMEOUT_MS = 300_000;
+// The World Durable Object took about five minutes to move to a new version on 2026-11-12 (T-370), so the wait for
+// discovery to name the new commit has a longer budget of its own.
+const COMMIT_TIMEOUT_MS = 600_000;
 const SMOKE_TIMEOUT_MS = 180_000;
 
 if (process.argv.length > 2) {
@@ -41,14 +45,16 @@ if (refused) {
 }
 
 const startedAt = new Date();
-let uploaded = false, failure = null, smoke = null;
+let uploaded = false, failure = null, smoke = null, served = null;
 
 try {
   if ((await sh('pnpm', ['-C', here('..'), 'build'])).code !== 0) fail('the build failed');
   for (const w of WORKERS) w.before = (await liveVersion(w.name)) ?? fail(`wrangler cannot read ${w.name}'s live version (is it logged in?)`);
   for (const w of WORKERS) {
     uploaded = true;
-    const r = await sh('npx', ['-y', 'wrangler@4', 'deploy', '-c', here(`../${w.config}`)]);
+    // T-066: discovery's demo.build.commit names the commit each Worker runs, so Crow Control can tell what is
+    // merged but not live. The pre-flight above refused a changed tree, so `commit` is what was built.
+    const r = await sh('npx', ['-y', 'wrangler@4', 'deploy', '-c', here(`../${w.config}`), ...(/^[0-9a-f]{40}$/.test(commit) ? ['--var', `BUILD_COMMIT:${commit}`] : [])]);
     w.version = /Current Version ID:\s*([0-9a-f-]{36})/.exec(r.out)?.[1];
     if (r.code !== 0 || !w.version) fail(`${w.name}'s upload was refused`);
   }
@@ -59,6 +65,10 @@ try {
       await sleep(5000);
     }
   }
+  // /v1/status answers while the World Durable Object still runs the previous version, so the smoke deal waits until
+  // both nodes' discovery names the commit just deployed.
+  served = await waitForCommit({ nodes: NODES, commit, deadline: Date.now() + COMMIT_TIMEOUT_MS });
+  if (served.failure) fail(served.failure);
   const t0 = Date.now();
   const r = await sh(process.execPath, ['examples/try.ts'], { env: { HOLDBACK_OPERATORS: NODES.join(',') }, timeoutMs: SMOKE_TIMEOUT_MS });
   const last = /^done\s+commitment (0x[0-9a-f]{64}) (\w+)/m.exec(r.out);
@@ -77,6 +87,7 @@ try {
   }
 }
 
-const deal = smoke?.id ? ` Smoke deal \`${smoke.id}\` ${smoke.state} in ${smoke.seconds} s.` : '';
+const against = served && !served.failure ? `, against commit \`${commit.slice(0, 7)}\` (both nodes' discovery named it ${served.seconds} s after /v1/status answered)` : '';
+const deal = smoke?.id ? ` Smoke deal \`${smoke.id}\` ${smoke.state} in ${smoke.seconds} s${against}.` : '';
 console.log(`\nThe record line for docs/operations.md:\n\n${recordLine({ title: 'Deploy', startedAt, commit, branch, failure, workers: WORKERS, note: deal })}\n`);
 process.exit(failure ? 1 : 0);

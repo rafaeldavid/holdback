@@ -1,0 +1,34 @@
+{
+  "port": 8791,
+  "template": "seller-template.json",
+  "scope": {
+    "target": { "type": "string", "pattern": "^[a-z0-9-]{1,40}$" },
+    "depth": { "type": "integer", "min": 1, "max": 10 }
+  },
+  "sellerApi": {
+    "baseUrl": "https://jobs.example.com/api/v2/",
+    "auth": { "env": "JOBS_API_KEY", "header": "X-Api-Key" },
+    "quote": {
+      "method": "POST",
+      "path": "estimates",
+      "body": { "target": "{{scope.target}}", "depth": "{{scope.depth}}", "client": "{{buyer}}" },
+      "read": { "amount": "/estimate/cost/units", "quoteId": "/estimate/id", "deliverWithinSec": "/estimate/turnaroundSeconds", "validForSec": "/estimate/validSeconds" }
+    },
+    "start": {
+      "method": "POST",
+      "path": "runs",
+      "idempotencyHeader": "X-Request-Key",
+      "body": { "estimate": "{{quoteId}}", "reference": "{{commitmentId}}", "input": "{{scope}}" },
+      "read": { "jobId": "/run/id" }
+    },
+    "result": {
+      "method": "GET",
+      "path": "runs/{{jobId}}",
+      "status": { "by": "field", "pointer": "/run/state", "running": ["queued", "running"], "done": ["complete"], "failed": ["error", "cancelled"] },
+      "report": "/output",
+      "files": { "list": "/proofs", "path": "runs/{{jobId}}/files/{{file}}", "into": "/proofs", "maxCount": 20, "maxTotalBytes": 524288 }
+    }
+  },
+  "redelivery": { "refetchEverySec": 600 },
+  "quoteRateLimit": { "overall": { "requests": 100, "windowSec": 60 } }
+}

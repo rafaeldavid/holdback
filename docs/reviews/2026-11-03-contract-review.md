@@ -63,7 +63,7 @@ The public-audit cross-check found no high or medium issue against our use of CP
 | M-1 | medium | A buyer's CPP reclaim strands every encumbered bond | neutrality, hold | measured | fixed, PR #122 (merged) |
 | M-2 | medium | A delivery landed after `deliverBy` beats the reclaim | hold | measured | fixed, PR #127 (merged) |
 | M-3 | medium | A sham deal locks a named fallback's or appeal adjudicator's bond | neutrality | measured | fixed, PR #135 (merged); reference adjudicator residual in T-211 |
-| L-1 | low | An early accept, and a decision (§8), names an attempt, not a delivery | hold (record) | measured | T-212 item 3; the adjudicator's check in T-211 and T-213 |
+| L-1 | low | An early accept, and a decision (§8), names an attempt, not a delivery | hold (record) | measured | fixed in PR #161 (`64be1f1`, the deployed commit): decisions, early accepts and mutual settlements name the posted delivery's hash; the adjudicator's check in T-211 and T-213 |
 | L-2 | low | The bond vault credits nominal amounts | neutrality | inferred | T-212 item 1 |
 | L-3 | low | A zero-bond appeal is accepted | judgment | measured | blocks mainnet since D43: with the overturn payout, a free appeal can win the price (a minimum appeal bond, T-212 Handoff) |
 | L-4 | low | The seed commitment is checked on 144 bits, reusably | judgment | inferred | T-212 item 2 |
@@ -183,6 +183,7 @@ Proofs marked "adversarial pass" are among the 24 tests in that pass's local wor
 - **Proof:** adversarial pass, `test_attack_early_accept_paired_with_another_signed_delivery_after_onchain_deliver` [measured, local].
 - **Decisions too** (cross-family pass, §8): `Decision` also names the attempt, not the delivery, and the judgment record carries no delivery hash. A decision about one seller-signed delivery can be settled with another. An adjudicator that judged a body the seller never signed would not notice, so the adjudicator checks the seller's signature on what it judges.
 - **Follow-up:** T-212 item 3, for both messages and the judgment record's delivery hash; T-211 and T-213 for the adjudicator's check.
+- **Status (2026-11-12):** fixed in PR #161, merged 2026-11-04 as `64be1f1`, the commit deployed on Sepolia. `HoldbackRules.sol` stores `deliveryHashOf` (line 628), and `decide`, `earlyAccept` and `mutualSettle` check it (lines 276, 403 and 439) [measured]. `docs/audit/known-issues.md` §8 records the settlement.
 
 #### L-2. The bond vault credits nominal amounts (first pass)
 
@@ -195,7 +196,7 @@ Proofs marked "adversarial pass" are among the 24 tests in that pass's local wor
 - **Where:** `HoldbackRules.sol:484-497`.
 - **Scenario:** `bond = 0` needs no allowance, and it keeps the first decider's bond encumbered for `appealDecideSec` longer. It is on T-202's difference list (item 9: the rulebook rate is not checked on chain), and a rulebook may set a rate of 0 (D31).
 - **Proof:** `test_attack_zero_bond_appeal_accepted_without_allowance` [measured, local].
-- **Status:** accepted until Phase 4 brings the rulebook's appeal terms on chain.
+- **Status:** accepted until Phase 4 brings the rulebook's appeal terms on chain. Since D43 (2026-11-03) it blocks mainnet: with the overturn payout, a free appeal can win the price from the decider's bond (§2 table; `docs/audit/known-issues.md` §8).
 
 #### L-4. The seed commitment is checked on 144 bits, reusably (both passes)
 
@@ -211,7 +212,7 @@ Proofs marked "adversarial pass" are among the 24 tests in that pass's local wor
 - **Proof:** `test_attack_fallback_decides_with_no_bond_at_stake` [measured, local].
 - **Status:**
   - The fallback's part is fixed by M-3: its own decision must encumber its bond.
-  - The appeal adjudicator's coverage is a Phase 4 rule (T-212 item 5).
+  - The appeal adjudicator's coverage is a Phase 4 rule (T-212 item 5). Since D43 it blocks mainnet, as the Severity bullet says.
 
 #### L-6. `authorizationExpiry` ignores `judgeBy` (adversarial pass)
 

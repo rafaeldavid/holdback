@@ -301,6 +301,9 @@ function checkShape(op: Operation): void {
   }
 }
 
+/** T-372: how long the delivery relay waits on this node's store before it relays without the check, in milliseconds. */
+const STORE_CHECK_MS = 2_000;
+
 const MISSING_ID =
   'id is required: the commitment ID is the EIP-712 struct hash (hashStruct, primary type CommitmentTerms) of the terms, without id and signatures. ' +
   'POST /v1/prepare/offer returns it as commitmentId and in submit.body.id; to compute it yourself, see "Encodings" in https://crow.direct/llms.txt';
@@ -705,12 +708,16 @@ export class Operator {
     const refused = this.o.policy?.(deepFreeze(structuredClone(op)), await this.policyContext(op));
     if (refused) fail(refused.type, refused.detail);
     if (dryRun) {
+      await this.refuseUnstoredDelivery(op);
       await this.refuseUnpayableFallback(op);
       return this.send(ctx, await this.dryRun(op));
     }
     return this.idempotent(ctx, raw, async () => {
       // Inside the handler, so a retry of a relayed write replays its answer even if a bond or the fee changed since
       // (ADR-0030 §5). The fallback refusal comes before the fee, so a buyer is never asked to pay for terms refused here.
+      // T-372: inside the handler, so a delivery this key already relayed replays its answer even if the store lost the
+      // bytes since (red team L1); a refusal is not stored, so the same key works once the bytes are up.
+      await this.refuseUnstoredDelivery(op);
       await this.refuseUnpayableFallback(op);
       await this.chargeFee(op);
       const r = await this.relay(ctx, op, await this.bondNoticesFor(op));
@@ -755,6 +762,47 @@ export class Operator {
         'Prepare it again with POST /v1/prepare/agree-and-fund and sign the operatorFee slot, or send the same signed agreement to another operator or directly to the settlement layer, where no fee of this operator applies',
       { fee: { to: schedule.to, token: due.token, amount: due.amount } },
     );
+  }
+
+  /**
+   * T-372: a node with a ciphertext store relays no delivery whose ciphertext that store does not hold. An adjudicator
+   * reading the bytes there could not judge it, and the deal would reach its default outcome with the seller none the
+   * wiser; this tells the seller now, with the next step. Only a definite "not held" refuses: a store that fails or does
+   * not answer within STORE_CHECK_MS lets the relay go on as before. A relay refusal (ADR-0005, D27): nothing changes on
+   * the settlement layer, and the same signed delivery still goes through any operator that holds the bytes, or directly.
+   */
+  private async refuseUnstoredDelivery(op: Operation): Promise<void> {
+    const store = this.o.store;
+    if (!store || op.kind !== 'deliver') return;
+    // A delivery already on the settlement layer (sent there directly, and now joined to this node's book) is not
+    // refused: the settlement layer, not this node, has the say (red team L4).
+    const state = await this.o.settlement.state(op.delivery.commitmentId).catch(() => null);
+    if (state && state.escrowState !== 'Held') return;
+    // The signed hash, and the one the URI ends in when it names one: an adjudicator may read the bytes by either (L2).
+    const { sha256: signed, uri } = op.delivery.ciphertext;
+    const named = /(sha256:[0-9a-f]{64})$/.exec(uri)?.[1];
+    for (const id of new Set([signed, ...(named ? [named] : [])])) {
+      if (!(await this.lacks(store, id as Sha256))) continue;
+      fail(
+        'relay_refused',
+        `this node's store holds no ciphertext ${id}, which this delivery names, so an adjudicator reading it here could not judge it. ` +
+          'Upload the bytes with POST /v1/ciphertext (to this node, or to the store your adjudicators read) and send the same signed delivery again; ' +
+          'or send it to another operator that holds them, or straight to the settlement layer',
+      );
+    }
+  }
+
+  /** True only when this node's store answers "not held" for `id` within STORE_CHECK_MS (T-372). */
+  private async lacks(store: CiphertextStore, id: Sha256): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([store.get(id), new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error('store check timed out')), STORE_CHECK_MS)))]);
+      return false;
+    } catch (e) {
+      return e instanceof StoreError && e.code === 'not_found';
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**

@@ -21,6 +21,7 @@
     "sim": "tsc -b apps/operator && node apps/operator/dist/sim-bin.js",
     "example": "tsc -b examples && node examples/run.ts",
     "audit-deal": "tsc -b examples && node examples/audit-deal.ts",
+    "send-timeout": "node --env-file-if-exists=.env examples/send-timeout.ts",
     "sim:world": "tsc -b tools/sim && node tools/sim/bin/world.ts",
     "sim:brief": "node tools/sim/bin/brief.ts",
     "sim:check": "tsc -b tools/sim && node tools/sim/bin/check.ts",
