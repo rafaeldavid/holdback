@@ -19,23 +19,12 @@ import {Field, Obs} from "./Observation.sol";
 ///        `test_sideBySide_reachesEveryRow` fails when more than a quarter of its seeds diverge, so an entry cannot
 ///        quietly switch the gate off.
 ///
-///      T-375, RF-4 (`docs/audit/state-model.md` section 9.2): the deal's stored word gains its closing reason and
-///      its decider, so `dealOf` returns six fields where the parent returns four. Exactly this difference, and no
-///      other: in the Words field, for every deal, the new raw word is the old raw word followed by two words, a
-///      reason (0 to 5) that is 0 (Open) exactly while the stage is None to Escalated and otherwise fits the stage as
-///      section 9.2 says, and a decider (0 to 3) that is not 0 exactly when the reason is 1 (Decided); the stored
-///      delivery hashes are equal. Whether each reason and
-///      decider is the right one is the state oracle's check, against the handler's record of how each deal closed.
+///      T-375, RF-2 (`decide` reads the word once and writes it once): no entry. The change must show no difference.
 library AllowList {
     struct Verdict {
         string change; // the change that allows the difference; "" when none does
         bool diverged; // the sides now differ in shared state by design: stop comparing this seed
     }
-
-    uint256 private constant OLD_WORD = 128; // abi.encode of (stage, attempt, t1, seedTag)
-    uint256 private constant NEW_WORD = 192; // the same, then (reason, decider)
-    uint256 private constant LAST_OPEN_STAGE = 4; // Escalated
-    uint256 private constant DECIDED = 1;
 
     /// The verdict for field `f` differing between `o` (old) and `n` (new) at step `step`. `served` and `funded` are
     /// the new side's token and the token of the step's `agreeAndFund` terms; `appealWindow` says whether that call's
@@ -46,48 +35,6 @@ library AllowList {
         pure
         returns (Verdict memory v)
     {
-        (step, served, funded, appealWindow);
-        if (f == Field.Words && _wordGainsReasonAndDecider(o.words, n.words)) {
-            return Verdict("T-375 RF-4: reason, decider", false);
-        }
-    }
-
-    /// `n` (abi.encode(raw dealOf returns, stored delivery hashes)) is `o` with the closing reason and the decider
-    /// appended to every deal's word, as the entry above states.
-    function _wordGainsReasonAndDecider(bytes memory o, bytes memory n) private pure returns (bool) {
-        (bytes[] memory ow, bytes32[] memory od) = abi.decode(o, (bytes[], bytes32[]));
-        (bytes[] memory nw, bytes32[] memory nd) = abi.decode(n, (bytes[], bytes32[]));
-        if (ow.length != nw.length || keccak256(abi.encode(od)) != keccak256(abi.encode(nd))) return false;
-        for (uint256 i; i < ow.length; i++) {
-            if (ow[i].length != OLD_WORD || nw[i].length != NEW_WORD) return false;
-            for (uint256 k; k < OLD_WORD / 32; k++) {
-                if (_at(ow[i], k) != _at(nw[i], k)) return false;
-            }
-            uint256 stage = uint256(_at(nw[i], 0));
-            uint256 reason = uint256(_at(nw[i], 4));
-            uint256 decider = uint256(_at(nw[i], 5));
-            if (reason > 5 || decider > 3) return false;
-            if ((reason == 0) != (stage <= LAST_OPEN_STAGE)) return false;
-            if ((decider != 0) != (reason == DECIDED)) return false;
-            if (!_reasonFitsStage(reason, stage)) return false;
-        }
-        return true;
-    }
-
-    /// Section 9.2: the reason fixes the stage. Decided gives Released (5) or Refunded (6), AcceptedEarly Released,
-    /// Settled Settled (7), Reclaimed and Defaulted Refunded; Open any open stage (checked by the caller).
-    function _reasonFitsStage(uint256 reason, uint256 stage) private pure returns (bool) {
-        if (reason == 0) return true;
-        if (reason == DECIDED) return stage == 5 || stage == 6;
-        if (reason == 2) return stage == 5;
-        if (reason == 3) return stage == 7;
-        return stage == 6;
-    }
-
-    /// The k-th 32-byte word of `b`.
-    function _at(bytes memory b, uint256 k) private pure returns (bytes32 w) {
-        assembly {
-            w := mload(add(add(b, 32), mul(k, 32)))
-        }
+        (f, step, o, n, served, funded, appealWindow);
     }
 }

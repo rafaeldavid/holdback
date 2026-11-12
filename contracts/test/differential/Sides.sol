@@ -13,7 +13,7 @@ import {RulesHandler} from "../handlers/RulesHandler.sol";
 
 // The pinned copies carry a suffix in their file names, so a lookup by "HoldbackRules.sol:HoldbackRules"
 // (`deployCodeTo`, `vm.getCode`) still finds only src/. Nothing imports them by name, so their bytes are unchanged.
-import {HoldbackRules as ParentRules} from "./parent/HoldbackRules.a37a48d.sol";
+import {HoldbackRules as ParentRules} from "./parent/HoldbackRules.3b49cc0.sol";
 import {IHoldbackBeacon as ParentBeacon} from "./parent/IHoldbackBeacon.sol";
 import {HoldbackRules as PlantedRules} from "./planted/HoldbackRules.planted.sol";
 
@@ -22,8 +22,8 @@ import {HoldbackRules as PlantedRules} from "./planted/HoldbackRules.planted.sol
 ///         - `NewSide`: the source under test, `contracts/src/`, deployed by `Base.setUp` unchanged;
 ///         - `OldSide`: the pinned copy of `contracts/src/` at the change's parent commit (`parent/`). Since T-356
 ///           each change on `contracts-audit-ready` is compared with its parent, not with the deployed commit
-///           (the refinement plan, R6c's harness row). The parent here is `a37a48d`, the lane after T-358, copied
-///           unchanged (T-375). Both sides pay the terms' money addresses (ADR-0033), so deals with those addresses
+///           (the refinement plan, R6c's harness row). The parent here is `3b49cc0`, the lane after RF-4 (T-375), copied
+///           unchanged. Both sides pay the terms' money addresses (ADR-0033), so deals with those addresses
 ///           apart from the signing addresses run on both sides too;
 ///         - `PlantedSide`: the pinned copy with one planted behaviour change (`planted/`), for the tests that
 ///           prove the harness and the liveness invariant fail on a real change.
@@ -46,17 +46,6 @@ contract NewSide is RulesHandler {
 /// The old side's world, the pinned parent contracts deployed exactly as `Base.setUp` deploys the new ones.
 abstract contract PinnedSide is RulesHandler {
     function _rulesWith(SimBeacon beacon) internal virtual returns (HoldbackRules);
-
-    /// T-375 (RF-4): the parent's word has no closing reason or decider, so its `dealOf` returns four fields where the
-    /// new ABI decodes six. This reads the four and leaves the two new fields at Open and None; the handler reads
-    /// only the stage, the attempt and t1 on this side. The next change's parent has the six fields: remove this then.
-    function _dealOf(bytes32 id) internal view override returns (HoldbackRules.Deal memory d) {
-        (bool ok, bytes memory ret) = address(rules).staticcall(abi.encodeCall(HoldbackRules.dealOf, (id)));
-        require(ok && ret.length == 128, "the parent's dealOf is not the four-field word");
-        uint8 stage;
-        (stage, d.attempt, d.t1, d.seedTag) = abi.decode(ret, (uint8, uint8, uint40, uint144));
-        d.stage = HoldbackRules.Stage(stage);
-    }
 
     function setUp() public override {
         vm.chainId(31337);

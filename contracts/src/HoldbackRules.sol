@@ -248,14 +248,17 @@ contract HoldbackRules is EIP712 {
         bytes32 id = H.commitmentId(t);
         Deal storage d = _deals[id];
         if (d.stage != Stage.Held) revert WrongStage(d.stage);
-        _acceptDelivery(id, t, d, dv, sellerSignature);
-        d.stage = Stage.Delivered;
+        _acceptDelivery(id, t, dv, sellerSignature);
+        (d.stage, d.attempt) = (Stage.Delivered, dv.attempt);
     }
 
     // Decide
 
     /// @notice Anyone relays the adjudicator's signed decision. In `Held`, the decision carries the delivery it
     ///         judged (`dv`, `sellerSignature`), which must land before deliverBy. Outside `Held` they are ignored.
+    /// @dev RF-2 (T-375): the deal's word is read once, here, into `d`, and every path writes it once, in
+    ///      `_firstInstance` or `_escalationDecision`, before any token moves. No helper reads or writes the word in
+    ///      between: `_acceptDelivery` stores only the delivery's hash, and the attempt travels in `d`.
     function decide(H.Terms calldata t, H.Decision calldata m, H.Delivery calldata dv, bytes calldata sellerSignature)
         external
     {
@@ -263,30 +266,12 @@ contract HoldbackRules is EIP712 {
         Deal memory d = _deals[id];
         if (block.timestamp >= m.expiresAt) revert MessageExpired();
         if (d.stage == Stage.Held) {
-            _acceptDelivery(id, t, _deals[id], dv, sellerSignature);
-            d.stage = Stage.Delivered;
-            d.attempt = dv.attempt;
+            _acceptDelivery(id, t, dv, sellerSignature);
+            (d.stage, d.attempt) = (Stage.Delivered, dv.attempt);
         }
 
-        // Whose turn it is, until when, and which beacon round fixes the seed (ADR-0016, ADR-0018).
-        uint8 role;
-        uint256 deadline;
-        uint256 round;
         Stage s = d.stage;
-        if (s == Stage.Delivered) {
-            role = H.ROLE_PRIMARY;
-            deadline = t.timing.judgeBy;
-        } else if (s == Stage.FallbackJudging) {
-            role = H.ROLE_FALLBACK;
-            deadline = t.timing.fallbackBy;
-            round = BEACON.roundAt(t.timing.judgeBy);
-        } else if (s == Stage.Escalated) {
-            role = H.ROLE_APPEAL;
-            deadline = uint256(d.t1) + t.timing.appealDecideSec;
-            round = BEACON.roundAt(d.t1) + 1;
-        } else {
-            revert WrongStage(s);
-        }
+        (uint8 role, uint256 deadline, uint256 round) = _turn(t, s, d.t1);
         // Every role judges the delivered attempt; panelSeed hashes it, so a free attempt would be a free seed. Every
         // role also names the posted delivery, so a decision about another seller-signed body never settles (ADR-0029).
         if (
@@ -317,6 +302,26 @@ contract HoldbackRules is EIP712 {
 
         if (s == Stage.Escalated) _escalationDecision(id, t, d, m);
         else _firstInstance(id, t, d, m, adjudicator);
+    }
+
+    /// @dev Whose turn stage `s` is, until when, and which beacon round fixes the seed (ADR-0016, ADR-0018): the
+    ///      primary in Delivered, until judgeBy; the fallback in FallbackJudging, until fallbackBy, on judgeBy's round;
+    ///      the appeal adjudicator in Escalated, until the escalation's time t1 plus appealDecideSec, on the first round
+    ///      after t1. Any other stage has no turn.
+    function _turn(H.Terms calldata t, Stage s, uint40 t1)
+        internal
+        view
+        returns (uint8 role, uint256 deadline, uint256 round)
+    {
+        if (s == Stage.Delivered) {
+            (role, deadline) = (H.ROLE_PRIMARY, t.timing.judgeBy);
+        } else if (s == Stage.FallbackJudging) {
+            (role, deadline, round) = (H.ROLE_FALLBACK, t.timing.fallbackBy, BEACON.roundAt(t.timing.judgeBy));
+        } else if (s == Stage.Escalated) {
+            (role, deadline, round) = (H.ROLE_APPEAL, uint256(t1) + t.timing.appealDecideSec, BEACON.roundAt(t1) + 1);
+        } else {
+            revert WrongStage(s);
+        }
     }
 
     /// @dev The primary's or the fallback's decision. An accept or a reject is final when written (phase one has no
@@ -385,7 +390,8 @@ contract HoldbackRules is EIP712 {
         if (s != Stage.Held && s != Stage.Delivered) revert WrongStage(s);
         if (block.timestamp >= m.expiresAt) revert MessageExpired();
         _requireSigned(t.buyer, H.earlyAcceptHash(id, t.buyer, m), m.signature);
-        bytes32 dh = s == Stage.Held ? _acceptDelivery(id, t, d, dv, sellerSignature) : H.deliveryHash(id, dv);
+        bytes32 dh = s == Stage.Held ? _acceptDelivery(id, t, dv, sellerSignature) : H.deliveryHash(id, dv);
+        if (s == Stage.Held) d.attempt = dv.attempt;
         // The buyer names the delivery it opened; the carried delivery must be it and the posted one (ADR-0029).
         if (m.attempt != dv.attempt || m.deliveryHash != dh || dh != deliveryHashOf[id]) revert InvalidMessage();
         _requireKeyProof(t.buyer, dv.encryptedKeysHash, k);
@@ -525,19 +531,16 @@ contract HoldbackRules is EIP712 {
 
     /// @dev Verifies the seller-signed delivery for attempt 1 (core allows one submission: maxSubmissions is 1). Whichever
     ///      call lands it (deliver, or a decision or early accept that carries it), it must land before deliverBy, as
-    ///      in SimChain; otherwise it races the reclaim. Stores and returns its hash (ADR-0029).
-    function _acceptDelivery(
-        bytes32 id,
-        H.Terms calldata t,
-        Deal storage d,
-        H.Delivery calldata dv,
-        bytes calldata sellerSignature
-    ) internal returns (bytes32 dh) {
+    ///      in SimChain; otherwise it races the reclaim. Stores and returns its hash (ADR-0029). It does not touch the
+    ///      deal's word: each caller sets the attempt in its own write (RF-2, T-375).
+    function _acceptDelivery(bytes32 id, H.Terms calldata t, H.Delivery calldata dv, bytes calldata sellerSignature)
+        internal
+        returns (bytes32 dh)
+    {
         if (block.timestamp >= t.timing.deliverBy) revert DeadlinePassed();
         if (dv.attempt != 1) revert InvalidMessage();
         dh = H.deliveryHash(id, dv);
         _requireSigned(t.seller, dh, sellerSignature);
-        d.attempt = dv.attempt;
         deliveryHashOf[id] = dh;
         emit JobSubmitted(id, t.seller, dh);
     }

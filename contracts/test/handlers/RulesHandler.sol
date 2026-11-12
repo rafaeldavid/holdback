@@ -59,7 +59,8 @@ interface IDeployedVault {
 ///      ABI, and the side-by-side harness drives the deployed contracts (`test/differential/Sides.sol`) through the
 ///      same handler. Every choice an action makes (which deal, which key, which time) depends only on state both
 ///      builds share, so the two sides receive the same calls. Where the builds' ABIs differ, a virtual hook reads
-///      the side's own form (`_dealOf`, `_deployedAppeal`, Base's `_bondReserved`), and the pinned side overrides it.
+///      the side's own form (`_dealOf`, `_deployedAppeal`, Base's `_bondReserved`); each defaults to the phase-one
+///      ABI, and a pinned side whose parent has another ABI overrides it (none does today, T-375).
 ///      The three removed actions (`fileAppeal`, `expireAppeal`, `decideAppeal`) stay for the harness only: on the
 ///      phase-one contract they are always refused, so the invariant campaign does not target them.
 contract RulesHandler is Base {
@@ -176,7 +177,7 @@ contract RulesHandler is Base {
 
     // ------------------------------------------------------------ the side's own reads (T-346)
 
-    /// The deal's stored word in the phase-one shape. The pinned side decodes the deployed contracts' wider word.
+    /// The deal's stored word in the phase-one shape. A pinned side whose parent stores another word overrides it.
     function _dealOf(bytes32 id) internal view virtual returns (HoldbackRules.Deal memory) {
         return rules.dealOf(id);
     }
