@@ -55,7 +55,7 @@ Now the journal lists, in `mandatesSeen`, each seller address and club it has se
   - buyer: 19,097 bytes, about 4,775 of 5,000 tokens. It was about 4,760. Most of the added lines were paid for by trims: step 3's errors and the rules for every step were tightened, "Where to go next" was dropped (it repeated the front door's reference list), and step 10's hand-written reclaim command became a pointer to `ref/after-funding.txt`.
   - seller: 16,546 bytes, about 4,137 tokens. It was about 4,011.
 - **The bundles:**
-  - `site/buy.mjs` is rebuilt: SHA-256 84bbcdc5ec927ed122e1e76bd5b9a60ca6a2bf3f5396f9ef5bd786b49dbfd447, 194,884 bytes. `buy.txt`'s install line carries it, filled by the build.
+  - `site/buy.mjs` is rebuilt: SHA-256 7bb0440e22ec68f00db4f0aaafc53029ff69951e49411bd935479bfb85b35734. `buy.txt`'s install line carries it, filled by the build.
   - `site/try.mjs` is unchanged (182042421b68…), because nothing it bundles changed.
 - **Tests:** after the review's fixes, `tests/site-guides.test.ts`, `examples/buy-with-signer.test.ts`, `entry.test.ts`, `deal-record.test.ts`, `seller-adapter.test.ts` and `tests/cut-feature-alignment.test.ts` pass: 6 files, 80 tests. eslint and `tsc -p examples` are clean.
 - **The review** (reviewer subagent; ISSUES, none a safety problem). It ran the site check, the scripted duet, the rehearsal and one sim session. Fixed:
