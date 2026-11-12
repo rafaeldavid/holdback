@@ -64,6 +64,7 @@ const args = flags(process.argv.slice(2), {
   'no-full': 'bool',
   'timeout-min': 'value',
   build: 'value',
+  'match-test': 'value',
   list: 'value',
   check: 'bool',
 });
@@ -109,7 +110,10 @@ const guard = () => {
 };
 
 const log = (s) => process.stdout.write(`${s}\n`);
-const listTag = args.list ? `-${basename(args.list, '.json')}` : '';
+// --match-test runs only the tests whose names match (forge's own filter), to measure what one test kills on its own,
+// such as the decision counter. Its baseline and verdicts use the same filter, and survivors get no full-build pass.
+const matchTest = args['match-test'];
+const listTag = `${args.list ? `-${basename(args.list, '.json')}` : ''}${matchTest ? `-mt-${matchTest.replace(/[^A-Za-z0-9_]+/g, '_')}` : ''}`;
 const run = `${(args.ref ?? 'worktree').replace(/[^A-Za-z0-9._-]+/g, '_')}-${build}${listTag}`;
 lock(`mutation-${run}`);
 const { contracts, label, commit } = prepareCopy(`mutation-${run}`, args.ref ?? null);
@@ -155,7 +159,10 @@ const fullToml = readFileSync(toml, 'utf8');
 // The side-by-side test does not compile under the fast build (stack too deep at SideBySide.t.sol:265), so the
 // main run leaves it out of the copy; the full-build step below puts it back.
 const SIDE_BY_SIDE = 'test/differential/SideBySide.t.sol';
-const testFilter = build === 'fast' ? ['--no-match-path', FAST_SKIP, '--no-match-test', GAS_CAP_REGEX] : [];
+const testFilter = [
+  ...(build === 'fast' ? ['--no-match-path', FAST_SKIP, '--no-match-test', GAS_CAP_REGEX] : []),
+  ...(matchTest ? ['--match-test', matchTest] : []),
+];
 if (build === 'fast') {
   if (!/^optimizer = true$/m.test(fullToml) || !/^via_ir = true$/m.test(fullToml)) {
     fail(`${toml} has no optimizer or via_ir line to adjust`);
@@ -360,7 +367,7 @@ for (const m of chosen) {
 // Survivors again, on the full build with every test: the side-by-side test and, after a fast run, the gas tests.
 // `full` records that second verdict, by the same rules as the first.
 const survivors = chosen.filter((m) => results[m.id]?.verdict === 'survived' && results[m.id].full === undefined);
-if (survivors.length && !args['no-full']) {
+if (survivors.length && !args['no-full'] && !matchTest) {
   log(`running ${survivors.length} survivors again on the full build with every test`);
   if (hasHarness) cpSync(harness, sideBySide);
   writeFileSync(toml, fullToml);
