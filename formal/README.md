@@ -345,4 +345,17 @@ The second pass is a small pull request once T-375 reports RF-4 merged.
 
 ## Run times
 
-To fill in from the final run.
+A dated measurement, not a standing figure [measured on 2026-11-12, one run of `formal/check.sh` with no
+argument, at commit `6a15d2a`]. Machine: Apple M1 Pro, 8 cores, 16 GB, macOS 26.6; TLC 2.19 from tla2tools
+v1.7.4 with 8 workers, on the pinned Temurin 21 JRE. The whole run took 32 min 48 s, and all 120 configs met
+expectations.
+
+| What | Full profile | Phase-one profile |
+| --- | --- | --- |
+| Safety, no actor halted | 8 s and 9 s (2 configs); 169,621 distinct states each, depth 31 | 3 s to 4 s (4 configs); 64,225 distinct states each, depth 27 |
+| Safety, any one actor halting | 202 s; 1,841,663 distinct states, depth 32 | 19 s; 644,257 distinct states, depth 28 |
+| Liveness, one config per halted actor | 138 s to 240 s each, 1,360 s (22 min 40 s) for the 8; 326,648 to 405,290 distinct states, depth 32 | 13 s to 70 s each, 241 s (4 min 1 s) for the 8; 105,985 to 149,185 distinct states, depth 28 |
+
+The 52 broken variants and the 44 reach witnesses took 1 s to 5 s each, 113 s together. Wall times vary between
+runs with the machine's load: an earlier run of the same liveness configs, beside another job, took 139 s to
+1,773 s each in the full profile.
