@@ -94,6 +94,10 @@ describe('dealOfTerms: the terms must hash to their own commitment ID', () => {
     expect(() => dealOfTerms({ version: 1, address: TERMS.buyer, privateKey: `0x${'99'.repeat(32)}`, checked: { terms: TERMS } })).toThrow('refusing: the terms file holds a key');
     expect(() => dealOfTerms(without(TERMS, 'nonce'))).toThrow('refusing: the terms lack nonce');
     expect(() => dealOfTerms({ ...TERMS, settlement: { mode: 'settle_after_window', token: TERMS.price.token } })).toThrow(/settle only guaranteed_on_decision/);
+    // Either would hash to another commitment on chain than the terms' own ID (review of PR 382).
+    const upper = '0x5029787D7E141F2D51788035CC23903652D196B6';
+    expect(() => dealOfTerms({ ...TERMS, price: { ...TERMS.price, token: upper }, settlement: { ...TERMS.settlement, token: upper } })).toThrow(/one token, named by its lowercase address/);
+    expect(() => dealOfTerms({ ...TERMS, adjudication: { ...TERMS.adjudication, fee: { token: `0x${'66'.repeat(20)}`, amount: '10000' } } })).toThrow(/one token, named by its lowercase address/);
   });
 });
 

@@ -79,6 +79,7 @@ All measured on 2026-11-12 in the worktree at `origin/main` 277b597, with anvil 
 - `pnpm vitest run examples/send-timeout.test.ts`: 25 passed, 0 skipped, 84 s.
 - `pnpm test`: 165 files and 3,357 tests passed, 6 skipped (3 files that skip on this machine before this change too), exit 0.
 - `pnpm typecheck` and `pnpm lint`: no errors.
+- Review (one reviewer pass, 2026-11-12): PASS. It found no Critical or High finding, and two Low notes: the token check above, now fixed, and the CI gap in Handoff. After the fix: `vitest run examples/send-timeout.test.ts`, 25 passed, 85 s; typecheck and lint report no errors.
 - No transaction on Sepolia or any live network.
 
 ## Decisions
@@ -88,7 +89,8 @@ All measured on 2026-11-12 in the worktree at `origin/main` 277b597, with anvil 
 3. **Reuse, no new chain code.** The send goes through `RoundChain.send` in `examples/e2e-chain.ts`: the chain guard (Sepolia or anvil only, mainnets refused by name), simulate first, the 20 gwei fee cap, and the fixed gas limit anvil 1.0.0 needs for timeouts. The terms tuple and the commitment ID are built here from one normalized copy of the terms, so both wire forms work: public bodies, or the hashes in `privateTerms` (ADR-0024). `termsTuple` in `e2e-chain.ts` handles public terms only, and it stays as it is. [measured]
 4. **What the terms file may be.** The body `GET /v1/commitments/<id>/terms` serves a party, or a buyer signer's `checked.terms`. A whole buyer-signer key file is refused unread past its key fields, so a key never travels into the command by mistake. An outsider's projection of a private deal lacks the nonce and the body hashes, so it is refused with that reason. [measured, unit tests]
 5. **Three checks tie the record to the terms.** The rules address has code; its `eip712Domain()` is `Holdback <schemaVersion>` on the record's chain and address; its `BONDS()` is the record's `bonds`. The third check exists because the phase-one contracts on `contracts-audit-ready` still sign under 0.7 until T-358, yet have another `dealOf` shape and fewer timeouts. A record without `bonds`, as the phase-one deploy writes it, is refused before any connection. [measured for the contracts on main; inferred for the phase-one contracts, which this task did not deploy]
-6. **The sender key** comes from `TIMEOUT_SENDER_KEY` only, is read only for a real send, and appears in no output: the anvil tests check every run's output for it. [measured]
+6. **One token, by its lowercase address.** The contract rebuilds the price, fee and settlement token strings from one address, as lowercase hex. So the command refuses terms whose fee is in another token, or whose token is a mixed-case address. Either would hash to another commitment on chain than the terms' own ID. The review of PR 382 found this as a Low note: the contract's own guards already kept it harmless. [measured, unit tests]
+7. **The sender key** comes from `TIMEOUT_SENDER_KEY` only, is read only for a real send, and appears in no output: the anvil tests check every run's output for it. [measured]
 
 ## Handoff
 

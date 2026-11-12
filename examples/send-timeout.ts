@@ -128,6 +128,11 @@ function normalized(t: J) {
   if (t.settlement.mode !== 'guaranteed_on_decision' || t.settlement.token !== t.price.token) {
     throw new Refusal(`refusing: these contracts settle only guaranteed_on_decision in the price's token; the terms say ${JSON.stringify(t.settlement)}`);
   }
+  // The contract rebuilds every token string from one address, as lowercase hex (ADR-0025, HoldbackTypes.tokenIdHash):
+  // a fee in another token, or a mixed-case address, would hash to another commitment than the terms' own.
+  if (typeof t.price.token !== 'string' || !/^0x[0-9a-f]{40}$/.test(t.price.token) || t.adjudication?.fee?.token !== t.price.token) {
+    throw new Refusal(`refusing: on these contracts the price and the fee are in one token, named by its lowercase address; the terms name ${JSON.stringify(t.price.token)} and ${JSON.stringify(t.adjudication?.fee?.token)}`);
+  }
   const tm = t.timing;
   const timing = {
     offerExpiresAt: seconds(tm.offerExpiresAt, 'offerExpiresAt'), fundBy: seconds(tm.fundBy, 'fundBy'), deliverBy: seconds(tm.deliverBy, 'deliverBy'),
