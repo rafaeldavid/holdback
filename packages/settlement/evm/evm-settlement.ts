@@ -723,7 +723,7 @@ export class EvmSettlement implements Settlement {
     const pi = paymentInfo(t, this.world.deployment.rules, id, this.world.expiryMargin);
     const nonce = payerAgnosticHash(pi, this.world.chainId, this.world.deployment.escrow);
     const to = this.world.deployment.erc3009Collector;
-    const auth = { from: t.buyer, to, value: pi.maxAmount, validAfter: 0n, validBefore: BigInt(pi.preApprovalExpiry), nonce };
+    const auth = { from: t.buyerPaymentAddress, to, value: pi.maxAmount, validAfter: 0n, validBefore: BigInt(pi.preApprovalExpiry), nonce };
     return { digest: receiveDigest(await this.separator(), auth), nonce, value: pi.maxAmount, validAfter: '1970-01-01T00:00:00Z', validBefore: terms.timing.fundBy, to: getAddress(to) };
   }
 
@@ -743,7 +743,7 @@ export class EvmSettlement implements Settlement {
     const t = termsView(terms);
     const pi = paymentInfo(t, this.world.deployment.rules, commitmentIdOf(terms), this.world.expiryMargin);
     const nonce = payerAgnosticHash(pi, this.world.chainId, this.world.deployment.escrow);
-    const message = { from: lc(t.buyer) as Address, to: lc(this.world.deployment.erc3009Collector) as Address, value: pi.maxAmount.toString(), validAfter: '0', validBefore: String(pi.preApprovalExpiry), nonce };
+    const message = { from: lc(t.buyerPaymentAddress) as Address, to: lc(this.world.deployment.erc3009Collector) as Address, value: pi.maxAmount.toString(), validAfter: '0', validBefore: String(pi.preApprovalExpiry), nonce };
     return { ...erc3009Typed('ReceiveWithAuthorization', this.tokenDomain(), message), nonce, validAfter: '1970-01-01T00:00:00Z' };
   }
 
@@ -1047,8 +1047,8 @@ export class EvmSettlement implements Settlement {
         // ADR-0031 §4 (SC-3): the phase-one contracts pay the parties only (core's phase-one profile says the same, whatever
         // the rulebook's payoutsTo). Checked first, so a payout to a third address is refused with its reason before any
         // simulation or transaction; the contract would revert InvalidMessage, which names no reason.
-        const other = m.payouts.find((p) => lc(p.to) !== lc(t.buyer) && lc(p.to) !== lc(t.seller));
-        if (other) refuse('invalid_terms', `payout recipient ${other.to} is neither the buyer nor the seller: the phase-one contracts pay a mutual settlement to the parties only (ADR-0031 §4)`);
+        const other = m.payouts.find((p) => lc(p.to) !== lc(t.buyerPaymentAddress) && lc(p.to) !== lc(t.sellerPayoutAddress));
+        if (other) refuse('invalid_terms', `payout recipient ${other.to} is neither the buyer's payment address nor the seller's payout address: the phase-one contracts pay a mutual settlement to those two only (ADR-0031 §4, ADR-0033)`);
         const settle = (at: Timestamp): EscrowEvent[] => [{ type: 'mutual_settle', at, message: m, rule: { allowed: true, payoutsTo: 'parties' }, ...(late ? { delivery: late } : {}) }];
         await this.call(m.commitmentId, 'mutualSettle', [termsView(t), mutualView(m), m.releaseKey && d ? deliveryView(d) : NO_DELIVERY, proof], settle, options, dryRun, 'anyone');
         return m.commitmentId;
@@ -1224,7 +1224,8 @@ export class EvmSettlement implements Settlement {
       refuse('invalid_terms', 'on EVM the funding is an ERC-3009 authorization of price + fee to the CPP collector, nonce = the payer-agnostic PaymentInfo hash (ADR-0025)');
     }
     const buyerScope = this.scopeFor(terms.buyer, terms.clubId, terms, book.club);
-    const balance = await this.tokenBalance(terms.buyer, true);
+    // ADR-0033: the payment address funds the hold, so its balance covers it; the mandate stays on the buyer.
+    const balance = await this.tokenBalance(terms.buyerPaymentAddress, true);
     const args = [t, book.sellerSignature, acceptanceView(book.acceptance), agreeView(book.agree), { signature: m.signature }];
     const mirror = (at: Timestamp): EscrowEvent[] => [{ type: 'fund', at, message: m, buyerScope, balance: this.amount(balance), gasBuffer: this.amount(0n) }];
     const ctx: CallContext = mined ? { mined } : {};
@@ -1232,7 +1233,7 @@ export class EvmSettlement implements Settlement {
       await this.call(m.commitmentId, 'agreeAndFund', args, mirror, options, false, m.from, ctx);
       return m.commitmentId;
     }
-    if (lc(fee.from) !== lc(terms.buyer)) refuse('invalid_terms', `the operator fee must come from the buyer ${terms.buyer}`);
+    if (lc(fee.from) !== lc(terms.buyerPaymentAddress)) refuse('invalid_terms', `the operator fee must come from the buyer's payment address ${terms.buyerPaymentAddress}`);
     if (lc(fee.token) !== this.token) refuse('invalid_terms', `the operator fee is in ${fee.token}, not the price token`);
     if (lc(fee.to) === lc(fee.from)) refuse('invalid_terms', 'the operator fee pays its own payer');
     if (fee.nonce !== operatorFeeNonce(m.commitmentId)) refuse('invalid_terms', 'the operator fee nonce must be keccak256(abi.encode(commitmentId, "operator_fee"))');
@@ -1952,7 +1953,7 @@ export class EvmSettlement implements Settlement {
       const r = accepted[0]!;
       // The operators' own fee leg rides in the same bundle (ADR-0023): a missed receipt still records it (review L4),
       // when the buyer's own transfer moved it (red-team round 2, D: anyone can spend a nonce of their own).
-      const fee = this.feeLeg(id, book.state.terms.buyer, tx);
+      const fee = this.feeLeg(id, book.state.terms.buyerPaymentAddress, tx);
       if (fee) r.ctx = { ...r.ctx, operatorFee: fee };
       return this.applyRebuilt(id, book, tx, stage, r, logs, note);
     }
@@ -2011,12 +2012,12 @@ export class EvmSettlement implements Settlement {
     return false;
   }
 
-  /** The operator fee a readable bundle paid for this deal: the buyer's own ERC-3009 transfer, shown by the token's Transfer log. */
-  private feeLeg(id: Hex32, buyer: Address, tx: ChainTx): { from: string; to: string; amount: TokenAmount } | null {
-    const leg = feeLegs(this.world, tx).find((f) => f.nonce === operatorFeeNonce(id) && lc(f.from) === lc(buyer));
+  /** The operator fee a readable bundle paid for this deal: the buyer's payment address's own ERC-3009 transfer, shown by the token's Transfer log. */
+  private feeLeg(id: Hex32, payer: Address, tx: ChainTx): { from: string; to: string; amount: TokenAmount } | null {
+    const leg = feeLegs(this.world, tx).find((f) => f.nonce === operatorFeeNonce(id) && lc(f.from) === lc(payer));
     if (!leg) return null;
     const moved = this.decode(tx.logs.filter((l) => lc(l.address) === lc(this.world.deployment.token)) as unknown as Log[]).some(
-      (l) => l.eventName === 'Transfer' && lc(String(l.args['from'])) === lc(buyer) && lc(String(l.args['to'])) === lc(leg.to) && BigInt(String(l.args['amount'] ?? l.args['value'] ?? 0)) === leg.value,
+      (l) => l.eventName === 'Transfer' && lc(String(l.args['from'])) === lc(payer) && lc(String(l.args['to'])) === lc(leg.to) && BigInt(String(l.args['amount'] ?? l.args['value'] ?? 0)) === leg.value,
     );
     return moved ? { from: lc(leg.from), to: lc(leg.to), amount: this.amount(leg.value) } : null;
   }
@@ -2102,12 +2103,13 @@ export class EvmSettlement implements Settlement {
         const s = has('MutuallySettled');
         const m = r.settlement!;
         if (!s || Boolean(s.args['keyReleased']) !== m.releaseKey) return 'no matching MutuallySettled';
-        // The payouts as the contract paid them: PaymentReleased to the seller, the rest back to the buyer. The phase-one
-        // contracts pay the parties only (ADR-0031 §4, SC-3), so a payout to anyone else cannot have landed.
-        const toSeller = m.payouts.filter((p) => same(p.to, terms.seller)).reduce((n, p) => n + BigInt(p.amount.amount), 0n);
+        // The payouts as the contract paid them: PaymentReleased for those to the seller's payout address (checked
+        // first, as the contract does), the rest back to the buyer's payment address. The phase-one contracts pay those
+        // two only (ADR-0031 §4, ADR-0033), so a payout to anyone else cannot have landed.
+        const toSeller = m.payouts.filter((p) => same(p.to, terms.sellerPayoutAddress)).reduce((n, p) => n + BigInt(p.amount.amount), 0n);
         const released = logs.find((l) => l.eventName === 'PaymentReleased');
         if ((released ? BigInt(released.args['amount'] as bigint) : 0n) !== toSeller) return 'its payout to the seller differs';
-        return m.payouts.every((p) => same(p.to, terms.seller) || same(p.to, terms.buyer)) ? null : 'it names a payee other than the buyer and the seller';
+        return m.payouts.every((p) => same(p.to, terms.sellerPayoutAddress) || same(p.to, terms.buyerPaymentAddress)) ? null : "it names a payee other than the buyer's payment address and the seller's payout address";
       }
       // Timeouts are read from the logs alone; one read from calldata is checked against its own log all the same.
       case 'reclaim':
@@ -2176,7 +2178,7 @@ export class EvmSettlement implements Settlement {
               type: 'FundingAuthorization',
               scheme: 'erc3009', // the phase-one contracts fund by ERC-3009 only (ADR-0031 §3)
               commitmentId: id,
-              from: terms.buyer,
+              from: terms.buyerPaymentAddress, // ADR-0033: the payment address signed the funding
               value: typed.typedData.message['value']!,
               token: this.token,
               validAfter: typed.validAfter,
@@ -2519,7 +2521,7 @@ export class EvmSettlement implements Settlement {
     const fee = s.operatorFee;
     if (!fee || dryRun) return id;
     const book = this.bookOf(id);
-    if (lc(fee.from) !== lc(book.state.terms.buyer) || lc(fee.token) !== this.token || lc(fee.to) === lc(fee.from) || fee.nonce !== operatorFeeNonce(id)) refuse('invalid_terms', 'the operator fee must come from the buyer, in the price token, with the nonce bound to the commitment');
+    if (lc(fee.from) !== lc(book.state.terms.buyerPaymentAddress) || lc(fee.token) !== this.token || lc(fee.to) === lc(fee.from) || fee.nonce !== operatorFeeNonce(id)) refuse('invalid_terms', "the operator fee must come from the buyer's payment address, in the price token, with the nonce bound to the commitment");
     const { token } = this.world.deployment;
     const data = encodeFunctionData({ abi: this.world.abis.token, functionName: 'transferWithAuthorization', args: [getAddress(fee.from), getAddress(fee.to), BigInt(fee.value), BigInt(secs(fee.validAfter)), BigInt(secs(fee.validBefore)), fee.nonce, fee.signature] });
     if (await this.nonceUsed(id, token, data)) return id;
@@ -2572,7 +2574,8 @@ export class EvmSettlement implements Settlement {
       ...(posted ? { deliveryHash: posted } : {}),
       ...hold,
       deadlines,
-      balances: { [s.terms.buyer]: await amount(s.terms.buyer), [s.terms.seller]: await amount(s.terms.seller) },
+      // ADR-0033 §4: the parties' money is at the payment and payout addresses.
+      balances: { [s.terms.buyerPaymentAddress]: await amount(s.terms.buyerPaymentAddress), [s.terms.sellerPayoutAddress]: await amount(s.terms.sellerPayoutAddress) },
       settledAt: s.kind === 'Released' || s.kind === 'Refunded' || s.kind === 'Settled' ? s.settledAt : null,
       finalAt: this.finalAt(rec),
       lastEventSeq: rec.lastEventSeq,

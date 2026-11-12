@@ -58,7 +58,7 @@ export function evmRulebook(token: string): Rulebook {
   return {
     version: '1.0',
     open: true,
-    minWindowsSec: { judge: 120, fallback: 120, appealWindow: 300, appealDecide: 300 },
+    minWindowsSec: { judge: 120, fallback: 120, appealWindow: 0, appealDecide: 300 },
     windowCoverageRatioBps: 2000,
     appealBondRateBps: 500,
     sealedChecksMaxWeightBps: 3000,
@@ -126,11 +126,13 @@ export class EvmDeal {
     const now = chain.now();
     const amt = (v: bigint) => ({ token: chain.token, amount: v.toString() }) as TokenAmount;
     this.terms = {
-      schemaVersion: '0.7',
+      schemaVersion: '0.8',
       clubId: club.id,
       rulebookHash: club.rulebookHash,
       buyer: cast.buyer.address,
       seller: cast.seller.address,
+      buyerPaymentAddress: cast.buyer.address,
+      sellerPayoutAddress: cast.seller.address,
       deliverable: { kind: 'dataset', description: `EVM deal ${tag}`, format: 'text/csv' },
       acceptance: { deterministicChecks: [], rubric: { criteria: [{ id: 'quality', description: 'Rows cleaned.', weight: 1, anchors: { '0': 'No', '2': 'Partly', '4': 'Yes' } }], passThreshold: 300 } },
       price: amt(price),
@@ -143,7 +145,7 @@ export class EvmDeal {
         registryHash: canonicalKeccak({ registry: 'evm' }),
         policyHash: canonicalKeccak({ policy: 'evm' }),
       },
-      timing: { offerExpiresAt: plusSeconds(now, 900), fundBy: plusSeconds(now, 1800), deliverBy: plusSeconds(now, 3600), judgeBy: plusSeconds(now, 4200), fallbackBy: plusSeconds(now, 4800), appealWindowSec: 300, appealDecideSec: 300, maxSubmissions: 1 },
+      timing: { offerExpiresAt: plusSeconds(now, 900), fundBy: plusSeconds(now, 1800), deliverBy: plusSeconds(now, 3600), judgeBy: plusSeconds(now, 4200), fallbackBy: plusSeconds(now, 4800), appealWindowSec: 0, appealDecideSec: 300, maxSubmissions: 1 }, // phase one: no party appeal (ADR-0033 §2b)
       settlement: { mode: 'guaranteed_on_decision', token: chain.token },
       remedy: { onReject: 'full_refund' },
       disclosure: { level: 'public' },

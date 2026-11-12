@@ -81,7 +81,7 @@ describe('LiveChain refuses a rules contract under another EIP-712 domain (ADR-0
 
   it('refuses the deployed 0.6 contract with a message that names the redeploy', async () => {
     onChain = { name: 'Holdback', version: '0.6' };
-    await expect(chainOf().verify()).rejects.toThrow(/signs under EIP-712 domain "Holdback" 0\.6, this build under "Holdback" 0\.7: every message would revert BadSignature\. Deploy the 0\.7 contracts/);
+    await expect(chainOf().verify()).rejects.toThrow(/signs under EIP-712 domain "Holdback" 0\.6, this build under "Holdback" 0\.8: every message would revert BadSignature\. Deploy the 0\.8 contracts/);
   });
 
   it("starts against a contract under core's domain", async () => {
@@ -90,8 +90,8 @@ describe('LiveChain refuses a rules contract under another EIP-712 domain (ADR-0
   });
 
   it('compares the name too', () => {
-    expect(domainMismatch({ name: 'Other', version: '0.7' }, holdbackDomain(31337))).toMatch(/"Other" 0\.7/);
-    expect(domainMismatch({ name: 'Holdback', version: '0.7' }, holdbackDomain(31337))).toBeNull();
+    expect(domainMismatch({ name: 'Other', version: '0.8' }, holdbackDomain(31337))).toMatch(/"Other" 0\.8/);
+    expect(domainMismatch({ name: 'Holdback', version: '0.8' }, holdbackDomain(31337))).toBeNull();
   });
 });
 
