@@ -301,6 +301,9 @@ function checkShape(op: Operation): void {
   }
 }
 
+/** T-372: how long the delivery relay waits on this node's store before it relays without the check, in milliseconds. */
+const STORE_CHECK_MS = 2_000;
+
 const MISSING_ID =
   'id is required: the commitment ID is the EIP-712 struct hash (hashStruct, primary type CommitmentTerms) of the terms, without id and signatures. ' +
   'POST /v1/prepare/offer returns it as commitmentId and in submit.body.id; to compute it yourself, see "Encodings" in https://crow.direct/llms.txt';
@@ -699,6 +702,8 @@ export class Operator {
     // The policy sees a frozen copy: it can decline, never alter what this node relays.
     const refused = this.o.policy?.(deepFreeze(structuredClone(op)), await this.policyContext(op));
     if (refused) fail(refused.type, refused.detail);
+    // Before the idempotent handler, as the policy: a refusal is not stored, so the same key works once the bytes are up.
+    await this.refuseUnstoredDelivery(op);
     if (dryRun) {
       await this.refuseUnpayableFallback(op);
       return this.send(ctx, await this.dryRun(op));
@@ -749,6 +754,34 @@ export class Operator {
       `this operator relays a funded agreement for its operator fee of ${operatorFeeText(due, schedule)}, not refunded; this agree ${what}. ` +
         'Prepare it again with POST /v1/prepare/agree-and-fund and sign the operatorFee slot, or send the same signed agreement to another operator or directly to the settlement layer, where no fee of this operator applies',
       { fee: { to: schedule.to, token: due.token, amount: due.amount } },
+    );
+  }
+
+  /**
+   * T-372: a node with a ciphertext store relays no delivery whose ciphertext that store does not hold. An adjudicator
+   * reading the bytes there could not judge it, and the deal would reach its default outcome with the seller none the
+   * wiser; this tells the seller now, with the next step. Only a definite "not held" refuses: a store that fails or does
+   * not answer within STORE_CHECK_MS lets the relay go on as before. A relay refusal (ADR-0005, D27): nothing changes on
+   * the settlement layer, and the same signed delivery still goes through any operator that holds the bytes, or directly.
+   */
+  private async refuseUnstoredDelivery(op: Operation): Promise<void> {
+    const store = this.o.store;
+    if (!store || op.kind !== 'deliver') return;
+    const { sha256: id } = op.delivery.ciphertext;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([store.get(id), new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error('store check timed out')), STORE_CHECK_MS)))]);
+      return;
+    } catch (e) {
+      if (!(e instanceof StoreError && e.code === 'not_found')) return;
+    } finally {
+      clearTimeout(timer);
+    }
+    fail(
+      'relay_refused',
+      `this node's store holds no ciphertext ${id}, so an adjudicator reading it here could not judge this delivery. ` +
+        'Upload the bytes with POST /v1/ciphertext (to this node, or to the store your adjudicators read) and send the same signed delivery again; ' +
+        'or send it to another operator that holds them, or straight to the settlement layer',
     );
   }
 

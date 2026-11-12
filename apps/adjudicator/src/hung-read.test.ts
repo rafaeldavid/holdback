@@ -9,7 +9,7 @@ import { keccak256 } from 'viem';
 import { describe, expect, it } from 'vitest';
 import { demoCsv, DOMAIN, makeCommitment, party, TestSettlement, tusd } from './_sim.js';
 import { defaultPolicy, policyHashOf } from './policy.js';
-import { Adjudicator, DEFAULT_STORE_READ_TIMEOUT_MS, type RunReport } from './service.js';
+import { Adjudicator, DEFAULT_STORE_READ_TIMEOUT_MS, STORE_READ_RETIRE_LIMITS, type RunReport } from './service.js';
 
 const entry = (id: string, family: string, provider: 'anthropic' | 'openai-compatible') => ({ id, provider, family, model: `${id}-20260601`, status: 'active' as const });
 const REGISTRY: RegistryDoc = {
@@ -33,6 +33,9 @@ const CHECKS_ONLY = { deterministicChecks: EXAMPLE.acceptance.deterministicCheck
 /** The limit these tests run under, in milliseconds: short, so a hung read costs the test little. */
 const LIMIT_MS = 40;
 const never = <T>() => new Promise<T>(() => {});
+/** A shorter limit for the tests that wait out a read's retire age (STORE_READ_RETIRE_LIMITS limits), in milliseconds. */
+const SHORT_MS = 10;
+const retired = () => new Promise((r) => setTimeout(r, SHORT_MS * (STORE_READ_RETIRE_LIMITS + 2)));
 
 function bench(p: typeof A, name: string, s: TestSettlement, storeReadTimeoutMs: number | undefined = LIMIT_MS) {
   const calls: JudgeRequest[] = [];
@@ -71,9 +74,9 @@ async function pass(adj: Adjudicator, ms = 2_000): Promise<RunReport> {
 }
 
 /** `n` funded, delivered deals with one primary, in task-list order. Returns their ciphertext URIs too. */
-async function deals(n: number, acceptance: Commitment['acceptance'] = CHECKS_ONLY) {
+async function deals(n: number, acceptance: Commitment['acceptance'] = CHECKS_ONLY, limitMs = LIMIT_MS) {
   const s = new TestSettlement();
-  const a = bench(A, 'bench-a', s);
+  const a = bench(A, 'bench-a', s, limitMs);
   bench(B, 'bench-b', s);
   bench(C, 'bench-c', s);
   const cs = SELLERS.slice(0, n).map((seller) => makeCommitment({ primary: A.address, fallback: B.address, appeal: C.address, policyHash: policyHashOf(a.adj.policy), registryHash: reg.hash, buyer: BUYER, seller, acceptance }));
@@ -151,7 +154,9 @@ describe('a store read that never returns (T-372)', () => {
   });
 
   it('many stuck deals: a later pass waits for none of their reads again, asks the store once each, and judges the healthy deal first', async () => {
-    const { s, a, cs, uris } = await deals(6);
+    // A longer limit here, so the second pass's own work is small beside the waits it no longer makes.
+    const limit = 200;
+    const { s, a, cs, uris } = await deals(6, CHECKS_ONLY, limit);
     const stuck = new Set(uris.slice(0, 5));
     const reads = hang(s, stuck);
     const first = await pass(a.adj, 5_000);
@@ -160,16 +165,18 @@ describe('a store read that never returns (T-372)', () => {
     const started = Date.now();
     const second = await pass(a.adj);
     // Each read still in flight from the first pass is joined, not asked again, and it has already used its limit.
-    expect(Date.now() - started).toBeLessThan(LIMIT_MS * 5);
+    expect(Date.now() - started).toBeLessThan(limit * 5);
     expect(second.refused).toHaveLength(5);
     for (const uri of stuck) expect(reads.get(uri)).toBe(1);
   });
 
   it('a read in flight longer than its retire age is asked again, so a store that dropped one request is read anew', async () => {
-    const { s, a, uris } = await deals(1);
+    const { s, a, uris } = await deals(1, CHECKS_ONLY, SHORT_MS);
     const reads = hang(s, new Set([uris[0]!]));
     await pass(a.adj);
-    await new Promise((r) => setTimeout(r, LIMIT_MS * 7));
+    await pass(a.adj);
+    expect(reads.get(uris[0]!)).toBe(1);
+    await retired();
     await pass(a.adj);
     expect(reads.get(uris[0]!)).toBe(2);
   });
@@ -190,7 +197,7 @@ describe('a store read that never returns (T-372)', () => {
 
   it('a reference read that hangs at acceptance is refused and retried, never declined; the offer is accepted once the store answers', async () => {
     const s = new TestSettlement();
-    const a = bench(A, 'bench-a', s);
+    const a = bench(A, 'bench-a', s, SHORT_MS);
     bench(B, 'bench-b', s);
     bench(C, 'bench-c', s);
     const ref = new TextEncoder().encode('customer_id,email\n100000,customer0@example.com');
@@ -203,20 +210,23 @@ describe('a store read that never returns (T-372)', () => {
     const first = await pass(a.adj);
     expect(first.declined).toEqual([]);
     expect(first.accepted).toEqual([]);
-    expect(first.refused).toEqual([{ commitmentId: c.id, problem: { type: 'adjudicator_unavailable', detail: expect.stringContaining(`did not answer within ${LIMIT_MS} ms`) } }]);
+    expect(first.refused).toEqual([{ commitmentId: c.id, problem: { type: 'adjudicator_unavailable', detail: expect.stringContaining(`did not answer within ${SHORT_MS} ms`) } }]);
     expect(reads.get(where.uri)).toBe(1);
     s.ciphertext = async (uri: string) => (uri === where.uri ? ref : never());
-    await new Promise((r) => setTimeout(r, LIMIT_MS * 7));
+    await retired();
     expect((await pass(a.adj)).accepted).toEqual([c.id]);
   });
 
   it('a task list that never answers: the offers in the same pass are still accepted, and the report says which list timed out', async () => {
-    const { s, a } = await deals(1);
-    const late = makeCommitment({ primary: A.address, fallback: B.address, appeal: C.address, policyHash: policyHashOf(a.adj.policy), registryHash: reg.hash, buyer: BUYER, seller: SELLERS[5]!, acceptance: CHECKS_ONLY });
-    s.offer(late);
+    const s = new TestSettlement();
+    const a = bench(A, 'bench-a', s);
+    bench(B, 'bench-b', s);
+    bench(C, 'bench-c', s);
+    const c = makeCommitment({ primary: A.address, fallback: B.address, appeal: C.address, policyHash: policyHashOf(a.adj.policy), registryHash: reg.hash, buyer: BUYER, seller: SELLERS[0]!, acceptance: CHECKS_ONLY });
+    s.offer(c);
     s.tasks = () => never();
     const report = await pass(a.adj);
-    expect(report.accepted).toEqual([late.id]);
+    expect(report.accepted).toEqual([c.id]);
     expect(report.unavailable).toEqual([{ step: 'tasks', problem: { type: 'adjudicator_unavailable', detail: expect.stringContaining(`did not answer within ${LIMIT_MS} ms`) } }]);
   });
 

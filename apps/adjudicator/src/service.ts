@@ -57,6 +57,33 @@ export interface AppealLimits {
   maxAppealDecideSec: number;
 }
 
+/**
+ * T-372: how long one read the pass awaits from the settlement port or its store may take, in milliseconds, unless
+ * configured: 10 s. A local read of the largest ciphertext a store keeps (10 MiB) takes tens of milliseconds, and a
+ * remote one at 10 Mbit/s about 8.4 s, so 10 s refuses no working store; and the demo's shortest window is 60 s, so a
+ * few stuck reads in one pass leave the other deals time to be judged.
+ */
+export const DEFAULT_STORE_READ_TIMEOUT_MS = 10_000;
+/**
+ * A read still in flight this many limits after it started is dropped and asked again (a store that lost the request):
+ * 5 min at the default. Until then each later pass joins it and waits nothing, so K stuck deals cost one full wait each
+ * per 30 limits, and the passes in between stay short however many deals are stuck.
+ */
+export const STORE_READ_RETIRE_LIMITS = 30;
+/** The longest delay a timer takes (2^31 - 1 ms, about 24.8 days); a limit above it means no limit. */
+const MAX_TIMER_MS = 2_147_483_647;
+
+/** A store or settlement read that did not answer within `storeReadTimeoutMs` (T-372). Its message names no store text. */
+export class StoreReadTimeout extends Error {
+  override readonly name = 'StoreReadTimeout';
+  constructor(
+    readonly what: string,
+    readonly ms: number,
+  ) {
+    super(`${what} did not answer within ${ms} ms`);
+  }
+}
+
 export interface AdjudicatorConfig {
   address: Address;
   name: string;
@@ -96,6 +123,14 @@ export interface AdjudicatorConfig {
    * once it decided (T-206 M-3). Unset: DEFAULT_APPEAL_LIMITS.
    */
   appealLimits?: AppealLimits;
+  /**
+   * T-372: how long each read the pass awaits from `settlement` may take, in milliseconds (the delivery's ciphertext,
+   * reference files, registrations, policies, bond cover and the task lists). Past it, that deal is refused as an
+   * unreadable delivery is and tried again on a later pass; nothing is decided on it. Writes have no limit here: their
+   * outcome after a timeout is unknown, and each relay has its own transport timeout. Any positive number; Infinity, or
+   * more than a timer can wait, means no limit. Unset: DEFAULT_STORE_READ_TIMEOUT_MS.
+   */
+  storeReadTimeoutMs?: number;
 }
 
 export interface RunReport {
@@ -108,6 +143,8 @@ export interface RunReport {
   /** Judged, record published, but no Decision: the appeal panel was inconclusive after an escalation. */
   undecided: Hex32[];
   refused: Array<{ commitmentId: Hex32; problem: Problem }>;
+  /** T-372: a list the pass reads that did not answer in time; the pass went on with the other lists. */
+  unavailable: Array<{ step: 'appeal expiries' | 'offers' | 'takeovers' | 'tasks'; problem: Problem }>;
 }
 
 type Outcome = { decision: Decision; record: Judgment } | { decision: null; record: Judgment };
@@ -151,6 +188,14 @@ export class Adjudicator {
   readonly #account;
   /** Judged records by commitment|role|attempt, kept the moment the panel returns (no re-roll). */
   readonly #judged = new Map<string, Judged>();
+  /** `settlement` with a time limit on every read (T-372); writes pass straight through. */
+  readonly #port: AdjudicatorSettlement;
+  readonly #limitMs: number;
+  /** Content-addressed reads still in flight, by key: a later pass joins one rather than ask a stuck store again. */
+  readonly #inflight = new Map<string, { promise: Promise<unknown>; startedAt: number }>();
+  /** Deals whose last turn waited on a read that timed out: the next pass takes them after the others. */
+  readonly #stalled = new Set<Hex32>();
+  #timeouts = 0;
 
   constructor(cfg: AdjudicatorConfig) {
     this.#cfg = cfg;
@@ -158,6 +203,93 @@ export class Adjudicator {
     this.address = cfg.address.toLowerCase() as Address;
     this.#account = privateKeyToAccount(cfg.signingKey);
     if (this.#account.address.toLowerCase() !== this.address) throw new Error('signing key does not match the adjudicator address');
+    const limit = cfg.storeReadTimeoutMs ?? DEFAULT_STORE_READ_TIMEOUT_MS;
+    if (typeof limit !== 'number' || !(limit > 0)) throw new Error(`storeReadTimeoutMs must be a positive number of milliseconds; it is ${String(limit)}`);
+    this.#limitMs = limit;
+    const p = cfg.settlement;
+    const ct = (uri: string) => `the store read of ${uri.slice(0, 200)}`;
+    this.#port = {
+      now: () => p.now(),
+      randomness: (c) => p.randomness(c),
+      offers: (a) => this.#read('the offer list', () => p.offers(a)),
+      tasks: (a) => this.#read('the task list', () => p.tasks(a)),
+      takeoversDue: (a) => this.#read('the takeover list', () => p.takeoversDue(a)),
+      appealExpiriesDue: (a) => this.#read('the appeal expiry list', () => p.appealExpiriesDue(a)),
+      bondCover: (a, c) => this.#read('the bond read', () => p.bondCover(a, c)),
+      ciphertext: (uri) => this.#read(ct(uri), () => p.ciphertext(uri), `ciphertext|${uri}`),
+      registration: (a) => this.#read('the registration read', () => p.registration(a)),
+      ...(p.policy ? { policy: (h: Hex32) => this.#read('the policy read', () => p.policy!(h), `policy|${h}`) } : {}),
+      triggerFallback: (id) => p.triggerFallback(id),
+      expireAppeal: (id) => p.expireAppeal(id),
+      publishRecord: (r) => p.publishRecord(r),
+      submit: (m) => p.submit(m),
+    };
+  }
+
+  /**
+   * One read with the time limit (T-372). Past it the caller gets a StoreReadTimeout and the read goes on unawaited. A
+   * keyed read (content-addressed: the same key always names the same bytes) is joined while it is in flight, so a pass
+   * after a timeout neither waits again nor asks a stuck store again: it is refused at once, and takes the answer if it
+   * came meanwhile. A keyed read in flight STORE_READ_RETIRE_LIMITS limits is dropped and asked again.
+   */
+  async #read<T>(what: string, start: () => Promise<T>, key?: string): Promise<T> {
+    const ms = this.#limitMs;
+    if (!Number.isFinite(ms) || ms > MAX_TIMER_MS) return start();
+    const now = Date.now();
+    let entry = key === undefined ? undefined : this.#inflight.get(key);
+    if (entry && now - entry.startedAt > ms * STORE_READ_RETIRE_LIMITS) {
+      this.#inflight.delete(key!);
+      entry = undefined;
+    }
+    if (!entry) {
+      const made = { promise: Promise.resolve().then(start) as Promise<unknown>, startedAt: now };
+      if (key !== undefined) {
+        this.#inflight.set(key, made);
+        const drop = () => void (this.#inflight.get(key) === made && this.#inflight.delete(key));
+        made.promise.then(drop, drop);
+      }
+      entry = made;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<never>((_, reject) => {
+      // A read joined past its limit still gets one turn of the event loop, so an answer already in is taken.
+      timer = setTimeout(() => {
+        this.#timeouts++;
+        reject(new StoreReadTimeout(what, ms));
+      }, Math.max(0, entry.startedAt + ms - now));
+    });
+    try {
+      return (await Promise.race([entry.promise, late])) as T;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** Runs one deal's unit of the pass and notes whether a read it awaited timed out, for the next pass's order. */
+  async #unit(id: Hex32, run: () => Promise<void>): Promise<void> {
+    const before = this.#timeouts;
+    try {
+      await run();
+    } finally {
+      if (this.#timeouts > before) this.#stalled.add(id);
+      else this.#stalled.delete(id);
+    }
+  }
+
+  /** The deals whose last turn timed out go last, in their order otherwise (T-372). */
+  #ordered<T>(items: readonly T[], id: (x: T) => Hex32): T[] {
+    return [...items].sort((x, y) => Number(this.#stalled.has(id(x))) - Number(this.#stalled.has(id(y))));
+  }
+
+  /** A list the pass reads; one that times out is reported and the pass goes on without it (T-372). */
+  async #list<T>(step: RunReport['unavailable'][number]['step'], report: RunReport, read: () => Promise<T[]>): Promise<T[]> {
+    try {
+      return await read();
+    } catch (e) {
+      if (!(e instanceof StoreReadTimeout)) throw e;
+      report.unavailable.push({ step, problem: passProblem(`the ${step} step`, e) });
+      return [];
+    }
   }
 
   /** The fields of adjudicator.schema.json this service publishes (pool and status come from settlement). */
@@ -185,48 +317,59 @@ export class Adjudicator {
   }
 
   async runOnce(): Promise<RunReport> {
-    const port = this.#cfg.settlement;
-    const report: RunReport = { accepted: [], declined: [], expired: [], triggered: [], decided: [], undecided: [], refused: [] };
+    const port = this.#port;
+    const report: RunReport = { accepted: [], declined: [], expired: [], triggered: [], decided: [], undecided: [], refused: [], unavailable: [] };
     // T-211: its own decisions hold its bond until their appeal closes, and a sham deal's parties never close it. So it
     // expires them itself once due, first, so the bond they free counts for what follows.
-    for (const id of await port.appealExpiriesDue(this.address)) {
+    for (const id of await this.#list('appeal expiries', report, () => port.appealExpiriesDue(this.address))) {
       try {
         if ((await port.expireAppeal(id)).ok) report.expired.push(id);
       } catch (e) {
-        report.refused.push({ commitmentId: id, problem: problem('adjudicator_unavailable', `appeal expiry failed (${String((e as Error).message).slice(0, 120)}); retrying on the next pass`) });
+        // T-372: the error's class only; the demo publishes refusals, and a relay's message can carry a keyed URL.
+        report.refused.push({ commitmentId: id, problem: problem('adjudicator_unavailable', `appeal expiry failed (${errorClass(e)}); retrying on the next pass`) });
       }
     }
     // T-347: each offer, takeover and task is its own unit. One that throws (a store read, a relay, a registration) is
-    // reported as refused and retried on the next pass; it never ends the pass for the other deals.
-    for (const offer of await port.offers(this.address)) {
-      try {
-        const r = await this.#accept(offer.commitment);
-        if (r.ok) report.accepted.push(offer.commitment.id);
-        else report.declined.push({ commitmentId: offer.commitment.id, reason: r.error.detail });
-      } catch (e) {
-        // Refused, not declined: a caller may publish a decline as final (T-347 red team M1), and this is retried.
-        report.refused.push({ commitmentId: offer.commitment.id, problem: passProblem('the acceptance', e) });
-      }
+    // reported as refused and retried on the next pass; it never ends the pass for the other deals. T-372: every read
+    // has a time limit, and a deal whose read timed out goes after the others on the next pass.
+    const offers = await this.#list('offers', report, () => port.offers(this.address));
+    for (const offer of this.#ordered(offers, (o) => o.commitment.id)) {
+      await this.#unit(offer.commitment.id, async () => {
+        try {
+          const r = await this.#accept(offer.commitment);
+          if (r.ok) report.accepted.push(offer.commitment.id);
+          else report.declined.push({ commitmentId: offer.commitment.id, reason: r.error.detail });
+        } catch (e) {
+          // Refused, not declined: a caller may publish a decline as final (T-347 red team M1), and this is retried.
+          report.refused.push({ commitmentId: offer.commitment.id, problem: passProblem('the acceptance', e) });
+        }
+      });
     }
-    for (const c of await port.takeoversDue(this.address)) {
-      try {
-        // T-211: it does not trigger a takeover it would decline. Anyone still may; the deal then defaults at fallbackBy.
-        // T-221 review: that includes a registry, a bound policy or a panel it cannot run.
-        const declined =
-          this.#termsMismatch(c) ?? (await this.#turnProblem(c, 'fallback', { consented: c.adjudication.adjudicator.toLowerCase() === this.address, cover: true })) ?? (await this.#runnable(c, 'fallback'));
-        if (declined) report.refused.push({ commitmentId: c.id, problem: declined });
-        else if ((await port.triggerFallback(c.id)).ok) report.triggered.push(c.id);
-      } catch (e) {
-        report.refused.push({ commitmentId: c.id, problem: passProblem('the takeover', e) });
-      }
+    const takeovers = await this.#list('takeovers', report, () => port.takeoversDue(this.address));
+    for (const c of this.#ordered(takeovers, (x) => x.id)) {
+      await this.#unit(c.id, async () => {
+        try {
+          // T-211: it does not trigger a takeover it would decline. Anyone still may; the deal then defaults at fallbackBy.
+          // T-221 review: that includes a registry, a bound policy or a panel it cannot run.
+          const declined =
+            this.#termsMismatch(c) ?? (await this.#turnProblem(c, 'fallback', { consented: c.adjudication.adjudicator.toLowerCase() === this.address, cover: true })) ?? (await this.#runnable(c, 'fallback'));
+          if (declined) report.refused.push({ commitmentId: c.id, problem: declined });
+          else if ((await port.triggerFallback(c.id)).ok) report.triggered.push(c.id);
+        } catch (e) {
+          report.refused.push({ commitmentId: c.id, problem: passProblem('the takeover', e) });
+        }
+      });
     }
-    for (const task of await port.tasks(this.address)) {
-      try {
-        await this.#runTask(task, report);
-      } catch (e) {
-        // decideTask keeps a judged record the moment the panel returns, so a retry never asks the judges again.
-        report.refused.push({ commitmentId: task.commitment.id, problem: passProblem(`the ${task.role} turn`, e) });
-      }
+    const tasks = await this.#list('tasks', report, () => port.tasks(this.address));
+    for (const task of this.#ordered(tasks, (t) => t.commitment.id)) {
+      await this.#unit(task.commitment.id, async () => {
+        try {
+          await this.#runTask(task, report);
+        } catch (e) {
+          // decideTask keeps a judged record the moment the panel returns, so a retry never asks the judges again.
+          report.refused.push({ commitmentId: task.commitment.id, problem: passProblem(`the ${task.role} turn`, e) });
+        }
+      });
     }
     return report;
   }
@@ -241,7 +384,7 @@ export class Adjudicator {
       report.undecided.push(task.commitment.id);
       return;
     }
-    const sent = await this.#cfg.settlement.submit(r.value.decision);
+    const sent = await this.#port.submit(r.value.decision);
     if (sent.ok) report.decided.push({ commitmentId: task.commitment.id, role: task.role, outcome: r.value.decision.outcome });
     else report.refused.push({ commitmentId: task.commitment.id, problem: sent.error });
   }
@@ -264,7 +407,7 @@ export class Adjudicator {
       expiresAt: c.timing.offerExpiresAt,
     };
     const msg = { ...unsigned, signature: await signMessage(this.#cfg.signingKey, this.#cfg.domain, unsigned) };
-    const sent = await this.#cfg.settlement.submit(msg);
+    const sent = await this.#port.submit(msg);
     return sent.ok ? ok(msg) : err(sent.error);
   }
 
@@ -340,7 +483,7 @@ export class Adjudicator {
 
   /** The contract reserves a fallback's bond when it decides and refuses an uncovered one (T-206 M-3). */
   async #coverProblem(c: DecisionTask['commitment']): Promise<Problem | null> {
-    const cover = await this.#cfg.settlement.bondCover(this.address, c);
+    const cover = await this.#port.bondCover(this.address, c);
     if (cover >= BigInt(c.price.amount)) return null;
     return problem('coverage_exceeded', `${this.#cfg.name} has ${cover} free bond for this deal and the price is ${c.price.amount} ${c.price.token}: a fallback's decision is backed by its bond, so it declines rather than sign one it cannot cover`);
   }
@@ -382,8 +525,8 @@ export class Adjudicator {
     const bound = c.adjudication.policyHash;
     let policy = this.policy;
     if (policyHashOf(policy) !== bound) {
-      const kept = await this.#cfg.settlement.policy?.(bound);
-      const primary = kept ? null : await this.#cfg.settlement.registration(c.adjudication.adjudicator);
+      const kept = await this.#port.policy?.(bound);
+      const primary = kept ? null : await this.#port.registration(c.adjudication.adjudicator);
       policy = kept ?? primary?.policy ?? policy;
     }
     const check = checkPolicyBinding(policy, bound);
@@ -430,12 +573,29 @@ export class Adjudicator {
    * deal to its default outcome and take the bonds. Read here and again at judging; a store that loses the bytes later
    * leaves the deal to the fallback and then its default outcome.
    */
+  /** The store reader references load through, and the timeout it met, if any (loadReferences counts any failure as not returned). */
+  #referenceReader(): { read: (uri: string) => Promise<Uint8Array>; timedOut: () => StoreReadTimeout | undefined } {
+    let late: StoreReadTimeout | undefined;
+    return {
+      read: (uri) =>
+        this.#port.ciphertext(uri).catch((e: unknown) => {
+          if (e instanceof StoreReadTimeout) late = e;
+          throw e;
+        }),
+      timedOut: () => late,
+    };
+  }
+
   async #referenceProblem(c: DecisionTask['commitment']): Promise<Problem | null> {
     // Sealed terms carry no `acceptance` this service can read (it cannot open them yet, T-207), so it sees no
     // reference by design: the check applies to the terms it can read, and a sealed offer goes on as before.
     if (isSealed(c)) return null;
-    const { unavailable } = await loadReferences(c.acceptance?.deterministicChecks ?? [], (uri) => this.#cfg.settlement.ciphertext(uri));
+    const { read, timedOut } = this.#referenceReader();
+    const { unavailable } = await loadReferences(c.acceptance?.deterministicChecks ?? [], read);
     if (!unavailable.length) return null;
+    // T-372: a store that did not answer in time is no reason to decline: the caller reports a refusal and retries.
+    const late = timedOut();
+    if (late) throw late;
     return problem('adjudicator_unavailable', `${this.#cfg.name} serves a deal only when its store holds every reference the terms name, and the reference ${describeUnavailable(unavailable)}: upload it with POST /v1/ciphertext to the store this adjudicator reads; it reconsiders the deal on each pass (an offer until it expires, a takeover until fallbackBy)`);
   }
 
@@ -469,9 +629,10 @@ export class Adjudicator {
     }
     if (!judged.published) {
       try {
-        await this.#cfg.settlement.publishRecord(judged.record);
+        await this.#port.publishRecord(judged.record);
       } catch (e) {
-        return err(problem('adjudicator_unavailable', `judgment record publication failed (${String((e as Error).message).slice(0, 120)}); retrying without re-judging`));
+        // T-372: the error's class only, as passProblem: the demo publishes refusals, and a store's message can carry a keyed URL.
+        return err(problem('adjudicator_unavailable', `judgment record publication failed (${errorClass(e)}); retrying without re-judging`));
       }
       judged.published = true;
     }
@@ -519,7 +680,7 @@ export class Adjudicator {
     }
     let appealKey: Uint8Array | undefined;
     if (role !== 'appeal') {
-      const next = await this.#cfg.settlement.registration(commitment.adjudication.appealAdjudicator);
+      const next = await this.#port.registration(commitment.adjudication.appealAdjudicator);
       try {
         if (!next) throw new Error('missing');
         appealKey = decodePublicKey(next.encryptionPublicKey);
@@ -538,7 +699,7 @@ export class Adjudicator {
     const fixedAt = task.roundFixedAt ?? (role === 'fallback' ? commitment.timing.judgeBy : undefined);
     if (!fixedAt) return err(problem('seed_mismatch', 'no settlement time fixes the beacon round for this appeal'));
     // T-217: the source the commitment's rulebook names, on its clock; never another in its place (ADR-0018 §5).
-    const source = this.#cfg.settlement.randomness(commitment);
+    const source = this.#port.randomness(commitment);
     if (!source) {
       return err(problem('adjudicator_unavailable', `${this.#cfg.name} has no source for the randomness this commitment's rulebook names (a drand-quicknet rulebook needs a drand source); it does not decide rather than seed the panel from another (ADR-0018 §5)`));
     }
@@ -565,9 +726,11 @@ export class Adjudicator {
     // reference (T-327). Read before any judge is called.
     let ciphertext: Uint8Array;
     try {
-      ciphertext = await this.#cfg.settlement.ciphertext(task.delivery.ciphertext.uri);
-    } catch {
-      return err(problem('adjudicator_unavailable', `${unreadableCiphertext(task.delivery.ciphertext)}; not judged, retrying on each pass (no record). If no store returns it by ${task.deadline}, this turn passes to the fallback or the default outcome by the terms`));
+      ciphertext = await this.#port.ciphertext(task.delivery.ciphertext.uri);
+    } catch (e) {
+      // T-372: a store that did not answer in time is treated the same way, and the refusal says so.
+      const late = e instanceof StoreReadTimeout ? ` (it did not answer within ${e.ms} ms)` : '';
+      return err(problem('adjudicator_unavailable', `${unreadableCiphertext(task.delivery.ciphertext)}${late}; not judged, retrying on each pass (no record). If no store returns it by ${task.deadline}, this turn passes to the fallback or the default outcome by the terms`));
     }
     const intaken = await intake({
       delivery: { ...task.delivery, encryptedKeys: [pre.envelope] },
@@ -616,9 +779,11 @@ export class Adjudicator {
       // One the store does not return, or returns with other bytes, is the store's fault, like a ciphertext that
       // does not match its delivery: refused before any judge is called, with no record, and retried; the
       // fallback and then the default outcome follow if it never comes (red team H1). Read once: the record is cached.
-      const loaded = await loadReferences(commitment.acceptance.deterministicChecks, (uri) => this.#cfg.settlement.ciphertext(uri));
+      const refs = this.#referenceReader();
+      const loaded = await loadReferences(commitment.acceptance.deterministicChecks, refs.read);
       if (loaded.unavailable.length) {
-        return err(problem('adjudicator_unavailable', `reference files unavailable from this adjudicator's store: ${describeUnavailable(loaded.unavailable)}; not judged, retrying (no record)`));
+        const late = refs.timedOut();
+        return err(problem('adjudicator_unavailable', `reference files unavailable from this adjudicator's store: ${describeUnavailable(loaded.unavailable)}${late ? ` (it did not answer within ${late.ms} ms)` : ''}; not judged, retrying (no record)`));
       }
       const references = loaded.references;
       const run = await runPipeline({
@@ -702,7 +867,7 @@ export class Adjudicator {
       screen: draft.screen,
       panel: draft.panel,
       aggregate: { ...agg, ...(weightedScore !== undefined ? { weightedScore } : {}) },
-      decidedAt: this.#cfg.settlement.now(),
+      decidedAt: this.#port.now(),
     };
     const recordHash = recordHashOf(body);
     const signature = await this.#account.signMessage({ message: { raw: recordHash } });
@@ -725,8 +890,14 @@ export function unreadableCiphertext(ct: { uri: string; sha256: string }): strin
  * class is named: a relay's message can carry a keyed RPC URL, and callers may log or publish the detail (red team M1).
  */
 function passProblem(what: string, e: unknown): Problem {
-  const kind = e instanceof Error ? e.name.slice(0, 40) : typeof e;
-  return problem('adjudicator_unavailable', `${what} threw (${kind}); retrying on the next pass`);
+  // T-372: a timeout names what it waited on (this service's own words, with a URI cut short) and the limit.
+  if (e instanceof StoreReadTimeout) return problem('adjudicator_unavailable', `${what} waited on ${e.message}; retrying on the next pass`);
+  return problem('adjudicator_unavailable', `${what} threw (${errorClass(e)}); retrying on the next pass`);
+}
+
+/** An error's class, for a refusal that may be published: never its message (T-347 red team L5). */
+function errorClass(e: unknown): string {
+  return e instanceof Error ? e.name.slice(0, 40) : typeof e;
 }
 
 /**
