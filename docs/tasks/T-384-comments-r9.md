@@ -5,7 +5,7 @@
 - **Depends on:** T-380 (package R8, last pull request 426, lane tip `73bbafa`), T-375 (package R7: the values R9 names), T-341 and T-356 (the side-by-side harness)
 - **Paths this task may touch:** `contracts/src/*`, the new `contracts/src/IHoldbackRules.sol` included; `contracts/test/*` for the renames and for what the layout requires; `packages/settlement/evm/abis.json` when the build regenerates it; this task file. Lines in `contracts/script/` (T-383) or `contracts/scripts/mutants.json` (T-352) go to their owners through the coordinator
 - **Human gate:** no for the branch. The freeze, the merge to `main` and the redeploy are Rafa's
-- **Status:** in progress (pull request 1)
+- **Status:** in progress (pull request 1 in review)
 - **Agent/session:** implementer session, change kind 7 (smart contracts); one reviewer subagent per pull request
 
 ## Intent
@@ -42,9 +42,23 @@ Non-goals: no behaviour change; no change to a signed type, the signing domain o
 
 Fill this in before review. Label each item measured, inferred or guessed.
 
-- Commands run and results:
-- Snapshot diffs:
-- Metrics:
+### Pull request 1, the names (branch `t-384-names-r9`, base `73bbafa`)
+
+- **Runtime code** [measured]: `forge build src` (solc 0.8.28, via_ir, optimizer 200), then the sha256 of each artifact's `deployedBytecode` with the CBOR metadata tail left out (53 bytes; with it, the parent's HoldbackRules is 20,469 bytes, as T-380 measured).
+
+  | Build | HoldbackRules runtime | sha256 |
+  | --- | --- | --- |
+  | Parent, `73bbafa` | 20,416 bytes | `ecd7e88c529927903dcff7ef4899ec4064ce4b8b4c8c06773ce7c28af949116b` |
+  | The layout and `ONLY_ATTEMPT`, without the outcome check (`aee5cbf`) | 20,416 bytes | `ecd7e88c529927903dcff7ef4899ec4064ce4b8b4c8c06773ce7c28af949116b` |
+  | The whole pull request | 20,449 bytes | `545f80b56390f540e5a98d715c7a436914af83d3653bf458d14c380ff53b0c47` |
+
+  The outcome check is the one runtime difference: 33 bytes. `DrandQuicknetBeacon` (3,216 bytes, `3a8c11c6…e38c96`), `HoldbackTypes` and `Money` are unchanged in every build.
+- **ABI** [measured]: every entry, name, type, selector and topic unchanged; three entries (`dealOf`, event `Defaulted`, error `WrongStage`) change only their `internalType` string. `packages/settlement/evm/abis.json` regenerated with `node scripts/evm-abis.mjs`: with `internalType` left out it equals the parent's.
+- **Test edits** [measured]: 51 files under `contracts/test/` change `HoldbackRules.X` to `IHoldbackRules.X` for a type, error or event X and add one import line, and nothing else. A script undoes both edits in each file and compares it with `73bbafa`: 51 files checked, 51 import lines, 0 other differences (`reports/scratch/t-384/mechanical.sh`, not committed).
+- **The outcome check** [measured]: `ValidOutcome.t.sol` compares `H.isValidOutcome` with the old bound, written into the test, over all 256 × 256 role and outcome bytes: equal for every pair.
+- **`forge test`** at `0a2c09b` [measured]: 64 suites, 472 of 472 passed (T-380's 470 and the 2 new tests). The side-by-side harness against the re-seated parent `73bbafa`, allow list empty: `testFuzz_sideBySide` 256 runs passed, `test_planted_failsTheHarness` and `test_sideBySide_reachesEveryRow` passed. `PinnedSource.t.sol`'s three pins passed. The 11 invariants passed, 256 runs × 100 calls each.
+- **Anvil suites** [measured]: CI's settlement leg (`pnpm vitest run packages/settlement/evm packages/testkit/src/runner.test.ts`, after `pnpm build`), the one that reads `abis.json`: 15 files, 247 of 247 passed. `deploy-script.test.ts` first failed 8 of 10 because the working tree held the uncommitted wording fixes and the deploy script refuses a `contracts/src` that differs from the commit; on the committed tree it passed 10 of 10. CI's world leg runs on the pull request.
+- **Review**: one reviewer subagent, ISSUES, four low-severity wording findings, all fixed in `3081cb3` (comments only: the runtime hash after it is still `545f80b5…`, measured); no runtime or ABI finding. It confirmed the outcome equivalence, the interface's completeness against the ABI, the mechanical test edits, `abis.json`, and the re-seat's blob ids and pins.
 
 ## Decisions
 
@@ -54,4 +68,9 @@ Fill this in before review. Label each item measured, inferred or guessed.
 
 ## Handoff
 
-What is done, what is not, how to resume, and the open questions that remain.
+- **Pull request 1** (the names) is ready on `t-384-names-r9`. Pull request 2 (the descriptions) follows on a new branch from the lane after it merges; the drafts are in `reports/scratch/t-384/` (not committed).
+- **For T-352 (`contracts/scripts/mutants.json`)**, two rows find text this pull request moves:
+  - M036 ("the appeal adjudicator may escalate") finds `(role == H.ROLE_APPEAL ? H.OUTCOME_REJECT : H.OUTCOME_ESCALATE)` in `src/HoldbackRules.sol`, which is gone. The same mutant on the new code: file `src/HoldbackTypes.sol`, find `|| (outcome == OUTCOME_ESCALATE && role != ROLE_APPEAL);`, replace `|| outcome == OUTCOME_ESCALATE;`.
+  - M128 ("_acceptDelivery: any attempt number") finds `        if (dv.attempt != 1) revert InvalidMessage();\n`; the line now reads `        if (dv.attempt != ONLY_ATTEMPT) revert InvalidMessage();\n`.
+- **For T-385 (the docs pass)**: `contracts/src` now holds `DrandQuicknetBeacon.sol`, `HoldbackRules.sol`, `HoldbackTypes.sol`, `IHoldbackBeacon.sol` and `IHoldbackRules.sol`. `Stage`, `Reason`, `Decider` and `Deal`, every event and every error now live in `IHoldbackRules`; the calldata structs stay in `HoldbackTypes`. `docs/audit/invariants.md:108`, `docs/audit/threat-model.md:96,99` and `docs/audit/test-quality.md` name `AppealAttempt.t.sol`, `AppealKey.t.sol` or `AppealSeedAttempt.t.sol`, now `Escalation…`. Every line citation of `HoldbackRules.sol` above its old line 158 moved.
+- **For triage**: `contracts/.gas-snapshot` still lists the old test names; it was already stale and no CI step reads it.
