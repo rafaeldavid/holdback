@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { commitOf } from '../site/build.mjs';
 import { deploy, siteProblem } from '../site/deploy.mjs';
 
 const BEFORE = '545afdd8-1e1c-40ff-aa35-2eea83d9ec0e';
@@ -185,5 +186,18 @@ describe('pnpm site:deploy', () => {
     expect(r.code).toBe(1);
     expect(r.err).toContain(`ROLLBACK FAILED for crow-site. Run: npx wrangler@4 rollback ${BEFORE} --name crow-site`);
     expect(r.record).toContain(`(rollback target \`${BEFORE}\`, ROLLBACK FAILED).`);
+  });
+});
+
+describe("version.json names the build's commit only when git says so (T-066, T-370)", () => {
+  const HEAD = '0123456789abcdef0123456789abcdef01234567';
+  const ok = (stdout: string) => ({ status: 0, stdout });
+  it('names a clean checkout and nothing else', () => {
+    expect(commitOf(ok(`${HEAD}\n`), ok(''))).toBe(HEAD);
+    expect(commitOf({ status: 128, stdout: '' }, ok(''))).toBe(null);
+    expect(commitOf(ok(HEAD), { status: 128, stdout: '' })).toBe(null);
+    expect(commitOf(ok(HEAD), { status: null, stdout: '', error: new Error('git not found') })).toBe(null);
+    expect(commitOf(ok(HEAD), ok(' M site/llms.txt\n'))).toBe(null);
+    expect(commitOf(ok('main'), ok(''))).toBe(null);
   });
 });
