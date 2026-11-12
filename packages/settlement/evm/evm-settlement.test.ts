@@ -389,6 +389,28 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     expect(chain.transactions()).toHaveLength(0);
   }, 60_000);
 
+  // ADR-0031 §4 (SC-3): the phase-one contracts pay a mutual settlement to the buyer and the seller only.
+  it('a settlement that pays a third address is refused before any transaction: invalid_terms, naming SC-3', async () => {
+    const { chain, cast, club } = await newSettlement(world);
+    const d = new EvmDeal(chain, cast, club, 'third-party-payout');
+    for (const sub of [d.offer(), d.accept(), d.agreeAndFund()]) await must(chain, cast, sub);
+    const base = await d.mutual(1_000_000_000n, false);
+    if (base.kind !== 'mutual_settle') throw new Error('unreachable');
+    const { buyerSignature: _b, sellerSignature: _s, ...unsigned } = base.message; // eslint-disable-line @typescript-eslint/no-unused-vars
+    const amt = (v: string) => ({ token: chain.token, amount: v }) as TokenAmount;
+    const body = { ...unsigned, payouts: [{ to: cast.seller.address, amount: amt('1000000000') }, { to: cast.stranger.address, amount: amt('1000000000') }] };
+    const message = { ...body, buyerSignature: await signMessage(cast.buyer.key, chain.domain, body as UnsignedMessage), sellerSignature: await signMessage(cast.seller.key, chain.domain, body as UnsignedMessage) };
+    const txs = chain.transactions().length;
+    const r = await chain.submit({ kind: 'mutual_settle', message }, { via: 'op-1', sender: cast.operator.key });
+    expect(r.ok ? 'ok' : r.problem.type).toBe('invalid_terms');
+    expect(r.ok ? '' : r.problem.detail).toMatch(/neither the buyer nor the seller.*\(ADR-0031 §4\)/);
+    expect(chain.transactions()).toHaveLength(txs);
+    expect(chain.escrowState(d.id)?.kind).toBe('Held');
+    // The parties' own split settles.
+    await must(chain, cast, base);
+    expect(chain.escrowState(d.id)?.kind).toBe('Settled');
+  }, 60_000);
+
   // ADR-0031 §3 (SC-2): the phase-one contracts fund by ERC-3009 only.
   it('a Permit2 funding authorization is refused before any transaction: invalid_terms', async () => {
     const { chain, cast, club } = await newSettlement(world);
