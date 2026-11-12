@@ -104,7 +104,7 @@ export function renderSnapshot(scenario: Scenario, prefix: Prefix, run: StubRun,
     );
   const refusals = run.rows.filter((r) => r.detail !== undefined);
   if (refusals.length) out.push('', 'Refusals:', '', ...refusals.map((r) => `- Step ${r.step} ${r.call}: ${r.result}: ${mdText(r.detail!)}`));
-  if (run.outages.length) out.push('', 'Outages:', '', ...run.outages.map((o) => `- Step ${o.step}: ${o.actor} ${o.kind === 'offline' ? 'is offline' : o.kind === 'operator_refused' ? 'refused to relay' : 'timed out; a permissionless timeout acted instead'}`));
+  if (run.outages.length) out.push('', 'Outages:', '', ...run.outages.map((o) => `- Step ${o.step}: ${o.actor} ${o.kind === 'offline' ? 'is offline' : o.kind === 'operator_refused' ? 'refused to relay' : o.kind === 'restarted' ? 'restarted on a build with another default' : 'timed out; a permissionless timeout acted instead'}`));
   out.push('');
 
   out.push(`## Balances (${TOKEN})`, '');
@@ -176,6 +176,11 @@ export function renderJudgment(j: JudgmentView): string[] {
     '',
     `- **Intake:** plaintext ${short(j.intake.plaintextSha256.replace('sha256:', '0x'))} · ${j.intake.mime} · ${j.intake.bytes} bytes (${j.intake.source}) · ${intake}`,
     `- **Deterministic checks:** ${checks}`,
+    ...(j.bound
+      ? [
+          `- **Bound policy:** judged under ${j.bound.screenVersion} and registry ${short(j.bound.registryHash)}, as the terms bind; the build now defaults to ${j.bound.buildScreenVersion} and registry ${short(j.bound.buildRegistryHash)} (ADR-0036)`,
+        ]
+      : []),
     `- **Screen:** ${screen}`,
     p.ran
       ? `- **Panel:** ${p.members.length} judges from ${new Set(p.members.map((m) => m.family)).size} families (policy: ${p.size} seats, at least ${p.minFamilies} families) · ${panelHead}`
