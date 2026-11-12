@@ -214,7 +214,7 @@ contract HoldbackRules is EIP712, IHoldbackRules {
         // role also names the posted delivery, so a decision about another seller-signed body never settles (ADR-0029).
         if (
             m.role != role || m.attempt != d.attempt || m.deliveryHash != deliveryHashOf[id]
-                || m.outcome > (role == H.ROLE_APPEAL ? H.OUTCOME_REJECT : H.OUTCOME_ESCALATE)
+                || !H.isValidOutcome(role, m.outcome)
         ) {
             revert InvalidMessage();
         }
