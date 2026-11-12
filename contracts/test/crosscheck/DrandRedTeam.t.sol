@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {IHoldbackBeacon} from "../../src/IHoldbackBeacon.sol";
 import {DrandQuicknetBeacon} from "../../src/DrandQuicknetBeacon.sol";
@@ -504,11 +505,11 @@ contract DrandRedTeamTest is Base {
                 firstSettled = g;
                 break;
             }
-            assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.FallbackJudging), "a failed relay changed state");
+            assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.FallbackJudging), "a failed relay changed state");
             if (ret.length == 4 && bytes4(ret) == INVALID) saidInvalid++;
         }
         assertGt(firstSettled, 0, "the decision never settled");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Released));
         assertGt(saidInvalid, 0, "no gas limit produced InvalidSignature for the valid proof");
         emit log_named_uint("gas limits, 5,000 gas apart, where the valid proof says InvalidSignature", saidInvalid);
         emit log_named_uint("least gas limit at which the valid fallback decision settles", firstSettled);
@@ -588,11 +589,11 @@ contract DrandRedTeamTest is Base {
             fail();
         } catch (bytes memory err) {
             uint256 wrongRound = g - gasleft();
-            assertEq(bytes4(err), HoldbackRules.BadSeed.selector);
+            assertEq(bytes4(err), IHoldbackRules.BadSeed.selector);
             assertLt(wrongRound, 60_000, "a wrong round reached the beacon");
             emit log_named_uint("decide, unsigned, wrong round (gas)", wrongRound);
         }
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.FallbackJudging));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.FallbackJudging));
     }
 
     // ============================================================ goal 4: wrong round
@@ -631,7 +632,7 @@ contract DrandRedTeamTest is Base {
         // (a) the round published 1 s after the escalation, at the same timestamp: refused.
         H.Decision memory early = _drandDecision(id, H.ROLE_APPEAL, H.OUTCOME_REJECT, NEXT_ROUND, NEXT_SIG);
         early = _signDecision(t, id, early, appealAdj, AP_PK);
-        vm.expectRevert(HoldbackRules.BadSeed.selector);
+        vm.expectRevert(IHoldbackRules.BadSeed.selector);
         rules.decide(t, early, _noDelivery(), "");
 
         // (b) the demanded round, 31 s after the escalation; (c) its decision settles from that time on.
@@ -641,7 +642,7 @@ contract DrandRedTeamTest is Base {
         H.Decision memory m = _drandDecision(id, H.ROLE_APPEAL, H.OUTCOME_REJECT, APPEAL_ROUND, APPEAL_SIG);
         m = _signDecision(t, id, m, appealAdj, AP_PK);
         rules.decide(t, m, _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
     }
 
     /// Attack (X-1, rewritten by T-380 from `test_issue_wrongRound_relayerLandsTheEscalationOnlyWhenTheAppealSeedSuitsIt`):
@@ -663,16 +664,16 @@ contract DrandRedTeamTest is Base {
             vm.expectRevert(INVALID);
             filer.escalateIfSeedSuits(rules, t, esc, _noDelivery(), id, published[i], margin, 1, 0);
         }
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Delivered), "the gate landed the escalation");
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Delivered), "the gate landed the escalation");
 
         // The old gate: it reads round 32398879, which is public 1 s after this block, and lands the escalation.
         bytes32 seed = hx.panelSeed(id, H.ROLE_APPEAL, 1, sha256(NEXT_SIG));
         assertEq(filer.escalateIfSeedSuits(rules, t, esc, _noDelivery(), id, NEXT_SIG, 0, 1, 0), seed);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Escalated));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Escalated));
         vm.warp(_timeOf(NEXT_ROUND));
         H.Decision memory m = _drandDecision(id, H.ROLE_APPEAL, H.OUTCOME_REJECT, NEXT_ROUND, NEXT_SIG);
         m = _signDecision(t, id, m, appealAdj, AP_PK);
-        vm.expectRevert(HoldbackRules.BadSeed.selector);
+        vm.expectRevert(IHoldbackRules.BadSeed.selector);
         rules.decide(t, m, _noDelivery(), "");
     }
 
@@ -685,11 +686,11 @@ contract DrandRedTeamTest is Base {
         assertEq(_timeOf(JUDGEBY_ROUND), uint256(t.timing.judgeBy) - 2, "public before judgeBy");
         vm.warp(t.timing.judgeBy);
         vm.expectEmit(address(rules));
-        emit HoldbackRules.FallbackTriggered(id, FALLBACK_ROUND);
+        emit IHoldbackRules.FallbackTriggered(id, FALLBACK_ROUND);
         rules.triggerFallback(t);
         H.Decision memory old = _drandDecision(id, H.ROLE_FALLBACK, H.OUTCOME_ACCEPT, JUDGEBY_ROUND, JUDGEBY_SIG);
         old = _signDecision(t, id, old, fallbackAdj, FB_PK);
-        vm.expectRevert(HoldbackRules.BadSeed.selector);
+        vm.expectRevert(IHoldbackRules.BadSeed.selector);
         rules.decide(t, old, _noDelivery(), "");
 
         vm.warp(_timeOf(FALLBACK_ROUND));
@@ -697,7 +698,7 @@ contract DrandRedTeamTest is Base {
         H.Decision memory m = _drandDecision(id, H.ROLE_FALLBACK, H.OUTCOME_ACCEPT, FALLBACK_ROUND, FALLBACK_SIG);
         m = _signDecision(t, id, m, fallbackAdj, FB_PK);
         rules.decide(t, m, _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Released));
     }
 
     /// Boundary (ADR-0032 §3.6): the beacon checks a signature, not a clock. Handed round 32398889's real signature at
@@ -723,7 +724,7 @@ contract DrandRedTeamTest is Base {
         for (uint256 i; i < rounds.length; i++) {
             H.Decision memory m = _drandDecision(id, H.ROLE_APPEAL, H.OUTCOME_REJECT, rounds[i], APPEAL_SIG);
             m = _signDecision(t, id, m, appealAdj, AP_PK);
-            vm.expectRevert(HoldbackRules.BadSeed.selector);
+            vm.expectRevert(IHoldbackRules.BadSeed.selector);
             rules.decide(t, m, _noDelivery(), "");
         }
     }
@@ -782,7 +783,7 @@ contract DrandRedTeamTest is Base {
         uint256 buyerBefore = usdc.balanceOf(buyer);
         vm.warp(t.timing.fallbackBy);
         rules.triggerDefault(t);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
         assertEq(usdc.balanceOf(buyer) - buyerBefore, PRICE + FEE, "the buyer gets price and fee back");
         vm.clearMockedCalls();
     }

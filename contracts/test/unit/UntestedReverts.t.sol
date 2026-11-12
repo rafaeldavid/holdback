@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -17,7 +18,7 @@ contract UntestedRevertsTest is Base {
         H.Funding memory f = _erc3009(t, BUYER_PK);
         vm.expectRevert(selector);
         rules.agreeAndFund(t, s, acc, ag, f);
-        assertEq(uint8(_stage(hx.id(t))), uint8(HoldbackRules.Stage.None));
+        assertEq(uint8(_stage(hx.id(t))), uint8(IHoldbackRules.Stage.None));
     }
 
     // ------------------------------------------------------------ Unrepresentable (CPP's PaymentInfo widths)
@@ -26,7 +27,7 @@ contract UntestedRevertsTest is Base {
     function test_refuses_holdAboveUint120_unrepresentable() public {
         H.Terms memory t = _terms();
         t.price = uint256(type(uint120).max) - t.fee + 1;
-        _fundExpectingRevert(t, HoldbackRules.Unrepresentable.selector);
+        _fundExpectingRevert(t, IHoldbackRules.Unrepresentable.selector);
     }
 
     /// A rules contract whose EXPIRY_MARGIN puts terms `t`'s escrow expiry at type(uint48).max plus `over`. Since T-380
@@ -41,7 +42,7 @@ contract UntestedRevertsTest is Base {
     function test_refuses_expiryAboveUint48_unrepresentable() public {
         H.Terms memory t = _terms();
         _withExpiryAt(t, 1);
-        _fundExpectingRevert(t, HoldbackRules.Unrepresentable.selector);
+        _fundExpectingRevert(t, IHoldbackRules.Unrepresentable.selector);
     }
 
     /// The other side of the expiry bound: an expiry of exactly type(uint48).max funds.
@@ -49,7 +50,7 @@ contract UntestedRevertsTest is Base {
         H.Terms memory t = _terms();
         _withExpiryAt(t, 0);
         bytes32 id = _fund(t);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Held));
         assertEq(_held(t), PRICE + FEE);
     }
 
@@ -62,6 +63,6 @@ contract UntestedRevertsTest is Base {
         t.timing.deliverBy = t.timing.fundBy + 1;
         t.timing.judgeBy = t.timing.fundBy + 2;
         t.timing.fallbackBy = t.timing.fundBy + 3;
-        _fundExpectingRevert(t, HoldbackRules.Unrepresentable.selector);
+        _fundExpectingRevert(t, IHoldbackRules.Unrepresentable.selector);
     }
 }

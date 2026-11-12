@@ -5,6 +5,7 @@ import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 import {MockERC3009Token} from "commerce-payments-test/mocks/MockERC3009Token.sol";
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -39,10 +40,10 @@ contract SingleTokenTest is Base {
         H.Funding memory f = _erc3009(t, BUYER_PK);
         uint256 before = other.balanceOf(buyer);
 
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.agreeAndFund(t, ss, acc, ag, f);
 
-        assertEq(uint8(rules.dealOf(id).stage), uint8(HoldbackRules.Stage.None), "nothing stored");
+        assertEq(uint8(rules.dealOf(id).stage), uint8(IHoldbackRules.Stage.None), "nothing stored");
         assertEq(other.balanceOf(buyer), before, "no token moved");
         assertEq(other.balanceOf(escrow.getTokenStore(address(rules))), 0);
     }
@@ -57,14 +58,14 @@ contract SingleTokenTest is Base {
         H.Agree memory ag = _agree(t, BUYER_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
         bytes memory wrong = _sellerSig(t, OTHER_PK);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.agreeAndFund(t, wrong, acc, ag, f);
     }
 
     /// The deployment's own token still funds, and the escrow's record names the immutable token.
     function test_deploymentToken_funds() public {
         (H.Terms memory t, bytes32 id) = _funded();
-        assertEq(uint8(rules.dealOf(id).stage), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(rules.dealOf(id).stage), uint8(IHoldbackRules.Stage.Held));
         AuthCaptureEscrow.PaymentInfo memory pi = _pi(t);
         assertEq(pi.token, rules.TOKEN());
         (, uint120 capturable,) = escrow.paymentState(escrow.getHash(pi));
@@ -83,13 +84,13 @@ contract SingleTokenTest is Base {
         H.Acceptance memory acc = _acceptance(t, ADJ_PK);
         H.Agree memory ag = _agree(t, BUYER_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         second.agreeAndFund(t, ss, acc, ag, f);
 
         // Signed under its own domain, the same terms fund on the second deployment, in its token.
         rules = second;
         bytes32 id = _fund(t);
-        assertEq(uint8(second.dealOf(id).stage), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(second.dealOf(id).stage), uint8(IHoldbackRules.Stage.Held));
         (, uint120 capturable,) = escrow.paymentState(escrow.getHash(_pi(t)));
         assertEq(capturable, PRICE + FEE);
         assertEq(other.balanceOf(escrow.getTokenStore(address(second))), PRICE + FEE);
@@ -102,8 +103,8 @@ contract SingleTokenTest is Base {
         H.Terms memory u = abi.decode(abi.encode(t), (H.Terms)); // a copy, not an alias
         u.token = address(other);
         vm.warp(t.timing.deliverBy);
-        vm.expectRevert(abi.encodeWithSelector(HoldbackRules.WrongStage.selector, HoldbackRules.Stage.None));
+        vm.expectRevert(abi.encodeWithSelector(IHoldbackRules.WrongStage.selector, IHoldbackRules.Stage.None));
         rules.reclaim(u);
-        assertEq(uint8(rules.dealOf(id).stage), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(rules.dealOf(id).stage), uint8(IHoldbackRules.Stage.Held));
     }
 }

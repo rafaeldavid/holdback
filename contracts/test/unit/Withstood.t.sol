@@ -5,6 +5,7 @@ import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 import {MockERC3009Token} from "commerce-payments-test/mocks/MockERC3009Token.sol";
 import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -66,18 +67,18 @@ contract WithstoodTest is Base {
         H.Decision memory primary = _primary(t, id, H.OUTCOME_ACCEPT); // signed, never submitted
         vm.warp(t.timing.judgeBy);
         rules.triggerFallback(t);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.decide(t, primary, _noDelivery(), "");
         // Re-labelled as a fallback decision with the primary's seed: the seed must be the beacon's.
         H.Decision memory relabelled = _decision(H.ROLE_FALLBACK, H.OUTCOME_ACCEPT);
         relabelled = _signDecision(t, id, relabelled, adjudicator, ADJ_PK);
-        vm.expectRevert(HoldbackRules.BadSeed.selector);
+        vm.expectRevert(IHoldbackRules.BadSeed.selector);
         rules.decide(t, relabelled, _noDelivery(), "");
         // The honest fallback decision settles.
         H.Decision memory m = _beaconDecision(id, H.ROLE_FALLBACK, H.OUTCOME_ACCEPT, t.timing.judgeBy);
         m = _signDecision(t, id, m, adjudicator, ADJ_PK);
         rules.decide(t, m, _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Released));
     }
 
     /// A mutual payout to the zero address reverts the whole settlement: nothing is lost. Since SC-3 the rules
@@ -90,7 +91,7 @@ contract WithstoodTest is Base {
         H.Mutual memory m = _mutual(t, id, p);
         H.Delivery memory none;
         H.KeyProof memory k;
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, m, none, k);
         assertEq(_held(t), PRICE + FEE);
     }
@@ -105,7 +106,7 @@ contract WithstoodTest is Base {
         H.Mutual memory m = _mutual(t, id, p);
         H.Delivery memory none;
         H.KeyProof memory k;
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, m, none, k);
         assertEq(usdc.balanceOf(address(rules)), 0, "nothing stranded");
         assertEq(_held(t), PRICE + FEE);
@@ -139,7 +140,7 @@ contract WithstoodTest is Base {
         rules.mutualSettle(t, m, none, k);
         assertTrue(r.called(), "the hook fired during the payout");
         assertFalse(r.succeeded(), "the nested settlement was refused");
-        assertEq(bytes4(r.revertData()), HoldbackRules.WrongStage.selector);
+        assertEq(bytes4(r.revertData()), IHoldbackRules.WrongStage.selector);
         assertEq(hook.balanceOf(seller), 1_000_000, "paid exactly once");
         assertEq(hook.balanceOf(escrow.getTokenStore(address(rules))), 0);
 
@@ -167,7 +168,7 @@ contract WithstoodTest is Base {
         H.Funding memory f = _erc3009(t, BUYER_PK);
         HoldbackRules other =
             new HoldbackRules(escrow, address(collector3009), MARGIN, sim, address(usdc), _beaconMargin());
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         other.agreeAndFund(t, s, a, g, f);
         // The genuine deployment still accepts the same messages.
         rules.agreeAndFund(t, s, a, g, f);
@@ -184,11 +185,11 @@ contract WithstoodTest is Base {
         rules.triggerFallback(t);
         H.Decision memory m = _beaconDecision(id, H.ROLE_FALLBACK, H.OUTCOME_ACCEPT, t.timing.judgeBy);
         m = _signDecision(t, id, m, address(0), OTHER_PK);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.decide(t, m, _noDelivery(), "");
         vm.warp(t.timing.fallbackBy);
         rules.triggerDefault(t);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
     }
 
     function _mutual(H.Terms memory t, bytes32 id, H.Payout[] memory p) internal view returns (H.Mutual memory m) {

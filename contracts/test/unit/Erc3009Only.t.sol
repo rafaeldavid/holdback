@@ -5,6 +5,7 @@ import {Vm} from "forge-std/Vm.sol";
 import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {TestUSDC} from "../../script/TestUSDC.sol";
 import {OwnedWallet} from "../crosscheck/Erc1271Replay.t.sol";
@@ -41,7 +42,7 @@ contract Erc3009OnlyTest is Base {
         vm.expectRevert(bytes("MockERC3009: invalid signature"));
         rules.agreeAndFund(t, ss, acc, ag, f);
 
-        assertEq(uint8(rules.dealOf(id).stage), uint8(HoldbackRules.Stage.None), "nothing stored");
+        assertEq(uint8(rules.dealOf(id).stage), uint8(IHoldbackRules.Stage.None), "nothing stored");
         assertEq(usdc.balanceOf(buyer), before, "no token moved");
         assertEq(_held(t), 0);
     }
@@ -66,7 +67,7 @@ contract Erc3009OnlyTest is Base {
 
         vm.prank(relayer);
         bytes32 id = rules.agreeAndFund(t, ss, acc, ag, f);
-        assertEq(uint8(rules.dealOf(id).stage), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(rules.dealOf(id).stage), uint8(IHoldbackRules.Stage.Held));
         assertEq(tusdc.balanceOf(escrow.getTokenStore(address(rules))), PRICE + FEE);
         assertEq(tusdc.balanceOf(address(w)), 1_000_000_000 - PRICE - FEE);
 

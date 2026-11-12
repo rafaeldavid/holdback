@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {IHoldbackBeacon} from "../../src/IHoldbackBeacon.sol";
 import {DrandQuicknetBeacon} from "../../src/DrandQuicknetBeacon.sol";
@@ -56,7 +57,7 @@ contract BeaconMarginTest is Base {
         _deliver(t, id);
         vm.warp(t.timing.judgeBy);
         vm.expectEmit(address(rules));
-        emit HoldbackRules.FallbackTriggered(id, uint64(t.timing.judgeBy) + M);
+        emit IHoldbackRules.FallbackTriggered(id, uint64(t.timing.judgeBy) + M);
         rules.triggerFallback(t);
     }
 
@@ -69,7 +70,7 @@ contract BeaconMarginTest is Base {
         uint64 round = uint64(t.timing.judgeBy) + M;
         // The round at judgeBy, the parent's rule: refused.
         H.Decision memory old = _fallbackDecision(t, id, H.OUTCOME_ACCEPT, uint64(t.timing.judgeBy));
-        vm.expectRevert(HoldbackRules.BadSeed.selector);
+        vm.expectRevert(IHoldbackRules.BadSeed.selector);
         rules.decide(t, old, _noDelivery(), "");
         // The margin round, before the clock reaches it: the beacon has no value yet.
         H.Decision memory m = _fallbackDecision(t, id, H.OUTCOME_ACCEPT, round);
@@ -77,7 +78,7 @@ contract BeaconMarginTest is Base {
         rules.decide(t, m, _noDelivery(), "");
         vm.warp(round);
         rules.decide(t, m, _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Released));
     }
 
     function test_escalation_takesTheRoundAfterItsBlockPlusTheMargin() public {
@@ -87,11 +88,11 @@ contract BeaconMarginTest is Base {
         rules.decide(t, _primary(t, id, H.OUTCOME_ESCALATE), _noDelivery(), "");
         vm.warp(at + 1);
         H.Decision memory old = _appealDecision(t, id, H.OUTCOME_REJECT, at + 1);
-        vm.expectRevert(HoldbackRules.BadSeed.selector);
+        vm.expectRevert(IHoldbackRules.BadSeed.selector);
         rules.decide(t, old, _noDelivery(), "");
         vm.warp(at + M + 1);
         rules.decide(t, _appealDecision(t, id, H.OUTCOME_REJECT, at + M + 1), _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
     }
 
     /// A fallback that escalates: the round follows the block time of the fallback's escalation, not judgeBy.
@@ -102,14 +103,14 @@ contract BeaconMarginTest is Base {
         rules.decide(
             t, _fallbackDecision(t, id, H.OUTCOME_ESCALATE, uint64(t.timing.judgeBy) + M), _noDelivery(), ""
         );
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Escalated));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Escalated));
         assertEq(rules.dealOf(id).t1, at);
         vm.warp(at + M + 1);
         H.Decision memory old = _appealDecision(t, id, H.OUTCOME_ACCEPT, uint64(t.timing.judgeBy) + M + 1);
-        vm.expectRevert(HoldbackRules.BadSeed.selector);
+        vm.expectRevert(IHoldbackRules.BadSeed.selector);
         rules.decide(t, old, _noDelivery(), "");
         rules.decide(t, _appealDecision(t, id, H.OUTCOME_ACCEPT, at + M + 1), _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Released));
     }
 
     /// The window still counts from the escalation's block (ADR-0032 §5): the margin uses part of it, and a decision
@@ -121,17 +122,17 @@ contract BeaconMarginTest is Base {
         rules.decide(t, _primary(t, id, H.OUTCOME_ESCALATE), _noDelivery(), "");
         vm.warp(uint256(at) + t.timing.appealDecideSec);
         H.Decision memory late = _appealDecision(t, id, H.OUTCOME_REJECT, at + M + 1);
-        vm.expectRevert(HoldbackRules.DeadlinePassed.selector);
+        vm.expectRevert(IHoldbackRules.DeadlinePassed.selector);
         rules.decide(t, late, _noDelivery(), "");
         rules.triggerDefault(t);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
     }
 
     // ------------------------------------------------------------ the constructor (ADR-0032 §3.4)
 
     function test_constructor_refusesAZeroMarginOffTheLocalChain() public {
         vm.chainId(11_155_111); // Sepolia
-        vm.expectRevert(HoldbackRules.NoBeaconMargin.selector);
+        vm.expectRevert(IHoldbackRules.NoBeaconMargin.selector);
         new HoldbackRules(escrow, address(collector3009), MARGIN, sim, address(usdc), 0);
         HoldbackRules ok = new HoldbackRules(escrow, address(collector3009), MARGIN, sim, address(usdc), 29);
         assertEq(ok.BEACON_MARGIN(), 29);
