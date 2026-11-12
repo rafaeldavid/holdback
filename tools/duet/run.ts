@@ -141,11 +141,14 @@ export async function runDuet(o: RunOptions): Promise<RunResult> {
     const ops: Allow[] = world.operators.map((u) => ({ origin: originOf(u) }));
     const problems: Allow = { origin: 'https://crow.direct', paths: ['/problems/'] };
     const docAllow = (d: { guide: string; sell: string; buy: string }): Allow[] => [...[d.guide, d.sell, d.buy].map((u) => ({ origin: originOf(u), paths: [new URL(u).pathname] })), { origin: originOf(d.guide), paths: [new URL('ref/', d.guide).pathname] }];
-    // The seller's page with or without its trailing slash; the site's own pages, its root included.
-    const page: Allow = { origin: originOf(world.web), paths: [`/sellers/${SELLER_NAME}/`, `/sellers/${SELLER_NAME}`, '/', '/index.html'] };
+    // The seller's page, with or without its trailing slash. The site itself, its root included, is crow.direct.
+    const page: Allow = { origin: originOf(world.web), paths: [`/sellers/${SELLER_NAME}/`, `/sellers/${SELLER_NAME}`] };
     const site: Allow = { origin: CROW_SITE };
-    const buyerAllow: Allow[] = [...ops, ...docAllow(world.docs), page, { origin: adapter, paths: ['/defaults', '/quote'] }, problems, site];
-    const sellerAllow: Allow[] = [...ops, ...docAllow(world.docs), page, { origin: originOf(world.jobApi.url) }, { origin: adapter, paths: ['/defaults', '/quote'] }, problems, site];
+    // With the direct brief on a local run the guides are reached only through crow.direct, as a visitor reaches them:
+    // the local copies' own addresses are not allowed, so no refusal names them and no agent reads a guide twice.
+    const docs: Allow[] = (o.brief ?? 'guided') === 'direct' && alias ? [] : docAllow(world.docs);
+    const buyerAllow: Allow[] = [...ops, ...docs, page, { origin: adapter, paths: ['/defaults', '/quote'] }, problems, site];
+    const sellerAllow: Allow[] = [...ops, ...docs, page, { origin: originOf(world.jobApi.url) }, { origin: adapter, paths: ['/defaults', '/quote'] }, problems, site];
 
     const timeouts = o.commandTimeoutMs ?? { short: 180_000, long: 1_200_000 };
     const stops = { buyer: new AbortController(), seller: new AbortController() };
@@ -156,7 +159,7 @@ export async function runDuet(o: RunOptions): Promise<RunResult> {
     const briefs = mode === 'direct' ? { buyer: buyerBriefDirect(s, facts()), seller: sellerBriefDirect(s, facts()) } : { buyer: buyerBrief(s, facts()), seller: sellerBrief(s, facts()) };
     const systems = mode === 'direct' ? { buyer: masterPrompt('buyer', AGENT_NAME.buyer), seller: masterPrompt('seller', AGENT_NAME.seller) } : undefined;
     // In the direct brief the scripted agents start from crow.direct, as a live one would.
-    const scriptDocs = mode === 'direct' ? { guide: `${CROW_SITE}/llms.txt`, sell: `${CROW_SITE}/sell.txt`, buy: `${CROW_SITE}/buy.txt`, home: `${CROW_SITE}/` } : world.docs;
+    const scriptDocs = mode === 'direct' ? { guide: `${CROW_SITE}/llms.txt`, sell: `${CROW_SITE}/sell.txt`, buy: `${CROW_SITE}/buy.txt`, home: `${CROW_SITE}/`, ...(alias ? { local: world.docs.guide } : {}) } : world.docs;
     const scriptFacts = () => ({ docs: scriptDocs, sellerPage, jobApi: { ...world.jobApi.api, url: world.jobApi.url }, adapterPort, keyStore, operator: world.operators[0]! });
     const providerOf = (role: 'buyer' | 'seller', side: Side): Provider => (side !== 'scripted' ? side : scripted(role === 'buyer' ? buyerScript(s.name, scriptFacts()) : sellerScript(s.name, scriptFacts())));
 
