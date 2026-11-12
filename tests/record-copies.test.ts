@@ -1,13 +1,14 @@
 // The record's copies (scripts/record-copies.mjs, T-383): run on a copy of the repository's tracked files with a
 // made-up new record, the command leaves no old address or hash behind outside the history files, and it fails when a
 // file outside its list still pins one.
+import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 // @ts-expect-error -- a plain .mjs script with no types
-import { changes, literal, recordCopies, regenerateDeployments, substitute, trackedFiles } from '../scripts/record-copies.mjs';
+import { changes, datedName, keep, literal, recordCopies, regenerateDeployments, substitute, trackedFiles } from '../scripts/record-copies.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const OLD_NAME = 'contracts/deployments/sepolia-2026-11-04-domain-0.7.json';
@@ -88,6 +89,53 @@ describe('the pieces', () => {
   });
 });
 
+// Cutover step 2.3 as one command (T-383 part 2; the coordinator's rule of 2026-11-12): the dated copy carries the UTC
+// date and time of its deployment, so two redeploys on one day get two names.
+describe('keep: the live record copied to its dated name', () => {
+  const reads = (o: { chain?: number; at?: string; version?: string } = {}) => ({
+    chainId: () => o.chain ?? 11155111,
+    blockTime: () => o.at ?? '2026-11-04T09:41:12.000Z',
+    domainVersion: () => o.version ?? '0.7',
+  });
+  const setUp = (record: J) => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 't383-keep-')));
+    mkdirSync(join(dir, 'contracts/deployments'), { recursive: true });
+    writeFileSync(join(dir, 'contracts/deployments/sepolia.json'), `${JSON.stringify(record, null, 2)}\n`);
+    return dir;
+  };
+  const live = JSON.parse(readFileSync(join(root, 'contracts/deployments/sepolia.json'), 'utf8'));
+
+  it("names a record without deployedAt by its first block's time, and the domain its contract signs under", () => {
+    const dir = setUp({ ...live, deployedAt: undefined });
+    const lines: string[] = [];
+    expect(keep({ root: dir, rpc: 'http://127.0.0.1:1', reads: reads(), log: (l: string) => lines.push(l) })).toBe('contracts/deployments/sepolia-2026-11-04T0941Z-domain-0.7.json');
+    expect(readFileSync(join(dir, 'contracts/deployments/sepolia-2026-11-04T0941Z-domain-0.7.json'), 'utf8')).toBe(readFileSync(join(dir, 'contracts/deployments/sepolia.json'), 'utf8'));
+    // Full paths, so the line runs from any folder (review of PR 434).
+    expect(lines.at(-1)).toBe(`record-copies: after the deploy, run: node ${join(root, 'scripts/record-copies.mjs')} --root ${dir} --old contracts/deployments/sepolia-2026-11-04T0941Z-domain-0.7.json --new contracts/deployments/sepolia.json`);
+  });
+
+  it('gives two deployments on the same day two names, from their own deployedAt', () => {
+    const names = ['2026-11-20T09:03:59Z', '2026-11-20T16:47:00Z'].map((at) => keep({ root: setUp({ ...live, deployedAt: at }), rpc: 'x', reads: reads({ at: 'never read' }), log: () => {} }));
+    expect(names).toEqual(['contracts/deployments/sepolia-2026-11-20T0903Z-domain-0.7.json', 'contracts/deployments/sepolia-2026-11-20T1647Z-domain-0.7.json']);
+  });
+
+  it('refuses another chain, and a dated file of the same name with other content; the same content is a no-op', () => {
+    const dir = setUp({ ...live, deployedAt: '2026-11-20T09:03:59Z' });
+    expect(() => keep({ root: dir, rpc: 'x', reads: reads({ chain: 31337 }), log: () => {} })).toThrow('the RPC serves chain 31337, the live record chain 11155111');
+    const name = keep({ root: dir, rpc: 'x', reads: reads(), log: () => {} });
+    const lines: string[] = [];
+    expect(keep({ root: dir, rpc: 'x', reads: reads(), log: (l: string) => lines.push(l) })).toBe(name);
+    expect(lines[0]).toContain('already holds the live record');
+    writeFileSync(join(dir, name), '{}\n');
+    expect(() => keep({ root: dir, rpc: 'x', reads: reads(), log: () => {} })).toThrow(/exists with other content: .*nothing was written/);
+  });
+
+  it('refuses a time or a version it cannot name a file by', () => {
+    expect(() => datedName('yesterday', '0.8')).toThrow(/not an ISO time/);
+    expect(() => datedName('2026-11-20T09:03:59Z', '0.8/../x')).toThrow(/not a version number/);
+  });
+});
+
 describe('the command on a copy of the repository', () => {
   let copy: string;
   let neu: J;
@@ -140,6 +188,12 @@ describe('the command on a copy of the repository', () => {
     expect(llms).not.toContain(old.rules.toLowerCase());
     expect(JSON.parse(readFileSync(join(copy, 'packages/settlement/evm/accepted-tokens.json'), 'utf8'))['11155111'].address).toBe(neu.token.address);
     expect(readFileSync(join(copy, 'site/try.mjs'), 'utf8')).toContain(neu.rules);
+  });
+
+  // Cutover step 3.4 (T-383 part 2): the rehearsal on anvil cannot show it, because a local record is no Sepolia pin.
+  it("leaves the site's own check passing on the new pins", () => {
+    const r = spawnSync(process.execPath, [join(copy, 'site/check.mjs')], { cwd: copy, encoding: 'utf8' });
+    expect(r.status, `${r.stdout}${r.stderr}`).toBe(0);
   });
 
   it('fails when a file outside its list still pins an old value, and names the line', () => {

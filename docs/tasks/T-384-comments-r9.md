@@ -5,7 +5,7 @@
 - **Depends on:** T-380 (package R8, last pull request 426, lane tip `73bbafa`), T-375 (package R7: the values R9 names), T-341 and T-356 (the side-by-side harness)
 - **Paths this task may touch:** `contracts/src/*`, the new `contracts/src/IHoldbackRules.sol` included; `contracts/test/*` for the renames and for what the layout requires; `packages/settlement/evm/abis.json` when the build regenerates it; this task file. Lines in `contracts/script/` (T-383) or `contracts/scripts/mutants.json` (T-352) go to their owners through the coordinator
 - **Human gate:** no for the branch. The freeze, the merge to `main` and the redeploy are Rafa's
-- **Status:** in progress (pull request 1 in review)
+- **Status:** review (pull request 1 merged as `c629d06`; pull request 2 open)
 - **Agent/session:** implementer session, change kind 7 (smart contracts); one reviewer subagent per pull request
 
 ## Intent
@@ -26,10 +26,10 @@ Non-goals: no behaviour change; no change to a signed type, the signing domain o
 
 ## Acceptance criteria
 
-- [ ] Pull request 1: `IHoldbackRules.sol` declares every external and public function of `HoldbackRules`, every event, every error, `Stage`, `Reason`, `Decider` and `Deal`; `HoldbackRules is EIP712, IHoldbackRules`.
-- [ ] Pull request 1: `H.isValidOutcome(role, outcome)` replaces the numeric-order bound in `decide`, and a test over every role and outcome byte shows it accepts exactly what the old rule accepted.
-- [ ] Pull request 1: `ONLY_ATTEMPT` names the one delivery attempt; the three "Appeal…" test files are "Escalation…"; `AppealKey.t.sol`'s header loses the rule no path reaches.
-- [ ] Pull request 1: the test edits the layout needs are mechanical (the qualifier and one import line) and counted; the runtime code is identical to the parent's except for the outcome check, shown by one build without it; the full kind 7 recipe passes, the side-by-side harness with an empty allow list.
+- [x] Pull request 1: `IHoldbackRules.sol` declares every external and public function of `HoldbackRules`, every event, every error, `Stage`, `Reason`, `Decider` and `Deal`; `HoldbackRules is EIP712, IHoldbackRules`.
+- [x] Pull request 1: `H.isValidOutcome(role, outcome)` replaces the numeric-order bound in `decide`, and a test over every role and outcome byte shows it accepts exactly what the old rule accepted.
+- [x] Pull request 1: `ONLY_ATTEMPT` names the one delivery attempt; the three "Appeal…" test files are "Escalation…"; `AppealKey.t.sol`'s header loses the rule no path reaches.
+- [x] Pull request 1: the test edits the layout needs are mechanical (the qualifier and one import line) and counted; the runtime code is identical to the parent's except for the outcome check, shown by one build without it; the full kind 7 recipe passes, the side-by-side harness with an empty allow list.
 - [ ] Pull request 2: every external and public function, event and error, every struct, enum and stored field of the phase-one source is described; the runtime code is identical before and after, with both hashes recorded, and the ABI unchanged.
 - [ ] Each pull request has one reviewer who checks the descriptions against the code and against phase one; every inaccuracy found is fixed.
 
@@ -60,6 +60,17 @@ Fill this in before review. Label each item measured, inferred or guessed.
 - **Anvil suites** [measured]: CI's settlement leg (`pnpm vitest run packages/settlement/evm packages/testkit/src/runner.test.ts`, after `pnpm build`), the one that reads `abis.json`: 15 files, 247 of 247 passed. `deploy-script.test.ts` first failed 8 of 10 because the working tree held the uncommitted wording fixes and the deploy script refuses a `contracts/src` that differs from the commit; on the committed tree it passed 10 of 10. CI's world leg runs on the pull request.
 - **Review**: one reviewer subagent, ISSUES, four low-severity wording findings, all fixed in `3081cb3` (comments only: the runtime hash after it is still `545f80b5…`, measured); no runtime or ABI finding. It confirmed the outcome equivalence, the interface's completeness against the ABI, the mechanical test edits, `abis.json`, and the re-seat's blob ids and pins.
 
+### Pull request 1: merged
+
+- Holdback PR 433 merged into `contracts-audit-ready` as `c629d06` on 2026-11-12, after all 12 CI checks passed on its head `39ceae7`, which held the lane's tip `690edfd` [measured: `gh pr view 433`].
+
+### Pull request 2, the descriptions (branch `t-384-comments-r9`, base `c629d06`)
+
+- **Runtime code** [measured, same method]: `HoldbackRules` 20,449 bytes, `545f80b56390f540e5a98d715c7a436914af83d3653bf458d14c380ff53b0c47`, before (base `c629d06`, whose `contracts/src` equals `3081cb3`'s) and after; `DrandQuicknetBeacon` 3,216 bytes, `3a8c11c6bc2940b404c417b538bdd6a40c431717c4d32e62dfa5ab3479e38c96`, before and after; `HoldbackTypes` and `Money` unchanged.
+- **ABI** [measured]: every entry of every contract identical, `internalType` included.
+- **Suites**: none run locally. The runtime code is identical, so no test can change (Rafa, 2026-11-12). CI runs on the pull request.
+- **Review**: one reviewer subagent checked every description against the code, CPP and Solady: 6 false statements, 3 gaps and 4 style points in the first draft, all fixed in the second commit. The worst: the deadlines map ordered the escalation's deadline after `fallbackBy`, and said nothing of the escrow's expiry, where captures stop and voids go on. It found the revert and event lists of `deliver`, `decide`, `reclaim`, `triggerFallback` and `triggerDefault` accurate. It also found accurate the writes of `t1`, `attempt`, `reason` and `decider`, the money flows, and the enforced and signed-only fields of `HoldbackTypes`.
+
 ## Decisions
 
 - **Layout (a), the full interface** (the coordinator, 2026-11-12, inside Rafa's condition of the same day: identical runtime code, no forced edits in other sessions' files). Measured on a scratch branch at `100cde3`: moving every declaration into `IHoldbackRules.sol` leaves the runtime code of every contract identical (HoldbackRules 20,422 bytes, sha256 without the metadata tail `fef84eaa…5db295`, before and after). The ABI keeps every entry, selector, topic and encoding; three entries change only their `internalType` string (`dealOf`, event `Defaulted`, error `WrongStage` now name `IHoldbackRules.Stage` and `IHoldbackRules.Deal`), and nothing in the repository reads that string. Solidity does not resolve an inherited type, error or event through the derived contract's name, so the tests that wrote `HoldbackRules.X` now write `IHoldbackRules.X`. The narrower layouts were not taken: an interface without `dealOf`, the events and the errors would leave out most of what an auditor reads.
@@ -68,9 +79,15 @@ Fill this in before review. Label each item measured, inferred or guessed.
 
 ## Handoff
 
-- **Pull request 1** (the names) is ready on `t-384-names-r9`. Pull request 2 (the descriptions) follows on a new branch from the lane after it merges; the drafts are in `reports/scratch/t-384/` (not committed).
+- **Pull request 1** merged as `c629d06`. **Pull request 2** (the descriptions) is open; when it merges, Status becomes done.
+- **For R11 (T-388, the two full reviews)**: the descriptions in `IHoldbackRules.sol` are the auditor's first read; check them against the code like the code itself. Three points to read: (1) the outcome check `H.isValidOutcome` (`HoldbackTypes.sol`), equivalent to the old bound by `ValidOutcome.t.sol`; (2) the sentences on the escrow's expiry (captures stop at `authorizationExpiry`, voids do not, the payer may reclaim), which rest on CPP's `AuthCaptureEscrow.sol` lines 179, 277-278, 304-308 and 323-332 at `6b0a5ef`; (3) the three places where the code looks wrong, below.
+- **Code that looked wrong (reported, not changed):**
+  1. The appeal adjudicator's decision on an escalated case may carry any `appealGroundHash`. `_firstInstance` requires `keccak256("")`; `_escalationDecision` checks nothing. ADR-0031 §8, point 3, says the ground can be required empty for every role. It is signed and never emitted.
+  2. `Deal.t1` keeps the escalation's time after the appeal adjudicator decides, while a primary's or a fallback's accept or reject writes the decision's time. The descriptions state this.
+  3. A bad beacon proof reverts with the beacon's own `InvalidSignature`, not `BadSeed`. The descriptions state this.
 - **For T-352 (`contracts/scripts/mutants.json`)**, two rows find text this pull request moves:
   - M036 ("the appeal adjudicator may escalate") finds `(role == H.ROLE_APPEAL ? H.OUTCOME_REJECT : H.OUTCOME_ESCALATE)` in `src/HoldbackRules.sol`, which is gone. The same mutant on the new code: file `src/HoldbackTypes.sol`, find `|| (outcome == OUTCOME_ESCALATE && role != ROLE_APPEAL);`, replace `|| outcome == OUTCOME_ESCALATE;`.
   - M128 ("_acceptDelivery: any attempt number") finds `        if (dv.attempt != 1) revert InvalidMessage();\n`; the line now reads `        if (dv.attempt != ONLY_ATTEMPT) revert InvalidMessage();\n`.
-- **For T-385 (the docs pass)**: `contracts/src` now holds `DrandQuicknetBeacon.sol`, `HoldbackRules.sol`, `HoldbackTypes.sol`, `IHoldbackBeacon.sol` and `IHoldbackRules.sol`. `Stage`, `Reason`, `Decider` and `Deal`, every event and every error now live in `IHoldbackRules`; the calldata structs stay in `HoldbackTypes`. `docs/audit/invariants.md:108`, `docs/audit/threat-model.md:96,99` and `docs/audit/test-quality.md` name `AppealAttempt.t.sol`, `AppealKey.t.sol` or `AppealSeedAttempt.t.sol`, now `Escalation…`. Every line citation of `HoldbackRules.sol` above its old line 158 moved.
+- **For T-385 (the docs pass)**: `contracts/src` now holds `DrandQuicknetBeacon.sol`, `HoldbackRules.sol`, `HoldbackTypes.sol`, `IHoldbackBeacon.sol` and `IHoldbackRules.sol`. `Stage`, `Reason`, `Decider` and `Deal`, every event and every error now live in `IHoldbackRules`; the calldata structs stay in `HoldbackTypes`. `docs/audit/invariants.md:108`, `docs/audit/threat-model.md:96,99` and `docs/audit/test-quality.md` name `AppealAttempt.t.sol`, `AppealKey.t.sol` or `AppealSeedAttempt.t.sol`, now `Escalation…`. Every line citation of `HoldbackRules.sol` after its line 22 moved: pull request 1 took out its old lines 23-65 and 107-158, and pull request 2 changes comments throughout. The citations need one pass against the lane after pull request 2.
+- **For T-383 (the deploy script)**: no line needed. `--verify` (`forge verify-contract`) takes the imported `IHoldbackRules.sol` with the other sources. The published source must be the merged lane's, because the comments change the metadata hash (not the runtime code).
 - **For triage**: `contracts/.gas-snapshot` still lists the old test names; it was already stale and no CI step reads it.

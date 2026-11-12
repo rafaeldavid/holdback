@@ -64,6 +64,8 @@ contract DrandQuicknetBeacon is IHoldbackBeacon {
     ///      gas it was given (a point outside G1 makes it fail), so the cap bounds what a bad proof costs its relayer.
     uint256 internal constant PAIRING_GAS = 250_000;
 
+    /// @notice The proof does not verify: not 48 bytes, not a valid compressed G1 point, not in the subgroup, not the
+    ///         signature of the round, or a precompile missing or failing.
     error InvalidSignature();
 
     constructor() {
@@ -75,7 +77,9 @@ contract DrandQuicknetBeacon is IHoldbackBeacon {
         return t < GENESIS ? 0 : uint64((t - GENESIS) / PERIOD + 1);
     }
 
-    /// @notice Verifies the 48-byte compressed signature of `round` and returns its randomness, sha256(signature).
+    /// @inheritdoc IHoldbackBeacon
+    /// @dev Verifies the 48-byte compressed signature of `round` with one pairing check and returns sha256 of the
+    ///      signature bytes. Reverts `InvalidSignature` when it does not verify.
     function beaconValue(uint64 round, bytes calldata signature) external view returns (bytes32) {
         if (signature.length != 48) revert InvalidSignature();
         bytes memory sig = _decompress(signature);
@@ -89,6 +93,8 @@ contract DrandQuicknetBeacon is IHoldbackBeacon {
     /// @notice RFC 9380 hash_to_curve for G1 (BLS12381G1_XMD:SHA-256_SSWU_RO_) of a 32-byte message, as an
     ///         EIP-2537 G1 point. MAP_FP_TO_G1 applies the SSWU map, the isogeny and cofactor clearing to each field
     ///         element; clearing is linear, so the sum of the two mapped points is clear_cofactor(Q0 + Q1).
+    /// @param message The 32-byte message: sha256 of the round number as 8 big-endian bytes.
+    /// @return The point, 128 bytes in EIP-2537's G1 encoding.
     function hashToG1(bytes32 message) public view returns (bytes memory) {
         (bytes32 b1, bytes32 b2, bytes32 b3, bytes32 b4) = _expandMessageXmd(message);
         bytes memory q0 = _call(MAP_FP_TO_G1, _reduce(b1, b2), 128);

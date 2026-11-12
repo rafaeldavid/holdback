@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 // @ts-expect-error -- a plain .mjs script with no types
-import { recordCopies, trackedFiles } from '../../../scripts/record-copies.mjs';
+import { keep, recordCopies, trackedFiles } from '../../../scripts/record-copies.mjs';
 import { anvilAvailable } from './world.js';
 
 const root = fileURLToPath(new URL('../../..', import.meta.url));
@@ -160,6 +160,8 @@ describe.skipIf(!ready)(`the deploy script on a local chain (T-383)${ready ? '' 
     const r = JSON.parse(readFileSync(record, 'utf8'));
     expect(r.chainId).toBe(31337);
     expect(r.beaconMarginSec).toBe(29);
+    // The first creation's block time, which names the record's dated copy (scripts/record-copies.mjs keep).
+    expect(r.deployedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
     expect(r.expiryMarginSec).toBe(86_400);
     expect(r.contracts.HoldbackRules.args).toEqual([r.escrow, r.erc3009Collector, '86400', r.beacon, r.token.address, '29']);
     expect(Object.keys(r.contracts).sort()).toEqual(['AuthCaptureEscrow', 'DrandQuicknetBeacon', 'ERC3009PaymentCollector', 'HoldbackRules']);
@@ -359,10 +361,15 @@ describe.skipIf(!ready)(`the deploy script on a local chain (T-383)${ready ? '' 
       t['31337'] = { address: first.token.address, symbol: 'tUSDC', decimals: 6 };
       writeFileSync(table, `${JSON.stringify(t, null, 2)}\n`);
       const rules = [first.rules];
-      for (const day of ['2026-11-20', '2026-11-27']) {
-        // 1. The old record keeps its dated name.
-        const dated = `contracts/deployments/sepolia-${day}-domain-0.8.json`;
-        cpSync(live, join(copy, dated));
+      const kept: string[] = [];
+      for (let run = 0; run < 2; run++) {
+        // Two redeploys on one day: anvil moves its clock two minutes, the time between two real deploys at least.
+        await chain.rpcCall('evm_increaseTime', [120]);
+        await chain.rpcCall('evm_mine', []);
+        // 1. The old record keeps its dated name, from its own deployment time and the chain's domain version.
+        const dated = keep({ root: copy, rpc: chain.rpc, log: () => {} });
+        expect(dated).toMatch(/^contracts\/deployments\/sepolia-\d{4}-\d{2}-\d{2}T\d{4}Z-domain-0\.8\.json$/);
+        kept.push(dated);
         // 2. Deploy, into the copy's record.
         const d = await chain.deploy(live, { ACCEPTED_TOKENS: table });
         expect(d.code, d.stderr).toBe(0);
@@ -382,6 +389,10 @@ describe.skipIf(!ready)(`the deploy script on a local chain (T-383)${ready ? '' 
       }
       // Each run is a new deployment, so each is a new world: the Workers name it by the record's rules address.
       expect(new Set(rules.map((r) => r.toLowerCase())).size).toBe(3);
+      // The two dated copies have two names, and each still holds the record it kept.
+      expect(new Set(kept).size).toBe(2);
+      expect(JSON.parse(readFileSync(join(copy, kept[0]!), 'utf8')).rules).toBe(rules[0]);
+      expect(JSON.parse(readFileSync(join(copy, kept[1]!), 'utf8')).rules).toBe(rules[1]);
     } finally {
       rmSync(copy, { recursive: true, force: true });
     }

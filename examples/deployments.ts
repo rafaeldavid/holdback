@@ -9,6 +9,8 @@ export type DeploymentFile = {
   compiler?: { solc: string; viaIR: boolean; optimizer: boolean; optimizerRuns: number; evmVersion: string };
   deployer?: string;
   fromBlock: number | string;
+  /** The UTC time of the deployment's first block (ISO), which names its dated copy; records from before T-383 have none. */
+  deployedAt?: string;
   token: {
     address: string;
     name: string;
