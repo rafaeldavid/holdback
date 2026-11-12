@@ -60,7 +60,7 @@ Read the phase-one contracts twice before they are frozen, tagged and deployed o
 
 **Open when this task closed:**
 
-- TBD-HANDOFF-T390
+- **Nothing in the contracts.** The one High, in the buyer's tool, is closed: T-390's pull request 446, `609cdd7e`.
 - **For the freeze's docs step** (review 1, section 10): rate known issue "H-2 limit" Medium; one line in the signed-field register for two envelopes addressed to the buyer; one clause in `scope.md` that the token keeps ERC-3009's payee rule; the wording "an accept or a reject is final" in the state model's section 9.1; known issue A-4 as review 1's section 6.1 states it; the `<FREEZE_COMMIT>` placeholders.
 - **For Rafa:** whether the three dispute fields get a refusal in `agreeAndFund` (finding L-1). The reviews recommend leaving it for phase one.
 - **For the client lane:** the Medium and Low findings in the buyer's tool (review 1, section 7.3), and the three steps that make its defaults safe when one operator runs both nodes (section 7.4).

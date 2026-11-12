@@ -162,11 +162,11 @@ Its two Info claims on other descriptions are in section 4.2 (question 24, C7 an
   5. **Liveness.** At least one party, operator or stranger sends each timeout when it is due, and the chain includes it.
 - **What an outside audit adds that these could not:** a reader with no stake in the design, and attention to the three assumptions above as subjects of their own.
 
-**To fix before the pilot kit ships, outside the contracts:**
+**Fixed during the reviews, outside the contracts:**
 
-| Finding | Severity | Where | Owner |
+| Finding | Severity | Where | State |
 | --- | --- | --- | --- |
-| C-1: the one-run buy funds an offer the seller postdated, which locks the buyer's hold until a date the seller picks | High | `examples/buyer-signer.ts`, `examples/buy-with-signer.ts` | T-390 |
+| C-1: the one-run buy funded an offer the seller postdated, which locked the buyer's hold until a date the seller picked | High | `examples/buyer-signer.ts`, `examples/buy-with-signer.ts` | Closed by T-390: pull request 446, `609cdd7e`, 2026-11-12. The first review read the fixed path (its section 7.5) |
 
 **Nothing must be fixed in the contracts before the freeze.**
 
@@ -201,6 +201,6 @@ Its two Info claims on other descriptions are in section 4.2 (question 24, C7 an
 
 Both reviews recommend leaving them recorded for phase one and taking them with the audit's fixes. The choice is Rafa's.
 
-**What the fix of C-1 means for the other work.** It changes `examples/` only. The mutation run, the formal model and the side-by-side harness cover `contracts/src` and need no rerun. The agent docs (`site/llms.txt`) and the pilot kit follow the buyer's tool.
+**What the fix of C-1 means for the other work.** It changed `examples/` only, and `contracts/` is the same before and after it [measured]. The mutation run, the formal model and the side-by-side harness cover `contracts/src` and need no rerun. The agent docs (`site/llms.txt`) and the pilot kit follow the buyer's tool.
 
 **What the two reads did not settle.** Neither ran a deal on a chain, and neither read the token beyond its payee rule. The second review's checker is the first review's author (section 5).

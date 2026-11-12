@@ -8,9 +8,9 @@ Labels: **measured** (read at the cited line, or produced by the named test or c
 
 **The contracts hold: this review found no Critical or High finding in `contracts/src`.** No call moves a hold to an address the signed terms do not name, no funded deal can be left with tokens nobody can move, and every opposing pair of deadlines splits time at one second [inferred from reading every line; measured for the cases the tests of section 5 cover].
 
-**One High finding lies outside the contracts, in the buyer's reference tool.** The one-run buy (`examples/buy-with-signer.ts`) funds an offer the seller postdated, so the buyer's hold stays locked until a date the seller picks (finding C-1). The contracts are not at fault: the deadlines are terms both parties signed, and the contract enforces them. T-390 owns the fix.
+**One High finding lay outside the contracts, in the buyer's reference tool, and is closed.** The one-run buy (`examples/buy-with-signer.ts`) funded an offer the seller postdated, so the buyer's hold stayed locked until a date the seller picked (finding C-1). The contracts are not at fault: the deadlines are terms both parties signed, and the contract enforces them. T-390 fixed the tool on 2026-11-12 (pull request 446, `609cdd7e`).
 
-**Four findings in the contracts are recorded and not fixed:**
+**The findings in the contracts are recorded and not fixed: one Medium, one Low and six Info (section 3). The four that matter most:**
 
 1. **Medium.** A call that carries the buyer's key publishes it in its calldata even when the call reverts (finding M-1). It extends a known issue, and the second review found it independently.
 2. **Low.** The contract takes terms whose three dispute fields are not zero, where the state model's register says they should be refused (finding L-1).
@@ -53,7 +53,7 @@ Labels: **measured** (read at the cited line, or produced by the named test or c
 
 ## 3. Findings
 
-### C-1 · High · in the buyer's tool, not in the contracts · The one-run buy funds a postdated offer
+### C-1 · High · Closed · in the buyer's tool, not in the contracts · The one-run buy funded a postdated offer
 
 - **What is wrong.** The buyer signer turns the terms' deadlines into windows counted from the seller's `createdAt` (`examples/buyer-signer.ts:685-689` at `e4e930c4`) and compares only those windows with the buyer's own terms (`:391`). Nothing compares `createdAt` or a deadline with a clock before funding. With `--expect-terms` and no difference, `examples/buy-with-signer.ts` funds without an approval stop [measured by reading; no deal was run].
 - **The scenario.** The buyer's terms say `deliverWithinSec: 86400`. The seller signs the same windows, fee, checks and adjudicators with `createdAt` five years ahead. The run finds no difference and funds. `deliverBy` is five years and one day away, and `reclaim` reverts until then (`R:421`).
@@ -61,7 +61,7 @@ Labels: **measured** (read at the cited line, or produced by the named test or c
 - **Impact.** The price and the fee are locked, not taken, for as long as the seller chose, up to the year 9999. The seller gains leverage for a settlement. The attended path shows the deadlines with their times at the approval stop.
 - **Why the contracts are not at fault.** The deadlines are terms both parties signed, and the contract enforces them as signed. `createdAt` is hashed into the commitment ID (`T:288`) and read nowhere else; a date far in the future is a parameter the parties manage (D31). The check belongs to the party that signs (D32).
 - **It is the class of T-239's High finding of 2026-11-11,** fixed then for the standing test buyer (`docs/tasks/T-239-standing-test-buyer.md`) and not carried to the buyer signer.
-- **Fix and owner.** T-390: a `createdAt` outside the operators' time band (600 s behind, 60 s ahead, the band `site/llms.txt` already states for an operator's own times) is a difference, so the one-run path stops for approval; every approval stop shows the deadlines as dates and as a distance from now. Nothing is refused. Closed by TBD-T390.
+- **Fix and owner.** T-390: a `createdAt` outside the operators' time band (600 s behind, 60 s ahead, the band `site/llms.txt` already states for an operator's own times) is a difference, so the one-run path stops for approval; every approval stop shows the deadlines as dates and as a distance from now. Nothing is refused. Closed by pull request 446, merged into the lane as `609cdd7e` on 2026-11-12 at 19:55 UTC; section 7.5 reads the path again.
 - **A later row worth having:** an advisory notice at the operator's prepare route when a given `createdAt` is far from settlement time. It is a service an operator may add under D31, never a refusal, and it does not replace the buyer's own check.
 
 ### M-1 · Medium · A call that carries the buyer's key publishes it even when the call reverts
@@ -297,7 +297,7 @@ Owner: T-390 for what it takes with C-1; the rest is a roadmap row for the clien
 
 ### 7.5 The path of C-1 after the fix
 
-**The fix closes C-1 on the path I read: a postdated or backdated offer no longer funds on the one-run path.** I read T-390's change at the head of pull request 446 (`30114097`) [measured by reading; its five tests ran in CI, not by me].
+**The fix closes C-1 on the path I read: a postdated or backdated offer no longer funds on the one-run path.** I read T-390's change at the head of pull request 446 (`30114097`) [measured by reading; its five tests ran in CI, not by me]. It merged as `609cdd7e`, where the four files of the change equal the head I read [measured: `git diff --quiet 30114097 609cdd7e` on each]. The merge leaves `contracts/` as it is at `0180a39f` [measured].
 
 - **The check.** `readOffer` now compares the offer's `createdAt` with every configured operator's settlement time and with this machine's own clock (`#clock` in `examples/buyer-signer.ts`). A `createdAt` more than 600 s behind or 60 s ahead of any of them is listed as a difference, and so is a `createdAt` that is not a date. The band is one constant, `CREATED_AT_BAND` in `examples/verify.ts`, the one a prepared offer is already held to.
 - **The stop.** The one-run buy funds only when there is no difference (`examples/buy-with-signer.ts`), so a clock difference takes the run to the approval stop with exit status 3. Nothing is refused (D31): a person may still approve.
@@ -345,7 +345,7 @@ The joint summary of both reviews is section 6 of the second review. This review
 
 | # | What | Owner |
 | --- | --- | --- |
-| 1 | Close C-1 in the buyer's tool before the pilot kit ships | T-390 |
+| 1 | Close C-1 in the buyer's tool before the pilot kit ships | Done: T-390, pull request 446 |
 | 2 | Rate known issue "H-2 limit" Medium (finding M-1) and name it for the outside auditor | the freeze's docs step |
 | 3 | Decide L-1: leave the dispute fields as a recorded limit, or add one comparison to `agreeAndFund` with its proof and a redeploy | Rafa; this review recommends leaving it |
 | 4 | One line in the register for I-4 (two envelopes), one clause in `scope.md` for I-5 (the token's payee rule), and the wording "an accept or a reject is final" in the state model's section 9.1 | the freeze's docs step |
