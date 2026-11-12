@@ -112,6 +112,12 @@ Each item is labelled measured, inferred or guessed.
   - The items the patch left: the buyer's brief names `buy.txt`, the page and the tickets know the new guides, and the README and `limits.json` carry the new sizes, with the token limit still "the guides read once plus an allowance for the work".
   - T-393's one-line stopgap in `duet.test.ts` is replaced by an assertion on the guides each agent read.
   - All four scenarios rerun on the short guides; each ends as stated.
+  - T-390's two fixes are on the lane: PR 440, a Settled deal as a final outcome, and PR 446, a postdated offer stopping the one-run buy (609cdd7). Read against the owner's policy (inferred):
+    - The signer now flags a `createdAt` outside its clock band, or operators' clocks apart, as a difference, and shows a `timeline` of dates at the stop.
+    - The policy keeps its own matching checks: a createdAt band, and every operator's clock plus this machine's.
+    - The late-offer case is still refused on its delivery date, three years ahead, not on its `createdAt`.
+    - None of the four scenarios ends Settled.
+  - After merging both (measured): `npx vitest run tools/duet tests` passes 484 of 484 tests in 22 files; `npx tsc -p tools/duet` and `npx eslint tools/duet` exit 0. All four scenarios end as stated; only late-offer writes a ticket, by design.
 
 ## Decisions
 
