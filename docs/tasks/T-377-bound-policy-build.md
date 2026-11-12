@@ -5,7 +5,7 @@
 - **Depends on:** T-373 (ADR-0036, D65), T-372 (PR 389), PR 393
 - **Paths this task may touch:** `packages/judgment/src/`, `apps/adjudicator/src/`, `apps/adjudicator/scripts/mutants.mjs`, `packages/testkit/src/`, `fixtures/`, `apps/demo-cloud/src/world.ts`, `apps/demo-cloud/scripts/`, `apps/demo-cloud/src/deploy-preflight.test.ts`, `scripts/deploy-lib.mjs`, and the docs ADR-0036 names: `docs/judgment-and-defenses.md` (policy binding), `docs/neutrality.md` (maintainers' row, residuals), `docs/operations.md` (deploy steps), `docs/team.md` (one row in Rules and checks)
 - **Human gate:** no for the build; the first deploy that carries `screen-0` and `screen-1` together is Rafa's
-- **Status:** review
+- **Status:** done (PR 395, `c842495`; PR 397, `152afcf`)
 - **Agent/session:** T-377 implementer session, 2026-11-12
 
 ## Intent
