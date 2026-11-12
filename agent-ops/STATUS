@@ -1,4 +1,0 @@
-inactive
-
-Design only. No script, hook, workflow, schedule or agent reads this directory.
-Dispatch needs this file's first line to read "active" and the repository variable AGENT_OPS to equal "on". Either one unreadable or different means off (README.md, Activation).

@@ -5,6 +5,7 @@
 import { readFileSync } from 'node:fs';
 import type { Hex32 } from '@holdback/core';
 import { seal, wrapKeyForRecipients } from '@holdback/core/crypto';
+import { MemoryCiphertextStore } from '@holdback/core/store';
 import { hashTypedData } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -188,7 +189,8 @@ describe('one faucet (Simplify 3)', () => {
 describe('one discovery document (Simplify 1, F8, F9)', () => {
   it('carries the limits, idempotency retention and the demo facts, and GET / serves it too', async () => {
     const d = (await http('GET', `${api}/.well-known/holdback.json`)).body;
-    expect(d.limits).toEqual({ idempotency: { replays: 'success-only', retention: 'process' } });
+    // T-315: a node that stores ciphertext states the largest it stores; without the option, the protocol's 10 MiB.
+    expect(d.limits).toEqual({ maxCiphertextBytes: 10_485_760, idempotency: { replays: 'success-only', retention: 'process' } });
     expect(d.demo).toMatchObject({ clubId: world.info.clubId, token: { id: 'tUSD', decimals: 6 }, faucet: { path: '/v1/faucet' } });
     expect(d.demo.adjudicators.map((a: J) => [a.role, a.address])).toEqual(world.info.adjudicators.map((a) => [a.role, a.address]));
     const root = (await http('GET', `${api}/`)).body;
@@ -196,6 +198,29 @@ describe('one discovery document (Simplify 1, F8, F9)', () => {
     const t = (await http('GET', `${throttled.url}/.well-known/holdback.json`)).body;
     expect(t.limits).toEqual({ reads: { limit: 100, windowSec: 60, per: 'client' }, writes: { limit: 2, windowSec: 60, per: 'signer' }, idempotency: { replays: 'success-only', retention: 'process' } });
     expect(t.demo).toBeUndefined();
+  });
+
+  it('states the largest ciphertext its operator sets and refuses a larger one with that number; a store that refuses gets 413 too (T-315)', async () => {
+    const base = { settlement: world.chain, registry: simRegistry(world.chain), env: {} };
+    const upload = (url: string, n: number) => http('POST', `${url}/v1/ciphertext`, new Uint8Array(n).fill(1), { 'content-type': 'application/octet-stream' });
+    const small = await startOperator({ ...base, signerKey: testAccount('t315-small').privateKey, operatorId: 't315-small', store: new MemoryCiphertextStore(), maxCiphertextBytes: 4 });
+    // The store is smaller than the operator says: the refusal is still a 413, with no number it cannot vouch for.
+    const mismatched = await startOperator({ ...base, signerKey: testAccount('t315-mismatched').privateKey, operatorId: 't315-mismatched', store: new MemoryCiphertextStore({ maxBytes: 4 }) });
+    try {
+      expect((await http('GET', `${small.url}/.well-known/holdback.json`)).body.limits.maxCiphertextBytes).toBe(4);
+      expect((await upload(small.url, 4)).body.bytes).toBe(4);
+      const over = await upload(small.url, 5);
+      expect([over.status, over.body.type, over.body.maxBytes]).toEqual([413, 'payload_too_large', 4]);
+      expect(over.body.detail).toMatch(/4 bytes/);
+      const refused = await upload(mismatched.url, 5);
+      expect([refused.status, refused.body.type, refused.body.maxBytes]).toEqual([413, 'payload_too_large', undefined]);
+      // A JSON body over its own limit names that limit the same way.
+      const big = await http('POST', `${small.url}/v1/faucet`, { address: `0x${'1'.repeat(40)}`, pad: 'x'.repeat(1_048_576) });
+      expect([big.status, big.body.type, big.body.maxBytes]).toEqual([413, 'payload_too_large', 1_048_576]);
+    } finally {
+      await small.close();
+      await mismatched.close();
+    }
   });
 });
 

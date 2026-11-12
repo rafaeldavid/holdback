@@ -73,11 +73,48 @@ export const openAes256Gcm: ContentOpener = async (ciphertext, key) => {
   return new Uint8Array(pt);
 };
 
+// The three rules below are exported so a seller's preflight (preflight.ts, T-316) applies the code intake
+// applies, not a copy of it. intake() calls each of them, in this order, around its key and hash checks.
+
+/** The MIME rules: the allowlist, then the commitment's agreed format when one is given. Returns the refusal, if any. */
+export function refuseMime(mime: MimeType, format?: MimeType): IntakeError | undefined {
+  if (!ALLOWED_MIME.includes(mime)) return { code: 'mime_not_allowed', detail: `${String(mime).slice(0, 80)} is not in the allowlist` };
+  if (format !== undefined && mime !== format) return { code: 'mime_mismatch', detail: `delivered ${mime}; the commitment agreed ${format}` };
+  return undefined;
+}
+
+/** The size cap on the plaintext. Returns the refusal, if any. */
+export function refuseSize(plaintext: Uint8Array): IntakeError | undefined {
+  return plaintext.length > MAX_PLAINTEXT_BYTES ? { code: 'payload_too_large', detail: `plaintext is ${plaintext.length} bytes; the cap is ${MAX_PLAINTEXT_BYTES}` } : undefined;
+}
+
+/** What intake reads from a plaintext: everything in Intaken but the record, which only intake() can write. */
+export type Decoded = Omit<Intaken, 'record'>;
+
+/** Strict UTF-8 decoding and normalization. It checks no hash and no size: intake() does both before it calls this. */
+export function decodePlaintext(plaintext: Uint8Array, mime: MimeType): Result<Decoded, IntakeError> {
+  let raw: string;
+  try {
+    // fatal: refuse invalid UTF-8 rather than substitute U+FFFD. A leading BOM is dropped.
+    raw = new TextDecoder('utf-8', { fatal: true }).decode(plaintext);
+  } catch {
+    return fail('not_utf8', 'plaintext is not valid UTF-8');
+  }
+  const n = normalizeText(raw);
+  return ok({
+    raw: UntrustedData.wrap(raw),
+    data: UntrustedData.wrap(n.text),
+    hiddenTagText: UntrustedData.wrap(n.hiddenTagText),
+    removed: { tagChars: n.tagChars, zeroWidth: n.zeroWidth, nfkcChanged: n.nfkcChanged },
+    mime,
+  });
+}
+
 export async function intake(input: IntakeInput): Promise<Result<Intaken, IntakeError>> {
   const { delivery, ciphertext, recipient } = input;
   const mime = delivery.plaintextMime;
-  if (!ALLOWED_MIME.includes(mime)) return fail('mime_not_allowed', `${String(mime).slice(0, 80)} is not in the allowlist`);
-  if (input.format !== undefined && mime !== input.format) return fail('mime_mismatch', `delivered ${mime}; the commitment agreed ${input.format}`);
+  const mimeRefused = refuseMime(mime, input.format);
+  if (mimeRefused) return err(mimeRefused);
   if (ciphertext.length > MAX_CIPHERTEXT_BYTES) return fail('payload_too_large', `ciphertext is ${ciphertext.length} bytes`);
   if (sha256(ciphertext) !== delivery.ciphertext.sha256) return fail('ciphertext_hash_mismatch', 'ciphertext does not match delivery.ciphertext.sha256');
 
@@ -96,23 +133,11 @@ export async function intake(input: IntakeInput): Promise<Result<Intaken, Intake
   } catch {
     return fail('decrypt_failed', 'the escrowed key does not decrypt the ciphertext');
   }
-  if (plaintext.length > MAX_PLAINTEXT_BYTES) return fail('payload_too_large', `plaintext is ${plaintext.length} bytes; the cap is ${MAX_PLAINTEXT_BYTES}`);
+  const sizeRefused = refuseSize(plaintext);
+  if (sizeRefused) return err(sizeRefused);
   if (sha256(plaintext) !== delivery.plaintextSha256) return fail('plaintext_hash_mismatch', 'plaintext does not match delivery.plaintextSha256');
 
-  let raw: string;
-  try {
-    // fatal: refuse invalid UTF-8 rather than substitute U+FFFD. A leading BOM is dropped.
-    raw = new TextDecoder('utf-8', { fatal: true }).decode(plaintext);
-  } catch {
-    return fail('not_utf8', 'plaintext is not valid UTF-8');
-  }
-  const n = normalizeText(raw);
-  return ok({
-    raw: UntrustedData.wrap(raw),
-    data: UntrustedData.wrap(n.text),
-    hiddenTagText: UntrustedData.wrap(n.hiddenTagText),
-    removed: { tagChars: n.tagChars, zeroWidth: n.zeroWidth, nfkcChanged: n.nfkcChanged },
-    mime,
-    record: { plaintextHashVerified: true, mime, bytes: plaintext.length, normalized: true },
-  });
+  const decoded = decodePlaintext(plaintext, mime);
+  if (!decoded.ok) return decoded;
+  return ok({ ...decoded.value, record: { plaintextHashVerified: true, mime, bytes: plaintext.length, normalized: true } });
 }

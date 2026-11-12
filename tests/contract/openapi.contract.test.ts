@@ -259,7 +259,7 @@ describe('HTTP contract: every operator response matches spec/openapi.json', () 
     expect({ ...served.body, servers: DOC.servers }).toEqual(DOC);
     const llms = await http('GET', `${api}/llms.txt`);
     expect(llms.body).toContain(`${api}/v1/openapi.json`);
-    expect(llms.body).toContain('https://escrow.stream/llms.txt');
+    expect(llms.body).toContain('https://crow.direct/llms.txt');
     expect(llms.body).toContain('https://raw.githubusercontent.com/rafaeldavid/holdback/main/docs/api.md');
 
     // 1. examples/buy-dataset: offer, agree and fund, encrypted delivery, release, the buyer opens the data.

@@ -3,15 +3,22 @@
 // The operator fee variables and the Sepolia secrets live with holdback-op1: the Durable Object reads op1's
 // environment. SETTLEMENT (`sim` or `sepolia`, D41) picks the world this Worker forwards to.
 // No invocation logs, as on holdback-op1: they would record each request's headers (D39).
+// Each node answers on its crow.direct and its escrow.stream hostname alike, with no redirect (T-312): agents POST
+// signed messages, which many clients will not resend after a redirect, and the EIP-712 domain names no host.
+// The addresses the nodes advertise (OPERATOR_URLS, crow.direct) live with holdback-op1 too: this Worker reads only
+// NODE_INDEX, SETTLEMENT and the WORLD binding (T-313).
 {
   "name": "holdback-op2",
   "main": "dist/worker.js",
   "compatibility_date": "2025-09-15",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
-  "routes": [{ "pattern": "api2.escrow.stream", "custom_domain": true }],
+  "routes": [
+    { "pattern": "api2.crow.direct", "custom_domain": true },
+    { "pattern": "api2.escrow.stream", "custom_domain": true }
+  ],
   "preview_urls": false,
-  "vars": { "OPERATOR_URLS": "https://api.escrow.stream,https://api2.escrow.stream", "NODE_INDEX": "1", "SETTLEMENT": "sepolia" },
+  "vars": { "NODE_INDEX": "1", "SETTLEMENT": "sepolia" },
   "durable_objects": { "bindings": [{ "name": "WORLD", "class_name": "World", "script_name": "holdback-op1" }] },
   "alias": { "node:fs": "./worker/fs-shim.js" },
   "define": { "import.meta.url": "\"file:///holdback/bundle/a/b/worker.js\"" },

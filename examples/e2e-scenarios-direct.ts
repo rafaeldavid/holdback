@@ -310,8 +310,10 @@ export const DIRECT: Scenario[] = [
       const deal = await openDeal(r, { label: 'a delivery relayed by holdback-op1 while it restarts', template: 'checks-only', deliverable: DATASET, checks: CHECKS, price: PRICE, relay: 0 }, [buyer, seller, round.demo.adjudicators.primary]);
       await fund(r, deal);
       // The deal's relayer lane: the address that sent its funding (a commitment keeps one deal lane, ADR-0028 §3).
-      const lane = lc(String((await eventsOf(deal.buyer, deal.id, op1)).find((e) => e.type === 'hold.funded')?.payload?.sender ?? ''));
+      const funded = (await eventsOf(deal.buyer, deal.id, op1)).find((e) => e.type === 'hold.funded');
+      const lane = lc(String(funded?.payload?.sender ?? ''));
       if (!/^0x[0-9a-f]{40}$/.test(lane)) throw new Error(`${short(deal.id)}: hold.funded names no relayer lane`);
+      if (!/^[0-9]+$/.test(String(funded?.payload?.block ?? ''))) throw new Error(`${short(deal.id)}: hold.funded names no block`);
       r.step = 'deliver';
       await until(r, deal.seller, deal.id, ['Held'], 120_000);
       const { prepared, intent } = await deal.seller.prepareDelivery(deal.terms, new TextEncoder().encode(CSV));
@@ -321,7 +323,9 @@ export const DIRECT: Scenario[] = [
       const probeKey = `t-216/11/${randomUUID()}`;
       const probed = await post(op1, '/v1/ciphertext', probeKey, randomBytes(32));
       if (!('status' in probed) || probed.status !== 200) throw new Error(`the restart probe's first upload failed: ${said(probed)}`);
-      const nonce = await retry(() => chain.client.getTransactionCount({ address: lane as Hex, blockTag: 'latest' }));
+      // The lane's nonce once the funding is in, counted at the funding's block or later (T-232): a node behind it still
+      // counts the nonce before the funding, and the loop below would take the funding for the delivery's broadcast.
+      const nonce = await retry(() => chain.nonceAfter(lane, BigInt(String(funded!.payload.block))));
       const key = randomUUID();
       const sentAt = Date.now();
       const relay: { answer: Answer | null } = { answer: null };

@@ -1,7 +1,7 @@
 # T-207: Private deals and the end-to-end encrypted API
 
 - **Lane:** core + api (stage 1 is an ADR in the research lane; stage 2 touches several lanes and should be split into sub-tasks once the ADR is adopted)
-- **Phase:** 2
+- **Phase:** 8 (moved from Phase 2 on 2026-11-06, D53: not needed for stable EVM operations on Sepolia)
 - **Depends on:** stage 1 (ADR) on nothing; it can start now. Stage 2's off-chain parts (read authentication, private records, ciphertext terms, mailbox) depend on stage 1 only. Stage 2's on-chain parts (what the contract emits, amount privacy) depend on T-202 and T-205. The Prividium fragment spike needs a Sepolia deployment (T-206) and is a separate task.
 - **Paths this task may touch:** stage 1: `docs/decisions/ADR-0024-private-deals.md` (new, Proposed), `docs/decisions-today.md` (a new D entry), `docs/research/` (the research pass). Stage 2: `spec/schemas/`, `spec/examples/`, `spec/openapi/`, `spec/README.md`, `packages/core/`, `packages/sdk/`, `apps/operator/`, `examples/`, `fixtures/scenarios/` (new `attack.` and `neutrality.` privacy fixtures), `docs/api.md`, `docs/neutrality.md` (residual 9), `docs/backlog.md` (Privacy rows closed or moved). Not `contracts/` or `packages/settlement/evm/`: on-chain changes go to T-202 and T-205 owners through Handoff.
 - **Human gate:** none for the repository work. Updating the live public demo (Cloudflare) or the site is a deploy and waits for Rafa. Local chain and Sepolia only; no mainnet.

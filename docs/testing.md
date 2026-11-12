@@ -16,7 +16,7 @@ The goal is fast, deterministic feedback that agents can trust, plus readable ev
 | **Scenario fixtures (expect tests)** | End-to-end behavior per scenario: states, balances, events, judgments, receipts | `pnpm snap` (testkit) | Yes |
 | Differential tests | SimChain and the EVM contract produce the same transcript for every scenario | `pnpm snap --settlement=local` | Yes, from Phase 2 |
 | Contract tests | Invariants, fuzzing, no admin paths | Foundry (`forge test`, invariant tests) | Yes, from Phase 2 |
-| Formal model | Liveness and safety of the commitment state machine under any single actor halting | TLA+ (TLC/Apalache) or Quint | Yes, model check on PR touching the state machine |
+| Formal model | Liveness and safety of the commitment state machine under any single actor halting | TLA+ with TLC (`formal/check.sh`, T-204) | Yes: the safety config and the broken variants on every pull request, the liveness configs on pushes to `main` |
 | Calibration and red team | Judge accuracy, injection resistance, drift | `pnpm calibrate` | No (on demand, before registry promotion) |
 | Demo dry run | The experience works for a newcomer | Manual checklist (T-013) | No |
 | Agent simulation | Model agents of different sizes, given only outsider knowledge and a behaviour profile, use the HTTP API as buyers and sellers; `sim:check` recomputes conservation, terms-compliance, terminal-or-explained and matching records from the settlement log | `pnpm sim:world`, subagents, `pnpm sim:check` (`tools/sim/README.md`, T-021) | No (exploration; its unit tests run in CI, and findings become fixtures) |
@@ -96,7 +96,7 @@ pnpm snap --judges=live <name>  # same fixture with live judges; prints the diff
 
 ### Live judges (T-028)
 
-Live providers (`apps/adjudicator/src/providers/live.ts`) never run in CI or `pnpm verify`: their tests stub `fetch` and check the request shape (provider model ID without the registry's `@date`, output cap, no sampling parameters for Claude, DeepSeek thinking off, no tools), and that a missing key is named, never printed. The live paths of `pnpm demo --live` and the public demo run in tests with `markerFake()` standing in for the models. Real calls happen only on demand: `pnpm demo --live` (keys from `.env`), and `pnpm demo-cloud:deal <op1> <op2> --rubric [--inject]` against the public demo once its Worker has the secrets. Live models are stochastic and cost money, so their runs are evidence in a task or review, not a gate.
+Live providers (`apps/adjudicator/src/providers/live.ts`) never run in CI or `pnpm verify`: their tests stub `fetch` and check the request shape (provider model ID without the registry's `@date`, output cap, no sampling parameters for Claude, DeepSeek thinking off, no tools), and that a missing key is named, never printed. The live paths of `pnpm demo --live` and the public demo run in tests with `markerFake()` standing in for the models. Real calls happen only on demand: `pnpm demo --live` (keys from `.env`), and `pnpm demo-cloud:deal <op1> <op2> --rubric [--inject]` against a SimChain world of the demo Workers that has the secrets (the script refuses the Sepolia demo). Live models are stochastic and cost money, so their runs are evidence in a task or review, not a gate.
 
 ### Recorded judges
 
@@ -126,7 +126,9 @@ An adversarial run only tests the protocol if no party can sign as another. A ru
 | --- | --- |
 | `typecheck, lint, spec, snap` | `pnpm typecheck`, `pnpm lint`, `pnpm validate:spec`, `pnpm snap` |
 | `test (i/4)` | `pnpm build`, then `pnpm test --shard=i/4`, four shards |
-| `check` | Fails unless the job above and every shard succeeded. This is the one status to require in branch protection. |
+| `contracts (forge test, anvil tests)` | `forge test` and `forge build` in `contracts/`, then the vitest suites that need anvil (`packages/settlement/evm`, the snap runner's test); any skipped test fails the job (T-203, T-205, T-035) |
+| `formal (TLC)` | `formal/check.sh`: on pull requests the safety config and the broken variants, on pushes to `main` every config, liveness included (T-204) |
+| `check` | Fails unless the static job, every shard, the contracts job and the formal job succeeded. This is the one status to require in branch protection. |
 | `gitleaks` | Secret scan, unchanged |
 
 - **Shards.** `vitest.config.ts` assigns test files to shards by measured cost, longest first, rather than by Vitest's path-hash split. A file missing from its cost table costs 2 (tenths of a second), so a new file is still run; only the balance drifts. To refresh the table, copy the per-file times that the default reporter prints in a CI test shard's log (`gh run view <id> --log`). Those times include `beforeAll` hooks. The JSON reporter's per-file times leave the hooks out, which drops the demo-transcript files to near zero.

@@ -1,7 +1,9 @@
-// Startup guards for the EVM settlement adapter (hard rule: no real money; anvil only).
+// Startup guards for the EVM settlement adapter (hard rule: no real money). The adapter runs on anvil and, since
+// ADR-0028, on Sepolia; live.ts narrows a live settlement to those two chain IDs.
+import { MAINNET_CHAIN_IDS } from '@holdback/core';
 
-/** Mainnet chain IDs the adapter refuses at startup: Ethereum, major L2s and sidechains. */
-export const MAINNET_CHAIN_IDS: readonly number[] = [1, 10, 25, 56, 100, 130, 137, 250, 324, 1101, 5000, 8453, 34443, 42161, 42170, 42220, 43114, 59144, 81457, 534352, 7777777];
+/** Mainnet chain IDs the adapter refuses at startup: the one list in @holdback/core (T-313), under this module's name. */
+export { MAINNET_CHAIN_IDS };
 
 /** Throws on any listed mainnet chain ID. */
 export function assertSafeChain(chainId: number | bigint): void {

@@ -33,7 +33,7 @@ import {
   type Timing,
   type TokenAmount,
 } from '@holdback/core';
-import { encodePublicKey, encryptionKeyPairFromSecretKey, seal, wrapKeyForRecipients, type ContentKey, type EncryptionKeyPair } from '@holdback/core/crypto';
+import { encodePublicKey, encryptionKeyPairFromSecretKey, seal, sha256, wrapKeyForRecipients, type ContentKey, type EncryptionKeyPair } from '@holdback/core/crypto';
 import { tusd } from '@holdback/settlement/sim';
 import { readFileSync } from 'node:fs';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -147,6 +147,8 @@ export interface CommitmentOver {
   /** Overrides of the default windows (a sham deal's, T-211). */
   timing?: Partial<Timing>;
   fee?: TokenAmount;
+  /** Replaces the example's acceptance (a deal with a reference check, T-327). */
+  acceptance?: Commitment['acceptance'];
 }
 export function makeCommitment(o: CommitmentOver): Commitment {
   const rest: Omit<Commitment, 'id' | 'signatures' | 'adjudicatorAcceptance'> & Partial<Commitment> = { ...EXAMPLE };
@@ -171,6 +173,7 @@ export function makeCommitment(o: CommitmentOver): Commitment {
     },
     buyerEncryptionPublicKey: encodePublicKey(o.buyer.enc.publicKey),
     createdAt: T0,
+    ...(o.acceptance ? { acceptance: o.acceptance } : {}),
   };
   const id = commitmentId(termsOf({ ...terms, id: `0x${'00'.repeat(32)}`, signatures: { seller: '0x' } } as Commitment));
   return { ...terms, id, signatures: { seller: `0x${'aa'.repeat(65)}` } } as Commitment;
@@ -209,6 +212,14 @@ export class TestSettlement implements AdjudicatorSettlement {
   readonly sim: RandomnessSource = simBeacon(SIM_SEED, () => this.now());
   /** The drand-quicknet source the port hands out for a commitment whose rulebook names it (T-217); null: none. */
   drand: RandomnessSource | null = null;
+
+  /** Stores bytes as `POST /v1/ciphertext` does, under their SHA-256 (a reference file, T-327). */
+  store(bytes: Uint8Array): { uri: string; sha256: `sha256:${string}` } {
+    const id = sha256(bytes);
+    const uri = `mem://ciphertext/${id}`;
+    this.blobs.set(uri, bytes);
+    return { uri, sha256: id };
+  }
 
   now = (): Timestamp => new Date(this.clock).toISOString();
   at(ts: Timestamp) {

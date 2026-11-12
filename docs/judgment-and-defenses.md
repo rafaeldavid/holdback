@@ -145,7 +145,7 @@ judges:
 
 ## Calibration and red-team harness
 
-Not a CI gate: live models are stochastic and cost money. The harness runs on demand and before registry promotions.
+Not a CI gate: live models are stochastic and cost money. The harness runs on demand and before registry promotions. Not built yet: the sets, the generators and `pnpm calibrate` are T-301, in Phase 3.
 
 - **Calibration set** (`fixtures/calibration/`): about 40 dataset-cleaning cases with ground-truth labels — about 20 accept, 15 reject, and 5 borderline where `escalate` is acceptable. Each case has a generator script with a seed, so cases can be regenerated.
 - **Red-team set** (`fixtures/redteam/`): about 20 cases covering T1–T4 and T15, including an encoded-instruction case modeled on the Grok and Bankrbot incident.
@@ -162,7 +162,7 @@ fee = max(minFee,
 
 - FAR and FRR come from the latest calibration, smoothed with appeal outcomes (Beta prior).
 - `bondAllocated = coverageRatio × price`.
-- Quotes are served at `POST /v1/adjudicators/{id}/quote`.
+- Quotes are served at `POST /v1/adjudicators/{id}/quote`, a planned route that answers 501 today (T-306, Phase 3).
 
 ## References
 

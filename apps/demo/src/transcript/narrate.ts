@@ -3,7 +3,7 @@
 import { CAST, labelOf, nameOf } from './cast.js';
 import { formatAmount } from './money.js';
 import type { BeatTranscript, CastKey, CheckResult, DemoEvent, Via } from './types.js';
-import { plain } from './untrusted.js';
+import { plain } from '@holdback/testkit';
 
 /** Words the narration never uses. Checked by narrate.test.ts over every transcript. */
 export const MARKETING_WORDS = [

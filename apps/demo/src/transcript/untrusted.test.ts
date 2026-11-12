@@ -10,7 +10,7 @@ import { renderHtml } from './render-html.js';
 import { renderJson } from './render-json.js';
 import { renderMarkdown } from './render-md.js';
 import type { BeatTranscript, DemoEvent, EventSource } from './types.js';
-import { fenced, mdText, plain, safeJson } from './untrusted.js';
+import { mdText, plain } from '@holdback/testkit';
 import { withAdjudicators } from './adjudicators.fixture.js';
 import { judgePromptView } from './judge.js';
 
@@ -93,12 +93,6 @@ describe('untrusted text helpers', () => {
     expect(m).not.toContain('https://');
     expect(m).not.toMatch(/(^|[^\\])`/);
     expect(m).not.toContain('www.');
-  });
-
-  it('safeJson writes invisible characters as escapes; fenced outgrows any backtick run', () => {
-    expect(safeJson({ d: '‮\u{E0041}' })).toContain('\\u202e');
-    expect(safeJson({ d: '\u{E0041}' })).toContain('\\udb40\\udc41');
-    expect(fenced('json', 'a ```` b')).toMatch(/^`{5}json\n/);
   });
 });
 

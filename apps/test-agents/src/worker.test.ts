@@ -16,8 +16,8 @@ class FakeStorage extends MemoryStorage {
 }
 
 // Unreachable operators: nothing here needs them.
-const env = (seed?: string): Env => ({ AGENTS: undefined as never, OPERATOR_URLS: 'http://127.0.0.1:9,http://localhost:9', SELLER_URL: 'https://escrow.stream/agents/test-seller', ...(seed ? { TEST_AGENTS_SEED: seed } : {}) });
-const get = (path: string) => new Request(`https://escrow.stream/agents/test-seller${path}`);
+const env = (seed?: string): Env => ({ AGENTS: undefined as never, OPERATOR_URLS: 'http://127.0.0.1:9,http://localhost:9', SELLER_URL: 'https://crow.direct/agents/test-seller', ...(seed ? { TEST_AGENTS_SEED: seed } : {}) });
+const get = (path: string) => new Request(`https://crow.direct/agents/test-seller${path}`);
 
 describe('the crow-test-agents Durable Object', () => {
   it('refuses to start without TEST_AGENTS_SEED, or with a malformed one', async () => {
@@ -42,5 +42,44 @@ describe('the crow-test-agents Durable Object', () => {
     await storage.put({ 'o:000000001': 1, 'd:000000001': { n: 1, status: 'received' } });
     expect((await agents.fetch(get('/health'))).status).toBe(200);
     expect(storage.alarm).not.toBeNull();
+  });
+
+  it('serves the test buyer under BUYER_URL, keeps its deals under "buyer:", and re-arms the alarm for them', async () => {
+    const storage = new FakeStorage();
+    const agents = new Agents({ storage }, { ...env(`0x${'22'.repeat(32)}`), BUYER_URL: 'https://crow.direct/agents/test-buyer' });
+    const card = await (await agents.fetch(new Request('https://crow.direct/agents/test-buyer/agent.json'))).json();
+    expect(card.type).toBe('crow-buyer');
+    expect(card.accepts.token).toBe(SEPOLIA!.token.address.toLowerCase());
+    expect((await (await agents.fetch(get('/agent.json'))).json()).type).toBe('crow-agent');
+    // An open buyer deal is the buyer's alone: the seller's open count does not see it, and the alarm comes back.
+    await storage.put({ 'buyer:o:0xab': 1, 'buyer:d:0xab': { id: '0xab', status: 'accepted' } });
+    expect((await (await agents.fetch(get('/health'))).json()).open).toBe(0);
+    expect((await (await agents.fetch(new Request('https://crow.direct/agents/test-buyer/health'))).json()).open).toBe(1);
+    expect(storage.alarm).not.toBeNull();
+  });
+});
+
+// T-312: crow.direct is the test seller's home. The route on escrow.stream stays while the forwarding runs, and the
+// Worker answers it with a 308, which keeps a POST's method and body, so a buyer on the old URL still reaches it.
+describe('the crow-test-agents Worker on two hostnames', () => {
+  const forwarded: string[] = [];
+  const namespace = { idFromName: (n: string) => n, get: () => ({ fetch: async (r: Request) => (forwarded.push(`${r.method} ${r.url}`), new Response('ok')) }) };
+  const worker = { ...env(), AGENTS: namespace as never, SELLER_URL: 'https://crow.direct/agents/test-seller' };
+
+  it('answers escrow.stream/agents/test-seller* with a 308 to the same path and query on crow.direct', async () => {
+    const { default: handler } = await import('./worker.ts');
+    const post = await handler.fetch(new Request('https://escrow.stream/agents/test-seller?x=1', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }), worker);
+    expect(post.status).toBe(308);
+    expect(post.headers.get('location')).toBe('https://crow.direct/agents/test-seller?x=1');
+    const card = await handler.fetch(new Request('https://escrow.stream/agents/test-seller/agent.json'), worker);
+    expect(card.status).toBe(308);
+    expect(card.headers.get('location')).toBe('https://crow.direct/agents/test-seller/agent.json');
+    expect(forwarded).toEqual([]);
+  });
+
+  it('serves crow.direct/agents/test-seller* through the Durable Object', async () => {
+    const { default: handler } = await import('./worker.ts');
+    expect((await handler.fetch(new Request('https://crow.direct/agents/test-seller/health'), worker)).status).toBe(200);
+    expect(forwarded).toEqual(['GET https://crow.direct/agents/test-seller/health']);
   });
 });

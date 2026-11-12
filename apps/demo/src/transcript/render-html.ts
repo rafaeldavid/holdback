@@ -6,7 +6,7 @@ import { formatAmount } from './money.js';
 import { beatHeader, describeEvent, formatMs, formatScore, sharedHeader, type SharedHeader } from './narrate.js';
 import { eventsOf, leanBalances, verdictJson } from './render-md.js';
 import type { AdjudicatorProfile, BeatTranscript, CastKey, DemoEvent } from './types.js';
-import { plain, safeJson } from './untrusted.js';
+import { plain, safeJson } from '@holdback/testkit';
 
 const escRaw = (s: string) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 /** Every text node: one plain line (no controls, bidi or tag characters), then HTML-escaped. */

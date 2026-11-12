@@ -1,6 +1,6 @@
 # ADR-0004: Chain-agnostic EVM; target Ethereum mainnet, via a local chain and Sepolia
 
-- **Status:** Accepted, 2026-11-01 (D4 update): target Ethereum mainnet; build and test on a local chain, then Sepolia. Deferred on 2026-10-30 (D4) until the start of Phase 2.
+- **Status:** Accepted, 2026-11-01 (D4 update): target Ethereum mainnet; build and test on a local chain, then Sepolia. Deferred on 2026-10-30 (D4) until the start of Phase 2. The public demo settles on Sepolia since 2026-11-03 (D41, ADR-0028).
 - **Date:** 2026-10-30; updated 2026-11-01
 
 ## Decision

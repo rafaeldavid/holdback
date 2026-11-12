@@ -4,8 +4,6 @@ dist/
 coverage/
 .env
 .env.*
-# The cost collector's approval record (T-052): local to the dedicated clone, so no commit can supply it.
-/.costs-approved
 !.env.example
 /data/
 reports/
@@ -22,3 +20,5 @@ contracts/cache/
 # Personal Claude Code settings
 .claude/settings.local.json
 .claude/worktrees/
+# The seller adapter's journal (examples/seller-adapter.ts), wherever it runs from
+seller-adapter.journal.json*

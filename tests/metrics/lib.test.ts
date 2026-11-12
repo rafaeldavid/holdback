@@ -1,7 +1,7 @@
 // T-066: the shared readers, with fake fetches only. The event stream never ends on its own (measured on
 // api.escrow.stream, 2026-11-05), so the fake one below stays open after its last event, as the live one does.
 import { describe, expect, it } from 'vitest';
-import { Sources, divRound, fetchCapped, msStats, parseSse, quantile, readEventPage, readEvents, safeUrl, weiToUsdMicros } from '../../scripts/metrics/lib.mjs';
+import { DEFAULTS, Sources, divRound, fetchCapped, msStats, parseSse, quantile, readEventPage, readEvents, safeUrl, weiToUsdMicros } from '../../scripts/metrics/lib.mjs';
 import { onceEvents } from './helpers';
 
 const sse = (events: unknown[]) => events.map((e) => `id: ${(e as { seq: number }).seq}\nevent: x\ndata: ${JSON.stringify(e)}\n\n`).join('');
@@ -29,6 +29,14 @@ describe('fetchCapped (T-060 rules)', () => {
     expect(r).toMatchObject({ ok: false, error: 'moved' });
   });
 
+  it('reads the hosts that answer without a redirect (crow.direct since 2026-11-10, T-313)', () => {
+    expect(DEFAULTS).toMatchObject({
+      op1: 'https://api.crow.direct',
+      op2: 'https://api2.crow.direct',
+      testSeller: 'https://crow.direct/agents/test-seller/agent.json',
+    });
+  });
+
   it('stops reading past the cap', async () => {
     const r = await fetchCapped('https://x.test/', { maxBytes: 10, fetchImpl: async () => new Response('x'.repeat(100)) });
     expect(r).toMatchObject({ ok: false, error: 'too-large' });
@@ -47,7 +55,7 @@ describe('fetchCapped (T-060 rules)', () => {
 
   it('shows an RPC endpoint by its origin only, so a key in its path never reaches a file', () => {
     expect(safeUrl('https://rpc.example/v2/SECRETKEY?x=1', { keepQuery: false })).toBe('https://rpc.example');
-    expect(safeUrl('https://api.escrow.stream/v1/events?from=3')).toBe('https://api.escrow.stream/v1/events?from=3');
+    expect(safeUrl('https://api.crow.direct/v1/events?from=3')).toBe('https://api.crow.direct/v1/events?from=3');
   });
 });
 

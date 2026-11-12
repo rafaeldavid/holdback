@@ -17,6 +17,7 @@ import {
 } from '@holdback/core';
 import { Adjudicator, defaultPolicy, loadRegistryFile, policyHashOf, SettlementAdapter } from '@holdback/adjudicator';
 import { fakeProvider, type FakeScript, type JudgeProvider, type JudgeRequest, type LoadedRegistry } from '@holdback/judgment';
+import { POOL_TERMS } from '@holdback/operator';
 import { join } from 'node:path';
 import { keccak256, stringToBytes } from 'viem';
 import { BENCH_A, BENCH_B, BENCH_C, PROFILES, SWIFTLINE, type BenchProfile } from './cast.js';
@@ -94,9 +95,6 @@ export interface AdjudicatorSeam {
   /** Decides the commitment if it is this bench's turn, and returns the published record. */
   judge(commitmentId: Hex32): Promise<JudgeReport>;
 }
-
-/** Bond pool terms the benches publish (adjudicator.schema.json); backers arrive in a later phase. */
-export const POOL_TERMS = { capitalChargeRateBps: 0, capitalChargeToPoolRateBps: 0, firstLossShareBps: 10000, noticePeriodSec: 691200 } as const;
 
 /**
  * A published registration as a reader finds it: the document the bench posted, untrusted and not

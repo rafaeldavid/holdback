@@ -22,7 +22,7 @@ The operators' pass sends no party timeout today (`workAt` in `apps/demo-cloud/s
 
 ## Context
 
-- **Sources:** T-227 (`docs/tasks/T-227-deal-behind-the-chain.md`), "The impact": "The operators refuse every relay for a deal behind the chain, the timeouts included". Rafa, 2026-11-05: "feels like you should solve in the next piece of work". Rafa, 2026-11-05: "You need to ship this so you stop iterating."
+- **Sources:** T-227 (planned privately), "The impact": "The operators refuse every relay for a deal behind the chain, the timeouts included". Rafa, 2026-11-05: "feels like you should solve in the next piece of work". Rafa, 2026-11-05: "You need to ship this so you stop iterating."
 - **What a timeout is:** `reclaim`, `triggerFallback`, `triggerDefault`, `expireAppeal` and `expireOffer` on `HoldbackRules`. Anyone may send one. Each reverts `WrongStage` or `TooEarly` unless `dealOf` and the terms' deadlines allow it.
 - **How the view follows a deal behind** (T-218): `follow` records `dealOf`'s stage, queues the transaction when only the delivery is missing, and serves the keys the transaction released.
 
@@ -39,7 +39,7 @@ The operators' pass sends no party timeout today (`workAt` in `apps/demo-cloud/s
 ## Out of scope
 
 - Everything else in T-227: the adjudicators reading `dealOf`, the relay path for signed steps, each case's test, contract signers, the named attack test.
-- The operators' pass sending due timeouts on its own for a deal behind (it sends none for any deal today).
+- The operators' pass sending due timeouts on its own for a deal behind (it sent none for any deal then). Done in T-231.
 
 ## Evidence
 
@@ -132,8 +132,8 @@ The operators' pass sends no party timeout today (`workAt` in `apps/demo-cloud/s
 
 ## Handoff
 
-- **State:** done, and live on both operators since 2026-11-05, 15:29 UTC: holdback-op1 `ba7a2ad9`, holdback-op2 `7826e3ce` (Evidence, "The deploy"). Rafa gave the go-ahead on 2026-11-05: "Yes, deploy it". PR 207 merged once CI passed, with the review and red-team findings fixed. `pnpm verify` passed at `9a88110`, 2026-11-05 15:04 UTC [measured: `reports/verify-t-228-relay-timeouts.md`]. The site is not deployed yet, so T-228's line in `llms.txt` is not live.
+- **State:** done, and live on both operators since 2026-11-05, 15:29 UTC: holdback-op1 `ba7a2ad9`, holdback-op2 `7826e3ce` (Evidence, "The deploy"). Rafa gave the go-ahead on 2026-11-05: "Yes, deploy it". PR 207 merged once CI passed, with the review and red-team findings fixed. `pnpm verify` passed at `9a88110`, 2026-11-05 15:04 UTC [measured: `reports/verify-t-228-relay-timeouts.md`]. T-228's line in `llms.txt` went live with T-229's site deploy, crow-site `4f049eb5`, on 2026-11-05 at about 15:58 UTC (`docs/operations.md`). T-230's operators replaced these builds on 2026-11-06 at 12:19 UTC.
 - **Next:** the site's own deploy publishes the `llms.txt` change. To roll back the operators: holdback-op1 `1d8a029c-44eb-4276-b5c0-c2c8894b25d5`, holdback-op2 `a042aae3-821a-4efd-856a-42070205c45e` (`docs/operations.md`, T-228).
 - **Left over, small (all deals, not only those behind):** a retry with the same `Idempotency-Key` that arrives after a failed or stale read at the receipt but before the next sync pass (about 1 min while the deal is recent) runs again and answers `invalid_state`, as on `send`'s path since review M2; after the pass or a restart it replays `ok`.
 - **Left over, view only:** for a deal waiting for its posted delivery, `transactions()` lists the operator's relayed timeout only once the delivery joins (`landBehind` skips `txs.push` there, and `join` records it, labelled `direct`), so the operator's gas spend for such a deal shows late or, if the seller never posts, never.
-- **Not done, by choice:** the operators' pass does not send due timeouts on its own for a deal behind, so someone still calls `POST /v1/commitments/<id>/triggers/<kind>` (anyone may, at no gas). If stuck deals show up in the demo, the pass could send them; that belongs in the backlog, not here.
+- **Not done here, done in T-231:** the operators' pass did not send due timeouts on its own, for a deal behind or any other, so someone still called `POST /v1/commitments/<id>/triggers/<kind>` (anyone may, at no gas). T-231 (`docs/tasks/T-231-operator-timeouts.md`, Rafa's go-ahead on 2026-11-06) makes the pass send each due timeout itself, a deal behind the chain included, and a party's trigger that comes after the operators' then answers the state it left.

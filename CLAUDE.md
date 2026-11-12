@@ -5,7 +5,7 @@
 First and foremost, Holdback is a protocol, not a service. It has three properties:
 
 1. **Any two agents choose their own adjudicator.** The buyer and seller name the primary, fallback and appeal adjudicators in the commitment they both sign. No one assigns them.
-2. **Any capital holder can join the bonding.** Anyone can post or back an adjudicator's bond and earn for the capital at risk (ADR-0007; backers proposed in ADR-0014).
+2. **Any capital holder can join the bonding.** Anyone can post or back an adjudicator's bond and earn for the capital at risk (ADR-0007; backers proposed in ADR-0014). Phase one has no bonds on chain; this property returns with them (D57, ADR-0031).
 3. **Access is by API.** Any operator node serves the REST API, and agents can also submit signed messages directly to the settlement layer. No single API provider is required (ADR-0005).
 
 The prototype builds machine-speed escrow on that protocol. One agent opens a commitment with another, then:
@@ -29,7 +29,7 @@ Every design and code change must pass all three.
    - Declarative deterministic checks run first.
    - A panel of pinned models from at least two families follows, selected by commit-reveal.
    - The panel is defended against injection, gaming, drift and correlated error.
-   - Appeals are backed by the adjudicator's bond.
+   - Appeals are backed by the adjudicator's bond. Phase one sets this line aside: its contracts have no party appeals and no bonds, and the first decision by the primary or the fallback adjudicator is final on chain (Rafa, 2026-11-11; D57, ADR-0031). SimChain keeps both.
 
 ## Design principle: user choice
 
@@ -76,7 +76,7 @@ Each rule is paired with the check that enforces it in `docs/team.md` (Rules and
 Make results observable before claiming them. Label each claim in reports and PRs as measured, inferred or guessed. Write every doc, task file, PR, report and console or status message to `docs/writing.md`: active voice, the state first, then the facts and the action, plain words, and units on every number (Rafa, 2026-11-04).
 
 ```
-pnpm install                    # Node 22, pnpm 12 (via corepack)
+pnpm install                    # Node and pnpm versions: package.json (engines, packageManager); pnpm via corepack
 pnpm typecheck && pnpm test     # types, unit + property tests (no network)
 pnpm verify                     # all checks + snap + demo; writes reports/verify-<branch>.md
 pnpm lint                       # ESLint, including the no-eval and money rules
@@ -86,35 +86,37 @@ pnpm snap --update <name>       # regenerate a snapshot; review the diff before 
 pnpm demo                       # scripted judges: no keys needed; writes demo/out
 pnpm demo --live                # live judges (needs two model-family keys)
 (cd contracts && forge test)    # contracts, local chain only (Phase 2)
-formal/check.sh                 # TLA+ model of the state machine (T-204); safety in seconds, liveness ~11 min
+formal/check.sh                 # TLA+ model of the state machine (T-204); safety in seconds, liveness tens of minutes (run it in the background)
 node site/build.mjs && node site/check.mjs   # the site and its agent docs (site/llms.txt)
 ```
 
 ## Start here (for a new session or agent)
 
-1. Read this file, then the latest `docs/log/` entry (files are named by date, `YYYY-MM-DD.md`; take the newest): its "Next steps (resume here)" list is the current work. Check `gh pr list` for open PRs before starting a task that may already be in flight.
-2. `docs/plan.md` lists every task by phase; each task file in `docs/tasks/` has Intent, acceptance criteria, Evidence and a Handoff section that says how to resume.
-3. `docs/operations.md`: what is live (escrow.stream, the API, sign-ups), how to deploy, secrets handling, and the gates.
-4. Open decisions and their history: `docs/decisions-today.md` (D1 to D40) and `docs/decisions/` (ADRs).
+1. Read this file, then the newest entry of the daily log: its "Next steps (resume here)" list is the current work. The maintainers keep the log in the private repository under `control/log/` (files are named by date, `YYYY-MM-DD.md`; take the newest). On the maintainer's machine that repository is checked out at `reports/crow-private/` inside the main checkout. A session without it starts from `docs/plan.md` and the open pull requests. Check `gh pr list` for open PRs before starting a task that may already be in flight.
+2. `docs/plan.md` lists the current build's tasks by phase; each task file in `docs/tasks/` has Intent, acceptance criteria, Evidence and a Handoff section that says how to resume. Since 2026-11-06 the focus is stable EVM operations on Sepolia (D53), and Phase 2's exit criteria say when it is done (D54).
+3. `docs/operations.md`: what is live (crow.direct, the API on Sepolia, the test seller, sign-ups, Crow Control at control.crow.direct), how to deploy, secrets handling, and the gates.
+4. Open decisions and their history: `docs/decisions-today.md` and `docs/decisions/` (ADRs).
 
 ## Working as a team of agents
 
 - Pick up work only through a task file in `docs/tasks/`. Restate the task's intent in your own words before writing code.
+- Contributors beyond the founder's own sessions, people and their agents, work from a fork on approved tasks or issues labelled `approved`, open a Proposal issue for anything else, and never merge; see `CONTRIBUTING.md` (Rafa, 2026-11-03).
 - Work in your own git worktree and branch (`t-<id>-<slug>`). Keep PRs small, with ordered commits.
 - Stay inside the paths the task lists. If you need to touch another lane's files, write that in the task's Handoff section and stop.
+- **Follow the change recipe for the change's kind** (`docs/team.md`, Change recipes; Rafa, 2026-11-07). The kind sets the local checks, the review, who approves and the token budget, a target and not a stop.
 - Before you hand off:
-  - add or update fixtures;
-  - run `/verify`;
-  - fill in the task's Evidence and Handoff sections;
+  - add or update fixtures the change needs;
+  - run `/verify`, which runs the kind's local checks; CI is the gate;
+  - fill in the task's Evidence and Handoff sections; edit no other shared doc;
   - open a PR.
 - **Autonomy inside the repo, gates outside it** (Rafa, 2026-10-31). Anything confined to this repository is pre-approved: ADRs, schema changes, contract code, defense changes, and merging a PR once CI passes and review findings are fixed. Decisions still get a research pass and are recorded in `docs/decisions-today.md`, where Rafa can overrule them. Actions that reach outside the repository still wait for Rafa: deploys, force pushes or history rewrites on the remote, real keys or real money, anything published or sent to other people, and repository access or settings.
 - Use the role subagents in `.claude/agents/` and the commands in `.claude/commands/`. Process details are in `docs/team.md`.
 
 ## Map
 
-`docs/decisions-today.md` records decisions D1 to D40 (decided October 30, 2026; D4 deferred to Phase 2), and `docs/reviews/` the reviews behind them. Read both first. `docs/backlog.md` holds work deferred until after the basic demo.
+`docs/decisions-today.md` records the decisions (D4, deferred to Phase 2 at first, was settled by D41: the public demo settles on Sepolia), and `docs/reviews/` the reviews behind them. Read both first. Work deferred until after the basic demo, and the phases after Phase 2, are planned privately (`docs/plan.md`, Future work).
 
-The other docs: `PRD.md`, `neutrality.md`, `architecture.md`, `judgment-and-defenses.md`, `api.md`, `demo.md`, `testing.md`, `team.md`, `plan.md`, `decisions/`, `tasks/`. Research is in `docs/research/`; open it only when a decision needs it. `docs/operations.md` covers the live demo and deploys. Brand work is in `brand/`: write Crow in docs; ’crow ("escrow" with the "es" unsaid) is the website's logomark (Rafa, 2026-11-03). Tagline "Programmatic Escrow and Arbitration" (Rafa, 2026-11-02; D40: privacy is each deal's choice), at escrow.stream; its mark is Archibald Thorburn's 1919 hooded crow (public domain); Holdback stays the protocol's working name and EIP-712 domain.
+The other docs: `PRD.md`, `neutrality.md`, `architecture.md`, `judgment-and-defenses.md`, `api.md`, `quickstart.md`, `demo.md`, `testing.md`, `team.md`, `writing.md`, `plan.md`, `private-materials.md`, `audit/`, `decisions/`, `tasks/`. Research is in `docs/research/`; open it only when a decision needs it. `docs/operations.md` covers the live demo and deploys. Planning and business material, the brand work included, is kept privately (`docs/private-materials.md`). Write Crow in docs; ’crow ("escrow" with the "es" unsaid) is the website's logomark (Rafa, 2026-11-03). Tagline "Verifiable settlement for AI commerce" (Rafa, 2026-11-10; D56, which replaced D40's tagline; D40's rule stands: privacy is each deal's choice), at crow.direct; its mark is Archibald Thorburn's 1919 hooded crow (public domain); Holdback stays the protocol's working name and EIP-712 domain.
 
 ## Vocabulary
 

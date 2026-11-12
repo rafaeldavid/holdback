@@ -3,7 +3,7 @@
 // controls, bidi or tag characters); the renderers escape again per surface and keep it inside fences or <pre>.
 import type { JudgeVerdict } from '@holdback/core';
 import type { PromptView, VerdictView } from './types.js';
-import { plain } from './untrusted.js';
+import { plain } from '@holdback/testkit';
 
 /** Data lines shown at the head of the data section: the CSV header row and the first rows after it. */
 export const DATA_LINES_SHOWN = 9;

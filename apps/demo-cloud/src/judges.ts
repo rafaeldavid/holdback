@@ -28,6 +28,9 @@ interface Day {
   byModel?: Record<string, ModelDay>;
 }
 
+/** A copy that shares no object with the live day, `byModel` included. */
+const copyDay = (d: Day): Day => ({ ...d, byModel: Object.fromEntries(Object.entries(d.byModel ?? {}).map(([k, v]) => [k, { ...v }])) });
+
 /** Today's live calls and tokens, kept in world storage under `lj:<UTC date>`. */
 export class JudgeBudget {
   private today: Day | undefined;
@@ -46,13 +49,12 @@ export class JudgeBudget {
   }
 
   async used(): Promise<Day> {
-    const d = await this.load();
-    return { ...d, byModel: Object.fromEntries(Object.entries(d.byModel ?? {}).map(([k, v]) => [k, { ...v }])) };
+    return copyDay(await this.load());
   }
 
   /** A day's live calls and tokens: today's as counted so far, another day's from storage. */
   async on(day: string): Promise<Day> {
-    if (this.today?.day === day) return { ...this.today };
+    if (this.today?.day === day) return copyDay(this.today);
     return (await this.storage.get<Day>(`lj:${day}`)) ?? { day, calls: 0, inputTokens: 0, outputTokens: 0 };
   }
 
