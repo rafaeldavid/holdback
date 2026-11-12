@@ -231,6 +231,18 @@ export const PITCH = {
   },
 };
 
+/**
+ * The demo page's opening (Rafa, 2026-11-12): a headline, a short intro and the demo's one label. The longer pitch
+ * (PITCH) moved to the About section of Learn more.
+ */
+export const HERO = {
+  headline: "It's time to go direct.",
+  intro: 'Your agents can find almost any vendor, and almost any buyer. With Crow, two agents close the deal on their own: they agree the checks up front, the payment is set aside before the work starts, and the seller is paid the moment the work passes. Watch one deal below.',
+  demoLabel: 'Sample Crow Test Demo',
+};
+/** Where "Request early access" goes: the sign-up form on Crow's site. */
+export const EARLY_ACCESS = 'https://crow.direct/#join-form';
+
 export interface PageExtras {
   /** Measures over their limits, and the ticket written for them. */
   over?: readonly Over[];
@@ -270,12 +282,21 @@ export function replayPage(events: readonly Event[], s: Summary, extras: PageExt
   const row = (label: string, value: string) => `<div class="row"><span class="label">${esc(label)}</span><span class="value">${esc(value)}</span></div>`;
   const avatar = (r: 'buyer' | 'seller') => `<span class="avatar ${r}" aria-hidden="true">${r === 'buyer' ? 'B' : 'S'}</span>`;
   const exact = (x?: string) => (x ? `<details><summary>Exact call</summary><pre>${esc(x)}</pre></details>` : '');
+  /** One step of the full record (Learn more): times, details and the exact call behind a disclosure. */
   const item = (st: Step, i: number) => {
     const side = st.lane;
-    if (st.kind === 'say') return `<li class="step ${side} say" data-i="${i}"><div class="bubble"><p>${esc(st.title)}</p></div><span class="meta">${AGENT_NAME[side === "seller" ? "seller" : "buyer"]} · ${secs(Math.max(0, st.t))}</span></li>`;
+    if (st.kind === 'say') return `<li class="step ${side} say" data-i="${i}"><div class="bubble"><p>${esc(st.title)}</p></div><span class="meta">${AGENT_NAME[side === 'seller' ? 'seller' : 'buyer']} · ${secs(Math.max(0, st.t))}</span></li>`;
     if (side === 'crow') return `<li class="step crow ${st.kind}" data-i="${i}"><div class="capsule">${icon(st.kind === 'money' ? 'money' : 'chain')}<span><strong>${esc(st.title)}</strong>${st.detail ? `<span class="sub">${esc(st.detail)}</span>` : ''}${st.link ? `<a class="sub" href="${esc(st.link)}" rel="noopener" target="_blank">See the payment record</a>` : ''}</span><span class="time">${secs(Math.max(0, st.t))}</span></div></li>`;
     return `<li class="step ${side} ${st.kind}" data-i="${i}"><div class="action">${icon(st.kind === 'note' ? 'note' : st.kind === 'end' ? 'end' : 'act')}<span><span class="title">${esc(st.title)}</span>${st.detail ? `<span class="sub">${esc(st.detail)}</span>` : ''}${exact(st.exact)}</span></div></li>`;
   };
+  /** One step of the demo: the same words, without times, details or calls, so the conversation reads at a glance. */
+  const demoItem = (st: Step) => {
+    const side = st.lane;
+    if (st.kind === 'say') return `<li class="step ${side} say"><div class="bubble"><p>${esc(st.title)}</p></div><span class="meta">${AGENT_NAME[side === 'seller' ? 'seller' : 'buyer']}</span></li>`;
+    if (side === 'crow') return `<li class="step crow ${st.kind}"><div class="capsule">${icon(st.kind === 'money' ? 'money' : 'chain')}<span><strong>${esc(st.title)}</strong>${st.kind === 'money' && st.detail ? `<span class="sub">${esc(st.detail)}</span>` : ''}</span></div></li>`;
+    return `<li class="step ${side} ${st.kind}"><div class="action">${icon(st.kind === 'note' ? 'note' : st.kind === 'end' ? 'end' : 'act')}<span><span class="title">${esc(st.title)}</span>${st.kind === 'note' && st.detail ? `<span class="sub">${esc(st.detail)}</span>` : ''}</span></div></li>`;
+  };
+  const demoList = list.filter((st) => st.key !== 'wait');
 
   const checks: Array<{ id: string; required: boolean }> = Array.isArray(stop?.checks) ? stop.checks : [];
   const checkList = checks.length
@@ -308,25 +329,40 @@ export function replayPage(events: readonly Event[], s: Summary, extras: PageExt
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(PITCH.title)} · ${esc(PITCH.descriptor)}</title>
 <style>
-:root{--font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;--mono:ui-monospace,"SF Mono",Menlo,monospace;--canvas:#f5f5f7;--surface:#ffffff;--fill:#e9e9eb;--line:rgba(60,60,67,.12);--ink:#1d1d1f;--ink2:#6e6e73;--ink3:#8e8e93;--accent:#007aff;--accent-ink:#ffffff;--green:#248a3d;--red:#d70015;--wash-green:#e8f6ec;--r-sm:6px;--r-md:8px;--r-lg:10px;--r-win:12px;--arrive:cubic-bezier(.25,.8,.25,1);color-scheme:light dark}
+:root{--font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;--display:-apple-system,BlinkMacSystemFont,"SF Pro Display","Helvetica Neue",Helvetica,Arial,sans-serif;--mono:ui-monospace,"SF Mono",Menlo,monospace;--canvas:#f5f5f7;--surface:#ffffff;--fill:#e9e9eb;--line:rgba(60,60,67,.12);--ink:#1d1d1f;--ink2:#6e6e73;--ink3:#8e8e93;--accent:#007aff;--accent-ink:#ffffff;--green:#248a3d;--red:#d70015;--wash-green:#e8f6ec;--r-sm:6px;--r-md:8px;--r-lg:10px;--r-win:12px;--arrive:cubic-bezier(.25,.8,.25,1);color-scheme:light dark}
 @media (prefers-color-scheme:dark){:root{--canvas:#000000;--surface:#1c1c1e;--fill:#2c2c2e;--line:rgba(84,84,88,.6);--ink:#f5f5f7;--ink2:#98989d;--ink3:#7c7c80;--accent:#0a84ff;--green:#30d158;--red:#ff453a;--wash-green:#132a1a}}
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--canvas);color:var(--ink);font:15px/1.45 var(--font);-webkit-font-smoothing:antialiased}
+a{color:var(--accent)}
 .toolbar{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid var(--line)}
-.toolbar-inner{max-width:880px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:12px}
-.app{font-weight:600;font-size:15px}.app small{display:block;font-weight:400;font-size:12px;color:var(--ink2)}
+.toolbar-inner{max-width:880px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:16px}
+.app{font-weight:600;font-size:15px;color:var(--ink);text-decoration:none}.app small{display:block;font-weight:400;font-size:12px;color:var(--ink2)}
 .spacer{flex:1}
-.seg{display:flex;background:var(--fill);border-radius:var(--r-md);padding:2px;gap:2px}
-.seg button{font:inherit;font-size:13px;font-weight:500;border:0;background:transparent;color:var(--ink);border-radius:var(--r-sm);padding:5px 12px;cursor:pointer}
-.seg button:hover{background:var(--surface)}.seg button.primary{background:var(--accent);color:var(--accent-ink)}
-.progress{height:3px;background:var(--fill)}.progress span{display:block;height:100%;width:100%;background:var(--accent);transition:width .5s var(--arrive)}
-main{max-width:880px;margin:0 auto;padding:28px 16px 64px}
-.engine{margin:0 0 10px;font-size:13px;font-weight:600;color:var(--ink2)}
-.large{font-size:40px;line-height:1.1;font-weight:700;letter-spacing:-.02em;margin:0}
-.subtitle{font-size:22px;line-height:1.25;font-weight:600;letter-spacing:-.01em;margin:6px 0 0}
+.navlink{font-size:14px;text-decoration:none}
+.button{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:0 18px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font:inherit;font-size:15px;font-weight:600;text-decoration:none;border:0;cursor:pointer}
+.button.small{min-height:32px;padding:0 14px;font-size:14px}
+.button.plain{background:transparent;color:var(--accent);padding:0 6px}
+main{max-width:880px;margin:0 auto;padding:32px 16px 64px}
+.hero{text-align:center;max-width:680px;margin:0 auto}
+.headline{font-family:var(--display);font-size:44px;line-height:1.06;font-weight:700;letter-spacing:-.025em;margin:0}
+.intro{font-size:18px;line-height:1.45;color:var(--ink2);margin:12px auto 0}
+.cta{display:flex;gap:12px;justify-content:center;align-items:center;margin-top:18px}
+.demo{margin-top:28px;background:var(--surface);border-radius:18px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06),0 12px 32px rgba(0,0,0,.06)}
+.demo-bar{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.demo-label{font-size:13px;font-weight:600;color:var(--ink2)}
+.demo-heads{flex:1;display:flex;justify-content:center;gap:18px;font-size:12px;color:var(--ink2)}
+.demo-heads span{display:flex;align-items:center;gap:6px}
+.icon-button{width:32px;height:32px;border-radius:999px;border:0;background:var(--fill);color:var(--ink);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.icon-button svg{width:14px;height:14px;fill:currentColor}
+.icon-button[hidden]{display:none}
+.demo-frame{height:min(68vh,600px);overflow-y:auto;padding:16px 12px 24px;scroll-behavior:smooth}
+.after{text-align:center;font-size:14px;color:var(--ink2);margin:16px 0 0}
+.section{font-size:13px;color:var(--ink2);text-transform:uppercase;letter-spacing:.02em;margin:30px 12px 8px}
+.page-title{font-family:var(--display);font-size:34px;line-height:1.1;font-weight:700;letter-spacing:-.02em;margin:8px 0 0}
+.back{font-size:14px;text-decoration:none}
+.engine{margin:10px 0 0;font-size:13px;font-weight:600;color:var(--ink2)}
 .lead{margin:14px 0 0;font-size:16px;max-width:680px}
 .beat{margin-top:18px}.beat .lead{margin-top:4px}.beat-label{font-size:13px;font-weight:600;color:var(--ink2)}
-.section{font-size:13px;color:var(--ink2);text-transform:uppercase;letter-spacing:.02em;margin:30px 12px 8px}
 .group{background:var(--surface);border-radius:var(--r-win);overflow:hidden}
 .row{display:flex;align-items:center;gap:12px;padding:11px 16px;min-height:44px;color:inherit;text-decoration:none}
 .row+.row{border-top:1px solid var(--line);margin-left:16px;padding-left:0}
@@ -345,11 +381,16 @@ ol.run{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap
 .step{display:flex;flex-direction:column;max-width:72%}
 .step.buyer{align-self:flex-start;align-items:flex-start}.step.seller{align-self:flex-end;align-items:flex-end}
 .step.crow{align-self:center;max-width:88%;margin:6px 0}
+.step.pending{display:none}
 .step.reveal{animation:arrive .8s var(--arrive) both}
 @keyframes arrive{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 .bubble{border-radius:18px;padding:8px 14px;white-space:pre-wrap;overflow-wrap:anywhere}.bubble p{margin:0}
 .buyer .bubble{background:var(--fill);color:var(--ink);border-bottom-left-radius:6px}
 .seller .bubble{background:var(--accent);color:var(--accent-ink);border-bottom-right-radius:6px}
+.typing .bubble{display:flex;gap:4px;padding:12px 14px}
+.typing .bubble i{width:7px;height:7px;border-radius:999px;background:currentColor;opacity:.4;animation:blink 1.2s infinite}
+.typing .bubble i:nth-child(2){animation-delay:.2s}.typing .bubble i:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,80%,100%{opacity:.25}40%{opacity:.8}}
 .meta{font-size:11px;color:var(--ink3);margin:3px 8px 0}
 .action{display:flex;gap:8px;align-items:flex-start;color:var(--ink2);font-size:13px;padding:2px 8px}
 .seller .action{flex-direction:row-reverse;text-align:right}
@@ -364,7 +405,6 @@ pre{font-family:var(--mono);font-size:11px;white-space:pre-wrap;overflow-wrap:an
 .capsule strong{font-weight:600}.capsule .time{font-size:11px;color:var(--ink3);white-space:nowrap}
 .money .capsule{background:var(--wash-green);border-radius:var(--r-win);padding:10px 16px}.money .capsule .glyph{color:var(--green)}
 .capsule a{color:var(--accent);text-decoration:none}
-.hidden{display:none}
 .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
 .tile{background:var(--surface);border-radius:var(--r-win);padding:14px 16px;display:flex;flex-direction:column;gap:4px}
 .tile:first-child{grid-column:1/-1}
@@ -373,15 +413,35 @@ pre{font-family:var(--mono);font-size:11px;white-space:pre-wrap;overflow-wrap:an
 .engineers{margin-top:30px}.engineers>summary{font-size:13px;color:var(--ink2);text-transform:uppercase;letter-spacing:.02em;margin:0 12px 8px}
 .engineers .group{padding:12px 16px;font-size:13px;color:var(--ink2)}.engineers .group p{margin:0 0 8px}.engineers code{font-family:var(--mono);font-size:12px}
 footer{font-size:12px;color:var(--ink3);margin:28px 12px 0;max-width:680px}
-@media (max-width:600px){.step{max-width:88%}.row .label{flex-basis:110px}.app small{display:none}.large{font-size:34px}.subtitle{font-size:19px}}
+@media (max-width:600px){.step{max-width:88%}.row .label{flex-basis:110px}.app small{display:none}.headline{font-size:36px}.intro{font-size:17px}.demo-heads{display:none}.navlink{display:none}}
+@media (prefers-reduced-motion:reduce){.demo-frame{scroll-behavior:auto}.step.reveal{animation:none}.typing .bubble i{animation:none}}
 </style>
 </head>
 <body>
-<div class="toolbar"><div class="toolbar-inner"><div class="app">Crow<small>${esc(s.title)}</small></div><div class="spacer"></div><div class="seg" id="controls" hidden><button id="back" type="button" aria-label="Previous step">Back</button><button id="play" type="button" class="primary">Play</button><button id="next" type="button" aria-label="Next step">Next</button><button id="all" type="button">All</button></div></div><div class="progress"><span id="bar"></span></div></div>
-<main>
-<p class="engine">${local ? 'A test run on a local test setup, with test money. No real money moved, and there are no public records of it.' : `A test run on ${esc(where)}. No real money moved.`}</p>
-<div class="large">${esc(PITCH.title)}</div>
-<p class="subtitle">${esc(PITCH.descriptor)}</p>
+<div class="toolbar"><div class="toolbar-inner"><a class="app" href="#">${esc(PITCH.title)}<small>${esc(PITCH.descriptor)}</small></a><div class="spacer"></div><a class="navlink" href="#learn-more">Learn more</a><a class="button small" href="${esc(EARLY_ACCESS)}" rel="noopener">Request early access</a></div></div>
+
+<main id="demo-view">
+<div class="hero">
+<h1 class="headline">${esc(HERO.headline)}</h1>
+<p class="intro">${esc(HERO.intro)}</p>
+<div class="cta"><a class="button" href="${esc(EARLY_ACCESS)}" rel="noopener">Request early access</a><a class="button plain" href="#learn-more">Learn more ›</a></div>
+</div>
+
+<section class="demo" aria-label="${esc(HERO.demoLabel)}">
+<div class="demo-bar"><span class="demo-label">${esc(HERO.demoLabel)}</span><span class="demo-heads"><span>${avatar('buyer')} ${AGENT_NAME.buyer}</span><span>${avatar('seller')} ${AGENT_NAME.seller}</span></span><button class="icon-button" id="demo-toggle" type="button" aria-label="Pause" hidden><svg viewBox="0 0 14 14" aria-hidden="true"><path id="demo-toggle-icon" d="M3 2h3v10H3zM8 2h3v10H8z"/></svg></button><button class="icon-button" id="demo-restart" type="button" aria-label="Play from the start" hidden><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M7 2a5 5 0 1 1-4.9 6h1.6A3.5 3.5 0 1 0 7 3.5V6L3.5 2.75 7 0z"/></svg></button></div>
+<div class="demo-frame" id="demo-frame"><ol class="run" id="demo-run">
+${demoList.map(demoItem).join('\n')}
+</ol></div>
+</section>
+<p class="after">What was checked, what each side paid, and the full record: <a href="#learn-more">Learn more ›</a></p>
+</main>
+
+<main id="learn-more">
+<a class="back" href="#">‹ Back to the demo</a>
+<h2 class="page-title">Learn more</h2>
+<p class="engine">${local ? 'This demo is a test run on a local test setup, with test money. No real money moved, and there are no public records of it.' : `This demo is a test run on ${esc(where)}. No real money moved.`}</p>
+
+<div class="section">About</div>
 ${PITCH.beats.map((b) => `<div class="beat"><span class="beat-label">${esc(b.label)}</span><p class="lead">${esc(b.text)}</p></div>`).join('\n')}
 <div class="beat"><span class="beat-label">${esc(PITCH.proofLabel)}</span><p class="lead">${esc(PITCH.proof(ending, boughtItem))}</p></div>
 
@@ -392,7 +452,7 @@ ${row('When the work passes', 'The payment goes to the seller, and the work unlo
 ${row('When it fails', 'The price goes back to the buyer, and the work stays locked.')}
 ${row('Who checks', 'An independent reviewer runs the checks both sides agreed to before the order, on the delivered work itself.')}
 </div>
-<p class="footnote">${scripted ? 'In this run both agents are scripted stand-ins that follow a fixed list of steps: it shows how the pieces fit, not what an AI model would do.' : `The ${AGENT_NAME.buyer} is ${esc(model('buyer'))} and the ${AGENT_NAME.seller} is ${esc(model('seller'))}: real AI models${s.models.buyer.vendor !== s.models.seller.vendor ? ' from two different companies' : ''}, each using only its own tools. They never talked to each other directly.`}</p>
+<p class="footnote">${scripted ? 'In this demo both agents are scripted stand-ins that follow a fixed list of steps: it shows how the pieces fit, not what an AI model would do.' : `The ${AGENT_NAME.buyer} is ${esc(model('buyer'))} and the ${AGENT_NAME.seller} is ${esc(model('seller'))}: real AI models${s.models.buyer.vendor !== s.models.seller.vendor ? ' from two different companies' : ''}, each using only its own tools. They never talked to each other directly.`}</p>
 
 <div class="section">The purchase</div>
 <div class="group">
@@ -419,13 +479,13 @@ ${checkList}
 <div class="section">Set in advance by the owners</div>
 <div class="group">
 ${row("Buyer's owner", `Gave the ${AGENT_NAME.buyer} the job and a budget of ${tokens(policy.budget)}, required the checks that every file is reviewed and every finding stays in scope, and wanted the report within ${days} days.`)}
-${row('Standing approval rule', `Instead of a person approving the payment, the buyer's owner set a rule: approve only within the budget, with the required checks, the report due within ${days} days, and an offer dated now.${approvals.length ? ` It answered ${approvals.length} ${approvals.length === 1 ? 'request' : 'requests'}: ${approvals.filter((a) => a.granted).length} approved, ${approvals.filter((a) => !a.granted).length} refused.` : ' It was never asked.'}`)}
+${row('Standing approval rule', `Instead of a person approving the payment, the buyer's owner set a rule: approve only within the budget, with the required checks, the report due within ${days} days, and an offer dated now.${approvals.length ? ` It answered ${approvals.length} ${approvals.length === 1 ? 'request' : 'requests'}: ${approvals.filter((x) => x.granted).length} approved, ${approvals.filter((x) => !x.granted).length} refused.` : ' It was never asked.'}`)}
 ${row("Seller's owner", `Gave the ${AGENT_NAME.seller} its order system and asked it to sell reports.${start?.sellerRulePlain ? ` One extra instruction: ${cut(String(start.sellerRulePlain), 260)}` : ''}`)}
 </div>
 ${start?.note ? `<div class="callout">${icon('note')}<p>${esc(String(start.note))}</p></div>` : ''}
 <p class="footnote">What a person had to do during the run: nothing. Every other choice, each agent made itself.</p>
 
-<div class="section">What happened, step by step</div>
+<div class="section">The full record, step by step</div>
 <div class="conversation">
 <div class="heads"><span>${avatar('buyer')} ${AGENT_NAME.buyer}</span><span>The held payment</span><span>${AGENT_NAME.seller} ${avatar('seller')}</span></div>
 <ol class="run" id="run">
@@ -437,9 +497,9 @@ ${list.map(item).join('\n')}
 <div class="tiles">${tiles}</div>
 <p class="footnote">${overList.length ? `Over the limits set for this test: ${esc(overList.map((o) => `${o.measure} (${n(o.value)} against ${n(o.limit)})`).join('; '))}. A ticket was written for the team.` : 'Every number is within the limits set for this test.'}</p>
 
-<div class="section">Learn more</div>
+<div class="section">Sources</div>
 <div class="group">
-${link('https://crow.direct', "Crow's website", 'What Crow is and how to try it')}
+${link('https://crow.direct', "Crow's website", 'What Crow is, and early access')}
 ${link('https://crow.direct/llms.txt', 'The front page an AI agent reads first', 'Where to start, for a buyer or a seller')}
 ${link('https://crow.direct/buy.txt', 'The guide for buyers', "An agent's first purchase, step by step")}
 ${link('https://crow.direct/sell.txt', 'The guide for sellers', 'How to sell a service through Crow')}
@@ -461,20 +521,47 @@ ${local ? '<p class="footnote">This run used a local test setup, so it has no pu
 </main>
 <script>
 (function(){
-  var items=[].slice.call(document.querySelectorAll('#run .step'));
-  if(!items.length)return;
-  var at=items.length-1,timer=null,bar=document.getElementById('bar'),play=document.getElementById('play');
-  document.getElementById('controls').hidden=false;
-  function show(fresh){items.forEach(function(el,i){el.classList.toggle('hidden',i>at);el.classList.toggle('reveal',fresh&&i===at)});bar.style.width=((at+1)/items.length*100)+'%';if(fresh&&items[at].scrollIntoView)items[at].scrollIntoView({block:'nearest',behavior:'smooth'})}
-  function stop(){if(timer){clearInterval(timer);timer=null;play.textContent='Play'}}
-  function next(){if(at<items.length-1){at++;show(true)}else stop()}
-  function back(){if(at>0){at--;show(false)}}
-  play.onclick=function(){if(timer){stop();return}if(at>=items.length-1){at=0;show(true)}timer=setInterval(next,1400);play.textContent='Pause'};
-  document.getElementById('next').onclick=function(){stop();next()};
-  document.getElementById('back').onclick=function(){stop();back()};
-  document.getElementById('all').onclick=function(){stop();at=items.length-1;show(false)};
-  document.addEventListener('keydown',function(e){if(e.target&&e.target.tagName==='SUMMARY')return;if(e.key==='ArrowRight'){stop();next()}else if(e.key==='ArrowLeft'){stop();back()}else if(e.key===' '){e.preventDefault();play.onclick()}});
-  show(false);
+  // Two views in one file: the demo, and Learn more at #learn-more. Without a script both show, one after the other.
+  var demo=document.getElementById('demo-view'),learn=document.getElementById('learn-more');
+  function route(hash){var more=hash==='#learn-more';demo.hidden=more;learn.hidden=!more;window.scrollTo(0,0);if(more)pause();else if(!started)start();else if(at<items.length)play()}
+  // In-page links switch the view themselves, so it works opened from a file too; the address follows where it can.
+  document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[href^="#"]');if(!a)return;e.preventDefault();var h=a.getAttribute('href');try{history.pushState(null,'',h==='#'?location.pathname+location.search:h)}catch(_){}route(h)});
+  window.addEventListener('popstate',function(){route(location.hash)});
+  // The demo plays by itself, like a conversation in a messages app: each step arrives and the window scrolls to it.
+  var frame=document.getElementById('demo-frame'),list=document.getElementById('demo-run');
+  var items=[].slice.call(list.querySelectorAll('.step'));
+  var toggle=document.getElementById('demo-toggle'),icon=document.getElementById('demo-toggle-icon'),restart=document.getElementById('demo-restart');
+  var PAUSE='M3 2h3v10H3zM8 2h3v10H8z',PLAY='M3 1.5v11L12 7z';
+  var at=0,timer=null,playing=false,started=false,typing=null;
+  items.forEach(function(el){el.classList.add('pending')});
+  toggle.hidden=false;restart.hidden=false;
+  function stick(){frame.scrollTop=frame.scrollHeight}
+  // The window ends at the bottom of the screen as the page opens, so every new message lands in view with no scrolling.
+  function fit(){var top=frame.getBoundingClientRect().top+window.scrollY;frame.style.height=Math.max(320,Math.min(720,window.innerHeight-top-20))+'px'}
+  fit();window.addEventListener('resize',fit);
+  function wait(el){if(el.classList.contains('say'))return Math.min(3400,1000+el.textContent.length*20);if(el.classList.contains('crow'))return 1500;return 800}
+  function setIcon(){icon.setAttribute('d',playing?PAUSE:PLAY);toggle.setAttribute('aria-label',playing?'Pause':at>=items.length?'Play again':'Play')}
+  function clearTyping(){if(typing){typing.remove();typing=null}}
+  function next(){
+    timer=null;if(!playing)return;
+    if(at>=items.length){playing=false;setIcon();return}
+    var el=items[at];
+    if(el.classList.contains('say')&&!typing){
+      typing=document.createElement('li');typing.className='step typing '+(el.classList.contains('seller')?'seller':'buyer');typing.innerHTML='<div class="bubble"><i></i><i></i><i></i></div>';list.appendChild(typing);stick();
+      timer=setTimeout(next,900);return;
+    }
+    clearTyping();el.classList.remove('pending');el.classList.add('reveal');at++;stick();
+    timer=setTimeout(next,wait(el));
+  }
+  function play(){if(at>=items.length)reset();playing=true;setIcon();if(!timer)next()}
+  function pause(){playing=false;if(timer){clearTimeout(timer);timer=null}setIcon()}
+  function reset(){pause();clearTyping();at=0;items.forEach(function(el){el.classList.add('pending');el.classList.remove('reveal')});frame.scrollTop=0}
+  function start(){if(started){return}started=true;play()}
+  toggle.onclick=function(){playing?pause():play()};
+  restart.onclick=function(){reset();play()};
+  // Start when the demo comes into view, so a reader never misses the first message.
+  if(location.hash==='#learn-more'){route('#learn-more')}else if('IntersectionObserver' in window){new IntersectionObserver(function(es,o){if(es.some(function(e){return e.isIntersecting})){o.disconnect();start()}},{threshold:.25}).observe(frame);demo.hidden=false;learn.hidden=true}else{learn.hidden=true;start()}
+  setIcon();
 })();
 </script>
 </body>

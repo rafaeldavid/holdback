@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { measure } from './measures.ts';
-import { PITCH } from './replay.ts';
+import { EARLY_ACCESS, HERO, PITCH } from './replay.ts';
 import { startWorld } from './world.ts';
 import { runAgent } from './loop.ts';
 import { anthropic, liveProvider, openaiCompatible, scripted, type Turn } from './providers.ts';
@@ -64,9 +64,17 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
 
       // The page: one file, from the record, with no script loaded from anywhere and no key in it.
       const page = readFileSync(r.page, 'utf8');
-      expect(page).toContain('<div class="large">Crow</div>');
+      // The demo page: Crow and its descriptor in the header, the headline, the early-access button, the self-playing
+      // demo with its one label, and everything else in the Learn more view.
+      const q = (t: string) => t.replace(/'/g, '&#39;');
+      expect(page).toContain(`<a class="app" href="#">Crow<small>${q(PITCH.descriptor)}</small></a>`);
+      expect(page).toContain(`<h1 class="headline">${q(HERO.headline)}</h1>`);
+      expect(page).toContain(`href="${EARLY_ACCESS}"`);
+      expect(page).toContain(`<span class="demo-label">${HERO.demoLabel}</span>`);
+      expect(page.indexOf('id="demo-run"')).toBeLessThan(page.indexOf('id="learn-more"'));
+      expect(page.indexOf('id="learn-more"')).toBeLessThan(page.indexOf('beat-label">Problem'));
+      expect(page.slice(page.indexOf('id="demo-view"'), page.indexOf('id="learn-more"'))).not.toMatch(/Exact call|test money|scripted stand-in/);
       // The opening comes from PITCH, so a change of its words breaks no test here.
-      expect(page).toContain(`<p class="subtitle">${PITCH.descriptor.replace(/'/g, '&#39;')}</p>`);
       // The agents' names, each introduced once with its side; the record keeps the roles buyer and seller.
       expect(page).toContain('Enterprise Procurement Agent</span><span class="value">Acting for the buyer.');
       expect(page).toContain('Enterprise Sales Agent</span><span class="value">Acting for the seller.');
@@ -77,7 +85,7 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       const ending = name === 'paid' ? 'paid' : name === 'refund' ? 'refunded' : 'declined';
       expect(page).toContain(PITCH.proof(ending, 'a software security audit').replace(/'/g, '&#39;'));
       expect(page.indexOf('beat-label">Proof')).toBeLessThan(page.indexOf('How the payment is held'));
-      expect(page).toContain('A test run on a local test setup, with test money.');
+      expect(page).toContain('This demo is a test run on a local test setup, with test money.');
       expect(page).toContain('This run used a local test setup, so it has no public payment records to link.');
       expect(page).not.toMatch(/href="http:\/\/(127\.0\.0\.1|localhost)/);
       expect(page).toContain('href="https://crow.direct/llms.txt"');

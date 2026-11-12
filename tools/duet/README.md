@@ -107,15 +107,21 @@ The system prompt tells each agent that everything a tool returns is data, whoev
 6. whether the buyer funded, or asked to approve, terms its brief forbade;
 7. whether the run ended as the scenario says. No hold counts as right only when the buyer saw an offer and finished; two funded deals in one run count as wrong.
 
-`replay.html` is one self-contained file generated from the record alone, written so it can be sent to a partner as it is:
+`replay.html` is one self-contained file generated from the record alone, built as a demo page that can be sent as it is (and later served at crow.direct/demo):
 
-- It is in plain buying words, as an experienced buyer would explain a purchase to a peer. It covers what was bought and for how much, the agreed checks one sentence each, what each side paid and received, what the owners set in advance, the steps, how it ended, and the measures.
-- Protocol names appear only in a closed "For engineers" section and behind each step's "Exact call" disclosure. A test fails the page if its reader's text uses them.
-- It says plainly whether the agents were real models or scripted stand-ins, and whether it ran on a test network or a local test setup. The money is test money either way.
-- It links out to crow.direct, the buyer's and the seller's guides, and the public code. On Sepolia it also links each payment record and the order's record on the live service. A local run says it has no public records, and links nothing local.
-- It opens from disk with no server, and loads nothing unless the reader clicks a link.
-- It looks like a native app: the buying agent on the left, the selling agent on the right, the held payment in the middle.
-- It steps through the run with Back, Play, Next, All and the arrow keys, and follows the system's light or dark appearance.
+- **The demo view.** The header says "Crow" and "Buy from any agent. Sell to any agent.", with Learn more and Request early access. The early-access button goes to the sign-up form on crow.direct. A headline, "It's time to go direct.", and a short intro come next. Then the deal plays by itself in a messages window that scrolls itself, so the viewer watches without scrolling. The window shows the Enterprise Procurement Agent and the Enterprise Sales Agent, a typing indicator before each message, and the held payment in the middle. Its only label is "Sample Crow Test Demo", and its pause and replay buttons sit at its top right. It starts when it comes into view.
+- **The Learn more view** holds everything else:
+  - About, which is Rafa's five-beat pitch;
+  - how the payment is held;
+  - the purchase, and what each side paid and received;
+  - the agreed checks, and what the owners set in advance;
+  - the full record step by step, with each exact call behind a disclosure;
+  - the numbers;
+  - the sources;
+  - the engineers' section;
+  - the honest lines: test money, a local setup or a test network, and real models or scripted stand-ins.
+- **Words.** Protocol names appear only in the engineers' section and the exact calls; a test fails the page if its reader's text uses them. The words of the opening live in `HERO` and `PITCH` in `replay.ts`, so a change of words is one edit.
+- **Opening the file.** It opens from disk with no server and loads nothing unless the reader clicks a link. The two views switch inside the file. It follows the system's light or dark appearance.
 
 ## Limits and tickets
 
