@@ -124,6 +124,17 @@ contract MutationGapsTest is Base {
         rules.earlyAccept(t, m, other, "", k);
     }
 
+    /// M128: phase one takes one delivery attempt, `ONLY_ATTEMPT`; a seller-signed delivery with another attempt
+    /// number is refused (`forge coverage` at c629d06 showed this revert never ran).
+    function test_deliver_refusesAnotherAttemptNumber() public {
+        (H.Terms memory t, bytes32 id) = _funded();
+        (H.Delivery memory d,) = _delivery();
+        d.attempt = 2;
+        bytes memory sig = _deliverySig(id, d, SELLER_PK);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
+        rules.deliver(t, d, sig);
+    }
+
     // ------------------------------------------------------------ the key proof and the first decision
 
     /// M134: the proof's key list must be the delivery's: the buyer's own entry matching is not enough.
@@ -133,6 +144,18 @@ contract MutationGapsTest is Base {
         H.EarlyAccept memory m = _early(t, id, BUYER_PK);
         bytes memory dsig = _deliverySig(id, d, SELLER_PK);
         k.keyHashes[0] = keccak256("an envelope the delivery does not list");
+        vm.expectRevert(IHoldbackRules.BadKeyProof.selector);
+        rules.earlyAccept(t, m, d, dsig, k);
+    }
+
+    /// M132: a key proof whose index is past the end of its key list is refused with BadKeyProof, not by the array
+    /// bound's panic (the R10 run at c629d06 found no test that sent one).
+    function test_earlyAccept_refusesAKeyIndexPastTheList() public {
+        (H.Terms memory t, bytes32 id) = _funded();
+        (H.Delivery memory d, H.KeyProof memory k) = _delivery();
+        H.EarlyAccept memory m = _early(t, id, BUYER_PK);
+        bytes memory dsig = _deliverySig(id, d, SELLER_PK);
+        k.index = k.keyHashes.length;
         vm.expectRevert(IHoldbackRules.BadKeyProof.selector);
         rules.earlyAccept(t, m, d, dsig, k);
     }

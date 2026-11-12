@@ -65,6 +65,7 @@ const args = flags(process.argv.slice(2), {
   'timeout-min': 'value',
   build: 'value',
   'match-test': 'value',
+  shard: 'value',
   list: 'value',
   check: 'bool',
 });
@@ -102,6 +103,16 @@ if (args.only) {
   if (unknown.length) fail(`unknown mutant ids: ${unknown.join(', ')}`);
   chosen = list.filter((m) => ids.includes(m.id));
 } else if (args.quick) chosen = list.filter((m) => m.quick);
+// --shard k/n keeps every n-th mutant of the chosen list from the k-th (1-based), so n runs at once, each in its own
+// copy with its own build cache, together run the list once. Each shard writes its own results file.
+let shardTag = '';
+if (args.shard) {
+  const sm = /^(\d+)\/(\d+)$/.exec(args.shard);
+  const [k, n] = sm ? [Number(sm[1]), Number(sm[2])] : [0, 0];
+  if (!sm || n < 1 || k < 1 || k > n) fail('--shard is k/n with 1 <= k <= n');
+  chosen = chosen.filter((_, i) => i % n === k - 1);
+  shardTag = `-shard${k}of${n}`;
+}
 
 const realSrc = join(ROOT, 'contracts', 'src');
 const before = hashTree(realSrc);
@@ -113,7 +124,7 @@ const log = (s) => process.stdout.write(`${s}\n`);
 // --match-test runs only the tests whose names match (forge's own filter), to measure what one test kills on its own,
 // such as the decision counter. Its baseline and verdicts use the same filter, and survivors get no full-build pass.
 const matchTest = args['match-test'];
-const listTag = `${args.list ? `-${basename(args.list, '.json')}` : ''}${matchTest ? `-mt-${matchTest.replace(/[^A-Za-z0-9_]+/g, '_')}` : ''}`;
+const listTag = `${args.list ? `-${basename(args.list, '.json')}` : ''}${matchTest ? `-mt-${matchTest.replace(/[^A-Za-z0-9_]+/g, '_')}` : ''}${shardTag}`;
 const run = `${(args.ref ?? 'worktree').replace(/[^A-Za-z0-9._-]+/g, '_')}-${build}${listTag}`;
 lock(`mutation-${run}`);
 const { contracts, label, commit } = prepareCopy(`mutation-${run}`, args.ref ?? null);
