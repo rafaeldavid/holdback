@@ -4,12 +4,15 @@
 // before the buyer has paid, so it must not leak the work.
 //
 // Every pass is linear in the text: fixed patterns with bounded gaps and no nested quantifiers, and
-// decoders that each read a run once. Decoded text is screened again, two levels deep.
+// decoders that each read a run once. Decoded text is screened again by the same rules, two levels
+// deep, and flags for what it says, not for being encoded (screen-1): a decodable run flags when its
+// text holds a signal or reads as running prose. Text still encoded below the second level, and
+// decoded text past MAX_DECODED_CHARS, flag unread (fail closed).
 import type { Judgment, MimeType, ScreenSignalKind } from '@holdback/core';
 import { normalizeText } from './normalize.js';
 import type { UntrustedData } from './untrusted.js';
 
-export const SCREEN_VERSION = 'screen-0';
+export const SCREEN_VERSION = 'screen-1';
 
 export type ScreenResult = Judgment['screen'];
 type Signal = { kind: ScreenSignalKind; detail: string };
@@ -26,22 +29,42 @@ export interface ScreenInput {
 const MAX_SIGNALS = 20;
 const MAX_DEPTH = 2;
 const MAX_JSON_STRING_CHARS = 10 * 1024 * 1024;
+/** Decoded text one screen call reads, across all views and levels; past it the screen flags instead. */
+export const MAX_DECODED_CHARS = 1024 * 1024;
+/** Words in a row that make decoded text running prose. */
+const PROSE_WORDS = 5;
 
-// Fixed patterns, matched against several skeletons of the text (see variants()).
-const PHRASES: Array<[string, RegExp]> = [
-  ['override', /\b(?:ignore|disregard|forget|override|bypass)\b[^\n]{0,40}?\b(?:instructions?|rubric|rules|criteria|prompt|guidelines|above|previous|prior)\b/],
-  ['role-reset', /\byou are now\b/],
-  ['new-instructions', /\bnew instructions?\b/],
-  ['prompt-probe', /\b(?:system|developer|hidden) prompt\b/],
-  ['role-tag', /<\/?\s*(?:system|instructions?|assistant|user|data)\s*>/],
-  ['verdict-steer', /\b(?:output|return|respond with|answer|print|mark (?:this|it) as)\b[^\n]{0,30}?\bpass\b/],
-  ['score-steer', /\b(?:score|rate|grade)\s+(?:this|it|every|all|each)\b[^\n]{0,30}?\b(?:4|four|max(?:imum)?|perfect|full)\b/],
-  ['schema-field', /\binjection ?suspected\b/],
-  ['persona', /\bas an? (?:ai|language model)\b/],
-  ['addressing', /\b(?:note|message|instructions?|attention|memo|notice) (?:to|for) (?:the |all |any )?(?:[a-z]+ )?(?:panel|judges?|evaluators?|graders?|models?|reviewers?|assistants?|ai|llms?)\b/],
-  ['judge-note', /\b(?:judge|evaluator|grader|reviewer|panel|model|assistant|ai|llm)s? (?:note|notice|instruction|message|directive)s?\b/],
-  ['verdict-claim', /\b(?:correct|only|right) (?:overall )?verdict\b|\boverall verdict is\b|\b(?:top|full|maximum|perfect) (?:marks|scores?)\b|\bpre ?approved\b|\bcriteria (?:are |were )?(?:all |fully )?(?:met|satisfied)\b/],
+// Fixed patterns, matched against several skeletons of the text (see variants()). A strong pattern
+// flags alone. A weak one is ordinary in honest work (an audit report says "bypass the previous check",
+// "Expected output: [PASS]", "a pre-approved allowance", "its system prompt"), so it flags only when a
+// judging target (TARGET) sits within TARGET_WINDOW characters of it in the same view. Each weak
+// pattern's strong form still flags alone: the phrase that names the judges, the rubric, the verdict
+// or the instructions and tells the reader what to decide.
+type Phrase = { id: string; re: RegExp; weak?: true };
+const PHRASES: Phrase[] = [
+  { id: 'override', re: /\b(?:ignore|disregard|forget|override|bypass)\b[^\n]{0,40}?\b(?:instructions?|rubric|prompt|guidelines|criteria)\b|\b(?:ignore|disregard|forget)\b[^\n]{0,40}?\b(?:above|previous|prior)\b/ },
+  { id: 'override', re: /\b(?:ignore|disregard|forget|override|bypass)\b[^\n]{0,40}?\b(?:rules|above|previous|prior)\b/g, weak: true },
+  { id: 'role-reset', re: /\byou are now\b/ },
+  { id: 'new-instructions', re: /\bnew instructions?\b/ },
+  { id: 'prompt-probe', re: /\b(?:your|reveal|repeat|print|show|leak|disclose|output|dump)\b[^\n]{0,20}?\b(?:system|developer|hidden) prompt\b/ },
+  { id: 'prompt-probe', re: /\b(?:system|developer|hidden) prompt\b/g, weak: true },
+  { id: 'role-tag', re: /<\/?\s*(?:system|instructions?|assistant|user|data)\s*>/ },
+  { id: 'verdict-steer', re: /\b(?:respond with|mark (?:this|it) as)\b[^\n]{0,30}?\bpass\b/ },
+  { id: 'verdict-steer', re: /\b(?:output|return|answer|print)\b[^\n]{0,30}?\bpass\b/g, weak: true },
+  { id: 'score-steer', re: /\b(?:score|rate|grade)\s+(?:this|it|every|all|each)\b[^\n]{0,30}?\b(?:4|four|max(?:imum)?|perfect|full)\b/ },
+  { id: 'schema-field', re: /\binjection ?suspected\b/ },
+  { id: 'persona', re: /\bas an? (?:ai|language model)\b/ },
+  { id: 'addressing', re: /\b(?:note|message|instructions?|attention|memo|notice) (?:to|for) (?:the |all |any )?(?:[a-z]+ )?(?:panel|judges?|evaluators?|graders?|models?|assistants?|ai|llms?)\b/ },
+  { id: 'addressing', re: /\b(?:note|message|instructions?|attention|memo|notice) (?:to|for) (?:the |all |any )?(?:[a-z]+ )?reviewers?\b/g, weak: true },
+  { id: 'judge-note', re: /\b(?:judge|evaluator|grader|panel|model|assistant|ai|llm)s? (?:note|notice|instruction|message|directive)s?\b/ },
+  { id: 'judge-note', re: /\breviewers? (?:note|notice|instruction|message|directive)s?\b/g, weak: true },
+  { id: 'judge-steer', re: /\b(?:judges?|panel(?:ists?)?|evaluators?|graders?|adjudicators?)\b[^\n]{0,30}?\b(?:should|must|shall|will|need to|needs to|are to|is to|have to|has to|please)\b[^\n]{0,20}?\b(?:accept|approve|pass|score|rate|grade|mark|return|output|ignore|disregard)\b/ },
+  { id: 'verdict-claim', re: /\b(?:correct|only|right) (?:overall )?verdict\b|\boverall verdict is\b|\b(?:top|full|maximum|perfect) (?:marks|scores?)\b|\bverdicts?\b[^\n]{0,40}?\b(?:pass(?:es|ed)?|accept(?:ed)?|approved?)\b/ },
+  { id: 'verdict-claim', re: /\bpre ?approved\b|\bcriteria (?:are |were )?(?:all |fully )?(?:met|satisfied)\b/g, weak: true },
 ];
+/** What a weak pattern must sit near to flag: the judges, their rubric, their verdict or a verdict field. */
+const TARGET = /\b(?:verdicts?|rubrics?|judges?|judging|panel(?:ists?)?|evaluators?|graders?|adjudicators?|injection ?suspected|overall (?:pass|fail|abstain))\b|"overall"/;
+const TARGET_WINDOW = 80;
 
 // UTS #39 confusables, the Cyrillic and Greek letters that look Latin (subset).
 const CONFUSABLE: Record<string, string> = {
@@ -103,13 +126,28 @@ function variants(text: string): string[] {
   const collapsed = collapseSpaced(sk);
   const single = sk.replace(/  +/g, ' ');
   const leet = single.replace(/[a-z0-9]+/g, (t) => (/[a-z]/.test(t) && /[0-9]/.test(t) ? t.replace(/[0-9]/g, (d) => LEET[d] ?? d) : t));
-  return [text.toLowerCase(), single, collapsed, leet, rot13(single), [...single].reverse().join('')];
+  // Reverse before folding, so the camel-case split sees the words the right way round ("erongI").
+  const reversed = skeleton([...text].reverse().join('')).replace(/  +/g, ' ');
+  return [text.toLowerCase(), single, collapsed, leet, rot13(single), reversed];
+}
+
+/** True when some match of the weak pattern has a judging target within the window around it. */
+function nearTarget(view: string, re: RegExp): boolean {
+  for (const m of view.matchAll(re)) {
+    const from = Math.max(0, m.index - TARGET_WINDOW);
+    if (TARGET.test(view.slice(from, m.index + m[0].length + TARGET_WINDOW))) return true;
+  }
+  return false;
 }
 
 function phraseIds(text: string): string[] {
   if (!text) return [];
   const vs = variants(text);
-  return PHRASES.filter(([, re]) => vs.some((v) => re.test(v))).map(([id]) => id);
+  const ids: string[] = [];
+  for (const { id, re, weak } of PHRASES) {
+    if (!ids.includes(id) && vs.some((v) => (weak ? nearTarget(v, re) : re.test(v)))) ids.push(id);
+  }
+  return ids;
 }
 
 const PRINTABLE = (b: number) => (b >= 0x20 && b <= 0x7e) || b === 0x09 || b === 0x0a || b === 0x0d;
@@ -178,6 +216,21 @@ function decodeMorse(run: string): string | undefined {
 /** Morse written with middle dots, bullets, underscores, dashes or pipes, mapped to . - and /. */
 const morseView = (text: string) => text.replace(/[\u00B7\u2022\u2219\u22C5\u2027]/g, '.').replace(/[_\u2212\u2013\u2014\u2012]/g, '-').replace(/\|/g, '/');
 
+/** A word of prose: letters (digits allowed, as in leetspeak), with light punctuation around it. */
+const PROSE_WORD = /^["'(\[]?(?=[A-Za-z0-9'-]{0,40}[A-Za-z])[A-Za-z0-9'-]{1,40}[,.;:!?"')\]]{0,3}$/;
+/**
+ * Decoded text that reads as running prose: PROSE_WORDS words in a row. A JWT's JSON, a hex-encoded
+ * function signature or binary are not; a sentence hidden in base64 is, and the judges can decode it.
+ */
+function isProse(text: string): boolean {
+  let run = 0;
+  for (const token of text.split(/\s+/)) {
+    run = PROSE_WORD.test(token) ? run + 1 : 0;
+    if (run >= PROSE_WORDS) return true;
+  }
+  return false;
+}
+
 const DECODERS: Array<[string, RegExp, (run: string) => string | undefined, (t: string) => string]> = [
   ['base64', B64_TOKEN, decodeB64, (t) => t],
   ['joined base64', B64_JOINED, decodeJoined, (t) => t],
@@ -199,6 +252,11 @@ function lineCounter(text: string): (index: number) => number {
 class Signals {
   readonly list: Signal[] = [];
   private readonly seen = new Set<string>();
+  /** Shared by a screen call and every child: decoded characters read so far. */
+  constructor(readonly budget: { decoded: number } = { decoded: 0 }) {}
+  child(): Signals {
+    return new Signals(this.budget);
+  }
   get full(): boolean {
     return this.list.length >= MAX_SIGNALS;
   }
@@ -239,18 +297,31 @@ function scanViewUnguarded(text: string, where: string, out: Signals, depth: num
   if (ids.length) out.add('instruction_phrase', `in ${where}: ${ids.join(', ')}`);
   const mixed = mixedScriptWords(text);
   if (mixed) out.add('encoded_run', `${mixed} mixed-script words (Latin with Cyrillic or Greek) in ${where}`);
-  if (depth >= MAX_DEPTH) return;
   for (const [name, re, decode, view] of DECODERS) {
     const t = view(text);
     const lineOf = lineCounter(t);
     for (const m of t.matchAll(re)) {
       if (out.full) return;
-      // Failed decodes cost nothing against the signal cap, so padding cannot hide a later run.
+      // Failed and clean decodes cost nothing against the signal cap, so padding cannot hide a later
+      // run; they cost decode budget, and an exhausted budget flags.
       const decoded = decode(m[0]);
       if (decoded === undefined) continue;
       const line = lineOf(m.index);
+      if (depth >= MAX_DEPTH) {
+        out.add('encoded_run', `decodable ${name} run at line ${line} of ${where}, encoded deeper than the screen decodes`);
+        return;
+      }
+      out.budget.decoded += decoded.length;
+      if (out.budget.decoded > MAX_DECODED_CHARS) {
+        out.add('encoded_run', `more than ${MAX_DECODED_CHARS} characters of decoded text; the screen read no further in ${where}`);
+        return;
+      }
+      const inner = out.child();
+      scanView(decoded, `decoded ${name} at line ${line} of ${where}`, inner, depth + 1);
+      // Morse has no honest use in a delivery, so a decodable Morse run flags whatever it spells.
+      if (inner.list.length === 0 && name !== 'Morse' && !isProse(decoded)) continue;
       out.add('encoded_run', `decodable ${name} run of ${m[0].length} characters at line ${line} of ${where}`);
-      scanView(decoded, `decoded ${name} at line ${line} of ${where}`, out, depth + 1);
+      for (const s of inner.list) out.add(s.kind, s.detail);
     }
   }
 }
@@ -262,7 +333,8 @@ function scanDerived(text: string, where: string, out: Signals): void {
   if (n.zeroWidth) out.add('zero_width', `${n.zeroWidth} zero-width or invisible characters in ${where}`);
   if (n.nfkcChanged) out.add('encoded_run', `${n.nfkcChanged} characters changed by NFKC in ${where}`);
   scanView(n.hiddenTagText, `hidden characters in ${where}`, out, MAX_DEPTH);
-  scanView(n.text, where, out, 1);
+  // The same two levels of decoding as the raw text: MAX_DECODED_CHARS bounds the cost of both views.
+  scanView(n.text, where, out, 0);
 }
 
 /** All string keys and values of a parsed JSON document, iteratively (no recursion on hostile depth). */
