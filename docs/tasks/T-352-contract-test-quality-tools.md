@@ -58,7 +58,7 @@ All on `main` at `5a90dc5`, 2026-11-11 and 2026-11-12. The full write-up is `doc
   - M005 and M006 are killed by `AgreeAndFundExpiry.t.sol`, holdback PR 358, merged 2026-11-12 [measured: CI's contracts job passed on main with the tests].
   - The tests in `MutationGaps.t.sol` have not run yet [not verified]. They need the machine, which the lane holds; CI runs them on this PR.
 - **The review of the mutation script** (one `reviewer`) found no false kill and no write to `contracts/src/`. It found eight Medium and Low items; all eight are fixed: the fixed fuzz seed, `--resume` bound to the source, tests, build and mutant text, one locked copy per run, build timeouts, mutant paths limited to `src/`, the archive by commit, a stricter test-name parser with `--color never`, and the report written before a stop.
-- **Lint:** `eslint` on the three scripts with the repo config passed [measured].
+- **Lint:** `eslint --no-ignore` on the three scripts with the repo config passed [measured]. Without `--no-ignore` the main checkout's config ignores `.worktrees/**` and lints nothing; CI's `pnpm lint` lints them.
 
 ## Decisions
 
