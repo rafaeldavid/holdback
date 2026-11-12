@@ -14,7 +14,7 @@ import { loadTermsFile } from '@holdback/testkit';
 import { generatePrivateKey } from 'viem/accounts';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { makeKeys } from './buyer-signer.ts';
-import { DELIVERY_WINDOW_SEC, parseArgs, PRICE_UNITS, runAuditDeal, SCOPE, shown, startLocalWorld, startSeller, type AuditDealOptions, type LocalWorld } from './audit-deal.ts';
+import { CASES, DELIVERY_WINDOW_SEC, parseArgs, PRICE_UNITS, rehearse, runAuditDeal, SCOPE, shown, startLocalWorld, startSeller, type AuditDealOptions, type CaseName, type LocalWorld, type RehearsalOptions } from './audit-deal.ts';
 import { Refusal } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -23,6 +23,10 @@ const fixture = (path: string) => fileURLToPath(new URL(`../fixtures/${path}`, i
 const TWO_FILES_TERMS = fixture('terms/audit-report-two-files.yaml');
 const TWO_FILES_REPORT = fixture('data/audit-report/report.two-files.json');
 const TWO_FILES_MISSING = fixture('data/audit-report/report.two-files.missing-file.json');
+// T-355: terms in the shape of the pilot kit's terms.json (JSON, concrete values, checks on a job export), and an export that passes them.
+const EXPORT_TERMS = fixture('terms/audit-export.json');
+const EXPORT_REPORT = fixture('data/audit-report/export.json');
+const OWN_SHAPE_MAPPING = fixture('data/audit-report/seller-shape-a.mapping.json');
 const SCRIPT = fileURLToPath(new URL('./audit-deal.ts', import.meta.url));
 
 /** Runs `node examples/audit-deal.ts <args>` to its exit, with its own local world. */
@@ -336,6 +340,15 @@ describe('examples/audit-deal.ts with a seller\'s own report and terms (T-326)',
     expect(() => parseArgs(['r.json'])).toThrow('unknown option r.json');
   });
 
+  it('the terms file\'s adjudication fee reaches the offer (T-330 triage row 1)', async () => {
+    const { result } = await run('released', { reportFile: TWO_FILES_REPORT, termsFile: TWO_FILES_TERMS });
+    const r = await result;
+    expect(r.outcome).toBe('Released');
+    // 50.00 tUSD, as the file says, not the adjudicator's published minimum of 1.00 tUSD.
+    expect(r.offer.fees.adjudication).toEqual({ token: 'tUSD', amount: '50000000' });
+    expect(r.paid.hold).toEqual({ token: 'tUSD', amount: '1284560000' });
+  }, 60_000);
+
   it('the command: exit 0 on a released report, 1 on a refused one with the failed check, 2 when it cannot run', async () => {
     const [released, refused, bad] = await Promise.all([
       cli(['--report', TWO_FILES_REPORT, '--terms', TWO_FILES_TERMS]),
@@ -351,4 +364,179 @@ describe('examples/audit-deal.ts with a seller\'s own report and terms (T-326)',
     expect(bad.err).toContain('audit-deal: --terms needs a file');
     expect(bad.err).toContain('usage: pnpm audit-deal');
   }, 90_000);
+});
+
+describe('examples/audit-deal.ts rehearses the pilot\'s cases (T-355)', () => {
+  // Each case takes about 4 faucet grants (the seller's mandate, the buyer's funds); the world allows 10 a client per hour.
+  beforeEach(() => world.advanceClock(3601));
+
+  /** One case in a fresh directory, its output captured. The world's panel passes unless the case sets it. */
+  async function rehearsal(name: CaseName, more: Partial<RehearsalOptions> = {}) {
+    const dir = mkdtempSync(join(tmpdir(), 't355-'));
+    dirs.push(dir);
+    const lines: string[] = [];
+    const r = await rehearse({ case: name, operators: world.operators, world, dir, pollMs: 50, timeoutMs: 30_000, log: (l) => lines.push(l), ...more });
+    const record = JSON.parse(readFileSync(r.record, 'utf8')) as J;
+    return { r, out: lines.join('\n'), record, dir };
+  }
+  const state = async (id: string) => Promise.all([0, 1].map(async (node) => (await get(node, `/v1/commitments/${id}`)).escrowState));
+  const check = (record: J, name: string) => (record.checks as J[]).find((c) => c.check === name)?.ok;
+
+  it('names seven cases', () => {
+    expect(CASES).toEqual(['released', 'redelivered', 'rubric', 'refunded', 'missed-deadline', 'shown-mismatch', 'resume']);
+  });
+
+  it('released: the report passes, the deal ends Released, the seller is paid, and the record shows it', async () => {
+    const { r, out, record } = await rehearsal('released');
+    expect(r.end).toBe('Released');
+    expect(r.expected).toBe(true);
+    expect(await state(r.commitmentId)).toEqual(['Released', 'Released']);
+    expect(r.sellerReceived).toEqual({ token: 'tUSD', amount: PRICE_UNITS });
+
+    // Before it approved, the buyer was shown every signed field and what differs from the seller's defaults.
+    expect(r.shown.signed).toMatchObject({ 'settlement.mode': 'guaranteed_on_decision', 'disclosure.level': 'public', clubId: expect.any(String), maxSubmissions: 1 });
+    for (const f of ['rulebookHash', 'policyHash', 'registryHash']) expect(r.shown.signed[f]).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(r.shown.signed.policyId).toEqual(expect.any(String));
+    // The stub quotes 4 days; the adapter's published default is 7.
+    expect(r.shown.differences).toEqual([{ field: 'deadlines.deliverWithinSec', old: 604_800, new: DELIVERY_WINDOW_SEC }]);
+    expect(out).toContain('Shown before approval: settlement.mode guaranteed_on_decision, disclosure.level public, clubId ');
+    expect(out).toContain('Differences from the seller\'s defaults: deadlines.deliverWithinSec 604800 -> 345600.');
+
+    // The record: the outcome, the price to the seller, every operator answering.
+    expect(r.record).toBe(join(r.dir, 'deal-record.json'));
+    expect(record.row).toMatchObject({ commitmentId: r.commitmentId, outcome: 'Released', price: { token: 'tUSD', amount: PRICE_UNITS }, reclaimed: false });
+    expect(check(record, 'postings follow the outcome')).toBe(true);
+    expect(check(record, 'all operators answered')).toBe(true);
+    expect(out).toContain(`Case released: Released, as expected. Deal record: ${r.record}`);
+    // The seller's adapter started from one configuration file the run wrote.
+    expect(JSON.parse(readFileSync(join(r.dir, 'seller-adapter.config.json'), 'utf8'))).toMatchObject({ sellerApi: expect.any(Object), alerts: { secretEnv: 'HOLDBACK_ALERT_SECRET' } });
+  }, 60_000);
+
+  it('redelivered: the seller\'s check run refuses the first report, alerts the seller, and delivers the fixed one before the deadline', async () => {
+    const { r, out, record } = await rehearsal('redelivered');
+    expect(r.end).toBe('Released');
+    expect(await state(r.commitmentId)).toEqual(['Released', 'Released']);
+    // The alert callback got two signed alerts: the refusal with the failed check, then the fixed delivery.
+    expect(r.alerts.map((a) => [a.type, a.signed])).toEqual([['delivery.refused', true], ['delivery.fixed', true]]);
+    expect(r.alerts[0]!.checks.map((c: J) => c.checkId)).toEqual(['coverage']);
+    expect(out).toMatch(/seller adapter: \S+ ALERT 0x[0-9a-f]{64} delivery\.refused \(attempt 1\)/);
+    expect(out).toContain('The seller says the fixed report is ready');
+    expect(Date.parse(record.row.deliveredAt)).toBeLessThan(Date.parse(record.terms.signed.timing.deliverBy));
+    expect(record.row.outcome).toBe('Released');
+    expect(r.sellerReceived).toEqual({ token: 'tUSD', amount: PRICE_UNITS });
+  }, 60_000);
+
+  it('rubric: the buyer asks for the panel; the report passes the checks and the panel, and the deal ends Released', async () => {
+    const { r, record } = await rehearsal('rubric');
+    expect(r.end).toBe('Released');
+    expect(r.offer.rubric.criteria.length).toBe(5);
+    expect(r.shown.differences.map((d) => d.field)).toContain('rubric');
+    expect(record.row).toMatchObject({ outcome: 'Released', panelDecision: 'accept' });
+  }, 60_000);
+
+  it('refunded: the report passes the checks the seller can run, the panel rejects it after delivery, and the hold comes back', async () => {
+    const { r, out, record } = await rehearsal('refunded');
+    expect(r.end).toBe('Refunded');
+    expect(r.expected).toBe(true);
+    expect(await state(r.commitmentId)).toEqual(['Refunded', 'Refunded']);
+    expect(r.reclaimed).toBe(false);
+    // A judged refund returns the price; the adjudication fee paid for the judgment.
+    expect(r.buyerHolds).toEqual({ token: 'tUSD', amount: PRICE_UNITS });
+    expect(r.sellerReceived).toEqual({ token: 'tUSD', amount: '0' });
+    expect(record.row).toMatchObject({ outcome: 'Refunded', panelDecision: 'reject', reclaimed: false });
+    expect(record.row.deliveredAt).toEqual(expect.any(String));
+    expect(out).toContain('the local world\'s panel is a stand-in set to reject: no model runs');
+  }, 60_000);
+
+  it('missed-deadline: the seller never delivers, and the buyer\'s signer reclaims the hold after the deadline', async () => {
+    const { r, record } = await rehearsal('missed-deadline');
+    expect(r.end).toBe('Refunded');
+    expect(r.reclaimed).toBe(true);
+    expect(r.reports).toEqual(expect.arrayContaining(['deliverBy-passed', 'refunded']));
+    expect(await eventTypes(r.commitmentId)).not.toContain('delivery.submitted');
+    expect(r.buyerHolds).toEqual(r.paid!.hold);
+    expect(record.row).toMatchObject({ outcome: 'Refunded', reclaimed: true, deliveredAt: null });
+  }, 60_000);
+
+  it('shown-mismatch: the operators raise their fee after the buyer saw the offer, and the signer refuses before any signature', async () => {
+    const { r, out, record } = await rehearsal('shown-mismatch');
+    expect(r.end).toBe('Not funded');
+    expect(r.expected).toBe(true);
+    expect(r.refusal).toMatch(/^refusing to sign: fees\.operator is \{"amount":"\d+","token":"tUSD"\}, not the shown \{"amount":"200000","token":"tUSD"\}/);
+    expect(r.paid).toBeNull();
+    expect(await eventTypes(r.commitmentId)).not.toContain('hold.funded');
+    expect(['Offered', 'AcceptedByAdjudicator']).toContain((await state(r.commitmentId))[0]);
+    expect(record.row.fundedAt).toBeNull();
+    expect(out).toMatch(/The signer refuses \([\d.]+ s\): refusing to sign: fees\.operator is/);
+  }, 60_000);
+
+  it('resume: the buyer stops after funding, the seller\'s adapter restarts with a report mapping, and the buyer resumes from its key store days later', async () => {
+    const { r, out, record } = await rehearsal('resume', { mappingFile: OWN_SHAPE_MAPPING });
+    expect(r.end).toBe('Released');
+    const names = r.steps.map((s) => s.step);
+    for (const step of ['The buyer stops after funding', 'The seller\'s adapter restarts', 'Days pass', 'The buyer resumes from its key store', 'The deal ends Released']) expect(names).toContain(step);
+    expect(names.indexOf('The buyer resumes from its key store')).toBeGreaterThan(names.indexOf('Days pass'));
+    // The restarted adapter read the same journal and converted the seller's own shape before it delivered.
+    expect(out).toMatch(/seller adapter: \S+ 0x[0-9a-f]{64} converted the result with the report mapping/);
+    expect(record.row.outcome).toBe('Released');
+  }, 60_000);
+
+  it('a seller\'s own report and terms in the kit\'s shape (JSON terms on a job export): released and redelivered, with the file\'s fee', async () => {
+    const files = { reportFile: EXPORT_REPORT, termsFile: EXPORT_TERMS, scope: { commit: '9b1d4e7a3c5f20864d1e3b5a7c9f0e2d4b6a8c1e', files: ['src/Vault.sol', 'src/Oracle.sol', 'src/Fees.sol'], lines: 1200 } };
+    const released = await rehearsal('released', files);
+    expect(released.r.end).toBe('Released');
+    expect(released.r.offer.price).toEqual({ token: 'tUSD', amount: '1500000000' });
+    expect(released.r.offer.fees.adjudication).toEqual({ token: 'tUSD', amount: '50000000' });
+    expect(released.r.offer.windows.deliverWithinSec).toBe(604_800);
+    expect(released.r.delivery!.work).toBe(readFileSync(EXPORT_REPORT, 'utf8'));
+    expect(released.r.shown.differences).toEqual([]);
+
+    world.advanceClock(3601);
+    // No refused report named: the run cuts the seller's report in half, which intake refuses as JSON.
+    const redelivered = await rehearsal('redelivered', files);
+    expect(redelivered.r.end).toBe('Released');
+    expect(redelivered.r.alerts.map((a) => a.type)).toEqual(['delivery.refused', 'delivery.fixed']);
+    expect(redelivered.out).toContain('The first report: the seller\'s report cut to its first half');
+  }, 90_000);
+
+  it('an unused key from an existing key store, as the live run takes the rehearsal key: one key, one deal', async () => {
+    const store = mkdtempSync(join(tmpdir(), 't355-keys-'));
+    dirs.push(store);
+    const key = await makeKeys(store, { operators: world.operators });
+    const { r } = await rehearsal('released', { keys: { store, buyer: key.address } });
+    expect(r.end).toBe('Released');
+    expect(r.buyer).toBe(key.address);
+    // The key now serves that deal: a second case with it stops before any quote.
+    world.advanceClock(3601);
+    await expect(rehearsal('released', { keys: { store, buyer: key.address } })).rejects.toThrow(/this key already serves 0x[0-9a-f]{64}: one key, one deal/);
+  }, 60_000);
+
+  it('refuses before any deal opens: a case the live service cannot run, a scope that is not JSON', () => {
+    expect(parseArgs(['--case', 'all'])).toEqual({ live: false, case: 'all' });
+    expect(parseArgs(['--case', 'resume', '--mapping', 'm.json', '--scope', '{"commit":"a"}', '--out', 'o', '--refused-report', 'x.json'])).toEqual({ live: false, case: 'resume', mappingFile: 'm.json', scope: { commit: 'a' }, out: 'o', refusedReportFile: 'x.json' });
+    expect(parseArgs(['--live', '--case', 'released', '--report', 'r.json', '--terms', 't.json', '--keys', 'k', '--buyer', '0x15c01fd0877f748f72a572aac5f2d5579af76044'])).toEqual({ live: true, case: 'released', reportFile: 'r.json', termsFile: 't.json', keys: 'k', buyer: '0x15c01fd0877f748f72a572aac5f2d5579af76044' });
+    expect(() => parseArgs(['--case', 'colour'])).toThrow(/--case is one of released, redelivered, rubric, refunded, missed-deadline, shown-mismatch, resume or all/);
+    expect(() => parseArgs(['--scope', 'three files'])).toThrow('--scope is not JSON');
+    expect(() => parseArgs(['--live', '--case', 'all'])).toThrow('--live runs one case');
+    expect(() => parseArgs(['--live', '--case', 'refunded'])).toThrow(/--live cannot run refunded/);
+    expect(() => parseArgs(['--live', '--case', 'shown-mismatch'])).toThrow(/--live cannot run shown-mismatch/);
+    expect(() => parseArgs(['--keys', 'k'])).toThrow('--keys and --buyer go together');
+    expect(() => parseArgs(['--live', '--report', 'r.json'])).toThrow('--report and --terms run on the local world only, or with --case');
+    expect(() => parseArgs(['--mapping', 'm.json'])).toThrow('--mapping, --scope, --refused-report, --out, --keys and --buyer need --case');
+  });
+
+  it('the command: --case all runs every case on the in-process chain and prints each end state and record; no arguments as before', async () => {
+    const outDir = mkdtempSync(join(tmpdir(), 't355-cli-'));
+    dirs.push(outDir);
+    const [all, plainRun] = await Promise.all([cli(['--case', 'all', '--out', outDir]), cli([])]);
+    expect(readdirSync(outDir).sort()).toEqual([...CASES].sort());
+    expect(all.code, all.err).toBe(0);
+    for (const name of CASES) expect(all.out).toMatch(new RegExp(`Case ${name}: (Released|Refunded|Not funded), as expected\\. Deal record: \\S+deal-record\\.json`));
+    expect(all.out).toMatch(/This world's faucet grants at most 1,000,000\.00 tUSD a deal/);
+    expect(all.out).toContain('7 of 7 cases ended as expected.');
+    expect(plainRun.code, plainRun.err).toBe(0);
+    expect(plainRun.out).toContain('== Outcome: released ==');
+    expect(plainRun.out).toContain('== Outcome: refused ==');
+    expect(plainRun.out).not.toContain('Case ');
+  }, 120_000);
 });
