@@ -5,7 +5,7 @@ This recipe runs `examples/seller-adapter.ts` in production on one Linux machine
 ## The pieces
 
 - **The adapter** listens on `127.0.0.1:8791`, plain HTTP. Only processes on the same machine reach it.
-- **Caddy** (`seller-adapter.Caddyfile`) serves `https://<your name>/quote`, gets and renews the certificate, and forwards to the adapter.
+- **Caddy** (`seller-adapter.Caddyfile`) serves `https://<your name>/quote` and `https://<your name>/defaults`, gets and renews the certificate, and forwards to the adapter. `POST /deals/<commitmentId>/ready` is not forwarded: call it on the loopback address.
 - **systemd** (`seller-adapter.service`) starts the adapter at boot with one configuration file, `/etc/crow-seller/seller-adapter.json`, restarts it 5 s after any exit, and stops it with SIGTERM.
 
 **Why a TLS proxy, not TLS in the adapter.** A proxy gets and renews the certificate on its own, so the adapter never reads a private key file and needs no restart when the certificate changes. TLS in the adapter would need certificate paths in the configuration, a renewal job and a reload. The adapter stays a loopback HTTP service, which is what its tests run.
@@ -35,6 +35,8 @@ This recipe runs `examples/seller-adapter.ts` in production on one Linux machine
 
    The values are yours: any positive whole numbers. `overall` counts the requests that passed the credential, which caps how many offers the adapter signs. Past it the route answers 429 with `Retry-After` in seconds. Leave `quoteAuth` out to keep the route open. The adapter refuses a field it does not take, naming it, and the four options removed in T-331 (`stream`, `host`, `trustProxy`, `quoteRateLimit.perClient`), saying what to do instead. A limit per client address belongs in Caddy, which sees the address. `examples/seller-adapter.config.json` is a smaller example that points at the stub API.
 
+   **An API of another shape.** When your API is not the three calls of `site/sell.txt` ("Sell a priced API service"), describe it in `sellerApi` instead of running a service in between: a `baseUrl`, a credential (`auth`), and a mapping for the quote, start and result calls, with the job's status and further files. `examples/seller-adapter.job-api.config.json` is a whole example, and "Your API's shape" on the seller's page lists every field.
+
    **The mandate.** Every offer needs a mandate in the club. On the test service, the adapter takes one from the faucet at start and renews it before it ends (each lasts 30 days; `mandate.renewBeforeSec`, default one day). Elsewhere your club's principal gives you one, and a start without one stops and says so.
 
 3. **Secrets.** Write `/etc/crow-seller/environment`, owned by root with mode 0600:
@@ -43,6 +45,7 @@ This recipe runs `examples/seller-adapter.ts` in production on one Linux machine
    HOLDBACK_KEY=0x<the seller's signing key>
    HOLDBACK_OPERATORS=https://<operator 1>,https://<operator 2>
    HOLDBACK_QUOTE_CREDENTIALS=<credential for buyer A>,<credential for buyer B>
+   JOBS_API_KEY=<your API's credential, when sellerApi.auth names this variable>
    ```
 
    The adapter reads these from its environment only and never logs them. Give each buyer its own credential, so you can remove one without the others. A buyer sends `Authorization: Bearer <its credential>` with each quote.
@@ -56,9 +59,9 @@ This recipe runs `examples/seller-adapter.ts` in production on one Linux machine
    journalctl -u seller-adapter -f
    ```
 
-   The adapter's first log lines say which club and adjudicators its offers name and where they came from, when the mandate ends, and what the quote route takes: the credential's variable name (never its value) and the rate limit.
+   The adapter's first log lines say which club and adjudicators its offers name and where they came from, when the mandate ends, where your API is and which variable holds its credential, and what the quote route takes: the credential's variable name (never its value) and the rate limit.
 
-5. **Publish.** Your card's quoted item names `https://<your name>/quote` (`site/llms.txt`, "Sell a priced API service").
+5. **Publish.** Your card's quoted item names `https://<your name>/quote`, and `https://<your name>/defaults` as `pricing.defaults` (`site/sell.txt`, "Sell a priced API service").
 
 ## Restarts
 
@@ -73,4 +76,4 @@ Run one adapter per journal. On SIGTERM it stops taking quotes and finishes the 
 
 ## Checks
 
-`pnpm exec vitest run examples/seller-adapter.test.ts` runs the adapter on the in-process chain, including a start from one configuration file, the mandate taken and renewed on the test service, a quote over HTTPS through a TLS proxy, the credential, the rate limit and a restart with three open deals.
+`pnpm exec vitest run examples/seller-adapter-job-api.test.ts` runs deals against a job API of another shape from one configuration file: a credential, mapped calls, a status field and further files. `pnpm exec vitest run examples/seller-adapter.test.ts` runs the adapter on the in-process chain, including a start from one configuration file, the mandate taken and renewed on the test service, a quote over HTTPS through a TLS proxy, the credential, the rate limit and a restart with three open deals.

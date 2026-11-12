@@ -1,6 +1,6 @@
 # ADR-0032: The beacon rounds for escalation and fallback
 
-- **Status:** Proposed, 2026-11-11. Rafa may overrule any line. The line most likely to be his call is the number of slots the margin covers (section 4).
+- **Status:** Proposed, 2026-11-11. Rafa answered its one open point on 2026-11-12: the margin of 29 s on Ethereum mainnet and on Sepolia stands (section 4; D63). He may overrule any line.
 - **Date:** 2026-11-11
 - **Raised by:** T-348, for package R8 of the contract refinement plan (kept privately, `docs/private-materials.md`). It answers finding X-1 of the drand verifier's review (`docs/reviews/2026-11-11-drand-verifier-review.md`, §10), item 1 of the private hardening task T-225 (the fallback's round), and finding F-2 of the state model (`docs/audit/state-model.md`, section 10).
 - **Builds on:** ADR-0006 (defended judgment), ADR-0018 (the panel seed beacon), ADR-0031 (the phase-one scope); D26, D31, D32, D57.
@@ -22,7 +22,7 @@ round = BEACON.roundAt(lastChoice + BEACON_MARGIN) + 1
 | The appeal adjudicator's, after an escalation | `t1`, the block time of the escalation | `roundAt(t1) + 1` (`:265`) |
 | The fallback adjudicator's | `judgeBy − 1`, the last second a primary's decision can carry | `roundAt(judgeBy)` (`:261`) |
 
-**The margin is 29 s on Ethereum mainnet and on Sepolia.** The round is then published at least 30 s after `lastChoice`: two slots and a half. A block proposer can know the seed before it fixes the block only if it also holds the two slots after it.
+**The margin is 29 s on Ethereum mainnet and on Sepolia.** The round is then published at least 30 s after `lastChoice`: two slots and a half. A block proposer can know the seed before it fixes the block only if it also holds the two slots after it. Rafa kept this number on 2026-11-12 (section 4; D63).
 
 | | Ethereum mainnet | Sepolia | Local chain and SimChain (sim beacon) |
 | --- | --- | --- | --- |
@@ -222,7 +222,11 @@ So the round is published at least `n` and a half slots after `lastChoice`. For 
 - **The two columns answer two attackers.** The last column is for an escalation whose time the attacker does not influence: one chance, at the share raised to the number of slots. The runs per day are for an attacker that can choose when the escalation exists, for example a seller that times its delivery (section 6, residual 1). For that attacker the question is whether a run falls inside the deal, and a deal of a day or more meets one at `n = 2` for any operator with about 3% of the stake.
 - `n = 1` gives a 3% operator six runs a day. `n = 2` gives it one in five days and a 7% custodian three a day. `n = 3` gives the custodian one in five days, for 12 s more on each escalated or fallback case.
 - An escalated case then waits for a panel of models, which takes tens of seconds by itself. 29 s is of the same size; it is not the "settle in seconds" path, which is a primary's accept.
-- **Chosen: `n = 2`,** on the judgment that phase one's deals are small against what the attack needs: a validator operator of that size that colludes with one deal's party and withholds three blocks in public view, with three blocks' rewards at risk if it publishes them late (section 6). The choice is Rafa's to overrule. Another `n` changes one number before the deploy and the figures of this table; nothing else in this ADR moves. Gate line BR-6 measures the runs on mainnet before a deploy there.
+- **Chosen: `n = 2`,** on the judgment that phase one's deals are small against what the attack needs: a validator operator of that size that colludes with one deal's party and withholds three blocks in public view, with three blocks' rewards at risk if it publishes them late (section 6). Another `n` changes one number before the deploy and the figures of this table; nothing else in this ADR moves. Gate line BR-6 measures the runs on mainnet before a deploy there.
+- **Decided by Rafa, 2026-11-12: 29 s stands** (D63). The coordinating session recommended keeping it, and he answered, as that session relayed to this task: "that is OK as long as there's a valid reason". The reason, in two sentences:
+  - With two slots of margin, learning the round before committing takes a validator operator that proposes three slots in a row and colludes with a party to that deal: about 2.8 such runs a day at 7.31% of the stake.
+  - One slot would need only two in a row, about 38 runs a day at the same share; three slots would need four, about 0.2 runs a day, and would raise the smallest decidable escalation window from 37 s to 49 s for every deal.
+  The three frequencies are the table's [measured: 7,200 slots a day times the share raised to the run's length].
 
 **Why fixed at deploy, and not a term of the deal.**
 
