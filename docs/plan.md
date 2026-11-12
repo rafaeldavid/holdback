@@ -140,6 +140,7 @@ Focus (Rafa, 2026-11-06; D53, narrowed the same day by D54 after his walkthrough
 - T-360 A task in the maintainers' private repository, with no file here.
 - [ ] T-361 (in progress) Rubric readiness: the screen and the delivery check.
 - [x] T-362 (done: PR 374, 2026-11-12; the `CLAUDE.md` change, PR 375, waits for Rafa) The docs batch: the doc follow-ups from T-329 to T-361 that describe `main`. Task file `docs/tasks/T-362-docs-batch.md`.
+- [x] T-364 (done: PR 380, 2026-11-12; the `CLAUDE.md` part, PR 375, waits for Rafa) No running numbers in the standing docs: the rule in `docs/writing.md`, the sweep and a check. Task file `docs/tasks/T-364-no-running-numbers.md`.
 - D4 decided: the target is Ethereum mainnet (2026-11-01), built and tested on a local chain, then on Sepolia, the public testnet the demo settles on since D41 (2026-11-03). Mainnet deployment is a separate gate for Rafa after an audit. Record gas per deal in the evidence.
 
 Out of Phase 2 by D54 (Rafa's walkthrough, 2026-11-06): T-212, for the contract redeploy before mainnet; the scenario 11 redesign, as T-310; and T-221, paused until the centralized adjudicator is stable. All three moved to later phases (Future work, below). Phase 2 closes on Sepolia without a contract redeploy, because a new rules contract needs a new demo world (D49).
