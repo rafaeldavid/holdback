@@ -11,11 +11,11 @@ Sim batch 1, F2; decided by D32 (ADR-0012 amended). Tidewater seals Atlas's cont
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=241 |
 | Prefix | error. (the system must refuse a step; invariants hold) |
 | Settlement | SimChain (T-006) driving @holdback/core `step` |
-| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x8cb8…ea79 |
+| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0xd136…9300 |
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0xB4fB…f4B4 |
 | Seller | tidewater-seller 0xB63d…58A7 |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0xacc3…fdf3 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x8648…3e5f · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0x38c2…5930 · fallback bench-b 0xF27A…8D44 · appeal bench-c 0x7cC0…fb21 |
 | Operators | op-1 · op-2 |
 
@@ -51,7 +51,7 @@ Refusals:
 
 ## Receipts and log
 
-- Events 0–7. Chain head 0x0323…f373. Replay of 6 SimChain submissions from genesis matches the settlement state.
+- Events 0–7. Chain head 0xe7de…5850. Replay of 6 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 7 (rcpt-0001–rcpt-0007). The runner labels them without signing; the operator API signs real receipts.
 
 ## Invariants

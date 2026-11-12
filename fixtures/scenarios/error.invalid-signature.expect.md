@@ -11,11 +11,11 @@ Tidewater tries to agree and fund on Atlas's behalf: the Agree message names Atl
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=67 |
 | Prefix | error. (the system must refuse a step; invariants hold) |
 | Settlement | SimChain (T-006) driving @holdback/core `step` |
-| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x8cb8…ea79 |
+| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0xd136…9300 |
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0x83be…e604 |
 | Seller | tidewater-seller 0xCf79…d3Fd |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0xccac…a4e2 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0xaefd…8074 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xEb87…ad36 · fallback bench-b 0xb7fc…4cB2 · appeal bench-c 0xc459…4EDE |
 | Operators | op-1 · op-2 |
 
@@ -43,7 +43,7 @@ Refusals:
 
 ## Receipts and log
 
-- Events 0–1. Chain head 0xe6d9…3045. Replay of 2 SimChain submissions from genesis matches the settlement state.
+- Events 0–1. Chain head 0xc53b…626f. Replay of 2 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 2 (rcpt-0001–rcpt-0002). The runner labels them without signing; the operator API signs real receipts.
 
 ## Invariants

@@ -7,7 +7,7 @@
   "family": "gpt",
   "model": "placeholder-gpt-a-20260601",
   "promptTemplateHash": "0xabb5ec9b33cf9a936e140bf8530c217f6629fdf1e08a46fbdf6bd7363ce84dd2",
-  "inputHash": "0x4f301f17aeabfe742e5ca8d2ce080d10480c9ebd954b944b23f02c4606b66a5d",
+  "inputHash": "0xcc2800d7580093578ced8589c55398a1bd5d3472829b228afbaafe9e73150193",
   "rubricHash": "0x4201c2a950347823c494fcfc89f88fab1ca670b2086f66ed726aa9c7b0ec7925",
   "capturedFrom": "authored",
   "verdict": {
@@ -30,6 +30,6 @@
     ],
     "overall": "abstain",
     "injectionSuspected": false,
-    "rationale": "authored fixture verdict for todo.provider-outage (T-010, re-seated under agg-3 by T-018), not a model output: the gpt provider returned no answer, so this judge abstains"
+    "rationale": "authored fixture verdict for todo.provider-outage (T-010, re-seated under agg-3 by T-018 and under screen-1 by T-367), not a model output: the gpt provider returned no answer, so this judge abstains"
   }
 }
