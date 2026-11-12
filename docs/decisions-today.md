@@ -1,4 +1,4 @@
-# Decisions D1–D56
+# Decisions
 
 Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026, D37 to D40 on November 1 and 2, D41 to D44 on November 3, D45 to D49 on November 4, D50 to D52 on November 5, D53 to D55 on November 6, and D56 on November 10 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia, and marked decided by D41 on November 4). Newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles.
 
