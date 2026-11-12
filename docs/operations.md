@@ -64,7 +64,15 @@ node apps/test-agents/scripts/sell-to-test-buyer.mjs
 **A demo deploy** (T-234; Rafa's go-ahead first, as for every deploy):
 
 1. From main at the commit to deploy, run `pnpm demo-cloud:deploy`. It builds, reads each Worker's live version (its rollback target), deploys holdback-op1 then holdback-op2, and waits until both nodes answer `/v1/status` 200. It then runs one `examples/try.ts` deal against both operators, which must end Released within 180 s.
-2. It exits 0 on a pass. It exits 1 when an upload is refused or a later step fails, after it rolls back each Worker that changed.
+2. It exits 0 on a pass. It exits 1 when an upload is refused or a later step fails, after it rolls back each Worker that changed. It exits 2, before any upload, when the deal guard refuses (below).
+
+**The deal guard** (ADR-0036, T-377) runs after the build and before any upload. It reads the commit the live build names in discovery (`demo.build.commit`), that commit's `apps/adjudicator/src/kept-policies.json` (a commit from before the file carries exactly its registered defaults), and the open deals through the public reads: `GET /v1/adjudicators`, each adjudicator's deals from its acceptance until no adjudicator can decide them (`GET /v1/commitments?party=<address>&role=adjudicator&escrowState=…`, a Released or Refunded deal while its appeal is open), and each deal's `/terms` for its policy and registry hashes. Then:
+- it refuses, with exit code 2, a deploy after which an open deal the live build can judge could no longer be judged, and prints each such deal with its state and next deadline;
+- it refuses a new default the live build does not carry. **A new default ships in two deploys:** the first carries the new version or registry, a later one makes it the default in `kept-policies.json`, so an automatic rollback always lands on a build that can judge every open deal;
+- it warns and goes on when it cannot read the open deals: the deploy may be the fix for the outage that broke the read, and the static check (`apps/adjudicator/src/bound-policy.test.ts`) has passed in CI;
+- it reports, and does not check, a deal whose policy neither build registered (an outside primary's).
+
+So any open deal no longer blocks a deploy: only a deploy that drops what an open deal needs does. **The one override** is `HOLDBACK_DEPLOY_WITHDRAWN=<version or registry hash>`, for a version withdrawn by a recorded decision (ADR-0036 §2): `kept-policies.json` must mark it `withdrawn` with the decision and the reason, and `docs/decisions-today.md` records the deals it leaves unjudged. The guard then lets through only the deals orphaned by that withdrawal, lists them in the record line, and still refuses every other orphan. Under the override the script does not roll back on its own, since the rollback targets would judge under the withdrawn version.
 3. Paste the Markdown line it prints into this file, under a heading for the task. The line gives the date, the commit and its branch, each new version and its rollback target, the smoke deal's ID and time, and pass or fail.
 
 **To roll back by hand**, use the rollback targets the line names, both operators together:
