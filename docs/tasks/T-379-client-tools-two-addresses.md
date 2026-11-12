@@ -71,6 +71,7 @@ Labels: measured (run here), inferred (read from code), guessed.
 ### Pull request 1: the two addresses in every client tool
 
 - **Commands run, on the lane at `027e3db` plus this branch** [measured]: `pnpm typecheck` passed; `npx eslint examples site` passed; `npx vitest run examples/` passed 368 tests in 28 files (23 skipped, as on the lane); `pnpm snap` passed 43 of 43; `node site/build.mjs && node site/check.mjs` passed.
+- **`/verify` for kind 4, on the committed tree at `80963dd`** [measured]: `pnpm exec vitest run examples/` passed 368 tests in 28 files, 23 skipped, in 104 s. `pnpm snap` changed no snapshot (43 of 43 pass, no diff).
 - **Baseline before any edit** [measured]: the eight touched test files passed 153 tests in 31 s.
 - **The new tests** [measured]:
   - `examples/buyer-signer-addresses.test.ts` (7 tests): the one-line notice with no payment address set; a payment address saved in the key file, sent with the quote and shown in the offer, with the payout address and the five fields of item 19; the refusal of a payment address that is not the key file's; the refusal of a payout address the buyer did not approve; the advisory warnings (an adjudicator, the zero address); an offer in another token, which this world's operators refuse before it exists; a deal whose payout address differs from the seller's signing key, released to the payout address with the signing key's balance unchanged, and the buyer's deal record by `record()` (item 79) showing `paidTo`, with no secret key in it.
