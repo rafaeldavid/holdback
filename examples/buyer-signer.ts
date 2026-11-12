@@ -41,7 +41,7 @@ import { recoverTypedDataAddress, type Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { Agent } from './agent.ts';
 import { dealRecord, type DealRecord } from './deal-record.ts';
-import { commitmentIdOf, digestOfFile, isAddressText, jcs, knownPins, moneyAddressWarnings, operatorFeeOf, paymentSentence, Refusal, typedDataFile, typedOf, type Intent, type Pin } from './verify.ts';
+import { commitmentIdOf, deliveryHashOf, digestOfFile, isAddressText, jcs, knownPins, moneyAddressWarnings, openEnvelopeKey, operatorFeeOf, paymentSentence, Refusal, typedDataFile, typedOf, type Intent, type Pin } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -167,10 +167,15 @@ export type PaymentSignatures = { funding: string; operatorFee?: string | undefi
 /** What agreeAndFund took from the buyer: the hold (price plus adjudication fee) and the operator fee. */
 export type Paid = { total: Money; hold: Money; operatorFee: Money; receipt: J | null };
 export type Delivery = {
-  outcome: 'Released' | 'Refunded';
-  /** The work as text when the deal released; null on a refund, where no key is released. Untrusted data. */
+  outcome: 'Released' | 'Refunded' | 'Settled';
+  /**
+   * The work as text when the deal released, or settled with the key released and the work at hand; null otherwise.
+   * Untrusted data.
+   */
   work: string | null;
   plaintextSha256: string | null;
+  /** On a settlement: the payouts it made, whether it released the key, and why no work was opened when none was. */
+  settlement?: { payouts: J[]; keyReleased: boolean; note: string | null; deliveryHash?: string };
   /** What the buyer keeps: what it paid, the operator's signed receipt for the funding, and the deal's event hashes. */
   receipt: { commitmentId: Hex; outcome: string; paid: Money; funded: J | null; events: Array<{ seq: number; type: string; hash: string }>; finalAt: string | null };
   /** One link per on-chain step; empty on SimChain. */
@@ -205,6 +210,8 @@ export type KeyOptions = Options & {
  * - `released`, `refunded`: the quorum of operators (`confirmations`) reports the outcome. `reclaimed`: settlement
  *   refunded the hold (price and adjudication fee) on the reclaim; without it the adjudicator decided the refund.
  *   `finalAt` is when no appeal can follow.
+ * - `settled`: the quorum reports a mutual settlement (late work, or any split of the price): its `payouts`, and
+ *   whether it released the key to the work.
  * - `unconfirmed`: some operators report `state`, but fewer than the quorum agree. The deal stays open, the signer
  *   keeps reading, and the reclaim stays armed. `agreeing` of the `answered` operators report it; `required` must.
  */
@@ -212,7 +219,8 @@ export type Report =
   | { kind: 'deliverBy-passed'; commitmentId: Hex; deliverBy: string; settlementTime: string }
   | { kind: 'released'; commitmentId: Hex; finalAt: string | null }
   | { kind: 'refunded'; commitmentId: Hex; reclaimed: boolean; finalAt: string | null }
-  | { kind: 'unconfirmed'; commitmentId: Hex; state: 'Released' | 'Refunded'; agreeing: number; answered: number; required: number };
+  | { kind: 'settled'; commitmentId: Hex; payouts: J[]; keyReleased: boolean; finalAt: string | null }
+  | { kind: 'unconfirmed'; commitmentId: Hex; state: 'Released' | 'Refunded' | 'Settled'; agreeing: number; answered: number; required: number };
 export type WatchOptions = {
   /**
    * Called once per report and awaited. A report is recorded only after it returns, so after a crash the next run
@@ -236,7 +244,14 @@ export type WatchOptions = {
   reclaimRetryMs?: number;
 };
 /** How the deal ended, as watch returns it and the watch file keeps it. */
-export type Outcome = { commitmentId: Hex; outcome: 'Released' | 'Refunded'; reclaimed: boolean; finalAt: string | null };
+export type Outcome = {
+  commitmentId: Hex;
+  outcome: 'Released' | 'Refunded' | 'Settled';
+  reclaimed: boolean;
+  finalAt: string | null;
+  /** On Settled: the payouts every agreeing operator records, and whether the settlement released the key. */
+  settlement?: { payouts: J[]; keyReleased: boolean };
+};
 
 type Saved = {
   version: 1;
@@ -992,7 +1007,11 @@ export class BuyerSigner {
       keep();
     };
     const final = async (o: Outcome) => {
-      await report(o.outcome === 'Released' ? { kind: 'released', commitmentId: id, finalAt: o.finalAt } : { kind: 'refunded', commitmentId: id, reclaimed: o.reclaimed, finalAt: o.finalAt });
+      await report(
+        o.outcome === 'Released' ? { kind: 'released', commitmentId: id, finalAt: o.finalAt }
+        : o.outcome === 'Settled' ? { kind: 'settled', commitmentId: id, payouts: o.settlement?.payouts ?? [], keyReleased: o.settlement?.keyReleased === true, finalAt: o.finalAt }
+        : { kind: 'refunded', commitmentId: id, reclaimed: o.reclaimed, finalAt: o.finalAt },
+      );
       return o;
     };
     if (w.outcome) return final(w.outcome);
@@ -1013,15 +1032,20 @@ export class BuyerSigner {
       seen = states.length ? states.join(' / ') : 'no answer';
       let wake = Infinity; // ms until deliverBy on the fastest clock, while the deal is Held before it
       let sent = false;
-      for (const state of ['Released', 'Refunded'] as const) {
+      for (const state of ['Released', 'Refunded', 'Settled'] as const) {
         const agreeing = views.filter((v) => stateOf(v) === state);
         if (agreeing.length === 0) continue;
         if (agreeing.length >= required && agreeing.length === views.length) {
           const events = await this.#answers(agreeing.map((v) => v.api), `/v1/commitments/${id}/events?limit=200`);
           const reclaimed = events.length > 0 && events.every((a) => Array.isArray(a.body?.items) && a.body.items.some((e: J) => e.type === 'settlement.reclaimed'));
-          w.outcome = { commitmentId: id, outcome: state, reclaimed, finalAt: agreeing[0]!.body.finalAt ?? null };
-          keep();
-          return final(w.outcome);
+          // A settlement's payouts and key release, as every agreeing operator's event records them: they must be one.
+          const settled = events.map((a) => (Array.isArray(a.body?.items) ? a.body.items : []).filter((e: J) => e.type === 'commitment.settled').at(-1)?.payload ?? null);
+          const one = state === 'Settled' && events.length === agreeing.length && settled.every((p) => p !== null) && new Set(settled.map((p) => jcs(lowerHex({ payouts: p.payouts ?? null, keyReleased: p.keyReleased === true })))).size === 1;
+          if (state !== 'Settled' || one) {
+            w.outcome = { commitmentId: id, outcome: state, reclaimed, finalAt: agreeing[0]!.body.finalAt ?? null, ...(state === 'Settled' ? { settlement: { payouts: lowerHex(settled[0]!.payouts ?? []), keyReleased: settled[0]!.keyReleased === true } } : {}) };
+            keep();
+            return final(w.outcome);
+          }
         }
         await report({ kind: 'unconfirmed', commitmentId: id, state, agreeing: agreeing.length, answered: views.length, required });
       }
@@ -1091,8 +1115,14 @@ export class BuyerSigner {
    * operators record. On a refund no work is released, and the hold or the price is back at the payment address. Returns the
    * work as text, with the receipt and one link per on-chain step. Text only: it stops on work that is not UTF-8.
    * Like watch, it goes on with one operator offline.
+   *
+   * On a mutual settlement (T-390) it returns the payouts. When the settlement released the key it opens the work: from
+   * the posted delivery, as on a release, or, for late work no operator records as a delivery, from `options.delivery`,
+   * the seller-signed delivery the seller handed over. That one opens only if the seller's signature recovers, the
+   * released envelope is this key's own in it, and the ciphertext and the plaintext match its signed hashes. Without
+   * the key released, or without the handed-over delivery for late work, it opens nothing and `settlement.note` says why.
    */
-  async openDelivery(commitmentId: string, options: WatchOptions = {}): Promise<Delivery> {
+  async openDelivery(commitmentId: string, options: WatchOptions & { delivery?: J } = {}): Promise<Delivery> {
     const id = commitmentId.toLowerCase() as Hex;
     const paid = this.#saved.commitmentId === id ? this.#saved.paid : undefined;
     if (!paid) throw new Error(`this key funded no hold for ${id}: call agreeAndFund first`);
@@ -1104,7 +1134,20 @@ export class BuyerSigner {
     events.sort((a, b) => a.seq - b.seq);
     let work: string | null = null;
     let plaintextSha256: string | null = null;
-    if (done.outcome === 'Released') {
+    let note: string | null = null;
+    let lateHash: string | null = null;
+    const posted = events.some((e) => e.delivery);
+    if (done.outcome === 'Settled' && !done.settlement?.keyReleased) note = 'the settlement released no key: there is no work to open';
+    else if (done.outcome === 'Settled' && !posted) {
+      if (options.delivery === undefined) note = 'the settlement released the key to late work no operator records as a delivery: pass the signed delivery the seller handed you (resume ... --delivery <file>) to open it';
+      else {
+        work = await this.#openLate(id, options.delivery);
+        plaintextSha256 = await sha256(new TextEncoder().encode(work));
+        // Compare it with the deliveryHash of the settlement you signed: no public read carries that one (PR 440 review, Low 1).
+        lateHash = deliveryHashOf(options.delivery).toLowerCase();
+      }
+    }
+    if (done.outcome === 'Released' || (done.outcome === 'Settled' && done.settlement?.keyReleased && posted)) {
       const recorded = events.find((e) => e.delivery)?.delivery;
       // The ciphertext comes from an operator's own store, at the address the operators record.
       if (typeof recorded?.uri !== 'string' || !sources.some((op) => new URL(op).origin === new URL(recorded.uri).origin)) throw new Error(`the operators record the delivery at ${shown(recorded?.uri)}, not on an operator`);
@@ -1119,8 +1162,37 @@ export class BuyerSigner {
     const transactions = events.filter((e) => e.tx && !seen.has(e.tx) && seen.add(e.tx)).map((e) => ({ step: e.type as string, tx: e.tx as string, url: pin.chain?.explorer ? `${pin.chain.explorer}/tx/${e.tx}` : null }));
     return {
       outcome: done.outcome, work, plaintextSha256, transactions,
+      ...(done.outcome === 'Settled' ? { settlement: { payouts: done.settlement?.payouts ?? [], keyReleased: done.settlement?.keyReleased === true, note, ...(lateHash ? { deliveryHash: lateHash } : {}) } } : {}),
       receipt: { commitmentId: id, outcome: done.outcome, paid: paid.total, funded: paid.receipt, events: events.map((e) => ({ seq: e.seq, type: e.type, hash: e.hash })), finalAt: done.finalAt },
     };
+  }
+
+  /**
+   * Opens late work a mutual settlement released (T-390): `d` is the seller-signed delivery the seller handed over,
+   * which no operator records. Throws, naming the check, unless the seller's signature recovers to the terms' seller,
+   * the key every operator released to this key is this key's envelope in `d`, the ciphertext comes from an operator's
+   * store and matches `d`'s signed hash, and the plaintext matches `d`'s signed plaintextSha256. The work is untrusted data.
+   */
+  async #openLate(id: Hex, d: J): Promise<string> {
+    const { agent } = await this.#connect();
+    const terms = this.#saved.checked!.terms;
+    if (lowerHex(d?.commitmentId) !== id) throw new Error(`the delivery you passed is for ${shown(d?.commitmentId ?? null)}, not ${id}`);
+    const signer = await recoverTypedDataAddress({ ...typedOf('Delivery', d, agent.domain), signature: d.signature }).catch(() => '');
+    if (signer.toLowerCase() !== String(terms.seller).toLowerCase()) throw new Error("the delivery you passed is not signed by the deal's seller");
+    const released = (await this.#agreed(agent.sources(), `/v1/commitments/${id}/key?recipient=${this.address}`, (x) => (Array.isArray(x?.items) ? x.items.map((k: J) => k.ciphertext) : []))) as string[];
+    const mine = (Array.isArray(d.encryptedKeys) ? d.encryptedKeys : []).filter((k: J) => String(k?.recipient).toLowerCase() === this.address);
+    if (mine.length !== 1 || !released.includes(mine[0].ciphertext)) throw new Error('the key the settlement released is not your envelope in the delivery you passed: it is not the delivery that settled');
+    const uri = String(d.ciphertext?.uri);
+    if (!agent.sources().some((op) => new URL(op).origin === new URL(uri).origin)) throw new Error(`the delivery's ciphertext is at ${shown(uri)}, not on an operator`);
+    const res = await fetch(uri, { signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) throw new Error(`the ciphertext at ${shown(uri)} answered ${res.status}`);
+    const ct = new Uint8Array(await res.arrayBuffer());
+    if ((await sha256(ct)) !== d.ciphertext.sha256) throw new Error("the ciphertext does not match the delivery's signed ciphertext.sha256");
+    const key = openEnvelopeKey(mine, this.address, new Uint8Array(Buffer.from(this.#saved.encryptionSecretKey, 'base64url')));
+    const aes = await crypto.subtle.importKey('raw', new Uint8Array(key), 'AES-GCM', false, ['decrypt']);
+    const plain = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: ct.slice(0, 12) }, aes, ct.slice(12)));
+    if ((await sha256(plain)) !== d.plaintextSha256) throw new Error("the work does not match the delivery's signed plaintextSha256");
+    return new TextDecoder('utf-8', { fatal: true }).decode(plain);
   }
 
   /**
