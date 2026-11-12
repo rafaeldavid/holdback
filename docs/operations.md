@@ -67,6 +67,8 @@ node apps/test-agents/scripts/sell-to-test-buyer.mjs
 2. It exits 0 on a pass. It exits 1 when an upload is refused or a later step fails, after it rolls back each Worker that changed.
 3. Paste the Markdown line it prints into this file, under a heading for the task. The line gives the date, the commit and its branch, each new version and its rollback target, the smoke deal's ID and time, and pass or fail.
 
+**Before an operator deploy that changes the screen version** (since PR 386, T-367): check that no deal is open first. After such a deploy the adjudicator refuses every deal accepted before the deploy and still open, with `policy_mismatch`. Each such deal runs down to its default outcome with no judgment. Deploy only when no such deal is open. The three reads that list the open deals are in `docs/tasks/T-367-screen-audit-lines.md`, Handoff. This holds until the fix that T-373's decision record (ADR-0036) tracks is built.
+
 **To roll back by hand**, use the rollback targets the line names, both operators together:
 - `npx wrangler@4 rollback <holdback-op1 target> --name holdback-op1`
 - `npx wrangler@4 rollback <holdback-op2 target> --name holdback-op2`
@@ -123,6 +125,32 @@ Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wra
 - holdback-op1 `50fd05c4` and holdback-op2 `1a95b960`, with T-210's and T-211's fixes.
 
 After the deploy, a smoke deal ended Released in 44 s, and the test seller sold once each way (T-222 Evidence) [measured]. To roll back: holdback-op1 `5d369b0e`, holdback-op2 `1f169857` and crow-site `cb0adcb5` (`npx wrangler@4 rollback <version> --name <worker>`); `npx wrangler@4 delete --name crow-test-agents` removes the seller.
+
+### T-372 and PR 393: the hung store read, and a deploy that waits for its commit (operators deployed 2026-11-12)
+
+The coordinating session ran this deploy on Rafa's word. It carries T-372 (PR 389) and PR 393, which makes the deploy script wait until both nodes' discovery names the deployed commit before the smoke deal. The record line below is as the coordinating session captured it: its output filter cut each line at 300 characters, so the line's tail is missing and is not reconstructed here.
+
+**Deploy 2026-11-12 07:22 UTC, commit `ec498d9` on branch `main`: pass.** holdback-op1 `226e7887-b48e-49db-8595-5daf1cf45141` (rollback target `d8545ef2-7c4a-427c-ac3e-c17b9f4df039`), holdback-op2 `2bc6bd1a-a304-4e50-90f8-826074dd3207` (rollback target `2599701e-9ffe-4788-b694-8d2d8dfa4ef7`).
+
+What the coordinating session measured: the smoke deal `0xdb4baa7f9449304720a1b6764c99908e23af87f704f8ecd25a99d4d7baaf3890` ended Released in 54 s, and the script finished at 07:28:40 UTC after it waited for discovery to name the commit, the first live run of PR 393's wait. At 07:28 UTC both operators answer `demo.build.commit` `ec498d9`. Adjudicator a still registers `screen-1` with the same policy hash as before, so this deploy changed no judging policy.
+
+### T-367: the screen change (operators and site deployed 2026-11-12)
+
+Rafa ran the operator deploy, from `8d20405`, the commit that holds PR 386 (T-367), and the site deploy of 06:57 UTC, which uploaded `sell.txt`, `llms.txt` and `version.json`. The coordinating session ran the site deploy of 07:00 UTC on Rafa's word; it changed no asset.
+
+**Deploy 2026-11-12 06:55 UTC, commit `8d20405` on branch `main`: pass.** holdback-op1 `d8545ef2-7c4a-427c-ac3e-c17b9f4df039` (rollback target `08524578-c766-4633-8b95-e9dc9e153b72`), holdback-op2 `2599701e-9ffe-4788-b694-8d2d8dfa4ef7` (rollback target `c3c15379-fedb-4533-8941-0ac762d61a2a`). Smoke deal `0x4a3c63f95360cfa13493a6c6295c52745ed63ec95eccf9f7d826072eb1b7d0af` Released in 50 s.
+
+**Site deploy 2026-11-12 06:57 UTC, commit `8d20405` on branch `main`: pass.** crow-site `a806e65b-fff0-470a-9bc9-d4039a14b087` (rollback target `cb842681-4a45-4f9a-a97e-265dc725f323`).
+
+**Site deploy 2026-11-12 07:00 UTC, commit `8d20405` on branch `main`: pass.** crow-site `3564b317-b922-435f-9e7f-9c1b09ddec55` (rollback target `a806e65b-fff0-470a-9bc9-d4039a14b087`).
+
+**The screen is live** [measured by the coordinating session]. The live operators serve `8d20405` since about 07:01 UTC, and the three demo adjudicators register `screen-1`. Just after the 06:55 deploy the service still reported `00be274` and `screen-0`. A smoke deal against the new screen at 07:05 UTC, `0x7b1b107c3921c73c0ab25fd91a3397e738930e22de5399ec4592aaa05c867d87`, ended Released in 42 s.
+
+### T-366, T-368 and T-370: the seller adapter's API shapes, the buyer's approval stop and the discovery fields (operators deployed 2026-11-12)
+
+Rafa ran this deploy on 2026-11-12, from `00be274`, before PR 386 (T-367). PR 216's discovery fields are live on both operators [measured by the coordinating session at 06:56 UTC: `demo.build.commit` is `00be274…` on both, with one funding lane and three deal lanes, `mintsPerDay` 600, and `byModel` empty].
+
+**Deploy 2026-11-12 06:53 UTC, commit `00be274` on branch `main`: pass.** holdback-op1 `08524578-c766-4633-8b95-e9dc9e153b72` (rollback target `b531c0bc-c1b9-407a-b2d3-8f9cadd7bc4b`), holdback-op2 `c3c15379-fedb-4533-8941-0ac762d61a2a` (rollback target `aacbd652-ca95-4815-9223-93121806ca95`). Smoke deal `0x0ceb3fd15dd9a0f244ee9e87c22ca31002bb21f0741e5ddfda1ae44386dc1a66` Released in 42 s.
 
 ### T-359: the seller's page (site deployed 2026-11-12)
 
