@@ -215,4 +215,66 @@ contract R11ReviewTest is Base {
         assertEq(usdc.balanceOf(buyer) - before, PRICE + FEE, "the buyer has the whole hold back");
         assertEq(usdc.balanceOf(seller), 1_000_000_000, "the seller was paid nothing");
     }
+
+    // ------------------------------------------------------------ the second family's claims, checked
+
+    /// The second family's claim q14 C4 (rated High there): a stranger uses the buyer's funding authorization at the
+    /// token directly, the tokens land in the collector, and the hold can never be made. It does not hold: ERC-3009's
+    /// receive authorization can be used only by its payee, the collector, and the collector only by the escrow
+    /// (`TokenCollector.sol:43`). The suite's token, the Sepolia test token and the local one all keep that rule
+    /// (`TestUSDC.t.sol`, `LocalUSDC.t.sol`). The funding still lands afterwards.
+    function test_r11_second_strangerCannotUseTheFundingAuthorization() public {
+        H.Terms memory t = _terms();
+        AuthCaptureEscrow.PaymentInfo memory pi = _pi(t);
+        H.Funding memory f = _erc3009(t, BUYER_PK);
+        bytes32 nonce = _payerAgnosticHash(pi);
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert(bytes("MockERC3009: caller must be the payee"));
+        usdc.receiveWithAuthorization(
+            buyer, address(collector3009), pi.maxAmount, 0, pi.preApprovalExpiry, nonce, f.signature
+        );
+        assertEq(usdc.balanceOf(address(collector3009)), 0, "nothing reached the collector");
+        bytes32 id = _fund(t);
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Held), "the funding still lands");
+    }
+
+    /// The second family's claim q06 C4 (rated Medium there): a delivery can hold two envelopes addressed to the buyer,
+    /// and whoever relays the early accept chooses which one the contract releases. It holds as a fact of the
+    /// contract: the key proof takes any entry of the delivery's key list that is addressed to the buyer
+    /// (`_requireKeyProof`). It is the buyer's check before it signs: the reference verifier refuses a delivery with
+    /// more than one envelope for the buyer (`examples/verify.ts`, "more than one envelope for you").
+    function test_r11_second_twoBuyerEnvelopes_theRelayerChoosesWhichIsReleased() public {
+        (H.Terms memory t, bytes32 id) = _funded();
+        H.KeyProof memory good = _buyerKey();
+        H.KeyProof memory junk = _buyerKey();
+        junk.ciphertext = "junk";
+        bytes32[] memory hashes = new bytes32[](3);
+        hashes[0] = hx.key(buyer, junk);
+        hashes[1] = hx.key(buyer, good);
+        hashes[2] = keccak256("fallback envelope");
+        good.keyHashes = hashes;
+        junk.keyHashes = hashes;
+        junk.index = 0;
+        H.Delivery memory d = H.Delivery({
+            attempt: 1,
+            ciphertextHash: keccak256("ciphertext"),
+            plaintextSha256Hash: keccak256("sha256:plain"),
+            plaintextMimeHash: keccak256("text/csv"),
+            encryptedKeysHash: keccak256(abi.encodePacked(hashes)),
+            submittedAt: 1_790_000_000
+        });
+        H.EarlyAccept memory m = H.EarlyAccept({
+            attempt: 1,
+            deliveryHash: hx.delivery(id, d),
+            nonce: keccak256("early"),
+            expiresAt: type(uint64).max,
+            signature: ""
+        });
+        m.signature = _sign(BUYER_PK, hx.early(id, t.buyer, m));
+
+        vm.expectEmit(true, true, false, true, address(rules));
+        emit IHoldbackRules.KeyReleased(id, buyer, rules.KEY_EARLY_ACCEPT(), junk.scheme, "junk");
+        rules.earlyAccept(t, m, d, _deliverySig(id, d, SELLER_PK), junk);
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Released), "paid, with the envelope the relayer chose");
+    }
 }
