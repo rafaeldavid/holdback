@@ -5,7 +5,7 @@
 - **Depends on:** T-340 (the state model's finding F-1), T-342 (ADR-0031, SC-5b)
 - **Paths this task may touch:** `packages/core/src/state.ts` (the mutual-settlement lines and what they call) and its tests; the simulator's mutual-settlement path (`packages/settlement/sim/`); `packages/settlement/src/interface.ts` (the `mutual_settle` submission only); `packages/settlement/evm/` and `apps/operator/` where this path needs them; one new scenario fixture with its terms and data; one new contract test file under `contracts/test/unit/`; `docs/decisions/ADR-0019-mutual-settlement.md` (an amendment section only); `formal/` (the settlement action); `tests/cut-feature-alignment.known.json` if the change alters it; this file.
 - **Human gate:** no
-- **Status:** review
+- **Status:** merged to contracts-audit-ready, waits for the freeze
 - **Agent/session:** T-357 session, change kind 5 (settlement and judgment code)
 
 ## Intent
