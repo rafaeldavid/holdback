@@ -8,7 +8,7 @@ import nacl from 'tweetnacl';
 import { hashTypedData, hexToBytes, keccak256, toBytes, type Hex } from 'viem';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Agent } from './agent.ts';
-import { appealBondOf, commitmentIdOf, freshNonce, openOwnEnvelope, Refusal, SIMCHAIN_DOMAIN, TYPES, verifyPrepared, type Intent } from './verify.ts';
+import { appealBondOf, checkPaymentFile, commitmentIdOf, ERC3009_TYPES, freshNonce, fundingNonceOf, openOwnEnvelope, Refusal, SIMCHAIN_DOMAIN, typedDataFile, TYPES, verifyPrepared, type ChainPin, type Intent } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 /** A lying operator's own x25519 public key, derived at test time from a public label (no key literal in source). */
@@ -397,6 +397,95 @@ describe('operator fee: the agent checks the fee slot against the published sche
 
 // ADR-0030: an adjudicator agent signs its acceptance, decision and registration from these types, and llms.txt
 // publishes them from TYPES, so they must be core's, struct for struct.
+describe('the holder of a payment address checks the funding file alone, from the terms and its own pinned deployment (ADR-0033 §3, §10)', () => {
+  // A chain deployment pinned in the holder's own configuration. Addresses made up for the test: the check is pure.
+  const at = (n: number) => `0x${n.toString(16).padStart(40, '0')}` as Hex;
+  const chain: ChainPin = { tokenDomain: { name: 'Test USDC', version: '2', chainId: 11_155_111, verifyingContract: at(0x70) }, escrow: at(0xe5), collector: at(0xc0), rules: at(0x91), expiryMarginSec: 86_400 };
+  const domain = { name: 'Holdback' as const, version: '0.8', chainId: 11_155_111, verifyingContract: at(0x91) };
+  const payer = at(0xa1), buyerKey = at(0xb1);
+  const terms: J = {
+    schemaVersion: '0.8', clubId: 'demo-club', rulebookHash: `0x${'11'.repeat(32)}`, buyer: buyerKey, seller: at(0x51), buyerPaymentAddress: payer, sellerPayoutAddress: at(0x52),
+    deliverable: { kind: 'dataset', description: 'rows', format: 'text/csv' }, acceptance: { deterministicChecks: [], rubric: { criteria: [], passThreshold: 0 } },
+    price: { token: at(0x70), amount: '25000000' },
+    adjudication: { adjudicator: at(0xd1), fallbackAdjudicator: at(0xd2), appealAdjudicator: at(0xd3), policyId: 'p', fee: { token: at(0x70), amount: '1000000' }, registryHash: `0x${'22'.repeat(32)}`, policyHash: `0x${'33'.repeat(32)}` },
+    timing: { offerExpiresAt: '2026-11-12T10:15:00Z', fundBy: '2026-11-12T10:30:00Z', deliverBy: '2026-11-13T10:00:00Z', judgeBy: '2026-11-13T10:05:00Z', fallbackBy: '2026-11-13T10:10:00Z', appealWindowSec: 0, appealDecideSec: 300, maxSubmissions: 1 },
+    settlement: { mode: 'guaranteed_on_decision', token: at(0x70) }, remedy: { onReject: 'full_refund' }, disclosure: { level: 'public' }, buyerEncryptionPublicKey: 'k', nonce: `0x${'44'.repeat(32)}`, createdAt: '2026-11-12T10:00:00Z',
+  };
+  /** The funding file a prepare route would hand over, built from `t` on `c`: what the holder's wallet would be shown. */
+  const fileFor = (t: J, c: ChainPin) => typedDataFile({
+    domain: c.tokenDomain, types: { ReceiveWithAuthorization: ERC3009_TYPES.ReceiveWithAuthorization }, primaryType: 'ReceiveWithAuthorization',
+    message: { from: t.buyerPaymentAddress, to: c.collector, value: 26_000_000n, validAfter: 0n, validBefore: BigInt(Date.parse(t.timing.fundBy) / 1000), nonce: fundingNonceOf(t, commitmentIdOf(t), c) },
+  });
+  const check = (file: J) => checkPaymentFile(file, terms, { kind: 'funding', domain, chain, buyer: buyerKey });
+
+  it('passes the file the terms give, and says in one sentence who pays whom how much, until when, for which deal', () => {
+    const r = check(fileFor(terms, chain));
+    expect(r.summary).toBe(`${payer} pays 26000000 base units of ${at(0x70)} to ${at(0xc0)}, the escrow's collector, into the hold, valid until 2026-11-12T10:30:00Z, for deal ${commitmentIdOf(terms)} only. The terms: buyer ${buyerKey} agrees, seller ${at(0x51)} delivers, and ${at(0x52)} is paid on a release. Sign before the offer expires at 2026-11-12T10:15:00Z: after that nothing can fund it.`);
+  });
+
+  it('refuses a nonce built with another operator, receiver, buyer, chain ID or margin', () => {
+    const cases: Array<[string, J, ChainPin]> = [
+      ['another operator (rules contract)', terms, { ...chain, rules: at(0x99) }],
+      ['another receiver', { ...terms, sellerPayoutAddress: at(0x66) }, chain],
+      ['another buyer', { ...terms, buyer: at(0xb2) }, chain],
+      ['another chain ID', terms, { ...chain, tokenDomain: { ...chain.tokenDomain, chainId: 1 } }],
+      ['another margin', terms, { ...chain, expiryMarginSec: 3600 }],
+    ];
+    for (const [name, t, c] of cases) {
+      const file = fileFor(t, c);
+      if (name === 'another chain ID') file.domain.chainId = chain.tokenDomain.chainId; // a wallet prompt that looks right
+      expect(() => check(file), name).toThrow(/^refusing to sign: the message's nonce 0x[0-9a-f]{64} is not the 0x[0-9a-f]{64} these terms give on your pinned deployment/);
+    }
+  });
+
+  it('refuses another payer, another amount, another collector or another token domain, and terms that name another signing key', () => {
+    const edit = (f: (x: J) => void) => {
+      const file = fileFor(terms, chain);
+      f(file);
+      return file;
+    };
+    expect(() => check(edit((x) => (x.message.from = at(0xbad))))).toThrow(/pays from 0x0{37}bad, not the payment address/);
+    expect(() => check(edit((x) => (x.message.value = '99000000')))).toThrow(/pays 99000000 base units, not the 26000000 the terms hold/);
+    expect(() => check(edit((x) => (x.message.to = at(0xbad))))).toThrow(/is not the message these terms give on your pinned settlement layer/);
+    expect(() => check(edit((x) => (x.domain.verifyingContract = at(0xbad))))).toThrow(/is not the message these terms give/);
+    expect(() => checkPaymentFile(fileFor(terms, chain), terms, { kind: 'funding', domain, chain, buyer: at(0xb2) })).toThrow(/the terms name 0x0{38}b1 as the buyer's signing key, not the 0x0{38}b2 you expect/);
+  });
+
+  it('red team L-1: refuses a file that is not exactly one EIP-712 message, and terms in another token than the pinned one', () => {
+    const edit = (f: (x: J) => void) => {
+      const file = fileFor(terms, chain);
+      f(file);
+      return file;
+    };
+    const cases: Array<[string, (x: J) => void, RegExp]> = [
+      ['an EIP712Domain with fields cut', (x) => (x.types.EIP712Domain = x.types.EIP712Domain.slice(0, 2)), /EIP712Domain type is not the domain's own fields/],
+      ['an EIP712Domain reordered', (x) => x.types.EIP712Domain.reverse(), /EIP712Domain type is not the domain's own fields/],
+      ['a second top-level message', (x) => (x.Message = { ...x.message, value: '99000000000' }), /exactly domain, types, primaryType and message/],
+      ['an extra message field', (x) => (x.message.Value = '1'), /does not hold exactly the fields of ReceiveWithAuthorization/],
+      ['an unused type', (x) => (x.types.Spare = [{ name: 'a', type: 'uint256' }]), /a type its primary type does not use/],
+      ['an extra domain key', (x) => (x.domain.extra = 'x'), /domain has a field EIP712Domain does not/],
+      ['an integer in hex', (x) => (x.message.validBefore = `0x${BigInt(x.message.validBefore).toString(16)}`), /message\.validBefore is not an integer as a canonical decimal string/],
+      ['an integer padded', (x) => (x.message.value = ` ${x.message.value}`), /message\.value is not an integer as a canonical decimal string/],
+    ];
+    for (const [name, f, why] of cases) expect(() => check(edit(f)), name).toThrow(why);
+    const other = { ...terms, price: { token: at(0x7777), amount: '25000000' }, adjudication: { ...terms.adjudication, fee: { token: at(0x7777), amount: '1000000' } }, settlement: { ...terms.settlement, token: at(0x7777) } };
+    expect(() => checkPaymentFile(fileFor(other, chain), other, { kind: 'funding', domain, chain, buyer: buyerKey })).toThrow(/the terms are in 0x0{36}7777, and your pinned settlement layer holds 0x0{38}70/);
+  });
+
+  it('on SimChain, passes the funding file the signer writes and refuses one for another deal', async () => {
+    const payerAgent = await fresh();
+    const offer = await seller.offerDirect(request({ buyer: { address: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey, paymentAddress: payerAgent.address } }));
+    await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);
+    const { slots } = await buyer.prepareAgreeAndFund(offer.terms, 100_000_000n, { paymentAddress: payerAgent.address });
+    const file = typedDataFile(slots.find((s) => s.slot === 'fund.signature')!.typed);
+    const opts = { kind: 'funding' as const, domain: SIMCHAIN_DOMAIN, buyer: buyer.address };
+    expect(checkPaymentFile(file, offer.terms, opts).summary).toMatch(new RegExp(`^${payerAgent.address} pays 26000000 base units of tUSD into the hold, valid until .*, for deal ${offer.id} only\\. The terms: buyer ${buyer.address} agrees, `));
+    const other = structuredClone(file);
+    other.message.commitmentId = `0x${'cd'.repeat(32)}`;
+    expect(() => checkPaymentFile(other, offer.terms, opts)).toThrow(/^refusing to sign: the message is for deal 0x(cd){32}, not /);
+  });
+});
+
 describe('TYPES match the operator and core', () => {
   it.each(['AdjudicatorAcceptance', 'Decision', 'AdjudicatorRegistration', 'CommitmentTerms', 'Delivery', 'Appeal', 'MutualSettlement', 'Delegation'])('%s and every struct it uses', (primary) => {
     const { EIP712Domain: _domain, ...core } = typesFor(primary);

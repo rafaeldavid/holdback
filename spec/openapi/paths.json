@@ -694,6 +694,13 @@
             "description": "ADR-0030: the adjudicator this node names for each role an offer leaves out (Crow's, on the demo). Naming others is advanced use of the protocol",
             "properties": { "primary": { "$ref": "#/components/schemas/Address" }, "fallback": { "$ref": "#/components/schemas/Address" }, "appeal": { "$ref": "#/components/schemas/Address" } }
           },
+          "token": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "symbol", "decimals"],
+            "description": "The one token this deployment settles in, fixed at deploy. Every route that takes terms refuses terms in another token with 400 `invalid_terms`, naming this one. Absent when the node states none",
+            "properties": { "id": { "$ref": "#/components/schemas/TokenId" }, "symbol": { "type": "string", "maxLength": 32 }, "decimals": { "type": "integer", "minimum": 0, "maximum": 77 } }
+          },
           "settlementTime": { "$ref": "#/components/schemas/Timestamp", "description": "The settlement layer's clock" },
           "limits": {
             "type": "object",

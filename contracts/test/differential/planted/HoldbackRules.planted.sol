@@ -8,7 +8,7 @@ import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 import {IHoldbackBeacon} from "../parent/IHoldbackBeacon.sol";
 import {HoldbackTypes as H, Money} from "../parent/HoldbackTypes.sol";
 
-// T-341, PLANTED BEHAVIOUR CHANGE. A test fixture, never deployed: the pinned copy `../parent/HoldbackRules.f454da3.sol`
+// T-341, PLANTED BEHAVIOUR CHANGE. A test fixture, never deployed: the pinned copy `../parent/HoldbackRules.2ef35b3.sol`
 // with two edits, these imports and one deleted line in `_acceptDelivery` (`deliveryHashOf[id] = dh;`). It is the
 // "stores no delivery hash" mutant of known issue G-5. `SideBySide.t.sol` and `StateOracle.t.sol` prove that the
 // side-by-side harness and the delivery liveness invariant both fail on it. T-356 re-based it on each change's parent.
@@ -179,7 +179,7 @@ contract HoldbackRules is EIP712 {
         returns (AuthCaptureEscrow.PaymentInfo memory pi)
     {
         uint256 hold = t.price + t.fee;
-        uint256 expiry = uint256(t.timing.fallbackBy) + t.timing.appealDecideSec + EXPIRY_MARGIN;
+        uint256 expiry = _escrowExpiry(t);
         if (hold > type(uint120).max || expiry > type(uint48).max || t.timing.fundBy > type(uint48).max) {
             revert Unrepresentable();
         }
@@ -321,9 +321,9 @@ contract HoldbackRules is EIP712 {
         if (s == Stage.Delivered) {
             (role, deadline) = (H.ROLE_PRIMARY, t.timing.judgeBy);
         } else if (s == Stage.FallbackJudging) {
-            (role, deadline, round) = (H.ROLE_FALLBACK, t.timing.fallbackBy, BEACON.roundAt(t.timing.judgeBy));
+            (role, deadline, round) = (H.ROLE_FALLBACK, t.timing.fallbackBy, _fallbackRound(t));
         } else if (s == Stage.Escalated) {
-            (role, deadline, round) = (H.ROLE_APPEAL, uint256(t1) + t.timing.appealDecideSec, BEACON.roundAt(t1) + 1);
+            (role, deadline, round) = (H.ROLE_APPEAL, _escalationDecideBy(t, t1), _escalationRound(t1));
         } else {
             revert WrongStage(s);
         }
@@ -498,7 +498,7 @@ contract HoldbackRules is EIP712 {
         if (block.timestamp < t.timing.judgeBy) revert TooEarly();
         d.stage = Stage.FallbackJudging;
         d.t1 = uint40(block.timestamp);
-        emit FallbackTriggered(id, BEACON.roundAt(t.timing.judgeBy));
+        emit FallbackTriggered(id, _fallbackRound(t));
     }
 
     /// @notice default and apply_default in one call: the fallback missed fallbackBy, or the
@@ -511,7 +511,7 @@ contract HoldbackRules is EIP712 {
         if (s == Stage.FallbackJudging) {
             if (block.timestamp < t.timing.fallbackBy) revert TooEarly();
         } else if (s == Stage.Escalated) {
-            if (block.timestamp < uint256(d.t1) + t.timing.appealDecideSec) revert TooEarly();
+            if (block.timestamp < _escalationDecideBy(t, d.t1)) revert TooEarly();
         } else {
             revert WrongStage(s);
         }
@@ -520,6 +520,36 @@ contract HoldbackRules is EIP712 {
     }
 
     // Internals
+
+    // Deadlines (RF-3, T-375): each one is written once, here, and read wherever it applies, so an opposing pair (the
+    // step that needs `now < X` and the timeout that needs `now >= X`) always splits time at the same instant
+    // (`docs/audit/state-model.md` section 6). Every deadline sum is in 256 bits over 64-bit and 40-bit terms, so none
+    // overflows. The escalation's round adds 1 in 64 bits, which the beacon's arithmetic keeps in range.
+    // The terms' own deadlines (offerExpiresAt, fundBy, deliverBy, judgeBy, fallbackBy) are read from `t.timing`.
+
+    /// @dev The appeal adjudicator's deadline on an escalation made at `t1`: the decision needs `now` before it, and
+    ///      `triggerDefault` needs `now` at or after it.
+    function _escalationDecideBy(H.Terms calldata t, uint40 t1) internal pure returns (uint256) {
+        return uint256(t1) + t.timing.appealDecideSec;
+    }
+
+    /// @dev The escrow's expiry, its `authorizationExpiry` and `refundExpiry`: the last decision can come at
+    ///      `fallbackBy + appealDecideSec` (a fallback's escalation just before fallbackBy), and the margin follows it
+    ///      (ADR-0003). From it only the payment address's own reclaim on the escrow remains.
+    function _escrowExpiry(H.Terms calldata t) internal view returns (uint256) {
+        return uint256(t.timing.fallbackBy) + t.timing.appealDecideSec + EXPIRY_MARGIN;
+    }
+
+    /// @dev The beacon round that seeds the fallback's panel: the round at judgeBy, fixed before anyone signs.
+    function _fallbackRound(H.Terms calldata t) internal view returns (uint64) {
+        return BEACON.roundAt(t.timing.judgeBy);
+    }
+
+    /// @dev The beacon round that seeds the appeal adjudicator's panel on an escalation made at `t1`: the first round
+    ///      after it.
+    function _escalationRound(uint40 t1) internal view returns (uint64) {
+        return BEACON.roundAt(t1) + 1;
+    }
 
     function _refundAll(bytes32 id, H.Terms calldata t, Deal storage d, Reason reason) internal {
         (d.stage, d.reason) = (Stage.Refunded, reason);

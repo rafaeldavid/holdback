@@ -13,7 +13,7 @@ import {RulesHandler} from "../handlers/RulesHandler.sol";
 
 // The pinned copies carry a suffix in their file names, so a lookup by "HoldbackRules.sol:HoldbackRules"
 // (`deployCodeTo`, `vm.getCode`) still finds only src/. Nothing imports them by name, so their bytes are unchanged.
-import {HoldbackRules as ParentRules} from "./parent/HoldbackRules.f454da3.sol";
+import {HoldbackRules as ParentRules} from "./parent/HoldbackRules.2ef35b3.sol";
 import {IHoldbackBeacon as ParentBeacon} from "./parent/IHoldbackBeacon.sol";
 import {HoldbackRules as PlantedRules} from "./planted/HoldbackRules.planted.sol";
 
@@ -22,7 +22,7 @@ import {HoldbackRules as PlantedRules} from "./planted/HoldbackRules.planted.sol
 ///         - `NewSide`: the source under test, `contracts/src/`, deployed by `Base.setUp` unchanged;
 ///         - `OldSide`: the pinned copy of `contracts/src/` at the change's parent commit (`parent/`). Since T-356
 ///           each change on `contracts-audit-ready` is compared with its parent, not with the deployed commit
-///           (the refinement plan, R6c's harness row). The parent here is `f454da3`, the lane after RF-2 (T-375), copied
+///           (the refinement plan, R6c's harness row). The parent here is `2ef35b3`, the lane after RF-3 (T-375), copied
 ///           unchanged. Both sides pay the terms' money addresses (ADR-0033), so deals with those addresses
 ///           apart from the signing addresses run on both sides too;
 ///         - `PlantedSide`: the pinned copy with one planted behaviour change (`planted/`), for the tests that

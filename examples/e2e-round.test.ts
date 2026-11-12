@@ -21,7 +21,7 @@ describe('e2e-round.ts', () => {
   it('lists every scenario with what it waits for', async () => {
     const r = await driver(['list'], {});
     expect(r.code, r.out).toBe(0);
-    for (const id of ['1', '2', '3a', '3b', '3c', '3d', '4', '5a', '5b', '6', '7', '8', '9', '10a', '10b', '11']) expect(r.out).toMatch(new RegExp(`^  ${id} +\\S`, 'm'));
+    for (const id of ['1', '2', '3a', '3b', '3c', '3d', '4', '5a', '5b', '6', '7', '8', '9', '10a', '10b', '11', '12']) expect(r.out).toMatch(new RegExp(`^  ${id} +\\S`, 'm'));
     expect(r.out).toMatch(/^ {2}4 +Fallback when the primary is silent \(API\); waits for T-217, T-221$/m);
   });
 
@@ -114,13 +114,15 @@ describe('e2e-round.ts', () => {
     });
     afterAll(() => demo.close());
 
-    it('runs scenarios 1, 2, 3a, 3d, 6 and 10a, fails 1 only on its scripted panel, and prints no key', async () => {
+    it('runs scenarios 1, 2, 3a, 3d, 6, 10a and 12, fails 1 only on its scripted panel, and prints no key', async () => {
       const seed = generatePrivateKey();
       const out = mkdtempSync(join(tmpdir(), 'e2e-round-'));
       // 3b is built in the silent group; e2e-scenarios-silent.test.ts runs it.
-      const r = await driver(['run', '1', '2', '3a', '3d', '6', '10a'], { E2E_SEPOLIA_SEED: seed, HOLDBACK_OPERATORS: demo.urls.join(','), E2E_OUT: out });
+      const r = await driver(['run', '1', '2', '3a', '3d', '6', '10a', '12'], { E2E_SEPOLIA_SEED: seed, HOLDBACK_OPERATORS: demo.urls.join(','), E2E_OUT: out });
       const { folder, byId } = results(out);
-      expect(r.out).toMatch(/^results: 1 fail, 2 pass, 3a pass, 3d pass, 6 pass, 10a pass$/m);
+      expect(r.out).toMatch(/^results: 1 fail, 2 pass, 3a pass, 3d pass, 6 pass, 10a pass, 12 pass$/m);
+      // Scenario 12: the two money addresses (T-381), every check, both deals.
+      expect(byId['12'].checks.filter((c: J) => !c.ok)).toEqual([]);
       expect(r.code, r.out).toBe(1);
       // Scenario 1 asks for a live panel; this world has no model keys, so its judges are scripted and the run says so.
       expect(byId['1'].checks.filter((c: J) => !c.ok).map((c: J) => c.name)).toEqual(['a live panel judged']);
@@ -145,14 +147,14 @@ describe('e2e-round.ts', () => {
       await demo?.close();
     });
 
-    it('runs scenarios 1, 2, 3a (API and direct), 3d and 10a with every transaction read back from the chain, holds 6 as not in phase one, then re-reads their blocks', async () => {
+    it('runs scenarios 1, 2, 3a (API and direct), 3d, 10a and 12 with every transaction read back from the chain, holds 6 as not in phase one, then re-reads their blocks', async () => {
       const seed = generatePrivateKey();
       const out = mkdtempSync(join(tmpdir(), 'e2e-round-anvil-'));
       const env = { E2E_SEPOLIA_SEED: seed, HOLDBACK_OPERATORS: demo.urls.join(','), E2E_OUT: out, HOLDBACK_DEPLOYMENT: JSON.stringify(demo.deployment), SEPOLIA_RPC_URL: demo.rpcUrl };
       // The round's buyer and seller pay their own gas for the direct calls: anvil sets their balances.
       for (const role of ['buyer', 'seller'] as const) await demo.setBalance(privateKeyToAccount(roundKey(seed, role)).address, 10n ** 18n);
-      const r = await driver(['run', '1', '2', '3a', '3d', '6', '10a', '--no-homepage'], env);
-      expect(r.out).toMatch(/^results: 1 fail, 2 (pass|fail), 3a pass, 3d pass, 6 waits, 10a pass$/m);
+      const r = await driver(['run', '1', '2', '3a', '3d', '6', '10a', '12', '--no-homepage'], env);
+      expect(r.out).toMatch(/^results: 1 fail, 2 (pass|fail), 3a pass, 3d pass, 6 waits, 10a pass, 12 pass$/m);
       const { folder, byId } = results(out);
       // Scenario 1 asks for a live panel, and this world has no model keys. On the phase-one contracts a decision is
       // final when written, so the round sends no trigger after it.
@@ -165,6 +167,9 @@ describe('e2e-round.ts', () => {
       for (const t of byId['1'].deals[0].transactions) expect(Number(t.gasUsed)).toBeGreaterThan(21_000);
       expect(byId['2'].checks.find((c: J) => c.name === 'the decision names the posted delivery (D44)').ok).toBe(true);
       expect(byId['3a'].deals[1].transactions.find((t: J) => t.sentBy === 'round')?.calls[0]?.fn).toBe('reclaim');
+      // Scenario 12 (T-381): every check of both deals, the chain's Transfer logs and SettlementAddresses among them.
+      expect(byId['12'].checks.filter((c: J) => !c.ok)).toEqual([]);
+      expect(byId['12'].checks.map((c: J) => c.name)).toEqual(expect.arrayContaining(['the price reaches the payout address on chain', 'the price returns to the payment address on chain', 'no token transfer names a signing address on chain']));
       const fin = await driver(['finality', folder], env);
       expect(fin.out).toMatch(/transactions re-read, \d+ in the same block, 0 changed/);
       expect(fin.code, fin.out).toBe(0);

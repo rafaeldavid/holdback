@@ -244,6 +244,8 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
         registry: { ...base, get mandates() { return chain.agentMandates(); }, faucet, defaultAdjudicators, declines: declinesOf(() => Object.values(adjudicators)), judgment: (id) => latest.get(id) ?? null },
         store,
         ...operatorFee,
+        // The plan's 2c: SimChain's world has one token, and the operators refuse terms in any other.
+        token: { id: TOKEN, symbol: TOKEN, decimals: 6 },
         demo,
         feedback,
         signerKey: worldAccount(`sim-operator-${i + 1}`).privateKey,

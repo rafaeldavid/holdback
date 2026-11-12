@@ -13,7 +13,7 @@ import { MemoryStorage, PublicWorld } from '@holdback/demo-cloud';
 import { toHex } from 'viem';
 import { mnemonicToAccount } from 'viem/accounts';
 import { expect } from 'vitest';
-import { ROLES, roundEncryptionKey, roundKey } from './e2e-keys.ts';
+import { MONEY_ROLES, ROLES, roundEncryptionKey, roundKey } from './e2e-keys.ts';
 import { serveTwoOrigins } from './two-origins.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -145,7 +145,7 @@ export function expectNoSecrets(seed: string, out: string, folder: string): void
   const files = readdirSync(folder).map((f) => readFileSync(join(folder, f), 'utf8'));
   const x25519 = ROLES.map((r) => Buffer.from(roundEncryptionKey(seed, r)));
   for (const k of x25519) for (const text of [out, ...files]) expect(text).not.toContain(k.toString('base64url'));
-  for (const secret of [seed, ...ROLES.map((r) => roundKey(seed, r)), ...x25519.map((k) => `0x${k.toString('hex')}`)]) {
+  for (const secret of [seed, ...ROLES.map((r) => roundKey(seed, r)), ...MONEY_ROLES.map((r) => roundKey(seed, r)), ...x25519.map((k) => `0x${k.toString('hex')}`)]) {
     const bare = secret.slice(2).toLowerCase();
     expect(out.toLowerCase()).not.toContain(bare);
     for (const f of files) expect(f.toLowerCase()).not.toContain(bare);

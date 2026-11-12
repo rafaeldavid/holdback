@@ -782,6 +782,8 @@ export class PublicWorld {
           ...(operatorFee ? { fee: operatorFee } : {}),
           ...(evm ? { erc3009: { funding: (t) => evm.fundingTypedData(t), operatorFee: (x) => evm.operatorFeeTypedData(x) } } : {}),
           ...(contracts ? { contracts } : {}),
+          // The plan's 2c: the deployment's one token (SimChain's tUSD in process), refused in any other at every terms route.
+          token: { id: token, symbol, decimals: o.live ? o.live.chain.token.decimals : 6 },
           signerKey: key(`demo-operator-${i + 1}`).privateKey,
           operatorId: `demo-op-${i + 1}`,
           env: o.env,
