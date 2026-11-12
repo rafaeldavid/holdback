@@ -30,7 +30,7 @@ if (first === 'resume') { const failed = (await Promise.allSettled((third ? [awa
   await pay(signer, shown, fourth!);
 } else {
   if (printable(store!) !== store) throw new Error('the key store path holds a control or invisible character: pick a path the approve line can carry');
-  let own = termsFile ? JSON.parse(readFileSync(termsFile, 'utf8')) : undefined, keys = ['deliverable', 'checks', 'rubric', 'timing', 'fee', 'adjudicators', 'maxSubmissions', 'price', 'seller'];
+  let own = termsFile ? JSON.parse(readFileSync(termsFile, 'utf8')) : undefined; const keys = ['deliverable', 'checks', 'rubric', 'timing', 'fee', 'adjudicators', 'maxSubmissions', 'price', 'seller'];
   if (termsFile && (own === null || typeof own !== 'object' || Array.isArray(own) || Object.keys(own).some((k) => !keys.includes(k)))) throw new Error(`the expected terms in ${termsFile} are not an object of ${keys.join(', ')}: a misspelt term must not be dropped unseen`);
   const missing = own && ['offerExpiresInSec', 'fundWithinSec', 'deliverWithinSec', 'judgeWithinSec', 'fallbackWithinSec', 'appealWindowSec', 'appealDecideSec'].map((w) => `timing.${w}`).concat(['fee', 'adjudicators.primary', 'adjudicators.fallback', 'adjudicators.appeal', 'maxSubmissions']).filter((f) => f.split('.').reduce((o: any, k) => o?.[k], own) === undefined); // eslint-disable-line @typescript-eslint/no-explicit-any
   if (missing?.length) throw new Error(`the expected terms in ${termsFile} do not name ${missing.join(', ')}: a file that approves in one run states every term but the price`);
