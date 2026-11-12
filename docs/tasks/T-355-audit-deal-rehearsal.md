@@ -6,7 +6,7 @@
 - **Depends on:** T-326 (a seller's own report and terms, PR 308), T-329 (the refused-report redelivery, PR 317), T-330 (terms per quote, PR 316), T-331 (the adapter's one configuration file), T-332 (the buyer signer shows and checks every signed field, PR 320), T-333 (the deal record), T-323 (the report converter)
 - **Paths this task may touch:** `examples/audit-deal.ts`, `examples/audit-deal.test.ts`, the `audit-deal` line in the root `package.json`, new files under `fixtures/`, `vitest.config.ts` (a cost line for a new test file only), this file. Never: `examples/seller-adapter.ts`, `examples/buyer-signer.ts`, `examples/deal-record.ts` and their tests, `site/llms.txt`, `packages/`, `apps/`, `spec/schemas/`, `contracts/`, anything under `reports/crow-private/`.
 - **Human gate:** no for the local run. A live run on Sepolia is Rafa's: this task builds the option and gives the command, and does not run it.
-- **Status:** in progress
+- **Status:** done (PR 363, merge commit `1a3f50f`; this status lands with its own PR)
 - **Agent/session:** the T-355 session, 2026-11-12, branch `t-355-audit-deal-rehearsal`; pilot plan package 3 (crow-private `roadmap/plans/2026-11-11-pilot-refocus.md`, section 7.1)
 
 ## Intent
@@ -92,6 +92,7 @@ All local runs on 2026-11-12, on branch `t-355-audit-deal-rehearsal` cut from `o
 
 - `pnpm typecheck` exits 0; `eslint` on the two changed files prints nothing (measured).
 - `pnpm exec vitest run examples/`: 24 files, 308 tests passed, 13 skipped, 1 failed, in 173 s (measured), while other runs shared the machine. The failure was `seller-adapter.test.ts`, "stops on a zero-address adjudicator…"; that file does not import `audit-deal.ts`, and alone it passes 39 of 39 in 28 s (measured). So the failure was load, not this change (inferred).
+- **CI (measured).** PR 363: all 15 jobs passed on GitHub, the required `check` and `gitleaks` among them, with CodeQL clean. The `changes` job stayed shown as pending after every job that depends on it had run. Merged on 2026-11-12 as `1a3f50f`.
 - `pnpm exec vitest run examples/audit-deal.test.ts`: 25 tests passed in 48 s, 11 of them new (measured). A 12th new test then takes an unused key from an existing key store, as the live command's `--keys` does: Released, and a second case with the same key stops at "this key already serves … one key, one deal" (measured).
 
 ## Decisions
