@@ -91,4 +91,8 @@ All measured on 2026-11-12 on this Mac (forge, cast and anvil 1.0.0, bash 3.2.57
 
 **Not built, on purpose:** a resume after a failed create. A failed Sepolia run is rerun whole.
 
+**For the mainnet deploy's own checklist** (T-380, 2026-11-12): ADR-0032 §3.4 describes a per-chain table of margins (29 s for chain IDs 1 and 11155111) that refuses any other chain, and gate line BR-7 asks for an L2's margin to be derived on its own. The script has one `BEACON_MARGIN=29`, which is enough today because it refuses every chain but Sepolia and a local rehearsal. A script that deploys elsewhere takes its margin from such a table.
+
+**Checked against the lane's tip after R8** (`73bbafa`, PR 426 included): the script passes the six constructor arguments in the contract's order (escrow, collector, expiry margin, beacon, token, beacon margin), the record carries `beaconMarginSec`, and the script's, start-up and copies suites pass on that tree (45 tests) [measured]. `--verify` builds each contract's published source from forge's own source set, so a new imported file such as T-384's `IHoldbackRules.sol` is included with no change here [inferred from how `forge verify-contract` builds its standard JSON].
+
 **Low findings left:** the three test-vector files are excluded whole rather than by value (PR 425 review, L2); the Worker reads the embedded record on each Sepolia request.
