@@ -121,7 +121,7 @@ contract RulesHandler is Base {
     // T-375 (triage item 43): the liveness counter for decisions. A change that breaks the decision path and leaves
     // the stored delivery hash alone passed every invariant before it (T-336's Handoff).
     uint256 public decisions; // decisions that landed after a delivery (posted, or carried by the decision itself)
-    uint256 public decideRefused; // an authorised, timely decision was refused (`_timelyDecision`)
+    uint256 public decideRefused; // a decision's outcome disagreed with `_timelyDecision` (refused, or landed untimely)
     string public lastViolation;
 
     // ------------------------------------------------------------ the trace (T-341)
@@ -521,7 +521,7 @@ contract RulesHandler is Base {
             uint256(keccak256(abi.encode("appeal window", seed))) % 32 == 0 ? _off(seed, 112, 1, 2 days) : 0;
         t.timing.appealDecideSec = _off(seed, 144, 1, 2 days);
         // T-375 (triage item 46): one offer in 16 sits on a bound the contract checks (`_boundary`), so a change of
-        // behaviour at that bound shows in the side-by-side harness. The draw reads no bit the fields above read.
+        // behaviour at that bound shows in the side-by-side harness. The draw is independent, under its own hash label.
         uint256 b = uint256(keccak256(abi.encode("boundary", seed)));
         if (b % 16 == 0) _boundary(t, b >> 8);
         // T-358 (ADR-0033): in the invariant campaign one deal in four has its payment and payout addresses apart from
@@ -541,11 +541,13 @@ contract RulesHandler is Base {
     ///       (`Unrepresentable`). The buyer and the payment address hold enough to fund the first such deal;
     /// 2, 3: the escrow's expiry (`fallbackBy + appealDecideSec + EXPIRY_MARGIN`) at the largest `uint48`, its
     ///       `authorizationExpiry` type, and one above it (`Unrepresentable`), through the escalation window;
-    /// 4:    every deadline one second after the one before, the smallest gap SC-5 allows, and an escalation window of
-    ///       one second, the smallest it allows.
+    /// 4, 5: every deadline one second after the one before, the smallest gap SC-5 allows, and an escalation window
+    ///       of one second, the smallest SC-5 allows (4), or of two seconds, the smallest the sim beacon can decide
+    ///       (5). With one second the escalation's round (`t1 + 1`) is public only at the deadline, so that deal
+    ///       always defaults: known finding F-2 (`docs/audit/state-model.md` section 6.3).
     /// R8 adds the bounds it introduces to this list (the refinement plan, section 7d).
     function _boundary(H.Terms memory t, uint256 r) internal view {
-        uint256 k = r % 5;
+        uint256 k = r % 6;
         if (k <= 1) {
             t.price = uint256(type(uint120).max) - t.fee + k;
         } else if (k <= 3) {
@@ -553,7 +555,7 @@ contract RulesHandler is Base {
         } else {
             uint64 now_ = uint64(block.timestamp);
             (t.timing.offerExpiresAt, t.timing.fundBy, t.timing.deliverBy) = (now_ + 1, now_ + 2, now_ + 3);
-            (t.timing.judgeBy, t.timing.fallbackBy, t.timing.appealDecideSec) = (now_ + 4, now_ + 5, 1);
+            (t.timing.judgeBy, t.timing.fallbackBy, t.timing.appealDecideSec) = (now_ + 4, now_ + 5, uint64(k - 3));
         }
     }
 
@@ -792,8 +794,9 @@ contract RulesHandler is Base {
     }
 
     /// T-375 (triage item 43): whether the phase-one rules must take decision `m` on deal word `d` now, given that its
-    /// signer's key is the role's (the caller checks that). Every condition is read from the terms, the clock, the
-    /// handler's record and the message, none from the rules contract:
+    /// signer's key is the role's (the caller checks that). The conditions are read from the terms, the clock, the
+    /// message and the handler's record of the posted delivery. The stage and `t1` come from the stored word `d`;
+    /// the state oracle checks those against the state model's rows and their time bounds:
     /// - the stage is open and the message names the role whose turn it is (`_turn`), attempt 1, and the delivery
     ///   the handler carries or posted; it has not expired;
     /// - in Held, the carried delivery is the seller's and lands before deliverBy;
@@ -825,14 +828,17 @@ contract RulesHandler is Base {
             && block.timestamp < (role == H.ROLE_FALLBACK ? t.timing.fallbackBy : t.timing.judgeBy);
     }
 
-    /// T-375: counts a decision that landed, and a violation when the rules refused one they must take.
+    /// T-375: counts a decision that landed. The predicate must match the rules exactly for the messages this handler
+    /// builds, so both directions are violations: a timely decision refused, and a decision that landed although the
+    /// predicate calls it untimely. The second keeps the predicate honest: a predicate that drifted to `false` on
+    /// every path would otherwise silence the gate.
     function _decisionLiveness(string memory name, bool ok, bool timely) internal {
-        if (ok) {
-            decisions++;
-        } else if (timely) {
-            decideRefused++;
-            lastViolation = string.concat(name, ": an authorised, timely decision was refused");
-        }
+        if (ok) decisions++;
+        if (ok == timely) return;
+        decideRefused++;
+        lastViolation = string.concat(
+            name, ok ? ": a decision landed that is not authorised and timely" : ": an authorised, timely decision was refused"
+        );
     }
 
     function earlyAccept(uint256 dealSeed, uint256 callerSeed, uint256 signerSeed) external {

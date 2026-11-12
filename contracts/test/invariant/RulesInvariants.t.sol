@@ -156,9 +156,9 @@ contract RulesInvariants is Test {
 
     /// Every authorised, timely decision lands (T-375, triage item 43): a decision from the role whose turn it is,
     /// signed with its key, naming the delivered attempt and the posted delivery, with an outcome the role may give,
-    /// before the role's deadline and once its beacon round is public, is never refused (`RulesHandler._timelyDecision`).
-    /// It catches a change that breaks the decision path and leaves the stored delivery hash alone, which
-    /// `invariant_deliveryHashStored` does not see.
+    /// before the role's deadline and once its beacon round is public, is never refused (`RulesHandler._timelyDecision`);
+    /// and no other decision the handler relays lands, so the predicate stays exact. It catches a change that breaks
+    /// the decision path and leaves the stored delivery hash alone, which `invariant_deliveryHashStored` does not see.
     /// forge-config: default.invariant.runs = 256
     /// forge-config: default.invariant.depth = 100
     function invariant_timelyDecisionsLand() public view {

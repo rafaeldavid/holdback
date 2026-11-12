@@ -63,10 +63,35 @@ Line numbers are those of `contracts/src/HoldbackRules.sol` at `a37a48d`, the la
 
 ## Evidence
 
-(per pull request: the harness result, the test counts, the runtime bytes, the review)
+### PR 1 (holdback PR 396): the decision counter and the boundary offers
+
+All runs are local `forge test` on 2026-11-12, from `contracts/`, with forge 1.0.0 [measured unless marked].
+
+- **On unchanged source, before the review fixes** (`--match-path 'test/{invariant,differential}/*.t.sol'`): 49 passed, 0 failed, in 476 s. Among them: 11 invariants at 256 runs of 100 calls each, `invariant_timelyDecisionsLand` included; `testFuzz_sideBySide` at 256 runs; `test_sideBySide_reachesEveryRow`; 20 smoke tests, 3 of them new.
+- **The decision counter catches a planted bug.** In `HoldbackRules.sol:257` the fallback's deadline became `t.timing.judgeBy`, so every fallback decision is late. `--match-path test/invariant/RulesInvariants.t.sol`: the 10 existing invariants passed, and `invariant_timelyDecisionsLand` failed with "decideFallback: an authorised, timely decision was refused: 1 != 0". The plant was removed (`git checkout`).
+- **The boundary offers catch a planted bug.** In `HoldbackRules.sol:154` the hold's bound became `hold >= type(uint120).max`. With the lane's handler (`a37a48d`), `testFuzz_sideBySide` passed 257 runs. With this handler it failed on its first seed: "step 3, action agreeAndFund, field calls differs", seed 304292929107939. The plant was removed.
+- **Runtime size of `HoldbackRules`:** 19,914 bytes, unchanged (no source change).
+- **After the review fixes** (same command): 50 passed, 0 failed, in 294 s; `invariant_timelyDecisionsLand`, which now fails in both directions, passed 256 runs of 100 calls; `testFuzz_sideBySide` passed 257 runs; 21 smoke tests, 4 of them new.
 
 ## Review
 
+### PR 1
+
+One reviewer pass (Opus 5.5, the `reviewer` role) on commit `9b0bf6c`, with CLAUDE.md, the state model and the code; it ran no forge. Verdict ISSUES: no false positive found in the predicate; two Medium, two Low, three Info. It also checked that neither fixed smoke seed draws a boundary offer [measured by it with `cast keccak`].
+
+| Severity | Finding | Done |
+| --- | --- | --- |
+| Medium | The Evidence was empty | Filled in above |
+| Medium | The gate could go quiet: a predicate that drifted to `false` everywhere would still pass | The handler now counts a disagreement in both directions: a timely decision refused, and a decision that landed although the predicate calls it untimely. A new smoke test forces a timely refusal (the escrow's capture mocked to revert) and sees the violation |
+| Low | The predicate's comment said it reads nothing from the rules contract; the stage and `t1` come from the stored word | Comment corrected: the state oracle checks those two against its rows |
+| Low | The one-second escalation window can never be decided on the sim beacon (finding F-2), so no appeal decision lands at its deadline | A sixth boundary kind with a two-second window, the smallest the sim beacon can decide; the comment names F-2 |
+| Info | `fundBy > type(uint48).max` in `_paymentInfo` is unreachable since SC-5 | Handoff, for R8 |
+| Info | Two comments inaccurate | Reworded |
+| Info | The mints, the clock cap and the boundary offers hide nothing it could find | None needed |
+
 ## Decisions
+
+- **The clock stays below 2^40 s in the handler.** The word stores times in 40 bits, and bounding them is R8's fix. Without the cap, a warp to a boundary offer's far deadline would let `t1` wrap and fail the oracle for a known, out-of-scope reason.
+- **The boundary deal that holds the largest `uint120` funds.** The handler mints that amount to the buyer and the payment address at construction, so the capture and void at the top of the range run too. Conservation reads the supply after construction, so it counts them.
 
 ## Handoff
