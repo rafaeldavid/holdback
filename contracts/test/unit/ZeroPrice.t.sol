@@ -839,7 +839,7 @@ contract ZeroPriceDealTest is Base {
     // ------------------------------------------------------------ price 0 and fee 0 (P01)
 
     /// The hold would be 0, and the escrow refuses to authorize 0 (`E:179`): funding reverts with the escrow's
-    /// `ZeroAmount()`, so nothing is stored and no token moves. From fundBy the offer cannot be funded at all; the
+    /// `ZeroAmount()`, so nothing is stored and no token moves. From offerExpiresAt, and so from fundBy, the offer cannot be funded; the
     /// contract records no expiry (ADR-0031, SC-6), so the deal stays P01.
     /// Whether price 0 with fee 0 should be supported is Rafa's question; this test shows what happens today.
     function test_zeroPriceZeroFee_cannotFund_escrowRefusesZeroAmount() public {
@@ -867,7 +867,7 @@ contract ZeroPriceDealTest is Base {
         assertEq(r, 0);
         _gained(b0, 0, 0, 0, 0, 0);
 
-        // From fundBy the deadline check refuses the offer before the escrow sees it.
+        // From offerExpiresAt (here at fundBy, after it) the deadline check refuses the offer before the escrow sees it.
         vm.warp(t.timing.fundBy);
         vm.expectRevert(HoldbackRules.DeadlinePassed.selector);
         rules.agreeAndFund(t, sellerSig, acc, ag, f);
