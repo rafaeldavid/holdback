@@ -67,6 +67,11 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       expect(page).toContain('<div class="large">Crow</div>');
       // The opening comes from PITCH, so a change of its words breaks no test here.
       expect(page).toContain(`<p class="subtitle">${PITCH.descriptor.replace(/'/g, '&#39;')}</p>`);
+      // The agents' names, each introduced once with its side; the record keeps the roles buyer and seller.
+      expect(page).toContain('Enterprise Procurement Agent</span><span class="value">Acting for the buyer.');
+      expect(page).toContain('Enterprise Sales Agent</span><span class="value">Acting for the seller.');
+      expect(page).not.toMatch(/buying agent|selling agent/i);
+      expect(events.some((e) => e.role === 'buyer') && events.some((e) => e.role === 'seller')).toBe(true);
       for (const b of PITCH.beats) expect(page).toContain(`<span class="beat-label">${b.label}</span>`);
       // The proof beat tells what this run did: Rafa's sentence when the work passed, what happened instead otherwise.
       const ending = name === 'paid' ? 'paid' : name === 'refund' ? 'refunded' : 'declined';

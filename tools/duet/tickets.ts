@@ -5,6 +5,7 @@
 import { readFileSync } from 'node:fs';
 import type { Summary } from './measures.ts';
 import type { Event } from './record.ts';
+import { AGENT_NAME } from './scenarios.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 type Side = 'buyer' | 'seller';
@@ -64,9 +65,9 @@ export function overLimits(s: Summary, events: readonly Event[], l: Limits): Ove
   const turns = (role: Side) => ev.filter((e) => e.kind === 'model.turn' && e.role === role);
   const costly = (role?: Side) =>
     ev.filter((e) => e.kind === 'model.turn' && (!role || e.role === role)).sort((a, b) => b.tokensIn + b.tokensOut - (a.tokensIn + a.tokensOut)).slice(0, 3)
-      .map((t) => `The ${t.role}'s turn ${t.turn} used ${n(t.tokensIn + t.tokensOut)} tokens${t.calls?.length ? `, calling ${t.calls.map((c: J) => c.name === 'run_command' ? `run_command ${c.input?.command}` : c.name === 'fetch_url' ? `fetch_url ${String(c.input?.url ?? '')}` : c.name).join(', ')}` : ''}.`);
+      .map((t) => `The ${AGENT_NAME[t.role as Side] ?? t.role}'s turn ${t.turn} used ${n(t.tokensIn + t.tokensOut)} tokens${t.calls?.length ? `, calling ${t.calls.map((c: J) => c.name === 'run_command' ? `run_command ${c.input?.command}` : c.name === 'fetch_url' ? `fetch_url ${String(c.input?.url ?? '')}` : c.name).join(', ')}` : ''}.`);
   const docsReads = (role?: Side) => ev.filter((e) => e.kind === 'tool' && e.name === 'fetch_url' && (!role || e.role === role) && /\/(llms|buy|sell)\.txt|\/ref\/[a-z0-9-]+\.txt/.test(String(e.input?.url ?? ''))).length;
-  const split = (role: Side) => `Of the ${role}'s ${n(s.tokens[role].input + s.tokens[role].output)} tokens, ${n(s.tokens[role].guides)} carried Crow's guides (about ${n(s.guides.tokens)} tokens, paid again on every step after they were read) and ${n(s.tokens[role].work)} went to the work.`;
+  const split = (role: Side) => `Of the ${AGENT_NAME[role]}'s ${n(s.tokens[role].input + s.tokens[role].output)} tokens, ${n(s.tokens[role].guides)} carried Crow's guides (about ${n(s.guides.tokens)} tokens, paid again on every step after they were read) and ${n(s.tokens[role].work)} went to the work.`;
   const tokenCause = (role?: Side) => {
     const guides = role ? s.tokens[role].guides : s.tokens.buyer.guides + s.tokens.seller.guides;
     const work = role ? s.tokens[role].work : s.tokens.buyer.work + s.tokens.seller.work;
@@ -77,20 +78,20 @@ export function overLimits(s: Summary, events: readonly Event[], l: Limits): Ove
   const agentLimit = s.guides.tokens + l.workTokensPerAgent;
   for (const role of ['buyer', 'seller'] as const) {
     const tok = s.tokens[role].input + s.tokens[role].output;
-    if (tok > agentLimit) out.push({ measure: `tokens for the ${role}`, value: tok, limit: agentLimit, where: [split(role), `The limit is the guides read once (${n(s.guides.tokens)}) plus ${n(l.workTokensPerAgent)} for the work.`, ...costly(role)], ...tokenCause(role) });
-    if (s.calls[role].turns > l.turnsPerAgent) out.push({ measure: `model turns for the ${role}`, value: s.calls[role].turns, limit: l.turnsPerAgent, where: [`The ${role} took ${turns(role).length} turns; its last words were: ${cut(String([...turns(role)].reverse().find((t) => t.text)?.text ?? '(none)'), 300)}`], cause: 'Guess: the agent searched for its next step; the docs may not lay out the steps for its role in order.', owner: 'the docs' });
+    if (tok > agentLimit) out.push({ measure: `tokens for the ${AGENT_NAME[role]}`, value: tok, limit: agentLimit, where: [split(role), `The limit is the guides read once (${n(s.guides.tokens)}) plus ${n(l.workTokensPerAgent)} for the work.`, ...costly(role)], ...tokenCause(role) });
+    if (s.calls[role].turns > l.turnsPerAgent) out.push({ measure: `model turns for the ${AGENT_NAME[role]}`, value: s.calls[role].turns, limit: l.turnsPerAgent, where: [`The ${AGENT_NAME[role]} took ${turns(role).length} turns; its last words were: ${cut(String([...turns(role)].reverse().find((t) => t.text)?.text ?? '(none)'), 300)}`], cause: 'Guess: the agent searched for its next step; the docs may not lay out the steps for its role in order.', owner: 'the docs' });
     if (s.calls[role].toolCalls > l.toolCallsPerAgent) {
       const counts = new Map<string, number>();
       for (const e of ev.filter((x) => x.kind === 'tool' && x.role === role)) { const k = e.name === 'run_command' ? `run_command ${e.input?.command}` : e.name === 'fetch_url' ? `fetch_url ${String(e.input?.url ?? '').replace(/0x[0-9a-f]{64}/g, '<id>')}` : e.name; counts.set(k, (counts.get(k) ?? 0) + 1); }
-      out.push({ measure: `tool calls for the ${role}`, value: s.calls[role].toolCalls, limit: l.toolCallsPerAgent, where: [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, c]) => `${k}: ${c} times.`), cause: 'Guess: the agent polled for a change it could not see coming; the docs may not say how long each step takes or what to wait for.', owner: 'the docs' });
+      out.push({ measure: `tool calls for the ${AGENT_NAME[role]}`, value: s.calls[role].toolCalls, limit: l.toolCallsPerAgent, where: [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, c]) => `${k}: ${c} times.`), cause: 'Guess: the agent polled for a change it could not see coming; the docs may not say how long each step takes or what to wait for.', owner: 'the docs' });
     }
-    if (s.calls[role].apiCalls > l.apiCallsPerAgent) out.push({ measure: `API calls for the ${role}`, value: s.calls[role].apiCalls, limit: l.apiCallsPerAgent, where: [`${s.calls[role].apiErrors} of them answered with an error.`], cause: "Guess: a client tool polls the operators often while it waits; its poll interval may suit a person better than an agent's budget.", owner: 'a client tool' });
+    if (s.calls[role].apiCalls > l.apiCallsPerAgent) out.push({ measure: `API calls for the ${AGENT_NAME[role]}`, value: s.calls[role].apiCalls, limit: l.apiCallsPerAgent, where: [`${s.calls[role].apiErrors} of them answered with an error.`], cause: "Guess: a client tool polls the operators often while it waits; its poll interval may suit a person better than an agent's budget.", owner: 'a client tool' });
   }
   if (s.tokens.deal > 2 * agentLimit) out.push({ measure: 'tokens for the deal', value: s.tokens.deal, limit: 2 * agentLimit, where: [split('buyer'), split('seller'), ...costly()], ...tokenCause() });
   if (s.workPassesToPaidSec !== null && s.workPassesToPaidSec > l.workPassesToPaidSec) out.push({ measure: 'seconds from the work passing to the seller being paid', value: s.workPassesToPaidSec, limit: l.workPassesToPaidSec, where: ['Settlement time, from the decision that the work passed to the payment.'], cause: 'Guess: the chain or the adjudicator was slow to act on the decision.', owner: 'the operators or the adjudicator' });
   for (const st of ev.filter((e) => e.kind === 'stall')) {
     const b = blame(String(st.call ?? ''), String(st.error ?? ''));
-    out.push({ measure: `a stall (${st.role}: ${st.reason})`, value: 1, limit: 0, where: [st.call ? `The call: ${cut(String(st.call), 400)}` : `It was trying: ${cut(String(st.trying ?? ''), 400)}`, ...(st.error ? [`The error, as the agent saw it: ${cut(String(st.error), 800)}`] : [])], ...(st.call ? b : { cause: 'Guess: the agent ran out of turns or tokens before it finished; see what it was trying above.', owner: 'the docs or the brief' }) });
+    out.push({ measure: `a stall (${AGENT_NAME[st.role as Side] ?? st.role}: ${st.reason})`, value: 1, limit: 0, where: [st.call ? `The call: ${cut(String(st.call), 400)}` : `It was trying: ${cut(String(st.trying ?? ''), 400)}`, ...(st.error ? [`The error, as the agent saw it: ${cut(String(st.error), 800)}`] : [])], ...(st.call ? b : { cause: 'Guess: the agent ran out of turns or tokens before it finished; see what it was trying above.', owner: 'the docs or the brief' }) });
   }
   if (s.humanInterventions > 0) out.push({ measure: 'human interventions', value: s.humanInterventions, limit: 0, where: ['A person acted during the run.'], cause: 'Not a guess: nothing in a duet run should need a person.', owner: 'the runner (tools/duet)' });
   if (s.forbiddenTerms.funded || s.forbiddenTerms.askedToApprove) out.push({ measure: "agreeing to terms the owner's brief forbade", value: 1, limit: 0, where: [s.forbiddenTerms.detail], cause: s.forbiddenTerms.funded ? "Guess: the agent did not compare the offer with its brief; the docs' section on checking an offer may not say to." : "Guess: the agent asked to approve without checking the offer against its brief; the owner's policy stopped it. The docs' section on checking an offer may not say what to compare.", owner: 'the docs, or the brief (tools/duet/scenarios.ts)' });

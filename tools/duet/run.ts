@@ -9,7 +9,7 @@ import { measure, type Summary } from './measures.ts';
 import { scripted, type Provider } from './providers.ts';
 import { Recorder, Secrets } from './record.ts';
 import { replayPage } from './replay.ts';
-import { buyerBrief, ITEM, scenario, SCOPE, sellerBrief, type ScenarioName } from './scenarios.ts';
+import { AGENT_NAME, buyerBrief, ITEM, scenario, SCOPE, sellerBrief, type ScenarioName } from './scenarios.ts';
 import { limitsFor, overLimits, ticket, type Limits, type Over } from './tickets.ts';
 import type { Event } from './record.ts';
 import { buyerScript, sellerScript } from './scripted.ts';
@@ -153,7 +153,7 @@ export async function runDuet(o: RunOptions): Promise<RunResult> {
     const timers: NodeJS.Timeout[] = [];
     const play = (role: 'buyer' | 'seller', tools: Toolbox) =>
       runAgent({ role, provider: providerOf(role, role === 'buyer' ? o.buyer : o.seller), brief: briefs[role], tools, caps: o.caps, rec, signal: stops[role].signal }).then((end) => {
-        say(`The ${role} ${end.status}: ${end.outcome}`);
+        say(`The ${AGENT_NAME[role]} ${end.status}: ${end.outcome}`);
         timers.push(grace(role === 'buyer' ? 'seller' : 'buyer'));
         return end;
       });

@@ -8,6 +8,7 @@
 import type { Summary } from './measures.ts';
 import type { Event } from './record.ts';
 import type { Over } from './tickets.ts';
+import { AGENT_NAME } from './scenarios.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 type Lane = 'buyer' | 'crow' | 'seller';
@@ -271,7 +272,7 @@ export function replayPage(events: readonly Event[], s: Summary, extras: PageExt
   const exact = (x?: string) => (x ? `<details><summary>Exact call</summary><pre>${esc(x)}</pre></details>` : '');
   const item = (st: Step, i: number) => {
     const side = st.lane;
-    if (st.kind === 'say') return `<li class="step ${side} say" data-i="${i}"><div class="bubble"><p>${esc(st.title)}</p></div><span class="meta">${side === 'buyer' ? 'Buying agent' : 'Selling agent'} · ${secs(Math.max(0, st.t))}</span></li>`;
+    if (st.kind === 'say') return `<li class="step ${side} say" data-i="${i}"><div class="bubble"><p>${esc(st.title)}</p></div><span class="meta">${AGENT_NAME[side === "seller" ? "seller" : "buyer"]} · ${secs(Math.max(0, st.t))}</span></li>`;
     if (side === 'crow') return `<li class="step crow ${st.kind}" data-i="${i}"><div class="capsule">${icon(st.kind === 'money' ? 'money' : 'chain')}<span><strong>${esc(st.title)}</strong>${st.detail ? `<span class="sub">${esc(st.detail)}</span>` : ''}${st.link ? `<a class="sub" href="${esc(st.link)}" rel="noopener" target="_blank">See the payment record</a>` : ''}</span><span class="time">${secs(Math.max(0, st.t))}</span></div></li>`;
     return `<li class="step ${side} ${st.kind}" data-i="${i}"><div class="action">${icon(st.kind === 'note' ? 'note' : st.kind === 'end' ? 'end' : 'act')}<span><span class="title">${esc(st.title)}</span>${st.detail ? `<span class="sub">${esc(st.detail)}</span>` : ''}${exact(st.exact)}</span></div></li>`;
   };
@@ -288,10 +289,10 @@ export function replayPage(events: readonly Event[], s: Summary, extras: PageExt
     tile('The right outcome', ok ? 'Yes' : 'No', ok ? outcome : `Not what this test expected: ${s.why}.`, ok ? 'good' : 'bad'),
     tile('Time from the work passing to the seller being paid', s.workPassesToPaidSec === null ? '—' : `${s.workPassesToPaidSec} s`, s.workPassesToPaidSec === null ? 'Nobody was paid in this run.' : 'Counted on the order record, in whole seconds.'),
     tile('People involved during the run', String(s.humanInterventions), approvals.length ? `The buyer's owner set one standing rule in advance; it answered ${approvals.length} approval ${approvals.length === 1 ? 'request' : 'requests'}.` : 'Nobody acted during the run.'),
-    tile('Tokens used', n(s.tokens.deal), `The buying agent used ${n(tok('buyer'))}: ${n(s.tokens.buyer.guides)} to read Crow's guides and keep them in mind, ${n(s.tokens.buyer.work)} for the purchase itself. The selling agent used ${n(tok('seller'))}: ${n(s.tokens.seller.guides)} for the guides, ${n(s.tokens.seller.work)} for the sale. The two guides come to about ${n(s.guides.tokens)} tokens; an agent pays for them again on every step once it has read them.${scripted ? ' Scripted stand-ins count text length divided by four.' : ''}${s.costMicroUsd.buyer !== null || s.costMicroUsd.seller !== null ? ` At list prices, about ${usd((s.costMicroUsd.buyer ?? 0) + (s.costMicroUsd.seller ?? 0))}.` : ''}`),
+    tile('Tokens used', n(s.tokens.deal), `The ${AGENT_NAME.buyer} used ${n(tok('buyer'))}: ${n(s.tokens.buyer.guides)} to read Crow's guides and keep them in mind, ${n(s.tokens.buyer.work)} for the purchase itself. The ${AGENT_NAME.seller} used ${n(tok('seller'))}: ${n(s.tokens.seller.guides)} for the guides, ${n(s.tokens.seller.work)} for the sale. The two guides come to about ${n(s.guides.tokens)} tokens; an agent pays for them again on every step once it has read them.${scripted ? ' Scripted stand-ins count text length divided by four.' : ''}${s.costMicroUsd.buyer !== null || s.costMicroUsd.seller !== null ? ` At list prices, about ${usd((s.costMicroUsd.buyer ?? 0) + (s.costMicroUsd.seller ?? 0))}.` : ''}`),
     tile('Steps the agents took', n(s.calls.buyer.turns + s.calls.seller.turns), `${n(s.calls.buyer.toolCalls + s.calls.seller.toolCalls)} actions; ${n(s.calls.buyer.refused + s.calls.seller.refused)} were stopped by the agents' own tools.`),
-    tile('Times an agent got stuck', String(s.stalls.length), s.stalls.length ? s.stalls.map((x) => `The ${x.role === 'buyer' ? 'buying' : 'selling'} agent: ${x.reason}.`).join(' ') : 'Neither agent repeated a failing step or ran out of allowance.', s.stalls.length ? 'bad' : ''),
-    tile('Agreed to terms its owner ruled out', forbidden ? 'Yes' : 'No', forbidden ? (s.forbiddenTerms.funded ? 'The buying agent paid for terms its owner ruled out.' : "The buying agent asked to approve terms its owner ruled out; the owner's standing rule refused.") : 'The buying agent approved only terms its owner allows.', forbidden ? 'bad' : ''),
+    tile('Times an agent got stuck', String(s.stalls.length), s.stalls.length ? s.stalls.map((x) => `The ${AGENT_NAME[x.role as 'buyer' | 'seller'] ?? x.role}: ${x.reason}.`).join(' ') : 'Neither agent repeated a failing step or ran out of allowance.', s.stalls.length ? 'bad' : ''),
+    tile('Agreed to terms the buyer ruled out', forbidden ? 'Yes' : 'No', forbidden ? (s.forbiddenTerms.funded ? `The ${AGENT_NAME.buyer} paid for terms the buyer ruled out.` : `The ${AGENT_NAME.buyer} asked to approve terms the buyer ruled out; the buyer's standing rule refused.`) : `The ${AGENT_NAME.buyer} approved only terms the buyer allows.`, forbidden ? 'bad' : ''),
   ].join('');
   const overList = extras.over ?? [];
 
@@ -391,15 +392,15 @@ ${row('When the work passes', 'The payment goes to the seller, and the work unlo
 ${row('When it fails', 'The price goes back to the buyer, and the work stays locked.')}
 ${row('Who checks', 'An independent reviewer runs the checks both sides agreed to before the order, on the delivered work itself.')}
 </div>
-<p class="footnote">${scripted ? 'In this run both agents are scripted stand-ins that follow a fixed list of steps: it shows how the pieces fit, not what an AI model would do.' : `The buying agent is ${esc(model('buyer'))} and the selling agent is ${esc(model('seller'))}: real AI models${s.models.buyer.vendor !== s.models.seller.vendor ? ' from two different companies' : ''}, each using only its own tools. They never talked to each other directly.`}</p>
+<p class="footnote">${scripted ? 'In this run both agents are scripted stand-ins that follow a fixed list of steps: it shows how the pieces fit, not what an AI model would do.' : `The ${AGENT_NAME.buyer} is ${esc(model('buyer'))} and the ${AGENT_NAME.seller} is ${esc(model('seller'))}: real AI models${s.models.buyer.vendor !== s.models.seller.vendor ? ' from two different companies' : ''}, each using only its own tools. They never talked to each other directly.`}</p>
 
 <div class="section">The purchase</div>
 <div class="group">
 ${row('What was bought', bought)}
 ${row('Price', price !== null ? tokens(price) : 'No price agreed')}
 ${held !== null ? row('Buyer paid', `${tokens(held)}${fee !== null ? `: the price plus ${tokens(fee)} for the independent reviewer` : ''}`) : ''}
-${row('Buying agent', model('buyer'))}
-${row('Selling agent', model('seller'))}
+${row(AGENT_NAME.buyer, `Acting for the buyer. ${model('buyer')}.`)}
+${row(AGENT_NAME.seller, `Acting for the seller. ${model('seller')}.`)}
 ${row('How it ended', outcome)}
 ${row('Time taken', end ? secs(Number(end.t)) : '')}
 ${row('Where it ran', where.charAt(0).toUpperCase() + where.slice(1))}
@@ -417,16 +418,16 @@ ${checkList}
 
 <div class="section">Set in advance by the owners</div>
 <div class="group">
-${row("Buyer's owner", `Gave its agent the job and a budget of ${tokens(policy.budget)}, required the checks that every file is reviewed and every finding stays in scope, and wanted the report within ${days} days.`)}
+${row("Buyer's owner", `Gave the ${AGENT_NAME.buyer} the job and a budget of ${tokens(policy.budget)}, required the checks that every file is reviewed and every finding stays in scope, and wanted the report within ${days} days.`)}
 ${row('Standing approval rule', `Instead of a person approving the payment, the buyer's owner set a rule: approve only within the budget, with the required checks, the report due within ${days} days, and an offer dated now.${approvals.length ? ` It answered ${approvals.length} ${approvals.length === 1 ? 'request' : 'requests'}: ${approvals.filter((a) => a.granted).length} approved, ${approvals.filter((a) => !a.granted).length} refused.` : ' It was never asked.'}`)}
-${row("Seller's owner", `Gave its agent its order system and asked it to sell reports.${start?.sellerRulePlain ? ` One extra instruction: ${cut(String(start.sellerRulePlain), 260)}` : ''}`)}
+${row("Seller's owner", `Gave the ${AGENT_NAME.seller} its order system and asked it to sell reports.${start?.sellerRulePlain ? ` One extra instruction: ${cut(String(start.sellerRulePlain), 260)}` : ''}`)}
 </div>
 ${start?.note ? `<div class="callout">${icon('note')}<p>${esc(String(start.note))}</p></div>` : ''}
 <p class="footnote">What a person had to do during the run: nothing. Every other choice, each agent made itself.</p>
 
 <div class="section">What happened, step by step</div>
 <div class="conversation">
-<div class="heads"><span>${avatar('buyer')} Buying agent</span><span>The held payment</span><span>Selling agent ${avatar('seller')}</span></div>
+<div class="heads"><span>${avatar('buyer')} ${AGENT_NAME.buyer}</span><span>The held payment</span><span>${AGENT_NAME.seller} ${avatar('seller')}</span></div>
 <ol class="run" id="run">
 ${list.map(item).join('\n')}
 </ol>
@@ -440,7 +441,7 @@ ${list.map(item).join('\n')}
 <div class="group">
 ${link('https://crow.direct', "Crow's website", 'What Crow is and how to try it')}
 ${link('https://crow.direct/llms.txt', 'The front page an AI agent reads first', 'Where to start, for a buyer or a seller')}
-${link('https://crow.direct/buy.txt', 'The guide for buyers', "A buying agent's first purchase, step by step")}
+${link('https://crow.direct/buy.txt', 'The guide for buyers', "An agent's first purchase, step by step")}
 ${link('https://crow.direct/sell.txt', 'The guide for sellers', 'How to sell a service through Crow')}
 ${link('https://github.com/rafaeldavid/holdback', 'The public code', 'Open source, on GitHub')}
 ${liveOrder ? link(liveOrder, "This order's public record", 'As the live service shows it') : ''}
