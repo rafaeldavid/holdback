@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity 0.8.28;
 
 import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 
-import {HoldbackBonds} from "../old/HoldbackBonds.sol";
-import {IHoldbackBeacon} from "../old/IHoldbackBeacon.sol";
-import {HoldbackTypes as H, Money} from "../old/HoldbackTypes.sol";
+import {IHoldbackBeacon} from "../parent/IHoldbackBeacon.sol";
+import {HoldbackTypes as H, Money} from "../parent/HoldbackTypes.sol";
 
-// T-341, PLANTED BEHAVIOUR CHANGE. A test fixture, never deployed: the pinned copy `../old/HoldbackRules.64be1f1.sol` with
-// two edits, these imports and one deleted line in `_acceptDelivery` (`deliveryHashOf[id] = dh;`). It is the
+// T-341, PLANTED BEHAVIOUR CHANGE. A test fixture, never deployed: the pinned copy `../parent/HoldbackRules.4f6cea0.sol`
+// with two edits, these imports and one deleted line in `_acceptDelivery` (`deliveryHashOf[id] = dh;`). It is the
 // "stores no delivery hash" mutant of known issue G-5. `SideBySide.t.sol` and `StateOracle.t.sol` prove that the
-// side-by-side harness and the delivery liveness invariant both fail on it.
+// side-by-side harness and the delivery liveness invariant both fail on it. T-356 re-based it on each change's parent.
 
 /// @title HoldbackRules
 /// @notice The Holdback rules contract: the on-chain form of SimChain's escrow rules for
@@ -38,49 +37,32 @@ contract HoldbackRules is EIP712 {
         Expired
     }
 
-    enum AppealState {
-        None, // a first-instance decision: the window is open until appealBy
-        Open,
-        Upheld,
-        Overturned,
-        Expired,
-        Closed // nothing to appeal (early accept, reclaim, default, escalation decision, mutual settlement)
-
-    }
-
-    /// @notice One storage word per commitment.
+    /// @notice One storage word per commitment. Phase one has no party appeal and no bond (ADR-0031 §8): the first
+    ///         decision by the primary or the fallback, and an escalation's decision, are final when written.
     struct Deal {
         Stage stage;
         uint8 attempt; // delivery attempt seen on chain (0 until a delivery is verified)
-        AppealState appeal;
-        uint8 flags; // F_*
         uint40 t1; // decidedAt, escalatedAt or fallbackSince
-        uint40 t2; // appeal openedAt
         uint144 seedTag; // low 144 bits of the primary's seedCommitment
     }
-
-    uint8 internal constant F_PRIMARY = 1; // primary bond encumbered for this commitment
-    uint8 internal constant F_FALLBACK = 2; // the fallback's bond, reserved by its own decision
-    uint8 internal constant F_BY_FALLBACK = 8; // the first-instance decision came from the fallback
 
     // Key release paths (ADR-0012).
     uint8 public constant KEY_DECISION = 0;
     uint8 public constant KEY_EARLY_ACCEPT = 1;
     uint8 public constant KEY_MUTUAL = 2;
-    uint8 public constant KEY_APPEAL = 3;
 
     /// @notice Mutual settlement fee share to the sitting adjudicator (rulebook `adjudicatorFeeShareAfterDeliveryBps`).
-    ///         The rulebook is not on chain, so the Phase 1 default of 0 applies; the remainder goes to the buyer.
+    ///         The rulebook is not on chain, so the default of 0 applies: `_payOut` returns the whole fee to the buyer.
+    ///         No code here reads it; the getter stays in the ABI, and `Postings.fuzz.t.sol` fails if it leaves 0.
     uint256 public constant MUTUAL_FEE_SHARE_BPS = 0;
 
     AuthCaptureEscrow public immutable ESCROW;
     address public immutable ERC3009_COLLECTOR;
     address public immutable PERMIT2_COLLECTOR;
-    HoldbackBonds public immutable BONDS;
     /// @notice Added after the last moment a capture can happen (fallbackBy + appealDecideSec) to get CPP's
     ///         authorizationExpiry, after which only the buyer's own reclaim on CPP remains (ADR-0003).
     uint64 public immutable EXPIRY_MARGIN;
-    /// @notice The beacon that fixes fallback and appeal panel seeds (ADR-0018): the drand quicknet verifier
+    /// @notice The beacon that fixes fallback and escalation panel seeds (ADR-0018): the drand quicknet verifier
     ///         on shared chains, the sim beacon on anvil. Fixed at deploy; it also owns the round arithmetic.
     IHoldbackBeacon public immutable BEACON;
 
@@ -119,14 +101,11 @@ contract HoldbackRules is EIP712 {
     event KeyReleased(bytes32 indexed id, address indexed recipient, uint8 path, string scheme, string ciphertext);
     event FallbackTriggered(bytes32 indexed id, uint64 beaconRound);
     event Defaulted(bytes32 indexed id, Stage from);
-    event AppealFiled(bytes32 indexed id, address indexed appellant, uint256 bond);
-    event AppealClosed(bytes32 indexed id, AppealState verdict);
     event MutuallySettled(bytes32 indexed id, bool keyReleased);
 
     // Errors
 
     error WrongStage(Stage current);
-    error WrongAppealState(AppealState current);
     error BadSignature();
     error DeadlinePassed();
     error TooEarly();
@@ -148,7 +127,6 @@ contract HoldbackRules is EIP712 {
         PERMIT2_COLLECTOR = permit2Collector;
         EXPIRY_MARGIN = expiryMargin;
         BEACON = beacon;
-        BONDS = new HoldbackBonds();
     }
 
     // Views
@@ -207,17 +185,15 @@ contract HoldbackRules is EIP712 {
         if (d.stage != Stage.None) revert WrongStage(d.stage);
         if (block.timestamp >= t.timing.offerExpiresAt || block.timestamp >= t.timing.fundBy) revert DeadlinePassed();
         if (block.timestamp >= acc.expiresAt || block.timestamp >= ag.expiresAt) revert MessageExpired();
-        if (acc.bondReserved < t.price || f.method > 1) revert InvalidMessage();
+        // Phase one has no bond (ADR-0031 §8, point 2): the acceptance must say that nothing is reserved.
+        if (acc.bondReserved != 0 || f.method > 1) revert InvalidMessage();
         _requireSigned(t.seller, id, sellerSignature);
         _requireSigned(t.adjudicator, H.acceptanceHash(id, t, acc), acc.signature);
         _requireSigned(t.buyer, H.agreeHash(id, t.buyer, ag), ag.signature);
         AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(id, t);
 
         d.stage = Stage.Held;
-        d.flags = F_PRIMARY;
         d.seedTag = uint144(uint256(acc.seedCommitment));
-        // Guaranteed mode: the primary's bond covers 100% of the price, rounded up (ADR-0007, ADR-0022 rule 1).
-        BONDS.encumber(t.adjudicator, t.token, Money.requirement(t.price, Money.ALL_BPS));
         emit JobCreated(id, t.buyer, t.seller, t.adjudicator, pi.authorizationExpiry);
         emit JobFunded(id, t.buyer, pi.maxAmount);
         ESCROW.authorize(pi, pi.maxAmount, f.method == 0 ? ERC3009_COLLECTOR : PERMIT2_COLLECTOR, f.signature);
@@ -268,10 +244,6 @@ contract HoldbackRules is EIP712 {
             role = H.ROLE_APPEAL;
             deadline = uint256(d.t1) + t.timing.appealDecideSec;
             round = BEACON.roundAt(d.t1) + 1;
-        } else if ((s == Stage.Released || s == Stage.Refunded) && d.appeal == AppealState.Open) {
-            role = H.ROLE_APPEAL;
-            deadline = uint256(d.t1) + t.timing.appealWindowSec + t.timing.appealDecideSec;
-            round = BEACON.roundAt(d.t2) + 1;
         } else {
             revert WrongStage(s);
         }
@@ -283,11 +255,8 @@ contract HoldbackRules is EIP712 {
         ) {
             revert InvalidMessage();
         }
-        // ADR-0012 (formal model KeyOnlyWithPayment): the buyer's key travels only with an accept, and never on a deal
-        // that stands Refunded.
-        if (bytes(m.keyCiphertext).length > 0 && (m.outcome != H.OUTCOME_ACCEPT || s == Stage.Refunded)) {
-            revert InvalidMessage();
-        }
+        // ADR-0012 (formal model KeyOnlyWithPayment): the buyer's key travels only with an accept.
+        if (bytes(m.keyCiphertext).length > 0 && m.outcome != H.OUTCOME_ACCEPT) revert InvalidMessage();
         if (block.timestamp >= deadline) revert DeadlinePassed();
         if (role == H.ROLE_PRIMARY) {
             // The primary reveals the preimage of its seedCommitment.
@@ -307,42 +276,30 @@ contract HoldbackRules is EIP712 {
         emit Decided(id, adjudicator, m.role, m.outcome, m.judgmentRecordHash, m.seed);
 
         if (s == Stage.Escalated) _escalationDecision(id, t, d, m);
-        else if (role == H.ROLE_APPEAL) _appealDecision(id, t, d, m);
         else _firstInstance(id, t, d, m, adjudicator);
     }
 
+    /// @dev The primary's or the fallback's decision. An accept or a reject is final when written (phase one has no
+    ///      party appeal, ADR-0031 §8); an escalation hands the case to the appeal adjudicator and moves no money.
     function _firstInstance(bytes32 id, H.Terms calldata t, Deal memory d, H.Decision calldata m, address adjudicator)
         internal
     {
-        bool primary = m.role == H.ROLE_PRIMARY;
         if (m.appealGroundHash != H.EMPTY_HASH) revert InvalidMessage();
         if (m.outcome == H.OUTCOME_ESCALATE) {
-            // No money moves. Nothing is reserved for the appeal adjudicator, who signed nothing for this deal
-            // (ADR-0016 §1: a sham commitment cannot lock a bond the adjudicator never reserved).
-            _releaseBonds(t, d.flags);
-            d.flags = 0;
             d.stage = Stage.Escalated;
             d.t1 = uint40(block.timestamp);
             _deals[id] = d;
             return;
         }
-        // The decider's bond stays encumbered until the appeal closes; the primary's is released if the fallback
-        // decides. The fallback reserves its own bond by deciding: uncovered, it cannot, and the deal defaults.
-        _releaseBonds(t, primary ? 0 : d.flags);
-        if (!primary) BONDS.encumber(t.fallbackAdjudicator, t.token, t.price);
-        d.flags = primary ? F_PRIMARY : F_FALLBACK | F_BY_FALLBACK;
         d.stage = m.outcome == H.OUTCOME_ACCEPT ? Stage.Released : Stage.Refunded;
-        d.appeal = AppealState.None;
         d.t1 = uint40(block.timestamp);
         _deals[id] = d;
         _settleDecision(id, t, adjudicator, m);
     }
 
+    /// @dev The appeal adjudicator's decision on an escalated case, final when written.
     function _escalationDecision(bytes32 id, H.Terms calldata t, Deal memory d, H.Decision calldata m) internal {
-        _releaseBonds(t, d.flags);
-        d.flags = 0;
         d.stage = m.outcome == H.OUTCOME_ACCEPT ? Stage.Released : Stage.Refunded;
-        d.appeal = AppealState.Closed; // a decision reached through escalation is not appealable
         _deals[id] = d;
         _settleDecision(id, t, t.appealAdjudicator, m);
     }
@@ -364,24 +321,6 @@ contract HoldbackRules is EIP712 {
             emit Refunded(id, t.buyer, t.price);
         }
         if (t.fee > 0) emit FeePaid(id, adjudicator, t.fee);
-    }
-
-    /// @dev A party appeal moves bond money only; the escrow already settled at the first decision.
-    function _appealDecision(bytes32 id, H.Terms calldata t, Deal memory d, H.Decision calldata m) internal {
-        bool firstAccepted = d.stage == Stage.Released;
-        bool upheld = (m.outcome == H.OUTCOME_ACCEPT) == firstAccepted;
-        address first = d.flags & F_BY_FALLBACK != 0 ? t.fallbackAdjudicator : t.adjudicator;
-        // Only the first decider's bond is still encumbered: released if upheld, paid out below if overturned.
-        if (upheld) _releaseBonds(t, d.flags);
-        d.flags &= F_BY_FALLBACK;
-        d.appeal = upheld ? AppealState.Upheld : AppealState.Overturned;
-        _deals[id] = d;
-        // Upheld: the forfeited appeal bond goes to the first adjudicator's bond (ADR-0014 §2a). Overturned: back to
-        // the appellant, and the first adjudicator's bond pays the wronged party the price (guaranteed mode, ADR-0007).
-        BONDS.payAppealBond(id, t.token, upheld ? first : address(0));
-        emit AppealClosed(id, d.appeal);
-        if (!upheld) BONDS.slash(id, first, t.token, t.price, firstAccepted ? t.buyer : t.seller);
-        if (bytes(m.keyCiphertext).length > 0) _releaseKey(id, t.buyer, KEY_APPEAL, m.keyScheme, m.keyCiphertext);
     }
 
     // Early accept
@@ -408,11 +347,7 @@ contract HoldbackRules is EIP712 {
         if (m.attempt != dv.attempt || m.deliveryHash != dh || dh != deliveryHashOf[id]) revert InvalidMessage();
         _requireKeyProof(t.buyer, dv.encryptedKeysHash, k);
 
-        uint8 flags = d.flags;
         d.stage = Stage.Released;
-        d.appeal = AppealState.Closed;
-        d.flags = 0;
-        _releaseBonds(t, flags);
         AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(id, t);
         if (t.price > 0) _capture(pi, t.price, 0, address(0));
         if (t.fee > 0) _void(pi);
@@ -451,17 +386,13 @@ contract HoldbackRules is EIP712 {
             _requireKeyProof(t.buyer, dv.encryptedKeysHash, k);
         }
 
-        uint8 flags = d.flags;
         d.stage = Stage.Settled;
-        d.appeal = AppealState.Closed;
-        d.flags = 0;
-        _releaseBonds(t, flags);
-        _payOut(id, t, m.payouts, s);
+        _payOut(id, t, m.payouts);
         emit MutuallySettled(id, m.releaseKey);
         if (m.releaseKey) _releaseKey(id, t.buyer, KEY_MUTUAL, k.scheme, k.ciphertext);
     }
 
-    function _payOut(bytes32 id, H.Terms calldata t, H.Payout[] calldata payouts, Stage s) internal {
+    function _payOut(bytes32 id, H.Terms calldata t, H.Payout[] calldata payouts) internal {
         AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(id, t);
         uint256 total;
         uint256 toSeller;
@@ -484,42 +415,13 @@ contract HoldbackRules is EIP712 {
             _capture(pi, toSeller, 0, address(0));
             emit PaymentReleased(id, t.seller, toSeller);
         }
-        // ADR-0022 rule 2: the fee share rounds down to the sitting adjudicator, the remainder to the buyer.
-        (uint256 share,) = Money.split(t.fee, MUTUAL_FEE_SHARE_BPS);
-        if (share > 0) {
-            address sitting = s == Stage.FallbackJudging
-                ? t.fallbackAdjudicator
-                : s == Stage.Escalated ? t.appealAdjudicator : t.adjudicator;
-            _capture(pi, share, share, sitting);
-            emit FeePaid(id, sitting, share);
-        }
-        // Everything still held (the buyer's payouts and the fee remainder) goes back to the buyer.
-        uint256 rest = pi.maxAmount - captured - toSeller - share;
+        // Everything still held (the buyer's payouts and the whole fee, MUTUAL_FEE_SHARE_BPS being 0) goes back to
+        // the buyer.
+        uint256 rest = pi.maxAmount - captured - toSeller;
         if (rest > 0) {
             _void(pi);
             emit Refunded(id, t.buyer, rest);
         }
-    }
-
-    // Appeal
-
-    /// @notice Anyone relays a party's signed appeal against a first-instance decision before appealBy. The bond
-    ///         is pulled from the appellant (ERC-20 allowance to BONDS) and held until the appeal closes.
-    function fileAppeal(H.Terms calldata t, H.Appeal calldata a) external {
-        bytes32 id = H.commitmentId(t);
-        Deal storage d = _deals[id];
-        if (d.stage != Stage.Released && d.stage != Stage.Refunded) revert WrongStage(d.stage);
-        if (d.appeal != AppealState.None) revert WrongAppealState(d.appeal);
-        if (block.timestamp >= uint256(d.t1) + t.timing.appealWindowSec) revert DeadlinePassed();
-        // Only the party the decision went against appeals (T-206 L-7): outcomes are binary, and one slot taken by
-        // the favoured party would shut out the party with something to win.
-        if (a.appellant != (d.stage == Stage.Released ? 0 : 1)) revert InvalidMessage();
-        address appellant = a.appellant == 0 ? t.buyer : t.seller;
-        _requireSigned(appellant, H.appealHash(id, appellant, H.tokenIdHash(t.token), a), a.signature);
-        d.appeal = AppealState.Open;
-        d.t2 = uint40(block.timestamp);
-        BONDS.takeAppealBond(id, appellant, t.token, a.bond);
-        emit AppealFiled(id, appellant, a.bond);
     }
 
     // Timeouts (TimeoutKind), anyone may call
@@ -556,8 +458,8 @@ contract HoldbackRules is EIP712 {
     }
 
     /// @notice default and apply_default in one call: the fallback missed fallbackBy, or the
-    ///         appeal adjudicator missed appealDecideBy after an escalation; price + fee back to the buyer. Seller
-    ///         compensation from bonds is Phase 4.
+    ///         appeal adjudicator missed appealDecideBy after an escalation; price + fee back to the buyer. Phase one
+    ///         has no bond, so nothing compensates the seller (ADR-0031 §8).
     function triggerDefault(H.Terms calldata t) external {
         bytes32 id = H.commitmentId(t);
         Deal storage d = _deals[id];
@@ -573,40 +475,13 @@ contract HoldbackRules is EIP712 {
         _refundAll(id, t, d);
     }
 
-    /// @notice appeal_expiry: the appeal window closed with no appeal, or an open appeal went undecided (the bond
-    ///         goes back to the appellant; the first decision stands). Releases the decider's bond.
-    function expireAppeal(H.Terms calldata t) external {
-        bytes32 id = H.commitmentId(t);
-        Deal storage d = _deals[id];
-        if (d.stage != Stage.Released && d.stage != Stage.Refunded) revert WrongStage(d.stage);
-        uint256 appealBy = uint256(d.t1) + t.timing.appealWindowSec;
-        AppealState a = d.appeal;
-        if (a == AppealState.None) {
-            if (block.timestamp < appealBy) revert TooEarly();
-        } else if (a == AppealState.Open) {
-            if (block.timestamp < appealBy + t.timing.appealDecideSec) revert TooEarly();
-        } else {
-            revert WrongAppealState(a);
-        }
-        uint8 flags = d.flags;
-        d.appeal = AppealState.Expired;
-        d.flags = flags & F_BY_FALLBACK;
-        _releaseBonds(t, flags);
-        if (a == AppealState.Open) BONDS.payAppealBond(id, t.token, address(0));
-        emit AppealClosed(id, AppealState.Expired);
-    }
-
     // Internals
 
     function _refundAll(bytes32 id, H.Terms calldata t, Deal storage d) internal {
-        uint8 flags = d.flags;
         d.stage = Stage.Refunded;
-        d.appeal = AppealState.Closed;
-        d.flags = 0;
-        _releaseBonds(t, flags);
         AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(id, t);
         // From authorizationExpiry the buyer may have reclaimed on CPP already (ADR-0003's backstop). The deal still
-        // closes here, so the bonds above are never stranded; there is just nothing left to void.
+        // closes here; there is just nothing left to void.
         if (block.timestamp >= pi.authorizationExpiry) {
             (, uint120 held,) = ESCROW.paymentState(ESCROW.getHash(pi));
             if (held == 0) return;
@@ -615,7 +490,7 @@ contract HoldbackRules is EIP712 {
         emit Refunded(id, t.buyer, pi.maxAmount);
     }
 
-    /// @dev Verifies the seller-signed delivery for attempt 1 (core: maxSubmissions is 1 in Phases 1 and 2). Whichever
+    /// @dev Verifies the seller-signed delivery for attempt 1 (core allows one submission: maxSubmissions is 1). Whichever
     ///      call lands it (deliver, or a decision or early accept that carries it), it must land before deliverBy, as
     ///      in SimChain; otherwise it races the reclaim. Stores and returns its hash (ADR-0029).
     function _acceptDelivery(
@@ -654,11 +529,6 @@ contract HoldbackRules is EIP712 {
 
     function _void(AuthCaptureEscrow.PaymentInfo memory pi) internal {
         ESCROW.void(pi);
-    }
-
-    function _releaseBonds(H.Terms calldata t, uint8 flags) internal {
-        if (flags & F_PRIMARY != 0) BONDS.release(t.adjudicator, t.token, t.price);
-        if (flags & F_FALLBACK != 0) BONDS.release(t.fallbackAdjudicator, t.token, t.price);
     }
 
     function _requireSigned(address signer, bytes32 structHash, bytes calldata signature) internal view {

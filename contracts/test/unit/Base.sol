@@ -109,7 +109,7 @@ abstract contract Base is Test, DeployPermit2 {
         collectorPermit2 = new Permit2PaymentCollector(address(escrow), permit2, MULTICALL3);
         usdc = new MockERC3009Token("Mock USDC", "mUSDC", 6);
         sim = new SimBeacon(SIM_SEED);
-        rules = new HoldbackRules(escrow, address(collector3009), address(collectorPermit2), MARGIN, sim);
+        rules = new HoldbackRules(escrow, address(collector3009), address(collectorPermit2), MARGIN, sim, address(usdc));
         hx = new TypesHarness();
 
         buyer = vm.addr(BUYER_PK);

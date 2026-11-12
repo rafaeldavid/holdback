@@ -262,7 +262,8 @@ async function deploy(
   // period 1 s, equal to SimChain's floor(ms / 1000)) (ADR-0018). Fixed at deploy; no setter.
   const deployRules = async (simSeed: Hex): Promise<RulesDeployment> => {
     const beacon = await one(beaconA, [simSeed]);
-    const rules = await one(rulesA, [escrow, erc3009Collector, permit2Collector, EXPIRY_MARGIN, beacon]);
+    // The settlement token is a constructor immutable: a deployment serves one token (ADR-0031 §2, SC-1).
+    const rules = await one(rulesA, [escrow, erc3009Collector, permit2Collector, EXPIRY_MARGIN, beacon, tokenAddr]);
     const fromBlock = (await client.getBlockNumber()) + 1n;
     return { rules, beacon, fromBlock };
   };

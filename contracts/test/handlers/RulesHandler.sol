@@ -118,6 +118,8 @@ contract RulesHandler is Base {
     bool internal traceMode;
     bytes[] internal _calls; // every checked call's outcome, in order: abi.encode(ok, return or revert data)
     bytes[] internal _events; // every event emitted, in order: abi.encode(emitter, topics, data)
+    /// T-356 (SC-1): the token of the terms the last `agreeAndFund` relayed, for the harness's allow-list.
+    address public fundToken;
 
     constructor() {
         setUp();
@@ -407,7 +409,9 @@ contract RulesHandler is Base {
     function offer(uint256 seed) external {
         if (_ids.length >= MAX_DEALS) revert Refused();
         H.Terms memory t = _terms();
-        t.token = seed & 1 == 0 ? address(usdc) : address(tusd2);
+        // T-356 (SC-1): a deployment serves one token, `usdc`. One offer in 64 names the second token, which the
+        // contract refuses at funding, so the refusal stays exercised without diverging most harness seeds.
+        t.token = uint256(keccak256(abi.encode("other token", seed))) % 64 == 0 ? address(tusd2) : address(usdc);
         t.price = _bound((seed >> 8) & 0xffffffff, 1, 60_000_000);
         // T-341: one offer in eight has price 0, which phase one keeps legal (Rafa, 2026-11-11: a deal may carry no
         // token value). With a fee above 0 it funds; with fee 0 the escrow refuses to hold nothing, on both sides.
@@ -448,6 +452,7 @@ contract RulesHandler is Base {
         uint256 v0 = _violations();
         uint256 i = _pickFor(dealSeed, M_NONE);
         H.Terms memory t = _terms_[i];
+        fundToken = t.token;
         bytes32 id = _ids[i];
         uint256 good = _rolePk[id][0];
         uint256 sk = _signer(signerSeed, SELLER_PK);
