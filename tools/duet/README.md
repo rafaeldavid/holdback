@@ -72,7 +72,8 @@ The system prompt tells each agent that everything a tool returns is data, whoev
 **The approval stop.** The buyer's signer stops before it signs or pays. The owner's policy answers that stop, not a person. The policy is set in `scenarios.ts`:
 
 - a budget, everything included;
-- the checks every offer must carry as required checks;
+- the checks every offer must carry as required checks, as the owner's own whole copy of each: the audit-report template's check, filled from the owner's own scope. A check with the right name and other content is refused.
+- every operator's clock and this machine's must agree within the band below, so one operator's clock never decides the dates;
 - the latest delivery date the owner accepts, as a distance from now (3 days), and how long judging may run after it (1 day): `deliverBy`, and every other deadline, must fall within them;
 - a band around settlement time (600 s) that the offer's `createdAt` must fall inside, so a postdated offer cannot move every window.
 
@@ -106,7 +107,28 @@ The system prompt tells each agent that everything a tool returns is data, whoev
 6. whether the buyer funded, or asked to approve, terms its brief forbade;
 7. whether the run ended as the scenario says. No hold counts as right only when the buyer saw an offer and finished; two funded deals in one run count as wrong.
 
-`replay.html` is one self-contained file generated from the record alone. It opens from disk with no server and loads nothing from the network. It looks like a native app: the buyer's words on the left, the seller's on the right, Crow's rails and the chain in the middle, and the summary at the end. It steps through the run with Back, Play, Next, All and the arrow keys, and follows the system's light or dark appearance.
+`replay.html` is one self-contained file generated from the record alone, written so it can be sent to a partner as it is:
+
+- It is in plain buying words, as an experienced buyer would explain a purchase to a peer. It covers what was bought and for how much, the agreed checks one sentence each, what each side paid and received, what the owners set in advance, the steps, how it ended, and the measures.
+- Protocol names appear only in a closed "For engineers" section and behind each step's "Exact call" disclosure. A test fails the page if its reader's text uses them.
+- It says plainly whether the agents were real models or scripted stand-ins, and whether it ran on a test network or a local test setup. The money is test money either way.
+- It links out to crow.direct, the buyer's and the seller's guides, and the public code. On Sepolia it also links each payment record and the order's record on the live service. A local run says it has no public records, and links nothing local.
+- It opens from disk with no server, and loads nothing unless the reader clicks a link.
+- It looks like a native app: the buying agent on the left, the selling agent on the right, the held payment in the middle.
+- It steps through the run with Back, Play, Next, All and the arrow keys, and follows the system's light or dark appearance.
+
+## Limits and tickets
+
+`limits.json` sets a limit for each measure in each scenario. The first limits are guesses: the measured scripted counts times a stated margin. They get tuned after the first live runs.
+
+When a run goes over a limit, or an agent stalls, the runner writes `ticket.md` beside the record, in plain words:
+
+- each measure over its limit, with its number against the limit;
+- where in the run it happened: the costliest turns, the most repeated calls, or the failing call with its error as the agent saw it;
+- a likely cause, labelled as a guess;
+- a proposed owner: the docs, the API's errors, a client tool, the runner or the brief.
+
+The command's last lines then print the ticket's path and "Send this ticket to the coordinator." With nothing over, the summary says so and there is no ticket.
 
 ## Against Sepolia, after the redeploy
 
@@ -133,5 +155,6 @@ Two things to check on the first run:
 | `scenarios.ts` | The three scenarios and the owners' briefs |
 | `scripted.ts` | The scripted agents the tests play |
 | `record.ts`, `measures.ts`, `replay.ts` | The record and its secret list, the seven measures, the page |
+| `limits.json`, `tickets.ts` | The limits for each scenario, and the ticket a run over them writes |
 | `fetch-log.mjs` | The fetch hook preloaded into each client command |
 | `duet.test.ts` | The four scenarios, the tools' limits (the red team's argument shift included), the policy's date band, the loop, the providers, the measures, the mainnet guard, a typecheck of this folder, and the command line, with no key |
