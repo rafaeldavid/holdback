@@ -6,7 +6,8 @@
 // It runs the adjudicator's own code (@holdback/judgment: intake's plaintext rules, then stage 1), offline.
 // It reads two local files and nothing else: no network, and nothing in the file or the terms is executed.
 // It does not run the screen or the judges, so on a rubric deal it tells you only that the checks do not
-// refuse the file.
+// refuse the file. On a deal where judges read the file, it also says when the file is longer than the judges
+// read (T-361): it builds their prompt as the pipeline does, discards it, and prints one advisory note.
 //
 // A `reference_row_match_min` check compares the file with a reference file the terms name by URI and hash.
 // The adjudicator loads that reference from its content store by the committed hash, and does not judge
@@ -25,7 +26,7 @@
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
-import { preflightDelivery, referenceLookups, type JudgmentAcceptance, type JudgmentCheck, type Preflight, type PreflightInput } from '@holdback/judgment';
+import { buildPrompt, decodePlaintext, DEFAULT_MAX_DATA_CHARS, preflightDelivery, randomNonces, referenceLookups, SAMPLE_HEAD, SAMPLE_TAIL, type JudgmentAcceptance, type JudgmentCheck, type Preflight, type PreflightInput } from '@holdback/judgment';
 import { plain, safeJson } from '@holdback/testkit';
 
 type Mime = PreflightInput['mime'];
@@ -44,6 +45,8 @@ export interface CheckDeliveryOptions {
 export interface CheckDeliveryResult {
   preflight: Preflight;
   mime: string;
+  /** Set when judges read the file and it is longer than they read. Advisory: it changes neither the result nor the exit code. */
+  panelRead?: PanelRead;
   /** What to print: the result first, then the file, then one line per check. */
   lines: string[];
   /** 0: accept or panel. 1: reject. 2: escalate, or a reference file is missing. */
@@ -96,6 +99,48 @@ const isReferenceCheck = (c: JudgmentCheck): c is ReferenceCheck => c.type === '
 const committed = (c: ReferenceCheck): string => (typeof c.reference?.sha256 === 'string' ? c.reference.sha256 : '');
 const count = (n: number) => n.toLocaleString('en-US');
 
+/** What the judges read of a file longer than their read (prompt.ts): its length after intake, the limit, and how it is sampled. */
+export interface PanelRead {
+  /** Characters of the text the judges are given: the delivery after intake's normalization. */
+  chars: number;
+  /** The most characters of data a judge's prompt holds. */
+  maxChars: number;
+  /** seeded: a seeded sample of CSV rows. stride: the first line and lines at even intervals, which escalates. */
+  sampling: 'seeded' | 'stride';
+}
+
+/** The sampling seed does not change whether a file is sampled or how, only which rows; any seed tells the mode. */
+const ANY_SEED = `0x${'00'.repeat(32)}` as const;
+
+/**
+ * Builds the judges' prompt for the file, as the pipeline does, and reports what they read when the file is
+ * longer than their read. The prompt is discarded: nothing is sent and no judge runs.
+ */
+function panelRead(plaintext: Uint8Array, mime: Mime, acceptance: JudgmentAcceptance): PanelRead | undefined {
+  const decoded = decodePlaintext(plaintext, mime);
+  if (!decoded.ok) return undefined;
+  const chars = decoded.value.data.reveal().length;
+  if (chars <= DEFAULT_MAX_DATA_CHARS) return undefined;
+  let prompt: ReturnType<typeof buildPrompt>;
+  try {
+    prompt = buildPrompt({ spec: { description: '' }, criteria: acceptance.rubric.criteria, data: decoded.value.data, nonces: randomNonces(), sample: { seed: ANY_SEED, mime } });
+  } catch {
+    // A criterion the prompt cannot render (no anchors, say): the note is advisory, so it never fails the command.
+    return undefined;
+  }
+  if (!prompt.ok || prompt.value.sampling === 'none') return undefined;
+  return { chars, maxChars: DEFAULT_MAX_DATA_CHARS, sampling: prompt.value.sampling };
+}
+
+function panelReadNote(r: PanelRead): string {
+  const sizes = `Note: the judges read at most ${count(r.maxChars)} characters, and this file is ${count(r.chars)} characters after intake.`;
+  const what =
+    r.sampling === 'seeded'
+      ? `They read the header row, the first ${SAMPLE_HEAD} and last ${SAMPLE_TAIL} rows and further rows drawn at random with a seed fixed before judging, up to that limit, and not the other rows; the checks above run on the whole file.`
+      : 'They read the first line in full, then lines at even intervals up to that limit, and not the lines in between; a panel that reads a sample escalates the deal instead of deciding it, and under rubric terms the deal can then end with the buyer refunded.';
+  return `${sizes} ${what} This note does not change the result above.`;
+}
+
 function headline(p: Preflight, rubricEmpty: boolean): string {
   if (p.refused) return `Result: reject. Intake refuses this file (${p.refused.code}: ${plain(p.refused.detail)}), so the adjudicator rejects it with no check run and the buyer is refunded.`;
   const open = new Set(p.inconclusive);
@@ -140,6 +185,10 @@ export function checkDelivery(options: CheckDeliveryOptions): CheckDeliveryResul
   // A reference the adjudicator's store does not return is not judged (it retries), so without the file the
   // result is not known: the command says so and exits 2 instead of predicting a reject.
   const unknown = !preflight.refused && missing.length > 0;
+  // Advisory only (D31): on a deal where judges read the file, say when it is longer than they read. It changes
+  // neither the result nor the exit code.
+  const judged = acceptance.rubric.criteria.length > 0 || preflight.result === 'panel';
+  const read = !preflight.refused && judged ? panelRead(plaintext, mime as Mime, acceptance) : undefined;
   const notes = preflight.refused
     ? []
     : [
@@ -149,6 +198,7 @@ export function checkDelivery(options: CheckDeliveryOptions): CheckDeliveryResul
         ...(references.size
           ? ['Note: the adjudicator reads each reference from its own content store by the committed hash, and does not judge until it gets those bytes. Check that the stores of the adjudicators the terms name hold the file (POST /v1/ciphertext stores it under its hash).']
           : []),
+        ...(read ? [panelReadNote(read)] : []),
       ];
   // Every string that can come from the file or the terms is printed as one plain line (docs/team.md, output surfaces).
   const lines = [
@@ -164,7 +214,7 @@ export function checkDelivery(options: CheckDeliveryOptions): CheckDeliveryResul
     ...notes,
     'This result holds for these exact bytes: the hash above is the plaintextSha256 your delivery will carry.',
   ];
-  return { preflight, mime, lines, exitCode: unknown ? 2 : preflight.result === 'reject' ? 1 : preflight.result === 'escalate' ? 2 : 0 };
+  return { preflight, mime, ...(read ? { panelRead: read } : {}), lines, exitCode: unknown ? 2 : preflight.result === 'reject' ? 1 : preflight.result === 'escalate' ? 2 : 0 };
 }
 
 function parseArgs(argv: readonly string[]): CheckDeliveryOptions & { json: boolean } {
@@ -193,7 +243,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   try {
     const options = parseArgs(process.argv.slice(2));
     const r = checkDelivery(options);
-    console.log(options.json ? safeJson({ file: options.file, mime: r.mime, ...r.preflight }) : r.lines.join('\n'));
+    console.log(options.json ? safeJson({ file: options.file, mime: r.mime, ...r.preflight, ...(r.panelRead ? { panelRead: r.panelRead } : {}) }) : r.lines.join('\n'));
     process.exitCode = r.exitCode;
   } catch (e) {
     // Exit 1 means "the adjudicator would reject", so no failure of this command may exit 1.
