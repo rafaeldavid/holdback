@@ -12,7 +12,7 @@ import { measure } from './measures.ts';
 import { CROW_MARK, EARLY_ACCESS, forPublishing, HERO, PITCH, replayPage } from './replay.ts';
 import { startWorld } from './world.ts';
 import { runAgent } from './loop.ts';
-import { anthropic, liveProvider, openaiCompatible, scripted, type Turn } from './providers.ts';
+import { anthropic, liveProvider, openaiCompatible, scripted, VendorError, type Provider, type Turn } from './providers.ts';
 import { Recorder, Secrets } from './record.ts';
 import { REPO, runDuet } from './run.ts';
 import { Toolbox, type ToolboxOptions } from './tools.ts';
@@ -408,5 +408,30 @@ describe('the published page', () => {
   it('cuts local paths to the run\'s own part and long hex strings to their ends', () => {
     const html = `<pre>approve /Users/someone/x/reports/scratch/duet/run/buyer/company/keys 0x${'ab'.repeat(32)} and /private/var/tmp/file.txt 0x${'cd'.repeat(20)}</pre>`;
     expect(forPublishing(html)).toBe('<pre>approve …/buyer/company/keys 0xababab…abab and …/file.txt 0xcdcdcd…cdcd</pre>');
+  });
+});
+
+describe('a side that never starts', () => {
+  it('stops the other side at once, marks the run as not started, and files no ticket', async () => {
+    const refusing: Provider = { vendor: 'anthropic', model: 'claude-opus-5-5@2026-09-21', ping: async () => undefined, turn: async () => { throw new VendorError(400, 'invalid_request_error: This API key is not scoped to a workspace'); } };
+    const started = Date.now();
+    const r = await runDuet({ scenario: 'paid', buyer: 'scripted', seller: refusing, out: join(tmp('notstarted'), 'run'), caps: { turns: 400, tokens: 50_000_000 }, graceSec: 90, timeoutSec: 180 });
+    expect(r.summary.notStarted).toMatchObject({ role: 'seller' });
+    expect(r.summary.notStarted!.reason).toMatch(/HTTP 400: invalid_request_error: This API key is not scoped to a workspace/);
+    expect(r.ends.find((e) => e.role === 'buyer')!.status).toBe('ended');
+    expect(Date.now() - started).toBeLessThan(60_000); // no 90 s grace
+    expect(r.ticket).toBeNull();
+    expect(JSON.parse(readFileSync(join(r.dir, 'summary.json'), 'utf8')).limits).toMatchObject({ within: null });
+    expect(readFileSync(r.page, 'utf8')).toContain('This run did not start');
+  }, 120_000);
+
+  it("checks a live key with the vendor's smallest request, and reports the vendor's refusal", async () => {
+    const seen: string[] = [];
+    const stub = (async (_url: string, init: RequestInit) => { seen.push(String(init.body)); return new Response(JSON.stringify({ error: { type: 'invalid_request_error', message: 'This API key is not scoped to a workspace' } }), { status: 400 }); }) as unknown as typeof fetch;
+    await expect(anthropic('claude-opus-5-5@2026-09-21', 'sk-ant-KEY', stub).ping()).rejects.toThrow(/HTTP 400: invalid_request_error: This API key is not scoped to a workspace/);
+    expect(JSON.parse(seen[0]!)).toMatchObject({ model: 'claude-opus-5-5', max_tokens: 1 });
+    expect(seen[0]).not.toContain('sk-ant-KEY');
+    await expect(openaiCompatible('deepseek-v4-pro@2026-11-01', 'ds-KEY', 'https://api.deepseek.com', stub).ping()).rejects.toThrow(/HTTP 400/);
+    expect(JSON.parse(seen[1]!)).toMatchObject({ model: 'deepseek-v4-pro', max_tokens: 1 });
   });
 });

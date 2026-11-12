@@ -208,7 +208,7 @@ const ICON: Record<string, string> = {
 const icon = (name: string) => `<svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">${ICON[name] ?? ICON['act']}</svg>`;
 
 /** How the replayed run ended, as the proof beat tells it. */
-export type Ending = 'paid' | 'refunded' | 'declined' | 'held' | 'stopped';
+export type Ending = 'paid' | 'refunded' | 'declined' | 'held' | 'stopped' | 'notstarted';
 
 /**
  * The page's opening, in one place: the title, the descriptor, and the pitch in five labelled beats (Rafa's words,
@@ -232,6 +232,7 @@ export const PITCH = {
     if (ended === 'refunded') return `See it happen. Below, one agent buys ${item} from another. It orders, the seller delivers, the work is checked and fails, and the buyer gets its money back. The work stays locked.`;
     if (ended === 'declined') return `See it happen. Below, one agent asks another for ${item}. The offer breaks the limits its company set, so it walks away. Nothing is signed and nothing is paid.`;
     if (ended === 'held') return `See it happen. Below, one agent buys ${item} from another. The payment is set aside, but the run stopped before the work was checked, so the payment is still set aside.`;
+    if (ended === 'notstarted') return `See it happen. Below, one agent tries to buy ${item} from another. This run did not start: one agent's AI provider refused its first request, so nothing was ordered or paid.`;
     return `See it happen. Below, one agent tries to buy ${item} from another. The run stopped before an order was placed, so nothing was paid.`;
   },
 };
@@ -305,7 +306,7 @@ function page(events: readonly Event[], s: Summary, extras: PageExtras): string 
   const refunded = chain.some((e) => e.type === 'settlement.refunded');
   const scope = start?.scope as { files?: string[]; lines?: number } | undefined;
   // How the run ended, for the proof beat: settled either way, a refused offer, a held payment, or stopped earlier.
-  const ending: Ending = paidSeller ? 'paid' : refunded ? 'refunded' : held !== null ? 'held' : events.some((e) => e.kind === 'signer.stop') && (events.find((e) => e.kind === 'agent.end' && e.role === 'buyer') as J)?.status === 'finished' ? 'declined' : 'stopped';
+  const ending: Ending = s.notStarted ? 'notstarted' : paidSeller ? 'paid' : refunded ? 'refunded' : held !== null ? 'held' : events.some((e) => e.kind === 'signer.stop') && (events.find((e) => e.kind === 'agent.end' && e.role === 'buyer') as J)?.status === 'finished' ? 'declined' : 'stopped';
   const boughtItem = String(start?.item ?? (scope?.files?.length ? 'a software security audit' : 'a piece of work'));
   const bought = `A security review of ${scope?.files?.length ?? 'several'} smart-contract files (${n(Number(scope?.lines ?? 0))} lines), written as a report`;
   const outcome = paidSeller ? 'The work passed. The seller was paid and the buyer received the report.' : refunded ? 'The work failed a required check. The buyer got the price back and the report stayed locked.' : 'No order was placed. Nothing was signed and nothing was paid.';
@@ -519,6 +520,7 @@ footer{font-size:12px;color:var(--ink3);margin:40px 0 0;max-width:720px}
 ${demoList.map(demoItem).join('\n')}
 </ol></div>
 </section>
+${s.notStarted ? `<p class="after">This run did not start: the ${esc(AGENT_NAME[s.notStarted.role === 'seller' ? 'seller' : 'buyer'])}'s AI provider refused its first request, so nothing was ordered or paid.</p>` : ''}
 <p class="after">What was checked, what each side paid, and the full record: <a class="textlink" href="#learn-more">Learn more ›</a></p>
 </main>
 

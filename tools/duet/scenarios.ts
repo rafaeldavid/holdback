@@ -104,7 +104,7 @@ export const scenario = (name: ScenarioName): Scenario => {
   return {
     name,
     title: 'An offer the buyer should refuse',
-    expect: 'No hold: the seller offers terms without the coverage check, which the buyer\'s owner requires, so the buyer signs nothing and pays nothing.',
+    expect: 'No hold: the seller offers terms without the coverage check, which the buyer\'s company requires, so the buyer signs nothing and pays nothing.',
     endState: 'none',
     report: 'ok',
     policy,

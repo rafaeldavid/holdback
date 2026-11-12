@@ -96,6 +96,14 @@ for (const k of [...Object.values(KEY_ENV), ...JUDGE_KEY_ENV]) if (env[k]) secre
 if (live.buyer !== 'scripted' || live.seller !== 'scripted') {
   console.log('Sending starts in 10 s. Ctrl-C stops it.');
   await new Promise((r) => setTimeout(r, 10_000));
+  // The key check: one smallest request for each live side, before the world starts. A key the vendor refuses (not
+  // scoped to a workspace, revoked, out of credit) stops the run here, with nothing else sent.
+  for (const r of ['buyer', 'seller'] as const) {
+    const p = live[r];
+    if (p === 'scripted') continue;
+    try { await p.ping(AbortSignal.timeout(60_000)); } catch (e) { fail(`the ${AGENT_NAME[r]} cannot start: ${p.vendor} refused its key check (${(e as Error).message}). Nothing else was sent.`); }
+  }
+  console.log('Both keys work.');
 }
 const world = flag('world')?.split(',').filter(Boolean);
 const docs = flag('docs')?.split(',');
@@ -106,8 +114,12 @@ const out = resolve(flag('out', join(REPO, 'reports', 'scratch', 'duet'))!, `${s
 try {
   const r = await runDuet({ scenario: scenarios[0]!, buyer: live.buyer, seller: live.seller, out, caps, ...(world ? { world } : {}), ...(docs ? { docs: { guide: docs[0]!, sell: docs[1]! } } : {}), graceSec, timeoutSec, secrets, log: (l) => console.log(l) });
   const s = r.summary;
+  if (s.notStarted) {
+    console.log(`\nThe run did not start: the ${AGENT_NAME[s.notStarted.role as 'buyer' | 'seller'] ?? s.notStarted.role}'s model provider refused its first request (${s.notStarted.reason}). No ticket: there was no deal to measure.\n  record  ${r.record}\n  replay  ${r.page}`);
+    process.exit(2);
+  }
   console.log(`\n${s.decisionRight ? 'As expected' : 'Not as expected'}: ${s.why}.`);
-  console.log(`  deal ${s.outcome.commitmentId ?? 'none'}, ${s.outcome.state}; tokens ${s.tokens.deal.toLocaleString('en-US')}; stalls ${s.stalls.length}; human interventions ${s.humanInterventions}; owner approvals ${s.ownerApprovals.length}`);
+  console.log(`  deal ${s.outcome.commitmentId ?? 'none'}, ${s.outcome.state}; tokens ${s.tokens.deal.toLocaleString('en-US')}; stalls ${s.stalls.length}; human interventions ${s.humanInterventions}; approvals by the buyer's standing rule ${s.ownerApprovals.length}`);
   console.log(`  record  ${r.record}\n  summary ${join(r.dir, 'summary.json')}\n  replay  ${r.page}`);
   if (r.ticket) console.log(`\n${r.over.length} ${r.over.length === 1 ? 'measure was' : 'measures were'} over the limit: ${r.over.map((x) => x.measure).join('; ')}.\nTicket: ${r.ticket}\nSend this ticket to the coordinator.`);
   else console.log('  Every measure is within its limit; no ticket.');

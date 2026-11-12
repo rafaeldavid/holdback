@@ -60,6 +60,8 @@ function blame(call: string, error: string): { cause: string; owner: string } {
 
 /** Every measure over its limit, with where it happened and a guess at why. */
 export function overLimits(s: Summary, events: readonly Event[], l: Limits): Over[] {
+  // A run where one side never started has no deal to measure: no ticket blames the docs, the tools or the limits.
+  if (s.notStarted) return [];
   const ev = events as J[];
   const out: Over[] = [];
   const turns = (role: Side) => ev.filter((e) => e.kind === 'model.turn' && e.role === role);
@@ -119,7 +121,7 @@ export function ticket(s: Summary, over: readonly Over[], paths: { record: strin
       `- Proposed owner: ${o.owner}.`,
       '',
     ]),
-    'The limits are guesses until the first live runs set a baseline (tools/duet/limits.json). Send this ticket to the coordinator, who routes each item to its company.',
+    'The limits are guesses until the first live runs set a baseline (tools/duet/limits.json). Send this ticket to the coordinator, who routes each item to whoever should fix it.',
     '',
   ].join('\n');
 }

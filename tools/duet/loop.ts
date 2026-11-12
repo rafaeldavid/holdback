@@ -20,6 +20,8 @@ export interface AgentEnd {
   outcome: string;
   report: string;
   turns: number;
+  /** Whether at least one model turn completed: false when the vendor refused the very first request. */
+  started: boolean;
   tokens: { input: number; output: number };
   /** For a stall: what the agent was last trying to do. */
   trying?: string;
@@ -45,13 +47,14 @@ export async function runAgent(o: { role: 'buyer' | 'seller'; provider: Provider
   rec.add(role, 'agent.start', { vendor: provider.vendor, model: provider.model, caps: o.caps, system, brief: o.brief, tools: o.tools.specs.map((s) => s.name) });
   const used = { input: 0, output: 0 };
   let turns = 0;
+  let completed = 0;
   let idle = 0;
   let streak = { call: '', repeats: 0, recorded: false };
   let nextInput = 0; // an estimate of the next turn's input: the last one, plus what came back since
   let lastText = '';
   let lastCall = '';
   const end = (status: AgentEnd['status'], outcome: string, report = '', trying?: string): AgentEnd => {
-    const e: AgentEnd = { role, status, outcome, report, turns, tokens: used, ...(trying ? { trying } : {}) };
+    const e: AgentEnd = { role, status, outcome, report, turns, started: completed > 0, tokens: used, ...(trying ? { trying } : {}) };
     rec.add(role, 'agent.end', { ...e });
     return e;
   };
@@ -71,6 +74,7 @@ export async function runAgent(o: { role: 'buyer' | 'seller'; provider: Provider
       rec.add(role, 'model.error', { vendor: provider.vendor, model: provider.model, turn: turns, error: (e as Error).message });
       return end('error', `the ${provider.vendor} API refused: ${(e as Error).message}`, '', tryingNow());
     }
+    completed++;
     used.input += a.usage.input;
     used.output += a.usage.output;
     nextInput = a.usage.input + a.usage.output;
