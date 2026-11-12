@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Hex } from 'viem';
 import { startSimWorld, type SimWorld } from '@holdback/operator';
@@ -205,6 +205,21 @@ describe('seller adapter, a job API of another shape (T-366): deals', () => {
     expect(await deliveries(buyer, id)).toHaveLength(1);
     expect(lines.join('\n')).not.toContain(KEY);
     expect(journalText(file)).not.toContain(KEY);
+  }, 30_000);
+
+  it('with a report mapping too, the mapping converts the result with its files, and the files are delivered', async () => {
+    stub = await startJobStub({ key: KEY, readsUntilComplete: 0 });
+    // The files land beside the list, at /attachments; the mapping moves them to the template's proofs.
+    const file = configFile(stub.base, { reportMapping: 'mapping.json' }, { into: '/attachments' });
+    writeFileSync(join(dirname(file), 'mapping.json'), JSON.stringify({ version: 1, report: { summary: { $path: 'summary' }, target: { $path: 'target' }, proofs: { $each: 'attachments', $item: { path: { $path: 'path' }, content: { $path: 'content' } } } } }));
+    const { running, lines } = await adapter(file);
+    const buyer = agent('buyer-1');
+    const { body: q } = await quote(running, buyer);
+    const id = q.commitmentId as Hex;
+    await fund(buyer, id);
+    expect((await buyer.waitFor(id, ['Released', 'Refunded', 'Escalated'])).escrowState).toBe('Released');
+    expect(JSON.parse(await buyer.openDelivery(id))).toEqual({ summary: 'Reviewed vault-core to depth 2.', target: 'vault-core', proofs: Object.entries(DEFAULT_FILES).map(([path, content]) => ({ path, content })) });
+    expect(lines.join('\n')).toMatch(/added the result's files[\s\S]*converted the result with the report mapping/);
   }, 30_000);
 
   it('stops at start when the credential\'s variable is unset, before it reads the operators', async () => {

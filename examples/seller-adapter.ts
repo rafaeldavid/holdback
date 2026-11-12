@@ -839,6 +839,14 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   // ---- 1. Quote to offer ----
   async function offerFor(buyer: string, buyerEncryptionPublicKey: string, scope: J, options: J): Promise<J> {
     refusalFor(c, template, scope, options); // the seller's own exclusions, before its API is asked
+    // The mandate before the price: a seller that cannot offer now costs its API no call. This renews a test
+    // mandate that ran out while the adapter waited.
+    try {
+      await ensureMandate(await seller.settlementNow()); // renews a test mandate that ran out while the adapter waited
+    } catch (e) {
+      log(`Quote refused: ${plain((e as Error).message)}.`);
+      throw new Refused(503, 'seller_unavailable', 'the seller holds no mandate to offer now');
+    }
     let quoted: J;
     try {
       // Your API's errors name the call and the status only; its body is your API's and may be anything.
@@ -867,12 +875,6 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     // The offer never outlives your price: how long the price holds caps the offer's window.
     if (validForSec !== undefined) built.timing.offerExpiresInSec = Math.min(built.timing.offerExpiresInSec, validForSec);
     const panel = Array.isArray(built.rubric?.criteria) && built.rubric.criteria.length > 0;
-    try {
-      await ensureMandate(await seller.settlementNow()); // renews a test mandate that ran out while the adapter waited
-    } catch (e) {
-      log(`Quote refused: ${plain((e as Error).message)}.`);
-      throw new Refused(503, 'seller_unavailable', 'the seller holds no mandate to offer now');
-    }
     let offer;
     try {
       offer = await seller.offer({
@@ -1003,8 +1005,10 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
       if (reportMapping) {
         // Your report in the template's shape (T-323). A report the mapping cannot convert is never delivered.
         try {
-          bytes = convertReport(reportMapping, result);
-          log(`${id} converted the result with the report mapping: ${result.length} bytes to ${bytes.length} bytes.`);
+          // The result with its files, so the mapping can place them (T-366).
+          const before = bytes;
+          bytes = convertReport(reportMapping, before);
+          log(`${id} converted the result with the report mapping: ${before.length} bytes to ${bytes.length} bytes.`);
         } catch (e) {
           if (!(e instanceof ReportNotConverted)) throw e;
           return refuse(deal, now, resultSha256, { result: 'not_converted', conversion: e.message, checks: [] }, `the report mapping cannot convert it: ${e.message}`);
