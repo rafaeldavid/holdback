@@ -420,7 +420,9 @@ interface IHoldbackRules {
     ///        carried delivery is not the posted one;
     ///      - `BadKeyProof` when the key proof fails;
     ///      - the escrow's `AfterAuthorizationExpiry` from the escrow's expiry when the price is above 0: the call has
-    ///        no deadline of its own, but the escrow refuses the capture.
+    ///        no deadline of its own, but the escrow refuses the capture;
+    ///      - the escrow's `ZeroAuthorization` when the price is 0, the fee is above 0 and the payment address has
+    ///        already reclaimed the hold after the escrow's expiry: the escrow refuses the void of the fee.
     ///      Emits `JobSubmitted` (in Held), `JobCompleted`, `PaymentReleased`, `Refunded` (when the fee is above zero)
     ///      and `KeyReleased`.
     /// @param t The deal's settlement view.
