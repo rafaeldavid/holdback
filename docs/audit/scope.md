@@ -10,7 +10,7 @@ Labels on this page:
 - **inferred:** concluded from reading, not checked by a run;
 - **guessed:** a judgement not checked.
 
-Run for this page on 2026-11-12, on the lane `contracts-audit-ready` at `ba941e0`: `git ls-tree --name-only HEAD contracts/src/` and `forge test --match-path 'test/unit/*'` (every unit test passed) [measured]. Not run: `deploy-sepolia.sh --check`, which needs the redeployed contracts. The freeze pass names each command again with the frozen commit.
+Run for this page on 2026-11-12, on the lane `contracts-audit-ready` at `ba941e0`, and the file list again at `c629d06` after T-384: `git ls-tree --name-only HEAD contracts/src/` and `forge test --match-path 'test/unit/*'` (every unit test passed) [measured]. Not run: `deploy-sepolia.sh --check`, which needs the redeployed contracts. The freeze pass names each command again with the frozen commit.
 
 ## The phase-one scope
 
@@ -56,9 +56,9 @@ The files of `contracts/src/` at the lane's tip [measured: `git ls-tree --name-o
 | --- | --- | --- |
 | [`HoldbackRules.sol`](../../contracts/src/HoldbackRules.sol) | The rules contract. It is the operator of CPP's `AuthCaptureEscrow`. It moves a buyer's held funds only on an adjudicator's signed decision, the buyer's signed early accept, a settlement both parties signed, or a timeout anyone may trigger. Its state-changing entry points: `agreeAndFund`, `deliver`, `decide`, `earlyAccept`, `mutualSettle`, `reclaim`, `triggerFallback`, `triggerDefault` | `<filled at the redeploy>` |
 | [`HoldbackTypes.sol`](../../contracts/src/HoldbackTypes.sol) | A library: the settlement view and the EIP-712 struct hashes that `packages/core` signs. `Money` keeps only the basis-point scale: phase one has no rate arithmetic on chain | none; compiled into the rules contract [inferred] |
+| [`IHoldbackRules.sol`](../../contracts/src/IHoldbackRules.sol) | The rules contract's interface, and the place for its descriptions: it declares the enums `Stage`, `Reason` and `Decider`, the struct `Deal`, and every event, error, external function and getter of `HoldbackRules`, and holds no logic. `HoldbackRules` implements it. The calldata structs stay in `HoldbackTypes`. The layout moved no byte of the runtime code (T-384, holdback PR 433) | none (interface) |
 | [`IHoldbackBeacon.sol`](../../contracts/src/IHoldbackBeacon.sol) | The interface of the randomness beacon that fixes the fallback's and the escalation's panel seeds | none (interface) |
 | [`DrandQuicknetBeacon.sol`](../../contracts/src/DrandQuicknetBeacon.sol) | Verifies a drand quicknet round on chain (BLS12-381, EIP-2537 precompiles). The on-chain proof stays for now (Rafa, 2026-11-11; ADR-0031, SC-8), and the question comes back with the choice of chain | `<filled at the redeploy>` |
-<!-- T-385: add IHoldbackRules.sol (descriptions, no logic) when T-384 merges -->
 
 Relied on, not in scope: Commerce Payments' `AuthCaptureEscrow` and `ERC3009PaymentCollector`, Multicall3, Solady (below).
 
