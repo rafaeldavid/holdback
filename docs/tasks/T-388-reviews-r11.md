@@ -5,7 +5,7 @@
 - **Depends on:** T-384 (package R9: pull request 1 fixes the code under review, pull request 2 its descriptions), T-380 (package R8), T-352 (package R10), T-385 (the docs pass)
 - **Paths this task may touch:** `docs/reviews/` (two new reports), `contracts/test/crosscheck/R11Review.t.sol` (the tests behind review 1), this task file. A Critical or High finding in the contracts gets its own pull request, which may touch `contracts/src/*` and its tests. `examples/` belongs to T-390
 - **Human gate:** yes for one call: the second review sends the public repository's source and docs to the DeepSeek API, which Rafa named on 2026-11-11 and runs himself. No deploy, no live run
-- **Status:** in progress
+- **Status:** done on the merge of pull request 449
 - **Agent/session:** the T-388 session, change kind 10 (a review); a fix would be kind 7 (smart contracts)
 
 ## Intent
@@ -31,7 +31,7 @@ Read the phase-one contracts twice before they are frozen, tagged and deployed o
 - [x] Review 2's report is under `docs/reviews/`, with the same parts, the model, the calls and their token counts, every question that got no complete answer, and for each claim whether it holds.
 - [x] A joint summary says what must be fixed before the freeze, what goes to known issues, and what is for the outside auditor's attention.
 - [x] Every Critical or High finding in the contracts is fixed in its own pull request with a test that failed first, or handed to Rafa with a reason. (There is none in the contracts. The one High is in the buyer's tool and went to T-390.)
-- [ ] Both reports are merged on the lane in one docs pull request.
+- [x] Both reports are merged on the lane in one docs pull request. (Pull request 449.)
 
 ## Out of scope
 
@@ -41,6 +41,7 @@ Read the phase-one contracts twice before they are frozen, tagged and deployed o
 
 ## Evidence
 
+- **The pull request.** 449 into `contracts-audit-ready`: the two reports, the ten tests and this file. It changes no file under `contracts/src`, `examples/` or `docs/audit/`.
 - **The commit.** The code was final at `c629d06c` (the merge of T-384's first pull request, 433), named by the coordinator on 2026-11-12 at 18:22 UTC. Both reviews read it there. The commit named for the freeze is `0180a39f` (pull request 445), after the descriptions (441, `d3cd4605`) and one added sentence. With `//` comments and white space removed, each of the five files of `contracts/src` at `0180a39f` equals its copy at `c629d06c` [measured: a script over `git show` of both commits].
 - **Review 1.** [`docs/reviews/2026-11-12-phase-one-whole-diff-review.md`](../reviews/2026-11-12-phase-one-whole-diff-review.md). Read in full: 1,329 lines of `contracts/src`, 828 lines of the vendored escrow, token store and collectors at `6b0a5ef`, and 735 lines of Solady's signature checker and EIP712 at `5ea5d9f` [measured: `wc -l`]. Findings in the contracts: 0 Critical, 0 High, 1 Medium, 1 Low, 5 Info. In the buyer's tool: 1 High, 2 Medium, 10 Low.
 - **The tests behind it.** `contracts/test/crosscheck/R11Review.t.sol`, ten tests. `forge test --match-contract R11ReviewTest`: 10 passed [measured]. The whole suite with them, on this branch at the lane's tip `55a3dce4`: 482 tests passed, 0 failed, 0 skipped, in 65 suites, 2026-11-12 19:23 to 19:35 UTC, forge 1.0.0 [measured: `forge test` in `contracts/`]. That tip's `contracts/src` differs from `0180a39f` by three comment lines.
