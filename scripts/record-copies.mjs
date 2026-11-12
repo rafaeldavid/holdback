@@ -19,7 +19,7 @@
 // rules contract signs under. Both reads are read-only calls through `cast`; it prints the dated name for --old. The
 // copies themselves read and write files in the checkout only: no network, no key, no chain.
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -232,12 +232,36 @@ const inHistory = (file) => HISTORY.some((h) => (typeof h.path === 'string' ? fi
 export function sweep(root, oldValues) {
   const bodies = [...oldValues].map((v) => v.slice(2));
   const found = [];
+  let read = 0;
+  /** Paths not read, by reason. A tracked path need not be a regular file: a submodule's gitlink is a folder, or nothing, in a worktree that has not checked it out (T-393). */
+  const skipped = { history: 0, 'not a regular file (a submodule, a folder or a link)': 0, 'not on disk': 0, 'larger than 8 MB': 0, 'binary (holds a NUL byte)': 0 };
   for (const file of trackedFiles(root)) {
-    if (inHistory(file)) continue;
+    if (inHistory(file)) {
+      skipped.history++;
+      continue;
+    }
     const path = join(root, file);
-    if (!existsSync(path) || statSync(path).size > 8_000_000) continue;
+    let st;
+    try {
+      st = lstatSync(path);
+    } catch {
+      skipped['not on disk']++;
+      continue;
+    }
+    if (!st.isFile()) {
+      skipped['not a regular file (a submodule, a folder or a link)']++;
+      continue;
+    }
+    if (st.size > 8_000_000) {
+      skipped['larger than 8 MB']++;
+      continue;
+    }
     const text = readFileSync(path, 'utf8');
-    if (text.includes('\0')) continue;
+    if (text.includes('\0')) {
+      skipped['binary (holds a NUL byte)']++;
+      continue;
+    }
+    read++;
     const lower = text.toLowerCase();
     if (!bodies.some((b) => lower.includes(b))) continue;
     text.split('\n').forEach((line, i) => {
@@ -245,7 +269,13 @@ export function sweep(root, oldValues) {
       for (const b of bodies) if (l.includes(b)) found.push(`${file}:${i + 1}: 0x${b}`);
     });
   }
-  return found;
+  return { found, read, skipped };
+}
+
+/** The sweep's count, for the command's output: what it read, and what it skipped and why. */
+export function sweepSummary({ read, skipped }) {
+  const why = Object.entries(skipped).filter(([, n]) => n > 0).map(([reason, n]) => `${n} ${reason}`);
+  return `the sweep read ${read} tracked file(s)${why.length ? `; skipped ${why.join(', ')}` : ''}`;
 }
 
 /** The whole command. Returns the lines it printed and an exit code; throws nothing a user should see as a stack. */
@@ -271,7 +301,9 @@ export function recordCopies({ root, oldPath, newPath, build = true, log = conso
     if (b.status !== 0 || !/wrote site\/try\.mjs/.test(b.stdout)) throw new Error(`node site/build.mjs did not rebuild the site: ${b.stderr || b.stdout}`);
     log('record-copies: site/try.mjs and site/index.html rebuilt');
   }
-  const left = sweep(root, new Set([...pairs.keys(), ...retired]));
+  const swept = sweep(root, new Set([...pairs.keys(), ...retired]));
+  const left = swept.found;
+  log(`record-copies: ${sweepSummary(swept)}`);
   if (left.length > 0) {
     log(`record-copies: FAIL: ${left.length} old value(s) remain outside the history files:`);
     for (const l of left) log(`  ${l}`);

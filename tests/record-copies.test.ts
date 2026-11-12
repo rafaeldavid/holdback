@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 // @ts-expect-error -- a plain .mjs script with no types
-import { changes, datedName, keep, literal, recordCopies, regenerateDeployments, substitute, trackedFiles } from '../scripts/record-copies.mjs';
+import { changes, datedName, keep, literal, recordCopies, regenerateDeployments, substitute, sweep, sweepSummary, trackedFiles } from '../scripts/record-copies.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const OLD_NAME = 'contracts/deployments/sepolia-2026-11-04-domain-0.7.json';
@@ -133,6 +133,33 @@ describe('keep: the live record copied to its dated name', () => {
   it('refuses a time or a version it cannot name a file by', () => {
     expect(() => datedName('yesterday', '0.8')).toThrow(/not an ISO time/);
     expect(() => datedName('2026-11-20T09:03:59Z', '0.8/../x')).toThrow(/not a version number/);
+  });
+});
+
+// T-393 found it: in a worktree whose submodule is not checked out, the gitlink is a tracked path that is a folder or
+// nothing, and the sweep read it as a file and stopped (EISDIR). It skips what is not a regular file and says so.
+describe('the sweep over tracked paths that are not regular files', () => {
+  it('skips a gitlink that is an empty folder or absent, counts each reason, and still finds a pin in a file', () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 't383-gitlink-')));
+    const git = (...args: string[]) => {
+      const r = spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8' });
+      if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
+    };
+    git('init', '-q');
+    const pin = `0x${'ab'.repeat(20)}`;
+    mkdirSync(join(dir, 'apps'), { recursive: true });
+    writeFileSync(join(dir, 'apps/pin.ts'), `export const RULES = '${pin}';\n`);
+    git('add', 'apps/pin.ts');
+    // Two submodules in the index only, as a fresh worktree has them: one with its empty folder, one with none.
+    for (const sub of ['lib/checked-out-empty', 'lib/absent']) git('update-index', '--add', '--cacheinfo', `160000,${'1'.repeat(40)},${sub}`);
+    mkdirSync(join(dir, 'lib/checked-out-empty'), { recursive: true });
+    const s = sweep(dir, new Set([pin.toLowerCase()]));
+    expect(s.found).toEqual([`apps/pin.ts:1: ${pin}`]);
+    expect(s.read).toBe(1);
+    expect(s.skipped['not a regular file (a submodule, a folder or a link)']).toBe(1);
+    expect(s.skipped['not on disk']).toBe(1);
+    expect(sweepSummary(s)).toBe('the sweep read 1 tracked file(s); skipped 1 not a regular file (a submodule, a folder or a link), 1 not on disk');
+    rmSync(dir, { recursive: true, force: true });
   });
 });
 
