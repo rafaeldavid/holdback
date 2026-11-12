@@ -257,7 +257,7 @@ async function decidedOnAppeal(r: Run): Promise<void> {
   const toBuyer = logsOf(deal.record, 'KeyReleased').filter((l) => lc(l.args.recipient) === buyer);
   r.check(outcome === 'accept' ? 'the key reaches the buyer on chain' : 'no KeyReleased log names the buyer', toBuyer.length === (outcome === 'accept' ? 1 : 0), `${toBuyer.length} KeyReleased log(s) to the buyer`);
   // The appeal adjudicator's seed: the first beacon round after the escalation's block time plus the contract's
-  // BEACON_MARGIN (HoldbackRules._appealRound, ADR-0032: 29 s on Sepolia, 0 on anvil), proven as the rulebook's
+  // BEACON_MARGIN (HoldbackRules._escalationRound, ADR-0032: 29 s on Sepolia, 0 on anvil), proven as the rulebook's
   // beacon: a 48-byte BLS signature on drand quicknet, an empty proof on the sim beacon (anvil only).
   const all = decides(deal);
   const escalation = all.find((d) => ROLES[Number(d.m.role)] === 'primary');

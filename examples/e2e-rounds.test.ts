@@ -41,6 +41,12 @@ describe("the round's beacon rounds equal the contract's and core's (ADR-0032)",
     expect(onSepolia).not.toBe(old);
   });
 
+  it('takes judgeBy − 1, not judgeBy: at a judgeBy where the two differ by a round, it follows the contract', () => {
+    const judgeBy = '2026-11-12T15:00:01Z';
+    expect(fallbackRound(QUICKNET, judgeBy, 29)).toBe(coreRoundAfter(DRAND_QUICKNET, sec(judgeBy) - 1, 29));
+    expect(fallbackRound(QUICKNET, judgeBy, 29)).not.toBe(roundAfter(QUICKNET, sec(judgeBy), 29));
+  });
+
   it("on SimChain's clock and a 0 s margin the rule equals the round at judgeBy, which is why anvil and SimChain never showed the old rule wrong", () => {
     const judgeBy = '2026-11-12T15:00:02Z';
     expect(fallbackRound(SIM, judgeBy, 0)).toBe(sec(judgeBy));

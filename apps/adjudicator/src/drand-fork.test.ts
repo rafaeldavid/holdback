@@ -1,5 +1,6 @@
-// T-217 on a Sepolia fork: the fallback adjudicator escalates from the live drand quicknet round at judgeBy, the appeal
-// adjudicator decides the escalation from the first quicknet round after it, and the HoldbackRules of the deployment
+// T-217 on a Sepolia fork: the fallback adjudicator escalates from the first live drand quicknet round after
+// judgeBy − 1 + BEACON_MARGIN, the appeal adjudicator decides the escalation from the first round after the escalation
+// plus the margin (ADR-0032), and the HoldbackRules of the deployment
 // record, over its DrandQuicknetBeacon, accepts both decisions. A decision built from a bad proof is refused by the
 // service before any transaction. The phase-one contracts take no party appeal (ADR-0031 §8), so the appeal
 // adjudicator's turn here is the escalation's (T-349, T-374). Run it against the phase-one deployment record: the

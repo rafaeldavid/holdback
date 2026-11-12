@@ -4,9 +4,9 @@
 - **Phase:** 2, settlement on EVM (stable EVM operations, D53)
 - **Kind:** 4, with one reviewer (Change recipes)
 - **Depends on:** R8's rounds fix (PR 418, `cd88cca`; ADR-0032)
-- **Paths this task may touch:** `examples/e2e-scenarios-silent.ts`, `examples/e2e-scenarios-escalation.ts`, their tests, `examples/e2e-chain.ts` (one read), a new `examples/e2e-rounds.test.ts`, `apps/adjudicator/src/drand-fork.test.ts`, this file. Nothing else under `apps/`
+- **Paths this task may touch:** `examples/e2e-scenarios-silent.ts`, `examples/e2e-scenarios-escalation.ts`, their tests, `examples/e2e-chain.ts` (one read), a new `examples/e2e-rounds.test.ts`, `apps/adjudicator/src/drand-fork.test.ts`, a new `packages/testkit/src/phase-one-payees.test.ts` (the coordinator's second question), this file. Nothing else under `apps/`
 - **Human gate:** no
-- **Status:** review
+- **Status:** done (PR 439)
 - **Agent/session:** the T-374 session, 2026-11-12, branch `t-386-round-margin`
 
 ## Intent
@@ -21,7 +21,7 @@ This task finds out, in each file, whether that is a comment or logic that compu
 
 ## Context
 
-- `contracts/src/HoldbackRules.sol`, `_roundAfter`, `_fallbackRound`, `_appealRound`: `BEACON.roundAt(lastChoice + BEACON_MARGIN) + 1`.
+- `contracts/src/HoldbackRules.sol`, `_roundAfter`, `_fallbackRound`, `_escalationRound`: `BEACON.roundAt(lastChoice + BEACON_MARGIN) + 1`.
 - `packages/core/src/beacon.ts` `roundAfter`, and `state.ts` `beaconRoundFor(s, role, marginSec)`.
 - `apps/adjudicator/src/randomness.ts` `roundFor`: the adjudicator already applies the margin.
 
@@ -38,7 +38,7 @@ This task finds out, in each file, whether that is a comment or logic that compu
 
 ## Evidence
 
-**What each file held** [measured, by reading each file against `HoldbackRules._fallbackRound` and `_appealRound`]:
+**What each file held** [measured, by reading each file against `HoldbackRules._fallbackRound` and `_escalationRound`]:
 
 | File | Was | Kind | Now |
 | --- | --- | --- | --- |
@@ -61,6 +61,15 @@ This task finds out, in each file, whether that is a comment or logic that compu
 | `examples/e2e-round.test.ts`, `e2e-scenarios-silent.test.ts`, `e2e-scenarios-escalation.test.ts`, anvil included, on the lane at `690edfd` plus this change | 13 of 13, with every scenario counted |
 | `pnpm typecheck`; `eslint examples apps/adjudicator/src/drand-fork.test.ts`; `tests/cut-feature-alignment.test.ts`; `tests/ci-gated.test.ts` | clean; 4 of 4 |
 
+**The second question: a club saying `payoutsTo: any` on a phase-one world.** It is already refused [measured, `packages/testkit/src/phase-one-payees.test.ts`, 3 of 3]:
+- SimChain on the `phase_one` profile refuses a settlement that pays a third address with `invalid_terms`, even in a club whose rulebook says `any`. Core's phase-one rule names the payee (`packages/core/src/state.ts:633-635`), and the EVM adapter refuses the same settlement with the same type before a transaction (`packages/settlement/evm/evm-settlement.ts`, `mutual_settle`).
+- In the same club, a split between the two money addresses settles.
+- On the `full` profile the same third-address settlement settles: the club's `any` holds there (D23).
+- The operator's prepare route refuses a third payee whenever `phaseOne` is set (`apps/operator/src/prepare.ts`, settlement branch; `prepare-phase-one.test.ts`), and `phaseOne` is true for a SimChain on the `phase_one` profile (`server.ts:463-466`).
+- `pnpm sim` and the local public world use SimChain's stock rulebook, which already says `parties` (`packages/settlement/sim/actors.ts:74`). No phase-one world loads `fixtures/clubs/data-services-v1.yaml`: the scenario fixtures load it on the full profile.
+
+So the fixture stays as it is, and no line of enforcement changed.
+
 `drand-fork.test.ts` is opt-in (`SEPOLIA_FORK_RPC`) and ran skipped here. It compiles and lints; its first run is the cutover's fork step.
 
 ## Decisions
@@ -76,5 +85,10 @@ This task finds out, in each file, whether that is a comment or logic that compu
 - In the live round on Sepolia, scenarios 4 and 5b now expect the round the contract computes.
 - The drand fork suite expects the same rounds against the new record.
 - No step of the checklist changes.
+
+**Review** (one reviewer pass): PASS. Fixed from it:
+- the rule test now covers a `judgeBy` where `judgeBy − 1` and `judgeBy` give different rounds;
+- the escalation round is named `_escalationRound`, as the contract names it;
+- the fork suite's header states the margin rule.
 
 **Not checked here:** the live round itself. It runs at the cutover, against Sepolia's 29 s margin.
