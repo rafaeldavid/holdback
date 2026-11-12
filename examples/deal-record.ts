@@ -21,7 +21,8 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import nacl from 'tweetnacl';
 import { recoverMessageAddress, recoverTypedDataAddress, type Hex } from 'viem';
-import { command, isMain } from './entry.ts';
+import { isMain } from './entry.ts';
+import { asksHelp, help } from './help.ts';
 import { commitmentIdOf, deliveryHashOf, jcs, jcsHash, knownPins, operatorFeeOf, typedOf, type Pin } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -493,6 +494,10 @@ export async function dealRecord(id: Hex, o: Options): Promise<DealRecord> {
 
 /** The command: parses the arguments, reads the key from the environment, writes the record. */
 async function main(argv: string[]): Promise<number> {
+  if (asksHelp(argv)) {
+    process.stdout.write(`${help('deal-record', import.meta.url)}\n`);
+    return 0;
+  }
   const [id, ...rest] = argv;
   const flag = (name: string) => {
     const i = rest.indexOf(name);
@@ -500,7 +505,7 @@ async function main(argv: string[]): Promise<number> {
   };
   const party = flag('--as');
   if (!id || (party !== 'buyer' && party !== 'seller')) {
-    process.stderr.write(`usage: ${command('deal-record', import.meta.url)} <commitmentId> --as buyer|seller [--delivery <file>] [--settlement <file>] [--out <file>]\n`);
+    process.stderr.write(`${help('deal-record', import.meta.url)}\n`);
     return 2;
   }
   const operators = (process.env['HOLDBACK_OPERATORS'] || 'https://api.crow.direct,https://api2.crow.direct').split(',');

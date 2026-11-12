@@ -2067,6 +2067,60 @@ var init_entry = __esmMin((() => {
 	sh$1 = (s) => /^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`;
 }));
 
+// examples/help.ts
+/**
+* The help of the command `name` (a file in examples/, without `.ts`), named as it is run from `from` (the caller's
+* import.meta.url): a line saying what it does, the usage, and one example call.
+*/
+function help(name, from) {
+	const h = HELP[name];
+	if (!h) throw new Error(`no help for ${name}`);
+	const me = command$1(name, from);
+	const [first, ...more] = h.usage(me);
+	return [
+		`${name}: ${h.what}`,
+		`usage: ${first}`,
+		...more.map((l) => l.startsWith("  ") ? l : `       ${l}`),
+		`example: ${h.example(me)}`
+	].join("\n");
+}
+var ID$2, HELP, asksHelp;
+var init_help = __esmMin((() => {
+	init_entry();
+	ID$2 = "0x5744dce2d35d087b9bf35bd4443a99807baa5bb2b94185c0b21505e0167309f7";
+	HELP = {
+		"buy-with-signer": {
+			what: "buys one job from a seller that prices by quote: it asks for the price, stops for your approval, then funds the deal, follows it and opens the work.",
+			usage: (me) => [
+				`${me} <quote URL> <key store directory> '<scope as JSON>' <the most you pay, base units> [<defaults URL> [<options as JSON>]] [--expect-terms <file>] [--stop-after-funding]`,
+				`${me} approve <key store directory> <commitment ID> <the most you pay, base units> [--stop-after-funding]`,
+				`${me} resume <key store directory> [<commitment ID>] [--delivery <file>]`
+			],
+			example: (me) => `HOLDBACK_OPERATORS=$OP1,$OP2 ${me} https://seller.example/quote deal-1 '{"commit":"7c1e4b9a2d3f5068a1b2c3d4e5f60718293a4b5c","files":["contracts/Vault.sol"]}' 750000000 https://seller.example/defaults`
+		},
+		"pay-from-wallet": {
+			what: "funds a deal from a wallet outside these tools: it writes the messages the wallet signs, checks a file where the wallet is, and funds with the signatures.",
+			usage: (me) => [
+				`${me} files <key store directory> <commitment ID>`,
+				`${me} check <typed-data file> <terms file> <buyer's signing address> [--fee <to> <base units>] [--sim]`,
+				`${me} fund <key store directory> <commitment ID> <funding signature> [<operator-fee signature>]`
+			],
+			example: (me) => `HOLDBACK_OPERATORS=$OP1,$OP2 ${me} files deal-1 ${ID$2}`
+		},
+		"deal-record": {
+			what: "writes one JSON record of a deal, read from every operator: the signed terms, each step, the checks and the judgment, and the settlement. It only reads.",
+			usage: (me) => [`${me} <commitmentId> --as buyer|seller [--delivery <file>] [--settlement <file>] [--out <file>]`],
+			example: (me) => `HOLDBACK_OPERATORS=$OP1,$OP2 ${me} ${ID$2} --as buyer --out record.json`
+		},
+		"seller-adapter": {
+			what: "sells your API's jobs on Crow: it serves /quote and /defaults, signs each offer, waits for the hold, runs the job and delivers the checked result.",
+			usage: (me) => [`${me} <config.json> [--sim]`, "  The file names your API (sellerApi) and any setting you change; HOLDBACK_KEY and HOLDBACK_OPERATORS come from the environment, or --sim takes both from a running `pnpm sim`."],
+			example: (me) => `${me} seller.json --sim`
+		}
+	};
+	asksHelp = (args) => args.some((a) => a === "--help" || a === "-h");
+}));
+
 // examples/deal-record.ts
 var deal_record_exports = /* @__PURE__ */ __exportAll({
 	dealRecord: () => dealRecord,
@@ -2605,6 +2659,10 @@ async function dealRecord(id, o) {
 }
 /** The command: parses the arguments, reads the key from the environment, writes the record. */
 async function main(argv) {
+	if (asksHelp(argv)) {
+		process.stdout.write(`${help("deal-record", import.meta.url)}\n`);
+		return 0;
+	}
 	const [id, ...rest] = argv;
 	const flag = (name) => {
 		const i = rest.indexOf(name);
@@ -2612,7 +2670,7 @@ async function main(argv) {
 	};
 	const party = flag("--as");
 	if (!id || party !== "buyer" && party !== "seller") {
-		process.stderr.write(`usage: ${command$1("deal-record", import.meta.url)} <commitmentId> --as buyer|seller [--delivery <file>] [--settlement <file>] [--out <file>]\n`);
+		process.stderr.write(`${help("deal-record", import.meta.url)}\n`);
 		return 2;
 	}
 	const operators = (process.env["HOLDBACK_OPERATORS"] || "https://api.crow.direct,https://api2.crow.direct").split(",");
@@ -2640,6 +2698,7 @@ async function main(argv) {
 var ID$1, ADDRESS, CIPHERTEXT_ID, CURSOR, SECTIONS, SETTLED, RECEIPT_TYPES, lc, lowerAll, sha256$1, sum, isMoney$1, lateWorkLine;
 var init_deal_record = __esmMin((() => {
 	init_entry();
+	init_help();
 	init_verify();
 	ID$1 = /^0x[0-9a-f]{64}$/;
 	ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -3976,7 +4035,7 @@ var pay_from_wallet_exports = /* @__PURE__ */ __exportAll({});
 var args$1, flag, fee, sim, command, a, b, c, d, out, expect$1, usage$1;
 var init_pay_from_wallet = __esmMin((async () => {
 	init_buyer_signer();
-	init_entry();
+	init_help();
 	init_verify();
 	init_deployments();
 	args$1 = process.argv.slice(2);
@@ -3989,9 +4048,10 @@ var init_pay_from_wallet = __esmMin((async () => {
 	[command, a, b, c, d] = args$1;
 	out = (x) => console.log(printable(JSON.stringify(x)));
 	expect$1 = () => ({ expect: JSON.parse(process.env["CROW_EXPECT"] || "{}") });
-	usage$1 = `usage: ${command$1("pay-from-wallet", import.meta.url)} files <store> <id> | fund <store> <id> <funding signature> [<operator-fee signature>] | check <file> <terms file> <buyer address> [--fee <to> <base units>] [--sim]`;
+	usage$1 = help("pay-from-wallet", import.meta.url);
 	try {
-		if (command === "files" && a && b) {
+		if (asksHelp(args$1)) console.log(usage$1);
+		else if (command === "files" && a && b) {
 			const signer = await loadKeys(a, b, {
 				...expect$1(),
 				log: () => {}
@@ -4054,9 +4114,9 @@ var init_pay_from_wallet = __esmMin((async () => {
 
 // examples/buy-with-signer.ts
 var buy_with_signer_exports = /* @__PURE__ */ __exportAll({});
-var args, stop, at, termsFile, dl, deliveryFile, first, store, third, fourth, defaults, options, me, usage, say, expect, sh, finish, pay;
+var args, stop, at, termsFile, dl, deliveryFile, first, store, third, fourth, defaults, options, usage, say, expect, sh, finish, pay;
 var init_buy_with_signer = __esmMin((async () => {
-	init_entry();
+	init_help();
 	init_buyer_signer();
 	init_verify();
 	args = process.argv.slice(2);
@@ -4066,15 +4126,10 @@ var init_buy_with_signer = __esmMin((async () => {
 	dl = args.indexOf("--delivery");
 	deliveryFile = dl >= 0 ? args[dl + 1] : void 0;
 	[first, store, third, fourth, defaults, options] = args.filter((a, i) => a !== "--stop-after-funding" && (at < 0 || i !== at && i !== at + 1) && (dl < 0 || i !== dl && i !== dl + 1));
-	me = command$1("buy-with-signer", import.meta.url);
-	usage = [
-		`usage: ${me} <quote URL> <key store directory> '<scope as JSON>' <the most you pay, base units> [<defaults URL> [<options as JSON>]] [--expect-terms <file>] [--stop-after-funding]`,
-		`       ${me} approve <key store directory> <commitment ID> <the most you pay, base units> [--stop-after-funding]`,
-		`       ${me} resume <key store directory> [<commitment ID>] [--delivery <file>]`
-	].join("\n");
-	if (first === void 0) {
-		console.error(usage);
-		process.exit(2);
+	usage = help("buy-with-signer", import.meta.url);
+	if (asksHelp(args) || first === void 0) {
+		(first === void 0 ? console.error : console.log)(usage);
+		process.exit(first === void 0 ? 2 : 0);
 	} else if (at >= 0 && (!termsFile || termsFile.startsWith("--"))) throw new Error("--expect-terms takes the path of your terms file");
 	else if (first !== "resume" && !/^[0-9]+$/.test(fourth ?? "")) throw new Error(`the most you pay is base units as a decimal string, the fourth argument\n${usage}`);
 	say = (x) => console.error(printable(JSON.stringify(x)));
