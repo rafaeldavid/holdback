@@ -392,6 +392,10 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
   const terms: CommitmentTerms = representable(() => completeTerms(draft, { ...resolved, nonce }));
   // The plan's 2c: one token per deployment, refused here before the seller signs terms the contract would refuse at funding.
   const otherToken = tokenRefusal(ctx.token, terms);
+  // A fee the caller left out comes from the primary's registration: say so, so the caller knows where to change it.
+  if (otherToken?.field === 'adjudication.fee.token' && input['fee'] === undefined) {
+    throw new PrepareError({ ...otherToken, detail: `the primary adjudicator ${slate.primary} registers its minimum fee in ${terms.adjudication.fee.token}; ${otherToken.detail.slice(otherToken.detail.indexOf('this deployment settles'))}. Name the fee yourself in fee, or choose a primary that registers its fee in this token`, field: 'adjudicators.primary' });
+  }
   if (otherToken) throw new PrepareError(otherToken);
   // ADR-0031 §6 (SC-5, Rafa 2026-11-11): a phase-one deal holds at least one base unit, as price or as fee; the escrow
   // refuses to hold nothing. Said here, before the seller signs terms no one could fund.
@@ -517,7 +521,7 @@ export function escalationWindowNotices(club: Pick<Club, 'rulebook'>, t: Pick<An
   const w = t.timing.appealDecideSec;
   if (w >= SMALLEST_DECIDABLE_ESCALATION_SEC) return [];
   return [
-    `timing.appealDecideSec is ${w} s, below the ${SMALLEST_DECIDABLE_ESCALATION_SEC} s the appeal adjudicator needs on this chain to decide an escalation after the beacon's round is public (ADR-0032): every escalation under these terms would end in the default outcome, a refund. A panel needs more; the repository's terms use 300 s. You may still choose it`,
+    `timing.appealDecideSec is ${w} s, below the ${SMALLEST_DECIDABLE_ESCALATION_SEC} s the appeal adjudicator needs to decide an escalation after the beacon's round is public, on a rules contract with the 29 s beacon margin of ADR-0032 (Sepolia and Ethereum mainnet from the phase-one deployment on): there, every escalation under these terms would end in the default outcome, a refund. A panel needs more; the repository's terms use 300 s. You may still choose it`,
   ];
 }
 

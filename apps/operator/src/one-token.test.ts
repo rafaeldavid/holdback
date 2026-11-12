@@ -173,6 +173,11 @@ describe('the escalation window below the chain can decide (ADR-0032, 37 s): a n
     };
     const p = await prepare('offer', ctx, body);
     expect((p.submit.body as { timing: { appealDecideSec: number } }).timing.appealDecideSec).toBe(20);
+    // PR 412 review, Info 3: a fee the caller left out comes from the primary's registration, and the refusal says so.
+    const usdxPrimary = { ...ctx, token: TUSD, registration: async () => ({ ...(await ctx.registration('0x' as never))!, fee: { min: { token: 'USDX', amount: '1' } } }) } as unknown as PrepareContext;
+    const { fee: _fee, ...noFee } = body; // eslint-disable-line @typescript-eslint/no-unused-vars
+    const r = await prepare('offer', usdxPrimary, noFee).then(() => null, (e: { problem: unknown }) => e.problem);
+    expect(r).toMatchObject({ type: 'invalid_terms', field: 'adjudicators.primary', detail: expect.stringMatching(/registers its minimum fee in USDX; this deployment settles only in tUSD/) });
     expect(p.notices).toEqual(expect.arrayContaining([expect.stringMatching(/appealDecideSec is 20 s, below the 37 s/)]));
   });
 });

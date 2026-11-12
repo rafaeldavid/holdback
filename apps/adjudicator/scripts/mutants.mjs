@@ -85,7 +85,9 @@ const MUTANTS = [
   ['consent', "an offer's terms not checked against the commitment ID (T-211)", A('service.ts'), 'return this.#termsMismatch(c) ?? this.#windowsProblem(c)', 'return this.#windowsProblem(c)'],
   ['consent', 'the wrong-key re-release gated on the fee (T-211, red team J3)', A('service.ts'), " || (role === 'appeal' && mine(task.firstDecider)) || rerelease;", " || (role === 'appeal' && mine(task.firstDecider));"],
   // The SimChain adapter (end-to-end tests in simchain-adapter.test.ts).
-  ['simchain adapter', 'a fallback or appeal adjudicator given no released envelope', A('simchain-adapter.ts'), "task.role === 'primary' ? undefined : released.at(-1)", 'undefined'],
+  // Retired (T-378, PR 412 review L1): "primary given no released envelope". Nothing releases an envelope to the primary
+  // while it decides (keys go to the fallback, the appeal adjudicator and the buyer), so any change to the primary's branch
+  // is equivalent; the next mutant covers the fallback's and the appeal adjudicator's released key.
   ['simchain adapter', 'fallback given no released key', A('simchain-adapter.ts'), "const releasedKey = task.role === 'primary' ? undefined : released.at(-1);", 'const releasedKey = undefined;'],
   ['simchain adapter', 'fallback takes no task after the takeover', A('simchain-adapter.ts'), "else if (s.kind === 'FallbackJudging' && lc(fallbackAdjudicator) === me)", 'else if (false)'],
   ['simchain adapter', 'offers not found in the event log', A('simchain-adapter.ts'), "if (e.type === 'commitment.offered') {", "if (e.type === 'commitment.agreed') {"],

@@ -103,8 +103,14 @@ Labels: measured, inferred, guessed. All runs are on this task's branches, 2026-
   - 12 mutants no longer applied; each is retargeted to the current code.
   - The full sweep (`node apps/adjudicator/scripts/mutants.mjs`) killed 81 of 83.
   - Two survived: the publication catch, and the appeal panel's family minimum. Two new tests kill both, each rerun alone.
-  - So all 83 are killed.
+  - The review (PR 412, Low 1) found one retargeted mutant equal to its neighbour. It is retired: nothing releases an envelope to the primary while it decides, so a change there is equivalent.
+  - So the list holds 82 mutants, and all apply and are killed (a dry count of the find strings, and each new kill rerun alone).
 - The touched suites (operator, adjudicator, demo-cloud, test-agents, sdk, `tests/contract`, the alignment and spec tests): 918 passed, 11 skipped, on the lane's tip `bfe57ed` [measured].
+- The reviewer gave ISSUES, all Low or Info:
+  - Low 1 is fixed by retiring the mutant;
+  - Low 2 is fixed in the notice's text and in the Handoff;
+  - Info 3 (the refusal names the primary's registration as the fee's source) is fixed, with a test;
+  - Info 4 is left: core refuses `TUSD` on SimChain later with its own message.
 
 ## Decisions
 
@@ -117,6 +123,8 @@ Labels: measured, inferred, guessed. All runs are on this task's branches, 2026-
 ## Handoff
 
 **Open, for later work:**
+
+- **The 37 s notice assumes the 29 s beacon margin of ADR-0032,** which R8 (T-380) builds into the contract (PR 412 review, Low 2). Until that deployment, Sepolia's floor is 13 s, and the notice says it applies on a rules contract with that margin. A notice computed from the deployment's own margin can follow once the margin reaches the operator (T-380 adds `beaconMarginSec` to the settlement interface).
 
 - **The fallback window's floor** (43 s on mainnet, 44 s on Sepolia; ADR-0032 gate line BR-5) gets no notice. The brief named the escalation's 37 s only.
 - **The adjudicator's appeal-window limit on phase one** stays a refusal of its own choice (D29). Its reason now names no bond. Whether a phase-one adjudicator should keep the limit at all is open.
