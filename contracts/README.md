@@ -42,15 +42,15 @@ forge test
 
 | Suite | Files | What it checks |
 | --- | --- | --- |
-| `test/unit/` | 29 test files and `Base.sol` | Each entry point and each review fix. `Vectors.t.sol` pins the EIP-712 hashes against `packages/core`. `GasPerDeal.t.sol` holds gas budgets |
+| `test/unit/` | One test file per entry point or review fix, and `Base.sol` | Each entry point and each review fix. `Vectors.t.sol` pins the EIP-712 hashes against `packages/core`. `GasPerDeal.t.sol` holds gas budgets |
 | `test/fuzz/` | `NoAdmin`, `Postings`, `Rounding` | No admin path, postings that balance, and named rounding. `foundry.toml` sets no fuzz run count, so Foundry's default applies |
-| `test/invariant/` | `RulesInvariants.t.sol`, `HandlerSmoke.t.sol` and `StateOracle.t.sol` (with `StateOracle.sol`), with `test/handlers/RulesHandler.sol` | 11 invariants, each at 256 runs with depth 100 (listed in [`docs/audit/invariants.md`](../docs/audit/invariants.md)). The counts are set inline in `RulesInvariants.t.sol`, not in `foundry.toml` |
-| `test/crosscheck/` | 13 files | Cases from the public-audit cross-check (`docs/reviews/2026-11-03-public-audit-crosscheck.md`), and the drand verifier's reviews |
+| `test/invariant/` | `RulesInvariants.t.sol`, `HandlerSmoke.t.sol` and `StateOracle.t.sol` (with `StateOracle.sol`), with `test/handlers/RulesHandler.sol` | The invariants listed in [`docs/audit/invariants.md`](../docs/audit/invariants.md). Their run count and depth are set inline in `RulesInvariants.t.sol`, not in `foundry.toml` |
+| `test/crosscheck/` | One file per case | Cases from the public-audit cross-check (`docs/reviews/2026-11-03-public-audit-crosscheck.md`), and the drand verifier's reviews |
 | `test/differential/` | `SideBySide.t.sol` and `PinnedSource.t.sol`, with the pinned old side in `old/` and a planted mutant in `planted/` | The side-by-side harness (T-341): the deployed source and today's source run the same calls, and any difference not in `AllowList.sol` fails |
 
 Notes:
 - `NoAdmin.fuzz.t.sol` reads the compiled ABIs from `out/`, and the drand tests read `../fixtures/beacon`. `foundry.toml` grants read access to those two paths only.
-- The last recorded run passed 383 tests in 55 suites, 0 skipped, on 2026-11-12 (CI run 43138040593 at `1a3f50f`, after T-341, T-345 and T-352). The deployed commit `64be1f1` passed 241 (`docs/tasks/T-212-contract-hardening.md`, Evidence). Run `forge test` for today's count.
+- `forge test` prints today's count of tests and suites. The deployed commit `64be1f1` passed 241 (`docs/tasks/T-212-contract-hardening.md`, Evidence).
 - CI runs `forge test` in its `contracts` job. Its `anvil` job runs `forge build`, because `forge test` does not compile `script/`, which the anvil tests need.
 
 ## TypeScript tests that need anvil

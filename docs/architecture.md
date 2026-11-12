@@ -1,6 +1,6 @@
 # Architecture v0.1
 
-Reflects ADR-0001 to ADR-0026 and the reviews in `docs/reviews/`. Decisions D1 to D54 and ADRs up to ADR-0030 are in `docs/decisions-today.md` and `docs/decisions/`; this page has not been revised for each decision after D40.
+Reflects the ADRs and the reviews it cites. `docs/decisions-today.md` and `docs/decisions/` record every decision and ADR; this page has not been revised for each decision after D40.
 
 ## Shape of the system
 

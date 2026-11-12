@@ -1,6 +1,6 @@
 # Plan
 
-Iterative. Demo first, then harden one layer per phase. Each phase ends with evidence, a plan update and ADRs closed or deferred. This public plan covers the current build and its record: Phases 0 to 2, whose tasks have files in `docs/tasks/`. Later phases are planned privately (Future work, below).
+Iterative. Demo first, then harden one layer per phase. Each phase ends with evidence, a plan update and ADRs closed or deferred. This public plan covers the current build and its record: the phases below, whose tasks have files in `docs/tasks/`. Later phases are planned privately (Future work, below).
 
 ## Phase 0: Setup and research
 
@@ -138,8 +138,10 @@ Focus (Rafa, 2026-11-06; D53, narrowed the same day by D54 after his walkthrough
 - [ ] T-358 (in progress on `contracts-audit-ready`; waits for the freeze) The two address fields in the phase-one contracts (ADR-0033).
 - [x] T-359 (done: PR 373, 2026-11-12; live from the site deploy of 05:14 UTC) The seller's page, `https://crow.direct/sell.txt`, linked from `llms.txt`.
 - T-360 A task in the maintainers' private repository, with no file here.
-- [ ] T-361 (in progress) Rubric readiness: the screen and the delivery check.
+- [x] T-361 (done: PR 376, 2026-11-12) Rubric readiness: the screen on an audit report that quotes exploit code, and `check-delivery` warns when the judges read a sample.
+- [ ] T-363 (merged to `contracts-audit-ready`: PR 379, 2026-11-12; waits for the freeze) The phase-one cutover checklist, first pass. Its task file is on that branch.
 - [x] T-362 (done: PR 374, 2026-11-12; the `CLAUDE.md` change, PR 375, waits for Rafa) The docs batch: the doc follow-ups from T-329 to T-361 that describe `main`. Task file `docs/tasks/T-362-docs-batch.md`.
+- [x] T-364 (done: PR 380, 2026-11-12; the `CLAUDE.md` part, PR 375, waits for Rafa) No running numbers in the standing docs: the rule in `docs/writing.md`, the sweep and a check. Task file `docs/tasks/T-364-no-running-numbers.md`.
 - D4 decided: the target is Ethereum mainnet (2026-11-01), built and tested on a local chain, then on Sepolia, the public testnet the demo settles on since D41 (2026-11-03). Mainnet deployment is a separate gate for Rafa after an audit. Record gas per deal in the evidence.
 
 Out of Phase 2 by D54 (Rafa's walkthrough, 2026-11-06): T-212, for the contract redeploy before mainnet; the scenario 11 redesign, as T-310; and T-221, paused until the centralized adjudicator is stable. All three moved to later phases (Future work, below). Phase 2 closes on Sepolia without a contract redeploy, because a new rules contract needs a new demo world (D49).
@@ -162,7 +164,7 @@ Started work from the later phases keeps its file here: T-052, T-059, T-060, T-0
 
 ## Scenario index
 
-Status (2026-11-12, counted against `fixtures/scenarios/` by T-362; `pnpm snap` last checked every row on 2026-11-06, and CI runs it on every pull request): **exists** is a fixture file that passes; **todo** is a `todo.` fixture that records a known gap and passes as a todo; **planned** has no file yet. The 38 fixtures on disk, besides `_example`, are 37 that exist plus 1 todo. Fixtures run on SimChain; Phase 2 also runs them on the contract (below).
+Status (`pnpm snap` runs every fixture in `fixtures/scenarios/` in CI on each pull request): **exists** is a fixture file that passes; **todo** is a `todo.` fixture that records a known gap and passes as a todo; **planned** has no file yet. Fixtures run on SimChain; Phase 2 also runs them on the contract (below).
 
 | Fixture | Beat | Phase | Status |
 | --- | --- | --- | --- |
