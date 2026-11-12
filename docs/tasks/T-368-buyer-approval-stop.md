@@ -3,7 +3,7 @@
 - **Lane:** demo
 - **Phase:** 2
 - **Depends on:** T-319, T-330, T-332, T-359
-- **Paths this task may touch:** `examples/buy-with-signer.ts` and its tests (`examples/buy-with-signer.test.ts`, the command's test in `examples/buyer-signer.test.ts`, the command's test in `examples/audit-deal.test.ts`), `examples/buyer-signer.ts` (one getter), `examples/audit-deal.ts` (the approval names its commitment ID), `apps/operator/src/sim-world.ts` and its test (the sim's faucet), the buyer step in `site/llms.txt`, the section "A seller's client can carry the buyer's side" in `site/sell.txt`, this file
+- **Paths this task may touch:** `examples/seller-adapter.test.ts` (two lines, see Handoff), `examples/buy-with-signer.ts` and its tests (`examples/buy-with-signer.test.ts`, the command's test in `examples/buyer-signer.test.ts`, the command's test in `examples/audit-deal.test.ts`), `examples/buyer-signer.ts` (one getter), `examples/audit-deal.ts` (the approval names its commitment ID), `apps/operator/src/sim-world.ts` and its test (the sim's faucet), the buyer step in `site/llms.txt`, the section "A seller's client can carry the buyer's side" in `site/sell.txt`, this file
 - **Human gate:** no (the site deploy that publishes the doc lines is Rafa's)
 - **Status:** review
 - **Agent/session:** T-368 implementer session, change kind 4 (tooling)
@@ -26,7 +26,7 @@ Non-goals: no protocol or API machinery for limits or mandates (Rafa, 2026-11-12
 - [x] The default run stops before funding, with exit status 3, and moves no money: no agreement, no funding, no faucet grant.
 - [x] It prints the whole offer: every signed field, the price, both fees and the total, the deadlines as times and windows, the adjudicators, each difference by field; seller text goes through `printable`.
 - [x] Its last stderr line is the exact approve command; run as printed, it funds that offer.
-- [x] An approval for an ID no stop showed is refused; nothing is funded.
+- [x] An approval for an ID no stop showed is refused; nothing is funded. An offer above the budget is shown whole and gets no approve line.
 - [x] An offer changed between the stop and the approval is refused, naming the field (`fees.operator`).
 - [x] An unattended run with `--expect-terms` funds a matching offer in one run, stops on a differing one naming each field, and refuses a file that leaves a term out.
 - [x] `--stop-after-funding` on the approve run, then `resume`, still work; approving a funded deal again pays nothing twice.
@@ -45,9 +45,10 @@ Non-goals: no protocol or API machinery for limits or mandates (Rafa, 2026-11-12
   - `npx vitest run apps/operator/src/sim-world.test.ts examples/buyer-signer.test.ts examples/audit-deal.test.ts examples/buy-with-signer.test.ts`: 4 files, 90 tests passed.
   - `pnpm audit-deal --case all --out reports/scratch/t-368-audit`: "7 of 7 cases ended as expected", exit 0.
   - `node site/build.mjs && node site/check.mjs`: PASS.
-  - `pnpm typecheck`: pass. `pnpm lint` and `pnpm test`: in the PR's Evidence and CI.
+  - `pnpm typecheck`, `pnpm lint`: pass. `pnpm test`: 156 files passed, 12 skipped; 3,188 tests passed, 171 skipped (before the review fixes; the three command test files pass again after them, 66 tests).
+- Review (one reviewer pass, 2026-11-12): ISSUES, all fixed. (1, blocking) A run over budget saved the shown offer without printing it, so an approve naming an ID read from the key file funded an offer nobody saw: the over-budget run now prints the whole offer (`approval: "over-budget"`, no approve line) and exits 1. (2) The sim listed genesis mandates only, so a seller adapter waited about 60 s for the faucet's mandate: fixed (see Outside the listed paths). (3) A misspelt key in the terms file was dropped: unknown keys are refused. (4) `--expect-terms` with no file was ignored: refused. (5) A store path with a control character gave an unrunnable approve line: refused before any key is made. (6) The stop took budgets the approve run refused: one decimal rule for both. Each has a test.
 - Snapshot diffs: none.
-- Metrics: `buy-with-signer.ts` is 45 lines (was 19); its test's limit moves from 20 to 50 lines.
+- Metrics: `buy-with-signer.ts` is 50 lines (was 19); its test's limit moves from 20 to 50 lines.
 
 ## Decisions
 
@@ -78,6 +79,10 @@ On `pnpm sim`, `<op1>,<op2>` are the two operators it prints, and the quote and 
 **For R6c-3 (`contracts-audit-ready`: the payment address and the funding signature by an outside wallet).** Keep the stop before either payment message is signed: the stop path must call no `testFunds`, `checkOffer` or `agreeAndFund`, and an outside wallet's signature must be asked for only inside `pay`, after `checkOffer` passed in the approve run (or the one-run `--expect-terms` path). Show the payment address in the stop's JSON with the other signed fields, so the approval covers it, and add it to `OFFER_FIELDS` in `buyer-signer.ts` so a change between the stop and the approval is refused by name. The approve line must carry whatever the outside wallet needs, never a key.
 
 **For T-366's part of `site/sell.txt` ("First hour").** Two lines are now stale: step 5 says no shipped buyer funds an offer on `pnpm sim` (it does now, and the page's "A seller's client can carry the buyer's side" says how), and step 9's buyer command now stops for approval and prints the approve line. Not changed here: outside this task's paths.
+
+**Outside the listed paths.** `examples/seller-adapter.test.ts` (T-366's lane) asserted the old sim faucet: "the SimChain faucet grants tokens only", so a fresh seller key could not start. Its two lines now check that the adapter refuses with `mandate.fromFaucet: false` and starts with the faucet's mandate. The sim's `GET /v1/agents/<address>` also lists the mandates the faucet admitted (`SimChain.agentMandates`), as the public world's does; before, it listed genesis mandates only, and the adapter would wait about 60 s for a mandate that never appeared there.
+
+**Left as they are (review, minor).** The approve line prints `HOLDBACK_OPERATORS` as set: an operator URL with a credential in it would be printed. The comments at the top of `apps/demo-cloud/src/world.ts` contrast its faucet with `pnpm sim`'s, which now also grants a mandate (outside this task's paths). Older than this change: a run that dies after the funding is submitted and before it is saved makes the next approve run wait in `checkOffer` for `AcceptedByAdjudicator` and stop, never reaching `agreeAndFund`'s recovery branch; `resume` does not cover it either, since nothing was saved as paid.
 
 **What waits for a site deploy.** The new lines in `site/llms.txt` section 6 and `site/sell.txt` reach crow.direct only with `pnpm site:deploy` (Rafa's).
 

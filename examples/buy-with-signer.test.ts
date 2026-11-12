@@ -153,13 +153,36 @@ describe('buy-with-signer.ts: the approval stop', () => {
     expect(await events(differs.commitmentId)).not.toContain('hold.funded');
 
     // A file that leaves a term open approves nothing: the run makes no key and asks no seller.
-    const { adjudicators: _, ...open } = terms;
+    const open = { ...terms, adjudicators: undefined };
     writeFileSync(file, JSON.stringify(open));
     const store = dir();
     const refused = await buy([quoteUrl(), store, SCOPE, BUDGET, '--expect-terms', file]);
     expect(refused.code).toBe(1);
     expect(refused.err).toContain('do not name adjudicators.primary, adjudicators.fallback, adjudicators.appeal');
   }, 120_000);
+
+  it('shows an offer above the budget and stops with no approve line; refuses a misspelt term and a missing terms file', async () => {
+    const store = dir();
+    const over = await buy([quoteUrl(), store, SCOPE, '1']);
+    expect(over.code, over.err).toBe(1);
+    const shown = JSON.parse(over.out) as J;
+    expect(shown).toMatchObject({ approval: 'over-budget', budget: '1', price: { token: 'tUSD', amount: '2000000000' } });
+    expect(shown).not.toHaveProperty('approve');
+    expect(over.err).toContain('above 1: nothing is signed or paid');
+    expect(await events(shown.commitmentId)).not.toContain('hold.funded');
+    // A misspelt term is refused before any key or quote, not dropped.
+    const file = join(dir(), 'terms.json');
+    writeFileSync(file, JSON.stringify({ deliverable: {}, checks: [], timing: {}, Price: { token: 'tUSD', amount: '1' } }));
+    const misspelt = await buy([quoteUrl(), dir(), SCOPE, BUDGET, '--expect-terms', file]);
+    expect(misspelt.code).toBe(1);
+    expect(misspelt.err).toContain('a misspelt term must not be dropped unseen');
+    const none = await buy([quoteUrl(), dir(), SCOPE, BUDGET, '--expect-terms']);
+    expect(none.code).toBe(1);
+    expect(none.err).toContain('--expect-terms takes the path of your terms file');
+    const budget = await buy([quoteUrl(), dir(), SCOPE, '0x7d2b7500']);
+    expect(budget.code).toBe(1);
+    expect(budget.err).toContain('the most you pay is base units as a decimal string');
+  }, 60_000);
 
   it('approves and stops after funding; resume, in a later process, opens the delivered work', async () => {
     const store = dir();

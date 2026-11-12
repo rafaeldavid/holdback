@@ -235,7 +235,7 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
       await startOperator({
         settlement: chain,
         // T-221 review: prepare fills in no default that would decline the terms, and notes one the parties named.
-        registry: { ...base, faucet, defaultAdjudicators, declines: declinesOf(() => Object.values(adjudicators)), judgment: (id) => latest.get(id) ?? null },
+        registry: { ...base, get mandates() { return chain.agentMandates(); }, faucet, defaultAdjudicators, declines: declinesOf(() => Object.values(adjudicators)), judgment: (id) => latest.get(id) ?? null },
         store,
         ...operatorFee,
         demo,

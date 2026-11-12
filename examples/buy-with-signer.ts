@@ -11,6 +11,7 @@ import { loadKeys, makeKeys, openDeals, printable, type BuyerSigner, type Offer 
 import { jcs } from './verify.ts';
 const args = process.argv.slice(2), stop = args.includes('--stop-after-funding'), at = args.indexOf('--expect-terms'), termsFile = at >= 0 ? args[at + 1] : undefined;
 const [first, store, third, fourth, defaults, options] = args.filter((a, i) => a !== '--stop-after-funding' && (at < 0 || (i !== at && i !== at + 1)));
+if (at >= 0 && (!termsFile || termsFile.startsWith('--'))) throw new Error('--expect-terms takes the path of your terms file'); else if (first !== 'resume' && !/^[0-9]+$/.test(fourth ?? '')) throw new Error('the most you pay is base units as a decimal string');
 const say = (x: unknown) => console.error(printable(JSON.stringify(x))); // seller text, with no hidden or reordering characters
 const expect = () => ({ expect: JSON.parse(process.env['CROW_EXPECT'] || '{}') });
 const sh = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
@@ -28,14 +29,18 @@ if (first === 'resume') { const failed = (await Promise.allSettled((third ? [awa
   if (shown?.commitmentId !== third!.toLowerCase()) throw new Error(`no stop showed ${third} with a key in ${store}: nothing is approved`);
   await pay(signer, shown, fourth!);
 } else {
-  const own = termsFile ? JSON.parse(readFileSync(termsFile, 'utf8')) : undefined, missing = own && ['offerExpiresInSec', 'fundWithinSec', 'deliverWithinSec', 'judgeWithinSec', 'fallbackWithinSec', 'appealWindowSec', 'appealDecideSec'].map((w) => `timing.${w}`).concat(['fee', 'adjudicators.primary', 'adjudicators.fallback', 'adjudicators.appeal', 'maxSubmissions']).filter((f) => f.split('.').reduce((o: any, k) => o?.[k], own) === undefined); // eslint-disable-line @typescript-eslint/no-explicit-any
+  if (printable(store!) !== store) throw new Error('the key store path holds a control or invisible character: pick a path the approve line can carry');
+  const own = termsFile ? JSON.parse(readFileSync(termsFile, 'utf8')) : undefined, keys = ['deliverable', 'checks', 'rubric', 'timing', 'fee', 'adjudicators', 'maxSubmissions', 'price', 'seller'];
+  if (termsFile && (own === null || typeof own !== 'object' || Array.isArray(own) || Object.keys(own).some((k) => !keys.includes(k)))) throw new Error(`the expected terms in ${termsFile} are not an object of ${keys.join(', ')}: a misspelt term must not be dropped unseen`);
+  const missing = own && ['offerExpiresInSec', 'fundWithinSec', 'deliverWithinSec', 'judgeWithinSec', 'fallbackWithinSec', 'appealWindowSec', 'appealDecideSec'].map((w) => `timing.${w}`).concat(['fee', 'adjudicators.primary', 'adjudicators.fallback', 'adjudicators.appeal', 'maxSubmissions']).filter((f) => f.split('.').reduce((o: any, k) => o?.[k], own) === undefined); // eslint-disable-line @typescript-eslint/no-explicit-any
   if (missing?.length) throw new Error(`the expected terms in ${termsFile} do not name ${missing.join(', ')}: a file that approves in one run states every term but the price`);
   const signer = await makeKeys(store!, { quoteCredentialEnv: process.env['CROW_QUOTE_CREDENTIAL'] ? 'CROW_QUOTE_CREDENTIAL' : undefined, ...expect() }); // fresh keys, mode 0600
   const quote = await signer.quote(first!, JSON.parse(third!), options ? JSON.parse(options) : undefined); // the address, the public key, the scope
   const offer = await signer.readOffer(quote.commitmentId, own ? { defaults: own } : defaults ? { defaults } : {}); // every operator's offer, checked against discovery, and what differs from the defaults or your terms
   const differences = [...(offer.differences ?? []), ...(['price', 'seller'] as const).filter((f) => own?.[f] !== undefined && jcs(own[f]).toLowerCase() !== jcs(offer[f]).toLowerCase()).map((f) => ({ field: f, old: own[f], new: offer[f] }))];
-  if (BigInt(offer.fees.total.amount) > BigInt(fourth!)) throw new Error(`the offer costs ${offer.fees.total.amount} base units, above ${fourth}: nothing is signed or paid`);
-  if (own && differences.length === 0) await pay(signer, offer, fourth!);
+  if (BigInt(offer.fees.total.amount) > BigInt(fourth!)) { // shown all the same, so a later approval at a higher budget approves what was seen
+    console.log(printable(JSON.stringify({ approval: 'over-budget', budget: fourth, ...offer, differences }))); console.error(printable(`The offer costs ${offer.fees.total.amount} base units, above ${fourth}: nothing is signed or paid.`)); process.exitCode = 1;
+  } else if (own && differences.length === 0) await pay(signer, offer, fourth!);
   else { // the approval stop: every signed field, the total, the deadlines with their times, the adjudicators, each difference named
     const approve = [...['HOLDBACK_OPERATORS', 'CROW_EXPECT'].filter((k) => process.env[k]).map((k) => `${k}=${sh(process.env[k]!)}`), 'node', sh(relative(process.cwd(), process.argv[1]!)), 'approve', sh(store!), offer.commitmentId, fourth!, ...(stop ? ['--stop-after-funding'] : [])].join(' ');
     console.log(printable(JSON.stringify({ approval: 'needed', budget: fourth, ...offer, differences, approve })));
