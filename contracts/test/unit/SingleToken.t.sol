@@ -75,7 +75,7 @@ contract SingleTokenTest is Base {
     /// not fund the other, even for terms in the other's token.
     function test_secondDeployment_isASeparateDomain() public {
         HoldbackRules second = new HoldbackRules(
-            escrow, address(collector3009), MARGIN, sim, address(other)
+            escrow, address(collector3009), MARGIN, sim, address(other), _beaconMargin()
         );
         H.Terms memory t = _terms();
         t.token = address(other);

@@ -1121,3 +1121,13 @@ The full text is kept privately (`docs/private-materials.md`).
 - **Litmus tests.** Neutrality: it closes a gap; a deploy no longer removes an open deal's judges, and the maintainers' row in `docs/neutrality.md` becomes true for the judging code. The hold: unchanged. Defended judgment: models stay pinned by the bound registry, nothing is re-rolled, and a decision's `policyHash` is the policy that ran.
 - **What it changes when built:** `packages/judgment`, `apps/adjudicator`, `packages/testkit`, `apps/demo-cloud` and `scripts/deploy-lib.mjs`. No contract, schema, signed type or API route.
 - **Until then:** a deploy that changes a version or a registry goes out only when no open deal binds the outgoing policy. PR 386's deploy is the first.
+
+## D66. How the beacon margin reaches core, the EVM adapter and the adjudicator service (T-380, building ADR-0032)
+
+**Adopted 2026-11-12 by T-380** (package R8, fix 2), for the choices ADR-0032 left open. Rafa may overrule any line.
+
+- **One source, the contract's immutable.** `HoldbackRules` takes `beaconMargin` as its last constructor argument, apart from `expiryMargin`, so the two cannot be swapped by position (ADR-0032's red team). The constructor refuses 0 on any chain but 31337 (`NoBeaconMargin`), as ADR-0032 §3.4 states.
+- **Core takes the margin as an argument, not in the state.** `step(s, e, profile, beaconMarginSec = 0)` and `beaconRoundFor(s, role, marginSec = 0)`; `roundAfter(clock, lastChoice, margin)` is the one function. The margin belongs to a deployment, not to a deal, so the escrow state and its saved form do not change. SimChain passes 0.
+- **A live chain states the margin in its deployment file and checks it.** `beaconMarginSec` sits beside `expiryMarginSec`; at start-up the chain reads `BEACON_MARGIN()` and refuses to start when the two differ. A Sepolia deployment file without the field reads 0 and stops at that check against a contract with 29 s, so the deploy script (CU-1) must write it.
+- **The adjudicator service reads it from the settlement layer.** `Settlement.beaconMarginSec` (EVM: the contract's; SimChain: 0); the adapter puts it on the randomness source, and `roundFor` adds it. One line each in `service.ts` and `simchain-adapter.ts`, cleared by the coordinator for this change.
+- **Litmus tests.** Neutrality: unchanged; no party gains a move. The hold: unchanged. Defended judgment: a block builder no longer knows a panel's seed when it fixes the block (finding X-1), and the fallback's seed is no longer public before `judgeBy` (T-225 item 1).

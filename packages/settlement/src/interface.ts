@@ -104,6 +104,11 @@ export type SubmitResult =
 
 export interface Settlement {
   readonly kind: 'sim' | 'local' | 'testnet';
+  /**
+   * The rules contract's `BEACON_MARGIN()` in seconds (ADR-0032): how far after the last choice the fallback and
+   * escalation panel rounds are taken. SimChain answers 0; an EVM settlement reads its contract's. Absent: 0.
+   */
+  readonly beaconMarginSec?: number;
   /** Any party may call it; the settlement layer validates everything. */
   submit(submission: Submission, options?: SubmitOptions): Promise<SubmitResult>;
   /** The same guards as submit against the same facts, with no effects at all (ADR-0017 §7). */

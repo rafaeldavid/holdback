@@ -19,20 +19,20 @@ import {Field, Obs} from "./Observation.sol";
 ///        `test_sideBySide_reachesEveryRow` fails when more than a quarter of its seeds diverge, so an entry cannot
 ///        quietly switch the gate off.
 ///
-///      T-380, R8 fix 1 (known issue L-4): the primary's seed tag hashes its whole seed commitment with the
-///      commitment ID (`HoldbackTypes.seedTag`). Exactly this difference, and no other: in the Words field, for every
-///      deal, the raw words are equal but for the fourth value, the seed tag; where it differs, the parent's is the low
-///      144 bits of the handler's one seed commitment (`keccak256(SEED)`, `Base._acceptance`) and the new one is
-///      `uint144(keccak256(abi.encode(that commitment, the deal's ID)))`; the stored delivery hashes are equal.
+///      T-380, R8 fix 2 (ADR-0032): the rules contract takes a beacon margin at deploy and reads it back as
+///      `BEACON_MARGIN()`. The harness's world deploys a margin of 0 (`Base._beaconMargin`), under which the sim
+///      beacon's rounds do not move: the fallback's stays judgeBy and an escalation's t1 + 1, so no call, event, balance
+///      or word may differ. Exactly this difference, and no other: in the Surface field, the slot of `BEACON_MARGIN()`
+///      (its place in `SideBySideTest._surface`), which the parent does not have (a failed call) and the new side
+///      answers with 0; every other slot equal. The margin's rounds are proven by `BeaconMargin.t.sol` and the drand
+///      suites, not here.
 library AllowList {
     struct Verdict {
         string change; // the change that allows the difference; "" when none does
         bool diverged; // the sides now differ in shared state by design: stop comparing this seed
     }
 
-    uint256 private constant WORD = 192; // abi.encode of (stage, attempt, t1, seedTag, reason, decider)
-    uint256 private constant TAG = 3; // the seed tag's place in it
-    bytes32 private constant COMMITMENT = keccak256(abi.encodePacked(keccak256("primary seed"))); // Base.SEED's
+    uint256 private constant MARGIN_SLOT = 13; // "BEACON_MARGIN()" in SideBySideTest._surface
 
     /// The verdict for field `f` differing between `o` (old) and `n` (new) at step `step`. `served` and `funded` are
     /// the new side's token and the token of the step's `agreeAndFund` terms; `appealWindow` says whether that call's
@@ -44,36 +44,21 @@ library AllowList {
         returns (Verdict memory v)
     {
         (step, served, funded, appealWindow);
-        if (f == Field.Words && _tagBindsTheCommitment(o.words, n.words, n.stages)) {
-            return Verdict("T-380 L-4: seed tag", false);
+        if (f == Field.Surface && _onlyTheMarginIsNew(o.surface, n.surface)) {
+            return Verdict("T-380 ADR-0032: BEACON_MARGIN", false);
         }
     }
 
-    /// `n` (abi.encode(raw dealOf returns, stored delivery hashes)) is `o` with each deal's seed tag bound to its ID,
-    /// as the entry above states. `stages` is the new side's abi.encode(ids, stages).
-    function _tagBindsTheCommitment(bytes memory o, bytes memory n, bytes memory stages) private pure returns (bool) {
-        (bytes[] memory ow, bytes32[] memory od) = abi.decode(o, (bytes[], bytes32[]));
-        (bytes[] memory nw, bytes32[] memory nd) = abi.decode(n, (bytes[], bytes32[]));
-        (bytes32[] memory ids,) = abi.decode(stages, (bytes32[], uint8[]));
-        if (ow.length != nw.length || ids.length != nw.length) return false;
-        if (keccak256(abi.encode(od)) != keccak256(abi.encode(nd))) return false;
-        for (uint256 i; i < ow.length; i++) {
-            if (ow[i].length != WORD || nw[i].length != WORD) return false;
-            for (uint256 k; k < WORD / 32; k++) {
-                if (k != TAG && _at(ow[i], k) != _at(nw[i], k)) return false;
-            }
-            (bytes32 ot, bytes32 nt) = (_at(ow[i], TAG), _at(nw[i], TAG));
-            if (ot == nt) continue;
-            if (uint256(ot) != uint144(uint256(COMMITMENT))) return false;
-            if (uint256(nt) != uint144(uint256(keccak256(abi.encode(COMMITMENT, ids[i]))))) return false;
+    /// `n` is `o` but for the BEACON_MARGIN() slot: a failed call on the old side, 0 on the new.
+    function _onlyTheMarginIsNew(bytes memory o, bytes memory n) private pure returns (bool) {
+        bytes[] memory os = abi.decode(o, (bytes[]));
+        bytes[] memory ns = abi.decode(n, (bytes[]));
+        if (os.length != ns.length || ns.length <= MARGIN_SLOT) return false;
+        for (uint256 i; i < ns.length; i++) {
+            if (i != MARGIN_SLOT && keccak256(os[i]) != keccak256(ns[i])) return false;
         }
-        return true;
-    }
-
-    /// The k-th 32-byte word of `b`.
-    function _at(bytes memory b, uint256 k) private pure returns (bytes32 w) {
-        assembly {
-            w := mload(add(add(b, 32), mul(k, 32)))
-        }
+        (bool oldOk,) = abi.decode(os[MARGIN_SLOT], (bool, bytes));
+        (bool newOk, bytes memory ret) = abi.decode(ns[MARGIN_SLOT], (bool, bytes));
+        return !oldOk && newOk && keccak256(ret) == keccak256(abi.encode(uint64(0)));
     }
 }

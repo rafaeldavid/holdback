@@ -59,7 +59,7 @@ contract HoldbackRules is EIP712 {
         Stage stage;
         uint8 attempt; // delivery attempt seen on chain (0 until a delivery is verified)
         uint40 t1; // decidedAt, escalatedAt or fallbackSince
-        uint144 seedTag; // low 144 bits of the primary's seedCommitment
+        uint144 seedTag; // H.seedTag(the primary's seedCommitment, the commitment ID) (L-4)
         Reason reason; // why the deal closed; Open while it is open (RF-4)
         Decider decider; // whose decision closed it; None unless the reason is Decided (RF-4)
     }
@@ -232,7 +232,7 @@ contract HoldbackRules is EIP712 {
         AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(id, t);
 
         d.stage = Stage.Held;
-        d.seedTag = uint144(uint256(acc.seedCommitment));
+        d.seedTag = H.seedTag(acc.seedCommitment, id);
         emit JobCreated(id, t.buyer, t.seller, t.adjudicator, pi.authorizationExpiry);
         emit JobFunded(id, t.buyer, pi.maxAmount);
         emit SettlementAddresses(id, t.buyerPaymentAddress, t.sellerPayoutAddress);
@@ -284,8 +284,8 @@ contract HoldbackRules is EIP712 {
         if (bytes(m.keyCiphertext).length > 0 && m.outcome != H.OUTCOME_ACCEPT) revert InvalidMessage();
         if (block.timestamp >= deadline) revert DeadlinePassed();
         if (role == H.ROLE_PRIMARY) {
-            // The primary reveals the preimage of its seedCommitment.
-            if (uint144(uint256(keccak256(abi.encodePacked(m.seed)))) != d.seedTag) revert BadSeed();
+            // The primary reveals the preimage of its seedCommitment, checked through the deal's tag (L-4).
+            if (H.seedTag(keccak256(abi.encodePacked(m.seed)), id) != d.seedTag) revert BadSeed();
         } else if (
             m.beaconRound != round || m.beaconValue != BEACON.beaconValue(m.beaconRound, m.beaconSignature)
                 || m.seed != H.panelSeed(id, role, m.attempt, m.beaconValue)

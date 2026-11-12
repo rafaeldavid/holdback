@@ -51,7 +51,7 @@ contract Erc3009OnlyTest is Base {
     /// wallet's ERC-1271 answer, the hold funds, and the timeout returns it in full (ADR-0031 §3, §5).
     function test_contractWalletBuyer_fundsOnTestUSDC() public {
         TestUSDC tusdc = new TestUSDC();
-        rules = new HoldbackRules(escrow, address(collector3009), MARGIN, sim, address(tusdc));
+        rules = new HoldbackRules(escrow, address(collector3009), MARGIN, sim, address(tusdc), _beaconMargin());
         uint256 ownerPk = 0x0111E4;
         OwnedWallet w = new OwnedWallet(vm.addr(ownerPk));
         tusdc.mint(address(w), 1_000_000_000);
