@@ -96,6 +96,12 @@ The coordinator relayed on 2026-11-12 that an earlier sync of `main` into the la
 - **Full suite** [measured, local `forge test`, with the harness's parent re-seated to RF-4's source at `3b49cc0` and an empty allow list]: 57 suites, 417 tests passed, 0 failed. `testFuzz_sideBySide` passed 257 runs; `test_sideBySide_reachesEveryRow` landed 571 calls.
 - **Runtime size of `HoldbackRules`** [measured, single-contract builds of the same source tree]: 20,504 bytes for RF-4 (the parent copy), 20,540 bytes with RF-2, **36 bytes added**. A first build that also folded `_firstInstance` and `_escalationDecision` into one closing block measured 20,940 bytes (409 added) and was not kept.
 
+### PR 5: RF-3, each deadline in one place
+
+- **What changed in `contracts/src`:** four internal functions, `_escalationDecideBy`, `_escrowExpiry`, `_fallbackRound` and `_escalationRound`, each returning the expression it replaces with the same types. `_turn`, `triggerDefault`, `triggerFallback`'s event and `_paymentInfo` call them. No interface changes.
+- **Full suite** [measured, local `forge test`, with the harness's parent re-seated to RF-2's source at `f454da3` and an empty allow list]: 57 suites, 417 tests passed, 0 failed. `testFuzz_sideBySide` passed 257 runs.
+- **Runtime size of `HoldbackRules`** [measured]: 20,540 bytes before, 20,401 bytes after, **139 bytes fewer**.
+
 ## Review
 
 ### PR 1
