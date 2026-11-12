@@ -1,8 +1,6 @@
 # Plan
 
-Iterative. Demo first, then harden one layer per phase. Each phase ends with evidence, a plan update and ADRs closed or deferred. Phases 0 to 2, 9, 10 and 11 have task files in `docs/tasks/` (T-016b does not yet), and Phases 3 and 5 have one each (T-309, T-214). The architect writes later phases' task files at the start of each phase.
-
-**Releases:** v0.1 = Phases 0–3 · v0.2 = Phases 4–5 · v0.3 = Phase 6.
+Iterative. Demo first, then harden one layer per phase. Each phase ends with evidence, a plan update and ADRs closed or deferred. This public plan covers the current build and its record: the phases below, whose tasks have files in `docs/tasks/`. Later phases are planned privately (Future work, below).
 
 ## Phase 0: Setup and research
 
@@ -61,173 +59,112 @@ Scope after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-inte
 
 Goal: the same scenario fixtures pass against an EVM contract on a local chain. Differential testing against SimChain.
 
+Focus (Rafa, 2026-11-06; D53, narrowed the same day by D54 after his walkthrough of Phase 2): finish stable EVM operations, which are round 1 (T-216), the join-on-chain-delivery fix, operator-sent timeouts, the read-after-write audit (T-232) and T-206's sign-off, done the same day (PR 227). Under D53, six open rows moved to later phases: T-207 to Phase 8, T-034 to Phase 9, T-036 to Phase 10, T-224 to Phase 5, T-016b to Phase 3 and T-033 to Phase 6. Under D54, three more moved: T-212 to Phase 11, T-221 to Phase 4 and the scenario 11 redesign to Phase 3 (T-310). Later on 2026-11-06 Rafa added two rows for the operators' deploys, T-233 and T-234 ("Yes, do both"): the Worker's start-up time, and a deploy check that rolls back on its own. Neither is among D54's seven exit criteria below.
+
 - [x] T-201 (PR 64; option A kept) Hands-on spike, on local anvil: can a rules contract act as operator of `AuthCaptureEscrow` (D3-A)? If not, design an ERC-8183 extension (D3-B). Must confirm the ADR-0003 conditions: capture timing per mode, expiry margin, fee-only capture on the refund path with `maxFeeBps = 10000`, idempotency in the rules contract; compare deployed bytecode with the v1.1.0 tag; read the audits.
 - [x] T-202 (PR 68) Escrow rules contract, Foundry: offer/agree hashes, funding via ERC-3009/Permit2, deliver, decide with adjudicator signature, permissionless triggers, key release events, bonds.
 - [x] T-203 (PR 70) Invariant and fuzz tests: conservation, settle-once, no admin selectors.
 - [x] T-204 (PR 66) Formal model of the commitment state machine (TLA+ or Quint): liveness under any single actor halting; safety of fund movement.
 - [x] T-205 (PR 69) `Settlement` EVM implementation; `pnpm snap --settlement=local` green; differential report.
-- [ ] T-206 (in review: `docs/reviews/2026-11-03-contract-review.md`, fixes in PRs 120, 122, 125, 127 and 135; the cross-family pass by DeepSeek is done (§8); deployed on Sepolia in PR 150; Rafa's read is open) Contract review: checklist plus a cross-family review; human gate.
-- [ ] T-207 (paused; stage 2a merged in PR 67; the adjudicator slice is next, not started) Private deals, to make "private escrow" true end to end (Rafa, 2026-11-01). Today only the work is private: it is encrypted, and only the adjudicators and the paid buyer can open it. Terms, amounts, addresses and events are public reads. Build: read authentication (`ReadToken`) so only the parties and their adjudicators read a deal; private judgment records; disclosure levels enforced, not just recorded; commitment metadata private on unauthenticated reads (residual 9); amount privacy weighed with the D4 chain choice (confidential tokens or a privacy chain). Sources: ADR-0020, D13, D16, backlog Privacy. Needs an ADR and a schema version bump. Done when a third party reading any operator learns nothing about a deal beyond what its disclosure level allows, shown by a fixture. The later slices, including the end-to-end encrypted API, are in Phase 8.
-- [ ] T-016b Testkit follow-ups from Phase 1: T-010's open rows (appeal, early accept, mutual settle, dispute and revoke steps; a second commitment per scenario; refusal overrides; offline operators), live recording against `config/judges-live.yaml` (`--judges live --record`, keys via `--env-file`), snapshot rendering items, and transcripts as snapshots (T-013 Handoff).
+- [x] T-206 (done 2026-11-06: `docs/reviews/2026-11-03-contract-review.md`, fixes in PRs 120, 122, 125, 127 and 135; the cross-family pass by DeepSeek is done (§8); deployed on Sepolia in PR 150; Rafa read it through the brief and confirmed its three items, PR 227) Contract review: checklist plus a cross-family review; human gate.
 - [x] T-030 (PR 85) API agent-readiness batch (D39; `docs/reviews/2026-11-02-api-agent-review.md`): an agent with only HTTP, an EIP-712 signer and `llms.txt` completes a deal first try; simplify discovery, errors, nonces, timestamps, notices; planned routes answer 501; disclosure chosen explicitly; budget charged after the signature verifies.
 - [x] T-031 Minimal telemetry for the MVP (D39): aggregate metrics and a 7-day request log, nothing beyond ADR-0024 §1; a quota alert. After T-030.
 - [x] T-032 Feedback and issue reports, first slice (D39): `POST /v1/feedback`, `GET /v1/feedback/{id}`, a private store and a triage routine. After T-030.
-- [ ] T-033 Schema v0.9 (ADR-0025, D38, D39): CPP funding schemes and token addresses, `allowedTokens` optional, `chainId` a number, `not_implemented`, the fee on receipts, the MIME allowlist moved to adjudicator capability.
-- [ ] T-034 Faster CI and local verify (`docs/reviews/2026-11-02-dev-velocity.md`): cache the contracts build, job-level path filters with `check` and `gitleaks` still reporting, TLC only when the model changes, `pnpm verify --affected`, done derived from merges.
 - [x] T-035 (PR 158) Fix the anvil gas-per-deal receipt stall at its root; sane test timeouts. The anvil world polls receipts with a deadline instead of viem's block-watching wait; the checkout slowdown is PR 159.
-- [ ] T-036 Coordinator commands: `/merge-pr`, `/start-task`, `/deploy-demo`, `/deploy-site`, `/review-pr`, `/record-decision`, `/daily-log`, a session brief and two hooks.
 - [x] T-037 (PR 114) One-approval test deal: the homepage prompt in a vanilla Claude Code asks for one approval, then a deal runs end to end. `examples/try.ts` plays both sides against the live demo with the HTTP-only agent; `site/build.mjs` bundles it to `https://escrow.stream/try.mjs`; one pinned, sha256-checked command heads `llms.txt` "Try it" and shows on the homepage.
 - [x] T-038 Public docs cleanup: README leads with Crow, Apache-2.0 license, statuses and fixture indexes match the repo, no personal details (PR 110).
 - [x] T-057 (PR 136) Demo adjudicator alarm only while a case awaits an adjudicator: no alarm for reads, cold starts or faucet grants; a slower cadence for a case no pass can finish; a fallback takeover armed at judgeBy (T-031's two backlog rows).
 - [x] T-209 (PR 77) Beacon verification in `HoldbackRules` (BLS check of the drand value for fallback and appeal panel seeds, ADR-0018), split out of T-202. ADR-0025's schema follow-up (EVM funding signature and token identifiers) moved to T-033.
 - [x] T-210 (PR 173) Mirror T-206's appeal fixes in core and SimChain (H-1, H-2; M-3 recorded until Phase 4): bind every decision's attempt (H-1), and refuse an appeal key on a refunded deal (H-2).
 - [x] T-211 (PR 175) The reference adjudicator never seals the key for a refunded buyer (T-206 H-2), and declines fallback and appeal tasks outside its policy (T-206 M-3).
-- [ ] T-212 (paused; items 3, 7 and 9 merged; the rest go out with the next contract redeploy) Contract hardening from T-206's findings, before mainnet: bond vault deltas, the seed tag bound to the commitment, expiry from every deadline, the appeal adjudicator's coverage, the early-accept and decision delivery binding, the appeal slot (L-7) and a past `judgeBy` at funding (L-8). The overturn payout from the bond (I-8) moved in from Phase 4 and landed with L-7 (D43).
-- [ ] T-213 (in progress) The public demo settles on Sepolia (D41, ADR-0028): the EVM adapter on a live testnet with relayer lanes, a `SETTLEMENT` flag per Worker, the world's storage without replay, the adjudicators' bonds on chain, ERC-3009 funding in prepare and `examples/verify.ts`; then the cutover after T-206 deploys.
-- [ ] T-216 (in progress: the round's keys and the driver, `examples/e2e-round.ts`, landed; Rafa runs scenarios 1 and 2 live; the report is `docs/reviews/2026-11-04-evm-e2e-round-1.md`) Full EVM end-to-end test round 1 on Sepolia (Rafa's milestone, 2026-11-04; it brings back the benched PR 151 and T-206's read). Eleven scenarios on the fixed contracts, through the public API and by direct contract calls, each with Etherscan links: release, refund on reject, timeouts and the default outcome, fallback with a drand proof, escalation, appeals upheld and overturned through the API (the overturn paid from the first decider's bond, D43), the escape hatch, early accept, mutual settlement, and a restart mid-step. Scenarios 1, 2, 3a, 3d and the first half of 10 need no prerequisite; the rest wait for T-217 to T-221, live through T-220. Rafa answered all six scope questions (D46).
+- [x] T-213 (done: the demo settles on Sepolia since 2026-11-03, about 16:32 UTC) The public demo settles on Sepolia (D41, ADR-0028): the EVM adapter on a live testnet with relayer lanes, a `SETTLEMENT` flag per Worker, the world's storage without replay, the adjudicators' bonds on chain, ERC-3009 funding in prepare and `examples/verify.ts`; then the cutover after T-206 deploys.
+- [x] T-216 (done 2026-11-07, under D55: Rafa accepted the passes across three operator builds, "Accept passes as is". 15 of 16 scenarios passed live on Sepolia, the last scenario 8 at 15:35 UTC with the join fix, 25 of 25 checks; 11 counts by its coverage (D54). The finality re-read at 21:05 UTC found all 153 recorded deal transactions of the 8 runs in their recorded blocks. The report, `docs/reviews/2026-11-04-evm-e2e-round-1.md`, shows every run, PR 241) Full EVM end-to-end test round 1 on Sepolia (Rafa's milestone, 2026-11-04; it brings back the benched PR 151 and T-206's read). Eleven scenarios on the fixed contracts, through the public API and by direct contract calls, each with Etherscan links: release, refund on reject, timeouts and the default outcome, fallback with a drand proof, escalation, appeals upheld and overturned through the API (the overturn paid from the first decider's bond, D43), the escape hatch, early accept, mutual settlement, and a restart mid-step. Scenarios 1, 2, 3a, 3d and the first half of 10 need no prerequisite; the rest wait for T-217 to T-221, live through T-220. Rafa answered all six scope questions (D46).
 - [x] T-217 drand quicknet proofs for fallback and appeal decisions on Sepolia (ADR-0028 §11): the adjudicator's `drand-quicknet` source with a local BLS check and no substitute, rounds per source in core, and the parse rule for chain settlement. Done in PR 186; live with T-220; its security findings are T-225 (Phase 11).
 - [x] T-218 Direct contract calls in the operators' view (ADR-0028 §11): the world syncs HoldbackRules' logs from a stored cursor, so a step no operator relayed shows as `submittedVia: 'direct'`.
 - [x] T-219 (merged in PR 195; live with T-220's deploy) An in-flight row per relayer lane, written before the broadcast, so a restart between broadcast and receipt applies the node's own transaction (seen at the T-213 cutover). After T-218.
 - [x] T-226 (merged in PR 200; live with T-220's deploy) A relayed call's checks read at its receipt's block: an RPC node a block behind can no longer drop the call's events, the fix for round 1's lost delivery (T-216, Medium)
-- [ ] T-221 (review: slice 1, the ADR, schema 0.10, core and the operator routes, merged in PR 184; slice 2, the fallback trust rule, the demo's registration store and the anvil end to end, in review in draft PR 202, after T-219) Adjudicator registration through the API (D46, ADR-0030): a self-signed `AdjudicatorRegistration` at `POST /v1/adjudicators`, served with its signature and the bond read from chain, so any agent can bring its own adjudicator; the reference adjudicator's trust rule extends to the fallback role. Crow's three stay the defaults, and naming others is advanced use. Registrations are never removed and show when each was last used; an unbonded one is labelled and warned about, and a selection the terms cannot pay from a bond is refused (the contract half with the next redeploy). Round 1 uses it for overturned appeals and silent adjudicators. Schema 0.10, additive.
-- [ ] T-224 (parked, 2026-11-05) Appeal bonds by a relayed permit (D48): `prepare/appeal` returns an EIP-2612 `Permit` slot under the token's domain, and the operator relays `permit` and `fileAppeal` in one Multicall3 call. A visitor's agent then appeals with no Sepolia ETH of its own. No contract change; the same path on USDC. Round 1's scenarios 6 and 7 use it.
 - [x] T-220 (done: PR 204 merged and deployed on 2026-11-05 at 11:04 UTC, holdback-op1 `1d8a029c`, holdback-op2 `a042aae3`, crow-site `704bd295`) Ship round 1's prerequisites to the live demo: one deploy of T-217 to T-219 and T-221, in which the Sepolia world's rulebook changes in place to name drand (D49: one long-lived world), on Rafa's go-ahead. The fixed contracts (PRs 160 and 161) are already live: the T-206 session redeployed them and cut the demo over on 2026-11-04, with Rafa's go-ahead.
+- [x] T-229 (done: PR 209 merged and deployed on 2026-11-05 at 15:58 UTC, crow-site `4f049eb5`) One approval from the homepage prompt, the first step of One-Click Escrow (D51): the copy button copies a prompt that carries the one command, and `llms.txt` "Try it" stops inviting a fetch of `try.mjs` first. Measured before: 4 approvals per deal, Released in about 93 s. Measured after: 1 approval per deal in both permission modes, Released in 79 s and 106 s. The seller-first path, a standing test buyer (T-222's second slice), is the next gap.
+- [x] T-231 (done: merged in PR 230, 2026-11-06; Rafa approved it: "Spin it up"; deployed 2026-11-06 on Rafa's go-ahead, "Yes, deploy T-231": holdback-op1 `066f1b18` and holdback-op2 `21cbbc0b` from 19:01 UTC, crow-site `f9806d3c` from 19:08 UTC; deploy record PR 234) The operators send due timeouts on their own, so every deal on the Sepolia demo reaches its end with no one coming back: the reclaim, the default (with the takeover it needs once a silent fallback's `fallbackBy` passes), the appeal expiry and an accepted offer's expiry, at the relayer's gas, through the trigger route's relay path, a deal behind the chain included. The contract checks each at a pinned block first; a cap per pass, a daily budget and a back-off per deal guard the gas; a party's trigger after the operators' answers the state it left. T-228's leftover. Task file `docs/tasks/T-231-operator-timeouts.md`.
+- [x] T-230 (done: merged in PR 232, 2026-11-06; Rafa approved it: "Spin it up"; deployed 2026-11-06 on Rafa's go-ahead: holdback-op1 `8bcda43c`, holdback-op2 `7e4d3fa5`, crow-site `16038434`) The join-on-chain-delivery fix: the operators join a delivery that is already on chain. Round 1's scenario 8 on Sepolia: the seller delivered directly and posted the same signed delivery before the operators' pass had read it; the operator's RPC node trailed the chain, its relay reverted, and the copy was dropped, so the deal sat `Delivered` with no envelopes for the adjudicators. The fix reads `deliveryHashOf` before relaying and again at a reverted relay's block, joins a match with no relay, and keeps a signed match it cannot join yet for the next pass. No contract or schema change. Scenario 8 passed on its rerun on 2026-11-06 at 15:35 UTC, 25 of 25 checks (run `2026-11-06T152621Z`).
+- [x] T-232 (done: merged in PR 239, 2026-11-07, after one red-team pass and one review; its fixes go live with the next operator deploy; Rafa, 2026-11-06: "Yes, queue it"; D54) Read-after-write audit: find every chain read right after a write that a lagging publicnode server could answer, across the operators, the adjudicator, the faucet, the test seller, `try.mjs` and the examples, and pin or retry each one, with a lint or test check if one is feasible. The stale read has come back five times: T-226's lost delivery, round 1's 3d and 10a, 3b's bond deposit, T-228's stale receipt read and scenario 8's race. Task file `docs/tasks/T-232-read-after-write-audit.md`.
+- [x] T-233 (done: merged in PR 240, 2026-11-07; the validators are precompiled, so a Worker's start-up code fell from 293 ms to 21 ms in a local profile [measured]; it goes live with the next operator deploy; Rafa, 2026-11-06: "Yes, do both") Cut the operators' Worker start-up time before the next operator deploy. Cloudflare refused T-231's first upload of holdback-op1 at about 18:55 UTC with "Script startup exceeded CPU time limit" (code 10021), and a retry of the same build passed. Start-up went from 394 ms and 397 ms at T-230's deploy to 575 ms (holdback-op1) and 780 ms (holdback-op2) at T-231's (`docs/operations.md`, T-231), against a 1 s limit (the coordinating session's figure; no record in the repository states it). The same refusal happened on 2026-11-03 (the backlog, the start-up CPU row). The likely cost is schema compilation at start-up [inferred]; T-231's Handoff suggests Ajv's standalone code, then a measurement. No task file on main yet.
+- [x] T-234 (done: merged in PR 243, 2026-11-07; `pnpm demo-cloud:deploy` deploys both operators, runs one test deal and rolls back on failure; its first real run is the next operator deploy; Rafa, 2026-11-06: "Yes, do both") A scripted deploy check that rolls back on its own. Today each operator deploy session runs its checks by hand and reads the switch to the new build from `wrangler tail`, since `/v1/status` carries no build marker (`docs/operations.md`, the T-228, T-230 and T-231 records). No task file on main yet.
+- [x] T-239 (done: PRs 309, 311 and 313, 2026-11-11; 313 holds the review fixes; live since the test-agents deploy of 15:16 UTC, fixes from 15:45 UTC) Crow's standing test buyer on the Sepolia test environment: an outside seller offers to it, and it checks the terms against its published rules, then refuses or funds with test tUSDC, follows the deal to its end and reclaims the hold itself when the seller misses `deliverBy`. Task file `docs/tasks/T-239-standing-test-buyer.md`.
+- [x] T-314 (done: PR 274, 2026-11-11; live with the operator deploy of 07:54 UTC) The faucet funds a test deal at any stated price, up to a published cap.
+- [x] T-315 (done: PR 276, 2026-11-11; live with the operator deploy of 07:54 UTC) The ciphertext size cap is published in discovery, and the docs and the nodes agree on it.
+- [x] T-316 (done: PR 278, 2026-11-11) A check runner a seller runs on its own delivery before it delivers.
+- [x] T-317 (done: PR 273, 2026-11-11) A deal template for a security-audit report.
+- [x] T-318 (done: PR 284, 2026-11-11) A reference seller adapter for a service that prices by quote.
+- [x] T-319 (done: PR 281, 2026-11-11) A buyer signer a seller ships inside its own client, so a buyer's agent pays with no code of its own.
+- [x] T-320 (done: PR 287, 2026-11-11) The audit-report template fits reports as auditors publish them.
+- [x] T-321 (done: PR 290, 2026-11-11; the live run on Sepolia ended Released in 57.4 s [measured]) One audit-shaped deal runs end to end through the seller adapter and the buyer signer.
+- [x] T-322 (done: PR 299, 2026-11-11) The seven T-206 defense tests become regression tests in `contracts/test/unit/Withstood.t.sol`.
+- [x] T-323 (done: PR 304, 2026-11-11; live in `llms.txt` from 15:04 UTC) A report converter in the seller adapter: a mapping file converts a seller's own report to the template.
+- [x] T-324 (done: PR 305, 2026-11-11) The seller adapter runs as a service: quote auth, a rate limit, an HTTPS recipe and restarts.
+- [x] T-325 (done: PRs 307 and 314, 2026-11-11; 314 holds the review fixes) The buyer signer reports the outcome and reclaims a hold after a missed deadline.
+- [x] T-326 (done: PR 308, 2026-11-11) The local audit deal takes a seller's own report and terms.
+- [x] T-327 (done: PRs 306 and 312, 2026-11-11; 312 holds the review fixes; live from the operator deploy of 15:54 UTC, with no live deal yet on the reference path) The adjudicator loads reference files by their committed hash, so a required reference check can pass.
+- [x] T-328 (done: PR 310, 2026-11-11; record `docs/reviews/2026-11-11-outsider-design-tests.md`) Outsider design tests, buyer-started: four runs of a fresh agent that has only `llms.txt`, against the live operators and the test seller.
+- [x] T-329 (done: PR 317, 2026-11-11; live in `llms.txt` from the site deploy of 20:18 UTC) A refused check run alerts the seller, and the seller adapter delivers the fixed report.
+- [x] T-330 (done: PR 316, 2026-11-11; live in `llms.txt` from the site deploy of 20:18 UTC) Terms set per quote, and the buyer signer shows how they differ from the seller's defaults.
+- [x] T-331 (done: PR 319, 2026-11-11) The seller adapter starts from one configuration file.
+- [x] T-332 (done: PR 320, 2026-11-11) The buyer signer shows and checks every field the buyer signs.
+- [x] T-333 (done: PR 321, 2026-11-11) The deal record: one verified file per finished deal.
+- [ ] T-334 (merged to `contracts-audit-ready`: PR 326, 2026-11-11; waits for the freeze) The contracts' clean-up before the audit, package C2. Its task file is on that branch.
+- [x] T-335 (done: PR 328, 2026-11-11) The adversarial pass's attack tests ported, and the untested contract paths filled.
+- [x] T-336 (done: PR 325, 2026-11-11) An invariant counts the handler's deliveries and catches a lost delivery hash.
+- [x] T-337 (done: PR 331, 2026-11-11) The formal model's gaps: the buyer's reclaim on the escrow, bond coverage, and a map from the model to the contract.
+- [x] T-338 (done: PR 324, 2026-11-11) The audit docs: the invariants list, the events inventory, and the sources' disagreements settled.
+- [x] T-339 (done: PRs 323 and 338, 2026-11-11) Slither and Aderyn at HEAD, triaged, and the planted-failure check of CI.
+- [x] T-340 (done: PR 330, 2026-11-11) The contract state model, the signed-field register and the threat model (`docs/audit/`).
+- [x] T-341 (done: PR 333, 2026-11-11) The side-by-side harness and the state oracle, contract refinement package R3.
+- [x] T-342 (done: PRs 329, 337 and 339, 2026-11-11; D57, D58) The scope decision record for the phase-one contracts (ADR-0031).
+- [x] T-343 (done: PR 334, 2026-11-11) The drand verifier, read against its specifications.
+- T-344 A task in the maintainers' private repository, with no file here.
+- [x] T-345 (done: PR 340, 2026-11-11) A zero-price deal through every outcome, as contract tests.
+- [ ] T-346 (merged to `contracts-audit-ready`: PRs 343, 352 and 357, 2026-11-11; waits for the freeze) The phase-one contracts have no party appeals and no bonds. Its task file is on that branch.
+- [x] T-347 (done: PR 346, 2026-11-11; live from the operator deploy of 2026-11-12 05:01 UTC) An unreadable delivery never stalls the adjudicator's other deals.
+- [x] T-348 (done: PR 345, 2026-11-11; D59, ADR-0032) The decision record for the beacon rounds of escalation and fallback.
+- [ ] T-349 (merged to `contracts-audit-ready` through PR 361, 2026-11-11, into T-346's branch, which PR 352 merged; waits for the freeze) The EVM settlement path has no party appeals and no bonds. Its task file is on that branch.
+- [x] T-350 (done: PRs 353 and 362, 2026-11-11 and 2026-11-12; D60, D62, ADR-0033) The decision record for the seller's payout address and the buyer's payment address.
+- [x] T-351 (done: PR 359, 2026-11-11; D61, ADR-0034) The settlement chain for the mainnet test, and its gate.
+- [ ] T-352 (in progress: PRs 358 and 365 merged on 2026-11-11 and 2026-11-12; the mutation run is paused) Coverage and mutation tooling for the contracts, with first results.
+- [x] T-353 (done: PR 348, 2026-11-11) The drand verifier, a second read by another model family.
+- [ ] T-354 (merged to `contracts-audit-ready`: PR 351, 2026-11-11; waits for the freeze) A test lists which files still use a feature phase one cuts. Its task file is on that branch.
+- [x] T-355 (done: PR 363, 2026-11-12) The audit deal rehearses the pilot's cases end to end (`pnpm audit-deal --case`).
+- [ ] T-356 (merged to `contracts-audit-ready`: PRs 366, 368, 370, 371 and 372, 2026-11-12; waits for the freeze) Five smaller cuts to the phase-one contracts. Its task file is on that branch.
+- [ ] T-357 (merged to `contracts-audit-ready`: PR 367, 2026-11-12; waits for the freeze) A mutual settlement can settle late work and release its key. Its task file is on that branch.
+- [ ] T-358 (in progress on `contracts-audit-ready`; waits for the freeze) The two address fields in the phase-one contracts (ADR-0033).
+- [x] T-359 (done: PR 373, 2026-11-12; live from the site deploy of 05:14 UTC) The seller's page, `https://crow.direct/sell.txt`, linked from `llms.txt`.
+- T-360 A task in the maintainers' private repository, with no file here.
+- [x] T-361 (done: PR 376, 2026-11-12) Rubric readiness: the screen on an audit report that quotes exploit code, and `check-delivery` warns when the judges read a sample.
+- [ ] T-363 (merged to `contracts-audit-ready`: PR 379, 2026-11-12; waits for the freeze) The phase-one cutover checklist, first pass. Its task file is on that branch.
+- [x] T-362 (done: PR 374, 2026-11-12; its `CLAUDE.md` change became T-364's PR 375) The docs batch: the doc follow-ups from T-329 to T-361 that describe `main`. Task file `docs/tasks/T-362-docs-batch.md`.
+- [x] T-364 (done: PRs 380 and 375, 2026-11-12) No running numbers in the standing docs: the rule in `docs/writing.md`, the sweep and a check. Task file `docs/tasks/T-364-no-running-numbers.md`.
 - D4 decided: the target is Ethereum mainnet (2026-11-01), built and tested on a local chain, then on Sepolia, the public testnet the demo settles on since D41 (2026-11-03). Mainnet deployment is a separate gate for Rafa after an audit. Record gas per deal in the evidence.
 
-## Phase 3: Judgment hardening
-
-Goal: judgment metrics measured against the PRD targets. Defenses complete.
-
-- T-301 Calibration and red-team fixture generators (about 40 plus 20 cases) and the `pnpm calibrate` harness and report.
-- T-302 Reader extraction with a typed feature schema.
-- T-303 Classifier screen and the normalization pipeline (Unicode tags, zero-width characters, encodings).
-- T-304 Sealed checks: commit at agreement, reveal at judging, weight cap.
-- T-305 Registry promotion workflow and registry log; regression on model-ID change.
-- T-306 Fee quotes from measured error rates; quote endpoint.
-- [x] T-307 Live demo mode (`pnpm demo --live`) with two or three model families. Done by T-028 (PR 62): two families, Anthropic and DeepSeek.
-- T-308 (later; research pass and ADR-0027, Proposed, 2026-11-03; Rafa, 2026-11-03) The adjudicator reports its whole judgment end to end (each check, each judge's full reasoning, the aggregation) with provable inference (zkSNARK proofs bound to a commitment to each judge's weights, as in Anthropic's FlashProve) that the pinned models produced it, and auto-tunes its judgment parameters from measured outcomes in a continuous loop, shipping each change only as a new registry version or policy bound in new commitments. Detail and limits in `docs/backlog.md` under "Judgment defenses".
-- T-309 (later, with T-308; research; Rafa, 2026-11-03) Evaluate Airbender, an open-source RISC-V zkVM with a GPU prover, as the proving backend for ADR-0027. Can it prove judge-model inference at a cost that compares with FlashProve's? Does it fit the deterministic stages first: the checks, the screen's heuristics and aggregation? The task also covers on-chain verification on a local chain, pinning, the prover fixtures, and licence and maturity. Task file `docs/tasks/T-309-airbender-proving.md`.
-
-## Phase 4: Adjudicator economics on the settlement layer
-
-Goal: bonds, coverage, appeals, fallback and default outcomes run on the contract, with demo beat 8.
-
-- Adjudicator registry with bonds and the coverage-ratio gate.
-- `settle_after_window` with its own key-release design (ADR-0012) and resubmission.
-- Appeal bonds (a minimum from the rulebook) and the appeal fee. Overturn payouts in guaranteed mode landed early, in T-212 (D43).
-- Default outcome with seller compensation from bonds (D5).
-- Adjudicator independence checks (affiliation declared at registration).
-
-## Phase 5: Ramps, testnet, more operators
-
-Goal: fiat enters and leaves through ramps; the demo runs on a public testnet with two independent operator nodes.
-
-- Stablecoin direct funding (test token).
-- [ ] **Next:** T-214 USD to USDC on-ramp in test mode (D42): the first wave's one funding path, a Stripe crypto on-ramp or Coinbase Onramp sandbox behind the funding service (ADR-0026), test keys from the environment only.
-- Stripe test-mode on-ramp: a card payment mints test tokens to the buyer (D7). A simulated off-ramp.
-- Testnet deployment (D4) and gas sponsorship or paymaster for agents.
-- [ ] T-215 Gas share on small deals. *2026-11-04, on the 0.7 contracts (T-212's redeploy, measured from receipts):* a deal's three transactions take 1,636,242 gas (fund 938,593, deliver 173,119, decide 524,530), 4.9% more than below, for the delivery-hash slot; the 4.70 tUSDC quote was left as it is (it would round to 4.91 at the same fictional rate) for this task to replace. Measured on Sepolia (T-213, 2026-11-03, `eth_simulateV1` on the deployed contracts): a deal's three transactions take about 1.56 million gas (anvil had about 500k; Sepolia prices new state about 3.5 times higher), so the demo's minimum fee is 4.71 tUSDC (a 4.70 gas quote at the measured 1 gwei tip and a fictional 3,000 tUSDC/ETH, plus 0.01 relay), about 19% of a 25 tUSDC deal (D33, ADR-0023). Before mainnet: quote gas from live gas and token prices; credit or refund the unused part of the quote (an ADR-0023 amendment and a schema bump); set a published target share for small deals (proposed: under 1% at $25; Rafa decides); take the cheapest wins (the decision carrying the delivery by default, with the seller still free to post `deliver` (D37); relayer batching) and weigh Phase 7's "Minimise gas" and Phase 8's L2 or fragment options.
-- [x] T-222 (deployed 2026-11-04) Crow's standing test seller on the Sepolia test environment (D47): its own Worker at `escrow.stream/agents/test-seller`, a party that uses the public API like any agent, sells `try.mjs`'s dataset from one standing address, and refunds on request; `node try.mjs --seller <url>` plays only the buyer. The test buyer follows (backlog).
-- [x] T-223 (merged in PR 191; live with the next operator deploy) The demo faucet renews an address's mandate: every grant signs a fresh 30-day mandate in place of the old one, so the standing test seller keeps offering past its first 30 days (D47).
-- Operator node packaging (container), so a second party can run op-2.
-- Neutrality beat 7 on testnet.
-
-## Phase 6: Interop and native compute
-
-**Assets (parked, Rafa, 2026-11-03: "park it for later in a roadmap module about assets").** After the USDC-only first wave (D42):
-
-- Other ERC-20 tokens, ETH and WETH, and dynamically extending which assets an escrow can hold (ADR-0026, D38).
-- Token-issuer controls (for example a USDC freeze or blacklist of a party or fee receiver) and their effect on payouts and refunds; parked, because parties choose the token in their signed terms (D28, D32) (Rafa, 2026-11-03).
-
-- Later, on demand only (Rafa, 2026-11-02; D39): an SDK or an MCP server. Agents integrate from the HTTP API and `llms.txt`.
-- A2A extension carrying the commitment object and receipts.
-- Live demo agents on the Claude Agent SDK.
-- Metered sessions for divisible work.
-- Compute-native route R1 (work-for-work) if T-003 recommends it.
-- Club rulebook templates (procurement framework style).
-
-## Phase 7: Far-future exploration
-
-Goal: not scheduled (Rafa, 2026-11-02); each item needs a research pass and an ADR before any build. Details in `docs/backlog.md` under "Far future".
-
-- Tax liability for agents and their owners: what a deal creates (income, sales tax, withholding, reporting), who bears it, and what the signed record and receipts must carry to help owners file. The protocol stays rails (D35): it supplies evidence, not tax decisions.
-- Minimise gas per deal, toward near-zero until settlement.
-- Single-block wallet generation and atomic onboarding: funds are either with the agent in fiat or, almost at once, in the credibly neutral holding contract, with no in-between custody.
-
-## Phase 8: Privacy end to end
-
-Goal: a deal that chooses privacy keeps it from funding to payout, so operators, outsiders and chain readers learn no more than its parties choose to disclose (D35, D40; Rafa, 2026-11-03).
-
-Appended after Phase 7 so no phase number or release moves. The number orders the list, not the start: each item starts once what it builds on exists (T-207's private deals in Phase 2 first), and the research items need a pass and an ADR before any build.
-
-- Private deals after T-207's adjudicator slice (ADR-0024 §5–6; rows under Privacy in `docs/backlog.md`): fallback and appeal adjudicators get body envelopes time-locked to `judgeBy` and `appealBy` (with tlock, ADR-0018), and adjudicator keys are served by operators, anchored on chain and rotatable (`EncryptedKey.keyId`, which moves the EIP-712 domain).
-- The end-to-end encrypted API, from T-207 (Rafa, 2026-11-01): the operator cannot read the deal either, as far as possible. Stage 2a (PR 67) already seals the terms bodies, so operators store and relay ciphertext and hashes, and adds a client-side prepare recipe. Left: shrinking the relay metadata an operator still sees (client IP and timing, who reads which deal, ciphertext sizes; `docs/reviews/2026-11-02-api-agent-review.md`).
-- Private inference for judges (D35): an adjudicator may run its pinned judges through a provider that keeps no prompts or outputs (`providerPrivacy: zdr` with a named provider, such as Venice; ADR-0024), with two providers or one `local` seat per panel. The mandatory rules hold: pinned model IDs, at least two families, no tools, the verdict schema. Backlog row under "Judgment defenses".
-- Unlinkable funding and private amounts (residual 11, `docs/neutrality.md`): a per-deal key funded from a known treasury is linked to it on chain, unless the funds come from a shielded pool or a fresh on-ramp account. That stays the agent's choice, never a protocol dependency (ADR-0024); the work is guidance for agents that want it and a check that such a deal settles unchanged. Amounts are public on chain in Phase 2 (D34); hiding them is one of D40's privacy-capable pieces (D16).
-- Prividium fragment per escrow (T-208), parked (Rafa, 2026-11-03): a single-use Prividium fragment per escrow, with the assets kept in the L1 escrow. The research pass (PRs 79, 81, 82) found that the fragment's operator reads every deal and can halt it, and that one chain per escrow is not a supported shape, so it does not meet D4's 2026-10-31 bar. Findings, the optional probe and the questions for Matter Labs: `docs/research/prividium-fragment.md`. No task file.
-- An agent-to-agent L2 fragment per escrow, verified with zero-knowledge proofs: independently checkable, almost no gas until the settlement proof is submitted. It keeps T-208's idea without the vendor, since any party may prove. Moved from Phase 7; needs a research pass and an ADR. Details in `docs/backlog.md` under "Far future".
-
-## Phase 9: Infrastructure management
-
-Goal: Rafa sees what building and running Crow costs across every provider, every account that can spend has a cap or an alert, and a runaway is caught within a day.
-
-Appended after Phase 8, like it, so no phase number moves (Rafa, 2026-11-03). It needs nothing from Phases 3 to 8 or from the agent-ops phase: T-051 can start today. The inventory of cost sources and the monitoring design are in `docs/costs.md`. Billing figures stay out of the repository: reports, budgets and the account register live in a git-ignored cost directory, and billing credentials stay outside agent sessions, on a machine Rafa controls. Tasks are listed in dependency order; each is one PR.
-
-- T-051 Cost guards on every account: Rafa's checklist of spend limits, budgets and alerts, in order and with links, and a private account register (infra; human gate).
-- T-052 The read-only cost collector: one source module per billing or usage API, plus the local Claude Code transcripts, T-031's day lines (exported once, for T-042 too) and the Sepolia balances, writing a dated file in the cost directory (infra; human gate for the read-only credentials).
-- T-053 The monthly cost report and unit costs: each provider against its budget, cost per demo deal, per merged PR and per task (infra).
-- T-054 Anomaly rules and the CPU guard: a runaway agent, a spend spike, a cap or quota near, the relayer's funding lane running dry, paid usage that should be zero, a renewal or token expiry due; CPU limits per Worker from measured use (infra; human gate to deploy the limits).
-- T-055 The daily routine, run from a dedicated clone on a machine Rafa controls with code he approved, and the channel that tells him when a rule fires or a run fails; its `cost-signals.json` holds rule names and no figure, for the agent-ops phase's telemetry lane (T-042) (infra; human gate).
-- T-056 A budget for the planned costs: Stripe's live fees, the trademark, the external audit, mainnet gas and judges at volume (research; human gate for quotes).
-- T-058 (later: after a working mainnet prototype; Rafa, 2026-11-03) Move `holdback` and the founders' private repository into a GitHub organization: Rafa creates a free organization with 2FA required and no default access; agents first replace the gitleaks action, which needs a license on organizations, then on his go-ahead transfer the repositories, check that protections, security settings and CI survived, set teams and roles (triage for outside contributors), and update links and remotes (infra; human gate). Not part of this phase's exit, though the design map shows Phase 9 open until it is done.
-- T-060 (review: deployed 2026-11-04; Rafa confirms the live page) Crow Control shows the status of Crow's service dependencies (Rafa, 2026-11-04): Cloudflare, GitHub, Anthropic, DeepSeek, npm, the Sepolia RPC providers and drand. The hourly build fetches each provider's published status, and the Status box shows it mapped to the Crow components it affects. An alert names a dependency's incident as the likely cause, as when GitHub Actions skipped two hourly refreshes on 2026-11-04.
+Out of Phase 2 by D54 (Rafa's walkthrough, 2026-11-06): T-212, for the contract redeploy before mainnet; the scenario 11 redesign, as T-310; and T-221, paused until the centralized adjudicator is stable. All three moved to later phases (Future work, below). Phase 2 closes on Sepolia without a contract redeploy, because a new rules contract needs a new demo world (D49).
 
 **Exit:**
-- Every account in `docs/costs.md` that can spend has a cap or an alert, and every account has its renewal date, in the register (T-051, confirmed by Rafa).
-- A month's report exists with each provider read by API or marked as entered by hand, and unit costs per demo deal and per merged PR (measured).
-- Each anomaly rule fired on test data, and one test alert reached Rafa on his channel (measured).
+- Round 1: every scenario passes live on Sepolia, with finality clean on every run. Scenario 11 counts by its coverage (D54, item 1). *Met as worded, 2026-11-06: 15 of 16 passed live, the last scenario 8 at 15:35 UTC, and 11 counts by coverage. The finality re-read at 21:05 UTC found all 153 recorded deal transactions of the 8 runs in their recorded blocks (T-216 Evidence). Met under D55: Rafa accepted the passes across three operator builds on 2026-11-06 ("Accept passes as is"), so T-216's one-build rule needs no rerun, and T-216 is done.*
+- The join-on-chain-delivery fix is deployed, and scenario 8 passes on rerun. *Met: T-230 is live since 2026-11-06, 12:19 UTC (holdback-op1 `8bcda43c`, holdback-op2 `7e4d3fa5`), and scenario 8 passed on its rerun at 15:35 UTC, 25 of 25 checks (run `2026-11-06T152621Z`).*
+- Operator-sent timeouts are deployed. *Met: T-231 is live since 2026-11-06, 19:01 UTC (holdback-op1 `066f1b18`, holdback-op2 `21cbbc0b`; PR 234).*
+- The read-after-write audit (T-232) is done, with its fixes merged. *Met: PR 239 merged on 2026-11-07 at 06:06 UTC.*
+- T-206 is closed: Rafa's read of the brief and his three confirmations are recorded. *Met: Rafa confirmed all three in chat on 2026-11-06, and PR 227 (`edc8311`) recorded them and set T-206 to done.*
+- Gas per deal is recorded, as D4 requires. *Met: the cost notes (T-066; kept privately, `docs/private-materials.md`) record the median Released deal on Sepolia at 1,261,428 gas, over 15 and 16 deals, and prices it against the 4.71 tUSDC operator fee. At 2026-11-05's prices a new visitor's deal costs Crow about USD 18.68 in gas on Ethereum mainnet and USD 0.04 on Base, so the fee covers it on Base only. T-216 Evidence records each round-1 scenario's gas on Sepolia, and T-205's the gas per path on anvil. Left for T-216's report: the gas per path beside `reports/differential-local.md` and T-215's quote.*
+- No High or Critical finding is open in Phase 2's code. *Met, 2026-11-07: PR 242 merged at 06:07 UTC, and code scanning then listed 0 open High or Critical alerts and 1 Medium (measured). Before, on 2026-11-06: no High or Critical is open in the reviews, the Phase 2 task files, the backlog or the neutrality residuals. GitHub's code scanning lists 10 open CodeQL alerts rated High, raised on 2026-11-03 and triaged in no doc. One is in Phase 2's `apps/demo-cloud/src/world.ts`, line 692. On a read, none can run long on input an outsider controls [inferred]: 3 trim operator or client settings, 1 runs on judge output the schema caps at 600 characters, and 6 sit in tests or build scripts. Each closes once triaged and dismissed with its reason, or fixed. PR 242 (2026-11-07) fixes all 10 in code, with none left, so each closes when it merges.*
 
-## Phase 10: Agent operations
+## Future work
 
-Goal: agent teams develop Crow continuously from tickets, agent feedback, the roadmap and usage telemetry, in an isolated environment with scoped credentials, under automated checks and cross-family review.
+Planned in the founders' private repository (`docs/private-materials.md` lists what it holds); a task's file joins `docs/tasks/` here when its work starts.
 
-**Not active.** The design is in `agent-ops/` (PR 112), and `agent-ops/STATUS` reads `inactive`. No Phase 10 task starts until Rafa starts the phase. The pipeline runs only after T-050, which needs Rafa's go-ahead at each step. Appended after Phase 9, so no phase number moves. Tasks are listed in dependency order; each is one PR, except T-039's agent part, which is two.
+Started work from the later phases keeps its file here: T-052, T-059, T-060, T-066, T-207, T-212, T-221, T-222 and T-223.
 
-- T-039 Isolated development environment: Rafa's checklist and the agents' scripts (infra; human gate). The checklist covers a VM or a Claude Code cloud environment, scoped tokens, spend caps and 2FA. The VM gets the agents' own GitHub Apps: a builder identity with no Workflows permission, and a separate reviewer identity. The scripts cover setup, one Unix user per role, key custody, a smoke test and prompt-free permissions.
-- T-040 Agent-ops config loader and the model mix: `ops.yaml` validated, models pinned, rates in basis points, the GPT fallback chosen, the inert-pipeline test (infra).
-- T-041 Intake, the quarantine and triage: tickets, agent feedback and CI signals become `TriageRecord`s through a triager with no tools, then tasks through the architect (infra; human gate for the first feedback export).
-- T-042 The usage-telemetry lane: signal rules over T-052's day-line export, T-055's cost signals, and the website and onchain aggregates open records without a model (infra; human gate for Web Analytics and a social reader).
-- T-043 Feedback requests at deal milestones for agents that opt in: an ADR, a schema version bump and two signal rules (api).
-- T-044 Security gates: risk tiers with the gate-defining files in tier 3, guardrails (approval lines, ADR acceptance, Rafa's review on a raised PR), the shell guard, the proposed deny list, CODEOWNERS; none wired before activation (infra).
-- T-045 The cross-family review check `xreview`: DeepSeek reviews tier 2 and 3 diffs blind, posted as a status that holds only under three stated preconditions (infra; human gate for live runs).
-- T-046 Red-team and cross-family reviews at milestones: per-PR red team on tier 2, phase exits, ADRs, schema and judge-list changes, deploys; agreement and canary metrics (infra; human gate for live runs).
-- T-047 The kill switch and observability: fail-closed switches, stop, alarms, the PR footer, per-tick metrics, the budget stop, daily pipeline figures (infra).
-- T-048 Dispatch and lane ownership: task lint, briefs from task fields only, the stateless tick, branch claims, single writers (infra).
-- T-049 CI cost and flake control for parallel lanes: the Known flakes list with expiry, one retry, lane pause; links T-034 to T-036 (infra).
-- T-050 Activation, one reversible step at a time, each on Rafa's go-ahead (infra; human gate): review keys in an Environment, a required review by the reviewer's App, a tier 3 ruleset, tool limits, enforcement from a trusted checkout, triggers, a shadow week, one lane, then three.
-
-**Exit:**
-- `agent-ops/STATUS` reads `active` and the repository variable `AGENT_OPS` is `on`, both set by Rafa (T-050).
-- One lane merged 10 PRs without a revert, then three lanes ran with the cross-family gates (measured in the daily log).
-- No agent session can read a credential for Rafa's personal accounts (T-039 smoke test, measured).
-
-## Phase 11: Security hardening
-
-Goal: the systems that run Crow, beyond the protocol, hold up against an attacker: the founders' console, the accounts and keys behind the demo, and the paths by which code reaches them.
-
-Appended after Phase 10, so no phase number moves (Rafa, 2026-11-04: "let's move this to security hardening phase"). Contract hardening stays in Phase 2 (T-212), judgment hardening in Phase 3, and the agent-ops security gates in Phase 10 (T-044). Tasks are listed in dependency order.
-
-- T-059 The founder console on its own host behind Access (D45): finish the move from the passcode console at `escrow.stream/control` to `control.escrow.stream` behind Cloudflare Access, with the hourly and daily pushes. The code, its tests and two red-team rounds are done; Rafa's setup steps and the deploys remain (infra; human gate).
-- [ ] T-225 Harden the drand quicknet path: the security findings of T-217's review and red team (PR 186), moved here so T-217 ships the functional path first (Rafa, 2026-11-04). The fallback's round published before the primary's deadline (core and contract together, with a redeploy; human gate), the cost of a relay outage to a pass, a relay answer's size, SimChain with a drand club, and smaller checks. The tests that prove them wait in the session notes.
-- [ ] T-227 The operators' adjudicators act on a deal behind the chain: residual 13 of `docs/neutrality.md`, from T-218's review and red team (PR 185), placed here so T-220 deploys first (Rafa, 2026-11-05, D50). Anyone who resends a copied signed step through a contract that transforms its calldata leaves the operators' view behind `dealOf`, so their adjudicators skip the deal and it ends by its timeouts; it costs only gas. The fix: the adjudicators read `dealOf`'s stage, and a relay path records the receipt without the core mirror. It also closes two gaps for real use: a contract signer's step (ERC-1271) and two signed steps in one transaction. Before mainnet; red team required.
-
-**Exit:**
-- Both founders open the console at `control.escrow.stream` through Access and see Costs and Keys, and the shared passcode is retired (T-059, confirmed by Rafa).
-- A red-team pass against the deployed console finds no High or Critical finding (measured).
 
 ## Scenario index
 
-Status (2026-11-03, measured against `fixtures/scenarios/` and `pnpm snap`): **exists** is a fixture file that passes; **todo** is a `todo.` fixture that records a known gap and passes as a todo; **planned** has no file yet. The 27 fixtures on disk are 26 that exist plus 1 todo. Fixtures run on SimChain; Phase 2 also runs them on the contract (below).
+Status (`pnpm snap` runs every fixture in `fixtures/scenarios/` in CI on each pull request): **exists** is a fixture file that passes; **todo** is a `todo.` fixture that records a known gap and passes as a todo; **planned** has no file yet. Fixtures run on SimChain; Phase 2 also runs them on the contract (below).
 
 | Fixture | Beat | Phase | Status |
 | --- | --- | --- | --- |
@@ -261,6 +198,14 @@ Status (2026-11-03, measured against `fixtures/scenarios/` and `pnpm snap`): **e
 | `neutrality.club-revokes-mid-flight` | 7 | 1 | planned (needs run-time revocation; SimChain reads members from genesis) |
 | `neutrality.buyer-silent` | 7 | 1 | exists |
 | `neutrality.seller-withholds-delivery` | 2 | 1 | exists (the planned `reclaim-no-delivery`) |
+| `neutrality.store-withholds-delivery` | — | 2 (T-347) | exists |
+| `neutrality.store-withholds-reference` | — | 2 (T-327) | exists |
+| `audit-report-accepted` | — | 2 (T-317) | exists |
+| `audit-report-missing-file` | — | 2 (T-317) | exists |
+| `audit-report-reordered` | — | 2 (T-317) | exists |
+| `audit-report-rubric-accepted` | — | 2 (T-320) | exists |
+| `reference-check-accepted` | — | 2 (T-327) | exists |
+| `reference-check-rejected` | — | 2 (T-327) | exists |
 | `todo.provider-outage` | 7 | 1 | todo (becomes `neutrality.provider-outage`) |
 | `neutrality.beacon-relay-refuses` | — | 2 | exists as a named test, not a fixture (T-217): `apps/adjudicator/src/drand.test.ts` and `service.test.ts`. When one relay refuses or lies, the source asks the next; when all refuse, the service signs nothing and tries again at a later pass |
 | `todo.beacon-unavailable-whole-window` | — | records residual 10 | planned |
@@ -277,6 +222,8 @@ Status (2026-11-03, measured against `fixtures/scenarios/` and `pnpm snap`): **e
 | `error.submission-limit` | 5 | 1 | exists |
 | `error.coverage-exceeded` | 7 | 1 | exists |
 | `error.early-accept-wrong-key-envelope` | — | 1 | exists |
+| `error.appeal-decision-other-attempt` | — | 2 (T-210, PR 173: the appeal seed bound to the delivered attempt, T-206 H-1; on SimChain and the contract) | exists |
+| `error.reject-carries-buyer-key` | — | 2 (T-210, PR 173: no key for a refunded buyer, T-206 H-2; on SimChain and the contract) | exists |
 | `error.unpinned-model-refused` | 3 | 1 | planned (T-016b; covered today by registry loader tests) |
 | `error.adjudicator-affiliated` | 3 | 1 | planned (T-016b) |
 | `error.mime-not-allowed` | 2 | 1 | planned (T-016b) |

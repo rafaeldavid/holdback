@@ -66,7 +66,7 @@ describe('snapshot rendering of untrusted text', () => {
     expect(lines.every((l) => l === '' || /^(### |- |  - )/.test(l))).toBe(true);
     expect(text).not.toMatch(/(?<!\\)\]\(/);
     expect(text).not.toMatch(/https:\/\//);
-    expect(text).not.toMatch(/<script>/);
+    expect(text).not.toMatch(/(?<!\\)<script/i);
     expect(text).not.toContain('‮');
   });
 

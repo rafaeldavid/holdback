@@ -24,12 +24,54 @@ export interface VerdictOptions {
   rationaleMaxChars: number;
 }
 
+const SPACE = /\s/;
+const DEFANGED_DOT = /\[\.\]|\(\.\)|\{\.\}|\[dot\]|\(dot\)/iy;
+const WIDE_DOT = /[\u3002\uFF0E\uFF61]/;
+const isSpace = (s: string, i: number) => SPACE.test(s.charAt(i));
+/** The first index at or after i that holds no whitespace. */
+function spacesEnd(s: string, i: number): number {
+  while (isSpace(s, i)) i++;
+  return i;
+}
+/** The length of the defanged dot that starts at index i, or 0. */
+function defangedDotAt(s: string, i: number): number {
+  DEFANGED_DOT.lastIndex = i;
+  return DEFANGED_DOT.exec(s)?.[0].length ?? 0;
+}
+
+/**
+ * Refang's dot step, in one scan whose time grows with the string's length. It replaces exactly what the regex
+ * /\s*(?:\[\.\]|\(\.\)|\{\.\}|\[dot\]|\(dot\))\s*|\s+\.\s+|[\u3002\uFF0E\uFF61]/gi replaced. That regex restarted
+ * its leading \s* at every whitespace character of a run, so its time grew with the square of the run's length
+ * (CodeQL js/polynomial-redos).
+ */
+function undot(s: string): string {
+  let out = '';
+  let kept = 0; // s[kept, i) is copied as it is
+  let i = 0;
+  while (i < s.length) {
+    const j = spacesEnd(s, i); // s[i, j) is whitespace, possibly none
+    const dot = defangedDotAt(s, j);
+    // A defanged dot and the whitespace around it, or a dot with whitespace on both sides, become one dot.
+    const end = dot > 0 ? spacesEnd(s, j + dot) : j > i && s[j] === '.' && isSpace(s, j + 1) ? spacesEnd(s, j + 1) : -1;
+    if (end >= 0) {
+      out += `${s.slice(kept, i)}.`;
+      i = kept = end;
+      continue;
+    }
+    // Otherwise the whitespace stays, and an ideographic or fullwidth dot right after it becomes a dot.
+    if (WIDE_DOT.test(s.charAt(j))) {
+      out += `${s.slice(kept, j)}.`;
+      kept = j + 1;
+    }
+    i = j + 1;
+  }
+  return out + s.slice(kept);
+}
+
 /** Undo common URL defanging: [.] (.) {.} " . " ideographic and fullwidth dots, hxxp, [:]. */
 function refang(s: string): string {
-  return s
-    .replace(/\s*(?:\[\.\]|\(\.\)|\{\.\}|\[dot\]|\(dot\))\s*|\s+\.\s+|[\u3002\uFF0E\uFF61]/gi, '.')
-    .replace(/hxxp/gi, 'http')
-    .replace(/\[:\]/g, ':');
+  return undot(s).replace(/hxxp/gi, 'http').replace(/\[:\]/g, ':');
 }
 
 // Exfiltration (T15): a scheme://, mailto:, data:, javascript:, a www. host, an IPv4 address, or a

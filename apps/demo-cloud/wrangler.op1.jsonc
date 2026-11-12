@@ -11,15 +11,21 @@
 // fixed, fictional rate of 3,000 tUSDC per test ETH, rounded up. SimChain ignores it.
 // Workers Logs keeps console lines (errors, and the World's telemetry lines, T-031) but no invocation logs: those
 // record each request's headers, which carry Authorization and the caller's IP (D39).
+// Each node answers on its crow.direct and its escrow.stream hostname alike, with no redirect (T-312): agents POST
+// signed messages, which many clients will not resend after a redirect, and the EIP-712 domain names no host.
+// OPERATOR_URLS is what the nodes advertise: crow.direct.
 {
   "name": "holdback-op1",
   "main": "dist/worker.js",
   "compatibility_date": "2025-09-15",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
-  "routes": [{ "pattern": "api.escrow.stream", "custom_domain": true }],
+  "routes": [
+    { "pattern": "api.crow.direct", "custom_domain": true },
+    { "pattern": "api.escrow.stream", "custom_domain": true }
+  ],
   "preview_urls": false,
-  "vars": { "OPERATOR_URLS": "https://api.escrow.stream,https://api2.escrow.stream", "NODE_INDEX": "0", "SETTLEMENT": "sepolia", "MIN_WINDOW_SEC": "60", "OPERATOR_FEE_BPS": "1", "OPERATOR_FEE_MIN": "10000", "OPERATOR_FEE_GAS": "4700000" },
+  "vars": { "OPERATOR_URLS": "https://api.crow.direct,https://api2.crow.direct", "NODE_INDEX": "0", "SETTLEMENT": "sepolia", "MIN_WINDOW_SEC": "60", "OPERATOR_FEE_BPS": "1", "OPERATOR_FEE_MIN": "10000", "OPERATOR_FEE_GAS": "4700000" },
   "durable_objects": { "bindings": [{ "name": "WORLD", "class_name": "World" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["World"] }],
   "alias": { "node:fs": "./worker/fs-shim.js" },

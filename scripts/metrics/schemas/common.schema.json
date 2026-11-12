@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://escrow.stream/metrics/schemas/common.schema.json",
+  "title": "Crow Control metrics: shared definitions (T-066)",
+  "description": "The console's inputs, not the API contract, so these schemas live in scripts/metrics/schemas/ and not in spec/.",
+  "$defs": {
+    "Iso": { "type": "string", "format": "date-time", "maxLength": 32 },
+    "IsoOrNull": { "type": ["string", "null"], "format": "date-time", "maxLength": 32 },
+    "Day": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "Commit": { "type": "string", "pattern": "^([0-9a-f]{40}|unknown)$" },
+    "Hex32": { "type": "string", "pattern": "^0x[0-9a-fA-F]{64}$" },
+    "Address": { "type": "string", "pattern": "^0x[0-9a-fA-F]{40}$" },
+    "AddressOrNull": { "type": ["string", "null"], "pattern": "^0x[0-9a-fA-F]{40}$" },
+    "UInt": { "type": "string", "pattern": "^(0|[1-9][0-9]{0,77})$", "description": "A non-negative integer as a decimal string: gas units, wei, token base units" },
+    "UIntOrNull": { "type": ["string", "null"], "pattern": "^(0|[1-9][0-9]{0,77})$" },
+    "UsdMicros": { "type": "string", "pattern": "^(0|-?[1-9][0-9]{0,77})$", "description": "Micro-USD, an integer as a decimal string; negative only for a margin" },
+    "UsdMicrosOrNull": { "type": ["string", "null"], "pattern": "^(0|-?[1-9][0-9]{0,77})$" },
+    "Ms": { "type": "integer", "minimum": 0 },
+    "MsOrNull": { "type": ["integer", "null"], "minimum": 0 },
+    "Count": { "type": "integer", "minimum": 0 },
+    "CountOrNull": { "type": ["integer", "null"], "minimum": 0 },
+    "Basis": { "enum": ["measured", "inferred", "guessed"] },
+    "Text": { "type": "string", "maxLength": 400 },
+    "MsStats": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deals", "medianMs", "p90Ms"],
+      "properties": {
+        "deals": { "$ref": "#/$defs/CountOrNull", "description": "null when the source could not be read" },
+        "medianMs": { "$ref": "#/$defs/MsOrNull" },
+        "p90Ms": { "$ref": "#/$defs/MsOrNull" }
+      }
+    },
+    "Source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "url", "readAt", "ok", "ms", "error"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9-]{1,64}$" },
+        "url": { "type": "string", "maxLength": 300, "pattern": "^(https://|unknown$)" },
+        "readAt": { "$ref": "#/$defs/Iso" },
+        "ok": { "type": "boolean" },
+        "ms": { "$ref": "#/$defs/Ms" },
+        "error": { "enum": [null, "timeout", "unreachable", "http", "moved", "too-large", "not-json", "shape", "rpc", "missing"] }
+      }
+    },
+    "Envelope": {
+      "type": "object",
+      "required": ["schema", "generatedAt", "generator", "sources", "gaps"],
+      "properties": {
+        "schema": { "type": "string", "pattern": "^crow\\.metrics\\.[a-z-]+/1$" },
+        "generatedAt": { "$ref": "#/$defs/Iso" },
+        "generator": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["script", "commit"],
+          "properties": {
+            "script": { "type": "string", "pattern": "^(scripts|tools)/[a-z0-9/._-]{1,100}$" },
+            "commit": { "$ref": "#/$defs/Commit" }
+          }
+        },
+        "sources": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/Source" } },
+        "gaps": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/Text" } }
+      }
+    }
+  }
+}

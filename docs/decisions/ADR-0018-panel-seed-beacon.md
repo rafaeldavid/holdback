@@ -116,12 +116,13 @@ The fallback and appeal panels take their seed from a public randomness beacon, 
 - `HoldbackRules` runtime is 24,051 bytes, 525 under EIP-170 (it was 24,542, 34 under). `_paymentInfo` now takes the commitment ID instead of recomputing it, which freed 957 bytes. [measured]
 - `DrandQuicknetBeacon` is about 3.3 kB. [measured]
 - A fallback `decide(accept)` costs 297,591 gas with drand verification, against 161,076 with the sim beacon (`forge test --match-contract GasPerDeal --isolate`). The verification adds about 136.5k, in line with the 140k this ADR guessed. [measured]
+- Later measurements (added 2026-11-12, T-362). A whole transaction that calls `beaconValue` costs 213,185 gas on Sepolia (`docs/reviews/2026-11-11-drand-verifier-review.md`, I-13) and 219,232 gas on Ethereum mainnet through `eth_estimateGas` (ADR-0034 §3.3) [measured]. Both include the transaction's base cost and calldata, so they are larger than the 136.5k added inside `decide`. The mainnet gate re-measures under mainnet's fork rules (ADR-0034, MG-17).
 - Fixing `_paymentInfo` cut about 11k gas from every path that builds a `PaymentInfo`. [measured]
 - A failing pairing precompile burns the gas it is given, so the verifier caps that call at 250k gas, which bounds what a bad proof costs its relayer.
 
 **Liveness note.** An appeal adjudicator can decide only once the first round after the escalation or appeal is published: up to 3 s on quicknet, 1 s on the sim. If `appealDecideSec` is shorter than that, the default path applies (§5). This is a backlog row, not a refusal (D31).
 
-**Still open.** The verifier is unaudited and needs review before Sepolia (backlog). The parse rule still admits only `sim` beacons until the adjudicator service fetches drand rounds (T-206). T-217 closed the second point: see "As built", below.
+**Still open.** The verifier is unaudited and needs review before Sepolia (backlog). The parse rule still admits only `sim` beacons until the adjudicator service fetches drand rounds (T-206). T-217 closed the second point: see "As built", below. On the first point: DeepSeek's cross-family review of the verifier passed all fifteen checklist items (T-206, review §8), and Rafa confirmed on 2026-11-06 that its remaining client checks gate mainnet only (T-206, Decisions 7). The verifier is still unaudited.
 
 ## As built: the adjudicator's drand source (T-217, 2026-11-04)
 

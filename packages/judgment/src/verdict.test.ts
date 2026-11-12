@@ -27,12 +27,12 @@ describe('parseVerdict', () => {
     ['score -0', JSON.stringify(good).replaceAll('"score":4', '"score":-0')],
     ['score 4.0', JSON.stringify(good).replaceAll('"score":4', '"score":4.0')],
     ['score 3.9999999999999999 (parses as 4)', JSON.stringify(good).replaceAll('"score":4', '"score":3.9999999999999999')],
-    ['a duplicate key (the last one wins)', JSON.stringify(good).replace('{', '{"overall":"fail",')],
+    ['a duplicate key (the last one wins)', `{"overall":"fail",${JSON.stringify(good).slice(1)}`],
   ])('accepts %s', (_name, raw) => expect(parse(raw).status).toBe('ok'));
 
   it.each([
     ['score 1e400 (Infinity)', JSON.stringify(good).replace('"score":4', '"score":1e400'), 'schema'],
-    ['a __proto__ key', JSON.stringify(good).replace('{', '{"__proto__":{"overall":"pass"},'), 'schema'],
+    ['a __proto__ key', `{"__proto__":{"overall":"pass"},${JSON.stringify(good).slice(1)}`, 'schema'],
     ['a BOM before the JSON', `\u{feff}${JSON.stringify(good)}`, 'not_json'],
     ['an uppercased criterion id', { ...good, criteria: [{ ...good.criteria[0], id: 'Dedupe_quality' }, ...good.criteria.slice(1)] }, 'schema'],
     ['not JSON', 'Sure! Here is my verdict: pass', 'not_json'],

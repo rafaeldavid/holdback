@@ -13,16 +13,22 @@
 // 5. Problem pages (D39): one page per problem type the operator answers, with its status and title.
 // 6. The agent guide spells out every encoding an agent computes (D39): no knowledge hides in examples/.
 // 7. try.mjs: site/try.mjs is the current bundle of examples/try.ts, importing only viem and tweetnacl;
-//    the one command (pinned versions, its sha256) heads "Try it" in a filled llms.txt. The page leaves it out:
-//    its Try line's prompt sends the visitor's assistant to llms.txt.
+//    the one command (pinned versions, its sha256) heads "Try it" in a filled llms.txt, which asks for no fetch
+//    before it. The Try line's copied prompt carries the same command and names llms.txt; the visible page does not
+//    show the command (One-Click Escrow, D51). The clipboard fallback keeps the command's spaces (pre-wrap).
 // 8. Crow's test seller (D47): the one command buys from it, and "Try it" states its catalog, limits and windows as
 //    apps/test-agents/src/catalog.ts runs them.
+// 9. Crow's test buyer (T-239): "Sell to Crow's test buyer" (in site/sell.txt since T-359) states its card, caps,
+//    windows and limits as apps/test-agents/src/buyer-rules.ts runs them.
+// 10. The seller's page (T-359): site/sell.txt opens with the first hour, holds the seller sections that llms.txt no
+//    longer copies, links both ways with llms.txt, names only files and pnpm scripts that exist, keeps local addresses
+//    to the first hour, and is what a publish build writes.
 import { existsSync, readFileSync } from 'node:fs';
-import { BASE, filled, page, pins, problemPages, SITE_URL, strip, TEST_SELLER_URL, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
+import { BASE, filled, page, pins, problemPages, SELL_URL, sellerPage, SITE_URL, strip, TEST_SELLER_URL, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
 
 const here = (p) => new URL(p, import.meta.url);
 const read = (p) => readFileSync(here(p), 'utf8');
-const md = read('llms.txt'), html = read('index.html'), apiMd = read('../docs/api.md');
+const md = read('llms.txt'), sell = read('sell.txt'), html = read('index.html'), apiMd = read('../docs/api.md');
 const failures = [];
 const expect = (ok, what) => {
   if (!ok) failures.push(what);
@@ -45,8 +51,14 @@ expect(count(md, '{{OP2}}') === 1 && configure.includes('OP2={{OP2}}'), '{{OP2}}
 const tryIt = md.slice(md.indexOf('## Try it'), md.indexOf('\n## ', md.indexOf('## Try it') + 3));
 expect(count(md, '{{TRY_COMMAND}}') === 1 && tryIt.includes('```sh\n{{TRY_COMMAND}}\n```') && tryIt.indexOf('{{TRY_COMMAND}}') < tryIt.indexOf('\n1. '), '{{TRY_COMMAND}} must appear once in llms.txt, in an sh block at the top of "Try it", before the step-by-step list');
 expect((md.match(/\{\{[^}]*\}\}/g) ?? []).every((p) => ['{{OP1}}', '{{OP2}}', '{{TRY_COMMAND}}'].includes(p)), 'llms.txt has an unknown {{placeholder}}');
-expect(md.includes('https://github.com/rafaeldavid/holdback'), 'llms.txt links the public repo (optional reading)');
-expect(!/\{\{/.test(html) && /<img class="mark"[^>]*>\s*<h1>[^<]+<\/h1>\s*<p class="sub">[^<]+<\/p>\s*<form class="join"[\s\S]*?<\/form>\s*<p class="intro">[^<]+<\/p>\s*<section class="try"[\s\S]*<\/section>\s*<figure[^>]*>[\s\S]*<\/script>\s*<\/main>/.test(html), 'index.html must be the title, the subtitle, early access, the intro, Try Crow and the drawing');
+// A link as build.mjs renders one (https, trailing punctuation left out), parsed, so a look-alike host or a longer
+// path does not count (CodeQL js/incomplete-url-substring-sanitization).
+const mdLinks = (md.match(/https:\/\/[^\s<)]+[^\s<).,;:]/g) ?? []).filter((u) => URL.canParse(u)).map((u) => new URL(u));
+expect(mdLinks.some((u) => u.host === 'github.com' && u.pathname === '/rafaeldavid/holdback'), 'llms.txt links the public repo (optional reading)');
+// The landing page (Rafa's mock, D56, in the layout of 2026-11-11): the brand (the bird, the mark, the tagline), the
+// claim (the headline, the lede, early access), the six value props, each with a study and a dot, then the footer:
+// one quiet line with the Try prompt and the agent docs.
+expect(!/\{\{/.test(html) && /<header class="brand">[\s\S]*?<img class="bird" src="\/crow\.png"[^>]*>\s*<\/picture>\s*<div class="mark">[^<]+<\/div>\s*<p class="tag">[^<]+<\/p>\s*<\/header>\s*<section class="claim">\s*<h1>\s*<span class="sr">[^<]+<\/span>[\s\S]*?<\/h1>\s*<p class="lede">[^<]+<\/p>\s*<form class="signup" id="join-form"[\s\S]*?<\/form>\s*<\/section>\s*<section class="props"[^>]*>\s*<div class="stage">(\s*<div class="prop[^>]*><svg class="study"[\s\S]*?<\/svg><h2>[\s\S]*?<\/h2><p>[^<]+<\/p><\/div>){6}\s*<\/div>\s*<div class="dots"[^>]*>(<button type="button" aria-label="[^"]+"[^>]*><\/button>){6}<\/div>\s*<\/section>\s*<footer class="foot">\s*<p>[^<]+<\/p>\s*<p>[\s\S]*?<a href="\/llms\.txt">[^<]+<\/a><\/p>[\s\S]*<\/footer>\s*<\/main>/.test(html), 'index.html must be the brand, the claim with early access, six value props each with a study and a dot, the footer and the agent docs link');
 expect(!/%%|CONFIRM/.test(html) && !/^%% /m.test(strip(md)), 'an editor note reached index.html');
 expect(!/127\.0\.0\.1|localhost/.test(md + html), 'a local address is in the site');
 const sample = { op1: 'https://op1.example.workers.dev', op2: 'https://op2.example.workers.dev' };
@@ -72,7 +84,7 @@ expect(refused === /^%% CONFIRM/m.test(md), 'a filled build must refuse exactly 
 
 // 3. Links.
 const ids = new Set([...html.matchAll(/ id="([^"]+)"/g)].map((m) => m[1]));
-for (const [, url] of html.matchAll(/(?:href|src)="([^"]*)"/g)) {
+for (const [, url] of html.matchAll(/(?:href|src|srcset)="([^"]*)"/g)) {
   if (url.startsWith('https://')) continue;
   if (url.startsWith('#')) {
     expect(ids.has(url.slice(1)), `anchor ${url} has no target`);
@@ -140,9 +152,19 @@ expect(command.includes(` viem@${viem} tweetnacl@${tweetnacl} `) && command.incl
 expect(bundle.includes(`npm install viem@${viem} tweetnacl@${tweetnacl}`), 'the try.mjs banner names other versions than the command');
 const filledTry = sampleTxt.slice(sampleTxt.indexOf('## Try it'));
 expect(filledTry.split('\n').find((l) => l.startsWith('mkdir ')) === command, 'a filled llms.txt does not carry the current try command at the top of "Try it"');
-expect(!html.includes('mkdir -p crow-try') && !html.includes(trySha256()), 'index.html carries the try command: it belongs in llms.txt only');
-const prompt = /<span id="prompt" hidden>([^<]*)<\/span>/.exec(html)?.[1] ?? '';
-expect(prompt.endsWith(`${SITE_URL}llms.txt`), "the Try line's prompt does not send the assistant to llms.txt");
+// One-Click Escrow (D51, T-229): the copied prompt carries the exact command, so a fresh assistant asks for one
+// approval; the visible page shows only the Try line.
+const span = /<span id="prompt" hidden>([^<]*)<\/span>/.exec(html);
+const prompt = (span?.[1] ?? '').replaceAll('&quot;', '"').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&');
+expect(prompt.split('\n').includes(command) && prompt.includes(trySha256()), "the Try line's prompt does not carry the current try command on a line of its own");
+expect(prompt.includes(`${SITE_URL}llms.txt`), "the Try line's prompt does not name llms.txt");
+const visible = html.replace(span?.[0] ?? '', '');
+expect(!visible.includes('mkdir -p crow-try') && !visible.includes(trySha256()), 'index.html shows the try command outside the hidden prompt: the page shows only the Try line');
+// The clipboard fallback shows the prompt for a hand copy. pre-line collapses the two spaces in
+// `echo "<sha256>  try.mjs" | shasum -a 256 -c`, and shasum then refuses the line; pre-wrap keeps them.
+expect(/\.copied \{[^}]*white-space: pre-wrap;/.test(html), "the .copied fallback must use white-space: pre-wrap, or a hand copy breaks the command's hash check");
+expect(!/before you ask|fetch https:\/\/crow\.direct\/try\.mjs/.test(tryIt), '"Try it" asks the agent to fetch try.mjs before the command: each fetch is one more approval');
+expect(tryIt.includes('runs it only if its SHA-256 matches the one in the command') && tryIt.includes('`examples/try.ts`, `agent.ts` and `verify.ts` in https://github.com/rafaeldavid/holdback'), '"Try it" lost a trust anchor: the SHA-256 pin or the source on GitHub');
 
 // 8. Crow's test seller.
 const { LIMITS, TIMING, CHECKS, PRICE_UNITS } = await import(here('../apps/test-agents/src/catalog.ts'));
@@ -155,8 +177,56 @@ expect(testSeller.includes(`expires ${TIMING.offerExpiresInSec / 60} minutes aft
 expect(PRICE_UNITS === '25000000' && testSeller.includes('for 25 tUSDC') && CHECKS.map((c) => c.id).join() === 'cols,rows,uniq' && testSeller.includes('`cols`, `rows` (exactly 3) and `uniq`'), "llms.txt states another catalog for the test seller than apps/test-agents/src/catalog.ts");
 expect(tryIt.includes('`--outcome refund`') && testSeller.includes('"test": {"outcome": "refund"}'), 'llms.txt does not say how to ask the test seller for a refund');
 
+// 9. Crow's test buyer (T-239): "Sell to Crow's test buyer" states its card, price caps, windows and limits as
+//    apps/test-agents/src/buyer-rules.ts runs them.
+const TEST_BUYER_URL = 'https://crow.direct/agents/test-buyer';
+const rules = await import(here('../apps/test-agents/src/buyer-rules.ts'));
+const start = sell.indexOf("## Sell to Crow's test buyer");
+const testBuyer = start < 0 ? '' : sell.slice(start, sell.indexOf('\n## ', start + 3));
+const tusdc = (u) => `${Number(BigInt(u) / 1_000_000n)} tUSDC`;
+const bl = rules.BUYER_LIMITS, w = rules.WINDOWS, cr = rules.CHECKS_RULE;
+// Whole sentences, matched as text: the URL is the buyer's address in the guide, not a value being sanitized.
+expect(/beside the test seller, at https:\/\/crow\.direct\/agents\/test-buyer, so /.test(testBuyer) && /\*\*The card\.\*\* https:\/\/crow\.direct\/agents\/test-buyer\/agent\.json is a `crow-buyer` card/.test(testBuyer), `llms.txt has no "Sell to Crow's test buyer" section describing ${TEST_BUYER_URL} and its card`);
+expect(testBuyer.includes(`A price of at most ${tusdc(rules.MAX_PRICE_UNITS)} and an adjudication fee of at most ${tusdc(rules.MAX_ADJUDICATION_FEE_UNITS)}`), 'llms.txt states other price caps for the test buyer than apps/test-agents/src/buyer-rules.ts');
+expect(testBuyer.includes(`${cr.min} to ${cr.max} deterministic checks`) && testBuyer.includes(`at least ${cr.requiredAtLeast} of them \`"required": true\``), 'llms.txt states other check rules for the test buyer than apps/test-agents/src/buyer-rules.ts');
+expect(testBuyer.includes(`at most ${w.maxDeliverWithinSec.toLocaleString('en-US')} s (a day) after the offer`) && testBuyer.includes(`at most ${w.maxJudgingSec.toLocaleString('en-US')} s`) && testBuyer.includes(`at least ${w.minFundingLeftSec} s left to agree and fund`), 'llms.txt states other windows for the test buyer than apps/test-agents/src/buyer-rules.ts');
+expect(testBuyer.includes(`${bl.perSellerPerHour} deals per seller address an hour and ${bl.perSellerPerDay} a day; ${bl.perDay} a day in all; ${bl.open} in progress at once`), 'llms.txt states other limits for the test buyer than apps/test-agents/src/buyer-rules.ts');
+
+// 10. The seller's page (T-359).
+const sections = (src) => [...src.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
+const sellSections = sections(sell);
+expect(sell.startsWith('# Crow for sellers\n') && sellSections[0] === 'First hour', 'site/sell.txt must open with its title and then "## First hour"');
+const sectionOf = (src, title) => {
+  const at = src.indexOf(`\n## ${title}\n`);
+  if (at < 0) return '';
+  const end = src.indexOf('\n## ', at + 4);
+  return src.slice(at + 1, end < 0 ? undefined : end + 1);
+};
+const firstHour = sectionOf(sell, 'First hour');
+// A step runs from its numbered line to the next one, its indented code block included.
+const hourSteps = firstHour.split(/\n(?=\d+\. \*\*)/).slice(1);
+expect(hourSteps.length >= 5 && hourSteps.every((l, i) => l.startsWith(`${i + 1}. `) && l.includes('Worked')), 'each "First hour" step is numbered in order and says what you see when it Worked');
+for (const t of ["Sell a priced API service", "A seller's client can carry the buyer's side", "Sell to Crow's test buyer", 'Writing checks for a report']) expect(sellSections.includes(t), `site/sell.txt has no section "${t}"`);
+const llmsSections = new Set(sections(md));
+for (const t of sellSections) expect(!llmsSections.has(t), `"${t}" is in both llms.txt and sell.txt: one source`);
+expect(md.includes(SELL_URL) && sectionOf(md, 'Sell on Crow').includes(SELL_URL), `llms.txt has a "Sell on Crow" section that links ${SELL_URL}`);
+// Parsed, as in group 2, so a look-alike host or a longer path does not count.
+const sellLinks = (sell.match(/https:\/\/[^\s<)`]+[^\s<).,;:`]/g) ?? []).filter((u) => URL.canParse(u)).map((u) => new URL(u));
+expect(sellLinks.some((u) => u.href === `${SITE_URL}llms.txt`) && sellLinks.some((u) => u.host === 'github.com' && u.pathname === '/rafaeldavid/holdback'), 'sell.txt links the agent guide and the public repo');
+for (const [, p] of sell.matchAll(/`((?:examples|fixtures|spec)\/[A-Za-z0-9_./-]+\.[a-z]+)`/g)) expect(existsSync(here(`../${p}`)), `sell.txt names ${p}, which is not in the repository`);
+const scripts = JSON.parse(read('../package.json')).scripts;
+for (const [, name] of sell.matchAll(/\bpnpm ([a-z][a-z:-]*)/g)) expect(name === 'install' || name in scripts, `sell.txt runs pnpm ${name}, which is not a script in package.json`);
+expect(!/127\.0\.0\.1|localhost/.test(sell.replace(firstHour, '')), 'sell.txt has a local address outside "First hour"');
+let sellOut = '';
+try {
+  sellOut = sellerPage(sell);
+} catch (e) {
+  expect(false, `sell.txt cannot be published: ${e.message}`);
+}
+if (existsSync(here('../reports/site-out/llms.txt'))) expect(existsSync(here('../reports/site-out/sell.txt')) && read('../reports/site-out/sell.txt') === sellOut, 'reports/site-out/sell.txt is missing or stale against site/sell.txt: build with --out again');
+
 if (failures.length) {
   for (const f of failures) console.error(`FAIL ${f}`);
   process.exit(1);
 }
-console.log(`site check PASS: one source, placeholders in place, links resolve under ${BASE}, content agrees with docs/api.md and examples/verify.ts, try.mjs current and its command in llms.txt, the test seller as apps/test-agents runs it`);
+console.log(`site check PASS: one source, placeholders in place, links resolve under ${BASE}, content agrees with docs/api.md and examples/verify.ts, try.mjs current and its command in llms.txt, the test seller and the test buyer as apps/test-agents runs them, the seller's page in sell.txt`);

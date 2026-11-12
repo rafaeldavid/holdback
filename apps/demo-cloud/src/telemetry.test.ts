@@ -194,6 +194,29 @@ describe('summaries', () => {
     expect(again.usage()).toMatchObject({ day: '2026-11-05', rows: { ar: 3, ph: 1 } });
   });
 
+  it('counts the timeouts the operators sent on their own by kind, in the day line and the hour line, and not into the next day (T-231)', async () => {
+    const storage = new MemoryStorage();
+    const c = clock(Date.parse('2026-11-06T22:30:00Z'));
+    const { lines, log } = logged();
+    const t = await Telemetry.open({ storage, now: c.now, log });
+    t.timeout('reclaim');
+    t.timeout('reclaim');
+    t.timeout('default');
+    // The hour closes: its line carries today's use so far.
+    c.advance(31 * 60_000);
+    t.invoked();
+    await t.flush();
+    const hour = lines.find((l) => l.line['telemetry'] === 'hour' && l.line['hour'] === '2026-11-06T22')!.line;
+    expect(hour['usageToday']).toMatchObject({ operatorTimeouts: { reclaim: 2, default: 1 } });
+    // The day closes: its line carries the day's count, and the new day starts from none.
+    c.advance(60 * 60_000);
+    t.invoked();
+    await t.flush();
+    const day = lines.find((l) => l.line['day'] === '2026-11-06')!.line;
+    expect(day['usage']).toMatchObject({ operatorTimeouts: { reclaim: 2, default: 1 } });
+    expect(t.usage()).not.toHaveProperty('timeouts');
+  });
+
   it('still writes the day line when the settlement-side facts fail', async () => {
     const storage = new MemoryStorage();
     const c = clock(Date.parse('2026-11-03T23:59:00Z'));

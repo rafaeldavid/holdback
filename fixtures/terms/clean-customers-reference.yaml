@@ -1,0 +1,48 @@
+# Terms for T-327: the cleaning job of clean-customers-2000.yaml, checks-only, with a required
+# reference_row_match_min check. The buyer already holds 40 of its customers' emails
+# (fixtures/data/reference/customers.reference.csv) and requires every one of them in the delivery with the
+# same email. It uploads that file to an operator's content store (POST /v1/ciphertext), which keeps it under
+# its SHA-256, and names the store's URI and the hash here. The adjudicator reads it from its own store by that
+# hash, as it reads the delivery's ciphertext. customers.clean.csv matches 40 of 40 and is accepted;
+# customers.clean.row-drop.csv lacks two of the 40 and is rejected.
+# Field rules are as in clean-customers-2000.yaml.
+schemaVersion: "0.7"
+clubId: data-services-v1
+deliverable:
+  kind: dataset
+  description: "Clean customers.csv: deduplicate on customer_id keeping the most recent record, normalize signup_date to ISO 8601, validate email format, flag (do not fill) missing or invalid emails."
+  format: text/csv
+  inputs:
+    - uri: file:///fixtures/data/dataset-cleaning/customers.raw.csv
+      sha256: "sha256:67051d4c1ab2bc2f85dcfe39f63221615b9d41c5a029ddb6f719a3616bdb14d9"
+acceptance:
+  deterministicChecks:
+    - { id: cols, type: csv_columns_exact, required: true, columns: [customer_id, name, email, signup_date, email_valid] }
+    - { id: uniq, type: unique_key, required: true, columns: [customer_id] }
+    - id: known_customers
+      type: reference_row_match_min
+      required: true
+      reference:
+        uri: "https://op-1.sim.holdback.test/v1/ciphertext/sha256:5b61534f4acf70012bcac5b3b9c8c39d1ecb42c7285ea2439ff330ae2c7a8541"
+        sha256: "sha256:5b61534f4acf70012bcac5b3b9c8c39d1ecb42c7285ea2439ff330ae2c7a8541"
+      keyColumn: customer_id
+      minBps: 10000
+  rubric:
+    passThreshold: 0
+    criteria: []
+price: { token: tUSD, amount: "2000000000" }
+adjudication:
+  policyId: bench-a/p1
+  fee: { token: tUSD, amount: "50000000" }
+timing:
+  offerExpiresInSec: 900
+  fundWithinSec: 1800
+  deliverWithinSec: 172800
+  judgeWithinSec: 120
+  fallbackWithinSec: 120
+  appealWindowSec: 300
+  appealDecideSec: 300
+  maxSubmissions: 1
+settlement: { mode: guaranteed_on_decision, token: tUSD }
+remedy: { onReject: full_refund }
+disclosure: { level: public }

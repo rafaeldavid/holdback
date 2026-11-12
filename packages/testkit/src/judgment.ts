@@ -10,7 +10,9 @@ import { canonicalKeccak, err, ok, problem, type AdjudicatorPolicy, type Address
 import { sha256 } from '@holdback/core/crypto';
 import {
   APPEAL_PROMPT_TEMPLATE_HASH,
+  describeUnavailable,
   intake,
+  loadReferences,
   panelPlan,
   PROMPT_TEMPLATE_HASH,
   requestInputHash,
@@ -21,8 +23,44 @@ import {
   type LoadedRegistry,
   type PanelSeat,
 } from '@holdback/judgment';
+import { readdirSync, readFileSync } from 'node:fs';
 import { keccak256 } from 'viem';
 import type { CapturedFrom, JudgeProvider, JudgeRequest } from './recorded.js';
+
+/**
+ * The runner's content store for reference files (T-327): the files in fixtures/data/reference/, each kept under
+ * its SHA-256 as an operator's store keeps an upload (POST /v1/ciphertext). It reads only that directory and
+ * answers by the hash at the end of the URI, never by the rest of it, as the adjudicator's stores do.
+ */
+const REFERENCE_DIR = new URL('../../../fixtures/data/reference/', import.meta.url);
+let referenceStore: Map<string, Uint8Array> | undefined;
+async function readReference(uri: string): Promise<Uint8Array> {
+  if (!referenceStore) {
+    referenceStore = new Map();
+    let names: string[] = [];
+    try {
+      names = readdirSync(REFERENCE_DIR);
+    } catch {
+      // No reference files in this checkout: every lookup misses.
+    }
+    for (const name of names) {
+      const bytes = new Uint8Array(readFileSync(new URL(name, REFERENCE_DIR)));
+      referenceStore.set(sha256(bytes), bytes);
+    }
+  }
+  const id = /(sha256:[0-9a-f]{64})$/.exec(uri)?.[1];
+  const bytes = id ? referenceStore.get(id) : undefined;
+  if (!bytes) throw new Error(`no reference ${uri.slice(0, 120)} in the runner's store`);
+  return bytes;
+}
+
+/**
+ * The runner's content store for delivery ciphertext (T-347): it returns every delivered fixture file except those under
+ * fixtures/data/unstored/. A delivery of one of those stands for a seller-signed Delivery whose ciphertext no store
+ * returns (never uploaded, lost or withheld). The runner refuses it as the adjudicator service does: not judged, no
+ * record, retried; the fallback and then the default outcome follow if it never comes.
+ */
+const UNSTORED_DIR = 'fixtures/data/unstored/';
 
 export type Role = 'primary' | 'fallback' | 'appeal';
 
@@ -117,6 +155,11 @@ export async function runJudgment(input: RunJudgmentInput, judges: JudgeProvider
   const size = appeal ? policy.appealPanelSize : policy.panelSize;
   const minFamilies = appeal ? Math.max(policy.minFamilies, Math.min(policy.minFamiliesAppeal, familiesAvailable)) : policy.minFamilies;
 
+  if (input.source.startsWith(UNSTORED_DIR)) {
+    const { uri, sha256: ct } = input.delivery.ciphertext;
+    return err(problem('adjudicator_unavailable', `the delivery's ciphertext ${uri} (${ct}) was not returned by the runner's store (${input.source} is under ${UNSTORED_DIR}); not judged, retrying (no record)`));
+  }
+
   // Intake on the delivered bytes: the runner hands the plaintext over as its own "ciphertext" with an
   // identity opener, so the library still checks the MIME allowlist, size, plaintext hash and UTF-8.
   const ciphertext = input.plaintext;
@@ -198,9 +241,15 @@ export async function runJudgment(input: RunJudgmentInput, judges: JudgeProvider
       }
     },
   };
+  // As the adjudicator service: each reference by the hash the terms commit to, through the shared loader; one the
+  // store does not return refuses the turn before any judge is called, and nothing is decided.
+  const loaded = await loadReferences(terms.acceptance.deterministicChecks, readReference);
+  if (loaded.unavailable.length) return err(problem('adjudicator_unavailable', `reference files unavailable from the runner's store: ${describeUnavailable(loaded.unavailable)}`));
+  const references = loaded.references;
   const run = await runPipeline({
     intake: intaken.value,
     acceptance: terms.acceptance,
+    references,
     deliverable: { description: terms.deliverable.description, format: terms.deliverable.format },
     policy: {
       minValid: appeal ? policy.minValidAppeal : policy.minValid,

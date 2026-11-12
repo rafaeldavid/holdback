@@ -7,14 +7,14 @@
   - the `control/` folder and its hourly workflow in the founders' private repository (the console's code, tests and runbook live there, never here);
   - here: `docs/operations.md` and `docs/costs.md` (once the passcode retires), `docs/decisions-today.md` (D45 notes only), `docs/tasks/T-059-control-access-switch.md`.
 - **Human gate:** **yes.** The Access settings, the service tokens, the GitHub secrets, the storage namespace, the encryption key and every Worker deploy are outside this repository. Rafa does the dashboard steps himself; agents deploy only on his go-ahead, given in chat and recorded in Handoff with the date.
-- **Status:** in progress (live at `control.escrow.stream` since 2026-11-04; a day of hourly runs, the passcode's last traces and a red-team pass on the live console remain)
+- **Status:** in progress (live at `control.escrow.stream` since 2026-11-04; criterion 5, the passcode's retirement, met on 2026-11-05; left: the other founder's confirmation of Strategy, Costs and Keys (criterion 1), two scheduled builds without a failed run, which replaced the 24 hours of hourly runs under D52 (criterion 4), a red-team pass on the live console (criterion 6), and the agents' small items in Handoff)
 - **Agent/session:** coordinator side session, 2026-11-04
 
 ## Intent
 
 Move the founders' console from the passcode page at `escrow.stream/control` to its own host, `control.escrow.stream`, behind Cloudflare Access, as D45 decided: GitHub sign-in, one view for both founders, the private part encrypted at rest, an hourly public refresh and a daily private push. Then retire the shared passcode.
 
-- Inputs: the console code in the founders' private repository, the Access application "Crow Control", Rafa's Cloudflare and GitHub accounts.
+- Inputs: the console code in the founders' private repository, the console's access application, Rafa's Cloudflare and GitHub accounts.
 - Outputs: the console served at `control.escrow.stream` to signed-in founders only; the old address removed; the hourly and daily pushes running; the passcode retired.
 - Non-goals: new console features; moving the console's code to a repository of its own (an open question for Rafa, below).
 
@@ -37,7 +37,7 @@ Move the founders' console from the passcode page at `escrow.stream/control` to 
 1. Both founders open `https://control.escrow.stream` through Access with GitHub as the only login method, and each sees Strategy, Costs and Keys (confirmed by Rafa).
 2. Without a sign-in, `curl -sI https://control.escrow.stream` answers `302` to the sign-in; a push with a wrong or a reader's token answers `401` or `403` (measured).
 3. `escrow.stream/control`, `/control/map` and `/control/contracts` serve nothing: they answer `404` (measured).
-4. The hourly job has pushed for 24 hours without a failed run, and the Mac's daily private push has run once (measured).
+4. The hourly job has pushed for 24 hours without a failed run, and the Mac's daily private push has run once (measured). Since D52 (2026-11-05) the job builds twice a day, so this reads as two scheduled builds without a failed run.
 5. The passcode is gone from Rafa's environment and from the key register; the passcode Worker's files are removed from the private repository (confirmed by Rafa and measured).
 6. A red-team pass against the deployed console finds no High or Critical finding (measured).
 
@@ -56,10 +56,10 @@ All 2026-11-04.
   - **Live.** Rafa rebuilt, checked and redeployed as `crow-control` version `bf004e77`. He confirmed: "ok, https://escrow.stream/control is showing the data" (measured by Rafa).
 
 **The switch**
-- **Setup (Rafa):** the Access settings, the two service tokens (`control-push-actions`, `control-push-mac`), the "Pushers" Service Auth policy, the GitHub secrets, `CONTROL_HOURLY` = `on`, and the encryption key (`new-kek.mjs`).
+- **Setup (Rafa):** the Access settings, the two push service tokens (one for the scheduled build, one for the Mac's daily push), the service-auth policy that admits them, the GitHub secrets, `CONTROL_HOURLY` = `on`, and the encryption key (`new-kek.mjs`).
 - **Setup (agents):** created the KV namespace and filled in the push scopes.
 - **Deploy:** `crow-console` version `2398336c`, at 15:44 UTC. The deploy created the DNS record for `control.escrow.stream` with no extra permission. Without a sign-in, `/`, `/map` and `/_push/public.json` answer `302` to the sign-in, and a push with a wrong service token answers `401` (measured).
-- **First pushes.** A push first got `403` from Access because the Pushers policy was not yet attached to the application; once it was, the token passed (measured with a diagnostic).
+- **First pushes.** A push first got `403` from Access because the push service tokens' policy was not yet attached to the console's access application; once it was, the token passed (measured with a diagnostic).
   - **The Mac's private part:** `HTTP 204` (11 keys and the costs, 9 KB sealed).
   - **The hourly job's re-run** (run 41865777731) pushed the public data (465 KB), status (157 bytes), map (202 KB) and contract stack (55 KB), each with `204` (measured).
   - **GitHub's Actions incident** that afternoon left runs queued and their records inconsistent.
@@ -67,18 +67,29 @@ All 2026-11-04.
 - **Sign-in.** A sign-in that ended on `/control` came from the old `escrow.stream/control` destination. Rafa removed it from the application, and `/` now opens the console.
 - **The old console removed.** The `crow-control` Worker is deleted (measured). `escrow.stream/control`, `/control/` and `/control/map` answer `404`, and no encrypted page is served (measured). The passcode console's files and the never-deployed redirect Worker are removed from the private repository, and a regression test keeps them removed.
 
+**2026-11-05**
+- **Criterion 5 met, confirmed by Rafa ("done").** Rafa ran four commands the coordinator gave him:
+  1. deleted `CROW_CONTROL_PASSCODE` from holdback `.env`;
+  2. checked it was gone with `grep -c`, which prints a count only;
+  3. backed up `keys.json` in the cost directory, then replaced it with `control/keys.template.json`;
+  4. ran the private push.
+- **Hourly runs (criterion 4), not yet met.** GitHub's scheduler skipped most scheduled runs: between 2026-11-04 21:25 UTC and 2026-11-05 15:30 UTC the job ran on schedule 3 times, at 23:42, 06:51 and 15:30 UTC, and all passed (measured, `gh run list --repo rafaeldavid/crow-private --workflow control-hourly.yml`). A separate PR makes the console refresh on every merge to main. That PR, holdback#214, closed unmerged: D52 replaced the hourly schedule with two builds a day at 07:07 and 16:07 Berlin time.
+
+**2026-11-06**
+- **Two scheduled builds under D52 passed** (measured, `gh run list --repo rafaeldavid/crow-private --workflow control-hourly.yml`, read at about 21:10 UTC): runs started at 14:10 and 20:49 UTC, both `schedule` and `success`. Both started hours after the 06:07 and 15:07 UTC slots, as GitHub may delay a scheduled run (D52). Criterion 4 also needs the private push checked; this entry does not check it.
+
 ## Handoff
 
 The console is live; the runbook in the console's folder describes how it runs. Left:
 
 1. **Rafa:**
-   - delete `CROW_CONTROL_PASSCODE` from holdback `.env`;
-   - update `keys.json` in the cost directory from the template (the passcode row is gone; the two service tokens, the encryption key and `GH_READ` are in, expiring about 2027-02-02);
+   - ~~delete `CROW_CONTROL_PASSCODE` from holdback `.env`~~ (done 2026-11-05, Evidence);
+   - ~~update `keys.json` in the cost directory from the template (the passcode row is gone; the two service tokens, the encryption key and `GH_READ` are in, expiring about 2027-02-02)~~ (done 2026-11-05, Evidence);
    - add the daily private push to the cost routine (T-055);
-   - confirm that both founders see Strategy, Costs and Keys (criterion 1).
+   - confirm that both founders see Strategy, Costs and Keys (criterion 1): the other founder's confirmation is still open.
 2. **Agents:**
-   - after 24 hours, check the hourly runs and the private push (criterion 4);
-   - run a red-team pass against the live console (criterion 6);
+   - after two scheduled builds under D52, check the runs and the private push (criterion 4); "Run workflow" on `control-hourly` covers a run GitHub's scheduler skips;
+   - run a red-team pass against the live console (criterion 6), best once T-066's remaining slices land (paused under D53);
    - with the next Worker deploy, change the page's "No data" message, which still names the removed `build.mjs`;
    - update `docs/operations.md` and `docs/costs.md` if they describe the console.
 

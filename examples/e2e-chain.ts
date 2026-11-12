@@ -7,17 +7,22 @@
 // and anvil, and any chain other than the pinned one: test tokens only (CLAUDE.md, no real money).
 import { readFileSync } from 'node:fs';
 import {
+  BaseError,
+  ContractFunctionRevertedError,
   createPublicClient,
   createWalletClient,
   decodeEventLog,
   decodeFunctionData,
   encodeAbiParameters,
+  formatGwei,
   getAddress,
   hashStruct,
   http,
   keccak256,
+  numberToHex,
   parseAbiParameters,
   toBytes,
+  TransactionNotFoundError,
   TransactionReceiptNotFoundError,
   type Abi,
   type Address,
@@ -27,6 +32,7 @@ import {
 import { privateKeyToAccount } from 'viem/accounts';
 import { foundry, sepolia } from 'viem/chains';
 import type { DeploymentFile } from './deployments.ts';
+import { MAX_FEE_PER_GAS } from './e2e-keys.ts';
 import { jcsHash, Refusal, TYPES } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -130,6 +136,16 @@ export interface TxRecord {
 /** The gas limit of a direct call whose estimate the RPC refused: a limit only, the receipt records what it used. */
 const DIRECT_GAS_LIMIT = 1_000_000n;
 
+/**
+ * Whether a failed simulation or gas estimate is worth trying again: a node with no header for the block, a rate
+ * limit or a network error is; the contract's revert is not, and neither is anvil's calldata-floor refusal, which
+ * `send` answers with a fixed gas limit.
+ */
+const tryAgain = (e: unknown): boolean => {
+  const reverted = e instanceof BaseError && e.walk((x) => x instanceof ContractFunctionRevertedError && x.raw !== undefined) !== null;
+  return !reverted && !/gas floor exceeds the gas limit/.test(String((e as Error)?.message));
+};
+
 /** JSON-safe: bigints become decimal strings. */
 const plain = (v: J): J => JSON.parse(JSON.stringify(v, (_k, x) => (typeof x === 'bigint' ? x.toString() : x)));
 
@@ -157,36 +173,96 @@ export class RoundChain {
   }
 
   link = (tx: string) => (this.explorer ? `${this.explorer}/tx/${tx}` : tx);
-  private read = <T>(contract: keyof typeof ABIS, address: string, functionName: string, args: unknown[]): Promise<T> =>
-    this.client.readContract({ address: getAddress(address), abi: ABIS[contract], functionName, args }) as Promise<T>;
+
+  /**
+   * How a read pinned to a block is retried. A load-balanced RPC (publicnode) can route it to a node that does not have
+   * the block yet, which answers an error ("header not found") instead of a state. Sepolia makes a block every 12 s, so
+   * 8 tries 2 s apart, 14 s of waiting, outlast a node one block behind [inferred].
+   */
+  pinnedRetry = { tries: 8, gapMs: 2000 };
+
+  /** The newest block this round has read a receipt from: its own sends, and the deals' transactions it read back. */
+  private seen = 0n;
+
+  /** `call`, tried again `pinnedRetry.gapMs` apart while `again` says its error is a node behind, up to `pinnedRetry.tries` times. */
+  private async behind<T>(call: () => Promise<T>, again: (e: unknown) => boolean = () => true): Promise<T> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await call();
+      } catch (e) {
+        if (attempt >= this.pinnedRetry.tries || !again(e)) throw e;
+        await new Promise((r) => setTimeout(r, this.pinnedRetry.gapMs));
+      }
+    }
+  }
+
+  /**
+   * A view call at the latest block, or at block `at`: the state after that block. Evidence read at the deal's last
+   * block is never the state from before its last transaction, as a node one block behind served it in round 1's
+   * 2026-11-05 run (3d and 10a). A pinned read that fails is tried again, and after its tries it throws: it never falls
+   * back to the latest block.
+   */
+  private read = async <T>(contract: keyof typeof ABIS, address: string, functionName: string, args: unknown[], at?: bigint): Promise<T> => {
+    const call = () => this.client.readContract({ address: getAddress(address), abi: ABIS[contract], functionName, args, ...(at === undefined ? {} : { blockNumber: at }) }) as Promise<T>;
+    return at === undefined ? call() : this.behind(call);
+  };
+
+  /**
+   * The block a read of the state now is pinned to: the latest block the RPC reports, or, when the node that answers is
+   * behind it, the block of the newest transaction this round has read a receipt from. A deal's starting balances read
+   * right after the round's own mint then include the mint, as its closing balances will [inferred from 3d and 10a].
+   */
+  async fresh(): Promise<bigint> {
+    const latest = await this.client.getBlockNumber({ cacheTime: 0 });
+    return latest > this.seen ? latest : this.seen;
+  }
   private get token() {
     return getAddress(this.deployment.token.address);
   }
 
-  /** `dealOf(id)`: the stage, the appeal state and the attempt. */
-  async deal(id: Hex): Promise<{ stage: string; appeal: string; attempt: number }> {
-    const d = await this.read<{ stage: number; appeal: number; attempt: number }>('rules', this.deployment.rules, 'dealOf', [id]);
+  /** `dealOf(id)`: the stage, the appeal state and the attempt, at the latest block or after block `at`. */
+  async deal(id: Hex, at?: bigint): Promise<{ stage: string; appeal: string; attempt: number }> {
+    const d = await this.read<{ stage: number; appeal: number; attempt: number }>('rules', this.deployment.rules, 'dealOf', [id], at);
     return { stage: STAGES[d.stage] ?? `stage ${d.stage}`, appeal: APPEAL_STATES[d.appeal] ?? `appeal ${d.appeal}`, attempt: d.attempt };
   }
 
-  /** CPP's payment state for the deal: what the escrow can still capture or refund, in base units. */
-  async payment(terms: J, id: Hex): Promise<{ collected: boolean; capturable: string; refundable: string }> {
-    const [collected, capturable, refundable] = await this.read<readonly [boolean, bigint, bigint]>('escrow', this.deployment.escrow, 'paymentState', [paymentHashOf(terms, id, this.deployment)]);
+  /** CPP's payment state for the deal: what the escrow can still capture or refund, in base units, at the latest block or after block `at`. */
+  async payment(terms: J, id: Hex, at?: bigint): Promise<{ collected: boolean; capturable: string; refundable: string }> {
+    const [collected, capturable, refundable] = await this.read<readonly [boolean, bigint, bigint]>('escrow', this.deployment.escrow, 'paymentState', [paymentHashOf(terms, id, this.deployment)], at);
     return { collected, capturable: capturable.toString(), refundable: refundable.toString() };
   }
 
-  async deliveryHashOf(id: Hex): Promise<Hex> {
-    return this.read<Hex>('rules', this.deployment.rules, 'deliveryHashOf', [id]);
+  /** `deliveryHashOf(id)`, at the latest block or after block `at` (the deal's last transaction's, once `finish` has read it). */
+  async deliveryHashOf(id: Hex, at?: bigint): Promise<Hex> {
+    return this.read<Hex>('rules', this.deployment.rules, 'deliveryHashOf', [id], at);
   }
 
-  /** Each address's test-token balance, bond and free bond in HoldbackBonds, in base units. */
-  async holdings(addresses: readonly string[]): Promise<Record<string, { token: string; bond: string; free: string }>> {
+  /**
+   * The transactions that touched deal `id` from block `from` to block `to`, by the chain's own logs: every
+   * HoldbackRules event carries the deal's ID as its first topic. So a step that neither the operators' events nor the
+   * round's own sends name still reaches the deal's record and its money (`flowOf`). A node behind `to` answers fewer
+   * logs, so the answer must hold every transaction in `known` (the deal's transactions with a HoldbackRules event);
+   * otherwise it is asked again (`pinnedRetry`), then this throws.
+   */
+  async dealTransactions(id: Hex, from: bigint, to: bigint, known: readonly Hex[]): Promise<Hex[]> {
+    const ask = async () => {
+      const logs = (await this.client.request({ method: 'eth_getLogs', params: [{ address: getAddress(this.deployment.rules), fromBlock: numberToHex(from), toBlock: numberToHex(to), topics: [null, id] }] } as never)) as Array<{ transactionHash: Hex }>;
+      const txs = [...new Set(logs.map((l) => l.transactionHash.toLowerCase() as Hex))];
+      const missing = known.filter((k) => !txs.includes(k.toLowerCase() as Hex));
+      if (missing.length) throw new Error(`the node's logs for ${id} from block ${from} to ${to} lack ${missing.join(', ')}: it is behind`);
+      return txs;
+    };
+    return this.behind(ask);
+  }
+
+  /** Each address's test-token balance, bond and free bond in HoldbackBonds, in base units, at the latest block or after block `at`. */
+  async holdings(addresses: readonly string[], at?: bigint): Promise<Record<string, { token: string; bond: string; free: string }>> {
     const out: Record<string, { token: string; bond: string; free: string }> = {};
     for (const a of addresses) {
       const [token, bond, free] = await Promise.all([
-        this.read<bigint>('token', this.token, 'balanceOf', [getAddress(a)]),
-        this.read<bigint>('bonds', this.deployment.bonds, 'bondOf', [getAddress(a), this.token]),
-        this.read<bigint>('bonds', this.deployment.bonds, 'freeOf', [getAddress(a), this.token]),
+        this.read<bigint>('token', this.token, 'balanceOf', [getAddress(a)], at),
+        this.read<bigint>('bonds', this.deployment.bonds, 'bondOf', [getAddress(a), this.token], at),
+        this.read<bigint>('bonds', this.deployment.bonds, 'freeOf', [getAddress(a), this.token], at),
       ]);
       out[a.toLowerCase()] = { token: token.toString(), bond: bond.toString(), free: free.toString() };
     }
@@ -197,9 +273,26 @@ export class RoundChain {
     return this.client.getBalance({ address: getAddress(a) });
   }
 
-  /** A mined transaction with its gas, block, the HoldbackRules calls it carried and its decoded logs. */
+  /**
+   * How many transactions `address` has mined as of block `atLeast` or later (`fresh`): the nonce it sends with next
+   * once that block is in. A node behind the block still counts the transaction before it (T-232), so the count is
+   * pinned there, asked again while a node has no header for it (`pinnedRetry`), and never read at the latest block.
+   */
+  async nonceAfter(address: string, atLeast: bigint): Promise<number> {
+    const at = await this.fresh();
+    const blockNumber = at > atLeast ? at : atLeast;
+    return this.behind(() => this.client.getTransactionCount({ address: getAddress(address), blockNumber }));
+  }
+
+  /**
+   * A mined transaction with its gas, block, the HoldbackRules calls it carried and its decoded logs. A node behind the
+   * transaction's block has no receipt for it yet, even right after waitForTransactionReceipt saw one on another node:
+   * a read that finds none is tried again (`pinnedRetry`), then throws.
+   */
   async transaction(tx: Hex): Promise<TxRecord> {
-    const [receipt, sent] = await Promise.all([this.client.getTransactionReceipt({ hash: tx }), this.client.getTransaction({ hash: tx })]);
+    const notYet = (e: unknown) => e instanceof TransactionReceiptNotFoundError || e instanceof TransactionNotFoundError;
+    const [receipt, sent] = await this.behind(() => Promise.all([this.client.getTransactionReceipt({ hash: tx }), this.client.getTransaction({ hash: tx })]), notYet);
+    if (receipt.blockNumber > this.seen) this.seen = receipt.blockNumber;
     const logs: TxRecord['logs'] = [];
     for (const log of receipt.logs) {
       const contract = this.contracts[log.address.toLowerCase()];
@@ -252,27 +345,67 @@ export class RoundChain {
     }
   }
 
+  /** The nonce each round key sends with next, after its last send here: a node behind that send still counts the one before. */
+  private readonly nonces = new Map<string, number>();
+
   /**
-   * Sends one call from a round key, past the operators, after simulating it so a refusal reads as the contract's
-   * revert, and waits for its receipt. The key pays the gas from its own Sepolia ETH.
+   * Sends one call from a round key, past the operators, and waits for its receipt. It simulates the call first, so a
+   * refusal reads as the contract's revert, then estimates its gas. Both read the state after the round's own last
+   * transaction (`fresh`), never a node's older latest block: in round 1's 2026-11-05 runs, 3b's bond deposit was
+   * simulated within 3 s of its approval on a node that had not seen the approval, and reverted TransferFromFailed
+   * (0x7939f424) in both runs. A node with no header for that block is tried again (`pinnedRetry`); a revert is not.
+   * The nonce is the larger of the pending count and the one after this key's last send here, for the same reason.
+   * The key pays the gas from its own Sepolia ETH, at most MAX_FEE_PER_GAS a unit (20 gwei, the cap `e2e-keys.ts
+   * topup` and the operators' funding lane use): above it the send is refused before it is signed, so a fee spike
+   * stops a scenario instead of draining the key's 0.04 Sepolia ETH.
    */
   async send(key: Hex, contract: keyof typeof ABIS, functionName: string, args: unknown[]): Promise<TxRecord> {
     const account = privateKeyToAccount(key);
     const chain = this.deployment.chainId === SEPOLIA_CHAIN_ID ? sepolia : foundry;
     const address = getAddress(contract === 'token' ? this.deployment.token.address : (this.deployment as J)[contract]);
-    const { request } = await this.client.simulateContract({ account, address, abi: ABIS[contract], functionName, args, chain });
-    const wallet = createWalletClient({ account, chain, transport: http(this.rpcUrl) });
-    let hash: Hex;
+    const abi = ABIS[contract];
+    const at = await this.fresh();
+    // The sender as an address: no nonce or fee is filled in for a simulation or an estimate. A node checks an
+    // eth_call's fee fields against the key's balance, so the fees go on the send alone.
+    const call = { account: account.address, address, abi, functionName, args, blockNumber: at };
+    await this.behind(() => this.client.simulateContract(call), tryAgain);
+    const fees = await this.client.estimateFeesPerGas({ chain });
+    if (fees.maxFeePerGas > MAX_FEE_PER_GAS) throw new Refusal(`refusing to send ${functionName}: the network asks ${formatGwei(fees.maxFeePerGas)} gwei per gas, above the ${formatGwei(MAX_FEE_PER_GAS)} gwei cap; run the scenario again once fees fall`);
+    let gas: bigint;
     try {
-      hash = await wallet.writeContract(request);
+      // A fifth more than the estimate: the call runs a block or more after the state it was estimated on.
+      gas = ((await this.behind(() => this.client.estimateContractGas(call), tryAgain)) * 6n) / 5n;
     } catch (e) {
       // anvil 1.0.0's eth_estimateGas refuses a call that costs less to run than its calldata floor (EIP-7623), such as
       // expireAppeal with the terms as input; the simulation above passed, so send it with a fixed limit instead.
       if (!/gas floor exceeds the gas limit/.test(String((e as Error).message))) throw e;
-      hash = await wallet.writeContract({ ...request, gas: DIRECT_GAS_LIMIT });
+      gas = DIRECT_GAS_LIMIT;
     }
+    const pending = await this.client.getTransactionCount({ address: account.address, blockTag: 'pending' });
+    const nonce = Math.max(pending, this.nonces.get(account.address) ?? 0);
+    const wallet = createWalletClient({ account, chain, transport: http(this.rpcUrl) });
+    const hash = await wallet.writeContract({ address, abi, functionName, args, chain, gas, nonce, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas });
+    this.nonces.set(account.address, nonce + 1);
     await this.client.waitForTransactionReceipt({ hash });
     return this.transaction(hash);
+  }
+
+  /**
+   * Resolves once none of `keys` (role → address) has a transaction pending, and refuses after `waitMs` while one
+   * has: another process may be sending from the round's keys. Round 1's 2026-11-05 runs from 19:07 and 19:35 UTC
+   * overlapped on the same keys, and each counted the other's deals. Two reads a node apart can show a transaction
+   * mined a moment ago as pending, so a pending send must last the whole wait.
+   */
+  async untilIdle(keys: Record<string, string>, o: { waitMs: number; gapMs: number } = { waitMs: 60_000, gapMs: 5000 }): Promise<void> {
+    for (const end = Date.now() + o.waitMs; ; await new Promise((r) => setTimeout(r, o.gapMs))) {
+      const busy: string[] = [];
+      for (const [role, address] of Object.entries(keys)) {
+        const [mined, pending] = await Promise.all([this.client.getTransactionCount({ address: getAddress(address), blockTag: 'latest' }), this.client.getTransactionCount({ address: getAddress(address), blockTag: 'pending' })]);
+        if (pending > mined) busy.push(`the ${role} ${address} has ${pending - mined} transaction(s) pending (nonce ${mined} mined, ${pending} pending)`);
+      }
+      if (!busy.length) return;
+      if (Date.now() >= end) throw new Refusal(`refusing to start: ${busy.join('; ')}, and still after ${Math.round(o.waitMs / 1000)} s; another run may be sending from the round's keys. Run again once it ends`);
+    }
   }
 
   /**

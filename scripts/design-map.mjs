@@ -2,7 +2,7 @@
 // Run at each milestone: `pnpm map`, then republish the page (see .claude/commands/map.md).
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -28,8 +28,11 @@ export function workFeed() {
     .filter(Boolean)
     .map((record) => {
       const [sha, date, subject, body] = record.split('\x1f');
-      const pr = subject.match(/^Merge pull request #(\d+)/);
-      const title = pr ? (body ?? '').split('\n')[0].trim() || subject : subject;
+      // a merge commit ("Merge pull request #12 …") or a squash merge ("feat: … (#12)")
+      const merged = subject.match(/^Merge pull request #(\d+)/);
+      const squashed = subject.match(/ \(#(\d+)\)$/);
+      const pr = merged ?? squashed;
+      const title = merged ? (body ?? '').split('\n')[0].trim() || subject : subject.replace(/ \(#\d+\)$/, '');
       const type = title.match(/^(\w+)(?:\(([^)]+)\))?:/);
       return { sha, date, pr: pr ? Number(pr[1]) : null, title, type: type ? type[1] : 'commit', scope: type?.[2] ?? null };
     });
@@ -94,6 +97,39 @@ export function tasks() {
   });
 }
 
+// The public repo holds the current build and its record only (Rafa, 2026-11-07): later phases, proposed rows and
+// the backlog are planned privately, so the map reads none of them.
+
+// docs/team.md, Change recipes: one row per kind of change.
+export function recipes() {
+  const body = section(read('docs/team.md'), '## Change recipes');
+  return [...body.matchAll(/^\| (\d+)\. (.+?) \| (.+?) \| (.+?) \| (.+?) \| (.+?) \| (.+?) \|$/gm)].map((m) => ({
+    kind: Number(m[1]), name: m[2], paths: m[3], checks: m[4], review: m[5], approves: m[6], budget: m[7],
+  }));
+}
+
+// The daily log is not part of this repository: the maintainers keep it privately (docs/private-materials.md). A
+// caller that holds the log passes its folder as { logDir }, absolute or relative to the repository root. Without the
+// option the map reads docs/log/ when the checkout has that folder. With no folder, or no entry in it, the Live and
+// Waiting lists are empty and the page shows NO_LOG_NOTE in their place; nothing throws.
+export const NO_LOG_NOTE = 'This build has no daily log, so the map shows no live list and no waiting list. The maintainers keep the log privately.';
+
+// The newest entry of the daily log, by file name (YYYY-MM-DD.md): its date and its text, or null without one.
+function newestLog({ logDir } = {}) {
+  const dir = logDir ? resolve(root, logDir) : join(root, 'docs/log');
+  if (!existsSync(dir)) return null;
+  const name = readdirSync(dir).filter((f) => /^\d{4}-\d{2}-\d{2}\.md$/.test(f)).sort().at(-1);
+  return name ? { date: name.slice(0, 10), text: readFileSync(join(dir, name), 'utf8') } : null;
+}
+
+// The newest daily log entry: its date, its lead paragraph and its "## Live" bullets.
+export function live(options) {
+  const log = newestLog(options);
+  if (!log) return { date: '', lead: '', items: [], note: NO_LOG_NOTE };
+  const lead = log.text.split('\n').find((l) => /^\*\*/.test(l)) ?? '';
+  return { date: log.date, lead, items: bullets(section(log.text, '## Live')) };
+}
+
 export function phases(allTasks) {
   const text = read('docs/plan.md');
   const parts = text.split(/^## Phase (\d+): (.+)$/m);
@@ -106,8 +142,8 @@ export function phases(allTasks) {
     const own = allTasks.filter((t) => t.phase === n);
     const done = own.length > 0 && own.every((t) => t.status === 'done');
     const active = own.some((t) => t.status === 'in progress' || t.status === 'review');
-    // every planned line of the phase ("- T-201 …", "- [x] T-013 …", "- D4 decided …"), for the roadmap; a phase with
-    // no task IDs yet (Phase 5 onward) shows all its lines, so later work is visible before it has task files
+    // every planned line of the phase ("- T-201 …", "- [x] T-013 …", "- D4 decided …"); a phase with no task IDs shows
+    // all its lines
     const plan = body.split('**Exit:**')[0];
     const lines = [...plan.matchAll(/^- (?:\[([ x])\] )?(.+)$/gm)]
       .map((m) => ({ checked: m[1] === 'x', id: m[2].match(/^(T-\d+[a-z]?)\b/)?.[1] ?? null, text: m[2].replace(/^T-\d+[a-z]?\b\s*/, '').replace(/\s+/g, ' ').trim() }));
@@ -157,13 +193,14 @@ export function reviews() {
     });
 }
 
-export function waiting() {
-  const logs = list('docs/log', /^\d{4}-\d{2}-\d{2}\.md$/);
-  if (!logs.length) return [];
-  return bullets(section(read(`docs/log/${logs.at(-1)}`), '## Waiting on Rafa'));
+// The newest daily log entry's "## Waiting on Rafa" bullets; none without a log.
+export function waiting(options) {
+  const log = newestLog(options);
+  return log ? bullets(section(log.text, '## Waiting on Rafa')) : [];
 }
 
-export function collect() {
+// options.logDir: the daily log's folder (see newestLog)
+export function collect(options = {}) {
   const allTasks = tasks();
   return {
     generatedFrom: { commit: git(['rev-parse', '--short', 'HEAD']), date: git(['log', '-1', '--format=%cI']) },
@@ -175,15 +212,17 @@ export function collect() {
     api: api(),
     schema: schema(),
     reviews: reviews(),
-    waiting: waiting(),
+    waiting: waiting(options),
+    recipes: recipes(),
+    live: live(options),
   };
 }
 
-export function build() {
+export function build(options = {}) {
   const template = read('tools/design-map/template.html');
   const marker = '/*__MAP_DATA__*/null';
   if (!template.includes(marker)) throw new Error(`template is missing ${marker}`);
-  const data = JSON.stringify(collect()).replace(/</g, '\\u003c');
+  const data = JSON.stringify(collect(options)).replace(/</g, '\\u003c');
   return template.replace(marker, data);
 }
 
@@ -191,6 +230,10 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const outDir = join(root, 'reports');
   if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
   const out = join(outDir, 'design-map.html');
-  writeFileSync(out, build());
+  // --log-dir <folder>: the daily log's folder, for a maintainer who holds it
+  const at = process.argv.indexOf('--log-dir');
+  const options = at > 0 && process.argv[at + 1] ? { logDir: resolve(process.argv[at + 1]) } : {};
+  writeFileSync(out, build(options));
   console.log(`design map written: ${out}`);
+  if (live(options).note) console.log(`no daily log${options.logDir ? ` in ${options.logDir}` : ''}: the Live and Waiting lists are empty, and the page says so`);
 }

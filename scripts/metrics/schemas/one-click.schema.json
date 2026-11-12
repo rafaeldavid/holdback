@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://escrow.stream/metrics/schemas/one-click.schema.json",
+  "title": "one-click/<runId>.json: one harness run of a fresh assistant from the homepage prompt to a settled deal (T-066)",
+  "type": "object",
+  "$ref": "common.schema.json#/$defs/Envelope",
+  "unevaluatedProperties": false,
+  "required": ["runId", "scenario", "harness", "prompt", "model", "outcome", "approvals", "tokens", "cost", "time", "cloudflare", "errors", "timedOut"],
+  "properties": {
+    "schema": { "const": "crow.metrics.one-click/1" },
+    "runId": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}Z-(buyer|seller)$" },
+    "scenario": { "enum": ["buyer", "seller"] },
+    "harness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sdkVersion", "claudeCodeVersion", "maxReplies", "timeoutMs"],
+      "properties": {
+        "sdkVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "claudeCodeVersion": { "type": ["string", "null"], "pattern": "^\\d+\\.\\d+\\.\\d+" , "maxLength": 40 },
+        "maxReplies": { "$ref": "common.schema.json#/$defs/Count" },
+        "timeoutMs": { "$ref": "common.schema.json#/$defs/Ms" }
+      }
+    },
+    "prompt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "source", "matchesExpected"],
+      "properties": {
+        "text": { "type": "string", "maxLength": 2000 },
+        "source": { "type": "string", "maxLength": 200 },
+        "matchesExpected": { "type": "boolean" }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requested", "init", "effortRequested", "effortApplied", "effortSource"],
+      "properties": {
+        "requested": { "type": ["string", "null"], "pattern": "^[a-z0-9.@-]{1,64}$" },
+        "init": { "type": ["string", "null"], "pattern": "^[a-z0-9.@\\[\\]-]{1,64}$" },
+        "effortRequested": { "enum": ["low", "medium", "high", "xhigh", "max", null] },
+        "effortApplied": { "enum": ["low", "medium", "high", "xhigh", "max", null] },
+        "effortSource": { "enum": ["hook", "none"] }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "commitmentId", "txs", "releasedAtMs"],
+      "properties": {
+        "state": { "enum": ["Released", "Refunded", "stopped", "timedOut"] },
+        "commitmentId": { "oneOf": [{ "type": "null" }, { "$ref": "common.schema.json#/$defs/Hex32" }] },
+        "txs": { "type": "array", "maxItems": 20, "items": { "$ref": "common.schema.json#/$defs/Hex32" } },
+        "releasedAtMs": { "$ref": "common.schema.json#/$defs/MsOrNull" }
+      }
+    },
+    "approvals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "toolPermission", "conversational", "byTool", "requests"],
+      "properties": {
+        "total": { "$ref": "common.schema.json#/$defs/Count" },
+        "toolPermission": { "$ref": "common.schema.json#/$defs/Count" },
+        "conversational": { "$ref": "common.schema.json#/$defs/Count" },
+        "byTool": {
+          "type": "object",
+          "maxProperties": 40,
+          "propertyNames": { "pattern": "^[A-Za-z0-9_]{1,64}$" },
+          "additionalProperties": { "$ref": "common.schema.json#/$defs/Count" }
+        },
+        "requests": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["atMs", "tool", "summary"],
+            "properties": {
+              "atMs": { "$ref": "common.schema.json#/$defs/Ms" },
+              "tool": { "type": "string", "pattern": "^[A-Za-z0-9_]{1,64}$" },
+              "summary": { "type": "string", "maxLength": 300 }
+            }
+          }
+        }
+      }
+    },
+    "tokens": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["byModel", "sdkUsage", "numTurns"],
+      "properties": {
+        "byModel": {
+          "type": "object",
+          "maxProperties": 10,
+          "propertyNames": { "pattern": "^[a-z0-9.@\\[\\]-]{1,64}$" },
+          "additionalProperties": { "$ref": "#/$defs/Tokens" }
+        },
+        "sdkUsage": { "type": ["object", "null"] },
+        "numTurns": { "$ref": "common.schema.json#/$defs/CountOrNull" }
+      }
+    },
+    "cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["atOpus55", "sdk", "deltaBps"],
+      "properties": {
+        "atOpus55": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["usdMicros", "byModel", "priceTable"],
+          "properties": {
+            "usdMicros": { "$ref": "common.schema.json#/$defs/UsdMicrosOrNull" },
+            "byModel": {
+              "type": "object",
+              "maxProperties": 10,
+              "propertyNames": { "pattern": "^[a-z0-9.@\\[\\]-]{1,64}$" },
+              "additionalProperties": { "$ref": "common.schema.json#/$defs/UsdMicros" }
+            },
+            "priceTable": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["file", "model", "source", "readOn"],
+              "properties": {
+                "file": { "const": "config/model-prices.json" },
+                "model": { "const": "claude-opus-5-5" },
+                "source": { "type": "string", "pattern": "^https://", "maxLength": 200 },
+                "readOn": { "$ref": "common.schema.json#/$defs/Day" }
+              }
+            }
+          }
+        },
+        "sdk": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["totalCostUsd", "byModel"],
+          "properties": {
+            "totalCostUsd": { "type": ["string", "null"], "pattern": "^[0-9]+(\\.[0-9]+)?(e-?[0-9]+)?$" },
+            "byModel": {
+              "type": "object",
+              "maxProperties": 10,
+              "propertyNames": { "pattern": "^[a-z0-9.@\\[\\]-]{1,64}$" },
+              "additionalProperties": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?(e-?[0-9]+)?$" }
+            }
+          }
+        },
+        "deltaBps": { "type": ["integer", "null"] }
+      }
+    },
+    "time": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["wallMs", "modelMs", "toolMs", "approvalWaitMs", "otherMs", "sdkDurationMs"],
+      "properties": {
+        "wallMs": { "$ref": "common.schema.json#/$defs/Ms" },
+        "modelMs": { "$ref": "common.schema.json#/$defs/MsOrNull" },
+        "toolMs": { "$ref": "common.schema.json#/$defs/Ms" },
+        "approvalWaitMs": { "$ref": "common.schema.json#/$defs/Ms" },
+        "otherMs": { "type": ["integer", "null"] },
+        "sdkDurationMs": { "$ref": "common.schema.json#/$defs/MsOrNull" }
+      }
+    },
+    "cloudflare": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["basis", "window", "otherDealsInWindow", "workers"],
+          "properties": {
+            "basis": { "const": "tail" },
+            "window": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["from", "to"],
+              "properties": {
+                "from": { "$ref": "common.schema.json#/$defs/Iso" },
+                "to": { "$ref": "common.schema.json#/$defs/Iso" }
+              }
+            },
+            "otherDealsInWindow": { "$ref": "common.schema.json#/$defs/CountOrNull" },
+            "workers": {
+              "type": "object",
+              "maxProperties": 5,
+              "propertyNames": { "enum": ["holdback-op1", "holdback-op2", "crow-test-agents"] },
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["requests", "cpuMs", "wallMs", "durableObjectRequests", "durableObjectWallMs"],
+                "properties": {
+                  "requests": { "$ref": "common.schema.json#/$defs/Count" },
+                  "cpuMs": { "$ref": "common.schema.json#/$defs/CountOrNull" },
+                  "wallMs": { "$ref": "common.schema.json#/$defs/CountOrNull" },
+                  "durableObjectRequests": { "$ref": "common.schema.json#/$defs/Count" },
+                  "durableObjectWallMs": { "$ref": "common.schema.json#/$defs/CountOrNull" }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "errors": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 300 } },
+    "timedOut": { "type": "boolean" }
+  },
+  "$defs": {
+    "Tokens": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input", "cacheWrite5m", "cacheWrite1h", "cacheRead", "output", "thinking"],
+      "properties": {
+        "input": { "$ref": "common.schema.json#/$defs/Count" },
+        "cacheWrite5m": { "$ref": "common.schema.json#/$defs/Count" },
+        "cacheWrite1h": { "$ref": "common.schema.json#/$defs/Count" },
+        "cacheRead": { "$ref": "common.schema.json#/$defs/Count" },
+        "output": { "$ref": "common.schema.json#/$defs/Count" },
+        "thinking": { "$ref": "common.schema.json#/$defs/CountOrNull" }
+      }
+    }
+  }
+}

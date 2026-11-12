@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://escrow.stream/metrics/schemas/model-prices.schema.json",
+  "title": "config/model-prices.json: public list prices per model, micro-USD per million tokens (T-066, shared with T-053)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["unit", "readOn", "models"],
+  "properties": {
+    "unit": { "const": "micro-USD per million tokens" },
+    "readOn": { "$ref": "common.schema.json#/$defs/Day" },
+    "note": { "type": "string", "maxLength": 1000 },
+    "models": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-z0-9.-]{1,64}$" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["input", "cacheWrite5m", "cacheWrite1h", "cacheRead", "output", "source", "readOn"],
+        "properties": {
+          "input": { "$ref": "#/$defs/Price" },
+          "cacheWrite5m": { "$ref": "#/$defs/Price" },
+          "cacheWrite1h": { "$ref": "#/$defs/Price" },
+          "cacheRead": { "$ref": "#/$defs/Price" },
+          "output": { "$ref": "#/$defs/Price" },
+          "fast": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["input", "output"],
+            "properties": { "input": { "$ref": "#/$defs/Price" }, "output": { "$ref": "#/$defs/Price" } }
+          },
+          "overPromptTokens": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["threshold", "input", "cacheWrite5m", "cacheWrite1h", "cacheRead", "output"],
+            "properties": {
+              "threshold": { "type": "integer", "minimum": 1 },
+              "input": { "$ref": "#/$defs/Price" },
+              "cacheWrite5m": { "$ref": "#/$defs/Price" },
+              "cacheWrite1h": { "$ref": "#/$defs/Price" },
+              "cacheRead": { "$ref": "#/$defs/Price" },
+              "output": { "$ref": "#/$defs/Price" }
+            }
+          },
+          "offPeak": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["input", "cacheRead", "output"],
+            "properties": { "input": { "$ref": "#/$defs/Price" }, "cacheRead": { "$ref": "#/$defs/Price" }, "output": { "$ref": "#/$defs/Price" } }
+          },
+          "peakHoursUtc": { "type": "array", "items": { "type": "string", "pattern": "^\\d{2}:\\d{2}-\\d{2}:\\d{2}$" } },
+          "peakDays": { "type": "string", "maxLength": 200 },
+          "pricesNote": { "type": "string", "maxLength": 400 },
+          "source": { "type": "string", "pattern": "^https://", "maxLength": 200 },
+          "readOn": { "$ref": "common.schema.json#/$defs/Day" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "Price": { "type": "integer", "minimum": 0, "maximum": 1000000000 }
+  }
+}

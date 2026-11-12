@@ -1,0 +1,317 @@
+[
+  {
+    "seq": 171,
+    "type": "commitment.offered",
+    "commitmentId": "0xa93a4a1d24e0cf57c846d17cdaa65094f8df73d5707ed142c35c532916d88f93",
+    "at": "2026-11-05T13:36:04Z",
+    "actor": "0x143688fa3886debfb55294a0d8ab12daf55ef4dc",
+    "submittedVia": "demo-op-1",
+    "payload": {
+      "source": "adapter",
+      "termsHash": "0xa93a4a1d24e0cf57c846d17cdaa65094f8df73d5707ed142c35c532916d88f93",
+      "terms": {
+        "schemaVersion": "0.7",
+        "clubId": "demo-club",
+        "rulebookHash": "0x3fecb058383da073d562995df281fbd28dc895c3f7c93e7114266f607218d108",
+        "buyer": "0x4bb29b65206d3eb3b8a6de8abe3f4e5911df0cfc",
+        "seller": "0x143688fa3886debfb55294a0d8ab12daf55ef4dc",
+        "deliverable": {
+          "kind": "dataset",
+          "description": "customers.csv, one row per customer",
+          "format": "text/csv"
+        },
+        "acceptance": {
+          "deterministicChecks": [
+            {
+              "id": "cols",
+              "type": "csv_columns_exact",
+              "required": true,
+              "columns": [
+                "customer_id",
+                "email"
+              ]
+            },
+            {
+              "id": "rows",
+              "type": "row_count_range",
+              "required": true,
+              "min": 3,
+              "max": 3
+            },
+            {
+              "id": "uniq",
+              "type": "unique_key",
+              "required": true,
+              "columns": [
+                "customer_id"
+              ]
+            }
+          ],
+          "rubric": {
+            "criteria": [],
+            "passThreshold": 0
+          }
+        },
+        "price": {
+          "token": "0x5029787d7e141f2d51788035cc23903652d196b6",
+          "amount": "25000000"
+        },
+        "adjudication": {
+          "adjudicator": "0x71f8a3e163528c773fb358a718294a0b32697c9e",
+          "fallbackAdjudicator": "0x594a2253389936fc7b75d8857f5489cd83de68a2",
+          "appealAdjudicator": "0xdee00363a7209239d704b4552f0c5965b6afd286",
+          "policyId": "demo-adjudicator-a/p1",
+          "fee": {
+            "token": "0x5029787d7e141f2d51788035cc23903652d196b6",
+            "amount": "1000000"
+          },
+          "registryHash": "0x6dc7342b9458a837ec3df4b86b4cbca6e5ac9629aa11be17fbb24d4248e001fd",
+          "policyHash": "0xb572460b14ffe4145d30e86f68eb4e01fa0719cd3961cc0bcbad4172a46c3eac"
+        },
+        "timing": {
+          "offerExpiresAt": "2026-11-05T14:06:04Z",
+          "fundBy": "2026-11-05T14:16:04Z",
+          "deliverBy": "2026-11-05T14:36:04Z",
+          "judgeBy": "2026-11-05T14:37:04Z",
+          "fallbackBy": "2026-11-05T14:38:04Z",
+          "appealWindowSec": 60,
+          "appealDecideSec": 60,
+          "maxSubmissions": 1
+        },
+        "settlement": {
+          "mode": "guaranteed_on_decision",
+          "token": "0x5029787d7e141f2d51788035cc23903652d196b6"
+        },
+        "remedy": {
+          "onReject": "full_refund"
+        },
+        "disclosure": {
+          "level": "public"
+        },
+        "buyerEncryptionPublicKey": "-tQgr0ecxJKGHGhrbypqXv9chbI7iSkhwT7bFLJIFQQ",
+        "nonce": "0xaec1a1d3280675fb8e17a1b3fbcc90fd4445c4bbe7998bd9024ebbb223ff85de",
+        "createdAt": "2026-11-05T13:36:04Z"
+      },
+      "sellerSignature": "0xbb2e1e1ec2cd26494543a32ed498567be09818499c6904ca4e0abff759c9f6e6182c079282be8e3437585b5187323680b241883bb67a96366454058d823060931c"
+    },
+    "prevHash": "0x1d3097b87b0e35de3b314fc173ff15c11bc9bf9e4f43dcf123157500ec988c7a",
+    "hash": "0xdbd1c599e26bfd30cc141b7c42da8ac38ee5c71fad0e2cf40db634982603193d"
+  },
+  {
+    "seq": 172,
+    "type": "adjudicator.accepted",
+    "commitmentId": "0xa93a4a1d24e0cf57c846d17cdaa65094f8df73d5707ed142c35c532916d88f93",
+    "at": "2026-11-05T13:36:06Z",
+    "actor": "0x71f8a3e163528c773fb358a718294a0b32697c9e",
+    "submittedVia": "direct",
+    "payload": {
+      "source": "adapter",
+      "seedCommitment": "0x81ad7341f09a5bbd10180a1de2542eb7d004bc4e4bf211712a7132c6e18322d0",
+      "bondRequired": {
+        "token": "0x5029787d7e141f2d51788035cc23903652d196b6",
+        "amount": "25000000"
+      },
+      "freeBond": {
+        "token": "0x5029787d7e141f2d51788035cc23903652d196b6",
+        "amount": "24975000000"
+      },
+      "acceptance": {
+        "type": "AdjudicatorAcceptance",
+        "commitmentId": "0xa93a4a1d24e0cf57c846d17cdaa65094f8df73d5707ed142c35c532916d88f93",
+        "adjudicator": "0x71f8a3e163528c773fb358a718294a0b32697c9e",
+        "seedCommitment": "0x81ad7341f09a5bbd10180a1de2542eb7d004bc4e4bf211712a7132c6e18322d0",
+        "policyHash": "0xb572460b14ffe4145d30e86f68eb4e01fa0719cd3961cc0bcbad4172a46c3eac",
+        "registryHash": "0x6dc7342b9458a837ec3df4b86b4cbca6e5ac9629aa11be17fbb24d4248e001fd",
+        "fee": {
+          "token": "0x5029787d7e141f2d51788035cc23903652d196b6",
+          "amount": "1000000"
+        },
+        "bondReserved": {
+          "token": "0x5029787d7e141f2d51788035cc23903652d196b6",
+          "amount": "25000000"
+        },
+        "nonce": "0xcf074abf0dd2637e482059e0852b53f5bef1760c33e2633f77ba6cedd72612f3",
+        "expiresAt": "2026-11-05T14:06:04Z",
+        "signature": "0x69d78163ea79efbdc3ee9d90c87cd6d1f8e47377065c16802ac35ab83950117e470e084f11c8b2634e78c22297f79fdd39b646a82ad893fa7a24f948bde197fa1b"
+      }
+    },
+    "prevHash": "0xdbd1c599e26bfd30cc141b7c42da8ac38ee5c71fad0e2cf40db634982603193d",
+    "hash": "0x8f6dfed9e67755efe4383358915af3a8d46cf09dac1ebb6a4ad1ab691a20b094"
+  },
+  {
+    "seq": 173,
+    "type": "commitment.agreed",
+    "commitmentId": "0xa93a4a1d24e0cf57c846d17cdaa65094f8df73d5707ed142c35c532916d88f93",
+    "at": "2026-11-05T13:36:12Z",
+    "actor": "0x4bb29b65206d3eb3b8a6de8abe3f4e5911df0cfc",
+    "submittedVia": "demo-op-1",
+    "payload": {
+      "source": "adapter",
+      "termsHash": "0xa93a4a1d24e0cf57c846d17cdaa65094f8df73d5707ed142c35c532916d88f93"
+    },
+    "prevHash": "0x8f6dfed9e67755efe4383358915af3a8d46cf09dac1ebb6a4ad1ab691a20b094",
+    "hash": "0x00abafe73aff5f53e41eba3ba4590cf32706051359e699c2e60c09cbf43b6bb0"
+  },
+  {
+    "seq": 174,
+    "type": "fee.operator",
+    "commitmentId": "0xa93a4a1d24e0cf57c846d17cdaa65094f8df73d5707ed142c35c532916d88f93",
+    "at": "2026-11-05T13:36:12Z",
+    "actor": "0x4bb29b65206d3eb3b8a6de8abe3f4e5911df0cfc",
+    "submittedVia": "demo-op-1",
+    "payload": {
+      "from": "0x4bb29b65206d3eb3b8a6de8abe3f4e5911df0cfc",
+      "to": "0x966216a0e06a6d78197714e221a1958e3c7b1ae2",
+      "amount": {
+        "token": "0x5029787d7e141f2d51788035cc23903652d196b6",
+        "amount": "4710000"
+      },
+      "tx": "0x3654fd4aae3b48e019ec4ce4f22293f7539684f17073073378d450a9018045fe",
+      "block": "12069814",
+      "sender": "0x5e7f1a8c06f357e8e321ba33a3ffb0b4a0fd3243",
+      "gasUsed": "644881"
+    },
+    "prevHash": "0x00abafe73aff5f53e41eba3ba4590cf32706051359e699c2e60c09cbf43b6bb0",
+    "hash": "0xc0befc0f1a5a3452fa784fa59e445ed327252bcf6f53848cc3f89039615eccd4"
+  },
+  {
+    "seq": 175,
+    "type": "hold.funded",
+    "commitmentId": "0xa93a4a1d24e0cf57c846d17cdaa65094f8df73d5707ed142c35c532916d88f93",
+    "at": "2026-11-05T13:36:12Z",
+    "actor": "0x4bb29b65206d3eb3b8a6de8abe3f4e5911df0cfc",
+    "submittedVia": "demo-op-1",
+    "payload": {
+      "amount": {
+        "token": "0x5029787d7e141f2d51788035cc23903652d196b6",
+        "amount": "26000000"
+      },
+      "tx": "0x3654fd4aae3b48e019ec4ce4f22293f7539684f17073073378d450a9018045fe",
+      "block": "12069814",
+      "sender": "0x5e7f1a8c06f357e8e321ba33a3ffb0b4a0fd3243",
+      "gasUsed": "644881"
+    },
+    "prevHash": "0xc0befc0f1a5a3452fa784fa59e445ed327252bcf6f53848cc3f89039615eccd4",
+    "hash": "0x3a19d90e340093d947954dc18587b4ba31038c437a88198b9d39fde0b414140c"
+  },
+  {
+    "seq": 176,
+    "type": "delivery.submitted",
+    "commitmentId": "0xa93a4a1d24e0cf57c846d17cdaa65094f8df73d5707ed142c35c532916d88f93",
+    "at": "2026-11-05T13:36:36Z",
+    "actor": "0x143688fa3886debfb55294a0d8ab12daf55ef4dc",
+    "submittedVia": "demo-op-1",
+    "payload": {
+      "attempt": 1,
+      "deliveryHash": "0xaeaca0a55fb238e15ad3f6e15bd6213fb1996d9bed3b8b1c3ed22338f3412a63",
+      "plaintextSha256": "sha256:0fc4a14d8c7cede377e83cccfa5348ad213f008b19a907de223d480383b7aa7d",
+      "ciphertext": {
+        "uri": "https://api.escrow.stream/v1/ciphertext/sha256:83b9fde0144346ca003b5e0f36cf350ab61c360ca9f596f77b77589507f082da",
+        "sha256": "sha256:83b9fde0144346ca003b5e0f36cf350ab61c360ca9f596f77b77589507f082da",
+        "bytes": 103,
+        "cipher": "aes-256-gcm"
+      },
+      "tx": "0xe487d6db48c511fbdc529d8b9447abadb8c33cb7660cafcbf719db5ee9e97ab9",
+      "block": "12069815",
+      "sender": "0x5e7f1a8c06f357e8e321ba33a3ffb0b4a0fd3243",
+      "gasUsed": "173131"
+    },
+    "prevHash": "0x3a19d90e340093d947954dc18587b4ba31038c437a88198b9d39fde0b414140c",
+    "hash": "0xa0d57780b1c6b9b070aef1514354e121b4b79c9bbf5622399b29233de63420ee"
+  },
+  {
+    "seq": 177,
+    "type": "key.released",
+    "commitmentId": "0xa93a4a1d24e0cf57c846d17cdaa65094f8df73d5707ed142c35c532916d88f93",
+    "at": "2026-11-05T13:36:36Z",
+    "actor": "0x143688fa3886debfb55294a0d8ab12daf55ef4dc",
+    "submittedVia": "demo-op-1",
+    "payload": {
+      "source": "adapter",
+      "recipient": "0x71f8a3e163528c773fb358a718294a0b32697c9e",
+      "envelope": {
+        "recipient": "0x71f8a3e163528c773fb358a718294a0b32697c9e",
+        "scheme": "x25519-xsalsa20poly1305",
+        "ciphertext": "Dnpk0EiWjJABeSWPP37FwycN5ZfXKC1BLI6BMK3rjAc6mrYFnphSUS5TjAUfUl03NNfENoYHoB7M0_0UCURQ-jxXQQbvC5raBs6feW9HUGMiL-BtX0bMtlOQubYn-l5ltd7ZztISQrU"
+      },
+      "path": "delivery"
+    },
+    "prevHash": "0xa0d57780b1c6b9b070aef1514354e121b4b79c9bbf5622399b29233de63420ee",
+    "hash": "0x80f0875deabf3c4723ce43ab26a672f5ecf3f679171a27fb773217b4442c25d8"
+  },
+  {
+    "seq": 178,
+    "type": "judgment.decided",
+    "commitmentId": "0xa93a4a1d24e0cf57c846d17cdaa65094f8df73d5707ed142c35c532916d88f93",
+    "at": "2026-11-05T13:36:48Z",
+    "actor": "0x71f8a3e163528c773fb358a718294a0b32697c9e",
+    "submittedVia": "direct",
+    "payload": {
+      "role": "primary",
+      "outcome": "accept",
+      "recordHash": "0xf5a3a8b8bc25e51f73b184c15584fbbc925dd7e3975f0fac04e2a49fc0997f46",
+      "seedSource": "commit-reveal",
+      "tx": "0xa89b44f319c6ae52faf614f07be6f5ded41adf6fae8fcbd132cae588d6d76653",
+      "block": "12069816",
+      "sender": "0x5e7f1a8c06f357e8e321ba33a3ffb0b4a0fd3243",
+      "gasUsed": "173295"
+    },
+    "prevHash": "0x80f0875deabf3c4723ce43ab26a672f5ecf3f679171a27fb773217b4442c25d8",
+    "hash": "0x3ddbd6b5ba9d206b08954fd4c2cf935da6c8585dc3ae4c34a20cf71db93c617a"
+  },
+  {
+    "seq": 179,
+    "type": "settlement.released",
+    "commitmentId": "0xa93a4a1d24e0cf57c846d17cdaa65094f8df73d5707ed142c35c532916d88f93",
+    "at": "2026-11-05T13:36:48Z",
+    "actor": "0x71f8a3e163528c773fb358a718294a0b32697c9e",
+    "submittedVia": "direct",
+    "payload": {
+      "tx": "0xa89b44f319c6ae52faf614f07be6f5ded41adf6fae8fcbd132cae588d6d76653",
+      "block": "12069816",
+      "sender": "0x5e7f1a8c06f357e8e321ba33a3ffb0b4a0fd3243",
+      "gasUsed": "173295"
+    },
+    "prevHash": "0x3ddbd6b5ba9d206b08954fd4c2cf935da6c8585dc3ae4c34a20cf71db93c617a",
+    "hash": "0x9e35a3fc643e5d67d686be870757437ea9165e830cf13c2d86efb28ddfa12068"
+  },
+  {
+    "seq": 180,
+    "type": "key.released",
+    "commitmentId": "0xa93a4a1d24e0cf57c846d17cdaa65094f8df73d5707ed142c35c532916d88f93",
+    "at": "2026-11-05T13:36:48Z",
+    "actor": "0x71f8a3e163528c773fb358a718294a0b32697c9e",
+    "submittedVia": "direct",
+    "payload": {
+      "recipient": "0x4bB29B65206d3eB3b8A6DE8AbE3f4e5911df0cFc",
+      "envelope": {
+        "recipient": "0x4bB29B65206d3eB3b8A6DE8AbE3f4e5911df0cFc",
+        "scheme": "x25519-xsalsa20poly1305",
+        "ciphertext": "JqmwsKS9ZrfgD5ZRKpAvkobFNt_DwtJEHKErJLWFqHyHTDwa-VvPBnjTaQWpkfyaUdiX_Fi9Yp58MO7L9rXsC7rDeF_9QjqCfp5el3kllucEXBKH_KsXaKDHG2Nuy7J0ONjmL7p1P00"
+      },
+      "path": "decision",
+      "tx": "0xa89b44f319c6ae52faf614f07be6f5ded41adf6fae8fcbd132cae588d6d76653",
+      "block": "12069816",
+      "sender": "0x5e7f1a8c06f357e8e321ba33a3ffb0b4a0fd3243",
+      "gasUsed": "173295"
+    },
+    "prevHash": "0x9e35a3fc643e5d67d686be870757437ea9165e830cf13c2d86efb28ddfa12068",
+    "hash": "0xa38900760cdc58302f8963c1aa9bd42ca26cf2b94aca1a7b4fb063f0e01c5769"
+  },
+  {
+    "seq": 181,
+    "type": "appeal.expired",
+    "commitmentId": "0xa93a4a1d24e0cf57c846d17cdaa65094f8df73d5707ed142c35c532916d88f93",
+    "at": "2026-11-05T13:38:00Z",
+    "actor": "anyone",
+    "submittedVia": "direct",
+    "payload": {
+      "tx": "0xbfa2aa88a97390e032cc90dc7fe650da215126c7c511177c065820c872180ea4",
+      "block": "12069822",
+      "sender": "0x5e7f1a8c06f357e8e321ba33a3ffb0b4a0fd3243",
+      "gasUsed": "80792"
+    },
+    "prevHash": "0xa38900760cdc58302f8963c1aa9bd42ca26cf2b94aca1a7b4fb063f0e01c5769",
+    "hash": "0x5c036a99139cb9868cf608076f95804e629b06b062c72f6d70a47b59ff137dc7"
+  }
+]

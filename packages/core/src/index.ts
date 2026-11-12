@@ -1,5 +1,6 @@
 export * from './beacon.js';
 export * from './canonical.js';
+export * from './chains.js';
 export * from './eip712.js';
 export * from './fee.js';
 export * from './money/index.js';
@@ -10,4 +11,5 @@ export * from './problem.js';
 export * from './result.js';
 export * from './state.js';
 export * from './timing.js';
+export * from './trim.js';
 export type * from './types.js';

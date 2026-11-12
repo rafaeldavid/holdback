@@ -1,23 +1,46 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error -- plain ESM helper without type declarations
-import { build, collect } from '../scripts/design-map.mjs';
+import { NO_LOG_NOTE, build, collect } from '../scripts/design-map.mjs';
+
+// The page's own "What's live" block (its helpers and the lines between its live and recipes comments), run on a
+// stand-in document: what a reader sees for the Live and Waiting lists.
+function drawLive(map: { live: unknown; waiting: unknown }): Record<string, string> {
+  const template = readFileSync(new URL('../tools/design-map/template.html', import.meta.url), 'utf8');
+  const helpers = template.slice(template.indexOf('  function $(id)'), template.indexOf("  $('gen')"));
+  const block = template.slice(template.indexOf('  /* live */'), template.indexOf('  /* recipes */'));
+  expect(helpers).toContain('function esc(');
+  expect(block).toContain("$('waiting')");
+  const elements: Record<string, { innerHTML: string }> = {};
+  runInNewContext(helpers + block, { M: map, document: { getElementById: (id: string) => (elements[id] ??= { innerHTML: '' }) } });
+  return Object.fromEntries(Object.entries(elements).map(([id, el]) => [id, el.innerHTML]));
+}
 
 describe('design map', () => {
   const data = collect();
 
-  it('reads every phase in docs/plan.md and marks the first unfinished phase next or active', () => {
-    expect(data.phases.map((p: { n: number }) => p.n)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
-    // Phases may overlap (Phase 2 starts while a Phase 1 row is deferred), so more than one can be active;
-    // the first phase that is not done must be the one shown as next or active.
+  it('reads the public plan: Phases 0 to 2, and any phase not done is shown as next or active', () => {
+    expect(data.phases.map((p: { n: number }) => p.n)).toEqual([0, 1, 2]);
+    // Phases may overlap, so more than one can be active; the first phase that is not done, if any, is next or active.
     const first = data.phases.find((p: { status: string }) => p.status !== 'done');
-    expect(['next', 'active']).toContain(first.status);
+    if (first) expect(['next', 'active']).toContain(first.status);
   });
 
-  it('reads a plan line with a lettered task ID as one ID', () => {
-    const items = data.phases.flatMap((p: { items: { id: string | null; text: string }[] }) => p.items);
-    const t016b = items.find((it: { id: string | null }) => it.id === 'T-016b');
-    expect(t016b.text).toMatch(/^Testkit/);
+  it('shows the current build and its record only: no proposed rows and no backlog', () => {
+    expect(data).not.toHaveProperty('backlog');
+    for (const p of data.phases) for (const it of p.items) expect(it).not.toHaveProperty('proposal');
+    const html = build();
+    expect(html).not.toContain('id="backlog"');
+    expect(html).not.toContain('id="proposed"');
+  });
+
+  it('links the engineering roadmap and says it is private', () => {
+    const html = build();
+    expect(html).toContain('https://claude.ai/artifact/8qoP6eBhJ9GTcfc9Doy26i');
+    expect(html).toContain('private: founders only');
   });
 
   it('reads a task status by its leading keyword, so a note after it does not hide "done"', () => {
@@ -61,5 +84,96 @@ describe('design map', () => {
     expect(html).not.toContain('/*__MAP_DATA__*/null');
     const embedded = html.slice(html.indexOf('window.MAP = '), html.indexOf(';</script>'));
     expect(embedded).not.toContain('</');
+  });
+});
+
+// The daily log is kept privately (docs/private-materials.md). A caller that holds it passes its folder; a build
+// without it shows a note instead of the Live and Waiting lists.
+describe('design map: the daily log', () => {
+  const entry = (lead: string, live: string[], waiting: string[]) =>
+    `# A day\n\n${lead}\n\n## Waiting on Rafa\n\n${waiting.map((w) => `- ${w}`).join('\n')}\n\n## Done today\n\n- Not live, not waiting.\n\n## Live\n\n${live.map((l) => `- ${l}`).join('\n')}\n\n## Next steps (resume here)\n\n1. A step.\n`;
+  const withFolder = (run: (dir: string) => void) => {
+    const dir = mkdtempSync(join(tmpdir(), 'design-map-log-'));
+    try {
+      run(dir);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  it('stays out of this repository', () => {
+    expect(existsSync(new URL('../docs/log', import.meta.url))).toBe(false);
+  });
+
+  it('reads the newest entry, by file name, of the folder it is given: the same lists as when the log lived here', () => {
+    withFolder((dir) => {
+      writeFileSync(join(dir, '2026-01-01.md'), entry('**Older.**', ['Old live item.'], ['Old waiting item.']));
+      writeFileSync(join(dir, '2026-01-02.md'), entry('**The lead.** More text.', ['**Site:** `abc123`.', 'A <img src=x onerror=alert(1)> item.'], ['Merge PR 7.', 'Decide D99.']));
+      // not entries: any other name
+      writeFileSync(join(dir, 'README.md'), entry('**No.**', ['Never read.'], ['Never read.']));
+      writeFileSync(join(dir, '2026-01-03.md.bak'), entry('**No.**', ['Never read.'], ['Never read.']));
+      const data = collect({ logDir: dir });
+      // the shape from before the move, with no note
+      expect(data.live).toEqual({ date: '2026-01-02', lead: '**The lead.** More text.', items: ['**Site:** `abc123`.', 'A <img src=x onerror=alert(1)> item.'] });
+      expect(data.waiting).toEqual(['Merge PR 7.', 'Decide D99.']);
+      const html = build({ logDir: dir });
+      expect(html).toContain('"waiting":["Merge PR 7.","Decide D99."]');
+      expect(html).not.toContain(NO_LOG_NOTE);
+      const page = drawLive(data);
+      expect(page['live-lead']).toBe('As of 2 January 2026. The lead. More text.');
+      expect(page['live-list']).toBe('<li>Site: <code>abc123</code>.</li><li>A &lt;img src=x onerror=alert(1)&gt; item.</li>');
+      expect(page.waiting).toBe('<li>Merge PR 7.</li><li>Decide D99.</li>');
+    });
+  });
+
+  it('says "nothing is waiting" only when a log entry has an empty list', () => {
+    withFolder((dir) => {
+      writeFileSync(join(dir, '2026-01-02.md'), entry('**The lead.**', ['One live item.'], []));
+      const data = collect({ logDir: dir });
+      expect(data.waiting).toEqual([]);
+      expect(data.live).not.toHaveProperty('note');
+      expect(drawLive(data).waiting).toBe('<li>Nothing is waiting on Rafa.</li>');
+    });
+  });
+
+  it('without a log, by default or in an empty or missing folder: empty lists, a plain note, and no throw', () => {
+    withFolder((dir) => {
+      for (const options of [undefined, {}, { logDir: dir }, { logDir: join(dir, 'absent') }]) {
+        const data = collect(options);
+        expect(data.live).toEqual({ date: '', lead: '', items: [], note: NO_LOG_NOTE });
+        expect(data.waiting).toEqual([]);
+        // every other section is still there
+        expect(data.phases.map((p: { n: number }) => p.n)).toEqual([0, 1, 2]);
+        expect(build(options)).toContain(JSON.stringify(NO_LOG_NOTE));
+        const page = drawLive(data);
+        expect(page['live-lead']).toBe(NO_LOG_NOTE);
+        expect(page['live-list']).toBe('');
+        expect(page.waiting).toBe('<li>Not shown: this list comes from the daily log.</li>');
+      }
+    });
+  });
+
+  it('names no folder of this repository as the log’s home on the page', () => {
+    expect(readFileSync(new URL('../tools/design-map/template.html', import.meta.url), 'utf8')).not.toContain('docs/log');
+    expect(NO_LOG_NOTE).toMatch(/^This build has no daily log/);
+  });
+});
+
+// T-364: a standing doc carries no hand-written ID range or test count (docs/writing.md, "Numbers that drift").
+// Dated records keep their numbers, so plan.md, operations.md, decisions, tasks, reviews and audit docs are left out.
+describe('standing docs: no running numbers', () => {
+  const STANDING = ['CLAUDE.md', 'README.md', 'contracts/README.md', 'formal/README.md', 'docs/PRD.md', 'docs/api.md', 'docs/architecture.md',
+    'docs/demo.md', 'docs/judgment-and-defenses.md', 'docs/neutrality.md', 'docs/private-materials.md', 'docs/quickstart.md',
+    'docs/team.md', 'docs/testing.md', 'docs/writing.md'];
+  const DRIFT = [/\b(?:D|T-|ADR-)\d+ (?:to|through) (?:D|T-|ADR-)?\d+\b/, /\b\d[\d,]* of \d[\d,]* tests\b/, /\b\d[\d,]* tests in \d+ suites\b/];
+  const hits = (text: string) => text.split('\n').flatMap((line, i) => (DRIFT.some((p) => p.test(line)) ? [i + 1] : []));
+
+  it('finds the plainest patterns and leaves a dated sentence about one decision alone', () => {
+    expect(hits('Decisions D1 to D9 are in the log.\nT-10 to T-12 merged.\n7 of 9 tests passed.\n9 tests in 3 suites')).toEqual([1, 2, 3, 4]);
+    expect(hits('D4 was settled by D41.\n2 of 16 mutants survived.')).toEqual([]);
+  });
+
+  it.each(STANDING)('%s has no ID range or test count', (path) => {
+    expect(hits(readFileSync(new URL(`../${path}`, import.meta.url), 'utf8'))).toEqual([]);
   });
 });

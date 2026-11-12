@@ -5,8 +5,8 @@
 // fixed sampling parameters, and nothing else (no tools, no secrets, no URLs to fetch).
 import type { Hex32, MimeType, PanelMember, Problem, Result } from '@holdback/core';
 import { canonicalKeccak, err, ok, problem } from '@holdback/core';
-import { aggregate, preDecision, type Aggregate, type PanelVerdict } from './aggregate.js';
-import { runChecks } from './checks/index.js';
+import { aggregate, preDecision, type Aggregate, type PanelVerdict, type PreDecision } from './aggregate.js';
+import { runChecks, type CheckOutcome } from './checks/index.js';
 import type { Intaken } from './intake.js';
 import { buildPrompt, type Nonces, type PromptTemplateKind } from './prompt.js';
 import { screen, screenTerms, validateTermsText, type ScreenResult } from './screen.js';
@@ -155,6 +155,29 @@ export function validateTerms(acceptance: JudgmentAcceptance, description: strin
   return validateTermsText(labelledTerms(acceptance, description));
 }
 
+export interface StageOne {
+  /** judgment.schema.json `deterministic`: one outcome per check, in declaration order. */
+  deterministic: CheckOutcome[];
+  /** Ids of checks that ran out of the work budget: neither passed nor failed. */
+  inconclusive: string[];
+  /** What the checks alone decide: reject, escalate, accept (an empty rubric), or panel (the judges decide next). */
+  next: PreDecision;
+}
+
+/**
+ * Stage 1: the deterministic checks on the text as delivered, never the normalized text, and the decision
+ * they give without a panel. runPipeline calls this, and so does a seller's preflight (preflight.ts, T-316),
+ * so both run the same code on the same text.
+ */
+export function stageOne(intake: Pick<Intaken, 'raw' | 'mime'>, acceptance: JudgmentAcceptance, references?: ReadonlyMap<string, Uint8Array>): StageOne {
+  const { outcomes: deterministic, inconclusive } = runChecks(acceptance.deterministicChecks, {
+    data: intake.raw,
+    mime: intake.mime,
+    ...(references ? { references } : {}),
+  });
+  return { deterministic, inconclusive, next: preDecision(deterministic, acceptance.rubric, inconclusive) };
+}
+
 export async function runPipeline(input: PipelineInput): Promise<Result<JudgmentDraft, Problem>> {
   const { acceptance, policy, seats } = input;
   const policyProblem = validatePolicy(policy) ?? validateRubric(acceptance.rubric);
@@ -168,18 +191,14 @@ export async function runPipeline(input: PipelineInput): Promise<Result<Judgment
 
   // Stage 1 runs first, on the text as delivered. Stage 2 always runs, on normalized text and on
   // the party-written terms, so the record shows it even without a panel.
-  const { outcomes: deterministic, inconclusive } = runChecks(acceptance.deterministicChecks, {
-    data: input.intake.raw,
-    mime: input.intake.mime,
-    ...(input.references ? { references: input.references } : {}),
-  });
+  const { deterministic, inconclusive, next } = stageOne(input.intake, acceptance, input.references);
   const screened = screen({ data: input.intake.data, hiddenTagText: input.intake.hiddenTagText, removed: input.intake.removed, mime: input.intake.mime });
   const termSignals = screenTerms(termsTexts(acceptance, input.deliverable.description));
   const baseScreen: ScreenResult = { flagged: screened.flagged || termSignals.length > 0, signals: [...screened.signals, ...termSignals].slice(0, 20) };
   const thresholds = { minValid: policy.minValid, acceptSupermajority: policy.acceptSupermajority, rejectSupermajority: policy.rejectSupermajority };
   const base = { intake: input.intake.record, deterministic };
 
-  if (preDecision(deterministic, acceptance.rubric, inconclusive) !== 'panel') {
+  if (next !== 'panel') {
     const agg = aggregate({ checks: deterministic, inconclusive, rubric: acceptance.rubric, screenFlagged: baseScreen.flagged, verdicts: [], thresholds });
     return ok({ ...base, screen: baseScreen, panel: { ran: false, members: [] }, aggregate: agg });
   }

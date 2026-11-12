@@ -113,7 +113,7 @@ Made by the T-219 session on 2026-11-04; Rafa can overrule any of them.
 
 ## Handoff
 
-**State:** done, merged in [PR 195](https://github.com/rafaeldavid/holdback/pull/195); it goes live with T-220's deploy. It started on T-218's branch; T-218 merged as PR 185 meanwhile, and the branch has origin/main merged in (`113976a`, then `2ecdd1e` with T-226). In that merge, `evm-settlement.ts` keeps T-218's review rounds 2 and 3, and the row's note also reaches round 2's new path that reads a lone delivery from its `JobSubmitted` log. The workflow's `reviewer` and `red-teamer` passes returned six findings on 2026-11-04; all six are fixed on this branch, each with a test that failed first (Evidence, "Review and red-team"). The Land phase merges the PR.
+**State:** done, merged in [PR 195](https://github.com/rafaeldavid/holdback/pull/195); live since T-220's deploy on 2026-11-05, 11:04 UTC. It started on T-218's branch; T-218 merged as PR 185 meanwhile, and the branch has origin/main merged in (`113976a`, then `2ecdd1e` with T-226). In that merge, `evm-settlement.ts` keeps T-218's review rounds 2 and 3, and the row's note also reaches round 2's new path that reads a lone delivery from its `JobSubmitted` log. The workflow's `reviewer` and `red-teamer` passes returned six findings on 2026-11-04; all six are fixed on this branch, each with a test that failed first (Evidence, "Review and red-team"). The Land phase merges the PR.
 
 **What changed:**
 - `packages/settlement/evm/chain.ts`: `LaneRow`, `RelayNote`, and four optional `EvmChain` methods (`inFlight`, `rowOf`, `resume`, `release`). The anvil world (`world.ts`) implements none of them, so nothing changes there.

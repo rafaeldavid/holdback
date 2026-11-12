@@ -24,7 +24,6 @@ type Encoded = Record<string, unknown>;
 const str = (s: string): Hex32 => keccak256(stringToBytes(s));
 const struct = (primaryType: string, data: Encoded): Hex32 => hashStruct({ primaryType, types: eip712Types, data } as Parameters<typeof hashStruct>[0]);
 const enc = <T extends Encoded = Encoded>(m: Parameters<typeof typedDataOf>[0]): T => typedDataOf(m).message as T;
-/** keccak256 of an EIP-712 `bytes` value. */
 
 export const ROLE = { primary: 0, fallback: 1, appeal: 2 } as const;
 export const OUTCOME = { accept: 0, reject: 1, escalate: 2 } as const;

@@ -70,7 +70,7 @@ The proof that it catches violations is in `check.test.ts` (one SimChain deal pe
 1. Reduce the run to the few steps that matter, from `audit.json` (`journal`: the signed submissions in order; `log`: the events) and the party's `actions`.
 2. Write `fixtures/scenarios/<prefix>.<name>.scenario.yaml` with the prefix that fits (`attack.` for an adversarial party, `error.` for a refusal, `neutrality.` for a party or actor that vanished, `todo.` for a gap not yet fixed); see `docs/testing.md` and `_example.scenario.yaml`.
 3. `pnpm snap --update <name>`, review the `.expect.md`, and commit both with the run id in the commit message.
-4. For a usability finding with no protocol behaviour to pin, add a row to `docs/backlog.md` instead.
+4. For a usability finding with no protocol behaviour to pin, write it into the task's Handoff for the backlog instead (kept privately, `docs/private-materials.md`).
 
 ## Limits
 

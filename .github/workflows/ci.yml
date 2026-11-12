@@ -11,15 +11,50 @@ permissions:
   contents: read
 
 jobs:
+  # A pull request that changes only docs/ or root Markdown files skips the heavy jobs (Rafa, 2026-11-07: the
+  # change recipes in docs/team.md). Push to main always runs everything, and so does a pull request whose file
+  # list can't be read.
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.files.outputs.code }}
+      chain: ${{ steps.files.outputs.chain }}
+    steps:
+      - id: files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          code=true
+          chain=true
+          if [ "$EVENT" = pull_request ] && files=$(gh pr diff "$PR" --repo "$REPO" --name-only) && [ -n "$files" ]; then
+            if [ -z "$(printf '%s\n' "$files" | grep -Ev '^(docs/.+|[^/]+\.md)$')" ]; then code=false; fi
+            # The contracts and anvil jobs test the chain side: the contracts, and every package, app and example
+            # the anvil suites import, with the fixtures, schemas and settings they read. A pull request that
+            # touches none of them (the site, scripts, tools, brand) skips both jobs (T-313). Push to main runs
+            # them always, and so does a pull request whose file list can't be read.
+            if [ -z "$(printf '%s\n' "$files" | grep -E '^(contracts/|packages/|apps/(operator|adjudicator|demo-cloud|test-agents)/|examples/|fixtures/|spec/|config/|\.github/|\.gitmodules$|\.nvmrc$|package\.json$|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|tsconfig[^/]*\.json$|vitest\.config\.ts$)')" ]; then chain=false; fi
+            echo "$(printf '%s\n' "$files" | wc -l) changed files"
+          fi
+          echo "code=$code" | tee -a "$GITHUB_OUTPUT"
+          echo "chain=$chain" | tee -a "$GITHUB_OUTPUT"
+
   static:
     name: typecheck, lint, spec, snap
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -31,6 +66,8 @@ jobs:
 
   test:
     name: test (${{ matrix.shard }}/4)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -41,11 +78,11 @@ jobs:
       # one); push to main leaves it empty, which runs the full counts.
       HOLDBACK_PROPERTY_RUNS: ${{ github.event_name == 'pull_request' && '40' || '' }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -53,38 +90,111 @@ jobs:
       - run: pnpm build
       - run: pnpm test --shard=${{ matrix.shard }}/4
 
-  # T-203: the Foundry suites (unit, fuzz, and the handler-based invariants at 256 runs x depth 100), then
-  # the vitest suites that need anvil and contracts/out (T-205), which the test shards skip for lack of
-  # Foundry. Local EVM only (chain id 31337, anvil on 127.0.0.1); no public RPC endpoint is configured.
+  # T-203: the Foundry suites (unit, fuzz, and the handler-based invariants at 256 runs x depth 100). Its own
+  # job since T-313, so it runs beside the anvil suites and not before them. It always compiles from source.
   contracts:
-    name: contracts (forge test, anvil tests)
+    name: contracts (forge test)
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.chain == 'true'
     runs-on: ubuntu-latest
+    # A healthy run takes about 3 minutes; a hang fails here instead of at GitHub's 6-hour default (T-035).
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: recursive
           persist-credentials: false
+      # Only the six repositories contracts/remappings.txt maps, at depth 1. `submodules: recursive` cloned about
+      # 100 nested test dependencies of commerce-payments: 2 to 6 minutes on 2026-11-03, then hangs past 40 (T-035).
+      - name: submodules
+        timeout-minutes: 5
+        run: |
+          git submodule update --init --depth 1 contracts/lib/commerce-payments
+          git -C contracts/lib/commerce-payments submodule update --init --depth 1 lib/forge-std lib/permit2 lib/solady lib/spend-permissions
+          git -C contracts/lib/commerce-payments/lib/spend-permissions submodule update --init --depth 1 lib/openzeppelin-contracts
       - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1
         with:
           version: v1.0.0
       - name: forge test
         working-directory: contracts
         run: forge test
-      # forge test does not compile contracts/script/, where the anvil tests' LocalUSDC and LocalMulticall3 live.
+
+  # The vitest suites that need anvil and contracts/out, which the test shards skip for lack of Foundry: the EVM
+  # adapter (T-205) and, since T-313, the public world on anvil, its lanes, registration and timeouts, the drand
+  # verifier's differential test and the round's adjudicator. Local EVM only (chain id 31337, anvil on 127.0.0.1);
+  # no public RPC endpoint is configured.
+  anvil:
+    name: anvil tests, ${{ matrix.suite.name }} (must not skip)
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.chain == 'true'
+    runs-on: ubuntu-latest
+    # Two legs, because one step with all 20 files took 7 min 20 s of tests on a 4-core runner (measured, run
+    # 42970675262): the files compete for cores, and each world suite starts its own anvil. A healthy leg takes
+    # about 5 minutes with compiled contracts in the cache, and about 7 without.
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - name: settlement
+            paths: packages/settlement/evm packages/testkit/src/runner.test.ts
+          - name: world
+            paths: >-
+              apps/demo-cloud/src/live.test.ts apps/demo-cloud/src/lanes.test.ts
+              apps/demo-cloud/src/one-world.anvil.test.ts apps/demo-cloud/src/registration.anvil.test.ts
+              apps/demo-cloud/src/timeouts.anvil.test.ts apps/adjudicator/src/drand-contract.redteam.test.ts
+              examples/e2e-adjudicator.test.ts
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: submodules
+        id: submodules
+        timeout-minutes: 5
+        run: |
+          git submodule update --init --depth 1 contracts/lib/commerce-payments
+          git -C contracts/lib/commerce-payments submodule update --init --depth 1 lib/forge-std lib/permit2 lib/solady lib/spend-permissions
+          git -C contracts/lib/commerce-payments/lib/spend-permissions submodule update --init --depth 1 lib/openzeppelin-contracts
+          echo "pin=$(git rev-parse HEAD:contracts/lib/commerce-payments)" >> "$GITHUB_OUTPUT"
+      - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1
+        with:
+          version: v1.0.0
+      # Compiling takes about 131 s of this job (measured, run 42802205136). A pull request reuses the output when
+      # every input is the same: the Solidity under contracts/, the compiler settings, the remappings and the
+      # submodule's pinned commit. Push to main never restores it, so main always tests what it compiled itself,
+      # and only main's output is offered to pull requests that change no contract. A pull request restores and
+      # never saves (the restore-only action), so only main writes an entry. The contracts job never uses it.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.event_name == 'pull_request'
+        with:
+          path: |
+            contracts/out
+            contracts/cache
+          key: forge-out-v1.0.0-${{ steps.submodules.outputs.pin }}-${{ hashFiles('contracts/src/**', 'contracts/script/**', 'contracts/test/**', 'contracts/foundry.toml', 'contracts/remappings.txt') }}
+      # Everything, contracts/script/ included: the anvil tests deploy LocalUSDC and LocalMulticall3 from there.
       - name: forge build
         working-directory: contracts
         run: forge build
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.event_name == 'push' && matrix.suite.name == 'settlement'
+        with:
+          path: |
+            contracts/out
+            contracts/cache
+          key: forge-out-v1.0.0-${{ steps.submodules.outputs.pin }}-${{ hashFiles('contracts/src/**', 'contracts/script/**', 'contracts/test/**', 'contracts/foundry.toml', 'contracts/remappings.txt') }}
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - name: anvil tests (must not skip)
+        env:
+          SUITE_PATHS: ${{ matrix.suite.paths }}
         run: |
           set -o pipefail
-          pnpm vitest run packages/settlement/evm packages/testkit/src/runner.test.ts --reporter=verbose | tee anvil-tests.log
+          # The paths are this file's own fixed list, split on spaces on purpose.
+          pnpm vitest run $SUITE_PATHS --reporter=verbose | tee anvil-tests.log
           # Any skipped test fails the job, whatever its name: vitest's summary prints "N skipped".
           if grep -Eq "[0-9]+ skipped" anvil-tests.log; then echo "anvil tests skipped: Foundry or contracts/out missing" >&2; exit 1; fi
 
@@ -92,17 +202,19 @@ jobs:
   # variants (each must still bite); push to main also runs the seven liveness configs.
   formal:
     name: formal (TLC)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         if: hashFiles('formal/check.sh') != ''
         with:
           distribution: temurin
           java-version: '21'
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: hashFiles('formal/check.sh') != ''
         with:
           path: formal/.tools
@@ -117,20 +229,26 @@ jobs:
             bash formal/check.sh
           fi
 
-  # The one status to require: it fails unless the static job, every test shard, the contracts job and the
-  # formal job succeeded.
+  # The one status to require: it fails unless the static job, every test shard, the contracts job, the anvil job
+  # and the formal job succeeded, or the changes job found a docs-only pull request and they were skipped. The
+  # contracts and anvil jobs may be skipped only when the changes job said the chain side is untouched.
   check:
-    needs: [static, test, contracts, formal]
+    needs: [changes, static, test, contracts, anvil, formal]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: all jobs passed
         run: |
-          echo "static=${{ needs.static.result }} test=${{ needs.test.result }} contracts=${{ needs.contracts.result }} formal=${{ needs.formal.result }}"
+          echo "changes=${{ needs.changes.result }} code=${{ needs.changes.outputs.code }} chain=${{ needs.changes.outputs.chain }}"
+          test "${{ needs.changes.result }}" = success
+          if [ "${{ needs.changes.outputs.code }}" = false ]; then echo "docs only: the heavy jobs were skipped"; exit 0; fi
+          echo "static=${{ needs.static.result }} test=${{ needs.test.result }} contracts=${{ needs.contracts.result }} anvil=${{ needs.anvil.result }} formal=${{ needs.formal.result }}"
           test "${{ needs.static.result }}" = success
           test "${{ needs.test.result }}" = success
-          test "${{ needs.contracts.result }}" = success
           test "${{ needs.formal.result }}" = success
+          if [ "${{ needs.changes.outputs.chain }}" = false ]; then echo "chain side untouched: the contracts and anvil jobs were skipped"; exit 0; fi
+          test "${{ needs.contracts.result }}" = success
+          test "${{ needs.anvil.result }}" = success
 
   gitleaks:
     runs-on: ubuntu-latest
@@ -138,11 +256,11 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"

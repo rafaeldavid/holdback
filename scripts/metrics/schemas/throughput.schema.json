@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://escrow.stream/metrics/schemas/throughput.schema.json",
+  "title": "throughput.json: Crow's deal capacity, its binding limit and its use (T-066)",
+  "type": "object",
+  "$ref": "common.schema.json#/$defs/Envelope",
+  "unevaluatedProperties": false,
+  "required": ["config", "capacity", "observed"],
+  "properties": {
+    "schema": { "const": "crow.metrics.throughput/1" },
+    "config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dealLanes", "fundingLanes", "txPerHonestDeal", "secondsPerTx", "blockTimeMs", "testSeller", "faucet", "liveJudges"],
+      "properties": {
+        "dealLanes": { "$ref": "#/$defs/Sourced" },
+        "fundingLanes": { "$ref": "#/$defs/Sourced" },
+        "txPerHonestDeal": { "$ref": "#/$defs/Sourced" },
+        "secondsPerTx": { "$ref": "#/$defs/Sourced" },
+        "blockTimeMs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["medianMs", "p90Ms", "blocks"],
+          "properties": {
+            "medianMs": { "$ref": "common.schema.json#/$defs/MsOrNull" },
+            "p90Ms": { "$ref": "common.schema.json#/$defs/MsOrNull" },
+            "blocks": { "$ref": "common.schema.json#/$defs/Count" }
+          }
+        },
+        "testSeller": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["open", "perHour", "perDay", "perClientPerHour", "perClientPerDay", "source"],
+          "properties": {
+            "open": { "$ref": "common.schema.json#/$defs/CountOrNull" },
+            "perHour": { "$ref": "common.schema.json#/$defs/CountOrNull" },
+            "perDay": { "$ref": "common.schema.json#/$defs/CountOrNull" },
+            "perClientPerHour": { "$ref": "common.schema.json#/$defs/CountOrNull" },
+            "perClientPerDay": { "$ref": "common.schema.json#/$defs/CountOrNull" },
+            "source": { "$ref": "common.schema.json#/$defs/Text" }
+          }
+        },
+        "faucet": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["perAddressEverySec", "perClientPerWindow", "mintsPerDay", "source"],
+          "properties": {
+            "perAddressEverySec": { "$ref": "common.schema.json#/$defs/CountOrNull" },
+            "perClientPerWindow": { "$ref": "common.schema.json#/$defs/CountOrNull" },
+            "mintsPerDay": { "$ref": "common.schema.json#/$defs/CountOrNull" },
+            "source": { "$ref": "common.schema.json#/$defs/Text" }
+          }
+        },
+        "liveJudges": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["callsPerDay", "seatsPerPanel", "source"],
+          "properties": {
+            "callsPerDay": { "$ref": "common.schema.json#/$defs/CountOrNull" },
+            "seatsPerPanel": { "const": 3 },
+            "source": { "$ref": "common.schema.json#/$defs/Text" }
+          }
+        }
+      }
+    },
+    "capacity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relayDealsPerHour", "inProgressAtRelayCapacity", "medianLifetimeMs", "limits", "binding"],
+      "properties": {
+        "relayDealsPerHour": { "$ref": "common.schema.json#/$defs/CountOrNull" },
+        "inProgressAtRelayCapacity": { "$ref": "common.schema.json#/$defs/CountOrNull" },
+        "medianLifetimeMs": { "$ref": "common.schema.json#/$defs/MsOrNull" },
+        "limits": {
+          "type": "array",
+          "maxItems": 30,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "appliesTo", "perClient", "basis"],
+            "minProperties": 5,
+            "maxProperties": 5,
+            "properties": {
+              "id": { "type": "string", "pattern": "^[A-Za-z.]{1,40}$" },
+              "dealsPerHour": { "$ref": "common.schema.json#/$defs/Count" },
+              "dealsPerDay": { "$ref": "common.schema.json#/$defs/Count" },
+              "inProgress": { "$ref": "common.schema.json#/$defs/Count" },
+              "appliesTo": { "enum": ["all", "testSeller", "newVisitor", "rubric"] },
+              "perClient": { "type": "boolean" },
+              "basis": { "$ref": "common.schema.json#/$defs/Basis" }
+            }
+          }
+        },
+        "binding": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "appliesTo", "assumes", "dealsPerHour", "perDay", "basis"],
+              "properties": {
+                "id": { "type": "string", "pattern": "^[A-Za-z.]{1,40}$" },
+                "appliesTo": { "const": "testSeller" },
+                "assumes": { "$ref": "common.schema.json#/$defs/Text" },
+                "dealsPerHour": { "$ref": "common.schema.json#/$defs/Count" },
+                "perDay": {
+                  "oneOf": [
+                    { "type": "null" },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["id", "dealsPerDay"],
+                      "properties": {
+                        "id": { "type": "string", "pattern": "^[A-Za-z.]{1,40}$" },
+                        "dealsPerDay": { "$ref": "common.schema.json#/$defs/Count" }
+                      }
+                    }
+                  ]
+                },
+                "basis": { "$ref": "common.schema.json#/$defs/Basis" }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "observed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dealsPerHour", "utilizationBps", "utilizationOf"],
+      "properties": {
+        "dealsPerHour": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["medianPerHour", "peakPerHour", "hours"],
+          "properties": {
+            "medianPerHour": { "$ref": "common.schema.json#/$defs/CountOrNull" },
+            "peakPerHour": { "$ref": "common.schema.json#/$defs/CountOrNull" },
+            "hours": { "const": 168 }
+          }
+        },
+        "utilizationBps": { "$ref": "common.schema.json#/$defs/CountOrNull" },
+        "utilizationOf": { "$ref": "common.schema.json#/$defs/Text" }
+      }
+    }
+  },
+  "$defs": {
+    "Sourced": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "source"],
+      "properties": {
+        "value": { "$ref": "common.schema.json#/$defs/CountOrNull" },
+        "source": { "$ref": "common.schema.json#/$defs/Text" }
+      }
+    }
+  }
+}

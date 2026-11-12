@@ -24,7 +24,7 @@ import { judgePromptView, verdictView } from '../transcript/judge.js';
 import { formatAmount } from '../transcript/money.js';
 import { Holdback } from '@holdback/sdk';
 import { fetchPartyView, sharedRecordEvent } from './record.js';
-import { plain } from '../transcript/untrusted.js';
+import { plain } from '@holdback/testkit';
 import type { AdjudicatorProfile, Amount, BalanceRow, BeatTranscript, CastKey, DemoEvent, EventSource, JudgeSeat, JudgingTiming, Json, SlateKeys, Via } from '../transcript/types.js';
 
 export const SIMCHAIN_NOTE =

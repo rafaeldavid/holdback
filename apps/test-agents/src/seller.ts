@@ -70,11 +70,13 @@ export interface SellerOptions {
   storage: Storage;
   /** Operator base URLs: the first relays, and trusted reads need two distinct origins. */
   operators: string[];
+  /** The same operators' other base URLs, whose ciphertext URIs it also accepts (T-312: both hostnames serve one node). */
+  aliases?: string[];
   /** TEST_AGENTS_SEED: 32 bytes of 0x-prefixed hex. */
   seed: string;
   /** The settlement layer the seller signs for, pinned in its own code (examples/verify.ts knownPins). */
   pin: Pin;
-  /** The public URL of the intake, such as https://escrow.stream/agents/test-seller. */
+  /** The public URL of the intake, such as https://crow.direct/agents/test-seller. */
   base: string;
   limits?: Limits;
   /** The windows it offers (catalog.ts); tests shorten them. */
@@ -92,6 +94,8 @@ const MIN = 60_000;
 const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
 const pad = (n: number) => String(n).padStart(9, '0');
+/** Whether a URI names Crow's own ciphertext store on one of these origins: the seller fetches nothing else a stranger names. */
+export const storeUri = (uri: URL, origins: string[]): boolean => origins.includes(uri.origin) && /^\/v1\/ciphertext\/sha256:[0-9a-f]{64}$/.test(uri.pathname);
 const json = (body: unknown, status = 200, extra: Record<string, string> = {}) => new Response(JSON.stringify(body, null, 1), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'access-control-allow-origin': '*', ...extra } });
 const problem = (status: number, error: string, extra: Record<string, unknown> = {}) => json({ error, ...extra }, status, typeof extra['retryAfterSec'] === 'number' ? { 'retry-after': String(extra['retryAfterSec']) } : {});
 const sha256hex = async (b: Uint8Array) => Buffer.from(await crypto.subtle.digest('SHA-256', new Uint8Array(b))).toString('hex');
@@ -224,7 +228,7 @@ export class TestSeller {
 <h1>Crow's test seller</h1>
 <p><strong>Test tokens only.</strong> This agent sells one test dataset on Crow's Sepolia test environment, in tUSDC, an open-mint test token worth nothing.</p>
 <p>It sells 3 rows of <code>customer_id,email</code> for 25 tUSDC on a checks-only deal: the columns, the row count (3) and unique IDs decide. ${fees} To see a refund, put <code>"test": {"outcome": "refund"}</code> in your proposal: it then delivers 2 rows, the rows check fails, and the price comes back; the two fees do not, and no key is released.</p>
-<p>To buy, follow "Try it" in <a href="https://escrow.stream/llms.txt">https://escrow.stream/llms.txt</a>, or send a request as its "Two agents, two people" describes. Every offer comes from <code>${card.seller}</code>: check the seller in the terms against it. Unlike a person's intake, this page lists its address, because a public test seller has nothing to hide between deals.</p>
+<p>To buy, follow "Try it" in <a href="https://crow.direct/llms.txt">https://crow.direct/llms.txt</a>, or send a request as its "Two agents, two people" describes. Every offer comes from <code>${card.seller}</code>: check the seller in the terms against it. Unlike a person's intake, this page lists its address, because a public test seller has nothing to hide between deals.</p>
 <p>Crow's maintainers run both the operators and this seller. It holds its own keys and uses only the operators' public API, but it is not an independent business.</p>
 <p>Limits: ${l.perClientPerHour} requests per IP address an hour and ${l.perClientPerDay} a day; ${l.perHour} offers an hour and ${l.perDay} a day in all; ${l.open} in progress at once. When it is busy, it answers 429 with when to retry.</p>
 </body></html>
@@ -327,10 +331,9 @@ export class TestSeller {
 
   /** Opens a request's sealed proposal: the ciphertext from Crow's store, its hash, the key sealed to the intake. */
   private async open(d: Deal): Promise<J> {
-    const origins = this.o.operators.map((u) => new URL(u).origin);
+    const origins = [...this.o.operators, ...(this.o.aliases ?? [])].map((u) => new URL(u).origin);
     const uri = new URL(d.proposal.uri);
-    // Only Crow's own ciphertext store: the seller fetches nothing else a stranger names.
-    if (!origins.includes(uri.origin) || !/^\/v1\/ciphertext\/sha256:[0-9a-f]{64}$/.test(uri.pathname)) throw new Refused(`proposal.uri must be a ciphertext URI on ${origins.join(' or ')}`);
+    if (!storeUri(uri, origins)) throw new Refused(`proposal.uri must be a ciphertext URI on ${origins.join(' or ')}`);
     const res = await fetch(uri);
     if (res.status === 404) throw new Refused('the proposal ciphertext is not in the store (404)');
     if (!res.ok) throw new Error(`the proposal ciphertext could not be fetched (${res.status})`);

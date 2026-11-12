@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://escrow.stream/metrics/schemas/ops-cost-prices.schema.json",
+  "title": "config/ops-cost-prices.json: the pinned, dated prices ops-cost.mjs and T-053 price gas and Cloudflare with (T-066)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["asOf", "usdMicrosPerEth", "gas", "cloudflare", "tusdcToUsd"],
+  "properties": {
+    "asOf": { "$ref": "common.schema.json#/$defs/Day" },
+    "usdMicrosPerEth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "source", "readAt", "basis"],
+      "properties": {
+        "value": { "$ref": "common.schema.json#/$defs/UIntOrNull" },
+        "source": { "$ref": "common.schema.json#/$defs/Text" },
+        "readAt": { "$ref": "common.schema.json#/$defs/IsoOrNull" },
+        "basis": { "$ref": "common.schema.json#/$defs/Basis" }
+      }
+    },
+    "gas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ethereum", "base"],
+      "properties": {
+        "ethereum": { "$ref": "#/$defs/GasPrice" },
+        "base": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["gasPriceWei", "l1Fee", "source", "readAt", "basis"],
+          "properties": {
+            "gasPriceWei": { "$ref": "common.schema.json#/$defs/UIntOrNull" },
+            "l1Fee": {
+              "oneOf": [
+                { "type": "null" },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["weiPerTx", "txBytes", "method", "source", "readAt", "basis"],
+                  "properties": {
+                    "weiPerTx": { "$ref": "common.schema.json#/$defs/UIntOrNull" },
+                    "txBytes": { "type": "integer", "minimum": 1, "maximum": 131072 },
+                    "txBytesSource": { "$ref": "common.schema.json#/$defs/Text" },
+                    "method": { "$ref": "common.schema.json#/$defs/Text" },
+                    "source": { "$ref": "common.schema.json#/$defs/Text" },
+                    "readAt": { "$ref": "common.schema.json#/$defs/IsoOrNull" },
+                    "basis": { "$ref": "common.schema.json#/$defs/Basis" }
+                  }
+                }
+              ]
+            },
+            "source": { "$ref": "common.schema.json#/$defs/Text" },
+            "readAt": { "$ref": "common.schema.json#/$defs/IsoOrNull" },
+            "basis": { "$ref": "common.schema.json#/$defs/Basis" }
+          }
+        }
+      }
+    },
+    "cloudflare": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workersRequests", "workersCpuMs", "durableObjectRequests", "durableObjectGbS"],
+      "properties": {
+        "workersRequests": { "$ref": "#/$defs/CloudflareUnit" },
+        "workersCpuMs": { "$ref": "#/$defs/CloudflareUnit" },
+        "durableObjectRequests": { "$ref": "#/$defs/CloudflareUnit" },
+        "durableObjectGbS": { "$ref": "#/$defs/CloudflareUnit" }
+      }
+    },
+    "tusdcToUsd": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["numerator", "denominator", "basis"],
+      "properties": {
+        "numerator": { "type": "integer", "minimum": 0 },
+        "denominator": { "type": "integer", "minimum": 1 },
+        "basis": { "const": "assumption" },
+        "note": { "$ref": "common.schema.json#/$defs/Text" }
+      }
+    }
+  },
+  "$defs": {
+    "GasPrice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gasPriceWei", "source", "readAt", "basis"],
+      "properties": {
+        "gasPriceWei": { "$ref": "common.schema.json#/$defs/UIntOrNull" },
+        "source": { "$ref": "common.schema.json#/$defs/Text" },
+        "readAt": { "$ref": "common.schema.json#/$defs/IsoOrNull" },
+        "basis": { "$ref": "common.schema.json#/$defs/Basis" }
+      }
+    },
+    "CloudflareUnit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["usdMicrosPerMillion", "included", "per", "source", "readOn", "basis"],
+      "properties": {
+        "usdMicrosPerMillion": { "$ref": "common.schema.json#/$defs/UInt" },
+        "included": { "$ref": "common.schema.json#/$defs/UInt" },
+        "per": { "const": "month" },
+        "source": { "type": "string", "pattern": "^https://", "maxLength": 200 },
+        "readOn": { "$ref": "common.schema.json#/$defs/Day" },
+        "basis": { "$ref": "common.schema.json#/$defs/Text" }
+      }
+    }
+  }
+}

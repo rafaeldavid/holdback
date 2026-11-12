@@ -6,8 +6,8 @@
 - **Paths this task may touch:**
   - the `control/` folder in the founders' private repository: `console.mjs`, `console.html`, `build-public.mjs`, the tests and the README. The console's code lives there, never here.
   - here: `docs/tasks/T-060-dependency-status.md`, `docs/plan.md` (this row) and `docs/update-flow.md` (only if a flow changes).
-- **Human gate:** yes, for the deploy only. The Worker bundles `console.html`, so a page change goes live with a crow-console deploy, on Rafa's go-ahead. The data part arrives with the next hourly push.
-- **Status:** review: deployed on Rafa's go-ahead (crow-console c8fe44c5, 2026-11-04 21:25 UTC) and one hourly run checked; Rafa confirms the live page, which needs his sign-in
+- **Human gate:** yes, for the deploy only. The Worker bundles `console.html`, so a page change goes live with a crow-console deploy, on Rafa's go-ahead. The data part arrives with the next scheduled push (twice a day since D52).
+- **Status:** done (deployed on Rafa's go-ahead as crow-console c8fe44c5, 2026-11-04 21:25 UTC; every hourly run since passed; Rafa's look at the live page is in the 2026-11-05 log's "Waiting on Rafa")
 - **Agent/session:** the T-060 session, 2026-11-04
 
 ## Intent
@@ -51,7 +51,7 @@ Most providers publish a Statuspage summary at `/api/v2/summary.json`. Each URL 
 - [x] **Untrusted input.** Status-page text is third-party data. It is rendered as text through `esc()`, never as HTML, with lengths capped. Links go through `href()` and are https only. The red team's hostile-data fuzz covers the new fields and finds no raw value. (Met by the tests' hostile-data fuzz; Rafa dropped the red-team pass as overkill, 2026-11-04.)
 - [x] **Tests.** Fixtures of real Statuspage JSON (operational, a minor incident, a major outage, malformed JSON, a timeout). Map tests for the likely-cause line. All the console's tests pass.
 - [x] **Docs.** The private repository's `control/README.md` lists the sources and the map. This file's Evidence holds the measured fetch times and a screenshot or text dump of the new rows.
-- [ ] **Deploy,** on Rafa's go-ahead: crow-console, then one hourly run, checked live. (Deployed and the run checked, 2026-11-04; the look at the live page waits for Rafa's sign-in.)
+- [x] **Deploy,** on Rafa's go-ahead: crow-console, then one hourly run, checked live. (Deployed and the run checked, 2026-11-04; the scheduled runs of 2026-11-05 passed too. Rafa's look at the live page needs his sign-in and is listed in the daily log.)
 
 ## Out of scope
 
@@ -154,6 +154,7 @@ CI on main reads unknown in that preview because it ran with `--no-gh` (measured
 - Its build log: `dependencies cloudflare up in 181 ms, github up in 42 ms, anthropic up in 101 ms, deepseek up in 933 ms, npm up in 213 ms, sepoliarpc up in 485 ms, drand up in 1142 ms`. These are the fetch times on GitHub's runner.
 - Its push: `public.json` HTTP 204 (484 KB), `status.json` HTTP 204 (264 bytes, 16 states), `map.html` HTTP 204; `contracts.html` was unchanged, so not pushed.
 - The live page sits behind Access with GitHub sign-in, so the session could not read it. Rafa looks at it.
+- **After the deploy, 2026-11-05** (measured, `gh run list --repo rafaeldavid/crow-private --workflow control-hourly.yml`): the scheduled runs at 2026-11-04 23:42 UTC, 06:51 UTC and 15:30 UTC all passed. GitHub's scheduler skipped the other hours. The session that wrote the 2026-11-05 log set this task to done, since every criterion is met. Rafa's look at the live page is a bullet in that log's "Waiting on Rafa".
 
 **No red-team pass.** Rafa, 2026-11-04: "I don't think a red team pass is necessary for updating text on the Crow Control? That feels overkill". A red-team subagent was started and then stopped before it reported; it confirmed nothing (measured: no report). The safeguards stand: every new value goes through `esc()`, every link through `href()` (https or `#`), every class through `pick()` and `cls()`, with lengths capped, and the hostile-data tests above pass.
 
@@ -169,7 +170,7 @@ CI on main reads unknown in that preview because it ran with `--no-gh` (measured
 
 ## Handoff
 
-- **State:** live. The code and tests are on `rafaeldavid/crow-private` `main` (16b649a). crow-console c8fe44c5 serves the page, and run 41915984783 pushed the first data with dependencies. Left: Rafa looks at the Dependencies group and the Hourly refresh row on control.escrow.stream. Once he confirms, mark this task done.
+- **State:** done and live (2026-11-05). The code and tests are on `rafaeldavid/crow-private` `main` (16b649a). crow-console c8fe44c5 serves the page, and run 41915984783 pushed the first data with dependencies. Left for Rafa, listed in the 2026-11-05 log: a look at the Dependencies group and the Hourly refresh row on control.escrow.stream. If he finds a fault, reopen this task.
 - **To roll back the page:** `npx wrangler@4.151.3 rollback <version> --name crow-console`, the version before c8fe44c5. The data stays compatible either way: the earlier page ignores `status.deps` and the extra states (inferred from its code).
 - **The hourly schedule** skipped 18:17 to 21:17 UTC on 2026-11-04 (measured). It is GitHub's to run; the new Hourly refresh row now shows such gaps, with any GitHub incident as the likely cause.
 - **Preview an incident:** `node /Users/rafa/Documents/escrow/reports/crow-private/control/console.mjs --root <holdback> --private-slot --no-gh --deps-from <dir> --out <file>`; the runbook names the files.

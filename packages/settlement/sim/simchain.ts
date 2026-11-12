@@ -17,6 +17,7 @@ import {
   canonicalKeccak,
   deliveryHash,
   holdbackDomain,
+  MAINNET_CHAIN_IDS,
   mulBps,
   offer,
   postedDeliveryHash,
@@ -85,8 +86,8 @@ export type JournalEntry =
   | { op: 'faucet'; address: Address; amount: string }
   | { op: 'admit'; mandate: Mandate };
 
-/** Mainnet chain IDs SimChain refuses to sign under (hard rule: no real money). */
-const MAINNETS = new Set([1, 10, 56, 137, 324, 8453, 42161, 43114, 59144, 534352]);
+/** Mainnet chain IDs SimChain refuses to sign under (hard rule: no real money): the one list in @holdback/core. */
+const MAINNETS: ReadonlySet<number> = new Set(MAINNET_CHAIN_IDS);
 const GENESIS_HASH: Hex32 = `0x${'00'.repeat(32)}`;
 const ALL_BPS = 10000n;
 const HALF_BPS = 5000n;
@@ -300,7 +301,7 @@ export class SimChain implements Settlement {
   /**
    * Test only (the public demo's faucet): adds a principal-signed mandate after genesis, as genesis
    * mandates are, and journals it so a replay has the same agents. Phase 1 has no run-time registration on a
-   * real settlement layer (docs/backlog.md). Returns a problem when the club is unknown or the signature does
+   * real settlement layer (backlog). Returns a problem when the club is unknown or the signature does
    * not recover to the principal; a later mandate for the same agent and club replaces the earlier one.
    */
   async admit(mandate: Mandate): Promise<Problem | null> {
@@ -618,7 +619,7 @@ export class SimChain implements Settlement {
     return tx.bal(account.junior(a)) + tx.bal(account.senior(a)) - tx.reservedOf(a);
   }
 
-  /** On takeover, reserve up to the price from what the pool has free (shortfall: docs/backlog.md, F5). */
+  /** On takeover, reserve up to the price from what the pool has free (shortfall: backlog, F5). */
   private reserveUpTo(tx: Tx, id: Hex32, a: string, price: bigint): void {
     const free = this.available(tx, a);
     this.reserve(tx, id, a, min(price, free > 0n ? free : 0n));
@@ -1072,7 +1073,7 @@ export class SimChain implements Settlement {
         const a = s.via.appeal;
         if (a.kind === 'none') return passed(a.appealBy) ? a.appealBy : null;
         if (a.kind === 'open') return passed(a.appealDecideBy) ? a.appealDecideBy : null;
-        if (a.kind === 'expired') return rec.appealClosedAt ?? null;
+        // Upheld, overturned or expired: when the appeal closed.
         return rec.appealClosedAt ?? null;
       }
       default:
