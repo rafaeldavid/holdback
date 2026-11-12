@@ -445,14 +445,22 @@ function checkPlaceholders(where: string, node: J, scope: Record<string, ScopeRu
   }
 }
 
-function loadTemplate(c: SellerAdapterConfig, token: string): J {
+/**
+ * The template, checked. One token (plan section 2c): a fee that names no token takes the settlement layer's from
+ * discovery, and one that names another is refused at start, naming both, before any offer is made.
+ */
+function loadTemplate(c: SellerAdapterConfig, token: { id: string; symbol: string }): J {
   const template = JSON.parse(readFileSync(c.template, 'utf8'));
   if (!template.deliverable || !Array.isArray(template.checks)) throw new Error(`${c.template} needs "deliverable" and "checks"`);
   checkPlaceholders(c.template, template, c.scope);
   const fee = template.fee;
-  if (fee !== undefined && !(isRecord(fee) && typeof fee.amount === 'string' && BASE_UNITS.test(fee.amount) && String(fee.token).toLowerCase() === token.toLowerCase())) {
-    throw new Error(`${c.template}: fee must be {token, amount} in this settlement layer's token, ${token}, with the amount in base units as a decimal string`);
+  if (fee !== undefined && !(isRecord(fee) && typeof fee.amount === 'string' && BASE_UNITS.test(fee.amount) && (fee.token === undefined || typeof fee.token === 'string'))) {
+    throw new Error(`${c.template}: fee must be {amount} or {token, amount}, with the amount in base units as a decimal string`);
   }
+  if (fee?.token !== undefined && fee.token.toLowerCase() !== token.id.toLowerCase()) {
+    throw new Error(`${c.template}: fee names the token ${plain(fee.token).slice(0, 80)}, and these operators settle in ${token.id} (${token.symbol}) only: name that token, or leave the token out to take it from discovery`);
+  }
+  if (fee !== undefined) template.fee = { token: token.id, amount: fee.amount };
   // `rubric` may be empty (a checks-only deal); `optionalRubric` may not: the panel option would add nothing.
   if (template.rubric !== undefined && !(isRecord(template.rubric) && Array.isArray(template.rubric.criteria))) throw new Error(`${c.template}: rubric must be a rubric, an object with criteria`);
   if (template.optionalRubric !== undefined && !(isRecord(template.optionalRubric) && Array.isArray(template.optionalRubric.criteria) && template.optionalRubric.criteria.length > 0)) throw new Error(`${c.template}: optionalRubric must be a rubric, an object with one or more criteria`);
@@ -749,7 +757,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   const adjudicators = { primary: named.primary!, fallback: named.fallback!, appeal: named.appeal! };
   const fromDiscovery = { club: c.clubId === undefined, adjudicators: c.adjudicators === undefined };
   checkRules(c);
-  const template = loadTemplate(c, token.id);
+  const template = loadTemplate(c, token);
   // Your published defaults: what every buyer reads before it asks (GET /defaults). The buyer's signer compares each
   // offer with them and shows its agent what differs (buyer-signer.ts). Placeholders stay as the template has them.
   // The optional rubric is published too: it is what a rule such as the shipped `panel` option adds to an offer.

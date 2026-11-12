@@ -917,12 +917,18 @@ function expected(intent, op, now) {
 		primaryType: "MutualSettlement",
 		message: m
 	}));
+	if (intent.delivery !== void 0) {
+		if (!intent.releaseKey) refuse$1("a settlement that carries late work releases its key");
+		if (String(intent.delivery?.commitmentId).toLowerCase() !== id.toLowerCase()) refuse$1("the delivery you carry is for another commitment");
+		if (deliveryHashOf(intent.delivery).toLowerCase() !== String(intent.deliveryHash).toLowerCase()) refuse$1("deliveryHash is not the hash of the delivery you carry");
+	}
 	return {
 		path: `/v1/commitments/${id}/settlements`,
 		body: {
 			...m,
 			buyerSignature: null,
-			sellerSignature: null
+			sellerSignature: null,
+			...intent.delivery !== void 0 ? { delivery: intent.delivery } : {}
 		},
 		slots
 	};
@@ -1416,6 +1422,9 @@ var Agent = class Agent {
 	/**
 	* Buyer: agree to the terms it was sent and hold price plus fee, with nonces it picked itself. When the operators
 	* publish a fee, the agent computes it from that schedule and pays it with the agreement; maxTotal covers it too.
+	* One key only: it signs the funding as the terms' payment address. With a payment address apart from this key
+	* (ADR-0033), prepare with prepareAgreeAndFund, have that address sign its slots (buyer-signer.ts writes them as
+	* typed-data files for a wallet), and submit with submitAgreeAndFund.
 	*/
 	async agreeAndFund(terms, maxTotal) {
 		if (String(terms.buyerPaymentAddress).toLowerCase() !== this.address) throw new Error(`the terms name ${terms.buyerPaymentAddress} as the payment address: that address signs the funding and the operator fee, not this agent (${this.address}); use prepareAgreeAndFund and submitAgreeAndFund with its signatures`);

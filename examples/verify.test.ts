@@ -8,6 +8,7 @@ import nacl from 'tweetnacl';
 import { hashTypedData, hexToBytes, keccak256, toBytes, type Hex } from 'viem';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Agent } from './agent.ts';
+// appealBondOf: SimChain only, for the full protocol's party appeal below (ADR-0031 §8).
 import { appealBondOf, checkPaymentFile, commitmentIdOf, ERC3009_TYPES, freshNonce, fundingNonceOf, openOwnEnvelope, Refusal, SIMCHAIN_DOMAIN, typedDataFile, TYPES, verifyPrepared, type ChainPin, type Intent } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -281,18 +282,21 @@ describe('neutrality.operator-lies-in-prepare', () => {
   });
 
   it('appeal: the bond is exactly the rulebook rate of the price, never what the operator asks', async () => {
-    // The full protocol's party appeal (SimChain): the terms name an appeal window; the default is phase one's 0.
+    // The full protocol's party appeal, SimChain only (ADR-0031 §8): the terms name an appeal window; the default is phase one's 0.
     const { id, terms } = await held({ timing: { appealWindowSec: 300 } });
     await seller.deliver(terms, new TextEncoder().encode('b\n2\n')); // wrong column: refunded
     await buyer.waitFor(id, ['Refunded']);
+    // SimChain only: phase one's operators refuse this prepare.
     const prepared = await seller.call('POST', '/v1/prepare/appeal', { commitmentId: id, appellant: seller.address });
     const { rulebook } = await seller.club(terms.clubId);
     const intent: Intent = { kind: 'appeal', terms, me: seller.address, appealBondRateBps: rulebook.appealBondRateBps };
     expect(verify(prepared, intent, seller.address).toSign).toHaveLength(1);
+    // SimChain only: the appeal bond.
     expect(prepared.submit.body.bond.amount).toBe(appealBondOf(terms.price, rulebook.appealBondRateBps)); // 1.25 tUSD
     refusesEach(prepared, intent, seller.address, [
       ['a larger bond (the settlement layer would accept it)', (p) => { p.sign[0].typedData.message.bond.amount = '20000000'; p.submit.body.bond.amount = '20000000'; }],
       ['bond token', (p) => { p.sign[0].typedData.message.bond.token = 'USDC'; p.submit.body.bond.token = 'USDC'; }],
+      // SimChain only: the appellant's role and address.
       ['appellant role', both(0, 'appellant', 'buyer')],
       ['appellant address', both(0, 'appellantAddress', buyer.address)],
       ['grounds', both(0, 'grounds', 'mislabeled-model')],

@@ -7,12 +7,14 @@
 // run. It builds one view of the deal per operator, from that operator's answers alone, and compares the views
 // section by section: a section where operators differ is kept per operator and named in `disagreements`, never merged.
 //
-//   node examples/deal-record.ts <commitmentId> --as buyer|seller [--delivery <file>] [--out <file>]
+//   node examples/deal-record.ts <commitmentId> --as buyer|seller [--delivery <file>] [--settlement <file>] [--out <file>]
 //
 // Env: HOLDBACK_OPERATORS (comma-separated; default the public test service's two nodes). For the buyer,
 // HOLDBACK_ENCRYPTION_KEY (its x25519 secret key, base64url) opens its own released envelope to check the work's
 // hash; the key and the work never reach the record. --delivery is the signed delivery body the seller submitted:
-// with it the record recomputes the delivery hash and recovers the seller's delivery signature.
+// with it the record recomputes the delivery hash and recovers the seller's delivery signature. --settlement is your
+// own copy of the signed MutualSettlement: for late work accepted by settlement it is the only source of the delivery
+// hash, which the record prints and checks against --delivery.
 //
 // Public deals only: a private or judgment-level deal's terms need a ReadToken, and the record marks them unreadable.
 // Transactions and balances are what the operators report; read the chain itself to check them.
@@ -33,7 +35,10 @@ export type Row = {
   /** The money addresses the terms name (ADR-0033), and which of them received money out of escrow: paidTo the price or the seller's share, refundedTo the rest. */
   buyerPaymentAddress: string | null; sellerPayoutAddress: string | null; paidTo: string | null; refundedTo: string | null;
   price: Money | null; adjudicationFee: Money | null; operatorFee: Money | null;
-  outcome: string | null; reclaimed: boolean | null; offeredAt: string | null; agreedAt: string | null; fundedAt: string | null; deliveredAt: string | null;
+  outcome: string | null; reclaimed: boolean | null;
+  /** Late work accepted by a mutual settlement that carried it (lateWorkOf). */
+  lateWork: boolean | null;
+  offeredAt: string | null; agreedAt: string | null; fundedAt: string | null; deliveredAt: string | null;
   decidedAt: string | null; settledAt: string | null; panelDecision: string | null; transactions: string[] | null;
 };
 export type DealRecord = {
@@ -62,6 +67,12 @@ export type Options = {
   encryptionSecretKey?: string;
   /** The signed delivery body the seller submitted (Agent.deliverAndShare's `delivery`). */
   delivery?: J | null;
+  /**
+   * The party's own copy of the signed MutualSettlement, when the deal settled by agreement. No public read carries a
+   * settlement's deliveryHash, so for late work this copy is the source: the record prints its deliveryHash and checks
+   * it against the delivery above, when given.
+   */
+  settlement?: J | null;
 };
 
 const ID = /^0x[0-9a-f]{64}$/;
@@ -72,9 +83,31 @@ const SECTIONS = ['terms', 'outcome', 'steps', 'delivery', 'judgment', 'settleme
 const SETTLED = ['settlement.released', 'settlement.refunded', 'settlement.reclaimed', 'commitment.settled'];
 const RECEIPT_TYPES = { Receipt: ['operator:address', 'eventSeq:uint64', 'eventHash:bytes32', 'hasCommitment:bool', 'commitmentId:bytes32'].map((s) => ({ name: s.split(':')[0]!, type: s.split(':')[1]! })) };
 const lc = (s: unknown) => String(s).toLowerCase();
+/** A JSON value with every 0x-hex string lowercased, so addresses compare ignoring case. */
+const lowerAll = (v: J): J => JSON.parse(JSON.stringify(v ?? null), (_k, x) => (typeof x === 'string' && /^0x[0-9a-fA-F]+$/.test(x) ? x.toLowerCase() : x));
 const sha256 = async (b: Uint8Array) => `sha256:${Buffer.from(await crypto.subtle.digest('SHA-256', new Uint8Array(b))).toString('hex')}`;
 const sum = (xs: Money[]) => xs.reduce((a, x) => a + BigInt(x.amount), 0n);
 const isMoney = (m: J): m is Money => typeof m?.token === 'string' && typeof m?.amount === 'string' && /^(0|[1-9][0-9]*)$/.test(m.amount);
+
+/**
+ * Late work accepted by settlement (SC-5b, T-378's route): the work was never posted as a delivery, and the parties'
+ * mutual settlement carried it and released its key. No event marks it; the record derives it from the log:
+ * `commitment.settled` with `keyReleased: true`, a `key.released` with path "mutual settlement" after it, and no
+ * `delivery.submitted` at all. No public read carries the settlement's deliveryHash (T-378, measured), so
+ * `deliveryHash` comes from the party's own signed MutualSettlement (`settlement`), and is null without it.
+ */
+export function lateWorkOf(events: J[], settlement?: J | null): { deliveryHash: string | null; keyReleasedTo: string | null } | null {
+  if (events.some((e) => e.type === 'delivery.submitted')) return null;
+  const settled = events.filter((e) => e.type === 'commitment.settled' && e.payload?.keyReleased === true).at(-1);
+  if (!settled) return null;
+  const key = events.find((e) => e.type === 'key.released' && e.payload?.path === 'mutual settlement' && Number(e.seq) > Number(settled.seq));
+  if (!key) return null;
+  const hash = String(settlement?.deliveryHash ?? '');
+  return { deliveryHash: ID.test(lc(hash)) ? lc(hash) : null, keyReleasedTo: ADDRESS.test(String(key.payload?.recipient)) ? lc(key.payload.recipient) : null };
+}
+/** The one line the record prints for late work accepted by settlement. */
+export const lateWorkLine = (w: NonNullable<ReturnType<typeof lateWorkOf>>): string =>
+  `The work was delivered late and accepted by a mutual settlement, which released its key${w.keyReleasedTo ? ` to ${w.keyReleasedTo}` : ''}; delivery hash ${w.deliveryHash ?? 'not confirmed (pass your signed settlement and the delivery: --settlement <file> --delivery <file>)'}.`;
 
 /** GET from one operator: the parsed body on 2xx, the status otherwise, null when it does not answer in 15 s. */
 async function get(api: string, path: string): Promise<{ status: number; body: J } | null> {
@@ -203,7 +236,57 @@ async function view(a: Answers, id: Hex, o: Options, cache: Map<string, Uint8Arr
 
   // Outcome and steps.
   const s = a.state;
-  const outcome = { escrowState: s.escrowState, appealState: s.appealState, reclaimed: of('settlement.reclaimed').length > 0, settledAt: s.settledAt ?? null, finalAt: s.finalAt ?? null };
+  // Late work: the party's own signed MutualSettlement is the only source of the accepted delivery's hash (no public
+  // read carries it). The record uses it only once it is bound to what happened on the deal: signed by both parties
+  // the terms name, under the pinned domain, with the payouts and the key release the settled event records; and,
+  // with the signed delivery, the released envelope is the delivery's own (PR 3 review, finding 2).
+  const late = lateWorkOf(events, null);
+  let candidate: J | null = null;
+  let bound: J | null = null;
+  if (late) {
+    const m = o.settlement;
+    const name = 'late work: the settlement is the one that settled';
+    const settled = of('commitment.settled').filter((e) => e.payload?.keyReleased === true).at(-1);
+    if (!m) add(name, null, 'pass your signed MutualSettlement (--settlement <file>): no public read carries its deliveryHash');
+    else if (!pin || !t) add(name, null, !pin ? 'no pinned domain to recover its signatures under' : 'the terms were not read');
+    else {
+      const typed = (() => {
+        try {
+          return typedOf('MutualSettlement', { ...m, type: 'MutualSettlement' }, pin.domain);
+        } catch {
+          return null;
+        }
+      })();
+      const by = async (sig: J) => (typed ? lc(await recoverTypedDataAddress({ ...typed, signature: sig }).catch(() => '')) : '');
+      const why =
+        lc(m.commitmentId) !== id ? `it is for ${lc(m.commitmentId)}, not ${id}`
+        : m.releaseKey !== true ? 'it does not release the key'
+        : !typed ? 'it is not a MutualSettlement'
+        : (await by(m.buyerSignature)) !== lc(t.buyer) ? "its buyerSignature does not recover to the buyer the terms name"
+        : (await by(m.sellerSignature)) !== lc(t.seller) ? "its sellerSignature does not recover to the seller the terms name"
+        : jcs(lowerAll(m.payouts ?? null)) !== jcs(lowerAll(settled?.payload?.payouts ?? null)) ? 'its payouts are not the ones the settled event records'
+        : null;
+      add(name, why === null, why ?? 'signed by the buyer and the seller the terms name, releasing the key, with the payouts the settled event records');
+      if (why === null) candidate = m;
+    }
+    // No public event carries the settlement's nonce or deliveryHash, so a signed draft that was never submitted would
+    // pass the check above. The released envelope decides: it is sealed afresh for each delivery, so only the delivery
+    // that settled holds it. The record names a delivery hash only once that holds too.
+    if (candidate && o.delivery) {
+      let rebuilt = '';
+      try {
+        rebuilt = lc(deliveryHashOf(o.delivery));
+      } catch {
+        rebuilt = '';
+      }
+      const released = of('key.released').find((e) => e.payload?.path === 'mutual settlement')?.payload?.envelope;
+      const inDelivery = Array.isArray(o.delivery.encryptedKeys) && o.delivery.encryptedKeys.some((k: J) => k?.ciphertext !== undefined && k.ciphertext === released?.ciphertext);
+      const why = !rebuilt ? 'the delivery you passed is not a delivery body' : rebuilt !== lc(candidate.deliveryHash) ? `the delivery you passed hashes to ${rebuilt}; the settlement names ${lc(candidate.deliveryHash)}` : !inDelivery ? 'the envelope the settlement released is not among the delivery\'s envelopes' : null;
+      add('late work: settlement names the delivery', why === null, why ?? `the delivery hashes to the settlement's ${rebuilt}, and the released envelope is one of its own`);
+      if (why === null) bound = candidate;
+    } else if (candidate) add('late work: settlement names the delivery', null, 'pass the signed delivery (--delivery <file>): the record names a delivery hash only once the released envelope is found in it');
+  }
+  const outcome = { escrowState: s.escrowState, appealState: s.appealState, reclaimed: of('settlement.reclaimed').length > 0, settledAt: s.settledAt ?? null, finalAt: s.finalAt ?? null, lateWork: late ? lateWorkOf(events, bound) : null };
   const steps = events.map((e) => ({ step: e.type, at: e.at, actor: e.actor ?? null }));
 
   // Delivery: the ciphertext's hash from the bytes, the plaintext's for the buyer, the delivery hash from the body.
@@ -269,8 +352,10 @@ async function view(a: Answers, id: Hex, o: Options, cache: Map<string, Uint8Arr
     const signer = lc(await recoverMessageAddress({ message: { raw: recordHash }, signature }).catch(() => ''));
     const named = t ? [t.adjudication?.adjudicator, t.adjudication?.fallbackAdjudicator, t.adjudication?.appealAdjudicator].map(lc) : [];
     add("adjudicator's record signature", signer === lc(j.adjudicator) && named.includes(signer), `recovered to ${signer || 'nothing'}; the record names ${lc(j.adjudicator)}; the terms name ${named.join(', ') || 'no adjudicators (terms unread)'}`);
+    // `appeal.decided`: SimChain only, where the full protocol's party appeal is decided (ADR-0031 §8); no phase-one chain emits it.
     const decided = [...of('judgment.decided'), ...of('appeal.decided')].map((e) => lc(e.payload?.recordHash));
     add('judgment names the delivery', decided.includes(lc(recordHash)) && lc(j.deliveryHash) === lc(d?.payload?.deliveryHash), 'a decided event carries this recordHash, and the record names the recorded deliveryHash');
+    // SimChain only: as above.
     const ev = [...of('judgment.decided'), ...of('appeal.decided')].find((e) => lc(e.payload?.recordHash) === lc(recordHash));
     judgment = {
       adjudicator: lc(j.adjudicator), role: j.role, attempt: j.attempt, deliveryHash: lc(j.deliveryHash), outcome: ev?.payload?.outcome ?? null, decision: j.aggregate?.decision ?? null,
@@ -374,7 +459,7 @@ export async function dealRecord(id: Hex, o: Options): Promise<DealRecord> {
     buyerPaymentAddress: t ? lc(t.buyerPaymentAddress) : null, sellerPayoutAddress: t ? lc(t.sellerPayoutAddress) : null,
     paidTo: t && received(t.sellerPayoutAddress) ? lc(t.sellerPayoutAddress) : null, refundedTo: t && received(t.buyerPaymentAddress) ? lc(t.buyerPaymentAddress) : null,
     price: t?.price ?? null, adjudicationFee: t?.adjudication?.fee ?? null, operatorFee: st?.operatorFee ?? null,
-    outcome: agreed.outcome ? merged.outcome.escrowState : null, reclaimed: agreed.outcome ? merged.outcome.reclaimed : null,
+    outcome: agreed.outcome ? merged.outcome.escrowState : null, reclaimed: agreed.outcome ? merged.outcome.reclaimed : null, lateWork: agreed.outcome ? merged.outcome.lateWork !== null : null,
     offeredAt: at('commitment.offered'), agreedAt: at('commitment.agreed'), fundedAt: at('hold.funded'), deliveredAt: at('delivery.submitted'), decidedAt: at('judgment.decided'), settledAt,
     panelDecision: agreed.judgment ? (merged.judgment?.decision ?? null) : null, transactions: st ? st.transactions.map((x: J) => x.url ?? x.tx) : null,
   };
@@ -397,19 +482,23 @@ async function main(argv: string[]): Promise<number> {
   };
   const party = flag('--as');
   if (!id || (party !== 'buyer' && party !== 'seller')) {
-    process.stderr.write('usage: node examples/deal-record.ts <commitmentId> --as buyer|seller [--delivery <file>] [--out <file>]\n');
+    process.stderr.write('usage: node examples/deal-record.ts <commitmentId> --as buyer|seller [--delivery <file>] [--settlement <file>] [--out <file>]\n');
     return 2;
   }
   const operators = (process.env['HOLDBACK_OPERATORS'] || 'https://api.crow.direct,https://api2.crow.direct').split(',');
   const deliveryFile = flag('--delivery');
   const delivery = deliveryFile ? JSON.parse(readFileSync(deliveryFile, 'utf8')) : null;
   const key = process.env['HOLDBACK_ENCRYPTION_KEY'] || undefined;
-  const r = await dealRecord(id as Hex, { operators, party, delivery, ...(key ? { encryptionSecretKey: key } : {}) });
+  const settlementFile = flag('--settlement');
+  const settlement = settlementFile ? JSON.parse(readFileSync(settlementFile, 'utf8')) : null;
+  const r = await dealRecord(id as Hex, { operators, party, delivery, settlement, ...(key ? { encryptionSecretKey: key } : {}) });
   const text = `${JSON.stringify(r, null, 2)}\n`;
   const out = flag('--out');
   if (out) writeFileSync(out, text);
   else process.stdout.write(text);
   const count = (ok: boolean | null) => r.checks.filter((c) => c.ok === ok).length;
+  const late = (r.outcome as J)?.lateWork;
+  if (late) process.stderr.write(`${lateWorkLine(late)}\n`);
   process.stderr.write(
     `Record of ${r.commitmentId} written${out ? ` to ${out}` : ''}: ${count(true)} checks passed, ${count(null)} not run, ${count(false)} failed. ` +
       `${r.disagreements.length ? `Operators differ on ${r.disagreements.map((d) => d.section).join(', ')}.` : `The ${r.operators.filter((x) => x.answered).length} answering operators agree.`}\n`,

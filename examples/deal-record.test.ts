@@ -11,7 +11,8 @@ import { startSimWorld, type SimWorld } from '@holdback/operator';
 import type { Hex } from 'viem';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Agent } from './agent.ts';
-import { dealRecord, type DealRecord } from './deal-record.ts';
+import { dealRecord, lateWorkLine, lateWorkOf, type DealRecord } from './deal-record.ts';
+import { deliveryHashOf, freshNonce, type Intent } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -109,6 +110,7 @@ describe('deal-record.ts writes one verified record of a finished deal (T-333)',
       { to: released.seller.address, amount: PRICE, why: 'price to the seller' },
       { to: world.info.adjudicators[0]!.address, amount: { token: 'tUSD', amount: FEE }, why: expect.any(String) },
     ]);
+    // The last step, `appeal.expired`, is SimChain only: this world runs the full protocol, whose appeal window closes (ADR-0031 §8).
     expect(r.steps.map((s) => s.step)).toEqual(['commitment.offered', 'adjudicator.accepted', 'commitment.agreed', 'hold.funded', 'delivery.submitted', 'key.released', 'judgment.decided', 'settlement.released', 'key.released', 'appeal.expired']);
     expect(r.row).toMatchObject({ commitmentId: released.id, buyer: released.buyer.address, seller: released.seller.address, price: PRICE, adjudicationFee: { token: 'tUSD', amount: FEE }, operatorFee: { token: 'tUSD', amount: '0' }, outcome: 'Released', panelDecision: 'accept', transactions: [] });
     for (const at of ['offeredAt', 'agreedAt', 'fundedAt', 'deliveredAt', 'decidedAt', 'settledAt']) expect(r.row[at as keyof typeof r.row], at).toMatch(/^\d{4}-\d\d-\d\dT/);
@@ -246,3 +248,77 @@ async function proxy(target: string, lie: { state?: string; tamperPrice?: string
     }),
   };
 }
+
+describe('deal-record.ts shows late work accepted by a mutual settlement (SC-5b)', () => {
+  // The event log as T-378's route writes it (rafaeldavid/holdback#408): no delivery.submitted, a settlement that
+  // released the key, then the key released by "mutual settlement". Newest last here, as the record sorts by seq.
+  const buyer = `0x${'b1'.repeat(20)}`, hash = `0x${'de'.repeat(32)}`;
+  const log = (over: { delivered?: boolean; keyReleased?: boolean } = {}) => [
+    { seq: 1, type: 'commitment.offered', payload: {} },
+    { seq: 4, type: 'hold.funded', payload: {} },
+    ...(over.delivered ? [{ seq: 5, type: 'delivery.submitted', payload: {} }] : []),
+    { seq: 6, type: 'commitment.settled', payload: { payouts: [], keyReleased: over.keyReleased ?? true } },
+    ...((over.keyReleased ?? true) ? [{ seq: 7, type: 'key.released', payload: { recipient: buyer, envelope: {}, path: 'mutual settlement' } }] : []),
+  ];
+
+  it('names late work in one line, with the delivery hash from the party\'s own signed settlement, since no event carries it', () => {
+    const late = lateWorkOf(log(), { commitmentId: `0x${'11'.repeat(32)}`, deliveryHash: hash.toUpperCase().replace('0X', '0x') });
+    expect(late).toEqual({ deliveryHash: hash, keyReleasedTo: buyer });
+    expect(lateWorkLine(late!)).toBe(`The work was delivered late and accepted by a mutual settlement, which released its key to ${buyer}; delivery hash ${hash}.`);
+    expect(lateWorkLine(lateWorkOf(log())!)).toMatch(/; delivery hash not confirmed \(pass your signed settlement and the delivery: --settlement <file> --delivery <file>\)\.$/);
+  });
+
+  it('does not call a settlement late work when a delivery was posted, or when it released no key', () => {
+    expect(lateWorkOf(log({ delivered: true }))).toBeNull();
+    expect(lateWorkOf(log({ keyReleased: false }))).toBeNull();
+    // A key released before the settlement is another path's, not this one.
+    expect(lateWorkOf([{ seq: 2, type: 'key.released', payload: { path: 'mutual settlement', recipient: buyer } }, { seq: 6, type: 'commitment.settled', payload: { keyReleased: true } }])).toBeNull();
+  });
+
+  it('on a deal that settled late work, binds the party\'s settlement and delivery to it, and names no hash for a signed draft that never settled', async () => {
+    const account = async () => (await (await realFetch(`${world.url}/accounts`, { method: 'POST' })).json()) as J;
+    const s = await account(), b = await account();
+    const seller = new Agent([...world.info.operators], s.privateKey, Buffer.from(s.encryptionSecretKey, 'base64url'));
+    const buyer = new Agent([...world.info.operators], b.privateKey, Buffer.from(b.encryptionSecretKey, 'base64url'));
+    const a = world.info.adjudicators;
+    const offer = await seller.offer({
+      template: 'checks-only', clubId: world.info.clubId, seller: seller.address, buyer: { address: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey },
+      adjudicators: { primary: a[0]!.address, fallback: a[1]!.address, appeal: a[2]!.address }, price: PRICE, deliverable: { kind: 'dataset', description: `customers, late ${++n}`, format: 'text/csv' }, checks: CHECKS,
+      timing: { offerExpiresInSec: 60, fundWithinSec: 90, deliverWithinSec: DELIVER_WITHIN_SEC },
+    });
+    await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);
+    await buyer.agreeAndFund(offer.terms, 10n ** 12n);
+    await buyer.waitFor(offer.id, ['Held']);
+    // Two signed deliveries the seller never posts: the late work, and another one for a draft that never settles.
+    const unposted = async (work: string) => {
+      const { prepared, intent } = await seller.prepareDelivery(offer.terms, new TextEncoder().encode(work));
+      return (await seller.sign(prepared, intent)).body;
+    };
+    const late = await unposted(GOOD), other = await unposted(`${GOOD}3,grace@example.com\n`);
+    const settle = async (delivery: J) => {
+      const nonce = freshNonce();
+      const p = await buyer.call('POST', '/v1/prepare/settlement', { commitmentId: offer.id, nonce, toSellerBps: 7000, delivery });
+      const intent: Intent = { kind: 'settlement', terms: offer.terms, payouts: p.submit.body.payouts, releaseKey: true, deliveryHash: deliveryHashOf(delivery), nonce, delivery };
+      const mine = await buyer.sign(p, intent), theirs = await seller.sign(p, intent);
+      return { ...mine.body, sellerSignature: theirs.body.sellerSignature, path: mine.path };
+    };
+    const draft = await settle(other); // signed by both, never submitted
+    const real = await settle(late);
+    const { path, ...body } = real;
+    expect((await buyer.call('POST', path, body)).escrowState).toBe('Settled');
+    const record = (settlement: J, delivery: J) => dealRecord(offer.id, { operators: [...world.info.operators], party: 'buyer', settlement, delivery });
+    const good = await record(body, late);
+    expect(checks(good)).toMatchObject({ 'late work: the settlement is the one that settled': true, 'late work: settlement names the delivery': true });
+    expect(good.row.lateWork).toBe(true);
+    expect((good.outcome as J).lateWork).toEqual({ deliveryHash: deliveryHashOf(late).toLowerCase(), keyReleasedTo: buyer.address });
+    // A signed draft for another delivery passes the signatures and payouts, and fails on the released envelope.
+    const { path: _p, ...draftBody } = draft; // eslint-disable-line @typescript-eslint/no-unused-vars
+    const forged = await record(draftBody, other);
+    expect(checks(forged)).toMatchObject({ 'late work: the settlement is the one that settled': true, 'late work: settlement names the delivery': false });
+    expect((forged.outcome as J).lateWork).toEqual({ deliveryHash: null, keyReleasedTo: buyer.address });
+    // Changed payouts, or no settlement at all.
+    const changed = await record({ ...body, payouts: [...body.payouts].reverse() }, late);
+    expect(checks(changed)['late work: the settlement is the one that settled']).toBe(false);
+    expect(checks(await record(null, late))['late work: the settlement is the one that settled']).toBeNull();
+  }, 60_000);
+});
