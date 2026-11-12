@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SEPOLIA } from './deployments.ts';
 import { roundKey } from './e2e-keys.ts';
 import { lockFile } from './e2e-run.ts';
-import { ANVIL_SKIP, anvilReady, anvilWorld, driver, expectNoSecrets, results, simWorld, type AnvilWorld, type Served } from './e2e-world.ts';
+import { ANVIL_SKIP, anvilReady, anvilWorld, driver, ENV, expectNoSecrets, NONZERO_FEE, results, simWorld, type AnvilWorld, type Served } from './e2e-world.ts';
 import { pinOf } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -107,6 +107,30 @@ describe('e2e-round.ts', () => {
     });
   });
 
+  // T-392: CI's test shards run the SimChain cases. The deployed fee is 0, so one SimChain world charges a fee, to keep
+  // the fee's slot, the payment address's third signature and the totals that include it under test in CI.
+  describe('against a demo world on SimChain whose operators charge a fee', () => {
+    let demo: Served;
+    beforeAll(async () => {
+      demo = await simWorld(NONZERO_FEE);
+    });
+    afterAll(() => demo.close());
+
+    it('runs scenarios 2 and 12 with a non-zero operator fee in every total', async () => {
+      const seed = generatePrivateKey();
+      const out = mkdtempSync(join(tmpdir(), 'e2e-round-sim-fee-'));
+      const r = await driver(['run', '2', '12'], { E2E_SEPOLIA_SEED: seed, HOLDBACK_OPERATORS: demo.urls.join(','), E2E_OUT: out });
+      expect(r.out).toMatch(/^results: 2 pass, 12 pass$/m);
+      // Three deals, each held with a fee above 0: "operator fee 0.01 tUSD", never "operator fee 0 tUSD".
+      const held = r.out.split('\n').filter((l) => /Held: .* operator fee /.test(l));
+      expect(held).toHaveLength(3);
+      for (const l of held) expect(l).not.toMatch(/operator fee 0 /);
+      const { folder, byId } = results(out);
+      for (const id of ['2', '12']) expect(byId[id].checks.filter((c: J) => !c.ok)).toEqual([]);
+      expectNoSecrets(seed, r.out, folder);
+    }, 300_000);
+  });
+
   describe('against the demo world on SimChain', () => {
     let demo: Served;
     beforeAll(async () => {
@@ -170,9 +194,38 @@ describe('e2e-round.ts', () => {
       // Scenario 12 (T-381): every check of both deals, the chain's Transfer logs and SettlementAddresses among them.
       expect(byId['12'].checks.filter((c: J) => !c.ok)).toEqual([]);
       expect(byId['12'].checks.map((c: J) => c.name)).toEqual(expect.arrayContaining(['the price reaches the payout address on chain', 'the price returns to the payment address on chain', 'no token transfer names a signing address on chain']));
+      // At the deployed fee (T-392): at 0, no fee transfer on either deal; above 0, one each.
+      const free = [ENV.OPERATOR_FEE_BPS, ENV.OPERATOR_FEE_MIN, ENV.OPERATOR_FEE_GAS].every((v) => v === undefined || v === '0');
+      expect(byId['12'].checks.filter((c: J) => c.name === (free ? 'no operator fee moves: the fee is 0' : 'the operator fee is paid once'))).toHaveLength(2);
       const fin = await driver(['finality', folder], env);
       expect(fin.out).toMatch(/transactions re-read, \d+ in the same block, 0 changed/);
       expect(fin.code, fin.out).toBe(0);
+      expectNoSecrets(seed, r.out, folder);
+    }, 600_000);
+  });
+
+  // T-392: the anvil run above uses the fee the live operators deploy (wrangler.op1.jsonc; 0 for the first pilots). Another
+  // operator may charge, so one run keeps a non-zero fee alive with its own values: the payment address pays it once,
+  // as one transfer of the quoted amount, on each of scenario 12's two deals.
+  describe.skipIf(!anvilReady)(`against a demo world on anvil whose operators charge a fee${ANVIL_SKIP}`, () => {
+    let demo: AnvilWorld;
+    beforeAll(async () => {
+      demo = await anvilWorld(NONZERO_FEE);
+    }, 180_000);
+    afterAll(async () => {
+      await demo?.close();
+    });
+
+    it('runs scenario 12 with the fee paid once from the payment address on each deal', async () => {
+      const seed = generatePrivateKey();
+      const out = mkdtempSync(join(tmpdir(), 'e2e-round-fee-'));
+      const env = { E2E_SEPOLIA_SEED: seed, HOLDBACK_OPERATORS: demo.urls.join(','), E2E_OUT: out, HOLDBACK_DEPLOYMENT: JSON.stringify(demo.deployment), SEPOLIA_RPC_URL: demo.rpcUrl };
+      for (const role of ['buyer', 'seller'] as const) await demo.setBalance(privateKeyToAccount(roundKey(seed, role)).address, 10n ** 18n);
+      const r = await driver(['run', '12', '--no-homepage'], env);
+      expect(r.out).toMatch(/^results: 12 pass$/m);
+      const { folder, byId } = results(out);
+      expect(byId['12'].checks.filter((c: J) => !c.ok)).toEqual([]);
+      expect(byId['12'].checks.filter((c: J) => c.name === 'the operator fee is paid once')).toHaveLength(2);
       expectNoSecrets(seed, r.out, folder);
     }, 600_000);
   });
