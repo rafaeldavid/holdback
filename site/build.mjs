@@ -200,7 +200,7 @@ export const strip = (md) => md.split('\n').filter((l) => !l.startsWith('%% ')).
  *     to" and "Buy from"; the lede; a value prop; the tagline under the brand; the footer.
  *   - The six value props show one at a time, each under a pencil study (vignettes.mjs), and change every 7 s.
  *   - Spare height is shared by three gaps (above the claim, the value prop and the footer), never left in one.
- * The faint code streams down each side are the case study's code (examples/buy-dataset.ts): the buyer's on the
+ * The faint code streams down each side of the hero are the case study's code (examples/buy-dataset.ts): the buyer's on the
  * left, the seller's on the right, each with its call results as comments. They type in deal order through four
  * deals (release, refund, default, escalation); below 1100 px wide each spans half the page, fainter, behind the content.
  */
@@ -283,6 +283,134 @@ const SCRIPT = `<script>
     h.addEventListener('mouseleave', start);
     start();
   }
+  // The case study's code (examples/buy-dataset.ts: a buyer agent buys a cleaned customers.csv for 25 tUSDC from a
+  // seller agent), typed faintly down the page: the buyer's code on the left, the seller's on the right, each
+  // with its call results as comments. New lines arrive at the bottom and push older ones up. Each line is
+  // [delay ms, 'b' | 's', text], the delay scaled by K; a new deal starts every 6200 ms \u00d7 K, about 13.6 s.
+  var hex = function (n) { var s = ''; while (s.length < n) s += Math.floor(Math.random() * 16).toString(16); return s; };
+  var K = 2.2; // one pace for both streams
+  var CALLS = function (i, id) {
+    var open = [
+      [0, 'b', "const me = { address: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey };"],
+      [80, 'b', "await mail(seller, me); // ask for an offer: customers.csv, at most 30 tUSDC"],
+      [0, 's', "const offer = await seller.offer({"],
+      [60, 's', "  template: 'checks-only', price: { token: TUSDC, amount: '25000000' },"],
+      [120, 's', "  deliverable: { kind: 'dataset', description: 'customers.csv', format: 'text/csv' },"],
+      [180, 's', "  checks: [cols, rows, uniq], buyer: me, adjudicators: { primary, fallback, appeal },"],
+      [240, 's', "}); // \\u2192 offer " + id + ": Offered"],
+      [300, 's', "await mail(buyer, offer.terms);"],
+      [320, 'b', "await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);"],
+      [420, 'b', "const held = await buyer.agreeAndFund(offer.terms, 30_000_000n);"],
+      [520, 'b', "// verify domain, price, nonces \\u00b7 sign Agree + FundingAuthorization"],
+      [600, 'b', "// \\u2192 Held, 26000000 base units (price + fee)"],
+      [620, 's', "await seller.waitFor(offer.id, ['Held']); // \\u2192 Held"],
+      [700, 's', "await seller.deliver(offer.terms, new TextEncoder().encode(csv));"],
+      [820, 's', "// AES-256-GCM \\u00b7 key sealed to 3 adjudicators + buyer \\u00b7 sign Delivery"],
+      [1100, 's', "// \\u2192 Delivered"]
+    ];
+    var tail = [
+      [ // release
+        [1500, 'b', "const done = await buyer.waitFor(offer.id, ['Released', 'Refunded']);"],
+        [1500, 's', "await seller.waitFor(offer.id, ['Released', 'Refunded']);"],
+        [2100, 'b', "// adjudicator: cols \\u2713 rows \\u2713 uniq \\u2713 \\u2192 accept"],
+        [2900, 'b', "// \\u2192 Released: the content key is mine"],
+        [2900, 's', "// \\u2192 Released: 25000000 tUSDC paid to me"],
+        [3300, 'b', "const work = await buyer.openDelivery(offer.id); // open envelope, check sha256"],
+        [3600, 'b', "// customer_id,email \\u00b7 1,ada@example.com \\u00b7 2,alan@\\u2026"],
+        [4300, 'b', "await balance(buyer); // \\u2192 9974000000"],
+        [4300, 's', "await balance(seller); // \\u2192 10025000000"]
+      ],
+      [ // refund
+        [1500, 'b', "const done = await buyer.waitFor(offer.id, ['Released', 'Refunded']);"],
+        [1500, 's', "await seller.waitFor(offer.id, ['Released', 'Refunded']);"],
+        [2100, 'b', "// adjudicator: cols \\u2713 rows \\u2717 (2 of 3) uniq \\u2713 \\u2192 reject"],
+        [2900, 'b', "// \\u2192 Refunded: 25000000 tUSDC back to me (the 1 tUSDC fee is spent)"],
+        [2900, 's', "// \\u2192 Refunded: unpaid, and the buyer never got the key"],
+        [4300, 'b', "await balance(buyer); // \\u2192 9999000000"]
+      ],
+      [ // default
+        [1500, 'b', "// judgeBy and fallbackBy pass with no decision from either adjudicator"],
+        [1500, 's', "// judgeBy and fallbackBy pass with no decision from either adjudicator"],
+        [2200, 'b', "await buyer.call('POST', '/v1/commitments/' + offer.id + '/triggers/default');"],
+        [2350, 'b', "// \\u2192 Defaulted"],
+        [2600, 's', "await seller.call('POST', '/v1/commitments/' + offer.id + '/triggers/apply-default');"],
+        [2900, 'b', "// \\u2192 refunded: 25000000 tUSDC back to me"],
+        [2900, 's', "// \\u2192 compensated from the adjudicators' bonds"]
+      ],
+      [ // appeal
+        [1500, 'b', "const done = await buyer.waitFor(offer.id, ['Released', 'Refunded']);"],
+        [2100, 'b', "// adjudicator \\u2192 accept: but the rows fail the terms"],
+        [2600, 's', "// \\u2192 Released: 25000000 tUSDC paid to me"],
+        [3300, 'b', "const p = await buyer.call('POST', '/v1/prepare/appeal', { commitmentId: offer.id, appellant: buyer.address });"],
+        [3450, 'b', "await buyer.signAndSubmit(p, { kind: 'appeal', terms: offer.terms, me: buyer.address, appealBondRateBps: 500 }); // bond 5% + fee"],
+        [3600, 'b', "// \\u2192 appealState: open"],
+        [3600, 's', "// appeal filed by the buyer \\u00b7 appealState: open"],
+        [4200, 'b', "// appeal adjudicator \\u2192 overturned"],
+        [4350, 'b', "// \\u2192 the bond pays me 25000000 tUSDC"],
+        [4350, 's', "// appeal overturned: the bond pays the buyer"]
+      ]
+    ][i];
+    // the agents asking the API about itself, spread over the four deals so every feature shows once
+    var c = "'/v1/commitments/' + offer.id + '";
+    var QA = [
+      [ // release
+        [4500, 'b', "// which adjudicators can we name, and what do they charge?"],
+        [4620, 'b', "await buyer.call('GET', '/v1/adjudicators'); // \\u2192 3 \\u00b7 fee.min 1 tUSDC \\u00b7 bonded"],
+        [4500, 's', "// does every operator serve the same record?"],
+        [4620, 's', "await seller.call('GET', " + c + "/events'); // \\u2192 same hashes on op-1 and op-2"],
+        [5200, 'b', "// what did the seller actually sign?"],
+        [5320, 'b', "await buyer.call('GET', " + c + "/terms'); // \\u2192 matches the mailed offer"],
+        [5200, 's', "// a fresh agent? the faucet funds it and admits it to the club"],
+        [5320, 's', "await fresh.call('POST', '/v1/faucet', { address }); // \\u2192 1000 tUSDC \\u00b7 demo-club"]
+      ],
+      [ // refund
+        [4500, 'b', "// what exactly did the checks find?"],
+        [4620, 'b', "await buyer.call('GET', " + c + "/judgment'); // \\u2192 rows: 2, terms say 3"],
+        [4500, 's', "// can I preview a submit before signing it?"],
+        [4620, 's', "await seller.call('POST', " + c + "/deliveries?validateOnly=true', draft); // \\u2192 200, nothing changed"],
+        [5200, 's', "// who must the content key be sealed to?"],
+        [5320, 's', "await seller.call('GET', " + c + "/recipients'); // \\u2192 primary, fallback, appeal, buyer"]
+      ],
+      [ // default
+        [4500, 'b', "// what does the club's rulebook say a default pays?"],
+        [4620, 'b', "await buyer.call('GET', '/v1/clubs/demo-club'); // \\u2192 refund buyer, compensate seller"],
+        [4500, 's', "// what can this API do?"],
+        [4620, 's', "await seller.call('GET', '/v1/openapi.json'); // \\u2192 OpenAPI 3.1, every route"],
+        [5200, 's', "// which settlement layer is this, and what time is it there?"],
+        [5320, 's', "await seller.call('GET', '/.well-known/holdback.json'); // \\u2192 domain, settlementTime"]
+      ],
+      [ // appeal
+        [2700, 'b', "// what would an appeal cost?"],
+        [2820, 'b', "await buyer.call('GET', '/v1/clubs/demo-club'); // \\u2192 appealBondRateBps 500 \\u00b7 appealFee 25 tUSDC"],
+        [4800, 's', "// where are my receipts?"],
+        [4920, 's', "await seller.call('GET', " + c + "/receipts'); // \\u2192 signed by each operator"],
+        [5000, 'b', "// what do I hold now?"],
+        [5120, 'b', "await buyer.call('GET', '/v1/balances/' + buyer.address); // \\u2192 the bond's 25 tUSDC arrived"]
+      ]
+    ][i];
+    return open.concat(tail, QA);
+  };
+  var streams = { b: document.getElementById('stream-b'), s: document.getElementById('stream-s') }, streamTimers = [];
+  function say(side, text) {
+    var el = streams[side];
+    if (!el) return;
+    var line = document.createElement('div'); line.textContent = text; el.appendChild(line);
+    while (el.childNodes.length > 90) el.removeChild(el.firstChild);
+  }
+  function play(i) {
+    streamTimers.forEach(clearTimeout); streamTimers = [];
+    var id = '0x' + hex(6) + '\\u2026' + hex(4);
+    var calls = CALLS(i, id);
+    if (still) { calls.forEach(function (l) { say(l[1], l[2]); }); return; }
+    var head = ' \\u00b7 ' + ['release', 'refund', 'default', 'appeal'][i];
+    say('b', ''); say('b', '// buyer agent' + head);
+    say('s', ''); say('s', '// seller agent' + head);
+    calls.forEach(function (l) { streamTimers.push(setTimeout(function () { say(l[1], l[2]); }, l[0] * K)); });
+  }
+  // Four deals in turn, one every 6200 ms \u00d7 K. A visitor who asks for reduced motion gets the first deal's code
+  // written once, with no animation.
+  var deal = 0; play(0);
+  if (!still) setInterval(function () { deal = (deal + 1) % 4; play(deal); }, 6200 * K);
   // Try Crow: the copy icon copies the prompt for the visitor's AI assistant.
   // Where the clipboard is refused, the prompt shows selected instead so the visitor can copy it by hand.
   var select = function (el) { var r = document.createRange(); r.selectNodeContents(el); var s = getSelection(); s.removeAllRanges(); s.addRange(r); };
@@ -359,6 +487,19 @@ export function page(md, command = tryCommand()) {
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body { background: var(--page); color: var(--ink); font: 17px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
 a { color: inherit; }
+/* the agents' code (Rafa kept it, 2026-11-12): faint terminal text down each side of the hero, buyer left and seller
+   right, misting out at the edges, behind the words. It stops above the value props. */
+html { overflow-x: clip; }
+.stream { position: absolute; z-index: 0; top: 0; bottom: 0; width: min(460px, calc(50vw - 340px));
+  display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; pointer-events: none; user-select: none;
+  font: 10.5px/1.7 ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink-3); opacity: .55; text-align: left; white-space: pre; }
+#stream-b { left: calc(50% - 50vw); padding: 0 12px 24px max(20px, env(safe-area-inset-left, 0px));
+  -webkit-mask-image: radial-gradient(ellipse 95% 75% at 35% 60%, #000 25%, transparent 78%); mask-image: radial-gradient(ellipse 95% 75% at 35% 60%, #000 25%, transparent 78%); }
+#stream-s { right: calc(50% - 50vw); padding: 0 max(20px, env(safe-area-inset-right, 0px)) 24px 12px;
+  -webkit-mask-image: radial-gradient(ellipse 95% 75% at 65% 60%, #000 25%, transparent 78%); mask-image: radial-gradient(ellipse 95% 75% at 65% 60%, #000 25%, transparent 78%); }
+.stream div { overflow: hidden; flex-shrink: 0; min-height: 1.7em; } /* never squeeze lines when the stream is full */
+.hero { position: relative; }
+.hero > :not(.stream) { position: relative; z-index: 1; }
 .bar { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--page) 92%, transparent); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid var(--hair); }
 .bar-inner { max-width: 1040px; margin: 0 auto; padding: 10px 20px; display: flex; align-items: center; gap: 22px; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 17px; text-decoration: none; }
@@ -406,6 +547,7 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid 
 .copy:hover { background: var(--band); color: var(--ink); }
 .nb { white-space: nowrap; } /* the copy icon stays with the word before it */
 .copied { margin-left: 6px; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
+@media (max-width: 1100px) { .stream { width: 50vw; opacity: .14; } }
 @media (max-width: 820px) { .props { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 600px) { h1 { font-size: 44px; } .lede { font-size: 19px; } .hero { padding: 64px 0 48px; } .nav { display: none; } .props { grid-template-columns: 1fr; } }
 </style>
@@ -420,6 +562,8 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid 
 </div></header>
 <main class="page">
 <section class="hero">
+<div id="stream-b" class="stream" aria-hidden="true"></div>
+<div id="stream-s" class="stream" aria-hidden="true"></div>
 <p class="tag">${inline(subtitle)}</p>
 <h1>
 <span class="sr">${inline(headline)} Go direct.</span>
