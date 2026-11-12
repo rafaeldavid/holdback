@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -14,15 +15,15 @@ contract TimeoutsTest is Base {
 
     function test_reclaim_refundsPricePlusFee() public {
         (H.Terms memory t, bytes32 id) = _funded();
-        vm.expectRevert(HoldbackRules.TooEarly.selector);
+        vm.expectRevert(IHoldbackRules.TooEarly.selector);
         rules.reclaim(t);
         uint256 b0 = usdc.balanceOf(buyer);
         vm.warp(t.timing.deliverBy);
         vm.prank(anyone);
         rules.reclaim(t);
         assertEq(usdc.balanceOf(buyer), b0 + PRICE + FEE);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
-        vm.expectRevert(abi.encodeWithSelector(HoldbackRules.WrongStage.selector, HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
+        vm.expectRevert(abi.encodeWithSelector(IHoldbackRules.WrongStage.selector, IHoldbackRules.Stage.Refunded));
         rules.reclaim(t);
     }
 
@@ -30,19 +31,19 @@ contract TimeoutsTest is Base {
         (H.Terms memory t, bytes32 id) = _funded();
         _deliver(t, id);
         vm.warp(t.timing.deliverBy);
-        vm.expectRevert(abi.encodeWithSelector(HoldbackRules.WrongStage.selector, HoldbackRules.Stage.Delivered));
+        vm.expectRevert(abi.encodeWithSelector(IHoldbackRules.WrongStage.selector, IHoldbackRules.Stage.Delivered));
         rules.reclaim(t);
     }
 
     function test_fallback() public {
         (H.Terms memory t, bytes32 id) = _funded();
         _deliver(t, id);
-        vm.expectRevert(HoldbackRules.TooEarly.selector);
+        vm.expectRevert(IHoldbackRules.TooEarly.selector);
         rules.triggerFallback(t);
         vm.warp(t.timing.judgeBy);
         vm.prank(anyone);
         rules.triggerFallback(t);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.FallbackJudging));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.FallbackJudging));
     }
 
     function test_default_fromFallbackJudging_inOneCall() public {
@@ -50,26 +51,26 @@ contract TimeoutsTest is Base {
         _deliver(t, id);
         vm.warp(t.timing.judgeBy);
         rules.triggerFallback(t);
-        vm.expectRevert(HoldbackRules.TooEarly.selector);
+        vm.expectRevert(IHoldbackRules.TooEarly.selector);
         rules.triggerDefault(t);
         uint256 b0 = usdc.balanceOf(buyer);
         vm.warp(t.timing.fallbackBy);
         vm.prank(anyone);
         rules.triggerDefault(t);
         assertEq(usdc.balanceOf(buyer), b0 + PRICE + FEE);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
     }
 
     function test_default_afterEscalation() public {
         (H.Terms memory t, bytes32 id) = _funded();
         _deliver(t, id);
         rules.decide(t, _primary(t, id, H.OUTCOME_ESCALATE), _noDelivery(), "");
-        vm.expectRevert(HoldbackRules.TooEarly.selector);
+        vm.expectRevert(IHoldbackRules.TooEarly.selector);
         rules.triggerDefault(t);
         vm.warp(block.timestamp + t.timing.appealDecideSec);
         vm.prank(anyone);
         rules.triggerDefault(t);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
         assertEq(_held(t), 0);
     }
 
@@ -77,7 +78,7 @@ contract TimeoutsTest is Base {
         (H.Terms memory t, bytes32 id) = _funded();
         _deliver(t, id);
         vm.warp(t.timing.fallbackBy);
-        vm.expectRevert(abi.encodeWithSelector(HoldbackRules.WrongStage.selector, HoldbackRules.Stage.Delivered));
+        vm.expectRevert(abi.encodeWithSelector(IHoldbackRules.WrongStage.selector, IHoldbackRules.Stage.Delivered));
         rules.triggerDefault(t);
     }
 

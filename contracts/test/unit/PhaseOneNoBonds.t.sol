@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base, TypesHarness} from "./Base.sol";
 
@@ -161,8 +162,8 @@ contract PhaseOneNoBondsTest is Base {
         uint256 b0 = usdc.balanceOf(buyer);
         (bool ok, bytes memory ret) = _fundCall(t, s, a, g, f);
         assertFalse(ok, "agreeAndFund funded");
-        assertEq(ret, abi.encodeWithSelector(HoldbackRules.InvalidMessage.selector), "refused with InvalidMessage");
-        assertEq(uint8(_stage(hx.id(t))), uint8(HoldbackRules.Stage.None), "no deal");
+        assertEq(ret, abi.encodeWithSelector(IHoldbackRules.InvalidMessage.selector), "refused with InvalidMessage");
+        assertEq(uint8(_stage(hx.id(t))), uint8(IHoldbackRules.Stage.None), "no deal");
         assertEq(_held(t), 0, "no hold");
         assertEq(usdc.balanceOf(buyer), b0, "the buyer's balance is unchanged");
     }
@@ -174,7 +175,7 @@ contract PhaseOneNoBondsTest is Base {
         uint256 h0 = _held(t);
         id = _agreeAndFund(t, bondReserved);
         assertEq(id, hx.id(t));
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held), "funded");
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Held), "funded");
         assertEq(_held(t) - h0, PRICE + FEE, "the hold is price + fee");
         assertEq(b0 - usdc.balanceOf(buyer), PRICE + FEE, "taken from the buyer");
     }
@@ -261,7 +262,7 @@ contract PhaseOneNoBondsTest is Base {
             assertFalse(ok, names[i]);
             assertEq(ret.length, 0, names[i]);
         }
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released), "the deal stands as decided");
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Released), "the deal stands as decided");
     }
 
     // ------------------------------------------------------------ a settled deal takes no further decision
@@ -278,9 +279,9 @@ contract PhaseOneNoBondsTest is Base {
         uint256 s0 = usdc.balanceOf(seller);
         H.Decision memory m = _beaconDecision(id, H.ROLE_APPEAL, H.OUTCOME_REJECT, round);
         m = _signDecision(t, id, m, appealAdj, AP_PK);
-        vm.expectRevert(abi.encodeWithSelector(HoldbackRules.WrongStage.selector, HoldbackRules.Stage.Released));
+        vm.expectRevert(abi.encodeWithSelector(IHoldbackRules.WrongStage.selector, IHoldbackRules.Stage.Released));
         rules.decide(t, m, _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Released));
         assertEq(usdc.balanceOf(buyer), b0);
         assertEq(usdc.balanceOf(seller), s0);
     }
@@ -295,8 +296,8 @@ contract PhaseOneNoBondsTest is Base {
         H.Decision memory m = _beaconDecision(id, H.ROLE_APPEAL, H.OUTCOME_ACCEPT, round);
         (m.keyScheme, m.keyCiphertext) = ("", "");
         m = _signDecision(t, id, m, appealAdj, AP_PK);
-        vm.expectRevert(abi.encodeWithSelector(HoldbackRules.WrongStage.selector, HoldbackRules.Stage.Refunded));
+        vm.expectRevert(abi.encodeWithSelector(IHoldbackRules.WrongStage.selector, IHoldbackRules.Stage.Refunded));
         rules.decide(t, m, _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
     }
 }

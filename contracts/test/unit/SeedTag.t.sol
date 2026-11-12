@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -51,8 +52,8 @@ contract SeedTagTest is Base {
         bytes32 id = _fundWith(t, commitment);
         (bool ok, bytes memory ret) = _decideAsPrimary(t, id);
         assertFalse(ok, "a seed whose hash differs from the commitment decided");
-        assertEq(ret, abi.encodeWithSelector(HoldbackRules.BadSeed.selector));
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held), "the deal moved");
+        assertEq(ret, abi.encodeWithSelector(IHoldbackRules.BadSeed.selector));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Held), "the deal moved");
     }
 
     /// The revealed seed still decides when its hash is the commitment.
@@ -60,6 +61,6 @@ contract SeedTagTest is Base {
         (H.Terms memory t, bytes32 id) = _funded();
         (bool ok,) = _decideAsPrimary(t, id);
         assertTrue(ok, "the right seed was refused");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
     }
 }

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {SignerBase, SwitchWallet} from "./ContractSigners.sol";
 
@@ -23,28 +24,28 @@ contract Erc1271ChangingAnswerTest is SignerBase {
         uint256 buyerStart = usdc.balanceOf(buyer);
         uint256 walletStart = usdc.balanceOf(address(w));
         bytes32 id = _fundAs(t, BUYER_PK, SW_PK, ADJ_PK);
-        _is(id, HoldbackRules.Stage.Held);
+        _is(id, IHoldbackRules.Stage.Held);
 
         w.setMode(WRONG_MAGIC);
         (H.Delivery memory d, H.KeyProof memory k) = _deliveryFor(t.buyer);
         bytes memory sig = _deliverySig(id, d, SW_PK);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.deliver(t, d, sig);
         H.EarlyAccept memory early = _earlyFor(t, id, d, BUYER_PK);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.earlyAccept(t, early, d, sig, k);
         H.Decision memory m = _primary(t, id, H.OUTCOME_ACCEPT);
         m.deliveryHash = hx.delivery(id, d);
         m = _signDecision(t, id, m, adjudicator, ADJ_PK);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.decide(t, m, d, sig);
-        _is(id, HoldbackRules.Stage.Held);
+        _is(id, IHoldbackRules.Stage.Held);
 
-        vm.expectRevert(HoldbackRules.TooEarly.selector);
+        vm.expectRevert(IHoldbackRules.TooEarly.selector);
         rules.reclaim(t);
         vm.warp(t.timing.deliverBy);
         rules.reclaim(t);
-        _is(id, HoldbackRules.Stage.Refunded);
+        _is(id, IHoldbackRules.Stage.Refunded);
         assertEq(usdc.balanceOf(buyer), buyerStart, "the buyer is whole");
         assertEq(usdc.balanceOf(address(w)), walletStart, "the seller's wallet gets nothing");
         assertEq(_held(t), 0);
@@ -62,12 +63,12 @@ contract Erc1271ChangingAnswerTest is SignerBase {
         H.Mutual memory mu = _mutualFor(t, id, BUYER_PK, SW_PK, 10_000_000);
 
         w.setMode(REVERTS);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.mutualSettle(t, mu, d, k);
 
         uint256 walletBefore = usdc.balanceOf(address(w));
         rules.decide(t, _primary(t, id, H.OUTCOME_ACCEPT), _noDelivery(), "");
-        _is(id, HoldbackRules.Stage.Released);
+        _is(id, IHoldbackRules.Stage.Released);
         assertEq(usdc.balanceOf(address(w)) - walletBefore, PRICE, "being paid needs no signature");
         assertEq(usdc.balanceOf(adjudicator), FEE);
     }
@@ -85,13 +86,13 @@ contract Erc1271ChangingAnswerTest is SignerBase {
         H.Mutual memory mu = _mutualFor(t, id, BUYER_PK, SW_PK, 10_000_000);
 
         w.setMode(EMPTY);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.mutualSettle(t, mu, d, k);
-        _is(id, HoldbackRules.Stage.Delivered);
+        _is(id, IHoldbackRules.Stage.Delivered);
         w.setMode(HONEST);
         uint256 walletBefore = usdc.balanceOf(address(w));
         rules.mutualSettle(t, mu, d, k);
-        _is(id, HoldbackRules.Stage.Settled);
+        _is(id, IHoldbackRules.Stage.Settled);
         assertEq(usdc.balanceOf(address(w)) - walletBefore, 10_000_000);
     }
 
@@ -109,12 +110,12 @@ contract Erc1271ChangingAnswerTest is SignerBase {
 
         H.EarlyAccept memory early = _earlyFor(t, id, d, BW_PK);
         w.setMode(WRONG_MAGIC);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.earlyAccept(t, early, d, "", k);
 
         uint256 walletBefore = usdc.balanceOf(address(w));
         rules.decide(t, _primary(t, id, H.OUTCOME_REJECT), _noDelivery(), "");
-        _is(id, HoldbackRules.Stage.Refunded);
+        _is(id, IHoldbackRules.Stage.Refunded);
         assertEq(usdc.balanceOf(address(w)) - walletBefore, PRICE, "the price returns to the wallet");
         assertEq(usdc.balanceOf(adjudicator), FEE);
     }
@@ -134,18 +135,18 @@ contract Erc1271ChangingAnswerTest is SignerBase {
             _signDecision(t, id, _decision(H.ROLE_PRIMARY, H.OUTCOME_ACCEPT), address(w), AW_PK);
 
         w.setMode(WRONG_MAGIC);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.decide(t, m, _noDelivery(), "");
-        vm.expectRevert(HoldbackRules.TooEarly.selector);
+        vm.expectRevert(IHoldbackRules.TooEarly.selector);
         rules.triggerFallback(t);
 
         vm.warp(t.timing.judgeBy);
         rules.triggerFallback(t);
-        _is(id, HoldbackRules.Stage.FallbackJudging);
+        _is(id, IHoldbackRules.Stage.FallbackJudging);
         uint256 walletBefore = usdc.balanceOf(address(w));
         uint256 sellerBefore = usdc.balanceOf(seller);
         rules.decide(t, _fallbackDecision(t, id, H.OUTCOME_ACCEPT, fallbackAdj, FB_PK), _noDelivery(), "");
-        _is(id, HoldbackRules.Stage.Released);
+        _is(id, IHoldbackRules.Stage.Released);
         assertEq(usdc.balanceOf(seller) - sellerBefore, PRICE);
         assertEq(usdc.balanceOf(fallbackAdj), FEE, "the fallback is paid the fee");
         assertEq(usdc.balanceOf(address(w)), walletBefore, "the silent primary gets nothing");
@@ -166,20 +167,20 @@ contract Erc1271ChangingAnswerTest is SignerBase {
         H.Decision memory pm =
             _signDecision(t, id, _decision(H.ROLE_PRIMARY, H.OUTCOME_ACCEPT), address(pw), AW_PK);
         pw.setMode(REVERTS);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.decide(t, pm, _noDelivery(), "");
         vm.warp(t.timing.judgeBy);
         rules.triggerFallback(t);
         fw.setMode(EMPTY);
         H.Decision memory fm = _fallbackDecision(t, id, H.OUTCOME_ACCEPT, address(fw), FW_PK);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.decide(t, fm, _noDelivery(), "");
 
-        vm.expectRevert(HoldbackRules.TooEarly.selector);
+        vm.expectRevert(IHoldbackRules.TooEarly.selector);
         rules.triggerDefault(t);
         vm.warp(t.timing.fallbackBy);
         rules.triggerDefault(t);
-        _is(id, HoldbackRules.Stage.Refunded);
+        _is(id, IHoldbackRules.Stage.Refunded);
         assertEq(usdc.balanceOf(buyer), buyerStart, "the buyer is whole");
         assertEq(_held(t), 0);
     }
@@ -200,13 +201,13 @@ contract Erc1271ChangingAnswerTest is SignerBase {
         H.Decision memory m = _appealDecision(t, id, H.OUTCOME_ACCEPT, at, address(w), AW_PK);
 
         w.setMode(WRONG_MAGIC);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.decide(t, m, _noDelivery(), "");
-        vm.expectRevert(HoldbackRules.TooEarly.selector);
+        vm.expectRevert(IHoldbackRules.TooEarly.selector);
         rules.triggerDefault(t);
         vm.warp(at + t.timing.appealDecideSec);
         rules.triggerDefault(t);
-        _is(id, HoldbackRules.Stage.Refunded);
+        _is(id, IHoldbackRules.Stage.Refunded);
         assertEq(usdc.balanceOf(buyer), buyerStart);
         assertEq(usdc.balanceOf(address(w)), 1_000_000_000, "the silent appeal adjudicator gets nothing");
     }

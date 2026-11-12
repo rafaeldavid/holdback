@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Vm} from "forge-std/Vm.sol";
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {IDeployedOffers} from "../handlers/RulesHandler.sol";
 import {Base} from "./Base.sol";
@@ -24,7 +25,7 @@ contract NoOfferExpiryTest is Base {
         (bool ok, bytes memory ret) = address(rules).call(abi.encodeCall(IDeployedOffers.expireOffer, (t)));
         assertFalse(ok, "expireOffer is not in the phase-one ABI");
         assertEq(ret.length, 0);
-        assertEq(uint8(rules.dealOf(id).stage), uint8(HoldbackRules.Stage.None));
+        assertEq(uint8(rules.dealOf(id).stage), uint8(IHoldbackRules.Stage.None));
     }
 
     /// An offer past `offerExpiresAt` stays unfunded and cannot fund, with every message correctly signed. Nothing is
@@ -39,9 +40,9 @@ contract NoOfferExpiryTest is Base {
         uint256 before = usdc.balanceOf(buyer);
 
         vm.warp(t.timing.offerExpiresAt);
-        vm.expectRevert(HoldbackRules.DeadlinePassed.selector);
+        vm.expectRevert(IHoldbackRules.DeadlinePassed.selector);
         rules.agreeAndFund(t, ss, acc, ag, f);
-        assertEq(uint8(rules.dealOf(id).stage), uint8(HoldbackRules.Stage.None));
+        assertEq(uint8(rules.dealOf(id).stage), uint8(IHoldbackRules.Stage.None));
         assertEq(usdc.balanceOf(buyer), before);
     }
 
@@ -49,7 +50,7 @@ contract NoOfferExpiryTest is Base {
     function test_timeouts_onAnUnfundedOffer_findNoDeal() public {
         H.Terms memory t = _terms();
         vm.warp(t.timing.fallbackBy + t.timing.appealDecideSec + MARGIN);
-        bytes memory none = abi.encodeWithSelector(HoldbackRules.WrongStage.selector, HoldbackRules.Stage.None);
+        bytes memory none = abi.encodeWithSelector(IHoldbackRules.WrongStage.selector, IHoldbackRules.Stage.None);
         vm.expectRevert(none);
         rules.reclaim(t);
         vm.expectRevert(none);
@@ -67,7 +68,7 @@ contract NoOfferExpiryTest is Base {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         uint256 seen;
         for (uint256 i; i < logs.length; i++) {
-            if (logs[i].emitter == address(rules) && logs[i].topics[0] == HoldbackRules.JobExpired.selector) {
+            if (logs[i].emitter == address(rules) && logs[i].topics[0] == IHoldbackRules.JobExpired.selector) {
                 assertEq(logs[i].topics[1], id);
                 seen++;
             }

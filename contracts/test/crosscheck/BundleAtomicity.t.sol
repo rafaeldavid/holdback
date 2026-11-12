@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {LocalMulticall3} from "../../script/LocalMulticall3.sol";
 import {LocalUSDC} from "../../script/LocalUSDC.sol";
@@ -75,7 +76,7 @@ contract BundleAtomicityTest is Base {
         vm.prank(makeAddr("watcher"));
         (bool ok,) = address(rules).call(fundCall);
         assertTrue(ok, "the fund leg is callable by anyone");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Held));
         assertEq(usdc.balanceOf(operatorFeeTo), 0, "no fee was paid");
 
         vm.prank(relayer);

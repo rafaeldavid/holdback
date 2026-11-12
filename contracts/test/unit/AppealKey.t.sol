@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -26,7 +27,7 @@ contract AppealKeyTest is Base {
         H.Decision memory m = _decision(H.ROLE_PRIMARY, H.OUTCOME_REJECT);
         (m.keyScheme, m.keyCiphertext) = (KEY_SCHEME, KEY_CT);
         m = _signDecision(t, id, m, adjudicator, ADJ_PK);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.decide(t, m, _noDelivery(), "");
     }
 
@@ -37,7 +38,7 @@ contract AppealKeyTest is Base {
         uint64 round = uint64(rules.dealOf(id).t1) + 1;
         vm.warp(round);
         H.Decision memory m = _appealDecision(t, id, round, H.OUTCOME_REJECT, true);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.decide(t, m, _noDelivery(), "");
     }
 }
