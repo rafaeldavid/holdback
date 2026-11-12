@@ -17,7 +17,7 @@ export interface World {
   /** The operators as they are. */
   operators: string[];
   /** The docs both agents are pointed to. */
-  docs: { guide: string; sell: string };
+  docs: { guide: string; sell: string; buy: string };
   /** What the runner changed in the docs it serves, in plain words: empty for a running world's own docs. */
   docsChanges: string[];
   /** The engine, as a person should read it: the local simulator, or the chain by name and ID. */
@@ -46,13 +46,14 @@ const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.j
  * The web: the docs, and each seller's public folder at /sellers/<name>/. A seller's page is the files it wrote in
  * `public/` of its own folder, served read-only: GET only, no link followed, nothing outside that folder.
  */
-async function web(o: { docs?: { guide: string; sell: string }; sellers: Record<string, string> }): Promise<{ url: string; server: Server }> {
+async function web(o: { docs?: { guide: string; sell: string; pages?: Record<string, string> }; sellers: Record<string, string> }): Promise<{ url: string; server: Server }> {
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const send = (status: number, type: string, text: string | Buffer) => res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store' }).end(text);
     if (req.method !== 'GET') return send(405, 'text/plain', 'GET only');
     const path = decodeURIComponent(new URL(req.url ?? '/', 'http://web.invalid').pathname);
     if (path === '/llms.txt' && o.docs) return send(200, TYPES['.txt']!, o.docs.guide);
     if (path === '/sell.txt' && o.docs) return send(200, TYPES['.txt']!, o.docs.sell);
+    if (o.docs?.pages && Object.hasOwn(o.docs.pages, path.slice(1))) return send(200, TYPES['.txt']!, o.docs.pages[path.slice(1)]!);
     const m = /^\/sellers\/([a-z0-9-]+)\/(.*)$/.exec(path);
     const root = m ? o.sellers[m[1]!] : undefined;
     if (!m || !root) return send(404, 'text/plain', 'not found');
@@ -70,19 +71,22 @@ async function web(o: { docs?: { guide: string; sell: string }; sellers: Record<
  * in), with one change: this world's operators in place of the public ones. Every stall is then a finding about the
  * real docs. The change is listed in the record's header.
  */
-export async function localGuide(operators: string[]): Promise<{ guide: string; sell: string; changes: string[] }> {
+export async function localGuide(operators: string[]): Promise<{ guide: string; sell: string; pages: Record<string, string>; changes: string[] }> {
   const build: string = '../../site/build.mjs'; // plain JavaScript with no declarations: its three functions are typed here
-  const site = (await import(build)) as { strip(md: string): string; tryCommand(): string; sellerPage(txt: string): string };
+  const site = (await import(build)) as { strip(md: string): string; tryCommand(): string; sellerPage(txt: string): string; guidePage(txt: string, name: string): string };
+  const listing: string = '../../site/guides.mjs';
+  const guides = (await import(listing)) as { guideFiles(): string[]; guideSource(path: string): string };
+  const pages = Object.fromEntries(guides.guideFiles().filter((p) => p !== 'llms.txt').map((p) => [p, site.guidePage(guides.guideSource(p), p)]));
   const guide = site.strip(readFileSync(new URL('../../site/llms.txt', import.meta.url), 'utf8')).replace('{{OP1}}', operators[0]!).replace('{{OP2}}', operators[1] ?? operators[0]!).replace('{{TRY_COMMAND}}', () => site.tryCommand());
   if (/\{\{[A-Z0-9_]+\}\}/.test(guide)) throw new Error('site/llms.txt has a placeholder the published build does not fill');
   const sell = site.sellerPage(readFileSync(new URL('../../site/sell.txt', import.meta.url), 'utf8'));
-  return { guide, sell, changes: [`llms.txt: OP1 and OP2 name this world's operators (${operators.slice(0, 2).join(', ')}) in place of the public test service's; nothing else differs from the published file`, 'sell.txt: as published, unchanged'] };
+  return { guide, sell, pages, changes: [`llms.txt: OP1 and OP2 name this world's operators (${operators.slice(0, 2).join(', ')}) in place of the public test service's; nothing else differs from the published file`, 'buy.txt, sell.txt and ref/*.txt: as published, unchanged'] };
 }
 
 /** The engine in plain words. A simulator run must never read as a testnet run. */
 export const engineOf = (local: boolean, chainId: number): string => (local ? `the local simulator, phase-one rules (SimChain, chain ${chainId})` : chainId === 11155111 ? 'Ethereum Sepolia, a public test network (chain 11155111)' : `the chain with ID ${chainId}, a test network`);
 
-export const PUBLIC_DOCS = { guide: 'https://crow.direct/llms.txt', sell: 'https://crow.direct/sell.txt' } as const;
+export const PUBLIC_DOCS = { guide: 'https://crow.direct/llms.txt', sell: 'https://crow.direct/sell.txt', buy: 'https://crow.direct/buy.txt' } as const;
 
 export interface WorldOptions {
   rec: Recorder;
@@ -129,13 +133,13 @@ async function rest(o: WorldOptions, operators: string[], local: boolean, closer
   if (MAINNET_CHAIN_IDS.includes(chainId)) throw new Error(`the world names chain ${chainId}, a mainnet: duet runs on SimChain, a local chain or a testnet only`);
   const token = String(discovery?.demo?.token?.id ?? 'tUSD');
   const docs = local ? await localGuide(operators) : undefined;
-  const w = await web({ ...(docs ? { docs: { guide: docs.guide, sell: docs.sell } } : {}), sellers: { [o.sellerName]: o.sellerPublic } });
+  const w = await web({ ...(docs ? { docs: { guide: docs.guide, sell: docs.sell, pages: docs.pages } } : {}), sellers: { [o.sellerName]: o.sellerPublic } });
   closers.push(() => closeServer(w.server));
   const jobApi = await startStubSellerApi({ port: 0, report: o.report, token, pollsUntilComplete: 1 });
   closers.push(() => jobApi.close());
   return {
     operators,
-    docs: local ? { guide: `${w.url}/llms.txt`, sell: `${w.url}/sell.txt` } : (o.docs ?? PUBLIC_DOCS),
+    docs: local ? { guide: `${w.url}/llms.txt`, sell: `${w.url}/sell.txt`, buy: `${w.url}/buy.txt` } : o.docs ? { ...o.docs, buy: new URL('buy.txt', o.docs.guide).href } : PUBLIC_DOCS,
     docsChanges: docs?.changes ?? [],
     engine: engineOf(local, chainId),
     web: w.url,

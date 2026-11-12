@@ -133,7 +133,7 @@ export async function runDuet(o: RunOptions): Promise<RunResult> {
 
     const ops: Allow[] = world.operators.map((u) => ({ origin: originOf(u) }));
     const problems: Allow = { origin: 'https://crow.direct', paths: ['/problems/'] };
-    const docAllow = (d: { guide: string; sell: string }): Allow[] => [d.guide, d.sell].map((u) => ({ origin: originOf(u), paths: [new URL(u).pathname] }));
+    const docAllow = (d: { guide: string; sell: string; buy: string }): Allow[] => [...[d.guide, d.sell, d.buy].map((u) => ({ origin: originOf(u), paths: [new URL(u).pathname] })), { origin: originOf(d.guide), paths: [new URL('ref/', d.guide).pathname] }];
     const page: Allow = { origin: originOf(world.web), paths: [`/sellers/${SELLER_NAME}/`] };
     const buyerAllow: Allow[] = [...ops, ...docAllow(world.docs), page, { origin: adapter, paths: ['/defaults', '/quote'] }, problems];
     const sellerAllow: Allow[] = [...ops, ...docAllow(world.docs), page, { origin: originOf(world.jobApi.url) }, { origin: adapter, paths: ['/defaults', '/quote'] }, problems];

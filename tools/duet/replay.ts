@@ -43,7 +43,7 @@ function act(name: string, input: J): { title: string; key: string } {
   const args: string[] = Array.isArray(input?.args) ? input.args.map(String) : [];
   if (name === 'fetch_url') {
     const p = pathOf(String(input?.url ?? ''));
-    const t = /llms\.txt$/.test(p) ? "Read Crow's guide for agents" : /sell\.txt$/.test(p) ? "Read Crow's guide for sellers" : /\/sellers\//.test(p) ? "Looked at the seller's public page" : /\/v1\/commitments\//.test(p) ? 'Checked where the order stands' : /\/defaults$/.test(p) ? "Read the seller's standard terms" : /\/jobs\//.test(p) ? 'Collected the report from its own system' : /\/problems\//.test(p) ? "Read Crow's explanation of an error" : 'Read a page';
+    const t = /llms\.txt$/.test(p) ? "Read Crow's front page for agents" : /buy\.txt$/.test(p) ? "Read Crow's guide for buyers" : /sell\.txt$/.test(p) ? "Read Crow's guide for sellers" : /\/ref\/[a-z0-9-]+\.txt$/.test(p) ? "Read one of Crow's reference pages" : /\/sellers\//.test(p) ? "Looked at the seller's public page" : /\/v1\/commitments\//.test(p) ? 'Checked where the order stands' : /\/defaults$/.test(p) ? "Read the seller's standard terms" : /\/jobs\//.test(p) ? 'Collected the report from its own system' : /\/problems\//.test(p) ? "Read Crow's explanation of an error" : 'Read a page';
     return { title: t, key: `fetch ${p.replace(/0x[0-9a-f]{64}/g, '')}` };
   }
   if (name === 'run_command') {
@@ -431,7 +431,8 @@ ${list.map(item).join('\n')}
 <div class="section">Learn more</div>
 <div class="group">
 ${link('https://crow.direct', "Crow's website", 'What Crow is and how to try it')}
-${link('https://crow.direct/llms.txt', 'The guide an AI agent reads to buy', 'Everything an agent needs for one purchase')}
+${link('https://crow.direct/llms.txt', 'The front page an AI agent reads first', 'Where to start, for a buyer or a seller')}
+${link('https://crow.direct/buy.txt', 'The guide for buyers', "A buying agent's first purchase, step by step")}
 ${link('https://crow.direct/sell.txt', 'The guide for sellers', 'How to sell a service through Crow')}
 ${link('https://github.com/rafaeldavid/holdback', 'The public code', 'Open source, on GitHub')}
 ${liveOrder ? link(liveOrder, "This order's public record", 'As the live service shows it') : ''}

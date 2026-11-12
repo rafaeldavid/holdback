@@ -106,7 +106,7 @@ export const scenario = (name: ScenarioName): Scenario => {
 };
 
 export interface BriefFacts {
-  docs: { guide: string; sell: string };
+  docs: { guide: string; sell: string; buy: string };
   sellerPage: string;
   /** The seller's job API's three addresses. */
   jobApi: { quote: string; start: string; result: string };
@@ -122,7 +122,7 @@ export function sellerBrief(s: Scenario, f: BriefFacts): string {
   return [
     'I am your owner. We run an API that writes security audit reports for smart contracts, and we want to sell its reports to other agents through Crow.',
     `Our job API: POST ${f.jobApi.quote} prices a job from its scope, POST ${f.jobApi.start} starts one, and GET ${f.jobApi.result} returns the report when the job is done. It has the shape of the stub the seller's page describes.`,
-    `Crow's agent docs: ${f.docs.guide} and the seller's page, ${f.docs.sell}. Use the seller adapter it describes, with a configuration file you write in your folder. The adapter must listen on port ${f.adapterPort}: that is the port I opened for it. I have set HOLDBACK_KEY (our signing key) and HOLDBACK_OPERATORS for your commands; you never see the key.`,
+    `Crow's agent docs: ${f.docs.guide}, the front page, and its page for sellers, ${f.docs.sell}. Use the seller adapter it describes, with a configuration file you write in your folder. The adapter must listen on port ${f.adapterPort}: that is the port I opened for it. I have set HOLDBACK_KEY (our signing key) and HOLDBACK_OPERATORS for your commands; you never see the key.`,
     `Publish our agent card so buyers can find us, as the docs describe: write the page into the folder public/ in your folder (public/index.html, and public/agent.json if you like). It is served at ${f.sellerPage}. A buyer can reach the adapter's /quote and /defaults at http://127.0.0.1:${f.adapterPort}.`,
     `${f.local ? 'This is a local test world (SimChain, test tokens only): nothing is real money.' : 'This is the public test service (test tokens only): nothing is real money.'} Price in the test token the operators name (${f.token}); our job API's quote does that.`,
     ...(s.sellerRule ? [`My rule for you: ${s.sellerRule}`] : []),
@@ -138,7 +138,7 @@ export function buyerBrief(s: Scenario, f: BriefFacts): string {
     `My budget: at most ${s.policy.budget} base units of the test token (${money(s.policy.budget)} test tokens), everything included: the price and every fee.`,
     `My requirement: the offer must carry, as required checks, ${s.policy.requiredChecks.map((c) => `"${c}"`).join(' and ')}: every file in the scope is reviewed, and every finding is located inside the scope. I do not buy without them.`,
     `My dates: the report must be due within ${s.policy.latestDeliverySec / 86_400} days of now, and the offer must be dated now, not in the future or the past.`,
-    `Crow's agent docs: ${f.docs.guide}, and the seller's page of the docs, ${f.docs.sell}, which explains the buyer's signer a seller can ship. Your key store is ${f.keyStore}: I keep your keys there, and the commands use it; you cannot read it.`,
+    `Crow's agent docs: ${f.docs.guide}, the front page, and its page for buyers, ${f.docs.buy}, which explains the buyer's signer. Your key store is ${f.keyStore}: I keep your keys there, and the commands use it; you cannot read it.`,
     `When the signer stops for approval, check the offer it shows against this brief. To approve it, run the approve line it prints: I have pre-set my answer to approvals in a policy (my budget, my required checks and my dates), and the run tool applies it. Approve only an offer you checked.`,
     ...(s.buyerRule ? [`My rule for you: ${s.buyerRule}`] : []),
     `${f.local ? 'This is a local test world (SimChain, test tokens only): nothing is real money; the signer takes test tokens for the deal from the faucet itself.' : 'This is the public test service (test tokens only): nothing is real money.'}`,

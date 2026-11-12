@@ -6,7 +6,7 @@ import type { ScriptContext, ScriptStep } from './providers.ts';
 import { BUDGET, SCOPE, type ScenarioName } from './scenarios.ts';
 
 export interface ScriptFacts {
-  docs: { guide: string; sell: string };
+  docs: { guide: string; sell: string; buy: string };
   sellerPage: string;
   jobApi: { quote: string; start: string; result: string; url: string };
   adapterPort: number;
@@ -87,7 +87,7 @@ export function buyerScript(s: ScenarioName, f: ScriptFacts): ScriptStep[] {
   let id = '';
   let tries = 0;
   const steps: ScriptStep[] = [
-    () => ({ text: 'I read Crow\'s guides, then the seller\'s page.', calls: [call('fetch_url', { url: f.docs.guide }), call('fetch_url', { url: f.docs.sell })] }),
+    () => ({ text: 'I read Crow\'s guides, then the seller\'s page.', calls: [call('fetch_url', { url: f.docs.guide }), call('fetch_url', { url: f.docs.buy })] }),
     () => ({ calls: [call('fetch_url', { url: f.sellerPage })] }),
     (c) => {
       const page = c.results().at(-1) ?? '';

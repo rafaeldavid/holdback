@@ -86,7 +86,9 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
         const t = readFileSync(r.ticket!, 'utf8');
         expect(t).toContain(`tokens for the deal: ${s.tokens.deal.toLocaleString('en-US')}, limit ${(2 * (s.guides.tokens + 1000)).toLocaleString('en-US')}`);
         expect(t).toMatch(/carried Crow's guides/);
-        expect(s.guides.tokens).toBeGreaterThan(1_000); // the guides are short since T-393; T-391's follow-up replaces this assertion
+        // The short guides (T-393): the buyer reads the front page and its own page, the seller the front page and its own.
+        expect(Object.keys(s.guides.bytes).sort()).toEqual(['buy.txt', 'llms.txt', 'sell.txt']);
+        expect(s.guides.tokens).toBe(Math.ceil(Object.values(s.guides.bytes).reduce((a, b) => a + b, 0) / 4));
         expect(s.tokens.buyer.guides + s.tokens.buyer.work).toBe(s.tokens.buyer.input + s.tokens.buyer.output);
         expect(t).toContain('Proposed owner:');
         expect(t).toContain('Send this ticket to the coordinator');
