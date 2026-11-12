@@ -1416,6 +1416,9 @@ var Agent = class Agent {
 	/**
 	* Buyer: agree to the terms it was sent and hold price plus fee, with nonces it picked itself. When the operators
 	* publish a fee, the agent computes it from that schedule and pays it with the agreement; maxTotal covers it too.
+	* One key only: it signs the funding as the terms' payment address. With a payment address apart from this key
+	* (ADR-0033), prepare with prepareAgreeAndFund, have that address sign its slots (buyer-signer.ts writes them as
+	* typed-data files for a wallet), and submit with submitAgreeAndFund.
 	*/
 	async agreeAndFund(terms, maxTotal) {
 		if (String(terms.buyerPaymentAddress).toLowerCase() !== this.address) throw new Error(`the terms name ${terms.buyerPaymentAddress} as the payment address: that address signs the funding and the operator fee, not this agent (${this.address}); use prepareAgreeAndFund and submitAgreeAndFund with its signatures`);
