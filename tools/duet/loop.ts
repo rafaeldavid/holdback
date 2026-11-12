@@ -92,7 +92,7 @@ export async function runAgent(o: { role: 'buyer' | 'seller'; provider: Provider
       lastCall = sameCall(c);
       const callStarted = Date.now();
       const r = finished ? { content: 'Not run: you finished in this turn.', isError: true } : await o.tools.call(c.name, c.input);
-      rec.add(role, 'tool', { turn: turns, name: c.name, input: c.input, ms: Date.now() - callStarted, isError: r.isError, bytes: Buffer.byteLength(r.content), result: rec.body(r.content).text });
+      rec.add(role, 'tool', { turn: turns, name: c.name, input: c.input, ms: Date.now() - callStarted, isError: r.isError, bytes: Buffer.byteLength(r.content), result: rec.body(r.content).text }, callStarted); // stamped when it started
       results.push({ id: c.id, content: r.content, isError: r.isError });
       if ('finished' in r && r.finished) finished = r.finished;
       nextInput += Math.ceil(r.content.length / 3);

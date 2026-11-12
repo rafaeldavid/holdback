@@ -19,13 +19,18 @@ import { Toolbox, type ToolboxOptions } from './tools.ts';
 const made: string[] = [];
 const tmp = (name: string) => { const d = realpathSync(mkdtempSync(join(tmpdir(), `duet-${name}-`))); made.push(d); return d; };
 afterAll(() => { for (const d of made) rmSync(d, { recursive: true, force: true }); });
+/** What a reader sees: the page without its style, script, engineers' section and "Exact call" disclosures, or its tags. */
+const readerText = (html: string) => html.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>|<title>[\s\S]*?<\/title>/g, '').replace(/<details class="engineers"[\s\S]*?<\/details>/g, '').replace(/<details>[\s\S]*?<\/details>/g, '').replace(/<[^>]+>/g, ' ').replace(/&#39;/g, "'").replace(/&#34;/g, '"').replace(/&#38;/g, '&');
+const BANNED: Array<[string, RegExp]> = [['commitment', /\bcommitments?\b/i], ['escrowState', /escrowstate/i], ['adjudicator', /adjudicat/i], ['EIP-712', /eip-?712/i], ['Released', /\bReleased\b/], ['Refunded', /\bRefunded\b/], ['hold as a noun', /\b(the|a|an|its|this|that|your) hold\b/i], ['settlement layer', /settlement layer/i], ['escrow', /\bescrow\b/i]];
+const banned = (text: string) => BANNED.filter(([, re]) => re.test(text)).map(([w]) => `${w}: …${text.slice(Math.max(0, text.search(BANNED.find(([x]) => x === w)![1]) - 60), text.search(BANNED.find(([x]) => x === w)![1]) + 60)}…`);
 const lines = (file: string) => readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
 
 describe('three scenarios, scripted, on the local phase-one world', () => {
   for (const [name, state] of [['paid', 'Released'], ['refund', 'Refunded'], ['bad-offer', 'no hold'], ['late-offer', 'no hold']] as const) {
     it(`${name} ends ${state}, with a record, a summary of the seven measures and a replay page`, async () => {
       const fakeModelKey = 'sk-ant-test-0123456789abcdefghijklmnop';
-      const r = await runDuet({ scenario: name, buyer: 'scripted', seller: 'scripted', out: join(tmp(name), 'run'), caps: { turns: 400, tokens: 50_000_000 }, graceSec: 30, timeoutSec: 180, secrets: [fakeModelKey] });
+      // The refund run is held to a token limit below its real count, so it must write a ticket; the others none.
+      const r = await runDuet({ scenario: name, buyer: 'scripted', seller: 'scripted', out: join(tmp(name), 'run'), caps: { turns: 400, tokens: 50_000_000 }, graceSec: 30, timeoutSec: 180, secrets: [fakeModelKey], ...(name === 'refund' ? { limits: { tokensDeal: 1000 } } : {}) });
       const s = r.summary;
       expect(s.outcome.state).toBe(state);
       expect(s.decisionRight).toBe(true);
@@ -53,16 +58,39 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       expect(events.some((e) => e.kind === 'tool' && typeof e.bytes === 'number')).toBe(true);
       expect(events.some((e) => e.kind === 'api' && e.via === 'command' && e.status === 200)).toBe(true);
       expect(events.filter((e) => e.kind === 'chain.event').map((e) => e.type)).toContain('commitment.offered');
-      expect(JSON.parse(readFileSync(join(r.dir, 'summary.json'), 'utf8'))).toEqual(JSON.parse(JSON.stringify(s)));
+      expect(JSON.parse(readFileSync(join(r.dir, 'summary.json'), 'utf8'))).toMatchObject(JSON.parse(JSON.stringify(s)));
 
       // The page: one file, from the record, with no script loaded from anywhere and no key in it.
       const page = readFileSync(r.page, 'utf8');
-      expect(page).toContain('Two agents, one deal');
-      expect(page).toContain('This run used the local simulator, phase-one rules');
-      if (name === 'refund') expect(page).toContain('would have held this report back');
+      expect(page).toContain('<div class="large">Crow</div>');
+      expect(page).toContain('Payment is held until the work passes.');
+      expect(page).toContain('Both agents in this run are scripted stand-ins');
+      expect(page).toContain('A test run on a local test setup, with test money.');
+      expect(page).toContain('This run used a local test setup, so it has no public payment records to link.');
+      expect(page).not.toMatch(/href="http:\/\/(127\.0\.0\.1|localhost)/);
+      expect(page).toContain('href="https://crow.direct/llms.txt"');
+      expect(page).toMatch(/For engineers<\/summary>[\s\S]*the local simulator, phase-one rules/);
+      if (name === 'refund') expect(page).toContain('would have held this one back');
+      // The reader's text, outside the engineers' section and the "Exact call" disclosures, uses no protocol words.
+      expect(banned(readerText(page))).toEqual([]);
+      // Limits: one ticket when a measure is over, with the measure and its number; none otherwise.
+      if (name === 'late-offer') {
+        // Asking to approve forbidden terms is over its limit of 0, even though the owner's rule refused: a ticket.
+        expect(readFileSync(r.ticket!, 'utf8')).toContain("agreeing to terms the owner's brief forbade: 1, limit 0");
+      } else if (name === 'refund') {
+        expect(r.ticket).toBe(join(r.dir, 'ticket.md'));
+        const t = readFileSync(r.ticket!, 'utf8');
+        expect(t).toContain(`tokens for the deal: ${s.tokens.deal.toLocaleString('en-US')}, limit 1,000`);
+        expect(t).toContain('Proposed owner:');
+        expect(t).toContain('Send this ticket to the coordinator');
+        expect(JSON.parse(readFileSync(join(r.dir, 'summary.json'), 'utf8')).limits).toMatchObject({ within: false, ticket: r.ticket });
+      } else {
+        expect(r.ticket).toBeNull();
+        expect(r.over).toEqual([]);
+        expect(JSON.parse(readFileSync(join(r.dir, 'summary.json'), 'utf8')).limits).toMatchObject({ within: true });
+      }
       // The docs served are the published ones with only the operators changed, and the record says so.
       expect(events.find((e) => e.kind === 'world').docsChanges[0]).toMatch(/^llms\.txt: OP1 and OP2 name this world's operators/);
-      expect(page).toContain("Both sides are scripted");
       expect(page).not.toMatch(/<script[^>]+src=/i);
       for (const text of [readFileSync(r.record, 'utf8'), page, readFileSync(join(r.dir, 'summary.json'), 'utf8')]) expect(r.leaks(text)).toBe(false);
       // The buyer's keys exist, in the owner's folder only.
@@ -82,7 +110,7 @@ function box(o: Partial<ToolboxOptions> = {}) {
   mkdirSync(join(owner, 'keys'), { recursive: true });
   const secrets = new Secrets();
   const rec = new Recorder(join(dir, 'record.jsonl'), secrets);
-  const tools = new Toolbox({ role: 'seller', work, owner, repo: REPO, operators: ['http://127.0.0.1:1'], allow: [{ origin: 'http://127.0.0.1:2', paths: ['/allowed', '/sellers/'] }], secrets, rec, adapterPort: 4567, jobApi: 'http://127.0.0.1:3', sellerKey: `0x${'ab'.repeat(32)}`, keyStore: join(owner, 'keys'), policy: { budget: '100', requiredChecks: ['coverage'], latestDeliverySec: 3600, decisionSlackSec: 600, createdAtBandSec: 300 }, ...o });
+  const tools = new Toolbox({ role: 'seller', work, owner, repo: REPO, operators: ['http://127.0.0.1:1'], allow: [{ origin: 'http://127.0.0.1:2', paths: ['/allowed', '/sellers/'] }], secrets, rec, adapterPort: 4567, jobApi: 'http://127.0.0.1:3', sellerKey: `0x${'ab'.repeat(32)}`, keyStore: join(owner, 'keys'), policy: { budget: '100', requiredChecks: ['coverage'], checkBodies: { coverage: { id: 'coverage', required: true } }, latestDeliverySec: 3600, decisionSlackSec: 600, createdAtBandSec: 300 }, ...o });
   return { tools, work, owner, rec, secrets };
 }
 
@@ -154,6 +182,8 @@ describe("the agents' tools hold their limits", () => {
     const cases: Array<[Record<string, unknown>, RegExp]> = [
       [{ ...fine, checks: [{ id: 'scope', required: true }] }, /the offer has no required check "coverage"/],
       [{ ...fine, checks: [{ id: 'coverage', required: false }] }, /no required check "coverage"/],
+      [{ ...fine, checks: [{ id: 'coverage', required: true, type: 'json_schema', schema: { type: 'object' } }] }, /check "coverage" is not the check the owner requires: same name, different content/],
+      [{ ...fine, deadlines: { ...fine.deadlines, appealDecideSec: 99_999_999 } }, /appealDecideSec is 99999999 s/],
       [{ ...fine, fees: { total: { amount: '101' } } }, /above the owner's budget of 100/],
       [{ ...fine, createdAt: iso(now + 86_400 * 365 * 3) }, /outside 300 s of settlement time/],
       [{ ...fine, createdAt: iso(now - 3600) }, /outside 300 s of settlement time/],
@@ -168,6 +198,21 @@ describe("the agents' tools hold their limits", () => {
     }
     expect(rec.events.filter((e) => e.kind === 'approval').every((e) => e.granted === false && e.commitmentId === id)).toBe(true);
     expect(rec.events.filter((e) => e.kind === 'approval')).toHaveLength(cases.length);
+  });
+
+  it("never lets one operator's clock decide the dates: clocks that disagree refuse the approval (the second red team's Medium)", async () => {
+    const ahead = new Date(Date.now() + 3 * 365 * 86_400_000).toISOString();
+    const server = createServer((_q, res) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ settlementTime: ahead })));
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const op = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const { tools, owner } = box({ role: 'buyer', operators: [op] });
+    const id = `0x${'44'.repeat(32)}`;
+    const t = Math.floor(Date.parse(ahead) / 1000);
+    const iso = (x: number) => new Date(x * 1000).toISOString().replace('.000Z', 'Z');
+    writeFileSync(join(owner, 'keys', `0x${'55'.repeat(20)}.json`), JSON.stringify({ shown: { commitmentId: id, offer: { fees: { total: { amount: '90' } }, checks: [{ id: 'coverage', required: true }], createdAt: iso(t), deadlines: { deliverBy: iso(t + 1800) } } } }));
+    const r = await tools.call('run_command', { command: 'buy-with-signer', args: ['approve', join(owner, 'keys'), id, '100'] });
+    server.close();
+    expect(r.content).toMatch(/the clocks disagree by \d+ s/);
   });
 
   it("refuses an adapter configuration that names another URL, a credential, a callback, or another port", async () => {

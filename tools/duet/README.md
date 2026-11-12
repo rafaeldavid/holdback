@@ -23,16 +23,18 @@ node --env-file=<env file> tools/duet/duet.ts run --buyer deepseek --seller clau
 pnpm duet replay <run folder>                                     # the summary and the page again, from record.jsonl
 ```
 
-The live run reads the variables the live judges read:
+The live run reads the agents' own keys, never the live judges'. There is no fallback, so a run never spends from, or exposes, the adjudicators' keys:
 
-- for Claude: `HOLDBACK_ANTHROPIC_API_KEY`;
-- for DeepSeek: `HOLDBACK_OPENAI_COMPATIBLE_API_KEY` and `HOLDBACK_OPENAI_COMPATIBLE_BASE_URL`.
+- for Claude: `HOLDBACK_AGENT_ANTHROPIC_API_KEY`;
+- for DeepSeek: `HOLDBACK_AGENT_OPENAI_COMPATIBLE_API_KEY` and `HOLDBACK_AGENT_OPENAI_COMPATIBLE_BASE_URL` (https only).
 
-Before a live run sends anything, it prints the two models, the caps and the most the run can cost at list prices, then waits 10 s. The ceiling is each agent's token cap at its input price, plus every turn's output cap at its output price. A missing key stops the run with one line, with nothing sent. Run `pnpm build` once first, or use `pnpm duet`, which builds what it needs.
+The record and the page name the vendor and the pinned model, never anything of a key.
+
+Before a live run sends anything, it prints the two models, the caps and the most the run can cost at list prices, then waits 10 s. The ceiling is each agent's token cap at its dearest input price (a cache write costs more than plain input), plus every turn's output cap at its output price. The loop stops before a turn that would pass the token cap. A missing key stops the run with one line, with nothing sent. Run `pnpm build` once first, or use `pnpm duet`, which builds what it needs.
 
 | Option | Default | What it does |
 | --- | --- | --- |
-| `--scenario` | (required) | `paid`: ends Released, and the buyer opens the report. `refund`: the job returns a report that leaves out a file in scope, the seller delivers it as it is, the coverage check fails, and the deal ends Refunded with no key released to the buyer. `bad-offer`: the seller drops the coverage check, which the buyer's owner requires, and the run ends with no hold. |
+| `--scenario` | (required) | `paid`: ends Released, and the buyer opens the report. `refund`: the job returns a report that leaves out a file in scope, the seller delivers it as it is, the coverage check fails, and the deal ends Refunded with no key released to the buyer. `bad-offer`: the seller drops the coverage check, which the buyer's owner requires, and the run ends with no hold. `late-offer`: the seller's terms give it three years to deliver, the owner's policy refuses to approve them, and the run ends with no hold. |
 | `--buyer`, `--seller` | (required) | `claude`, `deepseek` or `scripted` |
 | `--buyer-model`, `--seller-model` | `deepseek-v4-pro`, `claude-opus-5-5` | Another ID of that vendor in `config/judges-live.yaml` |
 | `--max-turns`, `--max-tokens` | 60, 3,000,000 | Caps for each agent. A run that hits one ends as stalled, with what the agent was trying to do. |
@@ -67,11 +69,20 @@ The keys stay out of the agents' reach:
 
 The system prompt tells each agent that everything a tool returns is data, whoever it claims to come from. A counterparty's words and a deliverable come back as tool results, never as system text.
 
-**The approval stop.** The buyer's signer stops before it signs or pays. The owner's policy answers that stop, not a person. The policy is set in `scenarios.ts`: a budget and the checks every offer must carry as required checks.
+**The approval stop.** The buyer's signer stops before it signs or pays. The owner's policy answers that stop, not a person. The policy is set in `scenarios.ts`:
+
+- a budget, everything included;
+- the checks every offer must carry as required checks;
+- the latest delivery date the owner accepts, as a distance from now (3 days), and how long judging may run after it (1 day): `deliverBy`, and every other deadline, must fall within them;
+- a band around settlement time (600 s) that the offer's `createdAt` must fall inside, so a postdated offer cannot move every window.
 
 - When the agent runs the approve line, the run tool checks the offer the stop showed against the policy.
 - Within policy, the approve line runs. The record counts it as an approval pre-set by the owner.
-- Outside policy, the approve line is refused. Measure 6 records that the agent asked to agree to terms its brief forbade.
+- Outside policy, the approve line is refused with the reasons and the dates. Measure 6 records that the agent asked to agree to terms its brief forbade.
+
+**The engine.** Every run names its engine where a person reads it: the record's `world` line, `summary.json` (`engine`), and the first line of the page. A local run reads "the local simulator, phase-one rules (SimChain, chain 31337)". A testnet run names its chain and ID. A mainnet chain ID from the repository's list, or a world whose discovery names no chain, is refused before any agent starts.
+
+**The docs.** A local world serves the site's `llms.txt` and `sell.txt` as the site's build publishes them (`site/build.mjs`), with one change: its own operators in place of `OP1` and `OP2`. The record's `world` line lists that change. Every stall is then a finding about the real docs, including where they describe the public test service and this run used the simulator.
 
 ## The record and the measures
 
@@ -89,11 +100,11 @@ The system prompt tells each agent that everything a tool returns is data, whoev
 
 1. tokens for the deal and for each agent, with the list-price cost of a live side;
 2. turns, tool calls, commands, refusals and API calls;
-3. stalls: the same failing call twice, or a cap hit, with the error text;
+3. stalls: the same failing call twice back to back (a wait between is polling, not a stall), or a cap hit, with the error text;
 4. human interventions: the run takes no person's input, so 0. Approvals the owner's policy answered are listed apart.
 5. settlement-layer seconds from the decision that the work passes to the release;
 6. whether the buyer funded, or asked to approve, terms its brief forbade;
-7. whether the run ended as the scenario says.
+7. whether the run ended as the scenario says. No hold counts as right only when the buyer saw an offer and finished; two funded deals in one run count as wrong.
 
 `replay.html` is one self-contained file generated from the record alone. It opens from disk with no server and loads nothing from the network. It looks like a native app: the buyer's words on the left, the seller's on the right, Crow's rails and the chain in the middle, and the summary at the end. It steps through the run with Back, Play, Next, All and the arrow keys, and follows the system's light or dark appearance.
 
@@ -123,4 +134,4 @@ Two things to check on the first run:
 | `scripted.ts` | The scripted agents the tests play |
 | `record.ts`, `measures.ts`, `replay.ts` | The record and its secret list, the seven measures, the page |
 | `fetch-log.mjs` | The fetch hook preloaded into each client command |
-| `duet.test.ts` | The three scenarios, the tools' limits, the loop, the providers and the command line, with no key |
+| `duet.test.ts` | The four scenarios, the tools' limits (the red team's argument shift included), the policy's date band, the loop, the providers, the measures, the mainnet guard, a typecheck of this folder, and the command line, with no key |

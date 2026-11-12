@@ -39,23 +39,23 @@ export function sellerScript(s: ScenarioName, f: ScriptFacts): ScriptStep[] {
   let id = '';
   let polls = 0;
   const steps: ScriptStep[] = [
-    () => ({ text: 'I read the agent guide and the seller\'s page first.', calls: [call('fetch_url', { url: f.docs.guide }), call('fetch_url', { url: f.docs.sell })] }),
-    () => ({ text: 'I write the adapter\'s configuration with our job API and the port my owner opened, and start it.', calls: [call('write_file', { path: 'seller.json', content: JSON.stringify(config, null, 2) }), call('run_command', { command: 'seller-adapter', args: ['seller.json'] })] }),
-    () => ({ text: 'I publish our card, so a buyer can find the quote address.', calls: [call('write_file', { path: 'public/index.html', content: page }), call('write_file', { path: 'public/agent.json', content: JSON.stringify(card, null, 2) })] }),
+    () => ({ text: 'I read Crow\'s guides first.', calls: [call('fetch_url', { url: f.docs.guide }), call('fetch_url', { url: f.docs.sell })] }),
+    () => ({ text: 'I set up our selling tool with our order system, and start it.', calls: [call('write_file', { path: 'seller.json', content: JSON.stringify(config, null, 2) }), call('run_command', { command: 'seller-adapter', args: ['seller.json'] })] }),
+    () => ({ text: 'I publish our page, so a buyer can find where to ask for a price.', calls: [call('write_file', { path: 'public/index.html', content: page }), call('write_file', { path: 'public/agent.json', content: JSON.stringify(card, null, 2) })] }),
     // Wait for a buyer's quote: the adapter logs "<id> is offered to …".
     () => ({ calls: [call('run_command', { command: 'adapter-log', args: [] })] }),
     (c) => {
       const got = c.history.flatMap((t) => (t.role === 'results' ? t.results.map((r) => r.content) : [])).map((r) => /(0x[0-9a-f]{64}) is offered to/.exec(r)?.[1]).find(Boolean);
       if (!got) return ++polls > 240 ? { calls: [call('finish', { outcome: 'No buyer asked for a quote', report: 'No quote came in.' })] } : 'again';
       id = got;
-      return { text: `A buyer asked for a quote: ${id} is offered. I watch the deal.`, calls: [call('wait', { seconds: 1 })] };
+      return { text: 'A buyer asked for a price. I sent an offer and wait for payment.', calls: [call('wait', { seconds: 1 })] };
     },
   ];
   if (s === 'refund') {
     steps.push(
       () => ({ calls: [call('run_command', { command: 'adapter-log', args: [] })] }),
       until((c) => c.results().some((r) => /ALERT 0x[0-9a-f]{64} delivery\.refused/.test(r))),
-      () => ({ text: 'The adapter held our report back: its own check run refused it. My owner\'s rule is to deliver it as it is, so I fetch it and deliver it by hand.', calls: [call('fetch_url', { url: f.jobApi.result.replace('{jobId}', 'job-1') })] }),
+      () => ({ text: 'Our selling tool held the report back: it fails one of the agreed checks. My owner told me to send every report as it is, so I collect it and send it by hand.', calls: [call('fetch_url', { url: f.jobApi.result.replace('{jobId}', 'job-1') })] }),
       (c) => {
         const r = c.results().at(-1) ?? '';
         const body = r.slice(r.indexOf('\n\n') + 2);
@@ -68,15 +68,15 @@ export function sellerScript(s: ScenarioName, f: ScriptFacts): ScriptStep[] {
     let n = 0;
     steps.push(
       () => ({ calls: [call('fetch_url', { url: `${f.operator}/v1/commitments/${id}` })] }),
-      (c) => (/"escrowState":"(Held|Delivered|Released|Refunded)"/.test(c.results().at(-1) ?? '') || ++n > 5 ? { calls: [call('finish', { outcome: /"escrowState":"Held"/.test(c.results().at(-1) ?? '') ? 'Funded' : 'Not funded', report: `The buyer did not fund ${id}; the offer stays unfunded.` })] } : 'again'),
+      (c) => (/"escrowState":"(Held|Delivered|Released|Refunded)"/.test(c.results().at(-1) ?? '') || ++n > 5 ? { calls: [call('finish', { outcome: /"escrowState":"Held"/.test(c.results().at(-1) ?? '') ? 'The buyer paid' : 'No sale', report: 'The buyer did not pay for our offer.' })] } : 'again'),
     );
     return steps;
   }
   steps.push(
     () => ({ calls: [call('fetch_url', { url: `${f.operator}/v1/commitments/${id}` })] }),
     until((c) => /"escrowState":"(Released|Refunded)"/.test(c.results().at(-1) ?? ''), 600),
-    (c) => ({ text: `The deal ended ${c.find(/"escrowState":"(Released|Refunded)"/) ?? 'unknown'}. I keep its record.`, calls: [call('run_command', { command: 'deal-record', args: [id, '--as', 'seller', '--out', 'deal-record.json'] })] }),
-    (c) => ({ calls: [call('finish', { outcome: c.find(/"escrowState":"(Released|Refunded)"/) ?? 'unknown', report: `Deal ${id}; the deal record is in deal-record.json.` })] }),
+    (c) => ({ text: c.find(/"escrowState":"(Released|Refunded)"/) === 'Released' ? 'We were paid. I save a record of the deal.' : 'The buyer got its money back. I save a record of the deal.', calls: [call('run_command', { command: 'deal-record', args: [id, '--as', 'seller', '--out', 'deal-record.json'] })] }),
+    (c) => ({ calls: [call('finish', { outcome: c.find(/"escrowState":"(Released|Refunded)"/) === 'Released' ? 'We were paid' : 'The buyer was refunded', report: 'The deal is closed; its record is saved in our folder.' })] }),
   );
   return steps;
 }
@@ -87,7 +87,7 @@ export function buyerScript(s: ScenarioName, f: ScriptFacts): ScriptStep[] {
   let id = '';
   let tries = 0;
   const steps: ScriptStep[] = [
-    () => ({ text: 'I read the agent guide and the seller\'s page of the docs, then the seller\'s own page.', calls: [call('fetch_url', { url: f.docs.guide }), call('fetch_url', { url: f.docs.sell })] }),
+    () => ({ text: 'I read Crow\'s guides, then the seller\'s page.', calls: [call('fetch_url', { url: f.docs.guide }), call('fetch_url', { url: f.docs.sell })] }),
     () => ({ calls: [call('fetch_url', { url: f.sellerPage })] }),
     (c) => {
       const page = c.results().at(-1) ?? '';
@@ -95,7 +95,7 @@ export function buyerScript(s: ScenarioName, f: ScriptFacts): ScriptStep[] {
       const card = JSON.parse(/<script type="application\/json" id="crow-agent">([\s\S]*?)<\/script>/.exec(page)?.[1] ?? '{}');
       quote = card.offers?.[0]?.pricing?.quote ?? '';
       defaults = card.offers?.[0]?.pricing?.defaults ?? '';
-      return { text: `The seller's card lists a quoted audit report at ${quote}. I ask its signer for a quote, which stops before it signs anything.`, calls: [call('run_command', { command: 'buy-with-signer', args: [quote, f.keyStore, JSON.stringify(SCOPE), BUDGET, defaults] })] };
+      return { text: 'The seller offers security reviews, priced on request. I ask for a price; my buying tool pauses before it pays anything.', calls: [call('run_command', { command: 'buy-with-signer', args: [quote, f.keyStore, JSON.stringify(SCOPE), BUDGET, defaults] })] };
     },
     (c) => {
       const r = c.results().at(-1) ?? '';
@@ -103,15 +103,15 @@ export function buyerScript(s: ScenarioName, f: ScriptFacts): ScriptStep[] {
       const offer = /(\{"approval":"needed"[^\n]*\})/.exec(r)?.[1];
       const checks: Array<{ id: string; required: boolean }> = offer ? JSON.parse(offer).checks ?? [] : [];
       const missing = ['coverage', 'scope'].filter((k) => !checks.some((x) => x.id === k && x.required));
-      if (missing.length) return { text: `The offer has no required ${missing.join(' or ')} check, which my owner requires. I refuse it: nothing is signed or paid.`, calls: [call('finish', { outcome: 'Refused the offer', report: `Offer ${id} drops the required check ${missing.join(', ')}; my owner requires it. Nothing was signed or paid.` })] };
+      if (missing.length) return { text: 'The offer leaves out a check my owner requires: that every file is reviewed. I turn it down. Nothing is signed or paid.', calls: [call('finish', { outcome: 'Turned the offer down', report: 'The offer left out a check my owner requires. Nothing was signed or paid.' })] };
       // The late offer: this scripted buyer looks only at the checks, so it asks to approve, and the owner's policy answers.
-      return { text: `The offer is within budget, with the coverage and scope checks. I approve it.`, calls: [call('run_command', { command: 'buy-with-signer', args: ['approve', f.keyStore, id, BUDGET] })] };
+      return { text: 'The offer is within budget and has the checks my owner requires. I ask for approval to pay.', calls: [call('run_command', { command: 'buy-with-signer', args: ['approve', f.keyStore, id, BUDGET] })] };
     },
     (c) => {
       const r = c.results().at(-1) ?? '';
-      if (/pre-set policy does not approve/.test(r)) return { text: 'My owner\'s policy refused the offer. Nothing was signed or paid.', calls: [call('finish', { outcome: 'Refused by my owner\'s policy', report: `Offer ${id}: ${r.slice(0, 400)}` })] };
-      const outcome = /"outcome":"(released|refunded)"/i.exec(r)?.[1] ?? 'unknown';
-      return { calls: [call('finish', { outcome, report: `Deal ${id} ended ${outcome}.` })] };
+      if (/pre-set policy does not approve/.test(r)) return { text: 'My owner\'s standing rule turned the offer down. Nothing was signed or paid.', calls: [call('finish', { outcome: 'My owner\'s rule turned the offer down', report: 'The seller wanted three years to deliver; my owner allows three days. Nothing was signed or paid.' })] };
+      const paid = /"outcome":"released"/i.test(r);
+      return { calls: [call('finish', paid ? { outcome: 'Paid; report received', report: 'The work passed the agreed checks. I paid and opened the report.' } : { outcome: 'Money back; no report', report: 'The work failed an agreed check. The price came back to us and the report stayed locked.' })] };
     },
   ];
   return steps;

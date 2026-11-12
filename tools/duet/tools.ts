@@ -31,6 +31,8 @@ export interface Policy {
   budget: string;
   /** Check IDs every offer must carry as required checks. */
   requiredChecks: string[];
+  /** The owner's own copy of each required check, whole: an offer's check must equal it, not just share its ID. */
+  checkBodies: Record<string, unknown>;
   /** The latest delivery the owner accepts, as seconds from now: `deliverBy` may be no later. */
   latestDeliverySec: number;
   /** How long after that delivery date the judging may run: every other deadline must fall before both together. */
@@ -92,6 +94,8 @@ const COMMANDS: Record<'buyer' | 'seller', string[]> = {
   seller: ['seller-adapter', 'adapter-log', 'check-delivery', 'seal', 'deal-record'],
 };
 const ID = /^0x[0-9a-fA-F]{64}$/;
+/** JSON with sorted keys, so two checks compare by content alone. */
+const canonical = (v: unknown): string => (Array.isArray(v) ? `[${v.map(canonical).join(',')}]` : v && typeof v === 'object' ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`).join(',')}}` : JSON.stringify(v ?? null));
 const DEC = /^[0-9]{1,30}$/;
 
 /** A refusal of a call, with the reason the agent reads. Recorded as `refused`. */
@@ -329,14 +333,22 @@ export class Toolbox {
     throw new Refused(`${command} takes no arguments here`);
   }
 
-  /** Settlement time as the first operator serves it, in Unix seconds; the local clock if it does not answer. */
-  private async settlementNow(): Promise<number> {
-    try {
-      const d = await (await fetch(`${this.o.operators[0]}/.well-known/holdback.json`, { signal: AbortSignal.timeout(10_000) })).json() as J;
-      const t = Date.parse(String(d?.settlementTime ?? ''));
-      if (Number.isFinite(t)) return Math.floor(t / 1000);
-    } catch { /* fall back to the local clock */ }
-    return Math.floor(Date.now() / 1000);
+  /**
+   * Settlement time from every operator and the local clock, in Unix seconds, and how far apart they are. One
+   * operator's clock never decides alone: the caller refuses when they spread wider than the band.
+   */
+  private async settlementNow(): Promise<{ now: number; spread: number; clocks: string[] }> {
+    const local = Math.floor(Date.now() / 1000);
+    const times = [local];
+    const clocks = [`this machine ${new Date(local * 1000).toISOString()}`];
+    for (const op of this.o.operators) {
+      try {
+        const d = await (await fetch(`${op}/.well-known/holdback.json`, { signal: AbortSignal.timeout(10_000) })).json() as J;
+        const t = Date.parse(String(d?.settlementTime ?? ''));
+        if (Number.isFinite(t)) { times.push(Math.floor(t / 1000)); clocks.push(`${new URL(op).host} ${new Date(t).toISOString()}`); }
+      } catch { /* an operator that does not answer has no say */ }
+    }
+    return { now: local, spread: Math.max(...times) - Math.min(...times), clocks };
   }
 
   /**
@@ -355,8 +367,14 @@ export class Toolbox {
       if (!DEC.test(total) || BigInt(total) > BigInt(policy.budget)) why.push(`the offer costs ${total || 'an unknown amount'} base units, above the owner's budget of ${policy.budget}`);
       if (BigInt(max) > BigInt(policy.budget)) why.push(`the most you pay, ${max}, is above the owner's budget of ${policy.budget}`);
       const checks: J[] = Array.isArray(shown.checks) ? shown.checks : [];
-      for (const c of policy.requiredChecks) if (!checks.some((k) => k?.id === c && k?.required === true)) why.push(`the offer has no required check "${c}", which the owner requires`);
-      const now = await this.settlementNow();
+      for (const c of policy.requiredChecks) {
+        const k = checks.find((x) => x?.id === c);
+        if (!k || k.required !== true) why.push(`the offer has no required check "${c}", which the owner requires`);
+        else if (canonical(k) !== canonical(policy.checkBodies[c])) why.push(`the offer's check "${c}" is not the check the owner requires: same name, different content`);
+      }
+      const clock = await this.settlementNow();
+      if (clock.spread > policy.createdAtBandSec) why.push(`the clocks disagree by ${clock.spread} s, more than ${policy.createdAtBandSec} s (${clock.clocks.join('; ')}), so no date can be checked`);
+      const now = clock.now;
       const iso = (t: number) => new Date(t * 1000).toISOString().replace('.000Z', 'Z');
       const at = (v: unknown) => (typeof v === 'string' ? Date.parse(v) / 1000 : NaN);
       const created = at(shown.createdAt);
@@ -367,6 +385,7 @@ export class Toolbox {
       for (const [k, v] of Object.entries(shown.deadlines ?? {})) {
         const t = at(v);
         if (typeof v === 'string' && Number.isFinite(t) && t > latest + policy.decisionSlackSec) why.push(`${k} is ${v}, after ${iso(latest + policy.decisionSlackSec)}, the owner's latest delivery plus its judging slack`);
+        if (typeof v === 'number' && /Sec$/.test(k) && v > policy.decisionSlackSec) why.push(`${k} is ${v} s, longer than the owner's judging slack of ${policy.decisionSlackSec} s`);
       }
     }
     this.o.rec.add('buyer', 'approval', { commitmentId: id, granted: why.length === 0, by: 'owner policy (pre-set)', reasons: why, policy });
@@ -497,7 +516,9 @@ export class Toolbox {
     const child = spawn(process.execPath, node(join(this.o.repo, SCRIPTS['seller-adapter']!), [config!]), { cwd: this.o.work, env: this.env(), stdio: ['ignore', 'pipe', 'pipe'] });
     const a = { child, log: [] as string[], read: 0, exited: null as number | null };
     this.adapter = a;
-    const line = (d: Buffer) => { for (const l of d.toString('utf8').split('\n')) if (l.trim()) a.log.push(l); };
+    // Whole lines only: a line split across two chunks is joined before it is kept, so the secret list sees it whole.
+    let partial = '';
+    const line = (d: Buffer) => { const parts = (partial + d.toString('utf8')).split('\n'); partial = parts.pop() ?? ''; if (partial.length > 100_000) { a.log.push(partial); partial = ''; } for (const l of parts) if (l.trim()) a.log.push(l); };
     child.stdout!.on('data', line);
     child.stderr!.on('data', line);
     this.o.rec.add('seller', 'command', { command: 'seller-adapter', args: ['<checked copy of the config>'], background: true });

@@ -15,13 +15,12 @@
 // Before a live run sends anything it prints the two models, the caps and the most the run can cost at list prices,
 // then waits 10 s (Ctrl-C stops it). A missing key stops it with one line, before anything is sent.
 // Exit code: 0 when the run ended as the scenario says, 1 when it did not, 2 when it could not start.
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { inputPrice, measure } from './measures.ts';
+import { inputPrice } from './measures.ts';
 import { JUDGE_KEY_ENV, KEY_ENV, liveProvider, MAX_OUTPUT_TOKENS, pinnedModel, type Provider } from './providers.ts';
 import type { Event } from './record.ts';
-import { replayPage } from './replay.ts';
-import { REPO, runDuet, type Side } from './run.ts';
+import { finish, REPO, runDuet, type Side } from './run.ts';
 import { SCENARIOS, scenario, type ScenarioName } from './scenarios.ts';
 
 const argv = process.argv.slice(2);
@@ -34,10 +33,9 @@ const cmd = argv[0];
 if (cmd === 'replay') {
   const dir = resolve(argv[1] ?? fail('replay takes the run folder'));
   const events = readFileSync(join(dir, 'record.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as Event);
-  const summary = measure(events);
-  writeFileSync(join(dir, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
-  writeFileSync(join(dir, 'replay.html'), replayPage(events, summary));
-  console.log(`Wrote ${join(dir, 'summary.json')} and ${join(dir, 'replay.html')}.`);
+  const done = finish(dir, events);
+  console.log(`Wrote ${join(dir, 'summary.json')} and ${done.page}.`);
+  if (done.ticket) console.log(`Ticket: ${done.ticket}\nSend this ticket to the coordinator.`);
   process.exit(0);
 }
 if (cmd !== 'run' && cmd !== 'list') fail('usage: duet list | run --scenario <paid|refund|bad-offer|late-offer> --buyer <claude|deepseek|scripted> --seller <…> | replay <run folder>');
@@ -98,6 +96,8 @@ try {
   console.log(`\n${s.decisionRight ? 'As expected' : 'Not as expected'}: ${s.why}.`);
   console.log(`  deal ${s.outcome.commitmentId ?? 'none'}, ${s.outcome.state}; tokens ${s.tokens.deal.toLocaleString('en-US')}; stalls ${s.stalls.length}; human interventions ${s.humanInterventions}; owner approvals ${s.ownerApprovals.length}`);
   console.log(`  record  ${r.record}\n  summary ${join(r.dir, 'summary.json')}\n  replay  ${r.page}`);
+  if (r.ticket) console.log(`\n${r.over.length} ${r.over.length === 1 ? 'measure was' : 'measures were'} over the limit: ${r.over.map((x) => x.measure).join('; ')}.\nTicket: ${r.ticket}\nSend this ticket to the coordinator.`);
+  else console.log('  Every measure is within its limit; no ticket.');
   process.exit(s.decisionRight ? 0 : 1);
 } catch (e) {
   fail((e as Error).message);

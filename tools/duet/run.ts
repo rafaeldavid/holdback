@@ -9,7 +9,9 @@ import { measure, type Summary } from './measures.ts';
 import { scripted, type Provider } from './providers.ts';
 import { Recorder, Secrets } from './record.ts';
 import { replayPage } from './replay.ts';
-import { buyerBrief, scenario, sellerBrief, type ScenarioName } from './scenarios.ts';
+import { buyerBrief, scenario, SCOPE, sellerBrief, type ScenarioName } from './scenarios.ts';
+import { limitsFor, overLimits, ticket, type Limits, type Over } from './tickets.ts';
+import type { Event } from './record.ts';
 import { buyerScript, sellerScript } from './scripted.ts';
 import { Toolbox, type Allow } from './tools.ts';
 import { startWorld } from './world.ts';
@@ -40,6 +42,8 @@ export interface RunOptions {
   commandTimeoutMs?: { short: number; long: number };
   /** Secrets to scrub everywhere besides those the run makes: the model API keys. */
   secrets?: string[];
+  /** Limits in place of limits.json's for this scenario (the tests set one low to see a ticket). */
+  limits?: Partial<Limits>;
   log?: (line: string) => void;
 }
 
@@ -51,6 +55,26 @@ export interface RunResult {
   ends: AgentEnd[];
   /** Whether any secret the run knew (keys, the world's secret, the model keys) appears in a text: for the tests' final scan. */
   leaks(text: string): boolean;
+  /** The measures over their limits, and the ticket written for them (null when none was over). */
+  over: Over[];
+  ticket: string | null;
+}
+
+/**
+ * The run's summary, its limits and the replay page, all from the record alone: what `run` writes at the end and
+ * `replay` writes again. A measure over its limit, or a stalled agent, writes ticket.md beside the record.
+ */
+export function finish(dir: string, events: readonly Event[], limits?: Partial<Limits>): { summary: Summary; over: Over[]; ticket: string | null; page: string } {
+  const summary = measure(events);
+  const over = overLimits(summary, events, { ...limitsFor(summary.scenario), ...limits });
+  const record = join(dir, 'record.jsonl');
+  const page = join(dir, 'replay.html');
+  const ticketPath = over.length ? join(dir, 'ticket.md') : null;
+  if (ticketPath) writeFileSync(ticketPath, ticket(summary, over, { record, replay: page }));
+  const withLimits = { ...summary, limits: over.length ? { within: false, over: over.map((x) => ({ measure: x.measure, value: x.value, limit: x.limit })), ticket: ticketPath } : { within: true, note: 'Every measure is within its limit (tools/duet/limits.json).' } };
+  writeFileSync(join(dir, 'summary.json'), `${JSON.stringify(withLimits, null, 2)}\n`);
+  writeFileSync(page, replayPage(events, summary, { over, ticket: ticketPath }));
+  return { summary, over, ticket: ticketPath, page };
 }
 
 const freePort = (): Promise<number> =>
@@ -96,7 +120,7 @@ export async function runDuet(o: RunOptions): Promise<RunResult> {
   secrets.add(sellerKey);
   const rec = new Recorder(join(dir, 'record.jsonl'), secrets);
   const vendorOf = (x: Side) => (x === 'scripted' ? { vendor: 'scripted', model: 'scripted' } : { vendor: x.vendor, model: x.model });
-  rec.add('runner', 'run.start', { scenario: s.name, title: s.title, expect: s.expect, endState: s.endState, buyer: vendorOf(o.buyer), seller: vendorOf(o.seller), caps: o.caps, world: o.world ? 'running' : 'local phase-one world', checkout: checkout(), policy: s.policy, sellerRule: s.sellerRule ?? null, buyerRule: s.buyerRule ?? null, note: s.note ?? null, engine: o.world ? `the running world at ${o.world.join(', ')} (its chain is named in the next line)` : 'the local simulator, phase-one rules' });
+  rec.add('runner', 'run.start', { scenario: s.name, title: s.title, expect: s.expect, endState: s.endState, buyer: vendorOf(o.buyer), seller: vendorOf(o.seller), caps: o.caps, world: o.world ? 'running' : 'local phase-one world', checkout: checkout(), policy: s.policy, scope: SCOPE, sellerRule: s.sellerRule ?? null, sellerRulePlain: s.sellerRulePlain ?? null, buyerRule: s.buyerRule ?? null, note: s.note ?? null, engine: o.world ? `the running world at ${o.world.join(', ')} (its chain is named in the next line)` : 'the local simulator, phase-one rules' });
 
   say(`Starting ${o.world ? `against ${o.world.join(', ')}` : 'the local phase-one world'}.`);
   const world = await startWorld({ rec, ...(o.world ? { world: o.world } : {}), ...(o.docs ? { docs: o.docs } : {}), sellerPublic: join(real.sellerWork, 'public'), sellerName: SELLER_NAME, report: s.report, onSecret: (v) => secrets.add(v) });
@@ -178,9 +202,6 @@ export async function runDuet(o: RunOptions): Promise<RunResult> {
     await world.close();
   }
   rec.add('runner', 'run.end', { ends: ends.map((e) => ({ role: e.role, status: e.status, outcome: e.outcome })) });
-  const summary = measure(rec.events);
-  writeFileSync(join(dir, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
-  const pagePath = join(dir, 'replay.html');
-  writeFileSync(pagePath, replayPage(rec.events, summary));
-  return { dir, record: rec.file, summary, page: pagePath, ends, leaks: (text) => secrets.leaks(text) };
+  const done = finish(dir, rec.events, o.limits);
+  return { dir, record: rec.file, summary: done.summary, page: done.page, ends, leaks: (text) => secrets.leaks(text), over: done.over, ticket: done.ticket };
 }

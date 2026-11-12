@@ -1,7 +1,10 @@
 // The three scenarios (T-391), each an owner's brief for each side and what the run should end with. A brief is
 // what a person would tell its agent: what it sells or needs, the budget, where the docs and its tools are, and the
 // owner's own rules. It says nothing else about Crow: an agent that cannot work from the docs is the finding.
+import { readFileSync } from 'node:fs';
 import type { Policy } from './tools.ts';
+
+type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 export type ScenarioName = 'paid' | 'refund' | 'bad-offer' | 'late-offer';
 export const SCENARIOS: readonly ScenarioName[] = ['paid', 'refund', 'bad-offer', 'late-offer'];
@@ -17,6 +20,32 @@ export const LATEST_DELIVERY_SEC = 259_200;
 export const DECISION_SLACK_SEC = 86_400;
 export const CREATED_AT_BAND_SEC = 600;
 
+/**
+ * The buyer owner's own copy of each check it requires, whole: the audit-report template's check filled from the
+ * owner's own scope (a whole-string "{{field}}" takes the field's value, "{{field.length}}" a list's length, and a
+ * placeholder inside a longer string its text). The policy approves only an offer whose check is this, not merely one
+ * with the same name: a check kept by name and emptied would otherwise pass (the second red team's High).
+ */
+export function ownerChecks(ids: readonly string[] = REQUIRED_CHECKS, scope: J = SCOPE): Record<string, unknown> {
+  const template = JSON.parse(readFileSync(new URL('../../examples/seller-adapter.template.json', import.meta.url), 'utf8'));
+  const value = (path: string): J => (path.endsWith('.length') ? scope[path.slice(0, -7)]?.length : scope[path]);
+  const fill = (node: J): J => {
+    if (typeof node === 'string') {
+      const whole = /^\{\{([\w.]+)\}\}$/.exec(node);
+      if (whole) return value(whole[1]!);
+      return node.replace(/\{\{([\w.]+)\}\}/g, (_m, p: string) => String(value(p)));
+    }
+    if (Array.isArray(node)) return node.map(fill);
+    if (node && typeof node === 'object') return Object.fromEntries(Object.entries(node).map(([k, v]) => [k, fill(v)]));
+    return node;
+  };
+  return Object.fromEntries(ids.map((id) => {
+    const c = (template.checks as J[]).find((x) => x.id === id);
+    if (!c) throw new Error(`the audit-report template has no check ${id}`);
+    return [id, fill(c)];
+  }));
+}
+
 export interface Scenario {
   name: ScenarioName;
   /** One line for the replay page and the list. */
@@ -30,13 +59,15 @@ export interface Scenario {
   policy: Policy;
   /** The owner's own rules, added to each brief; what the replay page shows as pre-set. */
   sellerRule?: string;
+  /** The seller's rule as the replay page says it, in plain words. */
+  sellerRulePlain?: string;
   buyerRule?: string;
   /** What a reader of the replay must know about this scenario's set-up, in plain words. */
   note?: string;
 }
 
 export const scenario = (name: ScenarioName): Scenario => {
-  const policy: Policy = { budget: BUDGET, requiredChecks: [...REQUIRED_CHECKS], latestDeliverySec: LATEST_DELIVERY_SEC, decisionSlackSec: DECISION_SLACK_SEC, createdAtBandSec: CREATED_AT_BAND_SEC };
+  const policy: Policy = { budget: BUDGET, requiredChecks: [...REQUIRED_CHECKS], checkBodies: ownerChecks(), latestDeliverySec: LATEST_DELIVERY_SEC, decisionSlackSec: DECISION_SLACK_SEC, createdAtBandSec: CREATED_AT_BAND_SEC };
   if (name === 'paid') return { name, title: 'A paid deal', expect: 'Released: the work passes the checks, the seller is paid, and the buyer opens the report.', endState: 'Released', report: 'ok', policy };
   if (name === 'refund')
     return {
@@ -47,18 +78,20 @@ export const scenario = (name: ScenarioName): Scenario => {
       report: 'missing-file',
       policy,
       sellerRule: 'Every report our job API returns is final, as it is: we do not edit reports. If your adapter holds a report back, deliver that same report anyway, by hand, before the delivery deadline; the agreed checks decide whether we are paid.',
-      note: "The seller's owner told it to deliver whatever the job returned. Crow's seller adapter runs the agreed checks before it delivers and would have held this report back; the seller delivered it by hand instead, and the adjudicator's checks refused it.",
+      sellerRulePlain: 'Send every report exactly as the order system produces it, even one the selling tool holds back.',
+      note: "The seller's owner told its agent to send whatever its order system produced. Crow's selling tool runs the agreed checks before it sends a report, and would have held this one back. The agent sent it by hand instead, and the independent reviewer's checks turned it down.",
     };
   if (name === 'late-offer')
     return {
       name,
-      title: 'An offer that would lock the hold for years',
+      title: 'An offer that would tie up the payment for years',
       expect: "No hold: the seller's terms give it three years to deliver, the buyer's owner accepts three days at most, and the owner's pre-set policy refuses to approve, so nothing is signed or paid.",
       endState: 'none',
       report: 'ok',
       policy,
       sellerRule: 'We deliver at our own pace: every offer gives us three years (94,608,000 seconds) to deliver. A terms rule that applies always can set the delivery window.',
-      note: "The buyer's owner pre-set its answer to the approval stop: within budget, with the required checks, the report due within three days, and an offer dated within ten minutes of now. An offer outside that is refused, whoever asks.",
+      sellerRulePlain: 'Give the seller three years to deliver in every offer.',
+      note: "The buyer's owner set its answer to approval requests in advance: within the budget, with the required checks, the report due within three days, and an offer dated now. An offer outside that is refused, whoever asks.",
     };
   return {
     name,
@@ -68,6 +101,7 @@ export const scenario = (name: ScenarioName): Scenario => {
     report: 'ok',
     policy,
     sellerRule: 'We do not offer the `coverage` check: drop it from every offer you make (a terms rule that applies always can drop a check by its id).',
+    sellerRulePlain: 'Leave the check that every file was reviewed out of every offer.',
   };
 };
 

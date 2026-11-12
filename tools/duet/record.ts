@@ -15,6 +15,9 @@ export class Secrets {
       this.values.add(value.slice(2));
       this.values.add(value.toLowerCase());
       this.values.add(value.slice(2).toLowerCase());
+      this.values.add(value.slice(2).toUpperCase());
+      this.values.add(`0x${value.slice(2).toUpperCase()}`);
+      this.values.add(Buffer.from(value).toString('base64'));
       const bytes = Buffer.from(value.slice(2), 'hex');
       this.values.add(bytes.toString('base64'));
       this.values.add(bytes.toString('base64url'));
