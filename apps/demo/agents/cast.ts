@@ -106,7 +106,7 @@ export const PROFILES: Readonly<Record<string, BenchProfile>> = {
     roles: ['appeal'],
     judges: effortFor('extended thinking, 32,000-token budget', 'reasoning effort high', 'thinking mode on, 16,384-token budget'),
     harness: SERVICE_HARNESS,
-    history: ['Chaired by Lena Hoffmann, a former commercial arbitrator; hears appeals only.', '1,204 appeals heard; 71% of first decisions upheld.'],
+    history: ['Chaired by Lena Hoffmann, a former contract lawyer; hears appeals only.', '1,204 appeals heard; 71% of first decisions upheld.'],
   },
   [SWIFTLINE.label]: {
     tagline: 'One model, one verdict, the lowest fee.',

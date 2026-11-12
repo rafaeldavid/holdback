@@ -44,8 +44,8 @@ import { privateKeyToAccount, sign as signDigest } from 'viem/accounts';
 import type { SimContext } from './context.js';
 import { loadClubFile, loadTermsFile, termsFromTemplate, type TermsTemplate } from './fixture-files.js';
 import type { AdjudicatorPolicy } from '@holdback/core';
-import type { LoadedRegistry } from '@holdback/judgment';
-import { loadJudgeRegistry, runnerPolicy } from './judges-config.js';
+import type { LoadedRegistry, PolicyVersions } from '@holdback/judgment';
+import { buildDefaultVersions, keptRegistryFiles, loadJudgeRegistry, REGISTRY_FILE, runnerPolicy } from './judges-config.js';
 import { runJudgment, type JudgmentView } from './judgment.js';
 import type { Outage, StepProblem } from './prefix.js';
 import type { JudgeProvider } from './recorded.js';
@@ -248,7 +248,21 @@ export class StubSettlement {
   private readonly judged = new Map<string, JudgmentView>();
   /** The same judgments keyed by commitment number, role and attempt, which do not depend on the backend. */
   private readonly judgedBySlot = new Map<string, JudgmentView>();
-  private registryCache: LoadedRegistry | null = null;
+  /** Registries by file, loaded on first use. */
+  private readonly registryCache = new Map<string, LoadedRegistry>();
+  /**
+   * The build the adjudicators run (ADR-0036): its default versions and registry. A restart_adjudicators step changes
+   * it; every policy a build registered stays readable by hash, as the operators' store keeps it (ADR-0030 section 6).
+   */
+  private buildState: { versions: PolicyVersions; registryFile: string } | null = null;
+  private get build(): { versions: PolicyVersions; registryFile: string } {
+    this.buildState ??= { versions: buildDefaultVersions(this.root), registryFile: REGISTRY_FILE };
+    return this.buildState;
+  }
+  private set build(b: { versions: PolicyVersions; registryFile: string }) {
+    this.buildState = b;
+  }
+  private readonly policies = new Map<string, AdjudicatorPolicy>();
   private stepNo = 0;
   private signerOverride: string | undefined;
   /** The current step's deliberate message faults (scenario `tamper:`). */
@@ -445,15 +459,33 @@ export class StubSettlement {
     return this.chain;
   }
 
-  /** config/judges.yaml, loaded on first use. */
-  private get registry(): LoadedRegistry {
-    this.registryCache ??= loadJudgeRegistry(this.root);
-    return this.registryCache;
+  private registryFile(file: string): LoadedRegistry {
+    let r = this.registryCache.get(file);
+    if (!r) this.registryCache.set(file, (r = loadJudgeRegistry(this.root, file)));
+    return r;
   }
 
-  /** The adjudicator policy the commitment binds, by its policyId. */
-  private policyFor(terms: CommitmentTerms): AdjudicatorPolicy {
-    return runnerPolicy(terms.adjudication.policyId);
+  /** The default registry of the build the adjudicators run: config/judges.yaml unless a restart names another. */
+  private get registry(): LoadedRegistry {
+    return this.registryFile(this.build.registryFile);
+  }
+
+  /** The registry the commitment binds, by hash, among the registries the build carries (ADR-0036); null if none. */
+  private registryFor(terms: CommitmentTerms): LoadedRegistry | null {
+    const files = [...new Set([this.build.registryFile, ...keptRegistryFiles(this.root)])];
+    return files.map((f) => this.registryFile(f)).find((r) => r.hash === terms.adjudication.registryHash) ?? null;
+  }
+
+  /** The build's default policy for `id`, kept by hash from then on. */
+  private buildPolicy(id: string): AdjudicatorPolicy {
+    const policy = runnerPolicy(id, this.build.versions);
+    this.policies.set(policyHash(policy), policy);
+    return policy;
+  }
+
+  /** The adjudicator policy the commitment binds, read by its hash; null when no build registered it. */
+  private policyFor(terms: CommitmentTerms): AdjudicatorPolicy | null {
+    return this.policies.get(terms.adjudication.policyHash) ?? null;
   }
 
   private get state(): EscrowState | null {
@@ -646,6 +678,13 @@ export class StubSettlement {
       case 'operator_refuses':
         this.refusingOperators.add(s.operator);
         return this.row(s.operator, 'starts refusing to relay', 'direct', 'ok');
+      case 'restart_adjudicators': {
+        // A deploy (ADR-0036): all three adjudicators restart on a build with another default; they keep what they carry.
+        this.build = { versions: { ...this.build.versions, ...(s.screenVersion ? { screenVersion: s.screenVersion } : {}) }, registryFile: s.registry ?? this.build.registryFile };
+        const what = [`default ${this.build.versions.screenVersion}`, `registry ${this.build.registryFile} ${this.registry.hash.slice(0, 6)}...${this.registry.hash.slice(-4)}`];
+        for (const actor of new Set(Object.values(this.scenario.adjudicators))) this.outages.push({ step: this.stepNo, actor, kind: 'restarted' });
+        return this.row('adjudicators', `restart on a build: ${what.join(' · ')}`, 'direct', 'ok');
+      }
       case 'trigger_fallback':
       case 'trigger_default':
       case 'apply_default_outcome':
@@ -670,7 +709,7 @@ export class StubSettlement {
           fallbackAdjudicator: this.address(adjudicators.fallback),
           appealAdjudicator: this.address(adjudicators.appeal),
           registryHash: this.registry.hash,
-          policyHash: policyHash(runnerPolicy(this.template.adjudication.policyId)),
+          policyHash: policyHash(this.buildPolicy(this.template.adjudication.policyId)),
           buyerEncryptionPublicKey: b64url(this.ctx.rng.hex32()),
           nonce: this.nonceFor(seller, 'terms'),
           createdAt: wholeSecond(Date.parse(now)),
@@ -708,7 +747,7 @@ export class StubSettlement {
         policyId: `${adjudicators.primary}/p1`,
         fee: STUB_FEE,
         registryHash: this.registry.hash,
-        policyHash: policyHash(runnerPolicy(`${adjudicators.primary}/p1`)),
+        policyHash: policyHash(this.buildPolicy(`${adjudicators.primary}/p1`)),
       },
       timing: {
         offerExpiresAt: plus(now, 900),
@@ -738,6 +777,14 @@ export class StubSettlement {
     }
     const c = this.needCommitment(name, call, via);
     if (!c) return;
+    // ADR-0036: as primary it accepts new deals only under its build's current default policy and registry.
+    const current = policyHash(this.buildPolicy(c.terms.adjudication.policyId));
+    if (c.terms.adjudication.policyHash !== current) {
+      return this.refuse(name, call, via, problem('policy_mismatch', `policy-hash-mismatch: the offer binds policy ${c.terms.adjudication.policyHash}; as primary ${name} accepts new deals only under its current policy ${current}`));
+    }
+    if (c.terms.adjudication.registryHash !== this.registry.hash) {
+      return this.refuse(name, call, via, problem('registry_mismatch', `the offer binds registry ${c.terms.adjudication.registryHash}; as primary ${name} accepts new deals only under its current registry ${this.registry.hash}`));
+    }
     const seed = this.ctx.rng.hex32();
     const message = await this.sign(name, {
       type: 'AdjudicatorAcceptance',
@@ -898,6 +945,11 @@ export class StubSettlement {
       this.judgments.push(view);
     }
     if (!view) {
+      // ADR-0036: the bound policy, read by hash, and the bound registry, by hash; never the build's default in their place.
+      const bound = this.policyFor(c.terms);
+      if (!bound) return this.refuse(name, call, 'direct', problem('policy_mismatch', `policy-hash-mismatch: no build registered policy ${c.terms.adjudication.policyHash}`));
+      const boundRegistry = this.registryFor(c.terms);
+      if (!boundRegistry) return this.refuse(name, call, 'direct', problem('registry_mismatch', `this build does not carry registry ${c.terms.adjudication.registryHash}`));
       const st = c.state;
       const firstOutcome =
         role === 'appeal' && (st.kind === 'Released' || st.kind === 'Refunded') && st.via.kind === 'first_instance' ? (st.kind === 'Released' ? 'accept' : 'reject') : undefined;
@@ -915,14 +967,18 @@ export class StubSettlement {
           seed,
           seedCommitment: role === 'primary' ? keccak256(this.seed) : null,
           beaconRound: round,
-          registry: this.registry,
-          policy: this.policyFor(c.terms),
+          registry: boundRegistry,
+          policy: bound,
           ...(firstOutcome ? { firstOutcome } : {}),
         },
         this.judges,
       );
       if (!judged.ok) return this.refuse(name, call, 'direct', judged.error);
       view = judged.value;
+      // Shown only when the deal is judged under something other than the running build's default.
+      if (bound.screenVersion !== this.build.versions.screenVersion || boundRegistry.hash !== this.registry.hash) {
+        view = { ...view, bound: { screenVersion: bound.screenVersion, registryHash: boundRegistry.hash, buildScreenVersion: this.build.versions.screenVersion, buildRegistryHash: this.registry.hash } };
+      }
       this.judged.set(key, view);
       this.judgedBySlot.set(slotKey, view);
       this.judgments.push(view);

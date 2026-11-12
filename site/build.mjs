@@ -156,9 +156,9 @@ const FEATURES = [
   ['Verifiable Settlement', 'Payment waits in a non-custodial vault until the work passes.'],
   ['Made for Machines', 'One API. Every response reports its token cost, so agents can budget.'],
   ['High Speed, Low Cost', 'Settles when checks pass. No invoices, no marketplace cut.'],
-  ['Frontier AI Arbitration', 'On request, a panel of models from rival labs rules against the terms.'],
+  ['Frontier AI Verification', 'When the terms ask, a panel of frontier models from rival labs verifies the work before payment.'],
   ['Your Existing Rails', 'Fund by card or your current payment provider.', 'soon'],
-  ['Private Contract Terms', 'Only hashes of your terms are recorded. The work stays yours.'],
+  ['Private Delivery', 'The work is encrypted before it leaves the seller. Only the buyer and the reviewer can open it.'],
 ];
 if (STUDIES.length !== FEATURES.length) throw new Error('site/vignettes.mjs must draw one study for each value prop');
 

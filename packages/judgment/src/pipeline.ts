@@ -5,13 +5,13 @@
 // fixed sampling parameters, and nothing else (no tools, no secrets, no URLs to fetch).
 import type { Hex32, MimeType, PanelMember, Problem, Result } from '@holdback/core';
 import { canonicalKeccak, err, ok, problem } from '@holdback/core';
-import { aggregate, preDecision, type Aggregate, type PanelVerdict, type PreDecision } from './aggregate.js';
+import { preDecision, type Aggregate, type PanelVerdict, type PreDecision } from './aggregate.js';
 import { runChecks, type CheckOutcome } from './checks/index.js';
 import type { Intaken } from './intake.js';
+import { implementationsFor, KEPT, NEWEST_VERSIONS, type AggregationImpl, type KeptTable, type PolicyVersions } from './kept.js';
 import { buildPrompt, type Nonces, type PromptTemplateKind } from './prompt.js';
-import { screen, screenTerms, validateTermsText, type ScreenResult } from './screen.js';
+import { validateTermsText, type ScreenResult } from './screen.js';
 import { validatePolicy, validateRubric, type JudgmentAcceptance, type JudgmentCriterion, type JudgmentPolicy } from './terms.js';
-import { parseVerdict } from './verdict.js';
 import type { Judgment } from '@holdback/core';
 
 export interface PanelSeat {
@@ -54,6 +54,13 @@ export interface PipelineInput {
   /** `format` is the commitment's agreed deliverable format; a different delivered format is refused. */
   deliverable: { description: string; format?: MimeType };
   policy: PipelinePolicy;
+  /**
+   * The bound policy's four version values (ADR-0036 section 1): the pipeline runs the screen, templates and aggregation they
+   * name, and refuses a value this build does not carry. Defaults to this build's newest versions.
+   */
+  versions?: PolicyVersions;
+  /** The kept table to select from; only the replay's drift tests pass another. Defaults to KEPT. */
+  kept?: KeptTable;
   seats: readonly PanelSeat[];
   /** When given, every seat's model must be in it, and the family comes from it. */
   registry?: JudgeRegistry;
@@ -169,19 +176,28 @@ export interface StageOne {
  * they give without a panel. runPipeline calls this, and so does a seller's preflight (preflight.ts, T-316),
  * so both run the same code on the same text.
  */
-export function stageOne(intake: Pick<Intaken, 'raw' | 'mime'>, acceptance: JudgmentAcceptance, references?: ReadonlyMap<string, Uint8Array>): StageOne {
+export function stageOne(
+  intake: Pick<Intaken, 'raw' | 'mime'>,
+  acceptance: JudgmentAcceptance,
+  references?: ReadonlyMap<string, Uint8Array>,
+  aggregation: Pick<AggregationImpl, 'preDecision'> = { preDecision },
+): StageOne {
   const { outcomes: deterministic, inconclusive } = runChecks(acceptance.deterministicChecks, {
     data: intake.raw,
     mime: intake.mime,
     ...(references ? { references } : {}),
   });
-  return { deterministic, inconclusive, next: preDecision(deterministic, acceptance.rubric, inconclusive) };
+  return { deterministic, inconclusive, next: aggregation.preDecision(deterministic, acceptance.rubric, inconclusive) };
 }
 
 export async function runPipeline(input: PipelineInput): Promise<Result<JudgmentDraft, Problem>> {
   const { acceptance, policy, seats } = input;
   const policyProblem = validatePolicy(policy) ?? validateRubric(acceptance.rubric);
   if (policyProblem) return err(problem('invalid_terms', policyProblem));
+  // ADR-0036: the versions the bound policy names, never another in their place.
+  const impl = implementationsFor(input.versions ?? NEWEST_VERSIONS, input.kept ?? KEPT);
+  if (!impl.ok) return err(problem('policy_mismatch', impl.error));
+  const { screen: screener, templates, aggregation } = impl.value;
   const resolved = resolveSeats(seats, policy, input.registry);
   if (!resolved.ok) return err(problem('invalid_terms', resolved.error));
   const families = resolved.value;
@@ -191,15 +207,15 @@ export async function runPipeline(input: PipelineInput): Promise<Result<Judgment
 
   // Stage 1 runs first, on the text as delivered. Stage 2 always runs, on normalized text and on
   // the party-written terms, so the record shows it even without a panel.
-  const { deterministic, inconclusive, next } = stageOne(input.intake, acceptance, input.references);
-  const screened = screen({ data: input.intake.data, hiddenTagText: input.intake.hiddenTagText, removed: input.intake.removed, mime: input.intake.mime });
-  const termSignals = screenTerms(termsTexts(acceptance, input.deliverable.description));
+  const { deterministic, inconclusive, next } = stageOne(input.intake, acceptance, input.references, aggregation);
+  const screened = screener.screen({ data: input.intake.data, hiddenTagText: input.intake.hiddenTagText, removed: input.intake.removed, mime: input.intake.mime });
+  const termSignals = screener.screenTerms(termsTexts(acceptance, input.deliverable.description));
   const baseScreen: ScreenResult = { flagged: screened.flagged || termSignals.length > 0, signals: [...screened.signals, ...termSignals].slice(0, 20) };
   const thresholds = { minValid: policy.minValid, acceptSupermajority: policy.acceptSupermajority, rejectSupermajority: policy.rejectSupermajority };
   const base = { intake: input.intake.record, deterministic };
 
   if (next !== 'panel') {
-    const agg = aggregate({ checks: deterministic, inconclusive, rubric: acceptance.rubric, screenFlagged: baseScreen.flagged, verdicts: [], thresholds });
+    const agg = aggregation.aggregate({ checks: deterministic, inconclusive, rubric: acceptance.rubric, screenFlagged: baseScreen.flagged, verdicts: [], thresholds });
     return ok({ ...base, screen: baseScreen, panel: { ran: false, members: [] }, aggregate: agg });
   }
 
@@ -219,6 +235,8 @@ export async function runPipeline(input: PipelineInput): Promise<Result<Judgment
         data: input.intake.data,
         nonces: input.nonces(seat, i),
         ...(input.template ? { template: input.template } : {}),
+        templates,
+        stride: screener.stride,
         ...(input.maxDataChars !== undefined ? { maxDataChars: input.maxDataChars } : {}),
         ...(input.sampleSeed ? { sample: { seed: input.sampleSeed(seat, i), mime: input.intake.mime } } : {}),
       });
@@ -246,7 +264,7 @@ export async function runPipeline(input: PipelineInput): Promise<Result<Judgment
       const none = { family, verdict: null };
       if (res.kind !== 'ok') return { member: { ...member, status: res.kind }, verdict: none, canaryEcho: false, strided: p.sampling === 'stride' };
       if (res.latencyMs !== undefined) member.latencyMs = res.latencyMs;
-      const parsed = parseVerdict(res.text, { criterionIds: rubricIds, canary: p.canary, rationaleMaxChars: policy.rationaleMaxChars });
+      const parsed = aggregation.parseVerdict(res.text, { criterionIds: rubricIds, canary: p.canary, rationaleMaxChars: policy.rationaleMaxChars });
       if (parsed.status === 'abstain') {
         return { member: { ...member, status: 'abstain' }, verdict: none, canaryEcho: parsed.reason === 'canary_echo', filtered: parsed.reason, strided: p.sampling === 'stride' };
       }
@@ -264,7 +282,7 @@ export async function runPipeline(input: PipelineInput): Promise<Result<Judgment
   const escalate = rs.filter((r) => r.filtered).map((r) => `judge ${r.member.judgeId} output rejected by a filter (${r.filtered})`);
   // A seeded sample is recomputable and unpredictable to the seller; only the even-stride fallback escalates.
   if (rs.some((r) => r.strided)) escalate.push('the judges saw a sample of the deliverable, not all of it');
-  const agg = aggregate({
+  const agg = aggregation.aggregate({
     checks: deterministic,
     rubric: acceptance.rubric,
     screenFlagged: finalScreen.flagged,

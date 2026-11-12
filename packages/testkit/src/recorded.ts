@@ -7,7 +7,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseJudgeVerdict, type Hex32, type JudgeVerdict } from '@holdback/core';
-import { APPEAL_PROMPT_TEMPLATE_HASH } from '@holdback/judgment';
+import { KEPT } from '@holdback/judgment';
 
 export const RECORDING_FORMAT = 'holdback.recording/v1';
 /** The first format: no role, filed under <scenario>/<judgeId>.json. Read only by the migration. */
@@ -247,7 +247,8 @@ export function migrateRecordings(dir: string): Migrated[] {
         throw new RecordingInvalidError(from, `not JSON (${(e as Error).message})`);
       }
       if (raw.format !== RECORDING_FORMAT_V0) throw new RecordingInvalidError(from, `expected format ${RECORDING_FORMAT_V0} directly under the scenario directory`);
-      const role: JudgeRole = raw.promptTemplateHash === APPEAL_PROMPT_TEMPLATE_HASH ? 'appeal' : 'primary';
+      // Any kept pair's appeal template (ADR-0036), not only this build's newest.
+      const role: JudgeRole = KEPT.templatePairs.some((p) => p.appealHash === raw.promptTemplateHash) ? 'appeal' : 'primary';
       const rec = { ...raw, format: RECORDING_FORMAT, role } as unknown as Recording;
       const to = recordingPath(dir, String(raw.scenario), role, String(raw.judgeId));
       if (existsSync(to)) throw new RecordingOverwriteError(to);

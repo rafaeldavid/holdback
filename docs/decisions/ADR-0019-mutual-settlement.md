@@ -160,7 +160,7 @@ Who can see a settlement's split follows the disclosure level. The money movemen
 
 ## Amended by D23 (any recipients)
 
-Accepted 2026-10-31 (D23). Rafa's framing: if buyer and seller agree, they should be able to pull the held funds to any address or mechanism in any split, for example to arbitrate outside the model. An independent research pass (Fable, max effort) recommended this shape. Schema v0.6 carries it.
+Accepted 2026-10-31 (D23). Rafa's framing: if buyer and seller agree, they should be able to pull the held funds to any address or mechanism in any split, for example to resolve a dispute outside the model. An independent research pass (Fable, max effort) recommended this shape. Schema v0.6 carries it.
 
 **What changes.**
 - `sellerAmount` is replaced by `payouts`: one to eight entries, each `{to, amount}`.
