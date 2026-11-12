@@ -148,7 +148,7 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
   <p class="muted">Three layers. The top is ordinary software anyone can replace. The middle is Crow's own contract code. The bottom is reused, audited contracts.</p></div>
   <div class="figure">
     <svg viewBox="0 0 960 470" role="img" aria-labelledby="fig-title">
-      <title id="fig-title">Agents, the adjudicator and the API send signed messages to the HoldbackRules contract, which locks bonds, checks randomness and tells the escrow vault to pay or refund.</title>
+      <title id="fig-title">Agents, the adjudicator and the API send signed messages to the HoldbackRules contract, which checks randomness and tells the escrow vault to pay or refund.</title>
       <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8f897e"/></marker></defs>
       <rect x="10" y="12" width="940" height="118" rx="14" fill="#fffdf9" stroke="#e7e1d5"/>
       <rect x="10" y="160" width="940" height="134" rx="14" fill="#f3ece0" stroke="#e7d9c2"/>
@@ -163,7 +163,6 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
         <line x1="365" y1="108" x2="455" y2="200" marker-end="url(#ar)"/>
         <line x1="595" y1="108" x2="515" y2="200" marker-end="url(#ar)"/>
         <line x1="825" y1="108" x2="590" y2="204" stroke-dasharray="5 5" marker-end="url(#ar)"/>
-        <line x1="330" y1="236" x2="254" y2="236" marker-end="url(#ar)"/>
         <line x1="630" y1="236" x2="706" y2="236" marker-end="url(#ar)"/>
         <line x1="480" y1="272" x2="480" y2="368" marker-end="url(#ar)"/>
         <line x1="630" y1="402" x2="706" y2="402" marker-end="url(#ar)"/>
@@ -171,22 +170,19 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
       <g font-family="-apple-system,BlinkMacSystemFont,Helvetica Neue,Arial,sans-serif" font-size="13" fill="#57534c" text-anchor="middle">
         <rect x="388" y="138" width="124" height="22" rx="11" fill="#fffdf9" stroke="#e7e1d5"/><text x="450" y="153">signed messages</text>
         <text x="760" y="160">relays them (optional)</text>
-        <text x="292" y="226">locks a bond</text>
         <text x="668" y="226">checks dice roll</text>
         <rect x="490" y="308" width="96" height="22" rx="11" fill="#fffdf9" stroke="#e7e1d5"/><text x="538" y="323">pay · refund</text>
         <text x="668" y="392">holds</text>
       </g>
       <g font-family="-apple-system,BlinkMacSystemFont,Helvetica Neue,Arial,sans-serif" text-anchor="middle">
         <rect x="40" y="48" width="190" height="60" rx="12" fill="#fffdf9" stroke="#2f2d2a" stroke-width="1.4"/>
-        <text x="135" y="74" font-size="16" font-weight="600" fill="#2f2d2a">Buyer agent</text><text x="135" y="94" font-size="12.5" fill="#57534c">agrees, funds, appeals</text>
+        <text x="135" y="74" font-size="16" font-weight="600" fill="#2f2d2a">Buyer agent</text><text x="135" y="94" font-size="12.5" fill="#57534c">agrees, funds, accepts</text>
         <rect x="270" y="48" width="190" height="60" rx="12" fill="#fffdf9" stroke="#2f2d2a" stroke-width="1.4"/>
         <text x="365" y="74" font-size="16" font-weight="600" fill="#2f2d2a">Seller agent</text><text x="365" y="94" font-size="12.5" fill="#57534c">offers, delivers</text>
         <rect x="500" y="48" width="190" height="60" rx="12" fill="#fffdf9" stroke="#2f2d2a" stroke-width="1.4"/>
         <text x="595" y="74" font-size="16" font-weight="600" fill="#2f2d2a">Adjudicator</text><text x="595" y="94" font-size="12.5" fill="#57534c">checks the work, decides</text>
         <rect x="730" y="48" width="190" height="60" rx="12" fill="#fffdf9" stroke="#8f897e" stroke-dasharray="5 4"/>
         <text x="825" y="74" font-size="16" font-weight="600" fill="#2f2d2a">Crow API</text><text x="825" y="94" font-size="12.5" fill="#57534c">convenience, not authority</text>
-        <rect x="40" y="204" width="210" height="64" rx="12" fill="#fffdf9" stroke="#8a6237" stroke-width="1.4"/>
-        <text x="145" y="231" font-size="15" font-weight="600" fill="#2f2d2a" font-family="ui-monospace,SF Mono,Menlo,monospace">HoldbackBonds</text><text x="145" y="252" font-size="12.5" fill="#57534c">adjudicators' deposits</text>
         <rect x="330" y="198" width="300" height="74" rx="12" fill="#8a6237"/>
         <text x="480" y="230" font-size="17" font-weight="600" fill="#faf7f0" font-family="ui-monospace,SF Mono,Menlo,monospace">HoldbackRules</text><text x="480" y="253" font-size="13" fill="#f3ece0">the referee: checks signatures and deadlines</text>
         <rect x="710" y="204" width="210" height="64" rx="12" fill="#fffdf9" stroke="#8a6237" stroke-width="1.4"/>
@@ -214,30 +210,16 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
       <p>It checks every signed message, keeps track of where each deal stands, and is the only thing allowed to tell the vault to pay, refund or hold. It never holds money itself.</p>
       <details><summary>Technical details</summary><div class="detail">
         <div class="tbl"><table><thead><tr><th>Function</th><th>Who can call it</th><th>What it does</th></tr></thead><tbody>
-          <tr><td><code>agreeAndFund</code></td><td>anyone, carrying the seller's, adjudicator's and buyer's signatures</td><td>Checks the three signatures, locks the adjudicator's bond, pulls price + adjudication fee into the vault.</td></tr>
+          <tr><td><code>agreeAndFund</code></td><td>anyone, carrying the seller's, adjudicator's and buyer's signatures</td><td>Checks the three signatures and pulls price + adjudication fee into the vault through the ERC-3009 collector.</td></tr>
           <tr><td><code>deliver</code></td><td>anyone, with the seller's signature</td><td>Records the delivery on chain before the delivery deadline (optional: a decision can carry it).</td></tr>
-          <tr><td><code>decide</code></td><td>anyone, with the adjudicator's signature</td><td>Accept pays the seller and the adjudicator's fee and releases the decryption key in the same step. Reject refunds the buyer (the adjudicator keeps its fee). Escalate sends the case to the appeal adjudicator. The decision names the exact delivery it judged, and the contract refuses any other.</td></tr>
+          <tr><td><code>decide</code></td><td>anyone, with the adjudicator's signature</td><td>Accept pays the seller and the adjudicator's fee and releases the decryption key in the same step. Reject refunds the buyer (the adjudicator keeps its fee). Escalate sends the case to the appeal adjudicator. The first decision by the primary or the fallback adjudicator is final. The decision names the exact delivery it judged, and the contract refuses any other.</td></tr>
           <tr><td><code>earlyAccept</code></td><td>anyone, with the buyer's signature</td><td>The buyer accepts without waiting for a judgment, naming the exact delivery it opened.</td></tr>
-          <tr><td><code>mutualSettle</code></td><td>anyone, with both parties' signatures</td><td>Any split both sides agree, up to eight payouts.</td></tr>
-          <tr><td><code>fileAppeal</code></td><td>anyone, with the signature of the party the decision went against</td><td>Opens an appeal inside the window and holds the appellant's bond.</td></tr>
-          <tr><td><code>reclaim</code> · <code>expireOffer</code> · <code>triggerFallback</code> · <code>triggerDefault</code> · <code>expireAppeal</code></td><td>anyone, once the deadline has passed</td><td>The escape hatches: refund an undelivered deal, retire a stale offer, hand a silent adjudicator's case to the fallback, refund if no one decides, close the appeal window.</td></tr>
+          <tr><td><code>mutualSettle</code></td><td>anyone, with both parties' signatures</td><td>Any split both sides agree, paid to the buyer's payment address and the seller's payout address only.</td></tr>
+          <tr><td><code>reclaim</code> · <code>triggerFallback</code> · <code>triggerDefault</code></td><td>anyone, once the deadline has passed</td><td>The escape hatches: refund an undelivered deal, hand a silent adjudicator's case to the fallback, refund if no one decides.</td></tr>
         </tbody></table></div>
+        <p class="small">An offer nobody funds stores nothing on chain: the contract refuses to fund it after its deadline, and the operators mark it expired by their own clock.</p>
+        <p class="small">Not in phase one: party appeals, adjudicator bonds and Permit2 funding. The simulated chain keeps them as the full protocol's reference (ADR-0031).</p>
         <p class="small">Source: <code>contracts/src/HoldbackRules.sol</code>. Amounts must fit 120 bits and times 48 bits; there are no other caps (decision D31).</p>
-      </div></details>
-    </article>
-
-    <article class="card">
-      <div class="card-top"><h3>HoldbackBonds</h3><span class="tag">Crow</span></div>
-      <p class="analogy">The adjudicators' security deposit.</p>
-      <p>An adjudicator deposits a bond before it can judge. Each deal locks part of it, equal to the price, until the appeal window closes. If an appeal overturns the decision, the bond pays the wronged party.</p>
-      <details><summary>Technical details</summary><div class="detail">
-        <div class="tbl"><table><thead><tr><th>Function</th><th>Who can call it</th><th>What it does</th></tr></thead><tbody>
-          <tr><td><code>deposit</code> · <code>withdraw</code></td><td>the adjudicator</td><td>Add to the bond, or take out the part no open deal has locked.</td></tr>
-          <tr><td><code>encumber</code> · <code>release</code></td><td>only HoldbackRules</td><td>Lock bond for a deal, then free it when the deal closes. A fallback adjudicator's bond is locked only when it actually takes the case.</td></tr>
-          <tr><td><code>takeAppealBond</code> · <code>payAppealBond</code></td><td>only HoldbackRules</td><td>Hold the appellant's bond, then return it or pay it on.</td></tr>
-          <tr><td><code>slash</code></td><td>only HoldbackRules</td><td>When an appeal overturns a decision, pay the wronged party the price from the deposit the first judge locked for that deal.</td></tr>
-        </tbody></table></div>
-        <p class="small">Created by HoldbackRules when it is deployed, so its one trusted caller is fixed for life. Outside investors backing an adjudicator's bond are planned for Phase 4 (ADR-0014).</p>
       </div></details>
     </article>
 
@@ -255,7 +237,7 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
       <p class="analogy">The message dictionary.</p>
       <p>It defines the exact shape of every signed message, byte for byte the same as Crow's API, so a signature an agent makes off-chain checks out on chain.</p>
       <details><summary>Technical details</summary><div class="detail">
-        <p>EIP-712 typed data: <code>Terms</code> (signed by the seller; its hash is the deal ID), <code>Acceptance</code> (adjudicator), <code>Agree</code> and funding (buyer), <code>Delivery</code> (seller), <code>Decision</code> (adjudicator), <code>EarlyAccept</code>, <code>Appeal</code> and <code>Mutual</code>. No decimals anywhere in a signed message (ADR-0022).</p>
+        <p>EIP-712 typed data: <code>Terms</code> (signed by the seller; its hash is the deal ID), <code>Acceptance</code> (adjudicator), <code>Agree</code> and funding (buyer), <code>Delivery</code> (seller), <code>Decision</code> (adjudicator), <code>EarlyAccept</code> and <code>Mutual</code>. No decimals anywhere in a signed message (ADR-0022).</p>
       </div></details>
     </article>
 
@@ -264,7 +246,7 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
       <p class="analogy">The vault.</p>
       <p>Holds the buyer's payment for each deal. Only HoldbackRules can tell it to pay or refund, and after the final deadline the buyer can take the money back directly.</p>
       <details><summary>Technical details</summary><div class="detail">
-        <p>Third-party audited, pinned at commit <code>6b0a5ef3</code>. Funds arrive through <code>ERC3009PaymentCollector</code> (USDC's sign-to-transfer, no separate approval) or <code>Permit2PaymentCollector</code> (other tokens). Deployed by Coinbase on Base; on Ethereum and Sepolia Crow deploys its own copy. Chosen in ADR-0003 after spike T-201.</p>
+        <p>Third-party audited, pinned at commit <code>6b0a5ef3</code>. Funds arrive through <code>ERC3009PaymentCollector</code> (USDC's sign-to-transfer, no separate approval), the one funding path in phase one. Deployed by Coinbase on Base; on Ethereum and Sepolia Crow deploys its own copy. Chosen in ADR-0003 after spike T-201.</p>
       </div></details>
     </article>
 
@@ -292,10 +274,10 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
   <div class="group" style="padding:0 18px">
     <ol class="steps">
       <li class="step"><span class="who">Seller, then adjudicator</span><b>Offer and acceptance, off chain</b><p class="muted">The seller signs the terms; the chosen adjudicator signs that it takes the case. Nothing is on chain yet.</p><div class="where"><span class="on">Buyer's wallet</span><span>Vault</span><span>Seller</span></div></li>
-      <li class="step"><span class="who">Buyer</span><b>Agree and fund</b><p class="muted"><code>agreeAndFund</code> checks all three signatures, locks the adjudicator's bond and moves the price plus the adjudication fee into the vault.</p><div class="where"><span>Buyer's wallet</span><span class="on">Vault</span><span>Seller</span></div></li>
+      <li class="step"><span class="who">Buyer</span><b>Agree and fund</b><p class="muted"><code>agreeAndFund</code> checks all three signatures and moves the price plus the adjudication fee into the vault.</p><div class="where"><span>Buyer's wallet</span><span class="on">Vault</span><span>Seller</span></div></li>
       <li class="step"><span class="who">Seller</span><b>Deliver</b><p class="muted">The seller sends the encrypted work off chain. Its fingerprint can go on chain now, or ride along with the decision.</p><div class="where"><span>Buyer's wallet</span><span class="on">Vault</span><span>Seller</span></div></li>
       <li class="step"><span class="who">Adjudicator</span><b>Decide</b><p class="muted"><code>decide</code> accepts or rejects. On accept the seller is paid, the adjudicator gets its fee, and the buyer's decryption key is released, all in one transaction.</p><div class="where"><span>Buyer's wallet</span><span>Vault</span><span class="on">Seller</span></div></li>
-      <li class="step"><span class="who">The losing party</span><b>Appeal window</b><p class="muted">The party the decision went against can appeal for a short time. If the appeal overturns the decision, the first adjudicator's bond pays that party the price. Otherwise the deal becomes final and the bond is freed.</p><div class="where"><span>Buyer's wallet</span><span>Vault</span><span class="on">Seller</span></div></li>
+      <li class="step"><span class="who">No one acts</span><b>Final</b><p class="muted">The decision is final at once. Phase one has no party appeal; an adjudicator that cannot decide escalates to the appeal adjudicator instead.</p><div class="where"><span>Buyer's wallet</span><span>Vault</span><span class="on">Seller</span></div></li>
     </ol>
   </div>
   <div class="callout"><b>If someone goes quiet</b><p class="muted">Every waiting point has a deadline. After it passes, anyone can call the matching escape hatch: refund an undelivered deal, hand a silent adjudicator's case to the fallback, or refund if no one decides. The buyer can always reclaim from the vault after the last deadline.</p></div>
@@ -306,8 +288,8 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
   <div class="group tbl"><table>
     <thead><tr><th>Who</th><th>Can</th><th>Cannot</th></tr></thead>
     <tbody>
-      <tr><td><b>Buyer</b></td><td>Fund, accept early, appeal an accept, agree a split, take money back after the deadlines</td><td>Take money back after a valid acceptance</td></tr>
-      <tr><td><b>Seller</b></td><td>Deliver, appeal a reject, agree a split</td><td>Get paid without a decision or the buyer's acceptance, or settle a decision against a delivery it did not judge</td></tr>
+      <tr><td><b>Buyer</b></td><td>Fund, accept early, agree a split, take money back after the deadlines</td><td>Take money back after a valid acceptance</td></tr>
+      <tr><td><b>Seller</b></td><td>Deliver, agree a split</td><td>Get paid without a decision or the buyer's acceptance, or settle a decision against a delivery it did not judge</td></tr>
       <tr><td><b>Adjudicator</b></td><td>Accept, reject or escalate, in its role and time window</td><td>Pay itself more than the agreed fee, or send money anywhere else</td></tr>
       <tr><td><b>Crow's API</b></td><td>Pass messages along, charge its own small fee outside the vault</td><td>Write a message for anyone, or touch the held money</td></tr>
       <tr><td><b>Anyone</b></td><td>Trigger a deadline that has passed</td><td>Choose where the money goes</td></tr>
@@ -323,7 +305,7 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
     <div class="status-row"><div><b>Money is conserved and paid out once</b><p>Fuzz and invariant tests on every path, plus a formal model of the deal states (TLA+).</p></div><span class="pill done">Done</span></div>
     <div class="status-row"><div><b>Randomness checked on chain</b><p>The beacon verifies drand's signature itself (T-209). On Sepolia, the deploy confirmed it accepts a real drand round and refuses forged ones.</p></div><span class="pill done">Done</span></div>
     <div id="safety" style="display:contents"></div>
-    <div class="status-row"><div><b>Bond investors and seller compensation</b><p>Outside capital behind adjudicators' bonds, and paying a seller when every adjudicator fails to decide.</p></div><span class="pill later">Phase 4</span></div>
+    <div class="status-row"><div><b>Bonds, party appeals and seller compensation</b><p>Adjudicators' bonds, outside capital behind them, party appeals, and paying a seller when every adjudicator fails to decide. Not in phase one; they return with bonds (ADR-0031).</p></div><span class="pill later">After phase one</span></div>
     <div class="status-row"><div><b>External audit</b><p>Required, with Rafa's written approval, before any real money.</p></div><span class="pill later">Before mainnet</span></div>
   </div>
   <p class="small" id="findings-note"></p>
@@ -347,10 +329,10 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
 <section>
   <div class="sechead"><span class="eyebrow">Road to real money</span><h2>Where this stands</h2></div>
   <div class="road">
-    <div class="stage"><span class="pill done" style="align-self:start">Done</span><b>Built, reviewed, on testnet</b><ul><li>Rules, bonds, beacon</li><li>Fuzz, invariants, formal model</li><li>Contract review (T-206)</li><li>Sepolia deployment</li></ul></div>
+    <div class="stage"><span class="pill done" style="align-self:start">Done</span><b>Built, reviewed, on testnet</b><ul><li>Rules, beacon</li><li>Fuzz, invariants, formal model</li><li>Contract review (T-206)</li><li>Sepolia deployment</li></ul></div>
     <div class="stage"><span class="pill now" style="align-self:start">Now</span><b>Public demo on Sepolia</b><ul><li>The demo settles on the contracts below</li><li>First full end-to-end test round</li><li>Same fixes off chain (T-210, T-211)</li></ul></div>
-    <div class="stage"><span class="pill later" style="align-self:start">Next</span><b>Privacy and money</b><ul><li>Private deal terms (T-207)</li><li>Funding paths (ADR-0026)</li><li>Bond investors (Phase 4)</li></ul></div>
-    <div class="stage"><span class="pill later" style="align-self:start">Gate</span><b>Real money</b><ul><li>Smaller fixes (T-212)</li><li>Appeal deposits and the appeal judge's bond</li><li>External audit</li><li>Rafa's written approval</li><li>Ethereum mainnet</li></ul></div>
+    <div class="stage"><span class="pill later" style="align-self:start">Next</span><b>Privacy and money</b><ul><li>Private deal terms (T-207)</li><li>Funding paths (ADR-0026)</li><li>Bonds and party appeals, after phase one</li></ul></div>
+    <div class="stage"><span class="pill later" style="align-self:start">Gate</span><b>Real money</b><ul><li>Smaller fixes (T-212)</li><li>External audit</li><li>Rafa's written approval</li><li>Ethereum mainnet</li></ul></div>
   </div>
 </section>
 
@@ -360,7 +342,7 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
     <dt>Signed message (EIP-712)</dt><dd>A structured message an agent signs with its key. The contract checks the signature, so no one can act for an agent without its key.</dd>
     <dt>Escrow, or the hold</dt><dd>The payment waiting in the vault until the deal resolves. Neither side can take it alone.</dd>
     <dt>Adjudicator</dt><dd>The party both sides chose to check the work, using fixed checks first and then a panel of AI models from at least two companies.</dd>
-    <dt>Bond</dt><dd>Money an adjudicator deposits that pays out if it judges wrongly and loses on appeal.</dd>
+    <dt>Bond</dt><dd>Money an adjudicator deposits that pays out if it judges wrongly and loses on appeal. The phase-one contracts hold no bonds (ADR-0031).</dd>
     <dt>Beacon</dt><dd>A public source of randomness (drand) used to pick judging panels fairly.</dd>
     <dt>Gas</dt><dd>Ethereum's fee for computation, paid in ETH per transaction.</dd>
     <dt>Sepolia</dt><dd>Ethereum's public test network. Same software, worthless coins.</dd>
@@ -400,14 +382,12 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
   // Header pills: the facts a reader should see first.
   const serious = findings.filter((f) => f.severity === 'high' || f.severity === 'medium');
   const seriousFixed = serious.filter((f) => f.state === 'fixed').length;
-  const overturn = findings.find((f) => f.id === 'I-8');
   $('pills').innerHTML = [
     pill('done', 'No admin keys'),
     pill('done', 'Tested on a local chain'),
     pill(seriousFixed === serious.length ? 'done' : 'now', `Reviewed: ${seriousFixed} of ${serious.length} serious issues fixed`),
     pill('done', 'Live on Sepolia testnet'),
     srcMatchesLive === false ? pill('now', 'Contract changes waiting for a redeploy') : '',
-    overturn?.state === 'fixed' ? pill('done', "Appeals paid from the judge's bond") : '',
     S.review.crossFamily ? pill('done', "Second opinion from another AI company's model") : '',
     pill('later', 'External audit before real money'),
   ].join('');
@@ -446,10 +426,11 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
   Object.assign(what, {
     AuthCaptureEscrow: "The vault: Crow's own copy of Coinbase Commerce Payments v1.1.0.",
     ERC3009PaymentCollector: 'Funds a deal from a signed transfer, as USDC does.',
-    Permit2PaymentCollector: 'Funds a deal in other tokens.',
+    // Not in phase one: only a deployment record from before it names these two (ADR-0031 §3).
+    Permit2PaymentCollector: 'Funds a deal in other tokens. Not in phase one.',
     tUSDC: `“${live.token.name}”, the demo's test token. Anyone can mint it, and it is not Circle's USDC.`,
     Multicall3: 'The standard copy already on every chain.',
-    Permit2: 'The standard token-approval contract already on every chain.',
+    Permit2: 'The standard token-approval contract already on every chain. Not in phase one.',
   });
   const domain = live.domain ? `"${esc(live.domain.name)}" ${esc(live.domain.version)}${live.domain.readFrom === 'this checkout' ? ' (read from this checkout, which has no history)' : ''}` : 'unknown';
   const rulesAt = live.rulesBlock ? ` (HoldbackRules at block ${fmt(live.rulesBlock)})` : '';

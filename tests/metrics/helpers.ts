@@ -31,6 +31,7 @@ export function onceBlocks(): Map<string, number> {
 
 /** The run-once deal with each step's gas set to the measured values of T-066's Context (1,261,428 in all). */
 export function measuredStepEvents(): Event[] {
+  // appeal.expired is not in phase one: the run-once deal ran on the 0.7 deployment, whose appeal window closed it.
   const gas: Record<string, string> = { 'hold.funded': '840697', 'fee.operator': '840697', 'delivery.submitted': '173131', 'judgment.decided': '166808', 'settlement.released': '166808', 'key.released': '166808', 'appeal.expired': '80792' };
   return onceEvents().map((e) => (typeof e.payload.gasUsed === 'string' ? { ...e, payload: { ...e.payload, gasUsed: gas[e.type] } } : e));
 }

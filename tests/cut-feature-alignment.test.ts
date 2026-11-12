@@ -156,6 +156,8 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   'docs/reviews/': 'reviews are history',
   'docs/research/': 'research is history',
   'reports/': 'tracked reports are records of past runs',
+  'examples/e2e-scenarios-appeal.ts': "the Sepolia round's party-appeal scenarios (3c, 6, 7) and their helpers, which run on SimChain only: on a chain each stops at simChainOnly (ADR-0031 §8; T-374). One chain path uses it: scenario 5b calls `appeal` to show the phase-one operators refuse it",
+  'examples/e2e-scenarios-appeal.test.ts': 'the SimChain runs of those scenarios',
   'tests/cut-feature-alignment.test.ts': 'this test lists the identifiers',
   'tests/cut-feature-alignment.known.json': 'the known list names the files, not the features',
 };
@@ -189,6 +191,24 @@ export const ALLOWED: ReadonlyArray<{ path: string; name: string; reason: string
     path: 'packages/judgment/src/prompt.ts',
     name: 'appellant',
     reason: 'a comment on what an appeal panel is not told; the plan (7b) finds the judgment pipeline takes nothing from the contracts, and its appeal panel still decides escalations',
+  },
+  // ADR-0031 §7 removes the contract's record of an unfunded offer's expiry, not the operators' own: the phase-one adapter
+  // still steps `expire_offer` by its clock and logs `offer.expired` with no transaction (evm-settlement.ts, case
+  // 'expire_offer'). The testkit's trigger name and the fixtures' `- expire:` step drive that record (T-374).
+  {
+    path: 'packages/testkit/src/stub-settlement.ts',
+    name: 'expire_offer',
+    reason: "the fixtures' `expire` step maps to the operators' clock expiry, which phase one keeps with no transaction",
+  },
+  {
+    path: 'packages/testkit/src/scenario.test.ts',
+    name: '- expire: (fixture step)',
+    reason: "the parser's test of the `expire` step, the operators' clock expiry that phase one keeps",
+  },
+  {
+    path: 'tests/metrics/fixtures/deal-once.events.json',
+    name: 'appeal.expired',
+    reason: 'an event log recorded from the deployed domain-0.7 world, read as recorded; JSON carries no mark (T-374)',
   },
 ];
 

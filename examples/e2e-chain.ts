@@ -55,8 +55,11 @@ export function assertRoundChain(rpcChainId: number, pinnedChainId: number): voi
 /** The contracts' ABIs as this repository builds them. */
 const ABIS = JSON.parse(readFileSync(new URL('../packages/settlement/evm/abis.json', import.meta.url), 'utf8')) as Record<'rules' | 'token' | 'escrow' | 'multicall', Abi>;
 
-/** HoldbackRules' stages, in the contract's enum order. The phase-one contracts keep no appeal state (ADR-0031 §8). */
-export const STAGES = ['None', 'Held', 'Delivered', 'FallbackJudging', 'Escalated', 'Released', 'Refunded', 'Settled', 'Expired'] as const;
+/**
+ * HoldbackRules' stages, in the contract's enum order (`enum Stage`, eight members). The phase-one contracts keep no
+ * appeal state (ADR-0031 §8) and store nothing for an unfunded offer, so an expired offer reads None (ADR-0031 §7).
+ */
+export const STAGES = ['None', 'Held', 'Delivered', 'FallbackJudging', 'Escalated', 'Released', 'Refunded', 'Settled'] as const;
 
 const str = (s: string): Hex => keccak256(toBytes(s));
 const secs = (ts: string) => BigInt(Date.parse(ts) / 1000);
@@ -409,11 +412,11 @@ export class RoundChain {
   }
 
   /**
-   * A timeout trigger sent directly: `reclaim`, `triggerFallback`, `triggerDefault`, `expireOffer`.
+   * A timeout trigger sent directly: `reclaim`, `triggerFallback`, `triggerDefault`.
    * The contract judges the deadline by the latest block's time, which trails the wall by up to a block (12 s on
    * Sepolia), so a `TooEarly` refusal is retried every 3 s for up to `timeoutMs`.
    */
-  async trigger(key: Hex, fn: 'reclaim' | 'triggerFallback' | 'triggerDefault' | 'expireOffer', terms: J, timeoutMs = 120_000): Promise<TxRecord> {
+  async trigger(key: Hex, fn: 'reclaim' | 'triggerFallback' | 'triggerDefault', terms: J, timeoutMs = 120_000): Promise<TxRecord> {
     for (const end = Date.now() + timeoutMs; ; await new Promise((r) => setTimeout(r, 3000))) {
       try {
         return await this.send(key, 'rules', fn, [termsTuple(terms)]);

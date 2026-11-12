@@ -618,9 +618,10 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect(s.transactions().slice(sent).map((t) => [t.hash, t.via])).toEqual([[mined.hash, 'direct']]);
     expect(s.lag(d.id)).toBeNull();
     const mine = late.encryptedKeys.find((k) => k.recipient.toLowerCase() === d.terms.buyer.toLowerCase())!;
-    // The key served while behind and the one recorded at the join are the same envelope: every join records it again,
-    // as the carried-decision join does (red-team round 3, H2), so the list holds it twice.
-    expect([...new Set((await s.keysFor(d.id, d.terms.buyer)).map((k) => k.ciphertext))]).toEqual([mine.ciphertext]);
+    // The key served while behind and the one the join reads are the same envelope: the list and the log hold it once
+    // (T-357 review, L4).
+    expect((await s.keysFor(d.id, d.terms.buyer)).map((k) => k.ciphertext)).toEqual([mine.ciphertext]);
+    expect(s.log().filter((e) => e.commitmentId === d.id && e.type === 'key.released' && String(e.payload['recipient']).toLowerCase() === d.terms.buyer.toLowerCase())).toHaveLength(1);
     expect(schemaErrors(s.log())).toEqual([]);
     chained(s);
   }, 60_000);
@@ -1477,7 +1478,12 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect(s.lag(d.id)).toContain('/deliveries');
     const joined = await ok(s, sub);
     expect(joined.state.escrowState).toBe('Released');
-    expect(joined.events.map((e) => e.type)).toEqual(['delivery.submitted', 'key.released', 'judgment.decided', 'settlement.released', 'key.released']);
+    // The buyer's key once: the node recorded it while behind, from the transaction's log, and the join records no
+    // second copy (T-357 review, L4; before T-374 the join ended with a second key.released for the same envelope).
+    expect(joined.events.map((e) => e.type)).toEqual(['delivery.submitted', 'key.released', 'judgment.decided', 'settlement.released']);
+    const buyerKeys = s.log().filter((e) => e.commitmentId === d.id && e.type === 'key.released' && String(e.payload['recipient']).toLowerCase() === d.terms.buyer.toLowerCase());
+    expect(buyerKeys).toHaveLength(1);
+    expect(await s.keysFor(d.id, d.terms.buyer)).toHaveLength(1);
   }, 60_000);
 
   it('a forwarded call padded with 120 KB of selectors keeps a pass short (review N1)', async () => {

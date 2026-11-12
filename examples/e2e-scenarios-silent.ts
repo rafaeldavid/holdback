@@ -7,7 +7,8 @@
 // trivially. The money is checked on a chain.
 import { RoundAdjudicator, type AdjudicatorRole, type Serving } from './e2e-adjudicator.ts';
 import { buyerKeys, buyerOpens, deliver, delta, eventsOf, finish, fund, get, logsOf, openDeal, reason, short, shortWindows, trigger, until, waitPast, type Deal, type Run } from './e2e-run.ts';
-import { CHECKS, CSV, DATASET, PRICE, expireAppeal, lastBlock, lc, paidCheck, requires, settledChecks, type J, type Scenario } from './e2e-scenario-kit.ts';
+import { closeOnSimChain } from './e2e-scenarios-appeal.ts';
+import { CHECKS, CSV, DATASET, PRICE, lastBlock, lc, paidCheck, requires, settledChecks, type J, type Scenario } from './e2e-scenario-kit.ts';
 import { deliveryHashOf, freshNonce } from './verify.ts';
 
 /** A beacon's clock (ADR-0018): round 1 at genesis, then one round per period. */
@@ -252,7 +253,7 @@ export const SILENT: Scenario[] = [
       const clock = source === 'drand-quicknet' ? QUICKNET : source === 'sim' ? SIM : null;
       const want = clock ? roundAt(clock, deal.terms.timing.judgeBy) : null;
       const rounds = decided.map((es) => es.at(-1)?.payload?.beaconRound ?? null);
-      if (done.deadlines?.appealBy) await expireAppeal(r, deal, done.deadlines.appealBy);
+      await closeOnSimChain(r, deal, done);
       await finish(r, deal);
       const fee = BigInt(deal.terms.adjudication.fee.amount);
       r.check('the seller is paid the price', delta(deal.record, seller) === BigInt(price), `seller ${round.amount(delta(deal.record, seller))}`);

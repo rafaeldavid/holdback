@@ -81,9 +81,13 @@ describe('roundEncryptionKey', () => {
 
 const ABIS = JSON.parse(readFileSync(new URL('../packages/settlement/evm/abis.json', import.meta.url), 'utf8')) as Record<'rules' | 'token' | 'escrow', Abi>;
 
-/** What the reads return before the deal's last transaction and after it, in base units (round 1's 3d and 10a values). */
+/**
+ * What the reads return before the deal's last transaction and after it, in base units (round 1's 3d and 10a values).
+ * Round 1's 3d read Expired after its block; the phase-one contracts store no expired offer (ADR-0031 §7), so the
+ * stand-in reads Settled, a stage they keep.
+ */
 const BEFORE = { stage: STAGES.indexOf('None'), capturable: 26_000_000n, refundable: 0n, token: 1_000_000n };
-const AFTER = { stage: STAGES.indexOf('Expired'), capturable: 0n, refundable: 15_000_000n, token: 12_000_000n };
+const AFTER = { stage: STAGES.indexOf('Settled'), capturable: 0n, refundable: 15_000_000n, token: 12_000_000n };
 
 /** The round's own transaction in the stand-in (a mint from a round key): mined in block `last`. */
 const MINT_TX = `0x${'5a'.repeat(32)}` as Hex;
@@ -100,7 +104,7 @@ const mined = (last: bigint) => {
  * deal's last transaction (block `last`), and a read at `last` finds no header the first `misses` times, as on a node
  * that has not caught up yet. The round's own transaction (MINT_TX) is in block `last`; a node behind it has no receipt
  * for it the first `receiptMisses` times. The latest block's base fee is `baseFeeGwei`. `dealOf` reads `stages.before`
- * before block `last` and `stages.after` from it on (None and Expired, 3d's, unless given). `asked` lists every method.
+ * before block `last` and `stages.after` from it on (None and Settled, unless given). `asked` lists every method.
  */
 async function laggingRpc(last: bigint, misses: number, o: { receiptMisses?: number; baseFeeGwei?: string; stages?: { before: (typeof STAGES)[number]; after: (typeof STAGES)[number] } } = {}) {
   const reads: Array<{ fn: string; block: string }> = [];
@@ -183,7 +187,7 @@ describe("RoundChain's evidence reads at the deal's last block (round 1's 3d and
 
   it("retries a node that does not have the deal's last block yet, and reports the state after that block", async () => {
     const { chain, reads } = await open(2);
-    expect((await chain.deal(id, last)).stage).toBe('Expired');
+    expect((await chain.deal(id, last)).stage).toBe('Settled');
     expect(await chain.payment(terms, id, last)).toEqual({ collected: false, capturable: '0', refundable: '15000000' });
     expect((await chain.holdings([terms.buyer], last))[terms.buyer]).toEqual({ token: '12000000', bond: '0', free: '0' });
     expect(reads.filter((r) => r.fn === 'dealOf')).toHaveLength(3);
@@ -335,7 +339,7 @@ describe("the chain's own list of a deal's transactions (PR 220 review)", () => 
   });
 });
 
-/** HoldbackBonds' revert when the token refuses `transferFrom` (SafeTransferLib's TransferFromFailed()). */
+/** The token's revert when it refuses `transferFrom` (SafeTransferLib's TransferFromFailed()), as round 1's bond deposit met it. */
 const TRANSFER_FROM_FAILED = '0x7939f424';
 
 /**

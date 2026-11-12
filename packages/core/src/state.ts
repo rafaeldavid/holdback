@@ -135,6 +135,15 @@ export const ZERO_HOLD_PROBLEM =
   'price and adjudication fee are both 0, and the phase-one contracts cannot fund a deal that holds nothing: the escrow refuses to hold 0 (AuthCaptureEscrow ZeroAmount; ADR-0031 §6). A zero price is allowed with a fee above 0; give the deal a price or a fee of at least one base unit';
 
 /**
+ * ADR-0031 §8 (D57): the phase-one contracts take no party appeal. The adapter and the operator's prepare routes answer
+ * a party appeal, or its expiry, with this reason before any transaction, never with a revert the agent cannot read.
+ * Written once here for both (T-349 review).
+ */
+export const PHASE_ONE_NO_APPEAL =
+  'this settlement runs the phase-one contracts, which have no party appeals and no bonds (ADR-0031, D57): the first decision by the primary or the fallback adjudicator is final on chain. ' +
+  'Nothing reopens it. The signed decision and its judgment record are your evidence (D26); before you sign your next deal, choose the three adjudicators and the default outcome you can rely on';
+
+/**
  * ADR-0033 §2b (D62; Rafa, 2026-11-12, "Yes, contract too"): phase one has no party appeal, so a phase-one deal's
  * terms state an appeal window of 0. The contract (`agreeAndFund`, InvalidMessage), core's `phase_one` profile and the
  * operator's prepare routes refuse any other value, each with this reason.
