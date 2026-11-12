@@ -189,6 +189,14 @@ describe.skipIf(!ready)(`the deploy script on a local chain (T-383)${ready ? '' 
     expect(c.stderr).toContain(`the record's token is ${r.token.address}, but Crow's operators accept ${other} on chain 31337`);
   }, 300_000);
 
+  it('--check fails on a table entry for the chain that names no address', async () => {
+    const file = join(chain.dir, 'table-no-address.json');
+    writeFileSync(file, JSON.stringify({ '31337': { symbol: 'tUSDC', decimals: 6 } }));
+    const c = await chain.check(record, { ACCEPTED_TOKENS: file });
+    expect(c.code).not.toBe(0);
+    expect(c.stderr).toContain("the accepted-token table's entry for chain 31337 names no address");
+  }, 300_000);
+
   it('--check fails on a token address that holds no code', async () => {
     const r = JSON.parse(readFileSync(record, 'utf8'));
     const snapshot = await chain.rpcCall('evm_snapshot', []);

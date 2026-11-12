@@ -102,6 +102,9 @@ export const ACCEPTED_TOKENS: Readonly<Record<string, AcceptedToken>> = Object.f
  */
 export function tokenMismatch(chainId: number, file: string, onChain: string, table: Readonly<Record<string, AcceptedToken>> = ACCEPTED_TOKENS): string | null {
   const entry = table[String(chainId)];
+  // Only a chain with no entry skips the table; Sepolia, which Crow's operators serve, must have one (review of PR 423).
+  if (!entry && chainId === 11155111) return `Crow's operators accept no token on chain ${chainId}: packages/settlement/evm/accepted-tokens.json has no entry for it`;
+  if (entry && !/^0x[0-9a-fA-F]{40}$/.test(String(entry.address))) return `the accepted-token table's entry for chain ${chainId} names no address (packages/settlement/evm/accepted-tokens.json)`;
   if (entry && lc(entry.address) !== lc(file)) return `the deployment file's token is ${file}, but Crow's operators accept ${entry.address} (${entry.symbol}) on chain ${chainId} (packages/settlement/evm/accepted-tokens.json)`;
   // With the first two equal, a third difference (table against chain) is this one.
   if (lc(onChain) !== lc(file)) return `the rules contract's TOKEN() is ${onChain}, the deployment file says ${file}`;

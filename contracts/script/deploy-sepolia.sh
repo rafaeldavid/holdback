@@ -246,7 +246,11 @@ expect "rules BEACON_MARGIN" "$BEACON_MARGIN" call "$RULES" 'BEACON_MARGIN()(uin
 # with no code could take no funding, so the check after the deploy is the place for it (refinement plan, item 53).
 TOKEN_CODE="$(cast code "$TOKEN" --rpc-url "$RPC")" || fail "reading the code at the token $TOKEN failed"
 [ "$TOKEN_CODE" != 0x ] || fail "no contract at the token address $TOKEN: no deal could fund"
-TABLE_TOKEN="$(jq -r --arg chain "$CHAIN" '.[$chain].address // empty' "$TABLE")" || fail "reading the accepted-token table $TABLE failed"
+TABLE_TOKEN="$(jq -r --arg chain "$CHAIN" 'if has($chain) then (.[$chain].address // "none") else "" end' "$TABLE")" || fail "reading the accepted-token table $TABLE failed"
+# Only a chain with no entry skips the table, and Sepolia must have one (review of PR 423, M4).
+ADDRESS_FORM='^0x[0-9a-fA-F]{40}$'
+if [ "$CHAIN" = "$SEPOLIA" ] && [ -z "$TABLE_TOKEN" ]; then fail "the accepted-token table $TABLE has no entry for Sepolia"; fi
+if [ -n "$TABLE_TOKEN" ] && ! [[ "$TABLE_TOKEN" =~ $ADDRESS_FORM ]]; then fail "the accepted-token table's entry for chain $CHAIN names no address"; fi
 TOKEN_LOWER="$(tr '[:upper:]' '[:lower:]' <<<"$TOKEN")"
 TABLE_LOWER="$(tr '[:upper:]' '[:lower:]' <<<"$TABLE_TOKEN")"
 if [ -z "$TABLE_TOKEN" ] || [ "$TABLE_LOWER" = "$TOKEN_LOWER" ]; then

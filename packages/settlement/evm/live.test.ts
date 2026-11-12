@@ -169,6 +169,11 @@ describe('LiveChain refuses a rules contract under another EIP-712 domain (ADR-0
       expect(() => new LiveChain({ deployment: { ...deployment, chainId: 1, token: { ...deployment.token, address: ACCEPTED_TOKENS['1']!.address } }, rpcUrls: [rpc], relayerKey: RELAYER })).toThrow(/mainnet/);
     });
 
+    it('Sepolia must have an entry, and an entry must name an address (review of PR 423)', () => {
+      expect(tokenMismatch(11155111, sepoliaToken, sepoliaToken, {})).toMatch(/accept no token on chain 11155111/);
+      expect(tokenMismatch(31337, addr(0xbeef), addr(0xbeef), { '31337': { symbol: 'tUSDC', decimals: 6 } as never })).toMatch(/entry for chain 31337 names no address/);
+    });
+
     it('a chain with no entry skips the table', () => {
       expect(ACCEPTED_TOKENS['31337']).toBeUndefined();
       expect(tokenMismatch(31337, addr(0xbeef), addr(0xbeef).toUpperCase().replace('0X', '0x'))).toBeNull();
