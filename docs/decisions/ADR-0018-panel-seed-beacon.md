@@ -116,6 +116,7 @@ The fallback and appeal panels take their seed from a public randomness beacon, 
 - `HoldbackRules` runtime is 24,051 bytes, 525 under EIP-170 (it was 24,542, 34 under). `_paymentInfo` now takes the commitment ID instead of recomputing it, which freed 957 bytes. [measured]
 - `DrandQuicknetBeacon` is about 3.3 kB. [measured]
 - A fallback `decide(accept)` costs 297,591 gas with drand verification, against 161,076 with the sim beacon (`forge test --match-contract GasPerDeal --isolate`). The verification adds about 136.5k, in line with the 140k this ADR guessed. [measured]
+- Later measurements (added 2026-11-12, T-362). A whole transaction that calls `beaconValue` costs 213,185 gas on Sepolia (`docs/reviews/2026-11-11-drand-verifier-review.md`, I-13) and 219,232 gas on Ethereum mainnet through `eth_estimateGas` (ADR-0034 §3.3) [measured]. Both include the transaction's base cost and calldata, so they are larger than the 136.5k added inside `decide`. The mainnet gate re-measures under mainnet's fork rules (ADR-0034, MG-17).
 - Fixing `_paymentInfo` cut about 11k gas from every path that builds a `PaymentInfo`. [measured]
 - A failing pairing precompile burns the gas it is given, so the verifier caps that call at 250k gas, which bounds what a bad proof costs its relayer.
 

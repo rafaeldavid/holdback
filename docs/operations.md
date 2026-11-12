@@ -124,6 +124,10 @@ Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wra
 
 After the deploy, a smoke deal ended Released in 44 s, and the test seller sold once each way (T-222 Evidence) [measured]. To roll back: holdback-op1 `5d369b0e`, holdback-op2 `1f169857` and crow-site `cb0adcb5` (`npx wrangler@4 rollback <version> --name <worker>`); `npx wrangler@4 delete --name crow-test-agents` removes the seller.
 
+### T-329 and T-330: the refused report and terms set per quote in the agent docs (site deployed 2026-11-11)
+
+**Site deploy 2026-11-11 20:18 UTC, commit `5a90dc5` on branch `main`: deployed by Rafa.** crow-site `106cdd47` (rollback target `feff0e7f-fd7b-4d80-88cc-34405ea80092`). The coordinator's log records the version, the commit and the rollback target; no check result is recorded here. The `site/` commits since the previous deploy (`ac2d2b6`) are T-329's `llms.txt` lines on fixing a refused report and T-330's two sections on terms set per quote [inferred: `git log ac2d2b6..5a90dc5 -- site/`]. The operators and the test agents were not deployed with it; their records below still describe what is live.
+
 ### T-323 to T-327: the report converter, the buyer signer's outcome and the adjudicator's reference files (deployed 2026-11-11)
 
 All three deploys below ran on Rafa's go-ahead, or by Rafa himself, on 2026-11-11.
