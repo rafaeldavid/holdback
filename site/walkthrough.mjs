@@ -1,5 +1,6 @@
-// Runs one checks-only deal by following site/llms.txt literally, with no Holdback code: plain fetch, viem and
-// tweetnacl, its own EIP-712 types, domain and deployment (parsed from llms.txt itself) and its own message builders,
+// Runs one checks-only deal by following the HTTP path of the guides literally (site/llms.txt's pins, then
+// site/ref/http.txt, signing.txt, http-seller.txt and http-buyer.txt, T-393), with no Holdback code: plain fetch, viem
+// and tweetnacl, its own EIP-712 types, domain and deployment (parsed from those files) and its own message builders,
 // the ERC-3009 funding and operator fee included. If the docs are wrong about a field, an encoding or a shape, this
 // fails where they are wrong.
 //
@@ -16,7 +17,7 @@ const { encodeAbiParameters, hashStruct, hashTypedData, keccak256, parseAbiParam
 const { generatePrivateKey, privateKeyToAccount } = await import(here('../examples/node_modules/viem/_esm/accounts/index.js'));
 const nacl = (await import(here('../examples/node_modules/tweetnacl/nacl-fast.js'))).default;
 
-const docs = readFileSync(here('llms.txt'), 'utf8');
+const docs = ['llms.txt', 'ref/http.txt', 'ref/signing.txt', 'ref/http-seller.txt', 'ref/http-buyer.txt'].map((f) => readFileSync(here(f), 'utf8')).join('\n');
 const block = (after) => {
   const at = docs.indexOf(after);
   const start = docs.indexOf('```json\n', at) + 8;

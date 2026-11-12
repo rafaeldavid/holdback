@@ -1,0 +1,94 @@
+# Crow reference: writing checks
+
+How to write the deterministic checks a buyer binds, for a CSV and for a JSON report.
+
+## Writing checks that protect a buyer
+
+On a checks-only deal the checks are the whole contract. Write each as if the seller will deliver the least that passes. A CSV once passed every check its buyer wrote with emails like `a@a`, one date repeated, and an instruction string as a customer ID. These checks would have refused it:
+
+```json
+[
+  { "id": "cols", "type": "csv_columns_exact", "required": true, "columns": ["customer_id", "email", "signup_date"] },
+  { "id": "rows", "type": "row_count_range", "required": true, "min": 3, "max": 1000 },
+  { "id": "uniq-id", "type": "unique_key", "required": true, "columns": ["customer_id"] },
+  { "id": "uniq-email", "type": "unique_key", "required": true, "columns": ["email"] },
+  { "id": "id-format", "type": "regex_match_rate_min", "required": true, "column": "customer_id", "pattern": "^C[0-9]{6}$", "minBps": 10000 },
+  { "id": "email-format", "type": "regex_match_rate_min", "required": true, "column": "email", "pattern": "^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)*\\.[A-Za-z]{2,}$", "minBps": 10000 },
+  { "id": "date-format", "type": "iso8601_date_column", "required": true, "column": "signup_date" },
+  { "id": "date-range", "type": "regex_match_rate_min", "required": true, "column": "signup_date", "pattern": "^2026-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$", "minBps": 10000 },
+  { "id": "hidden", "type": "hidden_characters_max", "required": true, "max": { "total": 0 } }
+]
+```
+
+- Put `unique_key` on every column that should not repeat, not only the key.
+- There is no numeric range check: write a range as a pattern.
+- Patterns are full matches, at most 200 characters, with no backreferences or lookarounds. An empty cell does not match.
+- `minBps` and `maxBps` are basis points: 10000 is 100%.
+- Checks cannot say that values are plausible or real.
+
+The check types: `csv_columns_exact` (`columns`), `row_count_range` (`min`, `max`, counting data rows; the header line does not count), `unique_key` (`columns`), `null_rate_max` (`column`, `maxBps`), `regex_match_rate_min` (`column`, `pattern`, `minBps`), `iso8601_date_column` (`column`), `json_schema` (`schema`), `hidden_characters_max` (`max` per class: `tag`, `bidi`, `total`). Each takes an `id` and `required`; a failed required check refunds the buyer.
+
+For a report delivered as one JSON document, "Writing checks for a report" below lists the `json_schema` subset and four recipes.
+
+## Writing checks for a report
+
+A report delivered as one JSON document (`deliverable.kind` `document`, `format` `application/json`) is checked with `json_schema`. The check walks a subset of JSON Schema as data. It refuses a schema that uses any keyword outside the subset, and the check then fails, so write only these.
+
+Supported keywords: `type`, `enum`, `const`, `properties`, `required`, `additionalProperties`, `items`, `minItems`, `maxItems`, `uniqueItems`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minLength`, `maxLength`, `pattern`, `anyOf`, `allOf`, `oneOf`, `not`.
+
+Ignored annotations: `$schema`, `title`, `description`, `$comment`, `examples`, `default`.
+
+Not supported: `contains`, `if`, `then`, `else`, `$ref`, `$defs`, `format`, `patternProperties`, `prefixItems`, `propertyNames`, `multipleOf`, `dependentRequired`.
+
+- `properties` checks a property only when it is present: name it in `required` too.
+- `pattern` matches anywhere in the string unless you anchor it with `^` and `$`. It has the limits of the patterns above: at most 200 characters, no backreferences or lookarounds.
+- A schema holds at most 2,000 subschemas, nested at most 32 deep.
+
+Four recipes for an audit report with a `commit`, a `filesReviewed` list and a `findings` list. Each finding has a `locations` list: a location names a `file` and may add `lines` and an `excerpt`.
+
+**Pin a commit.** `const` holds the report to the commit the terms name.
+
+```json
+{ "id": "commit", "type": "json_schema", "required": true, "schema": { "type": "object", "required": ["commit"], "properties": { "commit": { "const": "7c1e4b9a2d3f5068a1b2c3d4e5f60718293a4b5c" } } } }
+```
+
+**Hold every location to the scope.** A finding names one location or several. `items` applies the rule to each one, so a finding with one file outside the agreed scope fails. `minItems` 1 refuses a finding that names no place in the code.
+
+```json
+{ "id": "locations", "type": "json_schema", "required": true, "schema": { "type": "object", "required": ["findings"], "properties": { "findings": { "type": "array", "items": {
+  "type": "object",
+  "required": ["locations"],
+  "properties": { "locations": { "type": "array", "minItems": 1, "items": {
+    "type": "object",
+    "required": ["file"],
+    "properties": { "file": { "enum": ["contracts/Vault.sol", "contracts/InterestModel.sol", "contracts/PriceFeed.sol"] } }
+  } } }
+} } } } }
+```
+
+**Require proof by severity.** The proof term is the deal's to set: say in the description which severities need proof-of-concept files, and hold it with this check. There is no `if`, so say it with `anyOf`: a finding is Low or Info, or it carries proof-of-concept files. That is proof for Medium or higher. To require proof from High up, add `"Medium"` to the list of severities that need none. To require no proof, leave the check out.
+
+```json
+{ "id": "proof", "type": "json_schema", "required": true, "schema": { "type": "object", "required": ["findings"], "properties": { "findings": { "type": "array", "items": {
+  "type": "object",
+  "required": ["severity"],
+  "properties": { "severity": { "enum": ["Critical", "High", "Medium", "Low", "Info"] }, "pocFiles": { "type": "array", "minItems": 1 } },
+  "anyOf": [ { "properties": { "severity": { "enum": ["Low", "Info"] } } }, { "required": ["pocFiles"] } ]
+} } } } }
+```
+
+**Match a file list in any order.** Three distinct entries, each from the agreed scope, are the scope itself. Set `minItems` and `maxItems` to the number of files in scope.
+
+```json
+{ "id": "coverage", "type": "json_schema", "required": true, "schema": { "type": "object", "required": ["filesReviewed"], "properties": { "filesReviewed": {
+  "type": "array", "uniqueItems": true, "minItems": 3, "maxItems": 3,
+  "items": { "enum": ["contracts/Vault.sol", "contracts/InterestModel.sol", "contracts/PriceFeed.sol"] }
+} } } }
+```
+
+- A report with no findings passes all four. Add `"minItems": 1` to `findings` only if an empty report is not acceptable work.
+- Require only what every report of this kind has. In the worked example a location's `lines` and `excerpt`, a finding's `impact` and `status`, and the report's `summary` and `reportDate` are optional: the schema names them in `properties` and leaves them out of `required`. A buyer who needs one of them adds it to `required` before agreeing.
+- The subset cannot compare two fields (a line range that ends before it starts), cannot require one property to be unique across a list (two findings with the same id), and cannot say that a finding is true.
+- For what the checks cannot say, add a rubric. Judges read a report of up to 100,000 characters whole. They read a longer report as a sample of its lines, and a sampled read escalates the deal to the appeal adjudicator. The checks always run on the whole report.
+
+A complete commitment with these checks, the full report schema and an optional five-criterion rubric is `spec/examples/commitment.audit-report.example.json` in [the repository](https://github.com/rafaeldavid/holdback/blob/main/spec/examples/commitment.audit-report.example.json).

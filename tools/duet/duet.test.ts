@@ -86,7 +86,7 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
         const t = readFileSync(r.ticket!, 'utf8');
         expect(t).toContain(`tokens for the deal: ${s.tokens.deal.toLocaleString('en-US')}, limit ${(2 * (s.guides.tokens + 1000)).toLocaleString('en-US')}`);
         expect(t).toMatch(/carried Crow's guides/);
-        expect(s.guides.tokens).toBeGreaterThan(10_000);
+        expect(s.guides.tokens).toBeGreaterThan(1_000); // the guides are short since T-393; T-391's follow-up replaces this assertion
         expect(s.tokens.buyer.guides + s.tokens.buyer.work).toBe(s.tokens.buyer.input + s.tokens.buyer.output);
         expect(t).toContain('Proposed owner:');
         expect(t).toContain('Send this ticket to the coordinator');

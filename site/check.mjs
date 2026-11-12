@@ -9,26 +9,36 @@
 // 3. Every link in index.html is absolute https, an in-page anchor that exists, or a site-root path that names
 //    a file in site/.
 // 4. Content agrees with the repository: the EIP-712 types and domain with examples/verify.ts, the envelope test
-//    vectors, the worked checks example and every route with docs/api.md.
+//    vectors, the worked checks example and every route with docs/api.md, wherever in the guides each now lives.
 // 5. Problem pages (D39): one page per problem type the operator answers, with its status and title.
-// 6. The agent guide spells out every encoding an agent computes (D39): no knowledge hides in examples/.
+// 6. The guides spell out every encoding an agent computes (D39), in ref/signing.txt: no knowledge hides in examples/.
 // 7. try.mjs: site/try.mjs is the current bundle of examples/try.ts, importing only viem and tweetnacl;
 //    the one command (pinned versions, its sha256) heads "Try it" in a filled llms.txt, which asks for no fetch
 //    before it. The Try line's copied prompt carries the same command and names llms.txt; the visible page does not
 //    show the command (One-Click Escrow, D51). The clipboard fallback keeps the command's spaces (pre-wrap).
-// 8. Crow's test seller (D47): the one command buys from it, and "Try it" states its catalog, limits and windows as
-//    apps/test-agents/src/catalog.ts runs them.
-// 9. Crow's test buyer (T-239): "Sell to Crow's test buyer" (in site/sell.txt since T-359) states its card, caps,
+// 8. Crow's test seller (D47): the one command buys from it, and ref/intake.txt states its catalog, limits and windows
+//    as apps/test-agents/src/catalog.ts runs them.
+// 9. Crow's test buyer (T-239): "Sell to Crow's test buyer" (in ref/intake.txt since T-393) states its card, caps,
 //    windows and limits as apps/test-agents/src/buyer-rules.ts runs them.
-// 10. The seller's page (T-359): site/sell.txt opens with the first hour, holds the seller sections that llms.txt no
-//    longer copies, links both ways with llms.txt, names only files and pnpm scripts that exist, keeps local addresses
-//    to the first hour, and is what a publish build writes.
+// 10. The role pages (T-359, T-393): site/buy.txt and site/sell.txt each open with a numbered first hour whose every
+//    step says what it looks like when it worked, link the front door, and keep local addresses to sell.txt's first hour.
+// 11. The guides together (T-393): the front door lists exactly the reference files in site/ref/, every reference a
+//    guide names exists and so does every section it cites by name, every crow.direct link resolves, no sentence is in two guides, every call a guide names is a
+//    route in docs/api.md, every file under examples/, fixtures/ or spec/ and every pnpm script a guide names exists,
+//    and the deployment's addresses are in llms.txt alone (scripts/record-copies.mjs rewrites them there). A publish build writes every guide.
+// 12. The budget (T-393): each role's first-deal path, the front door plus its page, is within FIRST_DEAL_BUDGET
+//    (site/guides.mjs). With HOLDBACK_AGENT_ANTHROPIC_API_KEY set it counts with Anthropic's count_tokens for the
+//    pinned model; without it, bytes divided by four. It says which.
 import { existsSync, readFileSync } from 'node:fs';
-import { BASE, filled, page, pins, problemPages, SELL_URL, sellerPage, SITE_URL, strip, TEST_SELLER_URL, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
+import { ASSETS, BASE, BUY_URL, filled, page, pins, problemPages, publishedGuides, SELL_URL, SITE_URL, strip, TEST_SELLER_URL, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
+import { apiRoutes, citedSections, duplicateSentences, hasSection, FIRST_DEAL_BUDGET, guideFiles, guideSource, measurePaths, namedCalls, namedReferences, referenceFiles, routeKnown } from './guides.mjs';
 
 const here = (p) => new URL(p, import.meta.url);
 const read = (p) => readFileSync(here(p), 'utf8');
-const md = read('llms.txt'), sell = read('sell.txt'), html = read('index.html'), apiMd = read('../docs/api.md');
+const md = read('llms.txt'), sell = read('sell.txt'), buy = read('buy.txt'), html = read('index.html'), apiMd = read('../docs/api.md');
+/** Every guide's source, by published path. */
+const guides = new Map(guideFiles().map((p) => [p, guideSource(p)]));
+const ref = (name) => guides.get(`ref/${name}`) ?? '';
 const failures = [];
 const expect = (ok, what) => {
   if (!ok) failures.push(what);
@@ -49,7 +59,7 @@ const configure = md.slice(md.indexOf('## Configure'), md.indexOf('## ', md.inde
 expect(count(md, '{{OP1}}') === 1 && configure.includes('OP1={{OP1}}'), '{{OP1}} must appear once in llms.txt, as OP1={{OP1}} under Configure');
 expect(count(md, '{{OP2}}') === 1 && configure.includes('OP2={{OP2}}'), '{{OP2}} must appear once in llms.txt, as OP2={{OP2}} under Configure');
 const tryIt = md.slice(md.indexOf('## Try it'), md.indexOf('\n## ', md.indexOf('## Try it') + 3));
-expect(count(md, '{{TRY_COMMAND}}') === 1 && tryIt.includes('```sh\n{{TRY_COMMAND}}\n```') && tryIt.indexOf('{{TRY_COMMAND}}') < tryIt.indexOf('\n1. '), '{{TRY_COMMAND}} must appear once in llms.txt, in an sh block at the top of "Try it", before the step-by-step list');
+expect(count(md, '{{TRY_COMMAND}}') === 1 && tryIt.includes('```sh\n{{TRY_COMMAND}}\n```') && tryIt.indexOf('```') === tryIt.indexOf('```sh\n{{TRY_COMMAND}}'), '{{TRY_COMMAND}} must appear once in llms.txt, as the first code block of "Try it"');
 expect((md.match(/\{\{[^}]*\}\}/g) ?? []).every((p) => ['{{OP1}}', '{{OP2}}', '{{TRY_COMMAND}}'].includes(p)), 'llms.txt has an unknown {{placeholder}}');
 // A link as build.mjs renders one (https, trailing punctuation left out), parsed, so a look-alike host or a longer
 // path does not count (CodeQL js/incomplete-url-substring-sanitization).
@@ -61,6 +71,7 @@ expect(mdLinks.some((u) => u.host === 'github.com' && u.pathname === '/rafaeldav
 expect(!/\{\{/.test(html) && /<header class="brand">[\s\S]*?<img class="bird" src="\/crow\.png"[^>]*>\s*<\/picture>\s*<div class="mark">[^<]+<\/div>\s*<p class="tag">[^<]+<\/p>\s*<\/header>\s*<section class="claim">\s*<h1>\s*<span class="sr">[^<]+<\/span>[\s\S]*?<\/h1>\s*<p class="lede">[^<]+<\/p>\s*<form class="signup" id="join-form"[\s\S]*?<\/form>\s*<\/section>\s*<section class="props"[^>]*>\s*<div class="stage">(\s*<div class="prop[^>]*><svg class="study"[\s\S]*?<\/svg><h2>[\s\S]*?<\/h2><p>[^<]+<\/p><\/div>){6}\s*<\/div>\s*<div class="dots"[^>]*>(<button type="button" aria-label="[^"]+"[^>]*><\/button>){6}<\/div>\s*<\/section>\s*<footer class="foot">\s*<p>[^<]+<\/p>\s*<p>[\s\S]*?<a href="\/llms\.txt">[^<]+<\/a><\/p>[\s\S]*<\/footer>\s*<\/main>/.test(html), 'index.html must be the brand, the claim with early access, six value props each with a study and a dot, the footer and the agent docs link');
 expect(!/%%|CONFIRM/.test(html) && !/^%% /m.test(strip(md)), 'an editor note reached index.html');
 expect(!/127\.0\.0\.1|localhost/.test(md + html), 'a local address is in the site');
+for (const [p, text] of guides) if (!['llms.txt', 'sell.txt'].includes(p)) expect(!/127\.0\.0\.1|localhost/.test(text), `${p} has a local address`);
 const sample = { op1: 'https://op1.example.workers.dev', op2: 'https://op2.example.workers.dev' };
 const unconfirmed = md.split('\n').filter((l) => !l.startsWith('%% CONFIRM')).join('\n');
 const sampleTxt = filled(unconfirmed, sample);
@@ -102,23 +113,25 @@ const { TYPES, ERC3009_TYPES, knownPins } = await import(here('../examples/verif
 const sepolia = knownPins().find((p) => p.domain.chainId === 11155111);
 expect(sepolia !== undefined, 'examples/deployments.ts pins no Sepolia deployment');
 const deployment = Object.fromEntries(Object.entries(sepolia?.chain ?? {}).filter(([k]) => k !== 'explorer'));
-const types = jsonBlock(md, '## EIP-712 types');
+const signing = ref('signing.txt');
+const types = jsonBlock(signing, '## EIP-712 types');
 expect(JSON.stringify(Object.fromEntries(Object.keys(types).map((k) => [k, TYPES[k]]))) === JSON.stringify(types), 'the EIP-712 types differ from examples/verify.ts');
-expect(JSON.stringify(jsonBlock(md, 'Pin this EIP-712 domain')) === JSON.stringify(sepolia?.domain), 'the pinned domain differs from the Sepolia pin in examples/verify.ts');
-expect(JSON.stringify(jsonBlock(md, 'Pin this deployment too')) === JSON.stringify(deployment), 'the pinned deployment differs from the Sepolia pin in examples/verify.ts');
-expect(JSON.stringify(jsonBlock(md, "USDC's ERC-3009 types")) === JSON.stringify(ERC3009_TYPES), 'the ERC-3009 types differ from examples/verify.ts');
+expect(JSON.stringify(jsonBlock(md, 'Pin this EIP-712 domain')) === JSON.stringify(sepolia?.domain), 'the pinned domain in llms.txt differs from the Sepolia pin in examples/verify.ts');
+expect(JSON.stringify(jsonBlock(md, 'Pin this deployment too')) === JSON.stringify(deployment), 'the pinned deployment in llms.txt differs from the Sepolia pin in examples/verify.ts');
+expect(JSON.stringify(jsonBlock(signing, "USDC's ERC-3009 types")) === JSON.stringify(ERC3009_TYPES), 'the ERC-3009 types in ref/signing.txt differ from examples/verify.ts');
 const vectors = (src) => [...src.slice(src.indexOf('| recipient secret key')).matchAll(/^\| ([^|]+) \| (.+) \|$/gm)].slice(0, 11).map((m) => `${m[1].trim()}=${m[2].trim()}`);
-expect(vectors(md).length === 11 && JSON.stringify(vectors(md)) === JSON.stringify(vectors(apiMd)), 'the envelope test vectors differ from docs/api.md');
-expect(JSON.stringify(jsonBlock(md, '## Writing checks that protect a buyer')) === JSON.stringify(jsonBlock(apiMd, 'A worked example for a customer list')), 'the worked checks example differs from docs/api.md');
+const seller = ref('http-seller.txt');
+expect(vectors(seller).length === 11 && JSON.stringify(vectors(seller)) === JSON.stringify(vectors(apiMd)), 'the envelope test vectors in ref/http-seller.txt differ from docs/api.md');
+expect(JSON.stringify(jsonBlock(ref('checks.txt'), '## Writing checks that protect a buyer')) === JSON.stringify(jsonBlock(apiMd, 'A worked example for a customer list')), 'the worked checks example in ref/checks.txt differs from docs/api.md');
 for (const fact of ['x25519-xsalsa20poly1305', '139 characters', 'iv (12 random bytes) || AES-256-GCM ciphertext || tag (16 bytes); no associated data', 'checks-only']) expect(apiMd.includes(fact), `docs/api.md no longer says ${fact}`);
-const endpoints = md.slice(md.indexOf('## Endpoints used here'));
+const endpoints = ref('http.txt').slice(ref('http.txt').indexOf('## Endpoints used here'));
 const routes = [...endpoints.matchAll(/`(?:GET|POST) (\/[^`?]+)/g)].map((m) => m[1].replace(/<[^>]+>/g, '{x}'));
 expect(routes.length >= 12, 'the endpoint list is shorter than expected');
-const apiRoutes = apiMd.replace(/\{[a-zA-Z]+\}/g, '{x}');
+const apiText = apiMd.replace(/\{[a-zA-Z]+\}/g, '{x}');
 for (const r of routes) {
   const kind = /^\/v1\/prepare\/([a-z-]+)$/.exec(r)?.[1];
   if (kind) expect(apiMd.includes('/v1/prepare/{kind}') && apiMd.includes(`| \`${kind}\` |`), `prepare kind ${kind} is not in docs/api.md`);
-  else expect(apiRoutes.includes(r), `route ${r} is not in docs/api.md`);
+  else expect(apiText.includes(r), `route ${r} is not in docs/api.md`);
 }
 for (const r of ['/terms', '/recipients', '/events', '/judgment', '/key?recipient=']) expect(apiMd.includes(`/v1/commitments/{id}${r}`), `route /v1/commitments/{id}${r} is not in docs/api.md`);
 
@@ -132,14 +145,15 @@ for (const [type, p] of Object.entries(PROBLEMS)) {
   expect(html !== undefined && html.includes(`HTTP ${p.status}`) && html.includes(`<code>${type}</code>`), `no page for problem type ${type}`);
 }
 expect(md.includes(PROBLEM_BASE) && apiMd.includes(PROBLEM_BASE), 'llms.txt and docs/api.md must say where problem types are documented');
+expect(ref('http.txt').includes(`${PROBLEM_BASE}<type>`), 'ref/http.txt must say each problem type is explained at its page');
 if (existsSync(here('../reports/site-out/llms.txt'))) for (const path of problems.keys()) expect(existsSync(here(`../reports/site-out/${path}`)), `reports/site-out/${path} is missing: build with --out again`);
 
 // 6. Encodings: every client-side computation is on the page.
-const encodings = md.slice(md.indexOf('## Encodings'), md.indexOf('## ', md.indexOf('## Encodings') + 3));
-for (const fact of ['hasDelivery', 'hasAudience', 'hasCategories', '{"kind": "", "round": 0}','hashStruct("CommitmentTerms"', 'hashStruct("Delivery"', 'Nonces', '3600 seconds', '`attempt`']) expect(encodings.includes(fact), `llms.txt "Encodings" no longer says ${fact}`);
-for (const t of ['EarlyAccept', 'MutualSettlement', 'Appeal', 'ReadToken', 'Delegation', 'Publish']) expect(t in types, `the EIP-712 types in llms.txt lack ${t}`);
-expect(/"disclosure": "public"/.test(md) && /"operatorFeeNonce"/.test(md), 'llms.txt offer and agree requests must send disclosure and every nonce');
-expect(!/Holdback-Notice|GET \$OP1\/` lists|examples\/verify\.ts/.test(md), 'llms.txt still points at a header, GET / list or example file that is gone');
+const encodings = signing.slice(signing.indexOf('## Encodings'), signing.indexOf('## ', signing.indexOf('## Encodings') + 3));
+for (const fact of ['hasDelivery', 'hasAudience', 'hasCategories', '{"kind": "", "round": 0}','hashStruct("CommitmentTerms"', 'hashStruct("Delivery"', 'Nonces', '3600 seconds', '`attempt`', 'The funding nonce', 'The operator fee nonce']) expect(encodings.includes(fact), `ref/signing.txt "Encodings" no longer says ${fact}`);
+for (const t of ['EarlyAccept', 'MutualSettlement', 'Appeal', 'ReadToken', 'Delegation', 'Publish']) expect(t in types, `the EIP-712 types in ref/signing.txt lack ${t}`);
+expect(/"disclosure": "public"/.test(seller) && /"operatorFeeNonce"/.test(ref('http-buyer.txt')), 'the offer and agree requests in ref/http-seller.txt and ref/http-buyer.txt must send disclosure and every nonce');
+for (const p of ['llms.txt', 'ref/http.txt', 'ref/signing.txt', 'ref/http-buyer.txt', 'ref/http-seller.txt']) expect(!/Holdback-Notice|GET \$OP1\/` lists|examples\/verify\.ts/.test(guides.get(p) ?? ''), `${p} still points at a header, GET / list or example file that is gone`);
 
 // 7. try.mjs and the one command.
 const bundle = read('try.mjs');
@@ -169,8 +183,9 @@ expect(tryIt.includes('runs it only if its SHA-256 matches the one in the comman
 // 8. Crow's test seller.
 const { LIMITS, TIMING, CHECKS, PRICE_UNITS } = await import(here('../apps/test-agents/src/catalog.ts'));
 expect(command.endsWith(`&& node try.mjs --seller ${TEST_SELLER_URL}`), "the try command does not buy from Crow's test seller");
-const testSeller = tryIt.slice(tryIt.indexOf("### Crow's test seller"));
-expect(tryIt.includes("### Crow's test seller") && testSeller.includes(TEST_SELLER_URL) && testSeller.includes(`${TEST_SELLER_URL}/agent.json`), `"Try it" does not describe Crow's test seller at ${TEST_SELLER_URL} and its card`);
+const intake = ref('intake.txt');
+const testSeller = intake.indexOf("## Crow's test seller") < 0 ? '' : intake.slice(intake.indexOf("## Crow's test seller"), intake.indexOf('\n## ', intake.indexOf("## Crow's test seller") + 3));
+expect(testSeller.includes(TEST_SELLER_URL) && testSeller.includes(`${TEST_SELLER_URL}/agent.json`) && tryIt.includes('`ref/intake.txt`'), `ref/intake.txt does not describe Crow's test seller at ${TEST_SELLER_URL} and its card, or "Try it" does not point there`);
 const l = LIMITS;
 expect(testSeller.includes(`${l.perClientPerHour} requests per IP address an hour and ${l.perClientPerDay} a day (a fresh key does not reset them); ${l.perHour} offers an hour and ${l.perDay} a day in all; ${l.open} in progress at once`), 'llms.txt states other limits for the test seller than apps/test-agents/src/catalog.ts');
 expect(testSeller.includes(`expires ${TIMING.offerExpiresInSec / 60} minutes after it is made, and funding closes at ${TIMING.fundWithinSec / 60} minutes`) && TIMING.deliverWithinSec === 3600 && testSeller.includes('an hour after the offer'), 'llms.txt states other windows for the test seller than apps/test-agents/src/catalog.ts');
@@ -181,8 +196,8 @@ expect(tryIt.includes('`--outcome refund`') && testSeller.includes('"test": {"ou
 //    apps/test-agents/src/buyer-rules.ts runs them.
 const TEST_BUYER_URL = 'https://crow.direct/agents/test-buyer';
 const rules = await import(here('../apps/test-agents/src/buyer-rules.ts'));
-const start = sell.indexOf("## Sell to Crow's test buyer");
-const testBuyer = start < 0 ? '' : sell.slice(start, sell.indexOf('\n## ', start + 3));
+const start = intake.indexOf("## Sell to Crow's test buyer");
+const testBuyer = start < 0 ? '' : intake.slice(start, intake.indexOf('\n## ', start + 3) < 0 ? undefined : intake.indexOf('\n## ', start + 3));
 const tusdc = (u) => `${Number(BigInt(u) / 1_000_000n)} tUSDC`;
 const bl = rules.BUYER_LIMITS, w = rules.WINDOWS, cr = rules.CHECKS_RULE;
 // Whole sentences, matched as text: the URL is the buyer's address in the guide, not a value being sanitized.
@@ -192,41 +207,79 @@ expect(testBuyer.includes(`${cr.min} to ${cr.max} deterministic checks`) && test
 expect(testBuyer.includes(`at most ${w.maxDeliverWithinSec.toLocaleString('en-US')} s (a day) after the offer`) && testBuyer.includes(`at most ${w.maxJudgingSec.toLocaleString('en-US')} s`) && testBuyer.includes(`at least ${w.minFundingLeftSec} s left to agree and fund`), 'llms.txt states other windows for the test buyer than apps/test-agents/src/buyer-rules.ts');
 expect(testBuyer.includes(`${bl.perSellerPerHour} deals per seller address an hour and ${bl.perSellerPerDay} a day; ${bl.perDay} a day in all; ${bl.open} in progress at once`), 'llms.txt states other limits for the test buyer than apps/test-agents/src/buyer-rules.ts');
 
-// 10. The seller's page (T-359).
+// 10. The role pages (T-359, T-393).
 const sections = (src) => [...src.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
-const sellSections = sections(sell);
-expect(sell.startsWith('# Crow for sellers\n') && sellSections[0] === 'First hour', 'site/sell.txt must open with its title and then "## First hour"');
 const sectionOf = (src, title) => {
   const at = src.indexOf(`\n## ${title}\n`);
   if (at < 0) return '';
   const end = src.indexOf('\n## ', at + 4);
   return src.slice(at + 1, end < 0 ? undefined : end + 1);
 };
+const links = (src) => (src.match(/https:\/\/[^\s<)`"]+[^\s<).,;:`"]/g) ?? []).filter((u) => URL.canParse(u)).map((u) => new URL(u));
 const firstHour = sectionOf(sell, 'First hour');
-// A step runs from its numbered line to the next one, its indented code block included.
-const hourSteps = firstHour.split(/\n(?=\d+\. \*\*)/).slice(1);
-expect(hourSteps.length >= 5 && hourSteps.every((l, i) => l.startsWith(`${i + 1}. `) && l.includes('Worked')), 'each "First hour" step is numbered in order and says what you see when it Worked');
-for (const t of ["Sell a priced API service", "A seller's client can carry the buyer's side", "Sell to Crow's test buyer", 'Writing checks for a report']) expect(sellSections.includes(t), `site/sell.txt has no section "${t}"`);
-const llmsSections = new Set(sections(md));
-for (const t of sellSections) expect(!llmsSections.has(t), `"${t}" is in both llms.txt and sell.txt: one source`);
-expect(md.includes(SELL_URL) && sectionOf(md, 'Sell on Crow').includes(SELL_URL), `llms.txt has a "Sell on Crow" section that links ${SELL_URL}`);
-// Parsed, as in group 2, so a look-alike host or a longer path does not count.
-const sellLinks = (sell.match(/https:\/\/[^\s<)`]+[^\s<).,;:`]/g) ?? []).filter((u) => URL.canParse(u)).map((u) => new URL(u));
-expect(sellLinks.some((u) => u.href === `${SITE_URL}llms.txt`) && sellLinks.some((u) => u.host === 'github.com' && u.pathname === '/rafaeldavid/holdback'), 'sell.txt links the agent guide and the public repo');
-for (const [, p] of sell.matchAll(/`((?:examples|fixtures|spec)\/[A-Za-z0-9_./-]+\.[a-z]+)`/g)) expect(existsSync(here(`../${p}`)), `sell.txt names ${p}, which is not in the repository`);
-const scripts = JSON.parse(read('../package.json')).scripts;
-for (const [, name] of sell.matchAll(/\bpnpm ([a-z][a-z:-]*)/g)) expect(name === 'install' || name in scripts, `sell.txt runs pnpm ${name}, which is not a script in package.json`);
-expect(!/127\.0\.0\.1|localhost/.test(sell.replace(firstHour, '')), 'sell.txt has a local address outside "First hour"');
-let sellOut = '';
-try {
-  sellOut = sellerPage(sell);
-} catch (e) {
-  expect(false, `sell.txt cannot be published: ${e.message}`);
+for (const [file, src, title] of [['sell.txt', sell, '# Crow for sellers\n'], ['buy.txt', buy, '# Crow for buyers\n']]) {
+  expect(src.startsWith(title) && sections(src).includes('First hour'), `site/${file} must open with its title and have a "## First hour"`);
+  // A step runs from its numbered line to the next one, its indented code block included.
+  const steps = sectionOf(src, 'First hour').split(/\n(?=\d+\. \*\*)/).slice(1);
+  expect(steps.length >= 5 && steps.every((l, i) => l.startsWith(`${i + 1}. `) && l.includes('Worked')), `each "First hour" step in ${file} is numbered in order and says what you see when it Worked`);
+  expect(links(src).some((u) => u.href === `${SITE_URL}llms.txt`) && links(src).some((u) => u.host === 'github.com' && u.pathname === '/rafaeldavid/holdback'), `${file} links the front door and the public repo`);
 }
-if (existsSync(here('../reports/site-out/llms.txt'))) expect(existsSync(here('../reports/site-out/sell.txt')) && read('../reports/site-out/sell.txt') === sellOut, 'reports/site-out/sell.txt is missing or stale against site/sell.txt: build with --out again');
+expect(!/127\.0\.0\.1|localhost/.test(sell.replace(firstHour, '')), 'sell.txt has a local address outside "First hour"');
+const roles = sectionOf(md, 'Read one page for your role');
+expect(roles.includes(BUY_URL) && roles.includes(SELL_URL), `llms.txt has a "Read one page for your role" section that links ${BUY_URL} and ${SELL_URL}`);
+
+// 11. The guides together (T-393).
+const published = new Set(['index.html', 'try.mjs', 'version.json', ...ASSETS]);
+const scripts = JSON.parse(read('../package.json')).scripts;
+const refs = referenceFiles();
+const listed = [...sectionOf(md, 'Reference').matchAll(/^- `([a-z0-9-]+\.txt)`/gm)].map((m) => `ref/${m[1]}`).sort();
+expect(refs.length > 0 && JSON.stringify(listed) === JSON.stringify(refs), `the front door's "Reference" lists ${listed.join(', ') || 'nothing'}, and site/ref/ holds ${refs.join(', ')}`);
+for (const [p, text] of guides) {
+  for (const r of namedReferences(text)) expect(refs.includes(r), `${p} names ${r}, which is not in site/ref/`);
+  for (const { file, title } of citedSections(text)) expect(guides.has(file) && hasSection(guides.get(file), title), `${p} cites "${title}" in ${file}, which has no such section`);
+  for (const u of links(text)) {
+    if (u.host !== new URL(SITE_URL).host) continue;
+    const path = u.pathname.slice(BASE.length);
+    // What a publish build writes, and the two test agents, which apps/test-agents serves on routes of this host.
+    const ok = guides.has(path) || published.has(path) || ['', 'problems/', 'visualdemo/'].includes(path) || problems.has(`${path.replace(/\.html$/, '')}.html`) || /^agents\/test-(seller|buyer)(\/agent\.json)?$/.test(path);
+    expect(ok, `${p} links ${u.href}, which neither the publish build nor the test agents serve`);
+  }
+  for (const [, f] of text.matchAll(/`((?:examples|fixtures|spec)\/[A-Za-z0-9_./-]+\.[a-z]+)`/g)) expect(existsSync(here(`../${f}`)), `${p} names ${f}, which is not in the repository`);
+  for (const [, f] of text.matchAll(/\bnode (examples\/[A-Za-z0-9_-]+\.ts)\b/g)) expect(existsSync(here(`../${f}`)), `${p} runs ${f}, which is not in the repository`);
+  for (const [, name] of text.matchAll(/\bpnpm ([a-z][a-z:-]*)/g)) expect(name === 'install' || name in scripts, `${p} runs pnpm ${name}, which is not a script in package.json`);
+  const routes = apiRoutes(apiMd);
+  for (const call of namedCalls(text)) expect(routeKnown(call, routes), `${p} names ${call}, which docs/api.md does not describe`);
+}
+for (const { sentence, files } of duplicateSentences(guides)) expect(false, `one sentence is in ${files.join(' and ')}: "${sentence.slice(0, 120)}"`);
+const pinned = [...new Set(Object.values(deployment).flatMap((v) => (typeof v === 'object' ? Object.values(v) : [v])).filter((v) => /^0x[0-9a-f]{40}$/i.test(String(v))).map((v) => String(v).toLowerCase()))];
+for (const [p, text] of guides) if (p !== 'llms.txt') for (const a of pinned) expect(!text.toLowerCase().includes(a), `${p} names the deployment address ${a}: the pins live in llms.txt alone, which the cutover's copies step (scripts/record-copies.mjs) rewrites`);
+let filledGuides = new Map();
+try {
+  filledGuides = publishedGuides(sample);
+} catch (e) {
+  expect(false, `the guides cannot be published: ${e.message}`);
+}
+if (existsSync(here('../reports/site-out/llms.txt'))) {
+  const outOp = { op1: /^OP1=(.+)$/m.exec(read('../reports/site-out/llms.txt'))?.[1], op2: /^OP2=(.+)$/m.exec(read('../reports/site-out/llms.txt'))?.[1] };
+  let built = new Map();
+  try {
+    built = publishedGuides(outOp);
+  } catch {}
+  for (const [p, text] of built) expect(existsSync(here(`../reports/site-out/${p}`)) && read(`../reports/site-out/${p}`) === text, `reports/site-out/${p} is missing or stale against site/${p}: build with --out again`);
+}
+
+// 12. The budget (T-393).
+let measured = [];
+try {
+  measured = await measurePaths(filledGuides);
+} catch (e) {
+  expect(false, `the guides could not be counted: ${e.message}`);
+}
+for (const m of measured) expect(m.tokens <= FIRST_DEAL_BUDGET.tokens, `the ${m.role}'s first-deal path (${m.files.join(' + ')}) is ${m.tokens} tokens, over the budget of ${FIRST_DEAL_BUDGET.tokens} (${m.method})`);
 
 if (failures.length) {
   for (const f of failures) console.error(`FAIL ${f}`);
   process.exit(1);
 }
-console.log(`site check PASS: one source, placeholders in place, links resolve under ${BASE}, content agrees with docs/api.md and examples/verify.ts, try.mjs current and its command in llms.txt, the test seller and the test buyer as apps/test-agents runs them, the seller's page in sell.txt`);
+for (const m of measured) console.log(`first-deal path, ${m.role}: ${m.files.join(' + ')}, ${m.bytes} bytes, ${m.tokens} of ${FIRST_DEAL_BUDGET.tokens} tokens (${m.method})${m.counted === null ? '' : `; the estimate, bytes divided by four, is ${m.estimate}`}`);
+console.log(`site check PASS: one source, placeholders in place, links resolve under ${BASE}, content agrees with docs/api.md and examples/verify.ts, try.mjs current and its command in llms.txt, the test seller and the test buyer as apps/test-agents runs them, the role pages, the guides together, and each role's first-deal path within its budget`);

@@ -1,7 +1,8 @@
-// site/llms.txt is the one source. This renders it into site/index.html (placeholders kept), or, for
-// publishing, writes both files with the operator URLs filled in. It also bundles examples/try.ts into
-// site/try.mjs, the one-command test deal, whose sha256 llms.txt carries. site/sell.txt, the seller's page (T-359), is
-// the one source of the seller sections; a publish build writes it beside llms.txt, editor notes left out.
+// site/llms.txt is the one source of the front door. This renders it into site/index.html (placeholders kept), or,
+// for publishing, writes both files with the operator URLs filled in. It also bundles examples/try.ts into
+// site/try.mjs, the one-command test deal, whose sha256 llms.txt carries. The other agent guides (T-393) are the
+// buyer's page site/buy.txt, the seller's page site/sell.txt and the reference files site/ref/*.txt; a publish build
+// writes each beside llms.txt as written, editor notes left out (site/guides.mjs lists them and holds the budget).
 //
 //   node site/build.mjs                                   regenerate site/try.mjs and site/index.html
 //   node site/build.mjs --op1 URL --op2 URL --out DIR
@@ -16,6 +17,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rolldown } from 'rolldown';
+import { guideFiles, guideSource } from './guides.mjs';
 import { PENCIL, STUDIES } from './vignettes.mjs';
 
 export const SITE_URL = 'https://crow.direct/';
@@ -601,14 +603,28 @@ ${body}
   return pages;
 }
 
-/** The seller's page as published (T-359): editor notes gone. It has no placeholders: one left is refused. */
+/** A guide other than the front door as published (T-359, T-393): editor notes gone. A placeholder left is refused. */
 export const SELL_URL = `${SITE_URL}sell.txt`;
-export function sellerPage(txt) {
-  if (/^%% CONFIRM/m.test(txt)) throw new Error('sell.txt still has "%% CONFIRM" notes: check each, fix the text, delete the note, then build again');
+export const BUY_URL = `${SITE_URL}buy.txt`;
+export function guidePage(txt, name = 'sell.txt') {
+  if (/^%% CONFIRM/m.test(txt)) throw new Error(`${name} still has "%% CONFIRM" notes: check each, fix the text, delete the note, then build again`);
   const out = strip(txt);
-  if (/\{\{[^}]*\}\}/.test(out)) throw new Error('sell.txt has a {{placeholder}}: the seller page is published as written');
+  if (/\{\{[^}]*\}\}/.test(out)) throw new Error(`${name} has a {{placeholder}}: it is published as written`);
   return out;
 }
+/** The seller's page as published (the two-agent run's local docs server calls this). */
+export const sellerPage = (txt) => guidePage(txt, 'sell.txt');
+
+/**
+ * Every agent guide as a publish build writes it, by published path: llms.txt filled with the two operators and
+ * the one command, the others as written. The two-agent run's local docs server serves exactly these.
+ */
+export function publishedGuides({ op1, op2, command = tryCommand() }) {
+  return new Map(guideFiles().map((path) => [path, path === 'llms.txt' ? filled(guideSource(path), { op1, op2, command }) : guidePage(guideSource(path), path)]));
+}
+
+/** The images a publish build copies as they are. */
+export const ASSETS = ['crow.png', 'crow-2x.webp', 'favicon.png', 'og.png'];
 
 /** The published files: placeholders filled, editor notes gone. */
 export function filled(md, { op1, op2, command = tryCommand() }) {
@@ -649,22 +665,22 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   } else {
     // Publish exactly the committed bundle, and only while it is current: the sha256 below is of that file.
     if (readFileSync(here('try.mjs'), 'utf8') !== bundle) throw new Error('site/try.mjs is stale against examples/: run node site/build.mjs, commit, then publish');
-    const txt = filled(md, { op1: arg('op1'), op2: arg('op2') });
-    mkdirSync(out, { recursive: true });
-    writeFileSync(join(out, 'llms.txt'), txt);
-    writeFileSync(join(out, 'sell.txt'), sellerPage(readFileSync(here('sell.txt'), 'utf8')));
+    const guides = publishedGuides({ op1: arg('op1'), op2: arg('op2') });
+    const txt = guides.get('llms.txt');
+    mkdirSync(join(out, 'ref'), { recursive: true });
+    for (const [path, text] of guides) writeFileSync(join(out, path), text);
     writeFileSync(join(out, 'index.html'), page(txt));
     writeFileSync(join(out, 'try.mjs'), readFileSync(here('try.mjs')));
     // T-066: the commit this site was built from, so Crow Control can tell what is merged but not live. null when the
     // tree has uncommitted changes or git cannot answer.
     writeFileSync(join(out, 'version.json'), `${JSON.stringify({ commit: buildCommit() }, null, 2)}\n`);
-    for (const f of ['crow.png', 'crow-2x.webp', 'favicon.png', 'og.png']) writeFileSync(join(out, f), readFileSync(here(f)));
+    for (const f of ASSETS) writeFileSync(join(out, f), readFileSync(here(f)));
     // The visual walkthrough of a real two-agent deal, served at /visualdemo.
     mkdirSync(join(out, 'visualdemo'), { recursive: true });
     writeFileSync(join(out, 'visualdemo', 'index.html'), readFileSync(here('visualdemo/index.html')));
     const problems = await problemPages();
     mkdirSync(join(out, 'problems'), { recursive: true });
     for (const [path, html] of problems) writeFileSync(join(out, path), html);
-    console.log(`wrote ${join(out, 'llms.txt')}, ${join(out, 'sell.txt')}, ${join(out, 'index.html')}, ${join(out, 'try.mjs')} (sha256 ${trySha256()}) and ${problems.size} problem pages: publish them under ${SITE_URL}`);
+    console.log(`wrote ${guides.size} guides (${[...guides.keys()].join(', ')}), ${join(out, 'index.html')}, ${join(out, 'try.mjs')} (sha256 ${trySha256()}) and ${problems.size} problem pages: publish them under ${SITE_URL}`);
   }
 }
