@@ -146,7 +146,7 @@ function feather() {
   );
 }
 
-// 4. Frontier AI Arbitration: a balance, level.
+// 4. Frontier AI Verification: a balance, level.
 function balance() {
   const r = rng(41);
   const half = (y) => { const T = [[15, 0.6], [20, 0.75], [27, 0.95], [38, 1.75], [43, 1.9], [46.5, 1.05], [48, 1.35], [50, 2.5]]; for (let i = 1; i < T.length; i++) if (y <= T[i][0]) { const k = (y - T[i - 1][0]) / (T[i][0] - T[i - 1][0]); return T[i - 1][1] + (T[i][1] - T[i - 1][1]) * k; } return 2.5; };
@@ -201,7 +201,7 @@ function coins() {
   return `<defs>${defs}</defs>${out}${cast(r, 16, 60, 58.8)}`;
 }
 
-// 6. Private Contract Terms: a letter under a wax seal.
+// 6. Private Delivery: a letter under a wax seal.
 function letter() {
   const r = rng(67), rotate = (pts) => pts.map(([x, y]) => { const a = -0.09, dx = x - 32, dy = y - 34; return [32 + dx * Math.cos(a) - dy * Math.sin(a), 34 + dx * Math.sin(a) + dy * Math.cos(a)]; });
   const sheet = rotate(join(seg([7, 17.5], [57, 17.5]), seg([57, 17.5], [57, 50.5]), seg([57, 50.5], [7, 50.5]), seg([7, 50.5], [7, 17.5])));
