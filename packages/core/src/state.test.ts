@@ -835,11 +835,11 @@ describe('late-work settlement in Held (SC-5b)', () => {
   };
   const settledView = (s: EscrowState) => (s.kind === 'Settled' ? { from: s.from, keyReleased: s.keyReleased, deliveryHash: postedDeliveryHash(s) } : s.kind);
 
-  it.each<[string, EscrowEvent, { from: string; keyReleased: boolean; deliveryHash: Hex | undefined }]>([
-    ['late work after deliverBy, key released from the delivery it names', carried(late, { deliveryHash: LATE_DH, releaseKey: true }, lateDelivery), { from: 'Held', keyReleased: true, deliveryHash: LATE_DH }],
-    ['the same before deliverBy: the contract sets no deadline on a settlement', carried(T.deliver, { deliveryHash: LATE_DH, releaseKey: true }, lateDelivery), { from: 'Held', keyReleased: true, deliveryHash: LATE_DH }],
-    ['a delivery named and its key kept: the contract checks nothing more (:370, :379)', carried(late, { deliveryHash: LATE_DH, releaseKey: false }, undefined), { from: 'Held', keyReleased: false, deliveryHash: LATE_DH }],
-    ['a carried delivery with only the buyer envelope: the key proof reads only that one (:381)', carried(late, { deliveryHash: deliveryHash(delivery({ encryptedKeys: [{ recipient: buyer, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' }] })), releaseKey: true }, delivery({ encryptedKeys: [{ recipient: buyer, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' }] })), { from: 'Held', keyReleased: true, deliveryHash: deliveryHash(delivery({ encryptedKeys: [{ recipient: buyer, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' }] })) }],
+  it.each<[string, EscrowEvent, { from: string; keyReleased: boolean; deliveryHash: undefined }]>([
+    ['late work after deliverBy, key released from the delivery it names', carried(late, { deliveryHash: LATE_DH, releaseKey: true }, lateDelivery), { from: 'Held', keyReleased: true, deliveryHash: undefined }],
+    ['the same before deliverBy: the contract sets no deadline on a settlement', carried(T.deliver, { deliveryHash: LATE_DH, releaseKey: true }, lateDelivery), { from: 'Held', keyReleased: true, deliveryHash: undefined }],
+    ['a delivery named and its key kept: the contract checks nothing more (:370, :379)', carried(late, { deliveryHash: LATE_DH, releaseKey: false }, undefined), { from: 'Held', keyReleased: false, deliveryHash: undefined }],
+    ['a carried delivery with only the buyer envelope: the key proof reads only that one (:381)', carried(late, { deliveryHash: deliveryHash(delivery({ encryptedKeys: [{ recipient: buyer, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' }] })), releaseKey: true }, delivery({ encryptedKeys: [{ recipient: buyer, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' }] })), { from: 'Held', keyReleased: true, deliveryHash: undefined }],
   ])('settles: %s', (_name, event, expected) => {
     const r = step(run(toHeld), event);
     if (!r.ok) throw new Error(`${r.error.type}: ${r.error.detail}`);

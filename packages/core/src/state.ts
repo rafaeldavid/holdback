@@ -363,12 +363,12 @@ function namesTheDelivery(m: { deliveryHash: Hex32 }, d: Delivery | Hex32): R<tr
 /**
  * The posted delivery's hash, from Delivered on (the read model's `deliveryHash`, ADR-0029): from the delivery while
  * the state holds it, then from the signature that settled the deal, which named it. Undefined before a delivery,
- * after a reclaim, after a default (no signature named it) and after a mutual settlement in Held that named none (one
- * that named an unposted delivery, SC-5b, reports the hash both parties signed).
+ * after a reclaim, after a default (no signature named it) and after any mutual settlement in Held: one that named an
+ * unposted delivery (SC-5b) posted nothing, and the contract's deliveryHashOf stays zero too.
  */
 export function postedDeliveryHash(s: EscrowState): Hex32 | undefined {
   if ('delivery' in s) return deliveryHash(s.delivery);
-  if (s.kind === 'Settled') return s.settlement.deliveryHash ?? undefined;
+  if (s.kind === 'Settled') return s.from === 'Held' ? undefined : (s.settlement.deliveryHash ?? undefined);
   if (s.kind !== 'Released' && s.kind !== 'Refunded') return undefined;
   const via = s.via;
   if (via.kind === 'first_instance' || via.kind === 'escalation') return via.decision.deliveryHash;
@@ -555,7 +555,8 @@ function lateDelivery(s: Extract<Settleable, { kind: 'Held' }>, m: MutualSettlem
   if (m.deliveryHash === null) return m.releaseKey ? fail('invalid_terms', 'releaseKey needs a delivery') : ok(true);
   if (!m.releaseKey) return ok(true);
   if (!d) return fail('invalid_terms', `the settlement releases the key of delivery ${m.deliveryHash}, but carries no delivery`);
-  if (d.commitmentId !== s.id) return fail('invalid_terms', 'the carried delivery is for another commitment');
+  // Hex compared in any letter case: the contract hashes the id as bytes32 (:380).
+  if (d.commitmentId.toLowerCase() !== s.id.toLowerCase()) return fail('invalid_terms', 'the carried delivery is for another commitment');
   if (deliveryHash(d) !== m.deliveryHash) return fail('invalid_terms', `the carried delivery does not hash to the signed deliveryHash ${m.deliveryHash}; it hashes to ${deliveryHash(d)}`);
   if (!d.encryptedKeys.some((k) => sameAddress(k.recipient, s.terms.buyer))) return fail('invalid_terms', 'the carried delivery has no envelope for the buyer, so there is no key to release');
   return ok(true);

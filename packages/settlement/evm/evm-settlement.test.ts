@@ -308,6 +308,31 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     expect(await at.chain.tokenBalance(at.cast.buyer.address)).toBe(100_000_000_000n);
   }, 60_000);
 
+  // T-357, ADR-0031 SC-5b: late work settled by agreement through the Settlement interface, as SimChain does it.
+  it('settles late work in Held: the settlement carries the unposted delivery, and the contract releases its buyer key in the paying transaction', async () => {
+    const { chain, cast, club } = await newSettlement(world);
+    const d = new EvmDeal(chain, cast, club, 'late-work');
+    for (const s of [d.offer(), d.accept(), d.agreeAndFund()]) await must(chain, cast, s);
+    chain.advanceTo(new Date(Date.parse(d.terms.timing.deliverBy) + 60_000).toISOString());
+    const late = ((await d.deliver()) as Extract<Submission, { kind: 'deliver' }>).delivery; // signed, never posted
+    const other = { ...late, plaintextSha256: `sha256:${'f'.repeat(64)}` as typeof late.plaintextSha256 };
+    const wrong = await chain.submit(await d.mutual(1_400_000_000n, true, other), { sender: cast.buyer.key });
+    expect(wrong.ok ? 'ok' : [wrong.problem.type, wrong.problem.detail]).toEqual(['invalid_terms', expect.stringMatching(/does not hash to the signed deliveryHash/)]);
+    expect((await chain.stage(d.id)).stage).toBe('Held');
+    const r = await chain.submit(await d.mutual(1_400_000_000n, true, late), { sender: cast.buyer.key });
+    expect(r.ok ? r.state.escrowState : r.problem.detail).toBe('Settled');
+    expect((await chain.stage(d.id)).stage).toBe('Settled');
+    expect(await chain.tokenBalance(cast.seller.address)).toBe(1_400_000_000n);
+    const mine = late.encryptedKeys.find((k) => k.recipient.toLowerCase() === cast.buyer.address.toLowerCase())!;
+    expect((await chain.keysFor(d.id, cast.buyer.address)).map((k) => k.ciphertext)).toEqual([mine.ciphertext]);
+    const settled = chain.log().find((e) => e.type === 'commitment.settled')!;
+    const key = chain.log().filter((e) => e.type === 'key.released').at(-1)!;
+    expect(key.payload['tx']).toBe(settled.payload['tx']);
+    expect(chain.transactions().map((t) => t.call)).toEqual(['agreeAndFund', 'mutualSettle']);
+    expect(eventSchemaErrors(chain.log())).toEqual([]);
+    expect(await chain.replayCheck()).toMatchObject({ ok: true });
+  }, 60_000);
+
   // ADR-0031 §8 (D57): the phase-one contracts take no party appeal and hold no bond.
   it('a first decision is final at once: finalAt is settledAt, appealState none, no appeal window, no bond', async () => {
     const { chain, cast, club } = await newSettlement(world);

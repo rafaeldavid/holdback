@@ -688,7 +688,6 @@ function lateDeliveryIn(c: AnyCommitment, v: unknown): Delivery | undefined {
   if (!r.ok) return bad(`delivery is the seller-signed delivery you hold (delivery.schema.json): ${r.error.detail}`, 'delivery');
   const d = r.value;
   if (lc(d.commitmentId) !== lc(c.id)) bad(`delivery is for ${d.commitmentId}, not ${c.id}`, 'delivery.commitmentId');
-  if (!d.encryptedKeys.some((k) => lc(k.recipient) === lc(c.buyer))) bad(`delivery has no envelope for the buyer ${c.buyer}, so there is no key to release`, 'delivery.encryptedKeys');
   return d;
 }
 
@@ -723,6 +722,8 @@ async function settlement(ctx: PrepareContext, input: Record<string, unknown>): 
   const givenRelease = typeof input['releaseKey'] === 'boolean';
   const releaseKey = givenRelease ? (input['releaseKey'] as boolean) : named !== null;
   if (releaseKey && named === null) bad('releaseKey needs a delivery: nothing is posted, so give the late delivery you hold as delivery, or set releaseKey false', 'releaseKey');
+  // The key proof reads only the buyer's envelope (HoldbackRules :381), so it is needed only when the key is released.
+  if (late && releaseKey && !late.encryptedKeys.some((k) => lc(k.recipient) === lc(c.buyer))) bad(`delivery has no envelope for the buyer ${c.buyer}, so there is no key to release`, 'delivery.encryptedKeys');
   const body = { type: 'MutualSettlement', commitmentId: c.id, deliveryHash: named, payouts, releaseKey, expiresAt } as const;
   const m = { ...body, nonce };
   const signed = forMessage(ctx.domain, m);
@@ -743,7 +744,7 @@ async function settlement(ctx: PrepareContext, input: Record<string, unknown>): 
         ? [
             `deliveryHash ${named} is the hash of the late delivery you gave, which was never posted: compute it yourself from the seller-signed delivery (EIP-712 struct hash without its signature) before you sign. Both signatures over this hash are what endorse that delivery; nothing checks the seller's signature on it`,
             releaseKey
-              ? "the settlement layer releases the buyer's first envelope in that delivery with the payment: open your envelope with your own key and check the plaintext hash first, since no appeal follows a settlement"
+              ? "the settlement layer releases the buyer's first envelope in that delivery with the payment, and no appeal follows a settlement. The buyer already holds that envelope in the delivery it was handed, so the exchange rests on the ciphertext: as seller, hand over the delivery but keep the ciphertext at its uri until the settlement lands; as buyer, check the ciphertext's sha256 and the hashes before you sign"
               : 'the key stays with the seller: the settlement names the delivery and pays for it, and the work changes hands outside the protocol',
             ...(releaseKey ? ['the settlement must travel with that delivery, as the contract call mutualSettle(terms, settlement, delivery, keyProof) takes it; POST /settlements does not carry a delivery yet, so submit this one to the settlement layer directly'] : []),
           ]
