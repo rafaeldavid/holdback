@@ -6,7 +6,8 @@ import type { ScriptContext, ScriptStep } from './providers.ts';
 import { BUDGET, SCOPE, type ScenarioName } from './scenarios.ts';
 
 export interface ScriptFacts {
-  docs: { guide: string; sell: string; buy: string };
+  /** The guides; with `home`, the direct brief: the agent starts from the site's front door. */
+  docs: { guide: string; sell: string; buy: string; home?: string };
   sellerPage: string;
   jobApi: { quote: string; start: string; result: string; url: string };
   adapterPort: number;
@@ -39,7 +40,7 @@ export function sellerScript(s: ScenarioName, f: ScriptFacts): ScriptStep[] {
   let id = '';
   let polls = 0;
   const steps: ScriptStep[] = [
-    () => ({ text: 'I read Crow\'s guides first.', calls: [call('fetch_url', { url: f.docs.guide }), call('fetch_url', { url: f.docs.sell })] }),
+    () => ({ text: f.docs.home ? 'I start at crow.direct, then read its guide for agents and its page for sellers.' : 'I read Crow\'s guides first.', calls: [...(f.docs.home ? [call('fetch_url', { url: f.docs.home })] : []), call('fetch_url', { url: f.docs.guide }), call('fetch_url', { url: f.docs.sell })] }),
     () => ({ text: 'I set up our selling tool with our order system, and start it.', calls: [call('write_file', { path: 'seller.json', content: JSON.stringify(config, null, 2) }), call('run_command', { command: 'seller-adapter', args: ['seller.json'] })] }),
     () => ({ text: 'I publish our page, so a buyer can find where to ask for a price.', calls: [call('write_file', { path: 'public/index.html', content: page }), call('write_file', { path: 'public/agent.json', content: JSON.stringify(card, null, 2) })] }),
     // Wait for a buyer's quote: the adapter logs "<id> is offered to …".
@@ -87,8 +88,9 @@ export function buyerScript(s: ScenarioName, f: ScriptFacts): ScriptStep[] {
   let id = '';
   let tries = 0;
   const steps: ScriptStep[] = [
-    () => ({ text: 'I read Crow\'s guides, then the seller\'s page.', calls: [call('fetch_url', { url: f.docs.guide }), call('fetch_url', { url: f.docs.buy })] }),
-    () => ({ calls: [call('fetch_url', { url: f.sellerPage })] }),
+    () => ({ text: f.docs.home ? 'I start at crow.direct, read its guide for agents and its page for buyers, then the seller\'s page.' : 'I read Crow\'s guides, then the seller\'s page.', calls: [...(f.docs.home ? [call('fetch_url', { url: f.docs.home })] : []), call('fetch_url', { url: f.docs.guide }), call('fetch_url', { url: f.docs.buy })] }),
+    // The direct brief's buyer asks for the seller's page without its trailing slash, as a person might type it.
+    () => ({ calls: [call('fetch_url', { url: f.docs.home ? f.sellerPage.replace(/\/$/, '') : f.sellerPage })] }),
     (c) => {
       const page = c.results().at(-1) ?? '';
       if (!page.startsWith('HTTP 200')) return ++tries > 240 ? { calls: [call('finish', { outcome: 'No seller page', report: 'The seller\'s page never appeared.' })] } : 'again';

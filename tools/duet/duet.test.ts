@@ -9,6 +9,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { measure } from './measures.ts';
+import { buyerBriefDirect, scenario, sellerBriefDirect } from './scenarios.ts';
+import { limitsFor, overLimits } from './tickets.ts';
 import { CROW_MARK, EARLY_ACCESS, forPublishing, HERO, PITCH, replayPage } from './replay.ts';
 import { startWorld } from './world.ts';
 import { runAgent } from './loop.ts';
@@ -43,7 +45,19 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       expect(r.ends.map((e) => e.status)).toEqual(['finished', 'finished']);
       if (name === 'paid') {
         expect(s.outcome).toMatchObject({ keyToBuyer: true, buyerOpened: true });
-        expect(s.workPassesToPaidSec).not.toBeNull();
+        // The simulator settles the decision and the payment in the same second: the time reads "not measured" there.
+        expect(s.workPassesToPaidSec).toBeNull();
+        expect(s.workPassesToPaidNote).toMatch(/^Not measured on the local simulator/);
+        expect(readFileSync(r.page, 'utf8')).toContain('Not measured on the local simulator');
+        // The buyer starts once the seller's page is served, so it never probes for a page that is not there yet.
+        const ev = lines(r.record);
+        expect(ev.find((e) => e.kind === 'buyer.start')).toMatchObject({ sellerPagePublished: true });
+        expect(ev.filter((e) => e.kind === 'http' && e.role === 'buyer' && e.status === 404)).toEqual([]);
+        // Tokens by kind add up, with peak context per agent; a scripted run has no price.
+        expect(s.tokens.split.fresh + s.tokens.split.cacheRead + s.tokens.split.cacheWrite + s.tokens.split.output).toBe(s.tokens.deal);
+        expect(s.peakContext.buyer).toBeGreaterThan(0);
+        expect(s.costPerDealMicroUsd).toBeNull();
+        expect(s.brief).toBe('guided');
         expect(s.ownerApprovals).toEqual([{ commitmentId: s.outcome.commitmentId, granted: true, reasons: [] }]);
       }
       if (name === 'refund') expect(s.outcome).toMatchObject({ funded: true, keyToBuyer: false, buyerOpened: false });
@@ -116,6 +130,9 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
         const t = readFileSync(r.ticket!, 'utf8');
         expect(t).toContain(`tokens for the deal: ${s.tokens.deal.toLocaleString('en-US')}, limit ${(2 * (s.guides.tokens + 1000)).toLocaleString('en-US')}`);
         expect(t).toMatch(/carried Crow's guides/);
+        expect(t).toMatch(/fresh input, [\d,]+ read from the cache, [\d,]+ written to it and [\d,]+ output/);
+        // The cause names what the record shows: the pages read beyond the first-deal path, and the fetches that found nothing.
+        expect(t).toContain('From the record: the agents read nothing beyond the first-deal path, and no fetch answered 404.');
         // The short guides (T-393): the buyer reads the front page and its own page, the seller the front page and its own.
         expect(Object.keys(s.guides.bytes).sort()).toEqual(['buy.txt', 'llms.txt', 'sell.txt']);
         expect(s.guides.tokens).toBe(Math.ceil(Object.values(s.guides.bytes).reduce((a, b) => a + b, 0) / 4));
@@ -140,6 +157,47 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       expect(page).not.toContain(key.slice(2));
     }, 200_000);
   }
+});
+
+describe('the direct brief: intent, limits and setup only; the agents find Crow from crow.direct', () => {
+  const facts = { docs: { guide: 'http://x/llms.txt', sell: 'http://x/sell.txt', buy: 'http://x/buy.txt' }, sellerPage: 'http://x/sellers/audit-reports/', jobApi: { quote: 'http://j/q', start: 'http://j/s', result: 'http://j/r' }, adapterPort: 4567, keyStore: '/k', token: 'tUSD', local: true };
+  it('names crow.direct, and no guide address or how-to', () => {
+    const sc = scenario('paid');
+    for (const b of [buyerBriefDirect(sc, facts), sellerBriefDirect(sc, facts)]) {
+      expect(b).toContain('through crow.direct');
+      expect(b).not.toMatch(/llms\.txt|buy\.txt|sell\.txt|seller adapter|approve line|guide/i);
+    }
+    expect(buyerBriefDirect(sc, facts)).toContain('Our approval policy is preset');
+  });
+  it('paid ends Released: the agents start at the home page, the seller page is read without its slash, and the record and the page name the brief', async () => {
+    const r = await runDuet({ scenario: 'paid', buyer: 'scripted', seller: 'scripted', brief: 'direct', out: join(tmp('direct'), 'run'), caps: { turns: 400, tokens: 50_000_000 }, graceSec: 30, timeoutSec: 180, limits: { workTokensPerAgent: 5_000_000 } });
+    const s = r.summary;
+    expect(s.outcome.state).toBe('Released');
+    expect(s.decisionRight).toBe(true);
+    expect(s.brief).toBe('direct');
+    const events = lines(r.record);
+    expect(events.find((e) => e.kind === 'run.start').brief).toBe('direct');
+    expect(events.find((e) => e.kind === 'world').siteAlias).toBe("crow.direct is answered from this machine's copy of the site, home page included.");
+    const http = events.filter((e) => e.kind === 'http' && e.via === 'fetch_url');
+    for (const role of ['buyer', 'seller']) {
+      const mine = http.filter((e) => e.role === role);
+      expect(mine[0]).toMatchObject({ url: 'https://crow.direct/', status: 200, servedBy: "this machine's copy of the site" });
+      expect(mine.some((e) => e.url === `https://crow.direct/${role === 'buyer' ? 'buy' : 'sell'}.txt` && e.status === 200)).toBe(true);
+    }
+    expect(http.some((e) => e.role === 'buyer' && /\/sellers\/[a-z0-9-]+$/.test(e.url) && e.status === 200)).toBe(true);
+    // The guides measured are the same pages, found from the front door.
+    expect(Object.keys(s.guides.bytes).sort()).toEqual(['buy.txt', 'llms.txt', 'sell.txt']);
+    const page = readFileSync(r.page, 'utf8');
+    expect(page).toContain('pays or sells through crow.direct');
+    expect(page).toContain("crow.direct was answered from this machine&#39;s copy of the site");
+    expect(banned(readerText(page))).toEqual([]);
+    // A ticket on this run names the home page as the one page read beyond the first-deal path.
+    const over = overLimits(s, events, { ...limitsFor('paid'), turnsPerAgent: 0 });
+    expect(over.find((o) => o.measure === 'model turns for the Enterprise Procurement Agent')).toBeDefined();
+    const peak = overLimits(s, events, { ...limitsFor('paid'), peakContextPerAgent: 1 }).find((o) => o.measure === 'peak context for the Enterprise Procurement Agent');
+    expect(peak?.cause).toBe('From the record: the Enterprise Procurement Agent read 1 page beyond the first-deal path (/), and no fetch answered 404. Each page read stays in the context for every later turn.');
+    expect(peak?.owner).toBe('the docs');
+  }, 200_000);
 });
 
 function box(o: Partial<ToolboxOptions> = {}) {

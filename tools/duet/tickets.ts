@@ -20,6 +20,10 @@ export interface Limits {
   toolCallsPerAgent: number;
   apiCallsPerAgent: number;
   workPassesToPaidSec: number;
+  /** The largest input of any one turn, per agent, in tokens. */
+  peakContextPerAgent?: number;
+  /** The deal's list-price cost in micro-USD, both agents together; not checked when neither side was priced. */
+  costPerDealMicroUsd?: number;
 }
 
 export function limitsFor(scenario: string, file = new URL('./limits.json', import.meta.url)): Limits {
@@ -68,14 +72,32 @@ export function overLimits(s: Summary, events: readonly Event[], l: Limits): Ove
   const costly = (role?: Side) =>
     ev.filter((e) => e.kind === 'model.turn' && (!role || e.role === role)).sort((a, b) => b.tokensIn + b.tokensOut - (a.tokensIn + a.tokensOut)).slice(0, 3)
       .map((t) => `The ${AGENT_NAME[t.role as Side] ?? t.role}'s turn ${t.turn} used ${n(t.tokensIn + t.tokensOut)} tokens${t.calls?.length ? `, calling ${t.calls.map((c: J) => c.name === 'run_command' ? `run_command ${c.input?.command}` : c.name === 'fetch_url' ? `fetch_url ${String(c.input?.url ?? '')}` : c.name).join(', ')}` : ''}.`);
-  const docsReads = (role?: Side) => ev.filter((e) => e.kind === 'tool' && e.name === 'fetch_url' && (!role || e.role === role) && /\/(llms|buy|sell)\.txt|\/ref\/[a-z0-9-]+\.txt/.test(String(e.input?.url ?? ''))).length;
-  const split = (role: Side) => `Of the ${AGENT_NAME[role]}'s ${n(s.tokens[role].input + s.tokens[role].output)} tokens, ${n(s.tokens[role].guides)} carried Crow's guides (about ${n(s.guides.tokens)} tokens, paid again on every step after they were read) and ${n(s.tokens[role].work)} went to the work.`;
+  // What the record shows about reading: the pages read beyond the first-deal path (llms.txt plus the role's own page),
+  // and the fetches that found nothing. The seller's own page is the deal, not the docs, so it is not counted as extra.
+  const FIRST_PATH: Record<Side, string[]> = { buyer: ['/llms.txt', '/buy.txt'], seller: ['/llms.txt', '/sell.txt'] };
+  const fetches = (role?: Side) => ev.filter((e) => e.kind === 'http' && e.via === 'fetch_url' && (!role || e.role === role));
+  const pathOf = (url: string) => { try { return new URL(url).pathname; } catch { return url; } };
+  const uniq = (xs: string[]) => [...new Set(xs)];
+  // Pages on the docs' own site only (wherever llms.txt was read): operator and job API reads are the deal's work.
+  const docSites = new Set(fetches().filter((e) => pathOf(String(e.url)) === '/llms.txt').map((e) => { try { return new URL(String(e.url)).origin; } catch { return ''; } }));
+  const onDocSite = (url: string) => { try { return docSites.has(new URL(url).origin); } catch { return false; } };
+  const beyond = (role?: Side) => uniq(fetches(role).filter((e) => e.status === 200 && onDocSite(String(e.url)) && !(role ? FIRST_PATH[role] : [...FIRST_PATH.buyer, ...FIRST_PATH.seller]).includes(pathOf(String(e.url))) && !pathOf(String(e.url)).startsWith('/sellers/')).map((e) => pathOf(String(e.url))));
+  const probes = (role?: Side) => fetches(role).filter((e) => e.status === 404).map((e) => pathOf(String(e.url)));
+  const list = (xs: string[], k = 6) => (xs.length > k ? `${xs.slice(0, k).join(', ')} and ${xs.length - k} more` : xs.join(', '));
+  const usd = (micro: number | null) => (micro === null ? '' : `, about $${(micro / 1e6).toFixed(4)} at list price`);
+  const split = (role: Side) => {
+    const t = s.tokens[role];
+    return `Of the ${AGENT_NAME[role]}'s ${n(t.input + t.output)} tokens: ${n(t.fresh)} fresh input, ${n(t.cacheRead)} read from the cache, ${n(t.cacheWrite)} written to it and ${n(t.output)} output${usd(s.costMicroUsd[role])}. ${n(t.guides)} of them carried Crow's guides (about ${n(s.guides.tokens)} tokens, paid again on every step after they were read) and ${n(t.work)} went to the work.`;
+  };
   const tokenCause = (role?: Side) => {
-    const guides = role ? s.tokens[role].guides : s.tokens.buyer.guides + s.tokens.seller.guides;
-    const work = role ? s.tokens[role].work : s.tokens.buyer.work + s.tokens.seller.work;
-    return guides >= work
-      ? { cause: `Guess: most of these tokens carried Crow's guides (${n(guides)} against ${n(work)} for the work${docsReads(role) > 2 ? `; the guides were fetched ${docsReads(role)} times` : ''}). The guides are longer than an agent needs for one deal: a finding for the docs (a shorter path for one purchase, or a page per role).`, owner: 'the docs' }
-      : { cause: 'Guess: the work itself grew the context: long tool outputs or many steps; the client commands may print more than an agent needs.', owner: 'a client tool, or the runner (tools/duet)' };
+    const extra = beyond(role);
+    const miss = probes(role);
+    const who = role ? `the ${AGENT_NAME[role]}` : 'the agents';
+    const read = extra.length ? `${who} read ${extra.length} ${extra.length === 1 ? 'page' : 'pages'} beyond the first-deal path (${list(extra)})` : `${who} read nothing beyond the first-deal path`;
+    const probed = miss.length ? `${miss.length} ${miss.length === 1 ? 'fetch' : 'fetches'} found nothing (404: ${list(uniq(miss))})` : 'no fetch answered 404';
+    const sellerProbes = miss.filter((x) => x.startsWith('/sellers/')).length;
+    const owner = miss.length && sellerProbes * 2 >= miss.length ? "the runner (tools/duet): the probes were for the seller's page" : extra.length || miss.length ? 'the docs' : 'a client tool, or the runner (tools/duet)';
+    return { cause: `From the record: ${read}, and ${probed}. ${extra.length || miss.length ? 'Each page read stays in the context for every later turn.' : 'The work itself grew the context: long tool outputs or many steps.'}`, owner };
   };
   const agentLimit = s.guides.tokens + l.workTokensPerAgent;
   for (const role of ['buyer', 'seller'] as const) {
@@ -89,6 +111,10 @@ export function overLimits(s: Summary, events: readonly Event[], l: Limits): Ove
     }
     if (s.calls[role].apiCalls > l.apiCallsPerAgent) out.push({ measure: `API calls for the ${AGENT_NAME[role]}`, value: s.calls[role].apiCalls, limit: l.apiCallsPerAgent, where: [`${s.calls[role].apiErrors} of them answered with an error.`], cause: "Guess: a client tool polls the operators often while it waits; its poll interval may suit a person better than an agent's budget.", owner: 'a client tool' });
   }
+  for (const role of ['buyer', 'seller'] as const) {
+    if (l.peakContextPerAgent !== undefined && s.peakContext[role] > l.peakContextPerAgent) out.push({ measure: `peak context for the ${AGENT_NAME[role]}`, value: s.peakContext[role], limit: l.peakContextPerAgent, where: [`The ${AGENT_NAME[role]}'s largest turn read ${n(s.peakContext[role])} tokens of input.`, ...costly(role)], ...tokenCause(role) });
+  }
+  if (l.costPerDealMicroUsd !== undefined && s.costPerDealMicroUsd !== null && s.costPerDealMicroUsd > l.costPerDealMicroUsd) out.push({ measure: 'cost of the deal in micro-USD', value: s.costPerDealMicroUsd, limit: l.costPerDealMicroUsd, where: [split('buyer'), split('seller')], ...tokenCause() });
   if (s.tokens.deal > 2 * agentLimit) out.push({ measure: 'tokens for the deal', value: s.tokens.deal, limit: 2 * agentLimit, where: [split('buyer'), split('seller'), ...costly()], ...tokenCause() });
   if (s.workPassesToPaidSec !== null && s.workPassesToPaidSec > l.workPassesToPaidSec) out.push({ measure: 'seconds from the work passing to the seller being paid', value: s.workPassesToPaidSec, limit: l.workPassesToPaidSec, where: ['Settlement time, from the decision that the work passed to the payment.'], cause: 'Guess: the chain or the adjudicator was slow to act on the decision.', owner: 'the operators or the adjudicator' });
   for (const st of ev.filter((e) => e.kind === 'stall')) {
@@ -121,7 +147,7 @@ export function ticket(s: Summary, over: readonly Over[], paths: { record: strin
       `- Proposed owner: ${o.owner}.`,
       '',
     ]),
-    'The limits are guesses until the first live runs set a baseline (tools/duet/limits.json). Send this ticket to the coordinator, who routes each item to whoever should fix it.',
+    'The limits are provisional, set from the first live baseline (tools/duet/limits.json). Send this ticket to the coordinator, who routes each item to whoever should fix it.',
     '',
   ].join('\n');
 }

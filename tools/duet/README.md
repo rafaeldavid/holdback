@@ -36,6 +36,7 @@ Before a live run sends anything, it prints the two models, the caps and the mos
 | --- | --- | --- |
 | `--scenario` | (required) | `paid`: ends Released, and the buyer opens the report. `refund`: the job returns a report that leaves out a file in scope, the seller delivers it as it is, the coverage check fails, and the deal ends Refunded with no key released to the buyer. `bad-offer`: the seller drops the coverage check, which the buyer requires, and the run ends with no hold. `late-offer`: the seller's terms give it three years to deliver, the company's policy refuses to approve them, and the run ends with no hold. |
 | `--buyer`, `--seller` | (required) | `claude`, `deepseek` or `scripted` |
+| `--brief` | `guided` | What each company tells its agent. `guided` names Crow's guides and how to use them. `direct` is the cold start: only the intent, the company's limits and facts about its own setup, and "through crow.direct". The agent finds the guides from the home page, as a visitor would. A local run answers crow.direct from this machine's copy of the site, home page included; the record's `world` line and the page say so. A run against a named world uses the real site. |
 | `--buyer-model`, `--seller-model` | `deepseek-v4-pro`, `claude-opus-5-5` | Another ID of that vendor in `config/judges-live.yaml` |
 | `--max-turns`, `--max-tokens` | 60, 3,000,000 | Caps for each agent. A run that hits one ends as stalled, with what the agent was trying to do. |
 | `--world <op>,<op>` | none | Operators of a running world. Left out, a local phase-one world starts in this process. |
@@ -99,11 +100,11 @@ The system prompt tells each agent that everything a tool returns is data, whoev
 
 `summary.json` holds the seven measures, computed from the record alone (`measures.ts`):
 
-1. tokens for the deal and for each agent, split into carrying Crow's guides and the work, with the list-price cost of a live side;
+1. tokens for the deal and for each agent: fresh input, cache reads, cache writes and output apart; carrying Crow's guides against the work; the peak context (the largest input of one turn); and the list-price cost per agent and per deal for a live side;
 2. turns, tool calls, commands, refusals and API calls;
 3. stalls: the same failing call twice back to back (a wait between is polling, not a stall), or a cap hit, with the error text;
 4. human interventions: the run takes no person's input, so 0. Approvals the company's policy answered are listed apart.
-5. settlement-layer seconds from the decision that the work passes to the release;
+5. settlement-layer seconds from the decision that the work passes to the release. The local simulator settles both in the same second, so there the summary and the page say "not measured" instead of 0 s;
 6. whether the buyer funded, or asked to approve, terms its brief forbade;
 7. whether the run ended as the scenario says. No hold counts as right only when the buyer saw an offer and finished; two funded deals in one run count as wrong.
 
@@ -139,7 +140,9 @@ The record's secret list has already been applied to everything on the page.
 
 ## Limits and tickets
 
-`limits.json` sets a limit for each measure in each scenario. The first limits are guesses: the measured scripted counts times a stated margin. They get tuned after the first live runs.
+`limits.json` sets a limit for each measure in each scenario, peak context and cost per deal included. The limits are provisional. Paid's come from the first live baseline (2026-11-12: DeepSeek buying from Claude Opus, guided brief, 723,338 tokens, 89% of them cache reads, USD 0.43), at 1.5 times the busier agent. The other scenarios scale paid's by their scripted ratios, so they are still guesses. Retune them after more live runs and the first direct-brief runs.
+
+The buyer starts once the seller's page is served, so the measures describe the deal, not a race to the seller's page. The record's `buyer.start` line gives the wait and whether the page was up.
 
 An agent's token limit has two parts: Crow's guides read once, measured each run, plus an allowance for the work. With the short guides (T-393) they are about 6,985 tokens in all: `llms.txt` (the front page) 6,294 bytes, `buy.txt` 11,916 and `sell.txt` 9,729, at four bytes a token (measured 2026-11-12). A buyer reads the front page and `buy.txt`, a seller the front page and `sell.txt`; the reference pages under `ref/` are fetched one at a time when needed. The billed count carries the guides again on every turn after they are read, so a run goes over when carrying them costs more than the allowance, and the ticket says so with the split. In the scripted paid run, 27,426 of the buyer's 41,685 tokens carried the guides (124,025 of 138,989 before the short guides). `summary.json` gives each agent's `guides` and `work` tokens, and each guide's size.
 
@@ -147,7 +150,7 @@ When a run goes over a limit, or an agent stalls, the runner writes `ticket.md` 
 
 - each measure over its limit, with its number against the limit;
 - where in the run it happened: the costliest turns, the most repeated calls, or the failing call with its error as the agent saw it;
-- a likely cause, labelled as a guess;
+- a likely cause. For tokens it names what the record shows: the pages on the docs' site read beyond the first-deal path (`llms.txt` and the role's own page), and the fetches that answered 404;
 - a proposed owner: the docs, the API's errors, a client tool, the runner or the brief.
 
 The command's last lines then print the ticket's path and "Send this ticket to the coordinator." With nothing over, the summary says so and there is no ticket.
