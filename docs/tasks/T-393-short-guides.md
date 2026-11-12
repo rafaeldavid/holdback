@@ -166,7 +166,7 @@ What the reviewer could not run: anything on Sepolia ("Try it", `sell.txt` step 
   - `duet.test.ts`'s refund branch (lines 84 to 93) expects a token ticket, which no longer comes once the buyer reads `buy.txt`. Line 89's floor was lowered from 10,000 to 1,000 tokens in this task by the coordinator's leave; T-391 replaces that assertion.
 
 **Follow-ups:**
-- T-390 part 2: an offer dated outside the operators' time band stops the unattended path, and every approval stop shows the deadlines as dates. `buy.txt` steps 4 and 5 should say so once it merges. That is a small follow-up the coordinator sends with the commit.
+- T-390 part 2 (PR 446, 609cdd7): done in a follow-up pull request. `buy.txt` step 5 reads the `timeline` and the clock differences, and `ref/buyer-signer.txt` says a clock difference stops the unattended buy for approval.
 - The bundle of the buyer's tools (Decisions).
 - Text outside this task that still names a moved section (the repo-wide sweep at the merge). Agent-facing first:
   - `apps/operator/src/server.ts:322`, an answer's text, says `see "Encodings" in https://crow.direct/llms.txt`. It now lives in `ref/signing.txt`.
