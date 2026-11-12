@@ -44,8 +44,8 @@ import { privateKeyToAccount, sign as signDigest } from 'viem/accounts';
 import type { SimContext } from './context.js';
 import { loadClubFile, loadTermsFile, termsFromTemplate, type TermsTemplate } from './fixture-files.js';
 import type { AdjudicatorPolicy } from '@holdback/core';
-import { NEWEST_VERSIONS, type LoadedRegistry, type PolicyVersions } from '@holdback/judgment';
-import { keptRegistryFiles, loadJudgeRegistry, REGISTRY_FILE, runnerPolicy } from './judges-config.js';
+import type { LoadedRegistry, PolicyVersions } from '@holdback/judgment';
+import { buildDefaultVersions, keptRegistryFiles, loadJudgeRegistry, REGISTRY_FILE, runnerPolicy } from './judges-config.js';
 import { runJudgment, type JudgmentView } from './judgment.js';
 import type { Outage, StepProblem } from './prefix.js';
 import type { JudgeProvider } from './recorded.js';
@@ -248,7 +248,14 @@ export class StubSettlement {
    * The build the adjudicators run (ADR-0036): its default versions and registry. A restart_adjudicators step changes
    * it; every policy a build registered stays readable by hash, as the operators' store keeps it (ADR-0030 section 6).
    */
-  private build: { versions: PolicyVersions; registryFile: string } = { versions: NEWEST_VERSIONS, registryFile: REGISTRY_FILE };
+  private buildState: { versions: PolicyVersions; registryFile: string } | null = null;
+  private get build(): { versions: PolicyVersions; registryFile: string } {
+    this.buildState ??= { versions: buildDefaultVersions(this.root), registryFile: REGISTRY_FILE };
+    return this.buildState;
+  }
+  private set build(b: { versions: PolicyVersions; registryFile: string }) {
+    this.buildState = b;
+  }
   private readonly policies = new Map<string, AdjudicatorPolicy>();
   private stepNo = 0;
   private signerOverride: string | undefined;

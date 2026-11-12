@@ -8,6 +8,10 @@
     "screen-1/0xabb5ec9b/agg-3/whole": "0x8aa065c0e3b56de3929c3b488863228c33b6f7c52526f56fe1e40eaeefcef881",
     "screen-1/0xabb5ec9b/agg-3/seeded": "0xe39aef12ae9a05d24ac2ed85931fabf748a0745027bfd819181b95322b8969b0",
     "screen-1/0xabb5ec9b/agg-3/stride": "0x2c1f4b1a4802876839a500b908ba8daeb80b9c1b0401f718bf384b02a013eb12",
-    "screen-1/0xabb5ec9b/agg-3/appeal": "0xcd05fb801afc396ac7b57d36a86d1f8fabdc459e2e6befa6775d3484b7312559"
+    "screen-1/0xabb5ec9b/agg-3/appeal": "0xcd05fb801afc396ac7b57d36a86d1f8fabdc459e2e6befa6775d3484b7312559",
+    "screen-0/0xabb5ec9b/agg-3/unicode": "0xe207391f7c74e1d53ead7367b068881db5d5e60c8cad313d15a3fbdb104c7bdb",
+    "screen-0/0xabb5ec9b/agg-3/cells": "0x6f03b77756fc26457b648b9abe96a67bc659d924e7f3eb91edc7027ad6a0320b",
+    "screen-1/0xabb5ec9b/agg-3/unicode": "0xe207391f7c74e1d53ead7367b068881db5d5e60c8cad313d15a3fbdb104c7bdb",
+    "screen-1/0xabb5ec9b/agg-3/cells": "0x6f03b77756fc26457b648b9abe96a67bc659d924e7f3eb91edc7027ad6a0320b"
   }
 }

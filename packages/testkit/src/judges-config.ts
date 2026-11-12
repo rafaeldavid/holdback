@@ -21,6 +21,17 @@ export function keptRegistryFiles(root: string): string[] {
   return (doc.registries ?? []).filter((r) => r.status === 'kept' && typeof r.file === 'string').map((r) => r.file as string);
 }
 
+/**
+ * The default versions of the adjudicator build (ADR-0036): kept-policies.json's `default`, which a primary accepts new
+ * deals under. It can differ from the newest code while a new version ships "carried first, default second".
+ */
+export function buildDefaultVersions(root: string): PolicyVersions {
+  const path = join(root, 'apps/adjudicator/src/kept-policies.json');
+  if (!existsSync(path)) return NEWEST_VERSIONS;
+  const d = (JSON.parse(readFileSync(path, 'utf8')) as { default?: PolicyVersions }).default;
+  return d ? { screenVersion: d.screenVersion, promptTemplateHash: d.promptTemplateHash, appealPromptTemplateHash: d.appealPromptTemplateHash, aggregationVersion: d.aggregationVersion } : NEWEST_VERSIONS;
+}
+
 /** The registry is missing or refused. Always loud: no panel can be drawn without it. */
 export class RegistryError extends Error {
   override name = 'RegistryError';

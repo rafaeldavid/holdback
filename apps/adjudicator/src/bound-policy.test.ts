@@ -310,7 +310,15 @@ describe('the kept-policies data file and the code agree (the static check, ADR-
     const listed = KEPT_POLICIES.screens.map((x) => x.version);
     for (const v of ['screen-0', 'screen-1']) expect(listed).toContain(v);
     expect(KEPT_POLICIES.aggregations.map((x) => x.version)).toContain('agg-3');
+    expect(KEPT_POLICIES.templatePairs).toEqual(expect.arrayContaining([expect.objectContaining({ promptTemplateHash: '0xabb5ec9b33cf9a936e140bf8530c217f6629fdf1e08a46fbdf6bd7363ce84dd2', appealPromptTemplateHash: '0xa0bb1a5d8fa8ac53294a41556df71c098f73220d24efd9522e922f9004248659' })]));
     expect(KEPT_POLICIES.registries.map((r) => r.file)).toEqual(expect.arrayContaining(['config/judges.yaml', 'config/judges-live.yaml']));
+  });
+
+  it("the default policy's other fields are listed in policyParams, so the deploy guard can index deals accepted under it", async () => {
+    const file = (await import('./kept-policies.json', { with: { type: 'json' } })).default as { policyParams: Array<{ params: Record<string, unknown> }> };
+    const rest: Record<string, unknown> = { ...defaultPolicy('any/p1') };
+    for (const k of ['id', 'screenVersion', 'promptTemplateHash', 'appealPromptTemplateHash', 'aggregationVersion']) delete rest[k];
+    expect(file.policyParams.map((x) => x.params)).toContainEqual(rest);
   });
 
   it('refuses a withdrawn or retired mark without its decision reference and reason', () => {

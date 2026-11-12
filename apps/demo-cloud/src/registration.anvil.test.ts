@@ -158,10 +158,10 @@ describe.skipIf(!ready)(`an outside adjudicator on a live chain (anvil; T-221)${
       let read: J = null;
       for (const end = Date.now() + 15_000; Date.now() < end; await sleep(500)) {
         read = await three.buyer.call('GET', `/v1/commitments/${three.id}`);
-        if ((read.notices ?? []).some((n: string) => /appeal adjudicator declined/.test(n))) break;
+        if ((read.notices ?? []).some((n: string) => /appeal adjudicator .* cannot judge/.test(n))) break;
       }
       expect(read.appealState).toBe('open');
-      expect((read.notices ?? []).join(' ')).toMatch(/The appeal adjudicator declined this deal's appeal: .*registry.*The appeal expires at .*, and the first decision stands/);
+      expect((read.notices ?? []).join(' ')).toMatch(/The appeal adjudicator .* cannot judge this deal's appeal: this build does not carry registry .*What follows: the appeal expires at .*, and the first decision stands/);
       lap('deal 3 refused');
       expect(errors).toEqual([]);
       console.log(`T-221 anvil end to end, seconds from the world's start: ${JSON.stringify(took)}`);

@@ -504,6 +504,20 @@ export class Adjudicator {
     return this.#termsMismatch(c) ?? (await this.#turnProblem(c, role, { consented, cover: false, ahead: true })) ?? (await this.#runnable(c, role));
   }
 
+  /**
+   * ADR-0036 section 5: why this build cannot judge a deal on these terms in `role`, from the terms alone: the bound
+   * policy (carried, not withdrawn), the bound registry and a panel the role can seat; the questions `declines` asks of
+   * the build, without consent, bond or clock. The public state read shows it as a notice. null: it can judge the deal.
+   */
+  async cannotJudge(c: Pick<DecisionTask['commitment'], 'adjudication'>, role: DecisionTask['role']): Promise<Problem | null> {
+    const terms = c as DecisionTask['commitment'];
+    const policy = await this.#boundPolicy(terms);
+    if (!policy.ok) return policy.error;
+    const judges = this.#boundRegistry(terms);
+    if (!judges.ok) return judges.error;
+    return this.#seatProblem(policy.value.policy, role, judges.value.registry);
+  }
+
   /** The appeal adjudicators it takes a fallback turn under, itself included (T-212, T-221). */
   #trusted(): string[] {
     return [...new Set([this.address, ...(this.#cfg.trustedAdjudicators ?? []).map((a) => a.toLowerCase())])];
