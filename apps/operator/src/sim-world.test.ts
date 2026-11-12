@@ -352,6 +352,18 @@ describe('sim world test controls', () => {
     expect((await call('GET', `/v1/balances/${x.address}`)).body.amount).toBe('10000000000');
   });
 
+  it('the faucet admits a fresh address as the test service does: tokens and a mandate in the sim club (T-368)', async () => {
+    const fresh = privateKeyToAccount(`0x${'11'.repeat(31)}68`).address.toLowerCase();
+    const r = await fetch(`${api}/v1/faucet`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': crypto.randomUUID() }, body: JSON.stringify({ address: fresh, amount: '5000000' }) });
+    const grant = (await r.json()) as { granted: { amount: string }; clubId: string; mandate: { agent: string; clubId: string; scope: { roles: string[] }; mandateHash: string } };
+    expect(r.status).toBe(200);
+    expect(grant.granted.amount).toBe('5000000');
+    expect(grant.clubId).toBe(info.clubId);
+    expect(grant.mandate).toMatchObject({ agent: fresh, clubId: info.clubId, scope: { roles: ['buyer', 'seller'] }, mandateHash: expect.stringMatching(/^0x[0-9a-f]{64}$/) });
+    // Settlement checks this mandate's scope: the address may agree in the club now.
+    expect(world.chain.agentMandates().some((m) => m.agent.toLowerCase() === fresh && m.clubId === info.clubId)).toBe(true);
+  });
+
   it('fails panel deals whose work contains FAIL-ME, so the reject path is reachable', async () => {
     const input = { ...offerInput('buyer-2', 'seller-2'), template: 'default', checks: [], rubric: { passThreshold: 300, criteria: [{ id: 'ok', description: 'Fine.', weight: 1, anchors: { '0': 'No', '2': 'Partly', '4': 'Yes' } }] }, deliverable: { kind: 'document', description: 'a note', format: 'text/plain' } };
     const offer = (await call<Prepared>('POST', '/v1/prepare/offer', input)).body;

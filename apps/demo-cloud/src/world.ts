@@ -747,14 +747,22 @@ export class PublicWorld {
     const waiting = new Map<Hex32, WaitingTurn>();
     const operators: Operator[] = [];
     const publicUrls = String(o.env?.OPERATOR_URLS ?? '').split(',').map((u) => trimTrailingSlashes(u.trim())).filter((u) => /^https:\/\//.test(u));
-    // D39: the one discovery document carries what GET / used to list.
-    const demo = async (): Promise<DemoFacts> => {
+    // D39: the one discovery document carries what GET / used to list. T-066 adds the facts Crow Control reads by
+    // script: the deployed commit, the relayer's lanes, the faucet's daily mints and the judges' tokens by model.
+    const demo = async (): Promise<WorldDemoFacts> => {
       const today = await panel.budget.used();
       return {
         clubId: club.id,
         token: { id: token, decimals: 6 },
         adjudicators: ADJUDICATORS.map((a) => ({ role: a.role, address: adjudicators[a.role].address, name: nameOf(a, panel.live) })),
-        faucet: { path: '/v1/faucet', grant: tokenAmount(faucetAmount), maxGrant: tokenAmount(faucetMaxAmount), perAddressEverySec: faucetWindowSec, perClientPerWindow: faucetPerClient },
+        faucet: {
+          path: '/v1/faucet',
+          grant: tokenAmount(faucetAmount),
+          maxGrant: tokenAmount(faucetMaxAmount),
+          perAddressEverySec: faucetWindowSec,
+          perClientPerWindow: faucetPerClient,
+          ...(o.live ? { mintsPerDay: FAUCET_MINTS_PER_DAY } : {}),
+        },
         operators: publicUrls.length ? publicUrls : operators.map((op) => op.baseUrl).filter(Boolean),
         minWindowSec: m,
         // Who judges rubric deals: the registry every adjudicator here binds, and today's live budget (UTC).
@@ -763,9 +771,11 @@ export class PublicWorld {
           registry: { uri: panel.registryUri, hash: panel.registry.hash },
           models: panel.registry.active.map((e) => e.model),
           ...(panel.live
-            ? { liveCallsPerDay: panel.budget.perDay, liveCallsToday: today.calls, tokensToday: { input: today.inputTokens, output: today.outputTokens }, day: today.day }
+            ? { liveCallsPerDay: panel.budget.perDay, liveCallsToday: today.calls, tokensToday: { input: today.inputTokens, output: today.outputTokens, byModel: today.byModel ?? {} }, day: today.day }
             : { missing: panel.missing }),
         },
+        build: { commit: buildCommit(o.env) },
+        ...(o.live ? { relayer: relayerFacts(o.live.chain) } : {}),
       };
     };
     const panelText = () => (panel.live ? livePanel(panel.budget.perDay) : SCRIPTED_PANEL);
@@ -1433,6 +1443,32 @@ function feedbackFrom(o: PublicWorldOptions, requestLog: NonNullable<FeedbackOpt
 }
 
 const DECIMAL = /^(0|[1-9][0-9]{0,77})$/;
+
+/**
+ * Discovery's `demo` object as this world serves it: DemoFacts plus the facts Crow Control reads by script (T-066).
+ * spec/openapi/paths.json lists them under `Discovery.demo`.
+ */
+export type WorldDemoFacts = DemoFacts & {
+  faucet: DemoFacts['faucet'] & { mintsPerDay?: number };
+  /**
+   * The commit holdback-op1 was deployed from (BUILD_COMMIT, set by scripts/deploy.mjs), or null when unknown. The
+   * World Durable Object runs in holdback-op1, so both nodes show that Worker's commit.
+   */
+  build: { commit: string | null };
+  /** A chain world's relayer: the funding lane and the deal lanes that pay its gas (ADR-0028). */
+  relayer?: { fundingLane: string; dealLanes: string[] };
+};
+
+/** The deployed commit from the BUILD_COMMIT variable: 40 lowercase hex characters, or null. */
+export function buildCommit(env: Readonly<Record<string, string | undefined>>): string | null {
+  const c = String(env['BUILD_COMMIT'] ?? '').trim().toLowerCase();
+  return /^[0-9a-f]{40}$/.test(c) ? c : null;
+}
+
+/** The relayer's public addresses, from the chain's lane accounts: the first is the funding lane, the rest deal lanes. */
+export function relayerFacts(chain: { funding: string; lanes: readonly { address: string }[] }): { fundingLane: string; dealLanes: string[] } {
+  return { fundingLane: lc(chain.funding), dealLanes: chain.lanes.slice(1).map((a) => lc(a.address)) };
+}
 
 /**
  * ADR-0023: the demo's operator fee from Worker variables. OPERATOR_FEE_BPS (integer basis points, 0 to

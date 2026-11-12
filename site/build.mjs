@@ -10,6 +10,7 @@
 //                                                         note remains or while site/try.mjs is stale
 //
 // Lines starting with "%% " in llms.txt are editor notes: they never reach a published file.
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -621,6 +622,19 @@ export function filled(md, { op1, op2, command = tryCommand() }) {
   return out;
 }
 
+/** The checkout's commit, or null when its tracked files differ from it or git cannot answer (T-066). */
+export function buildCommit(git = (args) => spawnSync('git', ['-C', fileURLToPath(here('..')), ...args], { encoding: 'utf8' })) {
+  return commitOf(git(['rev-parse', 'HEAD']), git(['status', '--porcelain', '--untracked-files=no', '--ignore-submodules=dirty']));
+}
+
+/** Pure: a 40-hex HEAD from a clean tree, or null; a git call that failed counts as unknown, never as clean. */
+export function commitOf(head, status) {
+  const ok = (r) => r && r.status === 0 && !r.error && typeof r.stdout === 'string';
+  if (!ok(head) || !ok(status) || status.stdout.trim() !== '') return null;
+  const c = head.stdout.trim();
+  return /^[0-9a-f]{40}$/.test(c) ? c : null;
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   const arg = (n) => {
     const i = process.argv.indexOf(`--${n}`);
@@ -643,6 +657,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     writeFileSync(join(out, 'sell.txt'), sellerPage(readFileSync(here('sell.txt'), 'utf8')));
     writeFileSync(join(out, 'index.html'), page(txt));
     writeFileSync(join(out, 'try.mjs'), readFileSync(here('try.mjs')));
+    // T-066: the commit this site was built from, so Crow Control can tell what is merged but not live. null when the
+    // tree has uncommitted changes or git cannot answer.
+    writeFileSync(join(out, 'version.json'), `${JSON.stringify({ commit: buildCommit() }, null, 2)}\n`);
     for (const f of ['crow.png', 'crow-2x.webp', 'favicon.png', 'og.png']) writeFileSync(join(out, f), readFileSync(here(f)));
     // The visual walkthrough of a real two-agent deal, served at /visualdemo.
     mkdirSync(join(out, 'visualdemo'), { recursive: true });

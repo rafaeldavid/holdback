@@ -48,7 +48,9 @@ try {
   for (const w of WORKERS) w.before = (await liveVersion(w.name)) ?? fail(`wrangler cannot read ${w.name}'s live version (is it logged in?)`);
   for (const w of WORKERS) {
     uploaded = true;
-    const r = await sh('npx', ['-y', 'wrangler@4', 'deploy', '-c', here(`../${w.config}`)]);
+    // T-066: discovery's demo.build.commit names the commit each Worker runs, so Crow Control can tell what is
+    // merged but not live. The pre-flight above refused a changed tree, so `commit` is what was built.
+    const r = await sh('npx', ['-y', 'wrangler@4', 'deploy', '-c', here(`../${w.config}`), ...(/^[0-9a-f]{40}$/.test(commit) ? ['--var', `BUILD_COMMIT:${commit}`] : [])]);
     w.version = /Current Version ID:\s*([0-9a-f-]{36})/.exec(r.out)?.[1];
     if (r.code !== 0 || !w.version) fail(`${w.name}'s upload was refused`);
   }

@@ -376,6 +376,7 @@ export async function runAuditDeal(o: AuditDealOptions): Promise<AuditDealResult
     if (!(windowSec > deliverWithinSec - 900 && windowSec <= deliverWithinSec + 60)) throw new Refusal(`refusing to sign: the delivery deadline ${plain(String(offer.deadlines.deliverBy))} is ${windowSec} s away, not the ${deliverWithinSec} s agreed`);
     const panel = Array.isArray(expected.rubric?.criteria) && expected.rubric.criteria.length > 0;
     const approved: Approved = {
+      commitmentId: quote.commitmentId, // the approval names the offer it approves (T-368)
       seller,
       price: { token: pin.token.id, amount: priceUnits },
       fees: offer.fees,
@@ -870,6 +871,7 @@ export async function rehearse(o: RehearsalOptions): Promise<RehearsalResult> {
       if (!(windowSec > agreed - 900 && windowSec <= agreed + 60)) throw new Refusal(`refusing to sign: the delivery deadline ${plain(String(offer.deadlines.deliverBy))} is ${windowSec} s away, not the ${agreed} s agreed`);
     }
     const approved: Approved = {
+      commitmentId: id, // the approval names the offer it approves (T-368)
       seller, price: { token: pin.token.id, amount: ownTerms?.price.amount ?? offer.price.amount }, fees: offer.fees,
       deliverable: expected.deliverable, checks: expected.checks, ...(hasRubric ? { rubric: expected.rubric } : {}), deadlines: offer.deadlines, adjudicators, differences,
       settlement: offer.settlement, disclosure: offer.disclosure, clubId: offer.clubId, rulebookHash: offer.rulebookHash, policyId: offer.policyId, policyHash: offer.policyHash, registryHash: offer.registryHash, maxSubmissions: offer.maxSubmissions,

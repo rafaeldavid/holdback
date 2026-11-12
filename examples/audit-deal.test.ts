@@ -161,13 +161,17 @@ describe('examples/audit-deal.ts', () => {
     const selling = await startSeller({ operators: world.operators, report: 'ok', journal: join(dir, 'seller-journal.json'), pollMs: 50, log: () => {} });
     try {
       const script = fileURLToPath(new URL('./buy-with-signer.ts', import.meta.url));
-      const r = await new Promise<{ code: number | null; out: string; err: string }>((resolve) => {
-        const child = spawn(process.execPath, [script, selling.quoteUrl, join(dir, 'buyer-keys'), JSON.stringify(SCOPE), '2001200000'], { env: { ...process.env, HOLDBACK_OPERATORS: world.operators.join(',') } });
+      const node = (args: string[]) => new Promise<{ code: number | null; out: string; err: string }>((resolve) => {
+        const child = spawn(process.execPath, [script, ...args], { env: { ...process.env, HOLDBACK_OPERATORS: world.operators.join(',') } });
         let out = '', err = '';
         child.stdout.on('data', (d: Buffer) => (out += d.toString()));
         child.stderr.on('data', (d: Buffer) => (err += d.toString()));
         child.on('exit', (code) => resolve({ code, out, err }));
       });
+      // T-368: the script stops for approval first; the buyer approves the commitment ID it showed.
+      const stop = await node([selling.quoteUrl, join(dir, 'buyer-keys'), JSON.stringify(SCOPE), '2001200000']);
+      expect(stop.code, stop.err).toBe(3);
+      const r = await node(['approve', join(dir, 'buyer-keys'), JSON.parse(stop.out).commitmentId, '2001200000']);
       expect(r.code, r.err).toBe(0);
       const done = JSON.parse(r.out) as { commitmentId: string; paid: J; outcome: string; work: string };
       expect(done.outcome).toBe('Released');
