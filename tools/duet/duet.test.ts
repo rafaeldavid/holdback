@@ -342,6 +342,24 @@ describe("the agents' tools hold their limits", () => {
     }
   });
 
+  it("passes --help to the command itself, so the runner keeps no second copy of a command's usage", async () => {
+    const { tools, rec } = box();
+    const r = await tools.call('run_command', { command: 'check-delivery', args: ['--help'] });
+    expect(r.content).not.toMatch(/^Refused/);
+    expect(r.content).toMatch(/^exit /);
+    expect(lines(rec.file).some((e) => e.kind === 'command' && e.command === 'check-delivery' && JSON.stringify(e.args) === '["--help"]')).toBe(true);
+    expect((await tools.call('run_command', { command: 'adapter-log', args: ['--help'] })).content).toMatch(/^adapter-log: /);
+  });
+  // T-397 (T-393's session) makes every client command answer --help with its usage and one example. Unskip when it merges.
+  it.skip('T-397: every client command answers --help with its usage and one example, exit 0', async () => {
+    const { tools } = box();
+    for (const command of ['check-delivery', 'deal-record', 'seal']) {
+      const r = await tools.call('run_command', { command, args: ['--help'] });
+      expect(r.content).toMatch(/^exit 0/);
+      expect(r.content).toMatch(/usage/i);
+      expect(r.content).toMatch(/example/i);
+    }
+  });
   it("builds the commands' environment from nothing: no model key, only the seller's own key for the seller", () => {
     process.env['HOLDBACK_ANTHROPIC_API_KEY'] = 'sk-ant-should-not-pass';
     process.env['HOLDBACK_AGENT_ANTHROPIC_API_KEY'] = 'sk-ant-agent-should-not-pass';
