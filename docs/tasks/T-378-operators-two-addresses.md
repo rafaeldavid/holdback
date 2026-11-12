@@ -17,7 +17,7 @@ What it delivers, in the order of its pull requests:
 1. **The two addresses on the operator side.** The offer's prepare route takes a buyer payment address and a seller payout address as optional inputs. With none named, each defaults to its signing address, and `notices` says so in one line. The funding and the operator fee are signed by the payment address. The faucet sends test tokens to the payment address and the mandate to the signing address. The reference adjudicator and the test agents carry both fields. The advisory warnings of ADR-0033 section 7 (a zero address, one of the deployment's contracts, an adjudicator) go into `notices` and refuse nothing.
 2. **One token.** Every route that takes terms refuses a token that is not the deployment's, before it prepares anything to sign. One function makes the check, every such route calls it, and its error names the accepted token's identifier, symbol and decimals. Discovery states the same token. It applies on SimChain too.
 3. **The 37 s warning.** An escalation window below the smallest the chain can decide (37 s, ADR-0032) gets an advisory notice, never a refusal (D31).
-4. **The partner-facing local tools run phase-one rules.** SimChain gains a profile option that it passes into core's offer and step. The operator reads `phaseOne` from that profile, not from the settlement's kind. The adjudicator's SimChain port reads the same option. The local worlds that partners rehearse on choose phase one: `pnpm sim`, which the seller adapter's `--sim` connects to, and demo-cloud's `PublicWorld` on SimChain, which the rehearsal tool opens. `pnpm demo`, `pnpm snap` and the SimChain-only fixtures stay on the full protocol. `pnpm demo` is a scripted show that takes no terms from anyone, and it keeps its appeal beat (the coordinator, 2026-11-12). Nothing under `examples/` or `apps/demo/` changes.
+4. **The partner-facing local tools run phase-one rules.** SimChain gains a profile option that it passes into core's offer and step. The operator reads `phaseOne` from that profile, not from the settlement's kind. The adjudicator's SimChain port reads the same option. The local worlds that partners rehearse on choose phase one: `pnpm sim`, which the seller adapter's `--sim` connects to, and demo-cloud's `PublicWorld` on SimChain, which the rehearsal tool opens. `pnpm demo`, `pnpm snap` and the SimChain-only fixtures stay on the full protocol. `pnpm demo` is a scripted show that takes no terms from anyone, and it keeps its appeal beat (the coordinator, 2026-11-12). Nothing under `apps/demo/` changes. Under `examples/`, one line changes: `e2e-world.ts` keeps the round's SimChain world on the full protocol, with the coordinator's approval (decision 6).
 5. **The late-work settlement through the API.** `POST /v1/commitments/{id}/settlements` takes the late delivery with the settlement (SC-5b), so a settlement in `Held` that releases the key goes through an operator. `spec/openapi.json`, the SDK and one line in ADR-0033 change with it, inside schema v0.11.
 6. **Three follow-ups from AL-1** (crow-private triage of 2026-11-12): item 63 (the adjudicator's stale bond reasons on phase one), item 67 (its ten failing mutants) and the prepare test of item 84 (prepare refuses a `delivery` once one is posted).
 
@@ -88,7 +88,7 @@ Labels: measured, inferred, guessed. All runs are on this task's branches, 2026-
   - Info 6 is this section;
   - Info 7 belongs to T-357's residual.
 
-**Part 2, one token, the 37 s warning and three follow-ups (this PR):**
+**Part 2, one token, the 37 s warning and three follow-ups (holdback PR 412):**
 
 - `apps/operator/src/one-token.test.ts`: 11 of 11 tests pass [measured]. They cover one test per route that takes terms:
   - the offer prepare route, plain and hash-only, for a price and for a fee in another token;
@@ -112,6 +112,37 @@ Labels: measured, inferred, guessed. All runs are on this task's branches, 2026-
   - Info 3 (the refusal names the primary's registration as the fee's source) is fixed, with a test;
   - Info 4 is left: core refuses `TUSD` on SimChain later with its own message.
 
+**Part 3, the partner-facing local tools run phase-one rules (holdback PR 416):**
+
+- `apps/operator/src/sim-world-phase-one.test.ts`, on `pnpm sim`'s world: 5 of 5 tests pass [measured]:
+  - a non-zero appeal window is refused with core's `APPEAL_WINDOW_PROBLEM`, at prepare and on SimChain itself;
+  - a deal that holds nothing is refused with `ZERO_HOLD_PROBLEM` (AL-1's leftover route test);
+  - a party appeal is refused;
+  - the full protocol prepares all three.
+- demo-cloud `world.test.ts`: `PublicWorld` on SimChain runs phase one by default and refuses the same appeal window, and a world created before the profile existed reopens on the full protocol [measured].
+- Two gaps that phase one exposed in SimChain, fixed in `packages/settlement/sim/simchain.ts`:
+  - SimChain reserved the price as a bond at acceptance;
+  - a decided deal never became final, because core closes the appeal state at once on phase one.
+
+  On phase one SimChain now reserves no bond, and a decision is final when it settles, as the EVM adapter reports it.
+- The examples that open these worlds pass [measured]:
+  - the rehearsal (`audit-deal`, 26, its seven cases included);
+  - the seller adapter's three files (40, 10, 18);
+  - buyer-signer, buy-with-signer (5), buyer-signer-outcome (9), deal-record (9), try (7);
+  - the round's direct (8), silent (3), run (17) and adjudicator (6) files;
+  - examples (9), early-accept (5), private (8), verify (19).
+
+  The round's scripted and escalation files run SimChain-only scenarios, and pass with `examples/e2e-world.ts` on the full profile.
+- `pnpm snap`: 43 passed. `pnpm snap --settlement=local`: 36 passed, 0 failed, 7 excluded. No snapshot changed [measured].
+- The reviewer gave ISSUES, nothing Critical or High:
+  - M1 is fixed: SimChain reports `appealState` `none` on phase one, as the chain does;
+  - L4 is fixed: reopening a world under another profile throws;
+  - L5 is fixed: a whole deal on the phase-one world reserves no bond, is final at the decision, reads `appealState` `none` and refuses the appeal-expiry trigger;
+  - L6 is fixed in the Intent;
+  - L2, L3 and Info 7 are in the Handoff;
+  - Info 8 is as intended.
+- CI found two races in tests on this branch: the demo world's rebuild test took its digest before closing the world, and the posted-delivery settlement test (PR 412) did not silence the primary. Both are fixed; each passed three runs in a row [measured].
+
 ## Decisions
 
 1. **`pnpm demo` stays on the full protocol** (the coordinator, 2026-11-12, on this task's question). Phase one goes to `pnpm sim` and `PublicWorld` on SimChain. The Handoff lists any other local entry point that takes a party's own terms, with the profile it runs.
@@ -119,10 +150,29 @@ Labels: measured, inferred, guessed. All runs are on this task's branches, 2026-
 3. **`spec/openapi/paths.json`** is the source of `spec/openapi.json` (`pnpm openapi`). This task edits the source and regenerates the output (the coordinator, 2026-11-12).
 4. **The late delivery travels flat beside the settlement** as `delivery`, as `fund` does beside an `Agree`. It is not wrapped as `{settlement, delivery}`, so the route keeps one body form. The deal record gets no new marker in any event payload; the events already tell late work apart (the coordinator, 2026-11-12).
 5. **The token check reads the operator's own configuration** (`OperatorOptions.token`), not the settlement interface. `packages/settlement/src/interface.ts` is outside this task's paths. An operator configured without a token checks nothing; both worlds this repository runs configure one.
+6. **Which local worlds run phase one** (the coordinator, 2026-11-12):
+   - **Phase one:**
+     - `pnpm sim` (`sim-bin.ts`), which the seller adapter's `--sim` connects to;
+     - demo-cloud's `PublicWorld` on SimChain, by default, fixed when a world is created; the rehearsal opens this one.
+   - **Full protocol:**
+     - `pnpm demo`, a scripted show with its appeal beat;
+     - `pnpm snap` and the SimChain-only fixtures, where the cut features live;
+     - `startSimWorld`'s default, used by `tools/sim` and the examples' own SimChain worlds;
+     - the round's SimChain world (`examples/e2e-world.ts`, `simProfile: 'full'`), which runs the party-appeal and bond scenarios;
+     - a stored `PublicWorld` created before the profile existed.
 
 ## Handoff
 
 **Open, for later work:**
+
+- **Where a phase-one SimChain still differs from the chain** (PR 416 review; triage for the coordinator):
+  - L2: a default takes two triggers on SimChain (`default`, then `apply-default`), and its bond payout emits `bond.slashed` events of 0. On chain, `triggerDefault` does both in one call and emits no bond event.
+  - L3: SimChain does not check that the operator fee's nonce is `operatorFeeNonce(id)`, or that a funding authorization names the escrow's collector and the payment-info nonce, as the EVM adapter does. A signed message built by hand, not through prepare, passes locally and reverts on chain.
+  - Info 7: the operator and the adjudicator read `profile` from the settlement object by duck typing. A `profile` field on the settlement interface (`packages/settlement/src/interface.ts`) would make it explicit.
+- **Part 6, placed by the coordinator on 2026-11-12, after T-380's rounds PR:**
+  - the demo world's alarm for the fallback and for the escalation follows the round's publish time, with the margin read from the deployment;
+  - the 37 s notice computes its figure from the deployment's margin;
+  - a notice for the fallback window's floor (43 or 44 s).
 
 - **The 37 s notice assumes the 29 s beacon margin of ADR-0032,** which R8 (T-380) builds into the contract (PR 412 review, Low 2). Until that deployment, Sepolia's floor is 13 s, and the notice says it applies on a rules contract with that margin. A notice computed from the deployment's own margin can follow once the margin reaches the operator (T-380 adds `beaconMarginSec` to the settlement interface).
 

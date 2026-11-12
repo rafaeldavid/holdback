@@ -143,6 +143,9 @@ contract RulesHandler is Base {
     bool public fundOutOfOrder;
     /// T-358 (ADR-0033 §2b): whether the terms the last `agreeAndFund` relayed had an appeal window other than 0.
     bool public fundAppealWindow;
+    /// T-380 (R8 fix 3): whether the terms the last `agreeAndFund` relayed had a value core cannot represent: a
+    /// fallbackBy after 9999-12-31T23:59:59-23:59 or an escalation window above 2^32 - 1 s.
+    bool public fundUnrepresentable;
 
     // ------------------------------------------------------------ T-358: money addresses apart (ADR-0033)
 
@@ -460,13 +463,13 @@ contract RulesHandler is Base {
         uint256 mode = (seed >> 8) % 8;
         if (mode == 0 || mode > 3) return;
         uint256 target = deadline + mode - 2;
-        if (target > block.timestamp && target < CLOCK_CAP) vm.warp(target);
+        if (target > block.timestamp) vm.warp(target);
     }
 
-    /// T-375: the clock stays below 2^40 s (about the year 36,812). The word stores times in 40 bits (`t1`), and the
-    /// bound on them is a fix of package R8, not yet on the lane; the boundary offers' far deadlines (`_boundary`)
-    /// would otherwise carry the clock past it. R8 removes this cap when it adds that bound.
-    uint256 internal constant CLOCK_CAP = 1 << 40;
+    /// T-380 (R8 fix 3): 9999-12-31T23:59:59-23:59, the last deadline the rules contract funds. Every warp target is a
+    /// drawn offer's deadline (at most LAST_TIMESTAMP + 1 + 2^32 + MARGIN, about 2.577e11 s) or a step of at most 12 h,
+    /// so the clock stays far below 2^40 s, the word's `t1` width, in any campaign's length; T-375's `CLOCK_CAP` goes.
+    uint64 internal constant LAST_TIMESTAMP = 253_402_387_139;
 
     function _off(uint256 seed, uint256 shift, uint256 lo, uint256 hi) internal pure returns (uint64) {
         return uint64(_bound((seed >> shift) & 0xffffffff, lo, hi));
@@ -534,23 +537,27 @@ contract RulesHandler is Base {
     /// T-375 (triage item 46): moves offer `t` onto one bound the rules contract checks today, or one past it:
     /// 0, 1: the hold (price + fee) at the largest `uint120`, the escrow's `maxAmount` type, and one above it
     ///       (`Unrepresentable`). The buyer and the payment address hold enough to fund the first such deal;
-    /// 2, 3: the escrow's expiry (`fallbackBy + appealDecideSec + EXPIRY_MARGIN`) at the largest `uint48`, its
-    ///       `authorizationExpiry` type, and one above it (`Unrepresentable`), through the escalation window;
-    /// 4, 5: every deadline one second after the one before, the smallest gap SC-5 allows, and an escalation window
-    ///       of one second, the smallest SC-5 allows (4), or of two seconds, the smallest the sim beacon can decide
-    ///       (5). With one second the escalation's round (`t1 + 1`) is public only at the deadline, so that deal
+    /// 2, 3: since T-380, the escalation window at the largest `uint32`, core's window type, and one above it
+    ///       (`Unrepresentable`). T-375's case of the escrow's expiry at the largest `uint48` is gone: a window that
+    ///       large is now refused for its 32 bits first, and the expiry fits 48 bits for every window that funds;
+    /// 4, 5: since T-380, fallbackBy at 9999-12-31T23:59:59-23:59, the last second core can state, and one after it
+    ///       (`Unrepresentable`);
+    /// 6, 7: every deadline one second after the one before, the smallest gap SC-5 allows, and an escalation window
+    ///       of one second, the smallest SC-5 allows (6), or of two seconds, the smallest the sim beacon can decide
+    ///       (7). With one second the escalation's round (`t1 + 1`) is public only at the deadline, so that deal
     ///       always defaults: known finding F-2 (`docs/audit/state-model.md` section 6.3).
-    /// R8 adds the bounds it introduces to this list (the refinement plan, section 7d).
     function _boundary(H.Terms memory t, uint256 r) internal view {
-        uint256 k = r % 6;
+        uint256 k = r % 8;
         if (k <= 1) {
             t.price = uint256(type(uint120).max) - t.fee + k;
         } else if (k <= 3) {
-            t.timing.appealDecideSec = uint64(uint256(type(uint48).max) - t.timing.fallbackBy - MARGIN + k - 2);
+            t.timing.appealDecideSec = uint64(type(uint32).max) + uint64(k - 2);
+        } else if (k <= 5) {
+            t.timing.fallbackBy = LAST_TIMESTAMP + uint64(k - 4);
         } else {
             uint64 now_ = uint64(block.timestamp);
             (t.timing.offerExpiresAt, t.timing.fundBy, t.timing.deliverBy) = (now_ + 1, now_ + 2, now_ + 3);
-            (t.timing.judgeBy, t.timing.fallbackBy, t.timing.appealDecideSec) = (now_ + 4, now_ + 5, uint64(k - 3));
+            (t.timing.judgeBy, t.timing.fallbackBy, t.timing.appealDecideSec) = (now_ + 4, now_ + 5, uint64(k - 5));
         }
     }
 
@@ -563,6 +570,7 @@ contract RulesHandler is Base {
         fundOutOfOrder = tm.offerExpiresAt >= tm.fundBy || tm.fundBy >= tm.deliverBy || tm.deliverBy >= tm.judgeBy
             || tm.judgeBy >= tm.fallbackBy;
         fundAppealWindow = tm.appealWindowSec != 0;
+        fundUnrepresentable = tm.fallbackBy > LAST_TIMESTAMP || tm.appealDecideSec > type(uint32).max;
         bytes32 id = _ids[i];
         uint256 good = _rolePk[id][0];
         uint256 sk = _signer(signerSeed, SELLER_PK);
@@ -1160,7 +1168,7 @@ contract RulesHandler is Base {
             ];
             target = deadlines[(seed >> 16) % 9] + ((seed >> 24) % 3) - 1;
         }
-        if (target <= block.timestamp || target >= CLOCK_CAP) revert Refused();
+        if (target <= block.timestamp) revert Refused();
         vm.warp(target);
     }
 }

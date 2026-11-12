@@ -29,26 +29,32 @@ contract UntestedRevertsTest is Base {
         _fundExpectingRevert(t, HoldbackRules.Unrepresentable.selector);
     }
 
+    /// A rules contract whose EXPIRY_MARGIN puts terms `t`'s escrow expiry at type(uint48).max plus `over`. Since T-380
+    /// the terms cannot reach 48 bits (fallbackBy is bounded at the year 9999 and the escalation window at 32 bits), so
+    /// only a deployment's margin can.
+    function _withExpiryAt(H.Terms memory t, uint256 over) internal {
+        uint256 margin = uint256(type(uint48).max) - t.timing.fallbackBy - t.timing.appealDecideSec + over;
+        rules = new HoldbackRules(escrow, address(collector3009), uint64(margin), sim, address(usdc), 0);
+    }
+
     /// fallbackBy + appealDecideSec + EXPIRY_MARGIN must fit CPP's uint48 authorizationExpiry.
     function test_refuses_expiryAboveUint48_unrepresentable() public {
         H.Terms memory t = _terms();
-        t.timing.fallbackBy = uint64(type(uint48).max) - t.timing.appealDecideSec - MARGIN + 1;
+        _withExpiryAt(t, 1);
         _fundExpectingRevert(t, HoldbackRules.Unrepresentable.selector);
     }
 
-    /// The other side of the expiry bound: an expiry of exactly type(uint48).max funds (D31: far-future deadlines are
-    /// the parties' choice).
+    /// The other side of the expiry bound: an expiry of exactly type(uint48).max funds.
     function test_accepts_expiryAtUint48Max() public {
         H.Terms memory t = _terms();
-        t.timing.fallbackBy = uint64(type(uint48).max) - t.timing.appealDecideSec - MARGIN;
+        _withExpiryAt(t, 0);
         bytes32 id = _fund(t);
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held));
         assertEq(_held(t), PRICE + FEE);
     }
 
-    /// fundBy must fit CPP's uint48 preApprovalExpiry. Since SC-5 strict order puts the escrow's expiry after fundBy,
-    /// so a fundBy above uint48 also makes the expiry unrepresentable: this test pins the refusal, and no longer tells
-    /// the fundBy clause of the check (`HoldbackRules._paymentInfo`) apart from the expiry clause (reviewer, SC-5).
+    /// fundBy must fit CPP's uint48 preApprovalExpiry. Since T-380 the year-9999 bound on fallbackBy refuses it first,
+    /// and the separate fundBy clause in `_paymentInfo` is gone: fundBy is below fallbackBy, so it always fits.
     function test_refuses_fundByAboveUint48_unrepresentable() public {
         H.Terms memory t = _terms();
         t.timing.fundBy = uint64(type(uint48).max) + 1;

@@ -18,8 +18,9 @@ if (!Number.isInteger(port) || operatorPorts.some((p) => !Number.isInteger(p))) 
 
 let world: Awaited<ReturnType<typeof startSimWorld>>;
 try {
-  // One developer owns every account here, so GET / lists their keys (a shared world turns this off: tools/sim).
-  world = await startSimWorld({ port, operatorPorts, publishSecrets: true });
+  // One developer owns every account here, so GET / lists their keys (a shared world turns this off: tools/sim). Phase
+  // one's rules (T-378): the seller adapter's --sim and any agent rehearsing here is refused what the chain refuses.
+  world = await startSimWorld({ port, operatorPorts, publishSecrets: true, profile: 'phase_one' });
 } catch (e) {
   const err = e as NodeJS.ErrnoException & { port?: number };
   if (err.code !== 'EADDRINUSE') throw e;

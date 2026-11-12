@@ -17,7 +17,7 @@ const BASE = 'https://crow.direct/agents/test-buyer';
 const pin = knownPins()[0]!; // SimChain, as the in-process world settles
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const PRICE = { token: pin.token.id, amount: '25000000' };
-const TIMING = { offerExpiresInSec: 600, fundWithinSec: 900, deliverWithinSec: 1200, judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 60, appealDecideSec: 60 };
+const TIMING = { offerExpiresInSec: 600, fundWithinSec: 900, deliverWithinSec: 1200, judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 0, appealDecideSec: 60 };
 /** An address on a port nobody listens on: an operator that is offline. */
 const OFFLINE = 'http://127.0.0.1:9';
 
@@ -191,7 +191,8 @@ describe("Crow's test buyer", () => {
       [{ checks: [{ id: 'cols', type: 'csv_columns_exact', required: false, columns: ['customer_id', 'email'] }] }, 'accepts.checks.requiredAtLeast'],
       // A minute over the day: the window counts from settlement time at the post, a few seconds after createdAt.
       [{ timing: { ...TIMING, deliverWithinSec: 86_460, fundWithinSec: 900 } }, 'accepts.windows.maxDeliverWithinSec'],
-      [{ timing: { ...TIMING, appealWindowSec: 3601 } }, 'accepts.windows.maxJudgingSec'],
+      // Phase one states an appeal window of 0, so the escalation's window is the one a seller can stretch.
+      [{ timing: { ...TIMING, appealDecideSec: 3601 } }, 'accepts.windows.maxJudgingSec'],
     ];
     for (const [over, rule] of cases) {
       const { id } = await offerTo(s, seller, over);
