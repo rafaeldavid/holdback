@@ -31,7 +31,7 @@ A cleaned dataset has no delivery-versus-payment check of that kind, because whe
 The screen (`packages/judgment/src/screen.ts`, version `screen-1` since T-367) looks for text aimed at the judges. It reads the normalized text, the JSON string values of a JSON delivery, text decoded from `\u` escapes, and the characters hidden in Unicode tags. Each phrase is matched after folding case, accents, look-alike letters, spaced-out letters, leetspeak, ROT13 and reversed text.
 
 **It flags, on its own:**
-- an order to set aside the instructions: "ignore", "disregard" or "forget" with the instructions, the rubric, the prompt, the guidelines, the criteria, or what came "above", "previous" or "prior";
+- an order to set aside the instructions: "ignore", "disregard" or "forget" with the instructions, the rubric, the prompt, the guidelines, the criteria, the rules, or what came "above", "previous" or "prior";
 - text addressed to the judges: a note, message or memo to the panel, the judges, evaluators, graders, models, assistants or the AI, and a judge's, panel's or model's "note";
 - the judges, the panel, evaluators, graders or adjudicators told what to do ("the panel should accept this report");
 - a claim about the verdict: "the correct verdict", "the verdict is pass", "top marks", "perfect score";
@@ -40,11 +40,11 @@ The screen (`packages/judgment/src/screen.ts`, version `screen-1` since T-367) l
 - a role reset or a role tag: "you are now", "new instructions", `<system>`, "as an AI";
 - the verdict schema's own field, `injectionSuspected`;
 - hidden characters: Unicode tags, zero-width and bidi controls, characters NFKC changes, words that mix Latin with Cyrillic or Greek letters;
-- a decodable base64, hex or percent-encoded run whose decoded text holds any of the above, or reads as running prose (five words in a row); any decodable Morse run;
+- a decodable base64, hex or percent-encoded run whose decoded text holds any of the above, names a judging target, holds a weak phrase next to a judging target in the text around the run, or reads as running prose (five words in a row, with spaces, hyphens, underscores or camel case between them); any decodable Morse run;
 - text still encoded after two levels of decoding, and decoded text past 1 MiB (1,048,576 characters) in one delivery: both flag unread;
 - in a CSV, a cell that starts a spreadsheet formula.
 
-**It lets through phrases that are ordinary in honest work, unless a judging target sits within 80 characters of them.** A judging target is the verdict, the rubric, the judges, the panel, an evaluator, a grader, an adjudicator, `injectionSuspected`, or an `overall` value. The phrases:
+**It lets through phrases that are ordinary in honest work, unless a judging target sits within 80 characters of them.** A judging target is the verdict, the rubric, the judges, the panel, an evaluator, a grader, an adjudicator, an assistant, the AI or an LLM, `injectionSuspected`, an `overall` value, "every criterion", "the highest score", or an order on the work itself ("accept this report", "pass on this delivery"). The phrases:
 - "bypass" or "override" with "previous", "prior", "above" or "rules" ("an attacker can bypass the previous check");
 - "output", "return", "answer" or "print" followed by "pass" ("Expected output: [PASS] test_drain()", "return true; // all checks pass");
 - "pre-approved" and "the criteria are met" ("a pre-approved allowance"; a fix review's "the acceptance criteria are met");
