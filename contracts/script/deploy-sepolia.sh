@@ -10,20 +10,27 @@
 # Usage: contracts/script/deploy-sepolia.sh <rpc-url> <keystore-file> <password-file>
 #        contracts/script/deploy-sepolia.sh --check <rpc-url>
 #
+# A rehearsal (T-383): the same routine on a local anvil (chain 31337, an RPC on 127.0.0.1 or localhost only), with
+# DEPLOY_RECORD naming the record to write or check, so a rehearsal never writes over contracts/deployments/sepolia.json.
+# It deploys Sepolia's values, the beacon margin included, and Multicall3's canonical code must be at its address.
+#
 # Every check fails closed. Bash ignores a failure inside `$(...)` used as an argument or inside `[ ]`, and inside a
 # function running in `$(...)` (bash 3.2 has no inherit_errexit), so each substitution is a plain assignment or ends
 # in `|| fail`.
 set -euo pipefail
 
 SEPOLIA=11155111
-# foundry.toml pins chain_id 31337 for the local chain; every forge and cast call below signs for Sepolia instead.
-export FOUNDRY_CHAIN_ID=$SEPOLIA
+LOCAL=31337
 
 # Phase one funds by ERC-3009 only (ADR-0031 §3): no Permit2 and no Permit2 collector. Multicall3 stays: the ERC-3009
 # collector is built with it, for its ERC-6492 path.
 MULTICALL3=0xcA11bde05977b3631167028862bE2a173976CA11
 MULTICALL3_CODEHASH=0xd5c15df687b16f2ff992fc8d767b4216323184a2bbc6ee2f9c398c318e770891
 EXPIRY_MARGIN=86400 # T-206 review §7: one day, the value the local EVM world and the tests use
+# ADR-0032: the fallback's and the escalation's panel rounds are taken this many seconds after the last moment a
+# choice can still be made, two block slots on Sepolia. The constructor refuses 0 on any chain but the local one. This
+# is the one place the script names it: the create line, the creation-code check, the wiring check and the record.
+BEACON_MARGIN=29
 
 # drand quicknet round 1000, and the same signature plus an order-3 curve point outside G1 (T-206 audit cross-check).
 SIG_1000=0xb44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39
@@ -31,7 +38,8 @@ SIG_1000_PLUS_TORSION=0xabbaa2cd356c8b543308abe2c07d92facb092294f841b0c295786b63
 INVALID_SIGNATURE=0x8baa579f # DrandQuicknetBeacon's InvalidSignature()
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-OUT="$ROOT/deployments/sepolia.json"
+SEPOLIA_RECORD="$ROOT/deployments/sepolia.json"
+OUT="${DEPLOY_RECORD:-$SEPOLIA_RECORD}"
 BUILD_INPUTS=(src lib foundry.toml remappings.txt script/TestUSDC.sol)
 
 fail() {
@@ -117,11 +125,31 @@ creation_matches() {
 
 # field <jq path>: a value from the recorded deployment; missing or null fails.
 field() {
-  jq -er "$1" "$OUT" || fail "contracts/deployments/sepolia.json has no $1"
+  jq -er "$1" "$OUT" || fail "the record $OUT has no $1"
 }
 
-CHAIN="$(cast chain-id --rpc-url "$RPC")"
-[ "$CHAIN" = "$SEPOLIA" ] || fail "chain id $CHAIN is not Sepolia ($SEPOLIA)"
+CHAIN="$(cast chain-id --rpc-url "$RPC")" || fail "reading the chain id failed"
+case "$CHAIN" in
+"$SEPOLIA")
+  # A Sepolia run writes and checks the one Sepolia record.
+  [ "$OUT" = "$SEPOLIA_RECORD" ] || fail "on Sepolia the record is $SEPOLIA_RECORD; unset DEPLOY_RECORD"
+  ;;
+"$LOCAL")
+  LOCAL_RPC='^http://(127\.0\.0\.1|localhost)(:[0-9]+)?/?$'
+  # The URL stays out of the message: a hosted RPC's URL may carry its key.
+  [[ "$RPC" =~ $LOCAL_RPC ]] || fail "chain id $LOCAL is a rehearsal on this machine only; the RPC URL is not a local RPC (http://127.0.0.1 or http://localhost)"
+  [ -n "${DEPLOY_RECORD:-}" ] || fail "a rehearsal on the local chain needs DEPLOY_RECORD, the record to write or check"
+  # Compared as folders, resolved, not as strings: a relative or dotted spelling of sepolia.json names the same file.
+  # A rehearsal's record lives anywhere but contracts/deployments/, so it can never write over a kept record.
+  OUT_DIR="$(cd "$(dirname "$OUT")" 2>/dev/null && pwd -P)" || fail "the folder of DEPLOY_RECORD ($OUT) does not exist"
+  DEPLOYMENTS_DIR="$(cd "$ROOT/deployments" && pwd -P)" || fail "contracts/deployments is missing"
+  [ "$OUT_DIR" != "$DEPLOYMENTS_DIR" ] || fail "a rehearsal must not write or check a record in $DEPLOYMENTS_DIR; name a scratch file in DEPLOY_RECORD"
+  [ ! "$OUT" -ef "$SEPOLIA_RECORD" ] || fail "a rehearsal must not write or check $SEPOLIA_RECORD"
+  ;;
+*) fail "chain id $CHAIN is not Sepolia ($SEPOLIA), nor the local chain ($LOCAL) for a rehearsal" ;;
+esac
+# foundry.toml pins chain_id 31337 for the local chain; every forge and cast call below signs for this chain instead.
+export FOUNDRY_CHAIN_ID=$CHAIN
 
 # The build must be the recorded commit's: HEAD for a deployment, the record's commit for a check.
 if [ "$MODE" = deploy ]; then
@@ -172,7 +200,7 @@ if [ "$MODE" = deploy ]; then
   [ -f "$ROOT/script/TestUSDC.sol" ] || fail "script/TestUSDC.sol is missing: the rules contract needs its token at deploy"
   OUT_LINE="$(create "$TOKEN_ID")"
   read -r TOKEN TOKEN_TX <<<"$OUT_LINE"
-  OUT_LINE="$(create "$RULES_ID" "$ESCROW" "$C3009" "$EXPIRY_MARGIN" "$BEACON" "$TOKEN")"
+  OUT_LINE="$(create "$RULES_ID" "$ESCROW" "$C3009" "$EXPIRY_MARGIN" "$BEACON" "$TOKEN" "$BEACON_MARGIN")"
   read -r RULES RULES_TX <<<"$OUT_LINE"
 else
   ESCROW="$(field .contracts.AuthCaptureEscrow.address)"
@@ -185,6 +213,8 @@ else
   RULES_TX="$(field .contracts.HoldbackRules.tx)"
   TOKEN="$(field .token.address)"
   TOKEN_TX="$(field .token.tx)"
+  RECORDED_MARGIN="$(field .beaconMarginSec)"
+  [ "$RECORDED_MARGIN" = "$BEACON_MARGIN" ] || fail "the record's beaconMarginSec is $RECORDED_MARGIN; this script deploys $BEACON_MARGIN (ADR-0032)"
 fi
 
 # Each transaction succeeded, came from the deployer, and carried this build's creation code and arguments.
@@ -195,8 +225,8 @@ RULES_BLOCK="$(mined "$RULES_TX" "$RULES")"
 creation_matches "$ESCROW_ID" "$ESCROW_TX"
 creation_matches "$C3009_ID" "$C3009_TX" 'constructor(address,address)' "$ESCROW" "$MULTICALL3"
 creation_matches "$BEACON_ID" "$BEACON_TX"
-creation_matches "$RULES_ID" "$RULES_TX" 'constructor(address,address,uint64,address,address)' \
-  "$ESCROW" "$C3009" "$EXPIRY_MARGIN" "$BEACON" "$TOKEN"
+creation_matches "$RULES_ID" "$RULES_TX" 'constructor(address,address,uint64,address,address,uint64)' \
+  "$ESCROW" "$C3009" "$EXPIRY_MARGIN" "$BEACON" "$TOKEN" "$BEACON_MARGIN"
 
 # The deployment is wired as the review assumed. Phase one has no bond vault (ADR-0031 §8).
 TOKEN_STORE_IMPL="$(call "$ESCROW" 'tokenStoreImplementation()(address)')"
@@ -205,6 +235,7 @@ expect "rules ERC3009_COLLECTOR" "$C3009" call "$RULES" 'ERC3009_COLLECTOR()(add
 expect "rules BEACON" "$BEACON" call "$RULES" 'BEACON()(address)'
 expect "rules EXPIRY_MARGIN" "$EXPIRY_MARGIN" call "$RULES" 'EXPIRY_MARGIN()(uint64)'
 expect "rules TOKEN" "$TOKEN" call "$RULES" 'TOKEN()(address)'
+expect "rules BEACON_MARGIN" "$BEACON_MARGIN" call "$RULES" 'BEACON_MARGIN()(uint64)'
 expect "ERC-3009 collector escrow" "$ESCROW" call "$C3009" 'authCaptureEscrow()(address)'
 expect "ERC-3009 collector multicall3" "$MULTICALL3" call "$C3009" 'multicall3()(address)'
 
@@ -233,9 +264,9 @@ if [ -n "$TOKEN" ]; then
   NAME_HASH="$(cast keccak "$TOKEN_NAME")"
   VERSION_HASH="$(cast keccak 1)"
   DOMAIN_ENCODED="$(cast abi-encode 'f(bytes32,bytes32,bytes32,uint256,address)' \
-    "$DOMAIN_TYPEHASH" "$NAME_HASH" "$VERSION_HASH" "$SEPOLIA" "$TOKEN")"
+    "$DOMAIN_TYPEHASH" "$NAME_HASH" "$VERSION_HASH" "$CHAIN" "$TOKEN")"
   TOKEN_DOMAIN="$(cast keccak "$DOMAIN_ENCODED")"
-  expect "token DOMAIN_SEPARATOR (name, version 1, Sepolia, address)" "$TOKEN_DOMAIN" \
+  expect "token DOMAIN_SEPARATOR (name, version 1, chain $CHAIN, address)" "$TOKEN_DOMAIN" \
     call "$TOKEN" 'DOMAIN_SEPARATOR()(bytes32)'
   TOKEN_JSON="$(jq -n --arg address "$TOKEN" --arg tx "$TOKEN_TX" --argjson block "$TOKEN_BLOCK" \
     --arg name "$TOKEN_NAME" --arg symbol "$TOKEN_SYMBOL" --argjson decimals "$TOKEN_DECIMALS" \
@@ -259,10 +290,11 @@ RECORD="$(jq -n \
   --arg rules "$RULES" --arg rulesTx "$RULES_TX" --argjson rulesBlock "$RULES_BLOCK" \
   --arg value1000 "$VALUE_1000" --arg beaconCodeHash "$BEACON_CODEHASH" \
   --arg multicall "$MULTICALL3" --arg multicallCodeHash "$MULTICALL3_CODEHASH" \
-  --argjson expiryMarginSec "$EXPIRY_MARGIN" \
+  --argjson expiryMarginSec "$EXPIRY_MARGIN" --argjson beaconMarginSec "$BEACON_MARGIN" \
+  --argjson chainId "$CHAIN" \
   --argjson token "$TOKEN_JSON" --arg tokenAddress "$TOKEN" \
   '{
-    chainId: 11155111,
+    chainId: $chainId,
     commit: $commit,
     compiler: $compiler,
     deployer: $deployer,
@@ -273,6 +305,7 @@ RECORD="$(jq -n \
     rules: $rules,
     beacon: $beacon,
     expiryMarginSec: $expiryMarginSec,
+    beaconMarginSec: $beaconMarginSec,
     token: $token,
     checks: {
       creationCodeMatchesBuild: true,
@@ -288,15 +321,15 @@ RECORD="$(jq -n \
       ERC3009PaymentCollector: {address: $c3009, tx: $c3009Tx, block: $c3009Block, args: [$escrow, $multicall]},
       DrandQuicknetBeacon: {address: $beacon, tx: $beaconTx, block: $beaconBlock, args: []},
       HoldbackRules: {address: $rules, tx: $rulesTx, block: $rulesBlock,
-        args: [$escrow, $c3009, ($expiryMarginSec | tostring), $beacon, $tokenAddress]}
+        args: [$escrow, $c3009, ($expiryMarginSec | tostring), $beacon, $tokenAddress, ($beaconMarginSec | tostring)]}
     }
   }')"
 
 if [ "$MODE" = check ]; then
   RECORDED="$(jq -S . "$OUT")"
   DERIVED="$(jq -S . <<<"$RECORD")"
-  [ "$RECORDED" = "$DERIVED" ] || fail "contracts/deployments/sepolia.json differs from what the chain and this build give"
-  echo "deploy-sepolia: contracts/deployments/sepolia.json matches the chain and the build at $COMMIT"
+  [ "$RECORDED" = "$DERIVED" ] || fail "the record $OUT differs from what the chain and this build give"
+  echo "deploy-sepolia: $OUT matches the chain and the build at $COMMIT"
 else
   mkdir -p "$(dirname "$OUT")"
   printf '%s\n' "$RECORD" >"$OUT"
