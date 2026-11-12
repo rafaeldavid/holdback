@@ -47,9 +47,12 @@ if (!Number.isSafeInteger(caps.turns) || caps.turns < 1 || !Number.isSafeInteger
 const scenarios: ScenarioName[] = flag('scenario') ? [flag('scenario') as ScenarioName] : cmd === 'list' ? [...SCENARIOS] : fail('run needs --scenario paid, refund, bad-offer or late-offer');
 for (const s of scenarios) if (!SCENARIOS.includes(s)) fail(`${s} is not a scenario: ${SCENARIOS.join(', ')}`);
 const sides = { buyer: vendorOf(flag('buyer', cmd === 'list' ? 'deepseek' : undefined) ?? fail('run needs --buyer claude, deepseek or scripted')), seller: vendorOf(flag('seller', cmd === 'list' ? 'claude' : undefined) ?? fail('run needs --seller claude, deepseek or scripted')) };
-const models = { buyer: sides.buyer === 'scripted' ? null : pinnedModel(sides.buyer, flag('buyer-model')), seller: sides.seller === 'scripted' ? null : pinnedModel(sides.seller, flag('seller-model')) };
+const pinned = (v: 'anthropic' | 'deepseek', id: string | undefined) => { try { return pinnedModel(v, id); } catch (e) { return fail((e as Error).message); } };
+const models = { buyer: sides.buyer === 'scripted' ? null : pinned(sides.buyer, flag('buyer-model')), seller: sides.seller === 'scripted' ? null : pinned(sides.seller, flag('seller-model')) };
+const graceSec = Number(flag('grace', '90')), timeoutSec = Number(flag('timeout', '1800'));
+if (!Number.isSafeInteger(graceSec) || graceSec < 0 || !Number.isSafeInteger(timeoutSec) || timeoutSec < 1) fail('--grace and --timeout are whole seconds');
 
-/** The most one agent can cost: every capped token at the input price, plus every turn's output cap at the output price. */
+/** The most one agent can cost: every capped token at the dearest input price (a cache write), plus every turn's output cap at the output price. */
 const ceiling = (model: string | undefined) => {
   const p = model ? inputPrice(model) : null;
   return p ? Math.round((caps.tokens * p.input + caps.turns * MAX_OUTPUT_TOKENS * p.output) / 1_000_000) : 0;
@@ -61,7 +64,7 @@ const plan = () => {
     `Duet: ${scenarios.map((s) => `${s} (${scenario(s).expect})`).join('\n       ')}`,
     ...lines,
     `  caps   ${caps.turns} turns and ${caps.tokens.toLocaleString('en-US')} tokens per agent, ${MAX_OUTPUT_TOKENS} output tokens per turn`,
-    `  cost   at most ${usd(total)} per run at list prices (config/model-prices.json): each agent's token cap at its input price plus every turn's output cap at its output price; cached input costs less, so a run costs less`,
+    `  cost   at most ${usd(total)} per run at list prices (config/model-prices.json): each agent's token cap at its dearest input price (a cache write) plus every turn's output cap at its output price; the loop stops before a turn that would pass the token cap`,
     `  engine ${flag('world') ? `the running world at ${flag('world')}` : 'the local simulator, phase-one rules (SimChain, test tokens), started in this process'}`,
   ].join('\n');
 };
@@ -90,7 +93,7 @@ if (docs && docs.length !== 2) fail('--docs takes the guide URL and the seller p
 const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, 'Z');
 const out = resolve(flag('out', join(REPO, 'reports', 'scratch', 'duet'))!, `${scenarios[0]}-${sides.buyer}-${sides.seller}-${stamp}`);
 try {
-  const r = await runDuet({ scenario: scenarios[0]!, buyer: live.buyer, seller: live.seller, out, caps, ...(world ? { world } : {}), ...(docs ? { docs: { guide: docs[0]!, sell: docs[1]! } } : {}), graceSec: Number(flag('grace', '90')), timeoutSec: Number(flag('timeout', '1800')), secrets, log: (l) => console.log(l) });
+  const r = await runDuet({ scenario: scenarios[0]!, buyer: live.buyer, seller: live.seller, out, caps, ...(world ? { world } : {}), ...(docs ? { docs: { guide: docs[0]!, sell: docs[1]! } } : {}), graceSec, timeoutSec, secrets, log: (l) => console.log(l) });
   const s = r.summary;
   console.log(`\n${s.decisionRight ? 'As expected' : 'Not as expected'}: ${s.why}.`);
   console.log(`  deal ${s.outcome.commitmentId ?? 'none'}, ${s.outcome.state}; tokens ${s.tokens.deal.toLocaleString('en-US')}; stalls ${s.stalls.length}; human interventions ${s.humanInterventions}; owner approvals ${s.ownerApprovals.length}`);

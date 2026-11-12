@@ -46,7 +46,8 @@ export async function runAgent(o: { role: 'buyer' | 'seller'; provider: Provider
   const used = { input: 0, output: 0 };
   let turns = 0;
   let idle = 0;
-  const failing: string[] = [];
+  let streak = { call: '', repeats: 0, recorded: false };
+  let nextInput = 0; // an estimate of the next turn's input: the last one, plus what came back since
   let lastText = '';
   let lastCall = '';
   const end = (status: AgentEnd['status'], outcome: string, report = '', trying?: string): AgentEnd => {
@@ -59,18 +60,20 @@ export async function runAgent(o: { role: 'buyer' | 'seller'; provider: Provider
   for (;;) {
     if (o.signal.aborted) return end('ended', String(o.signal.reason ?? 'the run ended'), '', tryingNow());
     if (turns >= o.caps.turns) return stall(`the turn cap of ${o.caps.turns} turns`);
-    if (used.input + used.output >= o.caps.tokens) return stall(`the token cap of ${o.caps.tokens} tokens`);
+    // The cap holds before the turn that would cross it, not after: the next turn's input is estimated from the last.
+    if (used.input + used.output + nextInput + 8192 > o.caps.tokens) return stall(`the token cap of ${o.caps.tokens} tokens`);
     turns++;
     const started = Date.now();
     let a;
     try {
-      a = await provider.turn(system, history, o.tools.specs);
+      a = await provider.turn(system, history, o.tools.specs, o.signal);
     } catch (e) {
       rec.add(role, 'model.error', { vendor: provider.vendor, model: provider.model, turn: turns, error: (e as Error).message });
       return end('error', `the ${provider.vendor} API refused: ${(e as Error).message}`, '', tryingNow());
     }
     used.input += a.usage.input;
     used.output += a.usage.output;
+    nextInput = a.usage.input + a.usage.output;
     if (a.text) lastText = a.text;
     rec.add(role, 'model.turn', { vendor: provider.vendor, model: provider.model, turn: turns, ms: Date.now() - started, tokensIn: a.usage.input, tokensOut: a.usage.output, cacheRead: a.usage.cacheRead, cacheWrite: a.usage.cacheWrite, stop: a.stop, text: a.text, calls: a.calls.map((c) => ({ name: c.name, input: c.input })) });
     history.push({ role: 'assistant', text: a.text, calls: a.calls, raw: a.raw });
@@ -92,15 +95,19 @@ export async function runAgent(o: { role: 'buyer' | 'seller'; provider: Provider
       rec.add(role, 'tool', { turn: turns, name: c.name, input: c.input, ms: Date.now() - callStarted, isError: r.isError, bytes: Buffer.byteLength(r.content), result: rec.body(r.content).text });
       results.push({ id: c.id, content: r.content, isError: r.isError });
       if ('finished' in r && r.finished) finished = r.finished;
-      // The same call failing again: a stall on an unclear error, with its text. The third time ends the agent.
-      if (r.isError && c.name !== 'wait') {
-        failing.push(lastCall);
-        const repeats = failing.filter((f) => f === lastCall).length;
-        if (repeats >= 2) rec.add(role, 'stall', { reason: 'the same failing call again', repeats, call: lastCall.slice(0, 1000), error: rec.body(r.content).text });
-        if (repeats >= 3) {
-          history.push({ role: 'results', results });
-          return end('stalled', `the same failing call, ${repeats} times`, '', `${tryingNow()}; error: ${r.content.slice(0, 600)}`);
-        }
+      nextInput += Math.ceil(r.content.length / 3);
+      // The same call failing again and again, back to back: a stall on an unclear error, recorded once with its text.
+      // A third failure in a row ends the agent. A wait between two tries is polling on purpose, not a stall.
+      if (c.name === 'wait') { streak = { call: '', repeats: 0, recorded: false }; continue; }
+      if (!r.isError || lastCall !== streak.call) streak = { call: r.isError ? lastCall : '', repeats: r.isError ? 1 : 0, recorded: false };
+      else streak.repeats++;
+      if (streak.repeats >= 2 && !streak.recorded) {
+        streak.recorded = true;
+        rec.add(role, 'stall', { reason: 'the same failing call again', call: lastCall.slice(0, 1000), error: rec.body(r.content).text });
+      }
+      if (streak.repeats >= 3) {
+        history.push({ role: 'results', results });
+        return end('stalled', `the same failing call, ${streak.repeats} times in a row`, '', `${tryingNow()}; error: ${r.content.slice(0, 600)}`);
       }
     }
     history.push({ role: 'results', results });

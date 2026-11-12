@@ -100,71 +100,83 @@ export async function runDuet(o: RunOptions): Promise<RunResult> {
 
   say(`Starting ${o.world ? `against ${o.world.join(', ')}` : 'the local phase-one world'}.`);
   const world = await startWorld({ rec, ...(o.world ? { world: o.world } : {}), ...(o.docs ? { docs: o.docs } : {}), sellerPublic: join(real.sellerWork, 'public'), sellerName: SELLER_NAME, report: s.report, onSecret: (v) => secrets.add(v) });
-  const adapterPort = await freePort();
-  const sellerPage = `${world.web}/sellers/${SELLER_NAME}/`;
-  const adapter = `http://127.0.0.1:${adapterPort}`;
-  rec.add('runner', 'world', { engine: world.engine, docsChanges: world.docsChanges, local: world.local, chainId: world.chainId, token: world.token, operators: world.operators, docs: world.docs, sellerPage, jobApi: world.jobApi.api, adapter });
-
-  const ops: Allow[] = world.operators.map((u) => ({ origin: originOf(u) }));
-  const problems: Allow = { origin: 'https://crow.direct', paths: ['/problems/'] };
-  const docAllow = (d: { guide: string; sell: string }): Allow[] => [d.guide, d.sell].map((u) => ({ origin: originOf(u), paths: [new URL(u).pathname] }));
-  const page: Allow = { origin: originOf(world.web), paths: [`/sellers/${SELLER_NAME}/`] };
-  const buyerAllow: Allow[] = [...ops, ...docAllow(world.docs), page, { origin: adapter, paths: ['/defaults', '/quote'] }, problems];
-  const sellerAllow: Allow[] = [...ops, ...docAllow(world.docs), page, { origin: originOf(world.jobApi.url) }, { origin: adapter, paths: ['/defaults', '/quote'] }, problems];
-
-  const timeouts = o.commandTimeoutMs ?? { short: 180_000, long: 1_200_000 };
-  const buyerTools = new Toolbox({ role: 'buyer', work: real.buyerWork, owner: real.buyerOwner, repo: REPO, operators: world.operators, allow: buyerAllow, secrets, rec, keyStore, policy: s.policy, timeoutMs: timeouts });
-  const sellerTools = new Toolbox({ role: 'seller', work: real.sellerWork, owner: real.sellerOwner, repo: REPO, operators: world.operators, allow: sellerAllow, secrets, rec, sellerKey, adapterPort, jobApi: world.jobApi.url, timeoutMs: timeouts });
-  const facts = () => ({ docs: world.docs, sellerPage, jobApi: world.jobApi.api, adapterPort, keyStore, token: world.token, local: world.local });
-  const briefs = { buyer: buyerBrief(s, facts()), seller: sellerBrief(s, facts()) };
-  const scriptFacts = () => ({ docs: world.docs, sellerPage, jobApi: { ...world.jobApi.api, url: world.jobApi.url }, adapterPort, keyStore, operator: world.operators[0]! });
-  const providerOf = (role: 'buyer' | 'seller', side: Side): Provider => (side !== 'scripted' ? side : scripted(role === 'buyer' ? buyerScript(s.name, scriptFacts()) : sellerScript(s.name, scriptFacts())));
-
-  // Both agents run at once. When one finishes, the other has graceSec more; the whole run has timeoutSec.
-  const stops = { buyer: new AbortController(), seller: new AbortController() };
-  const whole = setTimeout(() => { for (const c of Object.values(stops)) c.abort(`the run's limit of ${o.timeoutSec ?? 1800} s`); }, (o.timeoutSec ?? 1800) * 1000);
-  const grace = (other: 'buyer' | 'seller') => setTimeout(() => stops[other].abort(`its counterparty finished ${o.graceSec ?? 90} s earlier`), (o.graceSec ?? 90) * 1000);
-  const timers: NodeJS.Timeout[] = [];
-  const play = (role: 'buyer' | 'seller', tools: Toolbox) =>
-    runAgent({ role, provider: providerOf(role, role === 'buyer' ? o.buyer : o.seller), brief: briefs[role], tools, caps: o.caps, rec, signal: stops[role].signal }).then((end) => {
-      say(`The ${role} ${end.status}: ${end.outcome}`);
-      timers.push(grace(role === 'buyer' ? 'seller' : 'buyer'));
-      return end;
-    });
-  say('Both agents start.');
-  let ends: AgentEnd[];
+  let ends: AgentEnd[] = [];
   try {
-    ends = await Promise.all([play('seller', sellerTools), play('buyer', buyerTools)]);
-  } finally {
-    clearTimeout(whole);
-    for (const t of timers) clearTimeout(t);
-    await sellerTools.close();
-  }
+    const adapterPort = await freePort();
+    const sellerPage = `${world.web}/sellers/${SELLER_NAME}/`;
+    const adapter = `http://127.0.0.1:${adapterPort}`;
+    rec.add('runner', 'world', { engine: world.engine, docsChanges: world.docsChanges, local: world.local, chainId: world.chainId, token: world.token, operators: world.operators, docs: world.docs, sellerPage, jobApi: world.jobApi.api, adapter });
 
-  // The chain's own account of each deal either side opened: state and events from every operator.
-  const ids = new Set<string>();
-  const journal = join(real.sellerWork, 'seller-adapter.journal.json');
-  if (existsSync(journal)) for (const id of Object.keys(JSON.parse(readFileSync(journal, 'utf8'))?.deals ?? {})) ids.add(id.toLowerCase());
-  if (existsSync(keyStore)) for (const n of readdirSync(keyStore)) if (/^0x[0-9a-f]{40}\.json$/.test(n)) { const id = JSON.parse(readFileSync(join(keyStore, n), 'utf8'))?.commitmentId; if (id) ids.add(String(id).toLowerCase()); }
-  const tx = (h: string) => (world.chainId === 11155111 ? `https://sepolia.etherscan.io/tx/${h}` : null);
-  for (const id of ids) {
-    for (const op of world.operators) {
-      try {
-        const st: J = await (await fetch(`${op}/v1/commitments/${id}`, { signal: AbortSignal.timeout(30_000) })).json();
-        const tr: J = await (await fetch(`${op}/v1/commitments/${id}/terms`, { signal: AbortSignal.timeout(30_000) })).json().catch(() => ({}));
-        const terms = tr?.terms ?? tr;
-        const addr = (p: J) => (String(p?.address ?? p ?? '').toLowerCase().match(/^0x[0-9a-f]{40}$/)?.[0] ?? null);
-        rec.add('runner', 'chain.state', { commitmentId: id, operator: op, escrowState: st?.escrowState ?? null, price: terms?.price ?? null, buyer: addr(terms?.buyer), seller: addr(terms?.seller), finalAt: st?.finalAt ?? null });
-        if (op !== world.operators[0]) continue;
-        const ev: J = await (await fetch(`${op}/v1/commitments/${id}/events?limit=200`, { signal: AbortSignal.timeout(30_000) })).json();
-        const items: J[] = Array.isArray(ev?.items) ? [...ev.items].sort((a, b) => a.seq - b.seq) : [];
-        for (const e of items) rec.add('runner', 'chain.event', { commitmentId: id, seq: e.seq, type: e.type, at: e.at, actor: e.actor ?? null, tx: e.payload?.tx ?? null, link: e.payload?.tx ? tx(e.payload.tx) : null, amount: e.payload?.amount ?? e.payload?.price ?? null, recipient: e.payload?.recipient ?? null, outcome: e.payload?.outcome ?? e.payload?.decision ?? null });
-      } catch (e) {
-        rec.add('runner', 'chain.error', { commitmentId: id, operator: op, error: (e as Error).message });
+    const ops: Allow[] = world.operators.map((u) => ({ origin: originOf(u) }));
+    const problems: Allow = { origin: 'https://crow.direct', paths: ['/problems/'] };
+    const docAllow = (d: { guide: string; sell: string }): Allow[] => [d.guide, d.sell].map((u) => ({ origin: originOf(u), paths: [new URL(u).pathname] }));
+    const page: Allow = { origin: originOf(world.web), paths: [`/sellers/${SELLER_NAME}/`] };
+    const buyerAllow: Allow[] = [...ops, ...docAllow(world.docs), page, { origin: adapter, paths: ['/defaults', '/quote'] }, problems];
+    const sellerAllow: Allow[] = [...ops, ...docAllow(world.docs), page, { origin: originOf(world.jobApi.url) }, { origin: adapter, paths: ['/defaults', '/quote'] }, problems];
+
+    const timeouts = o.commandTimeoutMs ?? { short: 180_000, long: 1_200_000 };
+    const stops = { buyer: new AbortController(), seller: new AbortController() };
+    const buyerTools = new Toolbox({ signal: stops.buyer.signal, role: 'buyer', work: real.buyerWork, owner: real.buyerOwner, repo: REPO, operators: world.operators, allow: buyerAllow, secrets, rec, keyStore, policy: s.policy, timeoutMs: timeouts });
+    const sellerTools = new Toolbox({ signal: stops.seller.signal, role: 'seller', work: real.sellerWork, owner: real.sellerOwner, repo: REPO, operators: world.operators, allow: sellerAllow, secrets, rec, sellerKey, adapterPort, jobApi: world.jobApi.url, timeoutMs: timeouts });
+    const facts = () => ({ docs: world.docs, sellerPage, jobApi: world.jobApi.api, adapterPort, keyStore, token: world.token, local: world.local });
+    const briefs = { buyer: buyerBrief(s, facts()), seller: sellerBrief(s, facts()) };
+    const scriptFacts = () => ({ docs: world.docs, sellerPage, jobApi: { ...world.jobApi.api, url: world.jobApi.url }, adapterPort, keyStore, operator: world.operators[0]! });
+    const providerOf = (role: 'buyer' | 'seller', side: Side): Provider => (side !== 'scripted' ? side : scripted(role === 'buyer' ? buyerScript(s.name, scriptFacts()) : sellerScript(s.name, scriptFacts())));
+
+    // Both agents run at once. When one finishes, the other has graceSec more; the whole run has timeoutSec.
+    const whole = setTimeout(() => { for (const c of Object.values(stops)) c.abort(`the run's limit of ${o.timeoutSec ?? 1800} s`); }, (o.timeoutSec ?? 1800) * 1000);
+    const grace = (other: 'buyer' | 'seller') => setTimeout(() => stops[other].abort(`its counterparty finished ${o.graceSec ?? 90} s earlier`), (o.graceSec ?? 90) * 1000);
+    const timers: NodeJS.Timeout[] = [];
+    const play = (role: 'buyer' | 'seller', tools: Toolbox) =>
+      runAgent({ role, provider: providerOf(role, role === 'buyer' ? o.buyer : o.seller), brief: briefs[role], tools, caps: o.caps, rec, signal: stops[role].signal }).then((end) => {
+        say(`The ${role} ${end.status}: ${end.outcome}`);
+        timers.push(grace(role === 'buyer' ? 'seller' : 'buyer'));
+        return end;
+      });
+    say('Both agents start.');
+
+    try {
+      ends = await Promise.all([play('seller', sellerTools), play('buyer', buyerTools)]);
+    } finally {
+      for (const c of Object.values(stops)) if (!c.signal.aborted) c.abort('the run ended'); // ends any command still running
+      clearTimeout(whole);
+      for (const t of timers) clearTimeout(t);
+      await sellerTools.close();
+    }
+
+    // The chain's own account of each deal either side opened: state and events from every operator. The seller's
+    // journal is in the seller agent's folder, so its IDs are only candidates: a deal counts only when its terms name
+    // this run's buyer (a key in the owner's key store) or this run's seller (the address its adapter logged at start).
+    const ids = new Set<string>();
+    const hex = (v: unknown) => (typeof v === 'string' && /^0x[0-9a-fA-F]{64}$/.test(v) ? v.toLowerCase() : undefined);
+    const journal = join(real.sellerWork, 'seller-adapter.journal.json');
+    try { if (existsSync(journal)) for (const id of Object.keys(JSON.parse(readFileSync(journal, 'utf8'))?.deals ?? {})) { const h = hex(id); if (h) ids.add(h); } } catch { rec.add('runner', 'chain.error', { error: 'the seller adapter journal is not JSON' }); }
+    const buyers = new Set<string>();
+    if (existsSync(keyStore)) for (const n of readdirSync(keyStore)) if (/^0x[0-9a-f]{40}\.json$/.test(n)) { buyers.add(n.slice(0, 42)); const h = hex(JSON.parse(readFileSync(join(keyStore, n), 'utf8'))?.commitmentId); if (h) ids.add(h); }
+    const sellerAddress = rec.events.filter((e) => e.kind === 'adapter.start').flatMap((e) => (e['lines'] as string[] | undefined) ?? []).map((l) => /Seller adapter for (0x[0-9a-fA-F]{40})/.exec(l)?.[1]?.toLowerCase()).find(Boolean);
+    const tx = (h: string) => (world.chainId === 11155111 ? `https://sepolia.etherscan.io/tx/${h}` : null);
+    for (const id of ids) {
+      for (const op of world.operators) {
+        try {
+          const st: J = await (await fetch(`${op}/v1/commitments/${id}`, { signal: AbortSignal.timeout(30_000) })).json();
+          const tr: J = await (await fetch(`${op}/v1/commitments/${id}/terms`, { signal: AbortSignal.timeout(30_000) })).json().catch(() => ({}));
+          const terms = tr?.terms ?? tr;
+          const addr = (p: J) => (String(p?.address ?? p ?? '').toLowerCase().match(/^0x[0-9a-f]{40}$/)?.[0] ?? null);
+          const ours = (addr(terms?.buyer) !== null && buyers.has(addr(terms?.buyer)!)) || (sellerAddress !== undefined && addr(terms?.seller) === sellerAddress);
+          if (!ours) { rec.add('runner', 'chain.skipped', { commitmentId: id, reason: "its terms name neither this run's buyer nor this run's seller" }); break; }
+          rec.add('runner', 'chain.state', { commitmentId: id, operator: op, escrowState: st?.escrowState ?? null, price: terms?.price ?? null, buyer: addr(terms?.buyer), seller: addr(terms?.seller), finalAt: st?.finalAt ?? null });
+          if (op !== world.operators[0]) continue;
+          const ev: J = await (await fetch(`${op}/v1/commitments/${id}/events?limit=200`, { signal: AbortSignal.timeout(30_000) })).json();
+          const items: J[] = Array.isArray(ev?.items) ? [...ev.items].sort((a, b) => a.seq - b.seq) : [];
+          for (const e of items) rec.add('runner', 'chain.event', { commitmentId: id, seq: e.seq, type: e.type, at: e.at, actor: e.actor ?? null, tx: e.payload?.tx ?? null, link: e.payload?.tx ? tx(e.payload.tx) : null, amount: e.payload?.amount ?? e.payload?.price ?? null, recipient: e.payload?.recipient ?? null, outcome: e.payload?.outcome ?? e.payload?.decision ?? null });
+        } catch (e) {
+          rec.add('runner', 'chain.error', { commitmentId: id, operator: op, error: (e as Error).message });
+        }
       }
     }
+  } finally {
+    await world.close();
   }
-  await world.close();
   rec.add('runner', 'run.end', { ends: ends.map((e) => ({ role: e.role, status: e.status, outcome: e.outcome })) });
   const summary = measure(rec.events);
   writeFileSync(join(dir, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);

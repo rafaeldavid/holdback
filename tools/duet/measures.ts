@@ -52,9 +52,10 @@ export function priceOf(model: string, t: { input: number; output: number; cache
   return Math.round((fresh * p.input + t.cacheRead * (p.cacheRead ?? p.input) + (t.cacheWrite ?? 0) * (p.cacheWrite5m ?? p.input) + t.output * p.output) / 1_000_000);
 }
 
+/** The highest price an input token can cost (a cache write can cost more than plain input), and the output price. */
 export function inputPrice(model: string): { input: number; output: number } | null {
   const p = PRICES[model.replace(/@\d{4}-\d{2}-\d{2}$/, '')];
-  return p ? { input: p.input, output: p.output } : null;
+  return p ? { input: Math.max(p.input, p.cacheWrite5m ?? 0), output: p.output } : null;
 }
 
 const sec = (at: unknown) => (typeof at === 'string' ? Date.parse(at) / 1000 : NaN);
@@ -76,10 +77,13 @@ export function measure(events: readonly Event[]): Summary {
   // The deal: the one that got furthest. A deal is funded once any event shows a hold; its state is what the first operator serves.
   const states = of('chain.state');
   const chain = of('chain.event');
-  const rank = (s: string) => ['Released', 'Refunded', 'Delivered', 'Held'].indexOf(s);
+  // Furthest first: a settled deal before a delivered one, before a held one, before one never funded.
+  const ORDER = ['Released', 'Refunded', 'Delivered', 'Held'];
+  const rank = (s: string) => (ORDER.includes(s) ? ORDER.indexOf(s) : ORDER.length);
   const byId = new Map<string, string>();
   for (const s of states) if (!byId.has(s.commitmentId)) byId.set(s.commitmentId, String(s.escrowState));
-  const best = [...byId.entries()].sort((a, b) => (rank(b[1]) === -1 ? -99 : rank(b[1])) - (rank(a[1]) === -1 ? -99 : rank(a[1])))[0];
+  const best = [...byId.entries()].sort((a, b) => rank(a[1]) - rank(b[1]))[0];
+  const fundedDeals = [...byId.values()].filter((v) => rank(v) < ORDER.length).length;
   const id = best?.[0] ?? null;
   const evs = chain.filter((e) => e.commitmentId === id);
   const funded = evs.some((e) => e.type === 'hold.funded') || ['Held', 'Delivered', 'Released', 'Refunded'].includes(best?.[1] ?? '');
@@ -108,7 +112,14 @@ export function measure(events: readonly Event[]): Summary {
   let why = '';
   if (want === 'Released') { decisionRight = state === 'Released' && opened; why = decisionRight ? 'Released, and the buyer opened the report' : `expected Released with the report opened; got ${state}${state === 'Released' && !opened ? ', the report not opened' : ''}`; }
   else if (want === 'Refunded') { decisionRight = state === 'Refunded' && !opened && !keyToBuyer; why = decisionRight ? 'Refunded, and no key reached the buyer' : `expected Refunded with no key released to the buyer; got ${state}${keyToBuyer ? ', a key released to the buyer' : ''}${opened ? ', and the buyer opened work' : ''}`; }
-  else { decisionRight = !funded; why = decisionRight ? 'no hold: the buyer signed nothing and paid nothing' : `expected no hold; the buyer funded ${id}`; }
+  else {
+    // No hold is right only when the buyer saw an offer, refused it, and finished: a run where nobody got that far is not.
+    const buyerEnd = of('agent.end', 'buyer')[0];
+    const sawOffer = stops.length > 0;
+    decisionRight = !funded && sawOffer && buyerEnd?.status === 'finished';
+    why = funded ? `expected no hold; the buyer funded ${id}` : !sawOffer ? 'expected the buyer to see the offer and refuse it; no offer reached the buyer\'s approval stop' : buyerEnd?.status !== 'finished' ? `expected the buyer to refuse and finish; it ${String(buyerEnd?.status ?? 'never ended')}` : 'no hold: the buyer saw the offer, signed nothing and paid nothing';
+  }
+  if (fundedDeals > 1) { decisionRight = false; why = `${why}; but ${fundedDeals} deals were funded in one run, where one was expected`; }
 
   const ends = of('agent.end');
   return {

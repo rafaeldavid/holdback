@@ -47,7 +47,8 @@ export interface Provider {
   vendor: 'anthropic' | 'deepseek' | 'scripted';
   /** The registry's model ID, with its @date. */
   model: string;
-  turn(system: string, history: readonly Turn[], tools: readonly ToolSpec[]): Promise<Answer>;
+  /** One turn. `signal` aborts the call when the run ends, retries and backoff included. */
+  turn(system: string, history: readonly Turn[], tools: readonly ToolSpec[], signal?: AbortSignal): Promise<Answer>;
 }
 
 export const KEY_ENV = { anthropic: 'HOLDBACK_AGENT_ANTHROPIC_API_KEY', deepseek: 'HOLDBACK_AGENT_OPENAI_COMPATIBLE_API_KEY' } as const;
@@ -108,16 +109,23 @@ export class VendorError extends Error {
 }
 
 /** POST with up to three retries on 429 and 5xx, waiting 2, 4 and 8 s. */
-async function post(url: string, headers: Record<string, string>, body: unknown, f: typeof fetch): Promise<J> {
+async function post(url: string, headers: Record<string, string>, body: unknown, f: typeof fetch, signal?: AbortSignal): Promise<J> {
+  const pause = (ms: number) => new Promise<void>((ok, fail) => {
+    if (signal?.aborted) return fail(new VendorError(0, 'the run ended'));
+    const t = setTimeout(ok, ms);
+    signal?.addEventListener('abort', () => { clearTimeout(t); fail(new VendorError(0, 'the run ended')); }, { once: true });
+  });
   for (let attempt = 0; ; attempt++) {
+    if (signal?.aborted) throw new VendorError(0, 'the run ended');
     let res: Response;
     try {
-      res = await f(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body), signal: AbortSignal.timeout(300_000) });
+      res = await f(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(300_000)]) : AbortSignal.timeout(300_000) });
     } catch (e) {
-      if (attempt < 3) { await new Promise((r) => setTimeout(r, 2000 * 2 ** attempt)); continue; }
+      if (signal?.aborted) throw new VendorError(0, 'the run ended');
+      if (attempt < 3) { await pause(2000 * 2 ** attempt); continue; }
       throw new VendorError(0, `network error: ${(e as Error).name}`);
     }
-    if ((res.status === 429 || res.status >= 500) && attempt < 3) { await new Promise((r) => setTimeout(r, 2000 * 2 ** attempt)); continue; }
+    if ((res.status === 429 || res.status >= 500) && attempt < 3) { await pause(2000 * 2 ** attempt); continue; }
     const json: J = await res.json().catch(() => undefined);
     if (!res.ok) {
       const e = json?.error;
@@ -135,16 +143,18 @@ export function anthropic(model: string, key: string, f: typeof fetch = fetch): 
   return {
     vendor: 'anthropic',
     model,
-    async turn(system, history, tools) {
+    async turn(system, history, tools, signal) {
       const messages: J[] = history.map((t) => {
         if (t.role === 'user') return { role: 'user', content: [{ type: 'text', text: t.text }] };
+        // An empty assistant turn is refused on the next request: it goes back as a short text.
+        if (t.role === 'assistant' && Array.isArray(t.raw) && t.raw.length === 0) return { role: 'assistant', content: [{ type: 'text', text: '(no reply)' }] };
         if (t.role === 'assistant') return { role: 'assistant', content: t.raw ?? [...(t.text ? [{ type: 'text', text: t.text }] : []), ...t.calls.map((c) => ({ type: 'tool_use', id: c.id, name: c.name, input: c.input }))] };
         return { role: 'user', content: t.results.map((r) => ({ type: 'tool_result', tool_use_id: r.id, content: r.content, is_error: r.isError })) };
       });
       const last = messages.at(-1)?.content?.at?.(-1);
       if (last) last.cache_control = { type: 'ephemeral' };
       const wire = tools.map((t, i) => ({ name: t.name, description: t.description, input_schema: t.input, ...(i === tools.length - 1 ? { cache_control: { type: 'ephemeral' } } : {}) }));
-      const b = await post(ANTHROPIC_URL, { 'x-api-key': key, 'anthropic-version': '2023-06-01' }, { model: providerModelId(model), max_tokens: MAX_OUTPUT_TOKENS, system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }], tools: wire, messages }, f);
+      const b = await post(ANTHROPIC_URL, { 'x-api-key': key, 'anthropic-version': '2023-06-01' }, { model: providerModelId(model), max_tokens: MAX_OUTPUT_TOKENS, system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }], tools: wire, messages }, f, signal);
       const content: J[] = Array.isArray(b?.content) ? b.content : [];
       return {
         text: content.filter((c) => c.type === 'text').map((c) => String(c.text ?? '')).join('\n'),
@@ -166,14 +176,14 @@ export function openaiCompatible(model: string, key: string, baseUrl: string, f:
   return {
     vendor: 'deepseek',
     model,
-    async turn(system, history, tools) {
+    async turn(system, history, tools, signal) {
       const messages: J[] = [{ role: 'system', content: system }];
       for (const t of history) {
         if (t.role === 'user') messages.push({ role: 'user', content: t.text });
-        else if (t.role === 'assistant') messages.push({ role: 'assistant', content: t.text || null, ...(t.calls.length ? { tool_calls: t.calls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.input) } })) } : {}) });
+        else if (t.role === 'assistant') messages.push({ role: 'assistant', content: t.text || (t.calls.length ? null : '(no reply)'), ...(t.calls.length ? { tool_calls: t.calls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.input) } })) } : {}) });
         else for (const r of t.results) messages.push({ role: 'tool', tool_call_id: r.id, content: r.content });
       }
-      const b = await post(`${baseUrl.replace(/\/$/, '')}/chat/completions`, { authorization: `Bearer ${key}` }, { model: providerModelId(model), messages, tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input } })), max_tokens: MAX_OUTPUT_TOKENS, ...extra }, f);
+      const b = await post(`${baseUrl.replace(/\/$/, '')}/chat/completions`, { authorization: `Bearer ${key}` }, { model: providerModelId(model), messages, tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input } })), max_tokens: MAX_OUTPUT_TOKENS, ...extra }, f, signal);
       const choice = b?.choices?.[0];
       const calls: Call[] = (Array.isArray(choice?.message?.tool_calls) ? choice.message.tool_calls : []).map((c: J, i: number) => {
         let input: J = {};

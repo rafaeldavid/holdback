@@ -112,9 +112,21 @@ export async function startWorld(o: WorldOptions): Promise<World> {
     local = true;
     closers.push(() => sim.close());
   }
+  try {
+    return await rest(o, operators, local, closers);
+  } catch (e) {
+    for (const c of closers.reverse()) await c().catch(() => undefined);
+    throw e;
+  }
+}
+
+async function rest(o: WorldOptions, operators: string[], local: boolean, closers: Array<() => Promise<void>>): Promise<World> {
   const discovery: J = await (await fetch(`${operators[0]}/.well-known/holdback.json`, { signal: AbortSignal.timeout(30_000) })).json();
-  const chainId = Number(discovery?.domain?.chainId ?? discovery?.eip712Domain?.chainId ?? 0);
-  if (chainId === 1) throw new Error('the world names Ethereum mainnet (chain 1): duet runs on SimChain, a local chain or a testnet only');
+  const chainId = Number(discovery?.domain?.chainId ?? 0);
+  // No real money: the repository's one list of mainnet chain IDs, and a world that names no chain, are refused.
+  const { MAINNET_CHAIN_IDS } = (await import('../../packages/core/dist/chains.js')) as { MAINNET_CHAIN_IDS: readonly number[] };
+  if (!Number.isSafeInteger(chainId) || chainId <= 0) throw new Error('the world\'s discovery names no chain ID: duet runs only where it can see the chain is a test chain');
+  if (MAINNET_CHAIN_IDS.includes(chainId)) throw new Error(`the world names chain ${chainId}, a mainnet: duet runs on SimChain, a local chain or a testnet only`);
   const token = String(discovery?.demo?.token?.id ?? 'tUSD');
   const docs = local ? await localGuide(operators) : undefined;
   const w = await web({ ...(docs ? { docs: { guide: docs.guide, sell: docs.sell } } : {}), sellers: { [o.sellerName]: o.sellerPublic } });

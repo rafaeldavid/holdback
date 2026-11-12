@@ -66,6 +66,8 @@ export interface ToolboxOptions {
   timeoutMs?: { short: number; long: number };
   /** The most characters one tool result gives the model. */
   resultLimit?: number;
+  /** Ends a running command when the run ends (SIGTERM, then SIGKILL after 3 s). */
+  signal?: AbortSignal;
 }
 
 /** What a tool call returns to the loop: the text the model reads, and whether it failed. */
@@ -235,11 +237,15 @@ export class Toolbox {
 
   /** The arguments as the command will get them, each one checked; or a refusal naming the one at fault. */
   private async check(command: string, args: string[]): Promise<string[]> {
+    // A file argument never starts with "-": a script that reads flags wherever they appear would take it as one,
+    // and the next argument would shift into the file's place (the red team's argument shift, T-391).
     const file = (a: string | undefined, what: string, mustExist = true) => {
       if (!a) throw new Refused(`${command} needs ${what}`);
+      if (a.startsWith('-')) throw new Refused(`${what} is a file name, and a file name here does not start with "-": rename it`);
       this.inside(a, { mustExist });
       return a;
     };
+    const once = (list: string[], names: string[]) => { for (const n of names) if (list.filter((a) => a === n).length > 1) throw new Refused(`${command} takes ${n} once`); };
     const flags = (rest: string[], allowed: Record<string, 'file' | 'value' | 'bare'>) => {
       for (let i = 0; i < rest.length; i++) {
         const kind = allowed[rest[i]!];
@@ -283,14 +289,24 @@ export class Toolbox {
       return args;
     }
     if (command === 'check-delivery') {
-      file(args[0], '<terms.json>');
-      file(args[1], '<file>');
-      flags(args.slice(2), { '--reference': 'file', '--mime': 'value', '--json': 'bare' });
+      // The same reading as the script's own parseArgs: flags anywhere, everything else a file, exactly two files.
+      once(args, ['--mime', '--json']);
+      const positional: string[] = [];
+      for (let i = 0; i < args.length; i++) {
+        const a = args[i]!;
+        if (a === '--json') continue;
+        if (a === '--reference') file(args[++i], 'the file after --reference');
+        else if (a === '--mime') { if (!/^[a-z]+\/[a-z0-9.+-]{1,80}$/.test(args[++i] ?? '')) throw new Refused('--mime takes a media type, such as application/json'); }
+        else if (a.startsWith('-')) throw new Refused(`check-delivery does not take ${JSON.stringify(a).slice(0, 80)}; it takes --reference, --mime and --json`);
+        else positional.push(file(a, 'each file'));
+      }
+      if (positional.length !== 2) throw new Refused('usage: check-delivery <terms.json> <file> [--reference <file>]... [--mime <type>] [--json]');
       return args;
     }
     if (command === 'deal-record') {
       if (!ID.test(args[0] ?? '')) throw new Refused('usage: deal-record <commitmentId> --as buyer|seller [--delivery <file>] [--settlement <file>] [--out <file>]');
       const rest = args.slice(1);
+      once(rest, ['--as', '--out', '--delivery', '--settlement']); // the script reads each flag's first occurrence
       const as = rest.indexOf('--as');
       if (rest[as + 1] !== this.o.role) throw new Refused(`you are the ${this.o.role}: --as ${this.o.role}`);
       const out = rest.indexOf('--out');
@@ -448,9 +464,14 @@ export class Toolbox {
       const cap = (s: string, d: Buffer) => (s.length < 2_000_000 ? s + d.toString('utf8') : s);
       child.stdout!.on('data', (d: Buffer) => void (out = cap(out, d)));
       child.stderr!.on('data', (d: Buffer) => void (err = cap(err, d)));
-      const timer = setTimeout(() => child.kill('SIGTERM'), timeout);
+      const stop = () => { child.kill('SIGTERM'); setTimeout(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); }, 3000).unref(); };
+      const timer = setTimeout(stop, timeout);
+      const onAbort = () => stop();
+      this.o.signal?.addEventListener('abort', onAbort, { once: true });
+      if (this.o.signal?.aborted) stop();
       child.on('close', (code, signal) => {
         clearTimeout(timer);
+        this.o.signal?.removeEventListener('abort', onAbort);
         if (this.o.role === 'buyer') this.learnKeys(); // before any of the output is scrubbed or recorded
         this.ingestFetches();
         const so = this.o.rec.body(out), se = this.o.rec.body(err);
@@ -525,6 +546,10 @@ export class Toolbox {
     if (a && a.exited === null) {
       a.child.kill('SIGTERM');
       await new Promise((r) => { a.child.once('exit', r); setTimeout(r, 3000); });
+      if (a.exited === null && a.child.exitCode === null) {
+        a.child.kill('SIGKILL');
+        await new Promise((r) => { a.child.once('exit', r); setTimeout(r, 2000); });
+      }
     }
     this.ingestFetches();
   }

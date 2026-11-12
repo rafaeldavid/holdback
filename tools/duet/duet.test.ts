@@ -2,17 +2,23 @@
 // record a live model would, so these tests prove the runner, the tools' limits, the record, the measures and the
 // replay page. They do not show that a model can do the deal from the docs: only a live run shows that.
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
+import { measure } from './measures.ts';
+import { startWorld } from './world.ts';
 import { runAgent } from './loop.ts';
 import { anthropic, liveProvider, openaiCompatible, scripted, type Turn } from './providers.ts';
 import { Recorder, Secrets } from './record.ts';
 import { REPO, runDuet } from './run.ts';
 import { Toolbox, type ToolboxOptions } from './tools.ts';
 
-const tmp = (name: string) => realpathSync(mkdtempSync(join(tmpdir(), `duet-${name}-`)));
+const made: string[] = [];
+const tmp = (name: string) => { const d = realpathSync(mkdtempSync(join(tmpdir(), `duet-${name}-`))); made.push(d); return d; };
+afterAll(() => { for (const d of made) rmSync(d, { recursive: true, force: true }); });
 const lines = (file: string) => readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
 
 describe('three scenarios, scripted, on the local phase-one world', () => {
@@ -99,6 +105,19 @@ describe("the agents' tools hold their limits", () => {
     }
     expect((await tools.call('bash', { command: 'env' })).content).toMatch(/^Refused: there is no tool/);
     expect(rec.events.filter((e) => e.kind === 'refused').length).toBe(5);
+  });
+
+  it("refuses the argument shift: a file named like a flag, or a --mime value that is a path (the red team's finding)", async () => {
+    const { tools, work, owner } = box({ role: 'buyer' });
+    writeFileSync(join(work, 'terms.json'), '{}');
+    writeFileSync(join(work, '--mime'), '');
+    writeFileSync(join(owner, 'outside.txt'), 'owner file');
+    for (const args of [['terms.json', '--mime', '--mime', join(owner, 'outside.txt')], ['terms.json', 'terms.json', '--mime', join(owner, 'outside.txt')], ['terms.json', 'terms.json', '--mime', 'a/b', '--mime', 'c/d'], ['terms.json', '-x']]) {
+      const r = await tools.call('run_command', { command: 'check-delivery', args });
+      expect(r.content).toMatch(/^Refused/);
+      expect(r.content).not.toContain('owner file');
+    }
+    expect((await tools.call('run_command', { command: 'deal-record', args: [`0x${'11'.repeat(32)}`, '--as', 'buyer', '--out', 'a.json', '--out', '../owner/b.json'] })).content).toMatch(/takes --out once/);
   });
 
   it('keeps file tools inside the folder, never through a link', async () => {
@@ -268,4 +287,35 @@ describe('the command line', () => {
     expect(r.stderr.trim().split('\n')).toEqual(['duet: deepseek needs HOLDBACK_AGENT_OPENAI_COMPATIBLE_API_KEY in the environment: nothing was sent']);
     expect(Date.now() - started).toBeLessThan(9_000);
   });
+});
+
+describe('the measures and the guards', () => {
+  const ev = (kind: string, role: string, fields: Record<string, unknown> = {}) => ({ t: 0, at: '2026-11-12T00:00:00.000Z', kind, role, ...fields }) as never;
+  const start = (endState: string) => ev('run.start', 'runner', { scenario: 'x', endState, buyer: { vendor: 'scripted', model: 'scripted' }, seller: { vendor: 'scripted', model: 'scripted' }, policy: { requiredChecks: ['coverage'] } });
+  it('takes the deal that got furthest, and calls two funded deals in one run wrong', () => {
+    const s = measure([start('Released'), ev('chain.state', 'runner', { commitmentId: 'a', escrowState: 'Held' }), ev('chain.state', 'runner', { commitmentId: 'b', escrowState: 'Released' }), ev('signer.outcome', 'buyer', { commitmentId: 'b', opened: true })]);
+    expect(s.outcome.commitmentId).toBe('b');
+    expect(s.decisionRight).toBe(false);
+    expect(s.why).toMatch(/2 deals were funded/);
+  });
+  it('does not call a run right for no hold when the buyer never saw an offer or did not finish', () => {
+    expect(measure([start('none'), ev('agent.end', 'buyer', { status: 'error' })]).decisionRight).toBe(false);
+    expect(measure([start('none'), ev('signer.stop', 'buyer', { commitmentId: 'a', checks: [] }), ev('agent.end', 'buyer', { status: 'stalled' })]).decisionRight).toBe(false);
+    expect(measure([start('none'), ev('signer.stop', 'buyer', { commitmentId: 'a', checks: [] }), ev('agent.end', 'buyer', { status: 'finished' })]).decisionRight).toBe(true);
+  });
+  it('refuses a world on a mainnet, or one whose discovery names no chain, before any agent starts', async () => {
+    for (const [domain, why] of [[{ chainId: 100 }, /chain 100, a mainnet/], [{ chainId: 1 }, /chain 1, a mainnet/], [{}, /names no chain ID/]] as const) {
+      const server = createServer((_q, res) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ domain })));
+      await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+      const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+      const dir = tmp('guard');
+      await expect(startWorld({ rec: new Recorder(join(dir, 'r.jsonl'), new Secrets()), world: [url, url], sellerPublic: dir, sellerName: 'x', report: 'ok', onSecret: () => undefined })).rejects.toThrow(why);
+      server.close();
+    }
+  });
+  it('typechecks: CI runs no tsc over this folder, so this test does', () => {
+    const r = spawnSync(process.execPath, [join(REPO, 'node_modules', 'typescript', 'bin', 'tsc'), '-p', join(REPO, 'tools', 'duet')], { encoding: 'utf8' });
+    expect(r.stdout + r.stderr).toBe('');
+    expect(r.status).toBe(0);
+  }, 120_000);
 });
