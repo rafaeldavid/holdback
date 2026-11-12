@@ -9,7 +9,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { verifyTypedData, type Hex } from 'viem';
+import { hashTypedData, verifyTypedData, type Hex } from 'viem';
 import { generatePrivateKey } from 'viem/accounts';
 import { MemoryStorage, PublicWorld } from '@holdback/demo-cloud';
 import { startSimWorld, type SimWorld } from '@holdback/operator';
@@ -202,6 +202,85 @@ describe('seller adapter: the settlement layer', () => {
     } finally {
       await served.close();
     }
+  });
+});
+
+/**
+ * A proxy in front of one operator that rewrites the sellerPayoutAddress of every prepared offer, in the body and in
+ * the typed data, and recomputes the digest: a consistent lie (attack.prepare-substitutes-payout-address).
+ */
+async function payoutLiar(upstream: string, to: string): Promise<{ url: string; close(): Promise<void> }> {
+  const server = createHttpServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const c of req) chunks.push(c as Buffer);
+    const r = await fetch(`${upstream}${req.url}`, { method: req.method!, headers: { 'content-type': req.headers['content-type'] ?? 'application/json', ...(req.headers['idempotency-key'] ? { 'idempotency-key': String(req.headers['idempotency-key']) } : {}) }, ...(chunks.length ? { body: Buffer.concat(chunks) } : {}) });
+    let out = await r.text();
+    if (req.url === '/v1/prepare/offer' && r.ok) {
+      const p = JSON.parse(out) as J;
+      p.submit.body.sellerPayoutAddress = to;
+      const { id: _id, signatures: _s, ...terms } = p.submit.body; // eslint-disable-line @typescript-eslint/no-unused-vars
+      for (const s of p.sign) {
+        s.typedData.message.sellerPayoutAddress = to;
+        s.digest = hashTypedData(typedOf('CommitmentTerms', terms, s.typedData.domain));
+      }
+      out = JSON.stringify(p);
+    }
+    res.writeHead(r.status, { 'content-type': r.headers.get('content-type') ?? 'application/json' }).end(out);
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, close: () => new Promise<void>((resolve) => { server.closeAllConnections(); server.close(() => resolve()); }) };
+}
+
+describe('seller adapter: the payout address (ADR-0033)', () => {
+  it('with none set, offers to pay the signing address and says so in one line at start', async () => {
+    const { running, lines } = await adapter();
+    const seller = acct('seller-1').address.toLowerCase();
+    expect(lines.filter((l) => / Payout address: /.test(l))).toEqual([expect.stringMatching(new RegExp(` Payout address: not set\\. Payments go to the signing address ${seller}\\.$`))]);
+    const q = await quoteFor(running, agent('buyer-1'));
+    expect(q.status, JSON.stringify(q.body)).toBe(200);
+    expect((await termsOf(agent('buyer-1'), q.body.commitmentId)).sellerPayoutAddress).toBe(seller);
+  });
+
+  it('reads payoutAddress from a configuration file, refuses a malformed one at start, and warns, without stopping, on an adjudicator', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 't379-'));
+    const file = join(dir, 'seller.json');
+    writeFileSync(file, JSON.stringify({ sellerApi: { quote: 'http://127.0.0.1:1/q', start: 'http://127.0.0.1:1/s', result: 'http://127.0.0.1:1/{jobId}' }, payoutAddress: `0x${'ab'.repeat(20)}` }));
+    expect(loadConfig(file).payoutAddress).toBe(`0x${'ab'.repeat(20)}`);
+    await expect(adapter({ payoutAddress: '0x1234' })).rejects.toThrow('payoutAddress must be an address: 0x and 40 hex characters');
+    const primary = world.info.adjudicators[0]!.address.toLowerCase();
+    const { lines } = await adapter({ payoutAddress: primary });
+    expect(lines.some((l) => l.includes(`Payout address: ${primary}. Payments go there; the signing address`))).toBe(true);
+    expect(lines.some((l) => l.includes("Warning: the payout address is the deal's primary adjudicator"))).toBe(true);
+  });
+
+  it('refuses to sign prepared terms that carry another payout address than its configuration (attack.prepare-substitutes-payout-address)', async () => {
+    const payout = `0x${'a1'.repeat(20)}`, attacker = `0x${'de'.repeat(20)}`;
+    const liar = await payoutLiar(world.info.operators[0]!, attacker);
+    try {
+      stub ??= await startStubSellerApi({ port: 0 });
+      const lines: string[] = [];
+      const [primary, fallback, appeal] = world.info.adjudicators.map((a) => a.address);
+      const running = await startSellerAdapter(
+        { ...shipped, port: 0, sellerApi: stub.api, clubId: world.info.clubId, adjudicators: { primary: primary!, fallback: fallback!, appeal: appeal! }, payoutAddress: payout, journal: join(mkdtempSync(join(tmpdir(), 't379-')), 'journal.json'), pollMs: 50, log: (l) => lines.push(l) },
+        { HOLDBACK_KEY: acct('seller-1').privateKey, HOLDBACK_OPERATORS: [liar.url, world.info.operators[1]!].join(',') },
+      );
+      adapters.push(running);
+      const q = await quoteFor(running, agent('buyer-1'));
+      expect(q.status).toBe(502);
+      expect(q.body).toMatchObject({ type: 'offer_failed' });
+      expect(lines.some((l) => / Offer failed: refusing to sign: body\.(sellerPayoutAddress|id) differs from what you asked for\.$/.test(l))).toBe(true);
+      expect(running.deals()).toEqual([]);
+    } finally {
+      await liar.close();
+    }
+  });
+
+  it('refuses a malformed buyerPaymentAddress in a quote with 400 and makes no offer', async () => {
+    const { running } = await adapter();
+    const buyer = agent('buyer-1');
+    const q = await post(`${running.url}/quote`, { buyer: buyer.address, buyerEncryptionPublicKey: buyer.encryptionPublicKey, buyerPaymentAddress: 'nobody', scope: SCOPE });
+    expect(q).toMatchObject({ status: 400, body: { detail: expect.stringMatching(/^buyerPaymentAddress must be an address/) } });
+    expect(running.deals()).toEqual([]);
   });
 });
 
