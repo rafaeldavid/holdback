@@ -5,12 +5,14 @@
 //
 // Needs anvil, forge, cast and jq on PATH and `forge build` output in contracts/out; the CI anvil job has all four.
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+// @ts-expect-error -- a plain .mjs script with no types
+import { recordCopies, trackedFiles } from '../../../scripts/record-copies.mjs';
 import { anvilAvailable } from './world.js';
 
 const root = fileURLToPath(new URL('../../..', import.meta.url));
@@ -332,6 +334,56 @@ describe.skipIf(!ready)(`the deploy script on a local chain (T-383)${ready ? '' 
     expect(deployed.code).not.toBe(0);
     expect(deployed.stderr).toContain('a rehearsal must not write or check');
   }, 120_000);
+
+  // The routine twice, with no hand edit between runs (T-383, "done looks like"): on a copy of the repository's
+  // tracked files, each run copies the record to its dated name, deploys, writes the copies with
+  // scripts/record-copies.mjs and checks all three token values. The copy starts as if the live world were a first
+  // local deployment: its record is sepolia.json and its table names that deployment's token for chain 31337. The site
+  // rebuild is left out here (--no-build); tests/record-copies.test.ts runs it.
+  it('runs the whole routine twice on the local chain with no hand edit', async () => {
+    const copy = realpathSync(mkdtempSync(join(tmpdir(), 't383-routine-')));
+    try {
+      for (const file of trackedFiles(root)) {
+        const from = join(root, file);
+        if (!existsSync(from) || statSync(from).isDirectory()) continue; // a submodule
+        mkdirSync(dirname(join(copy, file)), { recursive: true });
+        cpSync(from, join(copy, file));
+      }
+      const live = join(copy, 'contracts', 'deployments', 'sepolia.json');
+      const table = join(copy, 'packages', 'settlement', 'evm', 'accepted-tokens.json');
+      cpSync(record, live);
+      const first = JSON.parse(readFileSync(record, 'utf8'));
+      const t = JSON.parse(readFileSync(table, 'utf8'));
+      t['31337'] = { address: first.token.address, symbol: 'tUSDC', decimals: 6 };
+      writeFileSync(table, `${JSON.stringify(t, null, 2)}\n`);
+      const rules = [first.rules];
+      for (const day of ['2026-11-20', '2026-11-27']) {
+        // 1. The old record keeps its dated name.
+        const dated = `contracts/deployments/sepolia-${day}-domain-0.8.json`;
+        cpSync(live, join(copy, dated));
+        // 2. Deploy, into the copy's record.
+        const d = await chain.deploy(live, { ACCEPTED_TOKENS: table });
+        expect(d.code, d.stderr).toBe(0);
+        expect(d.stdout).toContain('the table names');
+        // 3. The record's copies.
+        const lines: string[] = [];
+        const code = recordCopies({ root: copy, oldPath: dated, newPath: 'contracts/deployments/sepolia.json', build: false, log: (l: string) => lines.push(l) });
+        expect(code, lines.join('\n')).toBe(0);
+        // 4. The check, now with all three token values.
+        const c = await chain.check(live, { ACCEPTED_TOKENS: table });
+        expect(c.stderr).toBe('');
+        expect(c.code).toBe(0);
+        const now = JSON.parse(readFileSync(live, 'utf8'));
+        expect(JSON.parse(readFileSync(table, 'utf8'))['31337'].address).toBe(now.token.address);
+        expect(readFileSync(join(copy, 'examples', 'deployments.ts'), 'utf8')).toContain(`rules: '${now.rules}',`);
+        rules.push(now.rules);
+      }
+      // Each run is a new deployment, so each is a new world: the Workers name it by the record's rules address.
+      expect(new Set(rules.map((r) => r.toLowerCase())).size).toBe(3);
+    } finally {
+      rmSync(copy, { recursive: true, force: true });
+    }
+  }, 600_000);
 
   it('the local chain id behind a URL that is not exactly a local origin is refused', async () => {
     // The same anvil, reached with user info in the URL: the chain answers 31337, and the script still refuses it.
