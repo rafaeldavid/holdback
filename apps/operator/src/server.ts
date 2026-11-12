@@ -28,6 +28,8 @@ import {
   type AnyCommitment,
   type AnyCommitmentTerms,
   type Deliverable,
+  type Delivery,
+  type MutualSettlement,
   type DisclosureLevel,
   type SettlementProjection,
   type CommitmentStateView,
@@ -297,6 +299,7 @@ function checkShape(op: Operation): void {
       return;
     case 'settle':
       message(op.message, 'MutualSettlement');
+      if (op.delivery) parsed(parseDelivery(op.delivery), 'delivery');
       return;
     case 'trigger':
       return;
@@ -703,6 +706,7 @@ export class Operator {
     const op = (parsedOp as Extract<typeof parsedOp, { ok: true }>).value;
     if ((op.kind === 'offer' || op.kind === 'hold') && (op.commitment as { id?: unknown }).id === undefined) fail('invalid_terms', MISSING_ID, { field: 'id' });
     checkShape(dryRun ? placeholderSigned(op) : op);
+    if (op.kind === 'settle' && op.delivery) await this.lateDeliveryRule(op.message, op.delivery);
     const signer = signerOf(op);
     const signerBucket = signer ? `w:${lc(signer)}` : undefined;
     if (signerBucket) this.admit(signerBucket, budget);
@@ -726,6 +730,21 @@ export class Operator {
       if (r.status < 300 && signerBucket) this.transfer(client, signerBucket);
       return r;
     });
+  }
+
+  /**
+   * SC-5b (T-357, T-378): a settlement carries a delivery only for the late work, the case it exists for: the settlement
+   * releases the key and names the delivery both signatures cover (core checks its hash and the buyer's envelope again).
+   * A carried delivery is refused here with the field named when the key is not released, when it is for another
+   * commitment, or when a different delivery is posted. When the same delivery was posted since, the body still settles.
+   */
+  private async lateDeliveryRule(m: MutualSettlement, d: Delivery): Promise<void> {
+    if (!m.releaseKey) fail('invalid_terms', 'delivery travels with a settlement only to release its key: leave delivery out when releaseKey is false; the settlement names the delivery by deliveryHash alone', { field: 'delivery' });
+    if (lc(d.commitmentId) !== lc(m.commitmentId)) fail('invalid_terms', `delivery is for ${d.commitmentId}, not ${m.commitmentId}`, { field: 'delivery.commitmentId' });
+    // PR 408 review, Low 2: once the same delivery is posted, the settlement layer uses the posted one and ignores the
+    // carried copy, so the body still settles (D31). Only a body that names another delivery than the posted one is refused.
+    const posted = await this.prepareContext().delivery(m.commitmentId);
+    if (posted && lc(posted.deliveryHash) !== lc(m.deliveryHash ?? '')) fail('invalid_terms', `a delivery is posted for ${m.commitmentId} (${posted.deliveryHash}) and the settlement names ${m.deliveryHash}; prepare the settlement again, naming the posted delivery, and leave delivery out`, { field: 'delivery' });
   }
 
   /**

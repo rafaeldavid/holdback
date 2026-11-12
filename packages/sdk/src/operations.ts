@@ -34,7 +34,11 @@ export type Operation =
   | { kind: 'early_accept'; message: EarlyAccept }
   | { kind: 'decide'; message: Decision }
   | { kind: 'appeal'; appeal: Appeal }
-  | { kind: 'settle'; message: MutualSettlement }
+  /**
+   * A mutual settlement. In Held it may carry the late work it names (SC-5b, T-357), the seller-signed delivery that was
+   * never posted, so the settlement layer can release the buyer's envelope in it; the body carries it as `delivery`.
+   */
+  | { kind: 'settle'; message: MutualSettlement; delivery?: Delivery }
   | { kind: 'trigger'; commitmentId: Hex32; timeout: TimeoutKind };
 
 /** Trigger kinds as they appear in a path: `expire-offer`, `appeal-expiry`, ... */
@@ -79,7 +83,7 @@ export function requestOf(op: Operation): { path: string; body: unknown } {
     case 'appeal':
       return { path: c('appeals'), body: op.appeal };
     case 'settle':
-      return { path: c('settlements'), body: op.message };
+      return { path: c('settlements'), body: { ...op.message, ...(op.delivery ? { delivery: op.delivery } : {}) } };
     case 'trigger':
       return { path: c(`triggers/${triggerPath(op.timeout)}`), body: {} };
   }
@@ -143,9 +147,13 @@ export function operationOf(segments: readonly string[], body: unknown): Result<
     case 'appeals':
       op = { kind: 'appeal', appeal: b as unknown as Appeal };
       break;
-    case 'settlements':
-      op = { kind: 'settle', message: b as unknown as MutualSettlement };
+    case 'settlements': {
+      // SC-5b (T-378): the late delivery travels beside the settlement's own fields, as `fund` does beside an Agree.
+      const { delivery, ...message } = b as Record<string, unknown>;
+      if (delivery !== undefined && !isObject(delivery)) return fail('invalid_terms', 'delivery, when given, is the seller-signed delivery the settlement names (delivery.schema.json)');
+      op = { kind: 'settle', message: message as unknown as MutualSettlement, ...(delivery !== undefined ? { delivery: delivery as unknown as Delivery } : {}) };
       break;
+    }
     default:
       return fail('not_found', 'no such route');
   }
@@ -179,7 +187,7 @@ export function submissionsOf(op: Operation): Submission[] {
     case 'appeal':
       return [{ kind: 'appeal', appeal: op.appeal }];
     case 'settle':
-      return [{ kind: 'mutual_settle', message: op.message }];
+      return [{ kind: 'mutual_settle', message: op.message, ...(op.delivery ? { delivery: op.delivery } : {}) }];
     case 'trigger':
       return [{ kind: 'trigger', commitmentId: op.commitmentId, timeout: op.timeout }];
   }

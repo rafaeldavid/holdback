@@ -233,7 +233,10 @@ describe('operator API: prepare, sign, submit', () => {
     return (await sign(pd, seller)).submit.body as unknown as Delivery;
   }
 
-  it('prepares a settlement for an unposted delivery from the agent\'s own copy, and the settlement layer releases its key', async () => {
+  // T-378: the late-work settlement through the HTTP API, end to end. The prepared body carries the delivery, both parties
+  // sign, and POST /settlements settles it and releases the buyer's envelope. The event log shows it as late work:
+  // commitment.settled with keyReleased true and key.released, with no delivery.submitted, and deliveryHash naming it.
+  it('settles late work through POST /settlements: the body carries the unposted delivery and the key is released', async () => {
     const id = await heldDeal('buyer-1', 'seller-1', '6000000');
     const late = await unposted(id, 'seller-1');
     const p = (await call<Prepared>('POST', '/v1/prepare/settlement', { commitmentId: id, nonce: nonce(), toSellerBps: 7000, delivery: late })).body;
@@ -241,14 +244,58 @@ describe('operator API: prepare, sign, submit', () => {
     expect(p.sign[0]!.typedData.message['deliveryHash']).toBe(deliveryHash(late));
     expect(p.defaults).toMatchObject({ releaseKey: true });
     expect(p.check.join(' ')).toMatch(/never posted.*nothing checks the seller's signature on it/);
-    expect(p.check.join(' ')).toMatch(/POST \/settlements does not carry a delivery yet/);
+    expect(p.check.join(' ')).toMatch(/submit\.body carries that delivery as delivery/);
+    expect(p.submit.body['delivery']).toEqual(late);
     await sign(await sign(p, 'buyer-1'), 'seller-1');
-    const message = p.submit.body as unknown as MutualSettlement;
-    const r = await world.chain.submit({ kind: 'mutual_settle', message, delivery: late });
-    expect(r.ok ? r.state.escrowState : r.problem.detail).toBe('Settled');
+    // A dry run takes the same body and changes nothing.
+    const dry = await fetch(`${api}${p.submit.path}?validateOnly=true`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(p.submit.body) });
+    expect([dry.status, ((await dry.json()) as { escrowState: string }).escrowState, dry.headers.get('holdback-signature-check')]).toEqual([200, 'Settled', 'verified']);
+    expect((await call('GET', `/v1/commitments/${id}`)).body.escrowState).toBe('Held');
+    const r = await call('POST', p.submit.path, p.submit.body);
+    expect([r.status, r.body.escrowState]).toEqual([200, 'Settled']);
     const keys = (await call('GET', `/v1/commitments/${id}/key?recipient=${acct('buyer-1').address}`)).body.items;
     const mine = late.encryptedKeys.find((k) => k.recipient.toLowerCase() === acct('buyer-1').address.toLowerCase())!;
     expect(keys.map((k: { ciphertext: string }) => k.ciphertext)).toEqual([mine.ciphertext]);
+    // The record tells late work apart, from the events alone.
+    const events = (await call('GET', `/v1/commitments/${id}/events?limit=200`)).body.items as Array<{ seq: number; type: string; payload: Record<string, unknown> }>;
+    const seqOf = (type: string) => events.find((e) => e.type === type)?.seq;
+    expect(events.map((e) => e.type)).not.toContain('delivery.submitted');
+    expect(events.find((e) => e.type === 'commitment.settled')?.payload).toMatchObject({ keyReleased: true });
+    expect(seqOf('key.released')).toBeGreaterThan(seqOf('commitment.settled')!);
+    expect((p.submit.body as unknown as MutualSettlement).deliveryHash).toBe(deliveryHash(late));
+  });
+
+  it('POST /settlements still settles a late-work body after the same delivery was posted (PR 408 review, Low 2)', async () => {
+    const id = await heldDeal('buyer-1', 'seller-1', '2000000');
+    const late = await unposted(id, 'seller-1');
+    const p = (await call<Prepared>('POST', '/v1/prepare/settlement', { commitmentId: id, nonce: nonce(), toSellerBps: 5000, delivery: late })).body;
+    await sign(await sign(p, 'buyer-1'), 'seller-1');
+    // The seller posts the same delivery after both signed; the decision has not come yet.
+    expect((await call('POST', `/v1/commitments/${id}/deliveries`, late)).body.escrowState).toBe('Delivered');
+    expect((await call('POST', p.submit.path, p.submit.body)).body.escrowState).toBe('Settled');
+  });
+
+  it('POST /settlements refuses a carried delivery that does not name the late work, and keys its idempotency on the delivery too', async () => {
+    const id = await heldDeal('buyer-2', 'seller-2', '3000000');
+    const late = await unposted(id, 'seller-2');
+    const p = (await call<Prepared>('POST', '/v1/prepare/settlement', { commitmentId: id, nonce: nonce(), toSellerBps: 5000, delivery: late })).body;
+    await sign(await sign(p, 'buyer-2'), 'seller-2');
+    const body = p.submit.body as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+    // releaseKey false: the delivery is not needed, so it is refused (the signatures fail too, but the rule answers first).
+    expect((await call('POST', p.submit.path, { ...body, releaseKey: false })).body).toMatchObject({ type: 'invalid_terms', field: 'delivery' });
+    expect((await call('POST', p.submit.path, { ...body, delivery: { ...late, commitmentId: `0x${'11'.repeat(32)}` } })).body).toMatchObject({ type: 'invalid_terms', field: 'delivery.commitmentId' });
+    expect((await call('POST', p.submit.path, { ...body, delivery: 'late' })).body).toMatchObject({ type: 'invalid_terms' });
+    // A delivery that does not hash to the signed deliveryHash: the settlement layer refuses it.
+    const other = await unposted(id, 'seller-2');
+    expect((await call('POST', p.submit.path, { ...body, delivery: other })).status).toBe(400);
+    // The same Idempotency-Key with another delivery is a conflict; with the same body it replays.
+    const post = (b: unknown) => fetch(`${api}${p.submit.path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': `late-${id}` }, body: JSON.stringify(b) });
+    const first = await post(body);
+    const replay = await post(body);
+    expect([first.status, replay.status]).toEqual([200, 200]);
+    // The replay is the stored answer, receipt included, not a second relay.
+    expect(await replay.json()).toEqual(await first.json());
+    expect((await post({ ...body, delivery: other })).status).toBe(409);
   });
 
   it('refuses to prepare a settlement for a delivery of another deal or with no buyer envelope', async () => {
