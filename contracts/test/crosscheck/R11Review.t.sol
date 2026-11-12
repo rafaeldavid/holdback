@@ -130,6 +130,26 @@ contract R11ReviewTest is Base {
         assertEq(usdc.balanceOf(appealAdj), FEE, "and the appeal adjudicator its fee");
     }
 
+    /// The one refusal `earlyAccept`'s description leaves out (T-384's second pull request): with a price of 0 the call
+    /// makes no capture, so the escrow's expiry does not stop it; once the payment address has reclaimed the hold, the
+    /// void of the fee reverts with the escrow's `ZeroAuthorization`. The timeouts still close the deal.
+    function test_r11_earlyAcceptAtPriceZero_afterThePayersReclaim_revertsAtTheVoid() public {
+        H.Terms memory t = _terms();
+        t.price = 0;
+        bytes32 id = _fund(t);
+        (H.Delivery memory d, H.KeyProof memory k) = _deliver(t, id);
+        H.EarlyAccept memory m = _early(t, id, BUYER_PK);
+        AuthCaptureEscrow.PaymentInfo memory pi = _pi(t);
+        vm.warp(pi.authorizationExpiry);
+        vm.prank(buyer);
+        escrow.reclaim(pi);
+        vm.expectRevert(abi.encodeWithSelector(AuthCaptureEscrow.ZeroAuthorization.selector, escrow.getHash(pi)));
+        rules.earlyAccept(t, m, d, "", k);
+        rules.triggerFallback(t);
+        rules.triggerDefault(t);
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded), "the timeouts still close the deal");
+    }
+
     // ------------------------------------------------------------ the outcome check
 
     /// No decision reaches the code that acts on its outcome without `H.isValidOutcome`: an escalation by the appeal
