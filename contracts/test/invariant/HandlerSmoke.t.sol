@@ -278,7 +278,7 @@ contract HandlerSmokeTest is Test {
             H.Terms memory t = x.termsOf(0);
             if (kind <= 1) assertEq(t.price + t.fee, uint256(type(uint120).max) + kind, "hold bound");
             if (kind == 2 || kind == 3) assertEq(t.timing.appealDecideSec, uint256(type(uint32).max) + kind - 2, "window");
-            if (kind == 4 || kind == 5) assertEq(t.timing.fallbackBy, 253_402_300_799 + kind - 4, "year 9999");
+            if (kind == 4 || kind == 5) assertEq(t.timing.fallbackBy, 253_402_387_139 + kind - 4, "year 9999");
             if (kind >= 6) {
                 assertEq(t.timing.fallbackBy - t.timing.offerExpiresAt, 4, "deadlines one second apart");
                 assertEq(t.timing.appealDecideSec, kind - 5, "the smallest escalation windows");

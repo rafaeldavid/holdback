@@ -365,10 +365,15 @@ describe('offer', () => {
       expect(parsed({ appealDecideSec: 2 ** 32 - 1 }).ok).toBe(true);
       expect(parsed({ appealDecideSec: 2 ** 32 })).toMatchObject({ ok: false, error: { type: 'invalid_terms' } });
     });
-    it('parses a fallbackBy of 9999-12-31T23:59:59Z and refuses the next second', () => {
+    // The last instant RFC 3339 can state is 9999-12-31T23:59:59-23:59 (a four-digit year, the largest offset): the
+    // contract's LAST_TIMESTAMP. No RFC 3339 string names a later second, so core cannot carry one (T-380 review).
+    it('parses a fallbackBy at the last RFC 3339 instant, 253,402,387,139 s, and refuses a later year', () => {
+      expect(parsed({ fallbackBy: '9999-12-31T23:59:59-23:59' }).ok).toBe(true);
+      expect(Date.parse('9999-12-31T23:59:59-23:59') / 1000).toBe(253_402_387_139);
+      expect(parsed({ fallbackBy: '9999-12-31T23:59:59-00:01' }).ok).toBe(true);
       expect(parsed({ fallbackBy: '9999-12-31T23:59:59Z' }).ok).toBe(true);
       expect(parsed({ fallbackBy: '+010000-01-01T00:00:00Z' })).toMatchObject({ ok: false, error: { type: 'invalid_terms' } });
-      expect(Date.parse('9999-12-31T23:59:59Z') / 1000).toBe(253_402_300_799);
+      expect(parsed({ fallbackBy: '10000-01-01T00:00:00Z' })).toMatchObject({ ok: false, error: { type: 'invalid_terms' } });
     });
   });
 

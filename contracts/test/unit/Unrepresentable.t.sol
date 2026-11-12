@@ -8,17 +8,18 @@ import {Base} from "./Base.sol";
 /// @title The contract refuses what core cannot represent, at core's bounds (T-380, R8 fix 3)
 /// @notice `agreeAndFund` refuses with `Unrepresentable`, before any signature is checked, terms that core's encoding
 ///         cannot state, and only those (D31: parametrize, don't restrict):
-///         - a deadline after 9999-12-31T23:59:59Z (253,402,300,799 s): core's timestamps are RFC 3339 with
-///           four-digit years. The deadlines are in strict order, so `fallbackBy` bounds them all;
+///         - a deadline after 9999-12-31T23:59:59-23:59 (253,402,387,139 s): core's timestamps are RFC 3339, whose
+///           last instant has a four-digit year and the largest offset. The deadlines are in strict order, so
+///           `fallbackBy` bounds them all;
 ///         - an escalation window (`appealDecideSec`) above 2^32 - 1 s: core's window type (`parse.ts`);
 ///         - a hold (`price + fee`) above 2^120 - 1: the escrow's `maxAmount` type, refused as before; since T-380 core
 ///           refuses it too (`state.ts`, the phase-one profile).
 ///         With the first two, every time the word stores in `t1` fits its 40 bits: `t1` is a block time before
-///         `fallbackBy + appealDecideSec` <= 257,697,268,094 < 2^40. Each test sends the value on each side of its bound;
+///         `fallbackBy + appealDecideSec` <= 257,697,354,434 < 2^40. Each test sends the value on each side of its bound;
 ///         the parent funded every refused value here but the hold. `packages/core/src/state.test.ts` shows core refusing
 ///         the same values at the same bounds.
 contract UnrepresentableTest is Base {
-    uint64 internal constant LAST_TIMESTAMP = 253_402_300_799;
+    uint64 internal constant LAST_TIMESTAMP = 253_402_387_139;
 
     function _fundCall(H.Terms memory t) internal returns (bool ok, bytes memory ret) {
         bytes memory data = abi.encodeCall(
@@ -44,15 +45,22 @@ contract UnrepresentableTest is Base {
         assertEq(uint8(rules.dealOf(hx.id(t)).stage), uint8(HoldbackRules.Stage.Held));
     }
 
-    // ------------------------------------------------------------ the year 9999
+    // ------------------------------------------------------------ the last RFC 3339 instant
 
-    function test_fallbackBy_atTheLastSecondOf9999_funds() public {
+    function test_fallbackBy_atTheLastRfc3339Instant_funds() public {
         H.Terms memory t = _terms();
         t.timing.fallbackBy = LAST_TIMESTAMP;
         _funds(t);
     }
 
-    function test_fallbackBy_after9999_refused() public {
+    /// 9999-12-31T23:59:59-00:01, which core takes (the review's case): the contract funds it too.
+    function test_fallbackBy_inTheLastDayOfOffsets_funds() public {
+        H.Terms memory t = _terms();
+        t.timing.fallbackBy = 253_402_300_859;
+        _funds(t);
+    }
+
+    function test_fallbackBy_afterTheLastRfc3339Instant_refused() public {
         H.Terms memory t = _terms();
         t.timing.fallbackBy = LAST_TIMESTAMP + 1;
         _refused(t);
