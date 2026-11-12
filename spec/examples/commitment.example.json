@@ -1,10 +1,12 @@
 {
-  "schemaVersion": "0.7",
+  "schemaVersion": "0.8",
   "id": "0x9340180fb352b68aabcf457de90752525d862a9a6dac875100905fac2fc54ed8",
   "clubId": "data-services-v1",
   "rulebookHash": "0xb70959b8b5a5a9d365df7471120396553ed1bc0bff83059e4862e6d11b36a556",
   "buyer": "0x04d6c65223896ba94e731bc9eb765c19bd289b0d",
   "seller": "0x9ff412388f11e58327e71f841705dbc739c8cc46",
+  "buyerPaymentAddress": "0x04d6c65223896ba94e731bc9eb765c19bd289b0d",
+  "sellerPayoutAddress": "0x7a1c3e5b9d2f4a6c8e0b1d3f5a7c9e1b3d5f7a9c",
   "deliverable": {
     "kind": "dataset",
     "description": "Clean customers.csv: deduplicate on customer_id, normalize signup_date to ISO 8601, validate email format, flag (do not drop) rows with missing email.",
@@ -133,7 +135,7 @@
     "deliverBy": "2026-11-01T10:00:00Z",
     "judgeBy": "2026-11-01T10:02:00Z",
     "fallbackBy": "2026-11-01T10:04:00Z",
-    "appealWindowSec": 300,
+    "appealWindowSec": 0,
     "appealDecideSec": 300,
     "maxSubmissions": 1
   },

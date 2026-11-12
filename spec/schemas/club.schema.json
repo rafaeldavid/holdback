@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.10/club.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.11/club.schema.json",
   "title": "Club and rulebook",
   "type": "object",
   "required": [
@@ -84,7 +84,8 @@
             },
             "appealWindow": {
               "type": "integer",
-              "minimum": 1
+              "minimum": 0,
+              "description": "0 lets a commitment waive party appeals with an appeal window of 0, as a phase-one deployment requires (ADR-0033 §2b)"
             },
             "appealDecide": {
               "type": "integer",
