@@ -27,10 +27,10 @@ Read the phase-one contracts twice before they are frozen, tagged and deployed o
 
 ## Acceptance criteria
 
-- [ ] Review 1's report is under `docs/reviews/`, with the commit, what was read with line counts, findings by severity with file, line, scenario and test, what was checked and found sound by function, and where it did not look.
-- [ ] Review 2's report is under `docs/reviews/`, with the same parts, the model, the calls and their token counts, every question that got no complete answer, and for each claim whether it holds.
-- [ ] A joint summary says what must be fixed before the freeze, what goes to known issues, and what is for the outside auditor's attention.
-- [ ] Every Critical or High finding in the contracts is fixed in its own pull request with a test that failed first, or handed to Rafa with a reason.
+- [x] Review 1's report is under `docs/reviews/`, with the commit, what was read with line counts, findings by severity with file, line, scenario and test, what was checked and found sound by function, and where it did not look.
+- [x] Review 2's report is under `docs/reviews/`, with the same parts, the model, the calls and their token counts, every question that got no complete answer, and for each claim whether it holds.
+- [x] A joint summary says what must be fixed before the freeze, what goes to known issues, and what is for the outside auditor's attention.
+- [x] Every Critical or High finding in the contracts is fixed in its own pull request with a test that failed first, or handed to Rafa with a reason. (There is none in the contracts. The one High is in the buyer's tool and went to T-390.)
 - [ ] Both reports are merged on the lane in one docs pull request.
 
 ## Out of scope
@@ -41,7 +41,13 @@ Read the phase-one contracts twice before they are frozen, tagged and deployed o
 
 ## Evidence
 
-Filled in as the work lands. Each item is labelled measured, inferred or guessed.
+- **The commit.** The code was final at `c629d06c` (the merge of T-384's first pull request, 433), named by the coordinator on 2026-11-12 at 18:22 UTC. Both reviews read it there. The commit named for the freeze is `0180a39f` (pull request 445), after the descriptions (441, `d3cd4605`) and one added sentence. With `//` comments and white space removed, each of the five files of `contracts/src` at `0180a39f` equals its copy at `c629d06c` [measured: a script over `git show` of both commits].
+- **Review 1.** [`docs/reviews/2026-11-12-phase-one-whole-diff-review.md`](../reviews/2026-11-12-phase-one-whole-diff-review.md). Read in full: 1,329 lines of `contracts/src`, 828 lines of the vendored escrow, token store and collectors at `6b0a5ef`, and 735 lines of Solady's signature checker and EIP712 at `5ea5d9f` [measured: `wc -l`]. Findings in the contracts: 0 Critical, 0 High, 1 Medium, 1 Low, 5 Info. In the buyer's tool: 1 High, 2 Medium, 10 Low.
+- **The tests behind it.** `contracts/test/crosscheck/R11Review.t.sol`, ten tests. `forge test --match-contract R11ReviewTest`: 10 passed [measured]. The whole suite with them, on this branch at the lane's tip `55a3dce4`: 482 tests passed, 0 failed, 0 skipped, in 65 suites, 2026-11-12 19:23 to 19:35 UTC, forge 1.0.0 [measured: `forge test` in `contracts/`]. That tip's `contracts/src` differs from `0180a39f` by three comment lines.
+- **Review 2.** [`docs/reviews/2026-11-12-phase-one-second-family-review.md`](../reviews/2026-11-12-phase-one-second-family-review.md). Model `deepseek-v4-pro`, run by Rafa from his shell: `node --env-file=… reports/scratch/t-388/run.mjs run c629d06c…`, twice. First run, 18:28 to about 18:44 UTC: 23 calls, 19 answers complete, 4 stopped at the 32,768-token output limit. Second run, 19:04 to about 19:13 UTC: the 4 split into 11 questions at a 65,536-token limit, all 11 complete. Third run, 19:42 to 19:48 UTC: question 24, the descriptions, at `0180a39f`, complete. All three: 35 calls, 1,302,151 input and 848,591 output tokens [measured from the runs' logs]; about USD 1.95 at off-peak list prices [inferred from `config/model-prices.json`].
+- **Its claims.** 342 numbered claims in 31 answers; 52 marked as defects (4 High, 16 Medium, 20 Low, 12 Info). Checked against the code: 38 hold as stated, 8 hold at a lower severity, 6 do not hold [measured by reading each; two settled by tests]. No claim is a Critical or High finding in the contracts.
+- **The four statements the docs pass could not verify:** three confirmed, one corrected (known issue A-4). Review 1, section 6.1. The fallback window's floor, 43 s on Ethereum mainnet and 44 s on Sepolia, comes from a script over every `judgeBy` in 720 s [measured].
+- **Not run:** the anvil suites, the formal model, the mutation run (T-352's), any deal on a chain.
 
 ## Decisions
 
@@ -50,4 +56,16 @@ Filled in as the work lands. Each item is labelled measured, inferred or guessed
 
 ## Handoff
 
-Filled in at the hand-off.
+**Done.** Both reviews, their joint summary (review 2, section 6), and ten tests. No Critical or High finding in `contracts/src`; nothing in it was changed.
+
+**Open when this task closed:**
+
+- TBD-HANDOFF-T390
+- **For the freeze's docs step** (review 1, section 10): rate known issue "H-2 limit" Medium; one line in the signed-field register for two envelopes addressed to the buyer; one clause in `scope.md` that the token keeps ERC-3009's payee rule; the wording "an accept or a reject is final" in the state model's section 9.1; known issue A-4 as review 1's section 6.1 states it; the `<FREEZE_COMMIT>` placeholders.
+- **For Rafa:** whether the three dispute fields get a refusal in `agreeAndFund` (finding L-1). The reviews recommend leaving it for phase one.
+- **For the client lane:** the Medium and Low findings in the buyer's tool (review 1, section 7.3), and the three steps that make its defaults safe when one operator runs both nodes (section 7.4).
+- **A later roadmap row:** an advisory notice at the operator's prepare route for a `createdAt` far from settlement time.
+
+**How to rerun the second review.** The runner is outside the repository, at `reports/scratch/t-388/run.mjs` in the maintainer's checkout, with the prompts, the raw answers and the log beside it. `node run.mjs list <commit>` prints what it would send and sends nothing. It reads the key and the base URL from the environment by the names the live client uses, and prints neither.
+
+**What a later reader should know about the method.** The model spends about 26,000 output tokens a question, nearly all on reasoning, so a limit under 65,536 tokens cuts answers off with nothing written. Narrow questions with a marker line at the end made every cut visible.
