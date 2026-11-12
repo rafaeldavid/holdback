@@ -9,7 +9,7 @@ import { measure, type Summary } from './measures.ts';
 import { scripted, type Provider } from './providers.ts';
 import { Recorder, Secrets } from './record.ts';
 import { replayPage } from './replay.ts';
-import { buyerBrief, scenario, SCOPE, sellerBrief, type ScenarioName } from './scenarios.ts';
+import { buyerBrief, ITEM, scenario, SCOPE, sellerBrief, type ScenarioName } from './scenarios.ts';
 import { limitsFor, overLimits, ticket, type Limits, type Over } from './tickets.ts';
 import type { Event } from './record.ts';
 import { buyerScript, sellerScript } from './scripted.ts';
@@ -120,7 +120,7 @@ export async function runDuet(o: RunOptions): Promise<RunResult> {
   secrets.add(sellerKey);
   const rec = new Recorder(join(dir, 'record.jsonl'), secrets);
   const vendorOf = (x: Side) => (x === 'scripted' ? { vendor: 'scripted', model: 'scripted' } : { vendor: x.vendor, model: x.model });
-  rec.add('runner', 'run.start', { scenario: s.name, title: s.title, expect: s.expect, endState: s.endState, buyer: vendorOf(o.buyer), seller: vendorOf(o.seller), caps: o.caps, world: o.world ? 'running' : 'local phase-one world', checkout: checkout(), policy: s.policy, scope: SCOPE, sellerRule: s.sellerRule ?? null, sellerRulePlain: s.sellerRulePlain ?? null, buyerRule: s.buyerRule ?? null, note: s.note ?? null, engine: o.world ? `the running world at ${o.world.join(', ')} (its chain is named in the next line)` : 'the local simulator, phase-one rules' });
+  rec.add('runner', 'run.start', { scenario: s.name, title: s.title, expect: s.expect, endState: s.endState, buyer: vendorOf(o.buyer), seller: vendorOf(o.seller), caps: o.caps, world: o.world ? 'running' : 'local phase-one world', checkout: checkout(), policy: s.policy, scope: SCOPE, item: ITEM, sellerRule: s.sellerRule ?? null, sellerRulePlain: s.sellerRulePlain ?? null, buyerRule: s.buyerRule ?? null, note: s.note ?? null, engine: o.world ? `the running world at ${o.world.join(', ')} (its chain is named in the next line)` : 'the local simulator, phase-one rules' });
 
   say(`Starting ${o.world ? `against ${o.world.join(', ')}` : 'the local phase-one world'}.`);
   const world = await startWorld({ rec, ...(o.world ? { world: o.world } : {}), ...(o.docs ? { docs: o.docs } : {}), sellerPublic: join(real.sellerWork, 'public'), sellerName: SELLER_NAME, report: s.report, onSecret: (v) => secrets.add(v) });

@@ -201,25 +201,32 @@ const ICON: Record<string, string> = {
 };
 const icon = (name: string) => `<svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">${ICON[name] ?? ICON['act']}</svg>`;
 
+/** How the replayed run ended, as the proof beat tells it. */
+export type Ending = 'paid' | 'refunded' | 'declined' | 'held' | 'stopped';
+
 /**
- * The page's opening, in one place: the title, the descriptor, and the pitch in five beats (the problem, what people do
- * today, why it matters now, the outcome Crow gives, and the proof, which this run supplies). A change of words is one
- * edit here. Every claim must stay true of what the page then shows; the proof is built from the run's own numbers.
+ * The page's opening, in one place: the title, the descriptor, and the pitch in five labelled beats (Rafa's words,
+ * 2026-11-12). A change of words is one edit here. The proof must stay true of the run the page shows: its words as
+ * written fit a run where the work passed; any other ending says what that run did, naming what was bought from the
+ * run's own record.
  */
 export const PITCH = {
   title: 'Crow',
-  descriptor: 'Buy from a supplier you have never worked with. Pay only for work that passes.',
-  problem: 'AI agents can now find a supplier and place an order in seconds. They still cannot pay a supplier they have never worked with, because neither side will go first: pay up front and the work may never come; deliver first and the money may never come.',
-  today: 'So every new supplier still goes through a person, a contract, an invoice and, when it goes wrong, a dispute. That takes days, and it limits what an agent can buy to the suppliers you already trust.',
-  whyNow: 'As more work is bought and sold by agents, the buyers who can safely use any supplier will get in minutes what takes others a week.',
-  outcome: 'With Crow, your agent agrees the acceptance checks with the supplier, and you pay only for work that passes them; the supplier starts knowing the money is there.',
-  /** The proof: what this page shows, from the run's own outcome, actors, place and numbers. */
-  proof(r: { ended: 'paid' | 'refunded' | 'none'; scripted: boolean; local: boolean; seconds: number; people: number; models: string }): string {
-    const what = r.ended === 'paid' ? 'one such purchase, start to finish' : r.ended === 'refunded' ? 'one purchase where the work failed its checks and the buyer got its money back, start to finish' : 'one offer the buying agent turned down because it broke its owner\'s rules, so nothing was paid';
-    const who = r.scripted ? 'rehearsed by scripted stand-ins rather than AI models' : `made by ${r.models}`;
-    const where = r.local ? 'on a local test setup with test money' : 'on a public test network with test money';
-    const how = `It took ${r.seconds} ${r.seconds === 1 ? 'second' : 'seconds'}${r.people === 0 ? ', and no person stepped in' : `, and a person stepped in ${r.people} ${r.people === 1 ? 'time' : 'times'}`}.`;
-    return `This page shows ${what}, ${who}, ${where}. ${how}`;
+  descriptor: 'Buy from any agent. Sell to any agent.',
+  beats: [
+    { label: 'Problem', text: 'Your agents can now find almost any vendor they need, and almost any buyer for what you sell. Finding is not the hard part. Closing is. Two companies with no contract between them, and no systems connected, still have to agree what will be delivered and commit to it.' },
+    { label: 'Today', text: 'So the deal goes back to people: a contract, redlines, an invoice and, when it goes wrong, a dispute. That takes days, often weeks, sometimes months. It limits your operations and your growth, even with vendors you already trust and customers who buy from you again and again.' },
+    { label: 'Why now', text: 'As more work is bought and sold by agents, the companies whose agents can close a deal safely will shed that friction and pull ahead of their peers.' },
+    { label: 'The new way', text: 'With Crow, the two agents agree the acceptance checks up front, within the limits each company sets. The payment is set aside before the work starts. When the work passes the checks, the seller is paid and the buyer receives the work, in the same step.' },
+  ],
+  proofLabel: 'Proof',
+  /** The proof beat for this run: Rafa's sentence when the work passed, and what happened instead otherwise. */
+  proof(ended: Ending, item: string): string {
+    if (ended === 'paid') return `See it happen. Below, one agent buys ${item} from another. It orders, the seller delivers, the work is checked, and the seller is paid the moment it passes.`;
+    if (ended === 'refunded') return `See it happen. Below, one agent buys ${item} from another. It orders, the seller delivers, the work is checked and fails, and the buyer gets its money back. The work stays locked.`;
+    if (ended === 'declined') return `See it happen. Below, one agent asks another for ${item}. The offer breaks the limits its company set, so it walks away. Nothing is signed and nothing is paid.`;
+    if (ended === 'held') return `See it happen. Below, one agent buys ${item} from another. The payment is set aside, but the run stopped before the work was checked, so the payment is still set aside.`;
+    return `See it happen. Below, one agent tries to buy ${item} from another. The run stopped before an order was placed, so nothing was paid.`;
   },
 };
 
@@ -249,6 +256,9 @@ export function replayPage(events: readonly Event[], s: Summary, extras: PageExt
   const paidSeller = chain.some((e) => e.type === 'settlement.released');
   const refunded = chain.some((e) => e.type === 'settlement.refunded');
   const scope = start?.scope as { files?: string[]; lines?: number } | undefined;
+  // How the run ended, for the proof beat: settled either way, a refused offer, a held payment, or stopped earlier.
+  const ending: Ending = paidSeller ? 'paid' : refunded ? 'refunded' : held !== null ? 'held' : events.some((e) => e.kind === 'signer.stop') && (events.find((e) => e.kind === 'agent.end' && e.role === 'buyer') as J)?.status === 'finished' ? 'declined' : 'stopped';
+  const boughtItem = String(start?.item ?? (scope?.files?.length ? 'a software security audit' : 'a piece of work'));
   const bought = `A security review of ${scope?.files?.length ?? 'several'} smart-contract files (${n(Number(scope?.lines ?? 0))} lines), written as a report`;
   const outcome = paidSeller ? 'The work passed. The seller was paid and the buyer received the report.' : refunded ? 'The work failed a required check. The buyer got the price back and the report stayed locked.' : 'No order was placed. Nothing was signed and nothing was paid.';
   const ok = s.decisionRight;
@@ -314,6 +324,7 @@ main{max-width:880px;margin:0 auto;padding:28px 16px 64px}
 .large{font-size:40px;line-height:1.1;font-weight:700;letter-spacing:-.02em;margin:0}
 .subtitle{font-size:22px;line-height:1.25;font-weight:600;letter-spacing:-.01em;margin:6px 0 0}
 .lead{margin:14px 0 0;font-size:16px;max-width:680px}
+.beat{margin-top:18px}.beat .lead{margin-top:4px}.beat-label{font-size:13px;font-weight:600;color:var(--ink2)}
 .section{font-size:13px;color:var(--ink2);text-transform:uppercase;letter-spacing:.02em;margin:30px 12px 8px}
 .group{background:var(--surface);border-radius:var(--r-win);overflow:hidden}
 .row{display:flex;align-items:center;gap:12px;padding:11px 16px;min-height:44px;color:inherit;text-decoration:none}
@@ -370,11 +381,8 @@ footer{font-size:12px;color:var(--ink3);margin:28px 12px 0;max-width:680px}
 <p class="engine">${local ? 'A test run on a local test setup, with test money. No real money moved, and there are no public records of it.' : `A test run on ${esc(where)}. No real money moved.`}</p>
 <div class="large">${esc(PITCH.title)}</div>
 <p class="subtitle">${esc(PITCH.descriptor)}</p>
-<p class="lead">${esc(PITCH.problem)}</p>
-<p class="lead">${esc(PITCH.today)}</p>
-<p class="lead">${esc(PITCH.whyNow)}</p>
-<p class="lead"><strong>${esc(PITCH.outcome)}</strong></p>
-<p class="lead">${esc(PITCH.proof({ ended: paidSeller ? 'paid' : refunded ? 'refunded' : 'none', scripted, local, seconds: Math.round(Number(end?.t ?? 0) / 1000), people: s.humanInterventions, models: `${model('buyer')} buying and ${model('seller')} selling` }))}</p>
+${PITCH.beats.map((b) => `<div class="beat"><span class="beat-label">${esc(b.label)}</span><p class="lead">${esc(b.text)}</p></div>`).join('\n')}
+<div class="beat"><span class="beat-label">${esc(PITCH.proofLabel)}</span><p class="lead">${esc(PITCH.proof(ending, boughtItem))}</p></div>
 
 <div class="section">How the payment is held</div>
 <div class="group">
