@@ -89,7 +89,7 @@ PR 1 merged on 2026-11-12 as PR 395, merge commit `c842495`, after one review (P
 
 ## Handoff
 
-**Done.** PR 395 (`c842495`): the kept versions, the "carried" binding, the registry by hash, the runner's restart step, the record replay and five fixtures. The second PR: `cannotJudge`, the world carrying both registries, the read-time notice, the deal guard and the docs. Nothing is deployed.
+**Done.** PR 395 (`c842495`): the kept versions, the "carried" binding, the registry by hash, the runner's restart step, the record replay and five fixtures. The second PR (397): `cannotJudge`, the read-time notice, the deal guard, the docs and the red team's fixes. The world still carries only the registry it has real judges for (red team H1). Nothing is deployed.
 
 **The first deploy that carries `screen-0` and `screen-1` together** is Rafa's gate (a kind 8 change). It changes no default: the new build's default is still `screen-1`, the template pair and `agg-3`, so each demo adjudicator registers the same policy hash as today [inferred from `kept-policies.json` and `defaultPolicy`]. The steps:
 
