@@ -83,19 +83,19 @@ contract AfterCppReclaimTest is Base {
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
     }
 
-    /// D31 allows a deliverBy after authorizationExpiry. Then nobody can reclaim through the rules contract before
-    /// CPP lets the buyer reclaim, and the deal must still close once deliverBy passes.
-    function test_deliverByAfterExpiry_reclaimStillClosesTheDeal() public {
+    /// Before SC-5, D31 let a deliverBy fall after authorizationExpiry: nobody could reclaim through the rules contract
+    /// before CPP let the buyer reclaim, and the deal closed only once deliverBy passed. A deliverBy after the expiry is
+    /// after fallbackBy, so since SC-5 (T-356, ADR-0031 §6) such terms are refused at funding and the shape cannot arise.
+    function test_deliverByAfterExpiry_refusedAtFunding() public {
         H.Terms memory t = _terms();
         t.timing.deliverBy = uint64(_expiry(t) + 1 days);
-        bytes32 id = _fund(t);
-        vm.warp(_expiry(t));
-        vm.expectRevert(HoldbackRules.TooEarly.selector);
-        rules.reclaim(t);
-        _cppReclaim(t);
-        vm.warp(t.timing.deliverBy);
-        rules.reclaim(t);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        bytes memory ss = _sellerSig(t, SELLER_PK);
+        H.Acceptance memory acc = _acceptance(t, ADJ_PK);
+        H.Agree memory ag = _agree(t, BUYER_PK);
+        H.Funding memory f = _erc3009(t, BUYER_PK);
+        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        rules.agreeAndFund(t, ss, acc, ag, f);
+        assertEq(uint8(_stage(hx.id(t))), uint8(HoldbackRules.Stage.None));
     }
 
     /// The other money paths still revert after a CPP reclaim (nothing left to capture or void); the timeouts
@@ -169,50 +169,26 @@ contract AfterCppReclaimTest is Base {
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
     }
 
-    // Open: L-6. This test flips when the contract lane (T-212 / pilot C3-C5) fixes it.
-    /// D31 shape: `deliverBy` and `judgeBy` after `authorizationExpiry`. The buyer reclaims on CPP while the seller
-    /// still has time to deliver; the seller delivers on time, and neither the primary's accept nor its reject can
-    /// capture. The default closes the deal (M-1, PR #122). The seller, who delivered on time per the terms, is never
-    /// paid (L-6).
-    function test_attack_d31_deadlines_after_expiry_leave_seller_unpaid() public {
+    // L-6, closed by SC-5 (T-356, ADR-0031 §6). This test flipped as its note promised.
+    /// The D31 shape this test showed: `deliverBy` and `judgeBy` after `authorizationExpiry`. The buyer could reclaim
+    /// on CPP while the seller still had time to deliver; the seller delivered on time, neither the primary's accept
+    /// nor its reject could capture, and the seller, who delivered on time per the terms, was never paid. Such terms
+    /// put `fallbackBy` before `deliverBy`, so since SC-5 they are refused at funding and the deal never exists.
+    function test_regression_L6_deadlinesAfterExpiry_refusedAtFunding() public {
         H.Terms memory t = _terms();
         uint64 now_ = uint64(block.timestamp);
         t.timing.deliverBy = now_ + 10 days;
         t.timing.judgeBy = now_ + 12 days; // fallbackBy stays now + 3 days: expiry = 3 + 1 + 1 = day 5
-        bytes32 id = _fund(t);
-        uint64 expiry = uint64(_expiry(t));
-        assertLt(expiry, t.timing.deliverBy);
-        AuthCaptureEscrow.PaymentInfo memory pi = _pi(t);
-
-        vm.warp(expiry);
-        vm.expectRevert(HoldbackRules.TooEarly.selector); // the rules reclaim is not open yet...
-        rules.reclaim(t);
-        vm.prank(buyer);
-        escrow.reclaim(pi); // ...but CPP's is
-
-        vm.warp(expiry + 1 days);
-        (H.Delivery memory d,) = _delivery();
-        rules.deliver(t, d, _deliverySig(id, d, SELLER_PK)); // on time per the terms
-        H.Decision memory m = _primary(t, id, H.OUTCOME_ACCEPT); // on time per the terms
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                AuthCaptureEscrow.AfterAuthorizationExpiry.selector, uint48(block.timestamp), uint48(expiry)
-            )
-        );
-        rules.decide(t, m, _noDelivery(), "");
-        H.Decision memory r = _primary(t, id, H.OUTCOME_REJECT); // the fee capture fails the same way
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                AuthCaptureEscrow.AfterAuthorizationExpiry.selector, uint48(block.timestamp), uint48(expiry)
-            )
-        );
-        rules.decide(t, r, _noDelivery(), "");
-
-        vm.warp(t.timing.judgeBy);
-        rules.triggerFallback(t);
-        rules.triggerDefault(t); // M-1 fixed: the deal closes
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
-        assertEq(usdc.balanceOf(seller), 1_000_000_000, "the seller delivered on time and is never paid");
+        assertLt(uint64(_expiry(t)), t.timing.deliverBy, "the shape L-6 needs");
+        bytes memory ss = _sellerSig(t, SELLER_PK);
+        H.Acceptance memory acc = _acceptance(t, ADJ_PK);
+        H.Agree memory ag = _agree(t, BUYER_PK);
+        H.Funding memory f = _erc3009(t, BUYER_PK);
+        uint256 b0 = usdc.balanceOf(buyer);
+        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        rules.agreeAndFund(t, ss, acc, ag, f);
+        assertEq(uint8(_stage(hx.id(t))), uint8(HoldbackRules.Stage.None));
+        assertEq(usdc.balanceOf(buyer), b0, "nothing held, so nothing to strand");
     }
 
     // ------------------------------------------------------------ after the expiry, no CPP reclaim

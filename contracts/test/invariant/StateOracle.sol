@@ -172,8 +172,9 @@ library StateOracle {
         // The fallback's turn starts at judgeBy at the earliest.
         if (_is(row, "P04") && t1 < judgeBy) return string.concat(row, ": t1 before judgeBy");
         // An escalation, and the appeal adjudicator's decision on it (t1 stays the escalation's time): the primary
-        // escalated before judgeBy, or the fallback before fallbackBy. The word does not say which, and the terms may
-        // put fallbackBy before judgeBy (D31; SC-5 has not landed), so the bound is the later of the two.
+        // escalated before judgeBy, or the fallback before fallbackBy. The word does not say which, so the bound is the
+        // later of the two. (Since SC-5 the terms keep judgeBy before fallbackBy, so this is t1 < fallbackBy; T-356
+        // left the expression as it was.)
         if ((_is(row, "P05") || _is(row, "P10") || _is(row, "P11")) && t1 >= judgeBy && t1 >= fallbackBy) {
             return string.concat(row, ": escalated at or after both judgeBy and fallbackBy");
         }

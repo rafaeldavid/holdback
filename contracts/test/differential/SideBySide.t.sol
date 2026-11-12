@@ -309,10 +309,10 @@ contract SideBySideTest is Test {
         bytes32[] memory nd = _digests(n);
         address served = b.tokens()[0];
         address funded = b.fundToken();
-        bool thirdParty = b.thirdPartyPayout();
+        bool outOfOrder = b.fundOutOfOrder();
         for (uint256 f; f < Fields.COUNT; f++) {
             if (od[f] == nd[f]) continue;
-            AllowList.Verdict memory v = AllowList.allowed(Field(f), i, o, n, served, funded, thirdParty);
+            AllowList.Verdict memory v = AllowList.allowed(Field(f), i, o, n, served, funded, outOfOrder);
             if (bytes(v.change).length == 0) {
                 (r.differs, r.step, r.field, r.action) = (true, i, Field(f), n.action);
                 return;

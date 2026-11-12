@@ -7,8 +7,8 @@ import {Base} from "./Base.sol";
 
 /// T-335: the custom errors in contracts/src that no test named before that task. `AppealBondTooLarge` and
 /// `AppealBondExists` left with HoldbackBonds (T-346, ADR-0031 §8); `Unrepresentable` (HoldbackRules) remains. D31:
-/// the contract refuses only what its encoding cannot represent, so each bound is tested on both sides where the
-/// other side can fund.
+/// the contract refuses what its encoding cannot represent (and, since SC-5, what settlement cannot process), so
+/// each bound is tested on both sides where the other side can fund.
 contract UntestedRevertsTest is Base {
     function _fundExpectingRevert(H.Terms memory t, bytes4 selector) internal {
         bytes memory s = _sellerSig(t, SELLER_PK);
@@ -46,10 +46,16 @@ contract UntestedRevertsTest is Base {
         assertEq(_held(t), PRICE + FEE);
     }
 
-    /// fundBy must fit CPP's uint48 preApprovalExpiry.
+    /// fundBy must fit CPP's uint48 preApprovalExpiry. Since SC-5 strict order puts the escrow's expiry after fundBy,
+    /// so a fundBy above uint48 also makes the expiry unrepresentable: this test pins the refusal, and no longer tells
+    /// the fundBy clause of the check (`HoldbackRules._paymentInfo`) apart from the expiry clause (reviewer, SC-5).
     function test_refuses_fundByAboveUint48_unrepresentable() public {
         H.Terms memory t = _terms();
         t.timing.fundBy = uint64(type(uint48).max) + 1;
+        // SC-5 (T-356): the later deadlines follow, so the terms are in strict order and only representability fails.
+        t.timing.deliverBy = t.timing.fundBy + 1;
+        t.timing.judgeBy = t.timing.fundBy + 2;
+        t.timing.fallbackBy = t.timing.fundBy + 3;
         _fundExpectingRevert(t, HoldbackRules.Unrepresentable.selector);
     }
 }
