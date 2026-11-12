@@ -6,7 +6,7 @@
 - **Depends on:** T-329 (PR 317), T-330 (PR 316), T-331, T-332 (PR 320), T-333, T-355 (PR 363), all merged on `main`
 - **Paths this task may touch:** `site/llms.txt`, the new `site/sell.txt`, `site/build.mjs` and `site/check.mjs` only as the page needs, this file
 - **Human gate:** no for the change; the site deploy that publishes the page is Rafa's
-- **Status:** in progress
+- **Status:** review
 - **Agent/session:** the T-359 session, 2026-11-12, branch `t-359-seller-page`; pilot plan package 5 (crow-private `roadmap/plans/2026-11-11-pilot-refocus.md`, section 7.1)
 
 ## Intent
@@ -37,7 +37,11 @@
 
 ## Evidence
 
-Filled in below as the work runs.
+- **Sizes [measured].** The four seller sections held 18,840 of 96,913 bytes at commit `31cc285`, as the plan says; on `origin/main` (`2d03383`) they held 20,748 of 98,821 bytes (3,484 + 7,285 + 4,875 + 5,104). After this change `site/llms.txt` is 78,762 bytes, and `site/sell.txt` is 32,655 bytes: the four sections, the doc lines, the "Keep a record of each deal" section and the first hour.
+- **Checks [measured].** `node site/build.mjs && node site/check.mjs`: PASS. A planted line naming `examples/nope.ts`, `pnpm nope` and `127.0.0.1` outside the first hour failed the three new checks, one line each. `node site/build.mjs --op1 https://api.crow.direct --op2 https://api2.crow.direct --out <scratch>` writes `sell.txt` byte for byte equal to `site/sell.txt`. `pnpm exec vitest run examples/try.test.ts`: 7 passed. No code outside `site/` changed, so `pnpm lint` and `pnpm typecheck` were not run.
+- **Every first-hour command, run on this branch [measured].** `pnpm sim` banner; the stub's ready line; `node examples/seller-adapter.ts seller.json --sim` printed its four lines with club `sim-club` and a mandate to 2027-11-12; `GET /defaults` answered the template; a curl quote answered `2000000000` and a total of `2001000000` base units of tUSD, and both operators served the commitment; a bad `scope.commit` answered 400 naming the field; a file with `quoteRateLimit.perClient` exited 2 naming it; `pnpm audit-deal --case released` ended Released in 2 s; `--case all` ended 7 of 7 as expected in 7 s. Step 9 (Sepolia) was not run.
+- **The gap, measured.** On `pnpm sim`, `HOLDBACK_OPERATORS=http://127.0.0.1:8787,http://127.0.0.1:8788 node examples/buy-with-signer.ts http://127.0.0.1:8791/quote <dir> '<scope>' 3000000000 http://127.0.0.1:8791/defaults` got through the quote and the shown fields, then stopped at the agreement: `scope_exceeded: 0x… has no mandate in club sim-club`.
+- **Fresh-agent test [measured].** One subagent (Sonnet, no context but the built `sell.txt`) cloned the public repository into a scratch folder and followed steps 1 to 8. It reached a delivered deal in step 2 (Released, the buyer opened the report) and 7 of 7 cases in step 8, in about 80 s from the first command to cleanup, with the install about 20 s. No step blocked it. It found one wrong line: step 7 said both operators answer `"Offered"`, and by then they answered `"AcceptedByAdjudicator"`. It also found three unclear ones in step 2: the step numbering, the club `demo-club` where step 5 shows `sim-club`, and two unexplained `refused request … 404` lines. All four are fixed on the page. That the 404s are the adapter's mandate read of a seller the world did not know yet is inferred from `mandateEnd()` in `examples/seller-adapter.ts`, not traced.
 
 ## Decisions
 
@@ -49,4 +53,12 @@ Filled in below as the work runs.
 
 ## Handoff
 
-To be filled in at the end.
+**Done.** `site/sell.txt` with the first hour and the seller sections, the doc lines of T-331, T-332, T-333 and T-355 placed, the pointer in `site/llms.txt` (a "Sell on Crow" section, and one line under "Writing checks that protect a buyer"), `sellerPage()` and the publish write in `site/build.mjs`, check group 10 in `site/check.mjs` and check group 9 moved to read `sell.txt`. One stale line fixed while moving: "Run it as a service" said `quoteRateLimit` limits per client, which T-331 removed.
+
+**Not done.**
+- **The site deploy is Rafa's** (`pnpm site:deploy`). Until it runs, `https://crow.direct/sell.txt` does not exist and the live `llms.txt` still carries the four sections. `site/deploy.mjs` checks `/`, `/llms.txt` and `/try.mjs` after the upload, not `/sell.txt`; adding it is a small change to the deploy script, out of this task's paths.
+- **For R6c-3 (the contract lane, schema v0.11).** The page names no payout or payment address. R6c-3 adds the seller's payout address to "Sell a priced API service" (the adapter's configuration, and what the offer signs) and to the first hour's step 5 if the adapter needs a new field to start, and the buyer's payment address to "A seller's client can carry the buyer's side" (the fields the signer shows and checks). `site/check.mjs` group 10 then holds any new file or script those lines name.
+
+**For the coordinator: a gap in code, not on the page.** On `pnpm sim` no shipped buyer funds an offer: the sim's faucet (`apps/operator/src/registry.ts`, `faucet`) grants tokens and no mandate, and `examples/buyer-signer.ts` always makes fresh keys, so `buy-with-signer.ts` stops at the agreement with `scope_exceeded`. The seller's own configuration file therefore reaches a signed offer on a local chain, and the delivered deal on a local chain comes from `pnpm audit-deal`, whose world's faucet grants a mandate. Two small fixes would each close it: the sim's faucet grants a mandate in the sim club, as the test service's does; or `buy-with-signer.ts` takes `--sim`, as the adapter does, and uses a funded sim account. Either lets the first hour end with the seller's own adapter delivering. Not fixed here: it is outside this task's paths.
+
+**How to resume.** `node site/build.mjs && node site/check.mjs`. To rerun the fresh-agent test, build with `--out`, give a new agent only `<out>/sell.txt`, and ask it to follow steps 1 to 8 in an empty folder.
