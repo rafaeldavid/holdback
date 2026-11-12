@@ -1,6 +1,6 @@
 # The phase-one cutover: checklist
 
-**Status: first pass, not rehearsed.** Written on 2026-11-12 against `contracts-audit-ready` at `02ddb24` (T-363). No command on this page has run. A second pass follows the remaining contract fixes (package R8), and a rehearsal on a local chain follows the whole-diff reviews (R11). Do not run this page before both.
+**Status: second pass for steps 2, 3 and 6, rehearsed twice on a local chain.** Written on 2026-11-12 against `contracts-audit-ready` at `02ddb24` (T-363); steps 2, 3 and 6 were rehearsed on anvil from the lane at `e4e930c`, twice in a row with no hand edit (T-383 part 2; the measured times below are from those runs). Nothing on this page has run on Sepolia. The whole-diff reviews (R11) still come before it runs for real, and the cutover-day sheet with every command in order is in [`tasks/T-383-deploy-script-cu1.md`](tasks/T-383-deploy-script-cu1.md), Handoff.
 
 This page moves the live test service from the contracts deployed on 2026-11-04 to the phase-one contracts. It covers the contracts, two operators, the test seller and buyer, the site with its pinned client, and the founder console. The cutover of 2026-11-04 in [`operations.md`](operations.md) is its model.
 
@@ -56,7 +56,7 @@ This page moves the live test service from the contracts deployed on 2026-11-04 
    Every command below runs against this worktree. The submodule line is needed for `forge` [inferred: a new worktree has empty submodule folders].
 4. **It holds `main`.** `git -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one merge-base --is-ancestor origin/main HEAD; echo $?` prints 0.
 5. **The tools answer:** `forge --version`, `cast --version`, `jq --version`, `node --version` (22), `npx wrangler@4 whoami` (Rafa's Cloudflare login).
-6. **The deployer has test ETH.** The deployment of 2026-11-03 used 75,443,236 gas for the larger, old set of contracts [measured, `docs/tasks/T-206-contract-review.md:126`]. At 20 gwei that is 1.51 Sepolia ETH; phase one deploys fewer contracts, so it needs less [inferred]. Read the balance: `cast balance <deployer-address> --ether --rpc-url https://ethereum-sepolia-rpc.publicnode.com`. The deployer of the live record is `0x1A4435488eaF1A37d2327d44Fe67e97d83203B64`; reusing it is Rafa's call.
+6. **The deployer has test ETH.** The deployment of 2026-11-03 used 75,443,236 gas for the larger, old set of contracts [measured, `docs/tasks/T-206-contract-review.md:126`]. At 20 gwei that is 1.51 Sepolia ETH. The phase-one set used 8,674,078 gas for its five creations on anvil (Prague) [measured, T-383's rehearsal], 0.17 ETH at 20 gwei; Sepolia's figure may differ [inferred]. Keep at least 0.5 Sepolia ETH, which also covers a whole rerun. Read the balance: `cast balance <deployer-address> --ether --rpc-url https://ethereum-sepolia-rpc.publicnode.com`. The deployer of the live record is `0x1A4435488eaF1A37d2327d44Fe67e97d83203B64`; reusing it is Rafa's call.
 7. **The relayer's funding lane has test ETH:** `cast balance 0x601137a8DE7E195E1426f57C053aFa49B20Ef555 --ether --rpc-url https://ethereum-sepolia-rpc.publicnode.com`. The new world uses the same relayer key and the same four lanes, and tops each deal lane up by 0.03 ETH when it falls below 0.01 ETH (`apps/demo-cloud/src/world.ts:210-211`) [measured]. Do not run `apps/demo-cloud/scripts/relayer.mjs` or `apps/test-agents/scripts/seed.mjs`: both secrets stay as they are.
 8. **Write down each Worker's live version,** the rollback target for the whole run:
 
@@ -123,15 +123,15 @@ This page moves the live test service from the contracts deployed on 2026-11-04 
 
 **Do:**
 
-1. **Rehearse on a fork** [documented for the old script, [`operations.md`](operations.md); not re-checked for the lane's]: start `anvil --fork-url <sepolia-rpc-url> --fork-block-number <a recent block> --hardfork prague`, run the deploy line of step 2.4 against `http://127.0.0.1:8545` from a scratch worktree, and discard that worktree's record.
+1. **Rehearse on this Mac,** with no RPC and no key: `pnpm -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one exec vitest run packages/settlement/evm/deploy-script.test.ts` runs this step and step 3's commands twice on anvil, as the cutover does. It must pass [measured: 15 tests in 38 s on this Mac, T-383]. A fork of Sepolia is a further option [documented for the old script, [`operations.md`](operations.md); not re-checked]: `anvil --fork-url <sepolia-rpc-url> --fork-block-number <a recent block> --hardfork prague`, then the deploy line of step 2.4 against `http://127.0.0.1:8545` from a scratch worktree, whose record you discard. A fork keeps chain ID 11155111, so the script treats it as Sepolia and writes that worktree's `sepolia.json`.
 2. **Confirm the chain:** `cast chain-id --rpc-url <sepolia-rpc-url>` prints `11155111`. Anything else: stop (rule 1).
-3. **Copy the old record** before the script writes over it. The name's date and domain are read by `scripts/contract-stack.mjs:106`:
+3. **Keep the old record** under its dated name, before the deploy writes over it. One command names the copy by the UTC date and time of the deployment it records (the record's `deployedAt`, or its first block's time for a record from before T-383) and the domain its rules contract signs under, reading both from the chain:
 
    ```sh
-   cp /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/contracts/deployments/sepolia.json /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/contracts/deployments/sepolia-2026-11-04-domain-0.7.json
+   node /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/scripts/record-copies.mjs keep --rpc https://ethereum-sepolia-rpc.publicnode.com
    ```
 
-   Do not commit yet: the deploy must record the frozen commit as `HEAD`.
+   It prints `record-copies: kept contracts/deployments/sepolia.json as contracts/deployments/sepolia-<YYYY-MM-DD>T<HHMM>Z-domain-<version>.json` and the `--old` line for step 3.1. Write the name down. For the record of 2026-11-04 it should name `…sepolia-2026-11-04T<HHMM>Z-domain-0.7.json` [inferred: its first block's time is read on the day]. Rerunning it is safe: the same content again is a no-op, and other content under the same name is refused. **Run it before step 2.4, never after:** run after the deploy, it would keep the new record, and step 3.1 then fails with "the two records name the same contracts" [inferred from the code]. Do not commit yet: the deploy must record the frozen commit as `HEAD`.
 4. **Deploy:**
 
    ```sh
@@ -142,9 +142,9 @@ This page moves the live test service from the contracts deployed on 2026-11-04 
 6. **Read the domain the rules contract signs under:** `cast call <rules-address> 'eip712Domain()(bytes1,string,string,uint256,address,bytes32,uint256[])' --rpc-url https://ethereum-sepolia-rpc.publicnode.com`. It must read "Holdback" 0.8; the old contracts read 0.7.
 7. **Explorer verification** moves to step 3.3: the `--verify` mode runs `--check` first, and that check waits for the table.
 
-**It must show:** step 2.4 ends with `wrote …/contracts/deployments/sepolia.json`, with the token note of step 2.5 above it; the record's `commit` equals `git -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one rev-parse HEAD`.
-**Time:** not measured. Five transactions and the checks; a few minutes [guessed].
-**Rollback:** nothing on chain can be undone, and nothing needs to be: no live component reads the new contracts. To abandon, run `git -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one checkout -- contracts/deployments/sepolia.json` and delete the copy of step 2.3. The cost is the deployer's test ETH. **Stopping here is safe.**
+**It must show:** step 2.3 names the dated copy; step 2.4 ends with `wrote …/contracts/deployments/sepolia.json`, with the token note of step 2.5 above it; the record's `commit` equals `git -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one rev-parse HEAD`, and it has `beaconMarginSec: 29` and a `deployedAt` time.
+**Time:** on anvil, step 2.3 took 0.2 s and step 2.4 7.5 to 7.8 s, a block a second [measured, T-383's two rehearsals]. On Sepolia each of the five creations waits for its block, about 12 s each, so a minute or two [inferred].
+**Rollback:** nothing on chain can be undone, and nothing needs to be: no live component reads the new contracts. To abandon, run `git -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one checkout -- contracts/deployments/sepolia.json` and delete the dated copy of step 2.3. The cost is the deployer's test ETH. **Stopping here is safe.**
 
 ## Step 3. The record and every pin, in one commit (plan steps 4 and 5)
 
@@ -157,7 +157,7 @@ This page moves the live test service from the contracts deployed on 2026-11-04 
 | File | What changes | Guarded by |
 | --- | --- | --- |
 | `contracts/deployments/sepolia.json` | Written by step 2 | `deploy-sepolia.sh --check` |
-| `contracts/deployments/sepolia-2026-11-04-domain-0.7.json` | The old record, copied in step 2.3 | `tests/contract-stack.test.ts` ("every kept earlier deployment") |
+| `contracts/deployments/sepolia-2026-11-04T<HHMM>Z-domain-0.7.json` | The old record, kept in step 2.3 under the name the command printed | `tests/contract-stack.test.ts` ("every kept earlier deployment") |
 | `examples/deployments.ts` | The command writes the new record as the `SEPOLIA` constant, whole, with its comment. The type no longer requires the second collector, which is not in phase one | `examples/deployments.test.ts` |
 | `site/llms.txt`, `examples/verify.ts`, `tools/contract-stack/plain.json` | The command replaces each old address and hash with the new one, in the letter case it was written in | `node site/check.mjs` compares both blocks with `examples/verify.ts` |
 | `packages/settlement/evm/accepted-tokens.json` | The command replaces Sepolia's token with the new one | `deploy-sepolia.sh --check`, and the operators' start-up |
@@ -175,29 +175,31 @@ This page moves the live test service from the contracts deployed on 2026-11-04 
 1. **Write the record's copies, by one command.** It substitutes, rebuilds the site, then sweeps: it fails, naming each `file:line`, if any old address or hash remains in a tracked file, in any spelling (no `0x`, padded to 32 bytes, inside a longer hex string), outside its history list: the dated records; `docs/tasks/`, `docs/reviews/`, `docs/research/`, `docs/operations.md`, this page, and `docs/audit/scope.md` (step 11.4 rewrites it); the recorded fixtures under `tests/metrics/fixtures/`; and three fixed test vectors (`examples/e2e-run.test.ts`, `examples/e2e-adjudicator.test.ts`, `examples/send-timeout.test.ts`). The list and the reason for each are at the top of the script.
 
    ```sh
-   node /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/scripts/record-copies.mjs --old contracts/deployments/sepolia-2026-11-04-domain-0.7.json --new contracts/deployments/sepolia.json
+   node /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/scripts/record-copies.mjs --old <the dated name step 2.3 printed> --new contracts/deployments/sepolia.json
    ```
 
-   It must end with `record-copies: pass: …`. On the lane at the time of writing it fails on exactly two lines of `site/llms.txt` that name the cut vault [measured, `tests/record-copies.test.ts`]; the words package removes them before the freeze. Any other line it names is a pin to fix by hand, then rerun the command.
+   Step 2.3 printed this line in full; copy it from there rather than typing the name. It must end with `record-copies: pass: …` [measured on anvil: 0.5 s, `pass: 12 value(s) replaced`, both rehearsals]. On the lane at the time of writing it fails on exactly two lines of `site/llms.txt` that name the cut vault [measured, `tests/record-copies.test.ts`]; the docs session (T-385) removes them before the freeze. Any other line it names is a pin to fix by hand, then rerun the command: a rerun is safe, because the substitution finds nothing left to replace and the sweep runs again.
 2. **Check the deployment, read-only,** now with all three token values:
 
    ```sh
    /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/contracts/script/deploy-sepolia.sh --check https://ethereum-sepolia-rpc.publicnode.com
    ```
 
-   It must print `deploy-sepolia: …/contracts/deployments/sepolia.json matches the chain and the build at <the frozen commit>`.
-3. **Verify the source on the explorers.** It runs the same check, then `forge verify-contract` for the five contracts with the record's constructor arguments: Sourcify, with no key; Etherscan too when `ETHERSCAN_API_KEY` is in the environment, which forge reads by that name. A contract already verified is skipped, so a rerun is safe. Whether to get an Etherscan key is Rafa's decision.
+   It must print `deploy-sepolia: …/contracts/deployments/sepolia.json matches the chain and the build at <the frozen commit>` [measured on anvil: 2.1 to 2.8 s]. If it fails on the token (`the record's token is …, but Crow's operators accept …`), step 3.1 did not run or did not pass.
+3. **Verify the source on Sourcify,** the pilot's explorer verification: no key, no account, no newer tool (the coordinator's decision, 2026-11-12). It runs the same check, then `forge verify-contract` for the five contracts with the record's constructor arguments, each built from the compiler's own source set. Leave `ETHERSCAN_API_KEY` unset: the Etherscan mode **needs a key and a newer forge; not run**, and the pinned forge is not raised before the freeze, because the compiler setup is part of what the audit reads.
 
    ```sh
    /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/contracts/script/deploy-sepolia.sh --verify https://ethereum-sepolia-rpc.publicnode.com
    ```
 
-   It must end with `the five contracts are verified on Sourcify` (and Etherscan, with a key). What Sourcify and Etherscan answer on Sepolia has not been tried [T-383 tested the commands it builds on a local chain only]. It verifies all five on Sourcify before any on Etherscan, and it replaces the key's value in forge's output before printing it. **Expect Etherscan to fail with the pinned forge 1.0.0:** its binary names only Etherscan's V1 endpoint, which Etherscan has retired [inferred by the T-383 review from the binary; not run]. Sourcify does not depend on it. Etherscan needs a newer forge, which is Rafa's decision with the key.
+   It must end with `the five contracts are verified on Sourcify; set ETHERSCAN_API_KEY to verify on Etherscan too`. What Sourcify answers on Sepolia has not been tried [T-383 tested the commands it builds on a local chain only, as a dry run: 2.5 s]. A contract already verified is skipped, so a rerun is safe [inferred from forge; not run]. If one contract fails, the script stops there; rerun the step. For the record: forge 1.0.0's binary names only Etherscan's retired V1 endpoint [inferred by the T-383 review; not run].
 4. Check the site:
 
    ```sh
    node /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/site/check.mjs
    ```
+
+   It passes on a Sepolia record's new pins [measured, `tests/record-copies.test.ts`]. The anvil rehearsal cannot show this step: a local record is no Sepolia pin, so there it fails by design.
 
 5. Run the guards:
 
@@ -277,6 +279,7 @@ Run them one at a time. If publicnode makes anvil exit, use `https://sepolia.gat
 
 **It must show:** the script exits 0; its line says `pass` and names a smoke deal `Released`; the four reads match.
 **Time:** past runs of this script ended their smoke deal in 43 to 48 s; the world's Durable Object took up to 75 s to restart; one whole run took 114 s [measured, [`operations.md`](operations.md)].
+**Rehearsed on anvil** (T-383, twice): the Workers' code path, the demo world opened on the record step 2 wrote, served on two origins, with no Cloudflare. The start-up checks passed; a record naming the previous token was refused, naming both tokens; the world was ready in 0.6 to 3.7 s; `examples/try.ts` ended `Released` in 4 to 5 s; discovery named the new rules address and the new token; the world's name was `holdback-public-demo-sepolia-<the new rules address>` [measured]. Not rehearsed: `pnpm demo-cloud:deploy` itself, wrangler, and the Durable Object's restart.
 **Rollback:** the script rolls back by itself on a failed check. By hand, both operators together, with the versions from step 0.8:
 
 ```sh
@@ -302,7 +305,15 @@ The old world then serves again, with its deals as they were.
 node --env-file-if-exists=.env /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/examples/e2e-round.ts run 5b --t220 --no-homepage
 ```
 
-It needs `E2E_SEPOLIA_SEED` in the environment and writes its evidence under `reports/e2e-round-1/`.
+It needs `E2E_SEPOLIA_SEED` in the environment and writes its evidence under `reports/e2e-round-1/`. The `--t220` flag is what lets 5b run: without it the scenario waits for T-217 [measured: `examples/e2e-round.ts list`].
+
+**Then the two money addresses** (ADR-0033, T-381), the same way:
+
+```sh
+node --env-file-if-exists=.env /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/examples/e2e-round.ts run 12 --no-homepage
+```
+
+It must print `results: 12 pass`: the price reaches the seller's payout address, a refund returns to the buyer's payment address, and no token transfer names a signing address [measured on anvil, T-383's two rehearsals: 31 of 31 checks in 19 to 20 s]. On Sepolia the round's driver tops its keys up from the round's master address before a step that needs their own gas, so only the master needs test ETH [documented, `examples/e2e-keys.ts`]; on anvil the rehearsal set the buyer's and seller's balances itself.
 
 **Second pass:** the code-alignment package rewrites the round's scenarios for the phase-one world; the scenario's name and flags may change. A measurement before the deploy, as the plan orders it, needs a tool that does not exist: a local world that can settle on Sepolia, or a simulation of the whole deal on a Sepolia RPC (gap 3 of T-363).
 
@@ -414,10 +425,10 @@ It must show the new rules address, the new token and the new world's start bloc
 
 | Line | Waits for | What will change |
 | --- | --- | --- |
-| Step 0.1, 0.10 | R7 to R11, the rehearsal | The gates pass; measured times and corrections enter this page |
+| Step 0.1, 0.10 | R7 to R11 | The gates pass. The local rehearsal of steps 2, 3 and 6 is done (T-383 part 2, twice, at `e4e930c`); rerun it at the frozen commit with step 2.1's command |
 | Step 2, the constructor | R7 | Done for R8 by T-383: the margin of 29 s is in the script's create line, checks and record. A refactor that changes the constructor again changes the script with it |
 | Step 2.6, step 6.4 | T-358 | The domain reads 0.8 and the schema 0.11 |
-| Step 3.3 | Rafa, for an Etherscan key | Done by T-383: `deploy-sepolia.sh --verify`, Sourcify with no key; Etherscan when `ETHERSCAN_API_KEY` is set. Not tried against the real explorers |
+| Step 3.3 | none for the pilot | Done by T-383: `deploy-sepolia.sh --verify`, Sourcify with no key, the pilot's verification. The Etherscan mode needs a key and a newer forge; not run. Not tried against the real explorer |
 | Step 3, the versions and the test rulebooks | T-358; an owner for the two test rulebooks | They land on the lane before the freeze, not in the cutover's commit |
 | Step 3, `WORLD_NAMES.sim` | none | Done: `holdback-public-demo-sim-2026-11-12` |
 | Step 4 | The code-alignment package | Three fork suites rewritten for the phase-one record; the pre-deploy suite's place decided |
