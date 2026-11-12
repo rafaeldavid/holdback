@@ -6,7 +6,7 @@
 - **Depends on:** T-329 (PR 317), T-330 (PR 316), T-331, T-332 (PR 320), T-333, T-355 (PR 363), all merged on `main`
 - **Paths this task may touch:** `site/llms.txt`, the new `site/sell.txt`, `site/build.mjs` and `site/check.mjs` only as the page needs, this file
 - **Human gate:** no for the change; the site deploy that publishes the page is Rafa's
-- **Status:** review
+- **Status:** done (PR 373, merge commit `18d2225`; this status lands with its own PR)
 - **Agent/session:** the T-359 session, 2026-11-12, branch `t-359-seller-page`; pilot plan package 5 (crow-private `roadmap/plans/2026-11-11-pilot-refocus.md`, section 7.1)
 
 ## Intent
