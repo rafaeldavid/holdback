@@ -5,7 +5,7 @@
 - **Depends on:** T-393 (`site/buy.mjs`), T-396 (the usage lines in the buyer's order), T-390 part 3 (`examples/entry.ts`)
 - **Paths this task may touch:** `examples/` (the client commands and a shared help module), `site/buy.txt`, `site/buy.mjs` as the build writes it, their tests, this file. Off limits: `site/build.mjs`, `site/check.mjs`, `site/index.html`, `tools/duet/` (T-391's).
 - **Human gate:** no. Rafa approved the task (2026-11-12, "Yes, all three"). Nothing deploys.
-- **Status:** in progress
+- **Status:** done
 - **Agent/session:** T-393's session, kind 1
 
 ## Intent
@@ -27,7 +27,7 @@ Limits:
 - [x] The example that `node buy.mjs --help` prints is a line of the published `buy.txt` [measured, the same test].
 - [x] `buy-with-signer.ts` is 50 lines; both paths are within budget; the site check passes; `buy.mjs` is rebuilt.
 - [x] One reviewer; findings fixed (below).
-- [ ] Merged by hand into `contracts-audit-ready` once `check` and `gitleaks` pass.
+- [x] Merged by hand into `contracts-audit-ready` once `check` and `gitleaks` passed (PR 468, 8c4b3b9).
 
 ## Out of scope
 
@@ -66,6 +66,39 @@ Limits:
 
 Left, as before this task: `buy-with-signer`'s other wrong calls end in a thrown error, so Node prints a source line and a stack trace above the help. Exit 1, with the help in the message. Catching them would push the file past its 50-line cap; that is for triage.
 
+**The follow-up (PR 469)** [measured, 2026-11-13]. T-391's session found that `seal` answered `--help` with exit 2 and no example. A sweep of every command the guides tell a buyer or a seller to run found four more:
+- `report-converter`: exit 2, usage only;
+- `seller-adapter-stub`: ignored `--help` and started its server;
+- `audit-deal`: exit 2, "unknown option --help";
+- `try` (the one command, bundled as `site/try.mjs`): ignored `--help` and began a test deal.
+
+All five now follow the same rule. The table shows each command with `--help` first, `-h` first, help after another argument, and no arguments:
+
+| Command | `--help` | `-h` | help later | none |
+| --- | --- | --- | --- | --- |
+| `buy-with-signer` | 0 | 0 | 2 | 2 |
+| `pay-from-wallet` | 0 | 0 | 2 | 2 |
+| `deal-record` | 0 | 0 | 2 | 2 |
+| `check-delivery` | 0 | 0 | 2 | 2 |
+| `seller-adapter` | 0 | 0 | 2 | 2 |
+| `seal` | 0 | 0 | 2 | 2 |
+| `report-converter` | 0 | 0 | 2 | 2 |
+| `seller-adapter-stub` | 0 | 0 | 2 | (starts its server, as before) |
+| `audit-deal` | 0 | 0 | 2 | runs the released case, as before |
+| `try` | 0 | 0 | 2 | plays both sides, as before |
+
+- **Where the text lives.** `seal`, `report-converter` and `seller-adapter-stub` take their text from `examples/help.ts`. `audit-deal` keeps its own `pnpm audit-deal` usage and adds a purpose line and an example. `try.ts` keeps its text inline: `site/try.mjs` may import only viem and tweetnacl (`examples/try.test.ts`), and `help.ts` would add Node modules.
+- **Commands left out, with the reason:**
+  - `pnpm sim` lives in `tools/sim`, not `examples/`.
+  - `adapter-log` is the run tool's command (`tools/duet`).
+  - `pnpm build` and `pnpm install` are the repository's own.
+  - The other files in `examples/` (`e2e-*`, `buy-dataset`, `run`, `sign`, `open`, `send-timeout`, `sell-translation`, `two-origins`) are developer examples that no guide names.
+- **Two runs touched the live test service.** While I measured, `node examples/try.ts --help`, before this fix, and `node examples/try.ts` with no arguments each began a test deal against the live operators. Both stopped before signing anything, because the live operators serve EIP-712 domain 0.7 and the lane pins 0.8. Nothing was signed or paid.
+- **The bundles.** Both are rebuilt:
+  - `site/try.mjs`: SHA-256 76abdebb8d24b1416be335c4cc88db16fc6321670d3d99a3404ab0a44e0d3c9c. `llms.txt`'s one command and `site/index.html` carry it, filled by the build.
+  - `site/buy.mjs`: SHA-256 0c8ca257dcfeb13285d97356cccca8e4496fea53cd29f0cc1ab00c8417e91a25.
+- **Checks.** The site check passes, with both paths unchanged: buyer about 4,799 tokens, seller about 4,137. `try`, `audit-deal`, `report-converter`, `seller-adapter`, `buy-with-signer`, `entry`, the site guides, the site deploy and the cut-feature list pass: 9 files, 134 tests.
+
 ## Decisions
 
 - **One help module, with one exception.** Four commands share `examples/help.ts`, so the text and its example live in one place and the bundle names itself. `check-delivery` keeps its own text, because its import list is a test-held guarantee.
@@ -74,4 +107,22 @@ Left, as before this task: `buy-with-signer`'s other wrong calls end in a thrown
 
 ## Handoff
 
-To be completed at the merge.
+**Done.** PR 468 merged as 8c4b3b9. Every client command answers `--help` and `-h` as the first argument, with exit 0. Help asked for anywhere else is a wrong call and exits 2.
+
+**For the next deploy.** After PR 469, `site/buy.mjs` is 0c8ca257dcfeb13285d97356cccca8e4496fea53cd29f0cc1ab00c8417e91a25 and `site/try.mjs` is 76abdebb8d24b1416be335c4cc88db16fc6321670d3d99a3404ab0a44e0d3c9c. `buy.txt`'s install line and `llms.txt`'s one command carry those hashes. The first deploy from main must publish both, and each live file must hash to its value.
+
+**Left for others.**
+- `tools/duet/` (T-391): the run tool's wrapper should pass `--help` through to the command, as the commands now answer it. `adapter-log` is the run tool's own command.
+- Triage: `buy-with-signer`'s other wrong calls end in a thrown error, so Node prints a source line and a stack trace above the help. Catching them needs room the 50-line cap does not leave.
+
+**The two live contacts** (for Rafa's record). Read from `examples/try.ts` and `examples/agent.ts`, and from the saved output of run 1; neither command was run again.
+1. **Run 1:** `node examples/try.ts --help`, before the fix, on 2026-11-13. It ignored `--help` and ran `main()`. Run 2 was `node examples/try.ts` with no arguments, after the fix; no arguments is a valid call, and its output was discarded. Neither run named `--seller`, so `try` played both sides and never contacted the test seller.
+2. **The requests, per run:** at the step named "keys", `Agent.trusted('/.well-known/holdback.json')` sent two GETs at the same moment, one to each operator:
+   - `GET https://api.crow.direct/.well-known/holdback.json`
+   - `GET https://api2.crow.direct/.well-known/holdback.json`
+3. **Where each run stopped:** right after those two reads. The served EIP-712 domain, version 0.7, matched none of the domains `examples/verify.ts` pins (0.8). `main()` threw `Refusal`, which exits 3, before it made a key, asked the faucet, sealed a proposal or prepared anything.
+   - For run 1 this is measured: its saved output ends `refused at keys: refusing to sign: the operators serve EIP-712 domain {… "version":"0.7"}`.
+   - For run 2 it is inferred: it took the same code path and also exited 3.
+4. **Did anything change state there?** No. All four requests (two a run) were reads of the discovery document: no faucet mint, no offer, no proposal at the test seller, no write of any kind. The one effect is that each read counts against the operators' per-client read limit, 1,200 reads a minute, so 2 a run.
+
+**How to resume.** `examples/help.ts` holds the text. `tests/site-guides.test.ts` checks that `buy.mjs`'s help answers, and that its example is a line of `buy.txt`.

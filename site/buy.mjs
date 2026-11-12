@@ -2115,6 +2115,25 @@ var init_help = __esmMin((() => {
 			what: "sells your API's jobs on Crow: it serves /quote and /defaults, signs each offer, waits for the hold, runs the job and delivers the checked result.",
 			usage: (me) => [`${me} <config.json> [--sim]`, "  The file names your API (sellerApi) and any setting you change; HOLDBACK_KEY and HOLDBACK_OPERATORS come from the environment, or --sim takes both from a running `pnpm sim`. A sample file: examples/seller-adapter.config.json."],
 			example: (me) => `${me} seller.json --sim`
+		},
+		seal: {
+			what: "delivers one file by hand: it encrypts it to the buyer and the deal's adjudicators, uploads it, and submits the delivery signed with HOLDBACK_KEY. The settlement layer takes one delivery a deal.",
+			usage: (me) => [
+				`${me} <terms.json> <file>`,
+				`${me} <journal.json> <file> <commitment ID>`,
+				"  terms.json is the offer you signed; the seller adapter's journal holds it too. HOLDBACK_KEY and HOLDBACK_OPERATORS come from the environment."
+			],
+			example: (me) => `HOLDBACK_OPERATORS=$OP1,$OP2 ${me} seller-adapter.journal.json report.json ${ID$2}`
+		},
+		"report-converter": {
+			what: "turns one report in your API's own JSON shape into your deal template's JSON, by a mapping file and no code, and prints it.",
+			usage: (me) => [`${me} <mapping.json> <report.json>`],
+			example: (me) => `${me} fixtures/data/audit-report/seller-shape-a.mapping.json report.json`
+		},
+		"seller-adapter-stub": {
+			what: "runs a stub of a seller's own API on port 8790, with the three calls the seller adapter makes (POST /quote, POST /jobs, GET /jobs/<id>/result), on test data only.",
+			usage: (me) => [`${me}`],
+			example: (me) => `${me}`
 		}
 	};
 	isHelp = (a) => a === "--help" || a === "-h";

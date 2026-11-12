@@ -46,6 +46,16 @@ const CSV = 'customer_id,email\n1,ada@example.com\n2,alan@example.com\n3,grace@e
 const BAD_CSV = 'customer_id,email\n1,ada@example.com\n2,alan@example.com\n';
 
 const args = process.argv.slice(2);
+// T-397: --help or -h first answers with what it does, the usage and an example, and runs nothing (exit 0); anywhere
+// else it is a wrong call (exit 2). Kept here: try.mjs imports only viem and tweetnacl.
+if (args.some((a) => a === '--help' || a === '-h')) {
+  (args[0] === '--help' || args[0] === '-h' ? console.log : console.error)([
+    "try: runs one test deal on Crow's demo with fresh keys, test tokens only. With --seller it is the buyer and Crow's test seller the other party; without, it plays both sides. --outcome refund asks for a refund.",
+    'usage: node try.mjs [--seller <test seller URL>] [--outcome release|refund]',
+    'example: node try.mjs --seller https://crow.direct/agents/test-seller',
+  ].join('\n'));
+  process.exit(args[0] === '--help' || args[0] === '-h' ? 0 : 2);
+}
 const option = (name: string): string | undefined => {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : undefined;
