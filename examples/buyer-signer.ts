@@ -522,6 +522,32 @@ export class BuyerSigner {
     return this.#connected;
   }
 
+  /**
+   * The deal's one token (plan section 2c): the pinned settlement layer's, which every operator's discovery must name
+   * too, or the signer refuses. A tool takes it from here and never from a template.
+   */
+  async token(): Promise<Pin['token']> {
+    const { agent, pin } = await this.#connect();
+    const listed = await agent.trusted('/.well-known/holdback.json', (x) => (typeof x.demo?.token?.id === 'string' ? x.demo.token.id.toLowerCase() : null));
+    if (listed !== null && listed !== pin.token.id.toLowerCase()) refuse(`the operators' discovery names the token ${shown(listed)}, and the pinned settlement layer holds ${pin.token.id} (${pin.token.symbol})`);
+    return { ...pin.token };
+  }
+
+  /**
+   * The buyer's own terms (the defaults' format, as `--expect-terms` takes them) in the deal's one token: a `price` or
+   * `fee` that names no token takes it, and one that names another is refused, naming both, before any quote is asked.
+   */
+  async inToken<T>(terms: T): Promise<T> {
+    const token = await this.token();
+    const t = structuredClone(terms) as J;
+    for (const k of ['price', 'fee']) {
+      if (!isRecord(t?.[k])) continue;
+      if (t[k].token !== undefined && String(t[k].token).toLowerCase() !== token.id.toLowerCase()) refuse(`your terms' ${k} names the token ${shown(t[k].token)}, and these operators settle in ${token.id} (${token.symbol}) only: name that token, or leave the token out`);
+      t[k] = { token: token.id, amount: t[k].amount };
+    }
+    return t as T;
+  }
+
   /** A key serves one deal: binds it to `id`, or stops when it already serves another. */
   #bind(id: Hex): void {
     const bound = this.#saved.commitmentId;
