@@ -737,9 +737,11 @@ describe('a checks-only deal between two fresh agents, over HTTP', () => {
     expect([await balance(buyer), await balance(seller)]).toEqual(['974000000', '1025000000']);
 
     // Eviction: a new world over the same storage replays the journal to the same state.
-    const digest = first.world.digest();
+    // Closed first, so no pass of the first world writes after the digest (on phase one the deal is final at once, and a
+    // pass could still land between the two in CI; T-378).
     await first.close();
     running.splice(running.indexOf(first), 1);
+    const digest = first.world.digest();
     // A changed configuration does not change a world already created: its club keeps the windows it began with.
     const second = await serve({ minWindowSec: 99 }, storage);
     expect(second.world.digest()).toBe(digest);
