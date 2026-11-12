@@ -5,7 +5,7 @@
 - **Depends on:** T-318, T-329, T-331, T-359
 - **Paths this task may touch:** `examples/seller-adapter.ts`, its tests and stubs (`examples/seller-adapter*.test.ts`, `examples/seller-adapter*-stub.ts`), `examples/seller-adapter.config.json`, `examples/seller-adapter.template.json`, the service recipe files (`examples/seller-adapter-service.md`, `examples/seller-adapter.Caddyfile`, `examples/seller-adapter.service`), `site/sell.txt` except "A seller's client can carry the buyer's side", `vitest.config.ts` (one cost line for the new test file), this file. Added: `examples/seller-adapter-api.ts` (the mapping and the credential, beside the adapter), `examples/seller-adapter-job-stub.ts`, `examples/seller-adapter-job-api.test.ts`, `examples/seller-adapter.job-api.config.json`
 - **Human gate:** no (the site deploy that publishes the page is Rafa's)
-- **Status:** review
+- **Status:** done
 - **Agent/session:** T-366 implementer, change kind 4 (tooling), roadmap row N85
 
 ## Intent
