@@ -112,7 +112,7 @@ The agent signs each `sign` entry whose `signer` is its address, writes the sign
 
 **Windows too short to decide.** A short window is a stated limit, not a refusal (D31). The fallback's and an escalation's panel seed comes from a drand round published after the last moment a choice can be made, plus the rules contract's beacon margin (`BEACON_MARGIN()`, ADR-0032): 29 s on Sepolia and Ethereum mainnet, 0 on SimChain and the local chain. So on Sepolia and mainnet:
 - an escalation window (`appealDecideSec`) below 37 s can never be decided: every escalation then ends in the default outcome, a refund;
-- a fallback window (`fallbackBy` minus `judgeBy`) can always be decided from 44 s on Sepolia and 43 s on mainnet (ADR-0032 §5).
+- a fallback window (`fallbackBy` minus `judgeBy`) can always be decided from 44 s on Sepolia and 43 s on mainnet (ADR-0032, Summary).
 
 `prepare/offer` adds a notice below either floor, computed from the deployment's margin; its fallback notice uses 44 s on both chains. With a margin of 0 it gives none.
 
