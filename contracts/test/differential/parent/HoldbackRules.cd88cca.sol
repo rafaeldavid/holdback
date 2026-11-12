@@ -74,6 +74,9 @@ contract HoldbackRules is EIP712 {
     ///         No code here reads it; the getter stays in the ABI, and `Postings.fuzz.t.sol` fails if it leaves 0.
     uint256 public constant MUTUAL_FEE_SHARE_BPS = 0;
 
+    /// @dev anvil's chain ID: the one chain where a beacon margin of 0 deploys (ADR-0032 §3.4), as for the sim beacon.
+    uint256 internal constant LOCAL_CHAIN_ID = 31337;
+
     AuthCaptureEscrow public immutable ESCROW;
     /// @notice CPP's ERC-3009 collector, the one way a phase-one deal funds (ADR-0031 §3, SC-2).
     address public immutable ERC3009_COLLECTOR;
@@ -86,6 +89,10 @@ contract HoldbackRules is EIP712 {
     /// @notice The one settlement token this deployment serves, fixed at deploy (ADR-0031 §2, SC-1). Terms that name
     ///         another token never fund here; a second token needs a second deployment, and so another signing domain.
     address public immutable TOKEN;
+    /// @notice Seconds after the last moment a choice can still be made at which the fallback's and the escalation's
+    ///         panel rounds are taken (ADR-0032): two block slots, 29 s, on Ethereum mainnet and Sepolia, so nobody
+    ///         who builds the block that fixes a round knows its value; 0 only on the local chain. Fixed at deploy.
+    uint64 public immutable BEACON_MARGIN;
 
     mapping(bytes32 commitmentId => Deal) internal _deals;
     /// @notice The posted delivery's hash (the EIP-712 struct hash of the seller's Delivery, as `JobSubmitted` emits
@@ -139,19 +146,24 @@ contract HoldbackRules is EIP712 {
     error InvalidMessage();
     error BadKeyProof();
     error BadSeed();
+    /// @notice A margin of 0 on a chain other than the local one (ADR-0032 §3.4): a deploy-time check on the deployer.
+    error NoBeaconMargin();
 
     constructor(
         AuthCaptureEscrow escrow,
         address erc3009Collector,
         uint64 expiryMargin,
         IHoldbackBeacon beacon,
-        address token
+        address token,
+        uint64 beaconMargin
     ) {
+        if (beaconMargin == 0 && block.chainid != LOCAL_CHAIN_ID) revert NoBeaconMargin();
         ESCROW = escrow;
         ERC3009_COLLECTOR = erc3009Collector;
         EXPIRY_MARGIN = expiryMargin;
         BEACON = beacon;
         TOKEN = token;
+        BEACON_MARGIN = beaconMargin;
     }
 
     // Views
@@ -304,10 +316,10 @@ contract HoldbackRules is EIP712 {
         else _firstInstance(id, t, d, m, adjudicator);
     }
 
-    /// @dev Whose turn stage `s` is, until when, and which beacon round fixes the seed (ADR-0016, ADR-0018): the
-    ///      primary in Delivered, until judgeBy; the fallback in FallbackJudging, until fallbackBy, on judgeBy's round;
-    ///      the appeal adjudicator in Escalated, until the escalation's time t1 plus appealDecideSec, on the first round
-    ///      after t1. Any other stage has no turn.
+    /// @dev Whose turn stage `s` is, until when, and which beacon round fixes the seed (ADR-0016, ADR-0018, ADR-0032):
+    ///      the primary in Delivered, until judgeBy; the fallback in FallbackJudging, until fallbackBy, on the first
+    ///      round after judgeBy − 1 + BEACON_MARGIN; the appeal adjudicator in Escalated, until the escalation's time t1
+    ///      plus appealDecideSec, on the first round after t1 + BEACON_MARGIN. Any other stage has no turn.
     function _turn(H.Terms calldata t, Stage s, uint40 t1)
         internal
         view
@@ -519,7 +531,7 @@ contract HoldbackRules is EIP712 {
     // Deadlines (RF-3, T-375): each one is written once, here, and read wherever it applies, so an opposing pair (the
     // step that needs `now < X` and the timeout that needs `now >= X`) always splits time at the same instant
     // (`docs/audit/state-model.md` section 6). Every deadline sum is in 256 bits over 64-bit and 40-bit terms, so none
-    // overflows. The escalation's round adds 1 in 64 bits, which the beacon's arithmetic keeps in range.
+    // overflows. `_roundAfter` adds 1 in 64 bits, which the beacon's arithmetic keeps in range.
     // The terms' own deadlines (offerExpiresAt, fundBy, deliverBy, judgeBy, fallbackBy) are read from `t.timing`.
 
     /// @dev The appeal adjudicator's deadline on an escalation made at `t1`: the decision needs `now` before it, and
@@ -535,15 +547,25 @@ contract HoldbackRules is EIP712 {
         return uint256(t.timing.fallbackBy) + t.timing.appealDecideSec + EXPIRY_MARGIN;
     }
 
-    /// @dev The beacon round that seeds the fallback's panel: the round at judgeBy, fixed before anyone signs.
+    /// @dev ADR-0032 §3.1: the first beacon round published strictly after `lastChoice + BEACON_MARGIN`, where
+    ///      `lastChoice` is the last block time at which a party can still make the choice the panel's seed would
+    ///      inform. On drand it is published BEACON_MARGIN + 1 to BEACON_MARGIN + 3 seconds after `lastChoice`.
+    function _roundAfter(uint256 lastChoice) internal view returns (uint64) {
+        return BEACON.roundAt(lastChoice + BEACON_MARGIN) + 1;
+    }
+
+    /// @dev The beacon round that seeds the fallback's panel: the first at or after judgeBy, plus the margin. The
+    ///      primary's decision must land before judgeBy, so judgeBy − 1 is the last second anyone can still choose
+    ///      between it and the fallback. judgeBy is at least 3 for a funded deal (the deadlines are in strict order), so
+    ///      the subtraction cannot underflow.
     function _fallbackRound(H.Terms calldata t) internal view returns (uint64) {
-        return BEACON.roundAt(t.timing.judgeBy);
+        return _roundAfter(uint256(t.timing.judgeBy) - 1);
     }
 
     /// @dev The beacon round that seeds the appeal adjudicator's panel on an escalation made at `t1`: the first round
-    ///      after it.
+    ///      after t1 plus the margin, whoever escalated.
     function _escalationRound(uint40 t1) internal view returns (uint64) {
-        return BEACON.roundAt(t1) + 1;
+        return _roundAfter(t1);
     }
 
     function _refundAll(bytes32 id, H.Terms calldata t, Deal storage d, Reason reason) internal {

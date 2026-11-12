@@ -778,26 +778,31 @@ async function earlyAccept(ctx: PrepareContext, input: Record<string, unknown>):
 
 async function appeal(ctx: PrepareContext, input: Record<string, unknown>): Promise<Prepared> {
   const c = await commitmentIn(ctx, input);
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   if (!isAddress(input['appellant'])) bad('appellant (your address) is required', 'appellant');
   const who = lc(input['appellant'] as string);
   const appellant: 'buyer' | 'seller' = who === lc(c.buyer) ? 'buyer' : who === lc(c.seller) ? 'seller' : bad(`${who} is neither party to ${c.id}`, 'appellant');
   // T-206 L-7: only the party the decision went against appeals, so do not prepare a message settlement refuses.
   const s = await ctx.state(c.id);
   const against = s?.escrowState === 'Released' ? 'buyer' : s?.escrowState === 'Refunded' ? 'seller' : undefined;
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   if (against && appellant !== against) bad(`the decision went against the ${against}, so only the ${against} may appeal`, 'appellant');
   const rulebook = ctx.club(c.clubId)?.rulebook ?? bad(`no club ${c.clubId}`);
   const bond = mulBps(c.price, BigInt(rulebook.appealBondRateBps), 'ceil');
   if (!bond.ok) return bad('cannot compute the appeal bond');
   const givenAt = timestamp(input['filedAt'], 'filedAt');
   const filedAt = givenAt ?? ctx.now();
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   const body = { commitmentId: c.id, appellant, appellantAddress: who as Address, grounds: typeof input['grounds'] === 'string' ? input['grounds'] : 'wrong-outcome', bond: bond.value, filedAt };
   const fee = rulebook.appealFee;
   return {
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     kind: 'appeal',
     commitmentId: c.id,
     sign: [{ slot: 'signature', signer: body.appellantAddress, ...forMessage(ctx.domain, { ...body, type: 'Appeal' }) }],
     submit: { method: 'POST', path: `/v1/commitments/${c.id}/appeals`, body: { ...body, signature: null } },
     check: [
+      // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
       `you appeal as the ${appellant}`,
       `you post a bond of ${amountText(bond.value)} (${rulebook.appealBondRateBps} bps of the price, rounded up) and a fee of ${amountText(fee)}, ${amountText({ token: fee.token, amount: (BigInt(bond.value.amount) + BigInt(fee.amount)).toString() } as TokenAmount)} in all, from your balance; you lose the bond if the decision is upheld`,
     ],
