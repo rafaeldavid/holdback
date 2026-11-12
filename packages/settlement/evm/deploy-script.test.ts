@@ -338,8 +338,10 @@ describe.skipIf(!ready)(`the deploy script on a local chain (T-383)${ready ? '' 
   // The routine twice, with no hand edit between runs (T-383, "done looks like"): on a copy of the repository's
   // tracked files, each run copies the record to its dated name, deploys, writes the copies with
   // scripts/record-copies.mjs and checks all three token values. The copy starts as if the live world were a first
-  // local deployment: its record is sepolia.json and its table names that deployment's token for chain 31337. The site
-  // rebuild is left out here (--no-build); tests/record-copies.test.ts runs it.
+  // local deployment: its record is sepolia.json and its table names that deployment's token for chain 31337. What
+  // this shows is the chain side: the record, the dated copy, the table and examples/deployments.ts move with no hand
+  // edit, and the check passes each time. The local values appear in no other pin, so the site's pins, the rebuild and
+  // a sweep that catches a miss are shown on the Sepolia record by tests/record-copies.test.ts instead.
   it('runs the whole routine twice on the local chain with no hand edit', async () => {
     const copy = realpathSync(mkdtempSync(join(tmpdir(), 't383-routine-')));
     try {

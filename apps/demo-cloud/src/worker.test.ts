@@ -240,7 +240,7 @@ describe('the SETTLEMENT variable (T-313)', () => {
   it('`sim` and `sepolia` each forward to their own world, and name the settlement to it', async () => {
     // T-383: the Sepolia world's name is the record's rules address, so a new record is a new world.
     const record = JSON.parse(readFileSync(new URL('../../../contracts/deployments/sepolia.json', import.meta.url), 'utf8')) as { rules: string };
-    for (const [value, name] of [['sim', 'holdback-public-demo-2026-11-04'], ['sepolia', `holdback-public-demo-sepolia-${record.rules.toLowerCase()}`]] as const) {
+    for (const [value, name] of [['sim', 'holdback-public-demo-sim-2026-11-12'], ['sepolia', `holdback-public-demo-sepolia-${record.rules.toLowerCase()}`]] as const) {
       const b = binding();
       const r = await worker.fetch(new Request('https://api.crow.direct/v1/status', { headers: { 'x-holdback-settlement': 'spoofed' } }), b.env(value));
       expect(await r.text()).toBe('from the world');

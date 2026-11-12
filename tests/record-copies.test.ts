@@ -148,6 +148,23 @@ describe('the command on a copy of the repository', () => {
     // The copy already names the new record, so the second run's old record is the new one's predecessor again.
     const c = recordCopies({ root: copy, oldPath: OLD_NAME, newPath: 'contracts/deployments/sepolia.json', build: false, log: (l: string) => again.push(l) });
     expect(c).toBe(1);
-    expect(again.join('\n')).toContain(`apps/operator/src/stray-pin.ts:1: ${old.rules}`);
+    expect(again.join('\n')).toContain(`apps/operator/src/stray-pin.ts:1: ${old.rules.toLowerCase()}`);
+  });
+
+  it('finds a pin with no 0x, padded to 32 bytes, or inside a longer hex string (review of PR 425)', () => {
+    const body = old.rules.slice(2).toLowerCase();
+    writeFileSync(join(copy, 'apps/operator/src/stray-pin.ts'), '');
+    const forms = { 'no-prefix.json': `{"rules": "${body}"}`, 'padded.txt': `0x${'0'.repeat(24)}${body}`, 'embedded.txt': `0xdeadbeef${body.toUpperCase()}` };
+    for (const [name, text] of Object.entries(forms)) writeFileSync(join(copy, 'apps/operator/src', name), `${text}\n`);
+    const again: string[] = [];
+    expect(recordCopies({ root: copy, oldPath: OLD_NAME, newPath: 'contracts/deployments/sepolia.json', build: false, log: (l: string) => again.push(l) })).toBe(1);
+    for (const name of Object.keys(forms)) expect(again.join('\n')).toContain(`apps/operator/src/${name}:1: 0x${body}`);
+  });
+
+  it('sweeps the current docs: only dated history and the pages a later step rewrites are left out', () => {
+    writeFileSync(join(copy, 'docs/quickstart.md'), `${readFileSync(join(copy, 'docs/quickstart.md'), 'utf8')}\nrules: ${old.rules}\n`);
+    const again: string[] = [];
+    expect(recordCopies({ root: copy, oldPath: OLD_NAME, newPath: 'contracts/deployments/sepolia.json', build: false, log: (l: string) => again.push(l) })).toBe(1);
+    expect(again.join('\n')).toMatch(/docs\/quickstart\.md:\d+: 0x/);
   });
 });

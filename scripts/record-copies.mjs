@@ -33,7 +33,12 @@ export const DEPLOYMENTS_TS = 'examples/deployments.ts';
  */
 export const HISTORY = [
   { path: /^contracts\/deployments\/sepolia-\d{4}-\d{2}-\d{2}-domain-[\d.]+\.json$/, why: 'a dated record: the deployment it names' },
-  { path: 'docs/', why: 'dated history: task files, reviews, the operations record' },
+  { path: 'docs/tasks/', why: 'dated history: task files' },
+  { path: 'docs/reviews/', why: 'dated history: reviews' },
+  { path: 'docs/research/', why: 'dated history: research and its recorded runs' },
+  { path: 'docs/operations.md', why: 'the dated record of each deploy' },
+  { path: 'docs/cutover-phase-one.md', why: "this cutover's runbook, which names the old world on purpose" },
+  { path: 'docs/audit/scope.md', why: 'rewritten for the frozen commit at cutover step 11.4' },
   { path: 'tests/metrics/fixtures/', why: 'recorded answers of past live runs' },
   { path: 'examples/e2e-run.test.ts', why: 'a recorded Sepolia run' },
   { path: 'examples/e2e-adjudicator.test.ts', why: 'a fixed test vector: its hashes are computed over these values' },
@@ -158,8 +163,14 @@ export function trackedFiles(root) {
 
 const inHistory = (file) => HISTORY.some((h) => (typeof h.path === 'string' ? file.startsWith(h.path) : h.path.test(file)));
 
-/** Every line of a tracked file outside HISTORY that still names an old value: `file:line: value`. */
+/**
+ * Every line of a tracked file outside HISTORY that still names an old value: `file:line: value`. A value is found by
+ * its hex body, in any letter case and anywhere in the line, so a pin with no `0x`, padded to 32 bytes (a log topic,
+ * ABI data) or inside a longer hex string is found too (review of PR 425). Substitution rewrites whole `0x` values
+ * only; any other spelling the sweep finds is fixed by hand.
+ */
 export function sweep(root, oldValues) {
+  const bodies = [...oldValues].map((v) => v.slice(2));
   const found = [];
   for (const file of trackedFiles(root)) {
     if (inHistory(file)) continue;
@@ -168,9 +179,10 @@ export function sweep(root, oldValues) {
     const text = readFileSync(path, 'utf8');
     if (text.includes('\0')) continue;
     const lower = text.toLowerCase();
-    if (![...oldValues].some((v) => lower.includes(v))) continue;
+    if (!bodies.some((b) => lower.includes(b))) continue;
     text.split('\n').forEach((line, i) => {
-      for (const m of line.matchAll(/0x[0-9a-fA-F]+/g)) if (oldValues.has(m[0].toLowerCase())) found.push(`${file}:${i + 1}: ${m[0]}`);
+      const l = line.toLowerCase();
+      for (const b of bodies) if (l.includes(b)) found.push(`${file}:${i + 1}: 0x${b}`);
     });
   }
   return found;

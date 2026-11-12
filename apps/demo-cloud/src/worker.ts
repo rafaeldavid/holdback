@@ -60,7 +60,8 @@ export interface Env {
  * contracts/deployments/sepolia.json is a new world, with no second edit.
  */
 const WORLD_NAMES = {
-  sim: 'holdback-public-demo-2026-11-04',
+  // Schema v0.11 changed what the SimChain world stores, and a new one runs phase one (T-378, PR 416).
+  sim: 'holdback-public-demo-sim-2026-11-12',
   get sepolia(): string {
     return `holdback-public-demo-sepolia-${sepoliaDeployment().rules.toLowerCase()}`;
   },
