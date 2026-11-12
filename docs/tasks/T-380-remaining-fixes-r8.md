@@ -5,7 +5,7 @@
 - **Depends on:** T-375 (package R7, holdback PR 409, lane tip `2ef35b3`), T-356 (SC-5's refusals, the parent-commit harness), T-348 (ADR-0032), T-341 (the side-by-side harness and the state oracle)
 - **Paths this task may touch:** `contracts/`; `packages/core/`; `packages/settlement/` where the adapter must follow; `apps/adjudicator/src/randomness.ts` (the one file of T-378's area, after telling the coordinator); `spec/schemas/` only with an ADR and a schema version; `fixtures/` where a recording must follow; this task file. Anything else goes in the Handoff
 - **Human gate:** no for the branch. The freeze, the merge to `main` and the redeploy are Rafa's
-- **Status:** done once PR 4 merges (PR 1: holdback PR 414, `7f99f90`; PR 2: PR 418, `cd88cca`; PR 3: PR 420, `d0daf3e`; PR 4: this task's last pull request)
+- **Status:** done (PR 1: holdback PR 414, `7f99f90`; PR 2: PR 418, `cd88cca`; PR 3: PR 420, `d0daf3e`; PR 4: PR 426, `7a9f1d2`)
 - **Agent/session:** implementer session, change kind 7 (smart contracts): `forge test`, the differential and invariant suites, one reviewer per pull request, one red team on the rounds change
 
 ## Intent
@@ -87,6 +87,8 @@ Fill this in before review. Label each item measured, inferred or guessed.
   - `contracts/test/unit/ConstructorChecks.t.sol`: the four zero addresses fail on the parent (it deployed each) and are refused on the fix; every address set deploys [measured: 6 of 6]. `forge test` on the lane's tip `d0daf3e` plus this change: 470 passed, 0 failed, the harness compared with `d0daf3e` and an empty allow list [measured]. The anvil suites that deploy the contract (`margin.test.ts`, `evm-settlement.test.ts`, the done test) pass, 47 of 47 [measured].
   - **The pragma** was already pinned: every file in `contracts/src/` reads `pragma solidity 0.8.28;` [measured: grep].
   - **Static analysis** (Slither 0.11.6, Aderyn 0.6.8, the commands of `docs/reviews/2026-11-11-static-analysis.md`) [measured]. Slither: 49 results, no High; `missing-zero-check` 2 → 0. The Mediums are the classes that review dismissed: `incorrect-equality` ×9 (enum stages and role codes, never a balance), `uninitialized-local` ×2 (`_payOut`'s sums that start at 0), `unused-return` ×1 (`_refundAll` reads one field of `paymentState`). Lows: `reentrancy-events` ×9 and `timestamp` ×10, as dismissed there. Aderyn: H-1 `abi.encodePacked` ×9 (type strings, dismissed as A-1) and 7 Lows, each dismissed there (L-5 unchecked return as A-3, L-7 `PAIRING_GAS` as A-4, a false positive). Nothing new.
+
+- **The lane's tip after the package** (`7a9f1d2`, which also carries T-383's PR 423): `forge test` 470 passed, 0 failed, the side-by-side harness among them; runtime 20,469 bytes, 4,107 bytes under the EIP-170 limit [measured].
 
 ## Decisions
 
