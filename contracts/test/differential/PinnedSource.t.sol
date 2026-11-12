@@ -56,8 +56,8 @@ contract PinnedSourceTest is Test {
 
     /// T-356: the harness's old side is the change's parent commit, `parent/`: `contracts/src/` at the parent, the
     /// three files the pinned side deploys (the sim beacon is `script/SimBeacon.sol`, unchanged since). Since T-380 the
-    /// parent is `73bbafa`, the lane after R8 (T-380, holdback PR 426, merged as 7a9f1d2): each of the three files has the same
-    /// git blob id as `73bbafa:contracts/src/<file>` (measured 2026-11-12 with `git hash-object` against
+    /// parent is `73bbafa` (holdback PR 431), whose contracts are R8's last fix as merged in PR 426 (`7a9f1d2`): each of
+    /// the three files has the same git blob id as `73bbafa:contracts/src/<file>` (measured 2026-11-12 with `git hash-object` against
     /// `git rev-parse`). The values below are the compiler's keccak256 of each file.
     function test_parentIsTheChangesParent() public view {
         string memory a = "HoldbackRules.73bbafa.sol/HoldbackRules.json";

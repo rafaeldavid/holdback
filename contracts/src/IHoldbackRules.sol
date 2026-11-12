@@ -7,8 +7,8 @@ import {IHoldbackBeacon} from "./IHoldbackBeacon.sol";
 import {HoldbackTypes as H} from "./HoldbackTypes.sol";
 
 /// @title IHoldbackRules
-/// @notice Every declaration of the phase-one rules contract, `HoldbackRules`: its types, events, errors and external
-///         functions, with no logic (T-384).
+/// @notice The external surface of the phase-one rules contract, `HoldbackRules`: its types, events, errors, external
+///         functions and getters, with no logic (T-384). `eip712Domain` comes from Solady's EIP712.
 interface IHoldbackRules {
     // Types
 
@@ -45,8 +45,9 @@ interface IHoldbackRules {
         Appeal
     }
 
-    /// @notice One storage word per commitment. Phase one has no party appeal and no bond (ADR-0031 §8): the first
-    ///         decision by the primary or the fallback, and an escalation's decision, are final when written.
+    /// @notice One storage word per commitment. Phase one has no party appeal and no bond (ADR-0031 §8): an accept or
+    ///         a reject is final when written, whether the primary, the fallback or, after an escalation, the appeal
+    ///         adjudicator decides it.
     struct Deal {
         Stage stage;
         uint8 attempt; // delivery attempt seen on chain (0 until a delivery is verified)

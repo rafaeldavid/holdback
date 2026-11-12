@@ -149,8 +149,8 @@ library HoldbackTypes {
     uint8 internal constant OUTCOME_REJECT = 1;
     uint8 internal constant OUTCOME_ESCALATE = 2;
 
-    /// @notice Whether `role` may decide `outcome`: accept or reject for every role, escalate for the primary and the
-    ///         fallback only. The appeal adjudicator, which in phase one hears escalations only, cannot escalate. The
+    /// @notice Whether `role` may decide `outcome`: accept or reject for every role, escalate for every role but
+    ///         `ROLE_APPEAL`. The appeal adjudicator, which in phase one hears escalations only, cannot escalate. The
     ///         test is by value, so it does not depend on the constants' numeric order (RF-5, T-384).
     function isValidOutcome(uint8 role, uint8 outcome) internal pure returns (bool) {
         return outcome == OUTCOME_ACCEPT || outcome == OUTCOME_REJECT

@@ -22,8 +22,8 @@ import {HoldbackRules as PlantedRules} from "./planted/HoldbackRules.planted.sol
 ///         - `NewSide`: the source under test, `contracts/src/`, deployed by `Base.setUp` unchanged;
 ///         - `OldSide`: the pinned copy of `contracts/src/` at the change's parent commit (`parent/`). Since T-356
 ///           each change on `contracts-audit-ready` is compared with its parent, not with the deployed commit
-///           (the refinement plan, R6c's harness row). The parent here is `73bbafa`, the lane after
-///           R8 (T-380, holdback PR 426, merged as 7a9f1d2), copied unchanged. Both sides pay the terms' money addresses (ADR-0033), so deals with those addresses
+///           (the refinement plan, R6c's harness row). The parent here is `73bbafa` (holdback
+///           PR 431), whose contracts are R8's last fix as merged in PR 426 (`7a9f1d2`), copied unchanged. Both sides pay the terms' money addresses (ADR-0033), so deals with those addresses
 ///           apart from the signing addresses run on both sides too;
 ///         - `PlantedSide`: the pinned copy with one planted behaviour change (`planted/`), for the tests that
 ///           prove the harness and the liveness invariant fail on a real change.
