@@ -106,6 +106,40 @@ Focus (Rafa, 2026-11-06; D53, narrowed the same day by D54 after his walkthrough
 - [x] T-326 (done: PR 308, 2026-11-11) The local audit deal takes a seller's own report and terms.
 - [x] T-327 (done: PRs 306 and 312, 2026-11-11; 312 holds the review fixes; live from the operator deploy of 15:54 UTC, with no live deal yet on the reference path) The adjudicator loads reference files by their committed hash, so a required reference check can pass.
 - [x] T-328 (done: PR 310, 2026-11-11; record `docs/reviews/2026-11-11-outsider-design-tests.md`) Outsider design tests, buyer-started: four runs of a fresh agent that has only `llms.txt`, against the live operators and the test seller.
+- [x] T-329 (done: PR 317, 2026-11-11; live in `llms.txt` from the site deploy of 20:18 UTC) A refused check run alerts the seller, and the seller adapter delivers the fixed report.
+- [x] T-330 (done: PR 316, 2026-11-11; live in `llms.txt` from the site deploy of 20:18 UTC) Terms set per quote, and the buyer signer shows how they differ from the seller's defaults.
+- [x] T-331 (done: PR 319, 2026-11-11) The seller adapter starts from one configuration file.
+- [x] T-332 (done: PR 320, 2026-11-11) The buyer signer shows and checks every field the buyer signs.
+- [x] T-333 (done: PR 321, 2026-11-11) The deal record: one verified file per finished deal.
+- [ ] T-334 (merged to `contracts-audit-ready`: PR 326, 2026-11-11; waits for the freeze) The contracts' clean-up before the audit, package C2. Its task file is on that branch.
+- [x] T-335 (done: PR 328, 2026-11-11) The adversarial pass's attack tests ported, and the untested contract paths filled.
+- [x] T-336 (done: PR 325, 2026-11-11) An invariant counts the handler's deliveries and catches a lost delivery hash.
+- [x] T-337 (done: PR 331, 2026-11-11) The formal model's gaps: the buyer's reclaim on the escrow, bond coverage, and a map from the model to the contract.
+- [x] T-338 (done: PR 324, 2026-11-11) The audit docs: the invariants list, the events inventory, and the sources' disagreements settled.
+- [x] T-339 (done: PRs 323 and 338, 2026-11-11) Slither and Aderyn at HEAD, triaged, and the planted-failure check of CI.
+- [x] T-340 (done: PR 330, 2026-11-11) The contract state model, the signed-field register and the threat model (`docs/audit/`).
+- [x] T-341 (done: PR 333, 2026-11-11) The side-by-side harness and the state oracle, contract refinement package R3.
+- [x] T-342 (done: PRs 329, 337 and 339, 2026-11-11; D57, D58) The scope decision record for the phase-one contracts (ADR-0031).
+- [x] T-343 (done: PR 334, 2026-11-11) The drand verifier, read against its specifications.
+- T-344 A task in the maintainers' private repository, with no file here.
+- [x] T-345 (done: PR 340, 2026-11-11) A zero-price deal through every outcome, as contract tests.
+- [ ] T-346 (merged to `contracts-audit-ready`: PRs 343, 352 and 357, 2026-11-11; waits for the freeze) The phase-one contracts have no party appeals and no bonds. Its task file is on that branch.
+- [x] T-347 (done: PR 346, 2026-11-11; live from the operator deploy of 2026-11-12 05:01 UTC) An unreadable delivery never stalls the adjudicator's other deals.
+- [x] T-348 (done: PR 345, 2026-11-11; D59, ADR-0032) The decision record for the beacon rounds of escalation and fallback.
+- [ ] T-349 (merged to `contracts-audit-ready` through PR 361, 2026-11-11, into T-346's branch, which PR 352 merged; waits for the freeze) The EVM settlement path has no party appeals and no bonds. Its task file is on that branch.
+- [x] T-350 (done: PRs 353 and 362, 2026-11-11 and 2026-11-12; D60, D62, ADR-0033) The decision record for the seller's payout address and the buyer's payment address.
+- [x] T-351 (done: PR 359, 2026-11-11; D61, ADR-0034) The settlement chain for the mainnet test, and its gate.
+- [ ] T-352 (in progress: PRs 358 and 365 merged on 2026-11-11 and 2026-11-12; the mutation run is paused) Coverage and mutation tooling for the contracts, with first results.
+- [x] T-353 (done: PR 348, 2026-11-11) The drand verifier, a second read by another model family.
+- [ ] T-354 (merged to `contracts-audit-ready`: PR 351, 2026-11-11; waits for the freeze) A test lists which files still use a feature phase one cuts. Its task file is on that branch.
+- [x] T-355 (done: PR 363, 2026-11-12) The audit deal rehearses the pilot's cases end to end (`pnpm audit-deal --case`).
+- [ ] T-356 (merged to `contracts-audit-ready`: PRs 366, 368, 370, 371 and 372, 2026-11-12; waits for the freeze) Five smaller cuts to the phase-one contracts. Its task file is on that branch.
+- [ ] T-357 (merged to `contracts-audit-ready`: PR 367, 2026-11-12; waits for the freeze) A mutual settlement can settle late work and release its key. Its task file is on that branch.
+- [ ] T-358 (in progress on `contracts-audit-ready`; waits for the freeze) The two address fields in the phase-one contracts (ADR-0033).
+- [ ] T-359 (in progress) The seller's page in the agent docs.
+- T-360 A task in the maintainers' private repository, with no file here.
+- [ ] T-361 (in progress) Rubric readiness: the screen and the delivery check.
+- [ ] T-362 (in progress) The docs batch: the doc follow-ups from T-329 to T-361 that describe `main`. Task file `docs/tasks/T-362-docs-batch.md`.
 - D4 decided: the target is Ethereum mainnet (2026-11-01), built and tested on a local chain, then on Sepolia, the public testnet the demo settles on since D41 (2026-11-03). Mainnet deployment is a separate gate for Rafa after an audit. Record gas per deal in the evidence.
 
 Out of Phase 2 by D54 (Rafa's walkthrough, 2026-11-06): T-212, for the contract redeploy before mainnet; the scenario 11 redesign, as T-310; and T-221, paused until the centralized adjudicator is stable. All three moved to later phases (Future work, below). Phase 2 closes on Sepolia without a contract redeploy, because a new rules contract needs a new demo world (D49).
@@ -128,7 +162,7 @@ Started work from the later phases keeps its file here: T-052, T-059, T-060, T-0
 
 ## Scenario index
 
-Status (2026-11-06, measured against `fixtures/scenarios/` and `pnpm snap`): **exists** is a fixture file that passes; **todo** is a `todo.` fixture that records a known gap and passes as a todo; **planned** has no file yet. The 30 fixtures on disk, besides `_example`, are 29 that exist plus 1 todo. Fixtures run on SimChain; Phase 2 also runs them on the contract (below).
+Status (2026-11-12, counted against `fixtures/scenarios/` by T-362; `pnpm snap` last checked every row on 2026-11-06, and CI runs it on every pull request): **exists** is a fixture file that passes; **todo** is a `todo.` fixture that records a known gap and passes as a todo; **planned** has no file yet. The 38 fixtures on disk, besides `_example`, are 37 that exist plus 1 todo. Fixtures run on SimChain; Phase 2 also runs them on the contract (below).
 
 | Fixture | Beat | Phase | Status |
 | --- | --- | --- | --- |
@@ -162,6 +196,14 @@ Status (2026-11-06, measured against `fixtures/scenarios/` and `pnpm snap`): **e
 | `neutrality.club-revokes-mid-flight` | 7 | 1 | planned (needs run-time revocation; SimChain reads members from genesis) |
 | `neutrality.buyer-silent` | 7 | 1 | exists |
 | `neutrality.seller-withholds-delivery` | 2 | 1 | exists (the planned `reclaim-no-delivery`) |
+| `neutrality.store-withholds-delivery` | — | 2 (T-347) | exists |
+| `neutrality.store-withholds-reference` | — | 2 (T-327) | exists |
+| `audit-report-accepted` | — | 2 (T-317) | exists |
+| `audit-report-missing-file` | — | 2 (T-317) | exists |
+| `audit-report-reordered` | — | 2 (T-317) | exists |
+| `audit-report-rubric-accepted` | — | 2 (T-320) | exists |
+| `reference-check-accepted` | — | 2 (T-327) | exists |
+| `reference-check-rejected` | — | 2 (T-327) | exists |
 | `todo.provider-outage` | 7 | 1 | todo (becomes `neutrality.provider-outage`) |
 | `neutrality.beacon-relay-refuses` | — | 2 | exists as a named test, not a fixture (T-217): `apps/adjudicator/src/drand.test.ts` and `service.test.ts`. When one relay refuses or lies, the source asks the next; when all refuse, the service signs nothing and tries again at a later pass |
 | `todo.beacon-unavailable-whole-window` | — | records residual 10 | planned |
