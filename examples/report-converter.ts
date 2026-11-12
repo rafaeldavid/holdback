@@ -318,9 +318,11 @@ export function convertReport(mapping: ReportMapping, bytes: Uint8Array): Uint8A
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [mappingFile, reportFile] = process.argv.slice(2);
   const { plain } = await import('@holdback/testkit');
-  if (!mappingFile || !reportFile) {
-    console.error('usage: node examples/report-converter.ts <mapping.json> <report.json>');
-    process.exit(2);
+  const { help, helpAsked } = await import('./help.ts');
+  const asked = helpAsked(process.argv.slice(2));
+  if (asked !== null || !mappingFile || !reportFile) {
+    (asked === 0 ? console.log : console.error)(help('report-converter', import.meta.url));
+    process.exit(asked ?? 2);
   }
   try {
     process.stdout.write(convertReport(loadReportMapping(mappingFile), readFileSync(reportFile)));

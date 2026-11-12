@@ -66,6 +66,39 @@ Limits:
 
 Left, as before this task: `buy-with-signer`'s other wrong calls end in a thrown error, so Node prints a source line and a stack trace above the help. Exit 1, with the help in the message. Catching them would push the file past its 50-line cap; that is for triage.
 
+**The follow-up (PR 469)** [measured, 2026-11-13]. T-391's session found that `seal` answered `--help` with exit 2 and no example. A sweep of every command the guides tell a buyer or a seller to run found four more:
+- `report-converter`: exit 2, usage only;
+- `seller-adapter-stub`: ignored `--help` and started its server;
+- `audit-deal`: exit 2, "unknown option --help";
+- `try` (the one command, bundled as `site/try.mjs`): ignored `--help` and began a test deal.
+
+All five now follow the same rule. The table shows each command with `--help` first, `-h` first, help after another argument, and no arguments:
+
+| Command | `--help` | `-h` | help later | none |
+| --- | --- | --- | --- | --- |
+| `buy-with-signer` | 0 | 0 | 2 | 2 |
+| `pay-from-wallet` | 0 | 0 | 2 | 2 |
+| `deal-record` | 0 | 0 | 2 | 2 |
+| `check-delivery` | 0 | 0 | 2 | 2 |
+| `seller-adapter` | 0 | 0 | 2 | 2 |
+| `seal` | 0 | 0 | 2 | 2 |
+| `report-converter` | 0 | 0 | 2 | 2 |
+| `seller-adapter-stub` | 0 | 0 | 2 | (starts its server, as before) |
+| `audit-deal` | 0 | 0 | 2 | runs the released case, as before |
+| `try` | 0 | 0 | 2 | plays both sides, as before |
+
+- **Where the text lives.** `seal`, `report-converter` and `seller-adapter-stub` take their text from `examples/help.ts`. `audit-deal` keeps its own `pnpm audit-deal` usage and adds a purpose line and an example. `try.ts` keeps its text inline: `site/try.mjs` may import only viem and tweetnacl (`examples/try.test.ts`), and `help.ts` would add Node modules.
+- **Commands left out, with the reason:**
+  - `pnpm sim` lives in `tools/sim`, not `examples/`.
+  - `adapter-log` is the run tool's command (`tools/duet`).
+  - `pnpm build` and `pnpm install` are the repository's own.
+  - The other files in `examples/` (`e2e-*`, `buy-dataset`, `run`, `sign`, `open`, `send-timeout`, `sell-translation`, `two-origins`) are developer examples that no guide names.
+- **Two runs touched the live test service.** While I measured, `node examples/try.ts --help`, before this fix, and `node examples/try.ts` with no arguments each began a test deal against the live operators. Both stopped before signing anything, because the live operators serve EIP-712 domain 0.7 and the lane pins 0.8. Nothing was signed or paid.
+- **The bundles.** Both are rebuilt:
+  - `site/try.mjs`: SHA-256 76abdebb8d24b1416be335c4cc88db16fc6321670d3d99a3404ab0a44e0d3c9c. `llms.txt`'s one command and `site/index.html` carry it, filled by the build.
+  - `site/buy.mjs`: SHA-256 0c8ca257dcfeb13285d97356cccca8e4496fea53cd29f0cc1ab00c8417e91a25.
+- **Checks.** The site check passes, with both paths unchanged: buyer about 4,799 tokens, seller about 4,137. `try`, `audit-deal`, `report-converter`, `seller-adapter`, `buy-with-signer`, `entry`, the site guides, the site deploy and the cut-feature list pass: 9 files, 134 tests.
+
 ## Decisions
 
 - **One help module, with one exception.** Four commands share `examples/help.ts`, so the text and its example live in one place and the bundle names itself. `check-delivery` keeps its own text, because its import list is a test-held guarantee.
@@ -76,7 +109,7 @@ Left, as before this task: `buy-with-signer`'s other wrong calls end in a thrown
 
 **Done.** PR 468 merged as 8c4b3b9. Every client command answers `--help` and `-h` as the first argument, with exit 0. Help asked for anywhere else is a wrong call and exits 2.
 
-**For the next deploy.** `site/buy.mjs` changed. Its SHA-256 is d2cfeef32d2e0815426d8c9dc1116e3e6a9572394099f853d192bad4d4cc37e6, which `buy.txt`'s install line carries. The first deploy from main must publish it, and https://crow.direct/buy.mjs must hash to that value. `site/try.mjs` is unchanged (182042421b68…).
+**For the next deploy.** After PR 469, `site/buy.mjs` is 0c8ca257dcfeb13285d97356cccca8e4496fea53cd29f0cc1ab00c8417e91a25 and `site/try.mjs` is 76abdebb8d24b1416be335c4cc88db16fc6321670d3d99a3404ab0a44e0d3c9c. `buy.txt`'s install line and `llms.txt`'s one command carry those hashes. The first deploy from main must publish both, and each live file must hash to its value.
 
 **Left for others.**
 - `tools/duet/` (T-391): the run tool's wrapper should pass `--help` through to the command, as the commands now answer it. `adapter-log` is the run tool's own command.
