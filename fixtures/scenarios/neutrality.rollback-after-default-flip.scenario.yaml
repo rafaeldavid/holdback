@@ -1,0 +1,39 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 53
+name: neutrality.rollback-after-default-flip
+description: >-
+  ADR-0036, a rollback. A deal is accepted under the new defaults, screen-1 and config/judges.yaml; the deploy then
+  fails and the operators roll back to a build whose defaults are screen-0 and config/judges-live.yaml, which still
+  carries screen-1 and config/judges.yaml. Bench A judges under what the terms bound, and $2,000 releases to Tidewater.
+fails: bench-a
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.csv }
+  - restart_adjudicators: { screen: screen-0, registry: config/judges-live.yaml }   # the rollback
+  - advance_clock:      { seconds: 5 }
+  - judge:              { adjudicator: bench-a }
+  - settle:             { trigger: anyone }
+  - verify_key_release: { by: buyer, via: op-1 }
+expect:
+  terminal: Released
+  balances:
+    atlas-buyer: "7950000000"
+    tidewater-seller: "2000000000"
+    bench-a: "25050000000"
+    escrow: "0"

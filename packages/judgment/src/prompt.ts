@@ -81,7 +81,28 @@ export interface PromptInput {
   sample?: { seed: Hex32; mime: MimeType };
   /** Defaults to the first-instance template. */
   template?: PromptTemplateKind;
+  /** The template pair the bound policy names (kept.ts). Defaults to this build's newest pair. */
+  templates?: TemplatePair;
+  /** The even-stride sampler of the bound policy's screen version (kept.ts). Defaults to screen-1's. */
+  stride?: StrideSampler;
 }
+
+/** A first-instance and an appeal template, with the SHA-256 each policy binds. */
+export interface TemplatePair {
+  first: string;
+  appeal: string;
+  firstHash: Hex32;
+  appealHash: Hex32;
+}
+
+/** This build's newest pair. */
+export const TEMPLATE_PAIR: TemplatePair = { first: PROMPT_TEMPLATE, appeal: APPEAL_PROMPT_TEMPLATE, firstHash: PROMPT_TEMPLATE_HASH, appealHash: APPEAL_PROMPT_TEMPLATE_HASH };
+
+/**
+ * How a screen version reads a deliverable over the budget without a seed: the lines the data section holds and the
+ * note that tells the judges what they see. Part of the screen version (ADR-0036 section 1), so a kept one never changes.
+ */
+export type StrideSampler = (lines: string[], max: number) => { lines: string[]; note: string };
 
 /** none: the whole deliverable; seeded: a recomputable seeded sample; stride: the even-stride fallback. */
 export type Sampling = 'none' | 'seeded' | 'stride';
@@ -161,6 +182,18 @@ function sample(lines: string[], max: number): { lines: string[]; first?: Cut; l
   return { lines: out };
 }
 
+/** screen-1's even-stride sampler (ADR-0035): lines cut to the budget, and a note that says what was cut. */
+export const strideSample1: StrideSampler = (all, max) => {
+  const total = all.length;
+  const s = sample(all, max);
+  const lines = s.lines;
+  if (total === 1) return { lines, note: `The data section holds the first ${s.first!.shown} of ${s.first!.of} characters of the deliverable, which is one line; the rest is not shown.` };
+  let note = `The data section holds the first line and ${lines.length - 1} of ${total - 1} further lines, sampled at even intervals.`;
+  if (s.first) note += ` The first line is cut to its first ${s.first.shown} of ${s.first.of} characters, and no further line fits.`;
+  if (s.last) note += ` The last line shown is cut to its first ${s.last.shown} of ${s.last.of} characters.`;
+  return { lines, note };
+};
+
 export function buildPrompt(input: PromptInput): Result<RenderedPrompt, string> {
   if (!UntrustedData.is(input.data)) throw new TypeError('buildPrompt: deliverable content must be UntrustedData');
   const { boundary, canary } = input.nonces;
@@ -185,15 +218,9 @@ export function buildPrompt(input: PromptInput): Result<RenderedPrompt, string> 
       'Judge the sample as representative of the whole file. The deterministic checks ran on the whole file, so do not fail the work only because rows are absent from the sample.';
   } else if (truncated) {
     sampling = 'stride';
-    const total = lines.length;
-    const s = sample(lines, max);
+    const s = (input.stride ?? strideSample1)(lines, max);
     lines = s.lines;
-    if (total === 1) note = `The data section holds the first ${s.first!.shown} of ${s.first!.of} characters of the deliverable, which is one line; the rest is not shown.`;
-    else {
-      note = `The data section holds the first line and ${lines.length - 1} of ${total - 1} further lines, sampled at even intervals.`;
-      if (s.first) note += ` The first line is cut to its first ${s.first.shown} of ${s.first.of} characters, and no further line fits.`;
-      if (s.last) note += ` The last line shown is cut to its first ${s.last.shown} of ${s.last.of} characters.`;
-    }
+    note = s.note;
   }
   const data = lines.map((line) => datamark + line).join('\n');
 
@@ -206,7 +233,8 @@ export function buildPrompt(input: PromptInput): Result<RenderedPrompt, string> 
   const terms = [canonicalJson({ description: clean(input.spec.description) }), ...criteria.map((c) => canonicalJson(c))].join('\n');
   if (terms.includes(boundary)) return err('agreed terms contain the boundary; draw new nonces');
   const appeal = input.template === 'appeal';
-  const [systemTemplate, userTemplate] = (appeal ? APPEAL_PROMPT_TEMPLATE : PROMPT_TEMPLATE).split(USER_SPLIT);
+  const pair = input.templates ?? TEMPLATE_PAIR;
+  const [systemTemplate, userTemplate] = (appeal ? pair.appeal : pair.first).split(USER_SPLIT);
   const system = render(systemTemplate!, {
     boundary,
     datamark: datamark.trim(),
@@ -223,7 +251,7 @@ export function buildPrompt(input: PromptInput): Result<RenderedPrompt, string> 
     canary,
     truncated,
     sampling,
-    promptTemplateHash: appeal ? APPEAL_PROMPT_TEMPLATE_HASH : PROMPT_TEMPLATE_HASH,
+    promptTemplateHash: appeal ? pair.appealHash : pair.firstHash,
     inputHash: sha256Hex(canonicalJson({ system, user })),
   });
 }

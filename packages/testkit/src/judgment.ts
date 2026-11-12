@@ -9,16 +9,15 @@
 import { canonicalKeccak, err, ok, problem, type AdjudicatorPolicy, type Address, type CommitmentTerms, type Delivery, type DecisionOutcome, type Hex32, type Problem, type Result, type Sha256 } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import {
-  APPEAL_PROMPT_TEMPLATE_HASH,
   describeUnavailable,
+  implementationsFor,
   intake,
   loadReferences,
   panelPlan,
-  PROMPT_TEMPLATE_HASH,
   requestInputHash,
   runPipeline,
-  signedOutcome,
   type IntakeErrorCode,
+  type KeptTable,
   type JudgeProvider as PipelineProvider,
   type LoadedRegistry,
   type PanelSeat,
@@ -116,6 +115,11 @@ export interface JudgmentView {
   aggregate: { decision: DecisionOutcome; weightedScore: number | null; passCount?: number; failCount?: number; validCount?: number; passFamilies?: string[]; reasons: string[] };
   /** What the role signs: the panel's decision, mapped for the appeal role; null when it signs nothing. */
   outcome: DecisionOutcome | null;
+  /**
+   * Set only when the deal is judged under a screen or registry other than the running build's default (ADR-0036): what
+   * it bound and what the build defaults to.
+   */
+  bound?: { screenVersion: string; registryHash: Hex32; buildScreenVersion: string; buildRegistryHash: Hex32 };
 }
 
 export interface RunJudgmentInput {
@@ -133,7 +137,10 @@ export interface RunJudgmentInput {
   seedCommitment: Hex32 | null;
   beaconRound: number | null;
   registry: LoadedRegistry;
+  /** The policy the commitment bound: the pipeline runs the versions it names (ADR-0036). */
   policy: AdjudicatorPolicy;
+  /** The kept table to select from; only the replay's drift tests pass another. */
+  kept?: KeptTable;
   /** For an appeal of a first-instance decision: the decision the appeal panel reviews. */
   firstOutcome?: 'accept' | 'reject';
 }
@@ -150,7 +157,10 @@ export async function runJudgment(input: RunJudgmentInput, judges: JudgeProvider
   const appeal = role === 'appeal';
   const rubric = terms.acceptance.rubric;
   const rubricHash = canonicalKeccak(rubric);
-  const promptTemplateHash = appeal ? APPEAL_PROMPT_TEMPLATE_HASH : PROMPT_TEMPLATE_HASH;
+  // ADR-0036: the bound policy's versions; one this build does not carry is refused before any judge is called.
+  const impl = implementationsFor(policy, input.kept);
+  if (!impl.ok) return err(problem('policy_mismatch', impl.error));
+  const promptTemplateHash = appeal ? impl.value.templates.appealHash : impl.value.templates.firstHash;
   const familiesAvailable = new Set(registry.active.map((e) => e.family)).size;
   const size = appeal ? policy.appealPanelSize : policy.panelSize;
   const minFamilies = appeal ? Math.max(policy.minFamilies, Math.min(policy.minFamiliesAppeal, familiesAvailable)) : policy.minFamilies;
@@ -265,6 +275,8 @@ export async function runJudgment(input: RunJudgmentInput, judges: JudgeProvider
     criteriaFor: plan.value.criteriaFor,
     sampleSeed: plan.value.sampleSeed,
     template: appeal ? 'appeal' : 'first-instance',
+    versions: impl.value.versions,
+    ...(input.kept ? { kept: input.kept } : {}),
     // D27c, as the adjudicator service: a party appeal (a first decision exists) or the appeal after an escalation.
     ...(appeal ? { appealKind: input.firstOutcome ? ('party' as const) : ('escalated' as const) } : {}),
   });
@@ -295,7 +307,7 @@ export async function runJudgment(input: RunJudgmentInput, judges: JudgeProvider
 
   // The same mapping the adjudicator service signs by (@holdback/judgment signedOutcome): an appeal panel that
   // cannot decide leaves a party appeal's first decision standing, and signs nothing after an escalation.
-  const outcome: DecisionOutcome | null = signedOutcome(draft.aggregate.decision, { appeal, ...(input.firstOutcome ? { firstOutcome: input.firstOutcome } : {}) });
+  const outcome: DecisionOutcome | null = impl.value.aggregation.signedOutcome(draft.aggregate.decision, { appeal, ...(input.firstOutcome ? { firstOutcome: input.firstOutcome } : {}) });
 
   return ok({
     ...base,
