@@ -1,0 +1,35 @@
+{
+  "format": "holdback.recording/v1",
+  "scenario": "neutrality.deploy-changes-registry",
+  "role": "primary",
+  "judgeId": "claude-sonnet-5-5",
+  "provider": "anthropic",
+  "family": "claude",
+  "model": "claude-sonnet-5-5@2026-09-28",
+  "promptTemplateHash": "0xabb5ec9b33cf9a936e140bf8530c217f6629fdf1e08a46fbdf6bd7363ce84dd2",
+  "inputHash": "0x448081e8fe563c72ebd7456b84ad7c7edb0548f13a9f09ba29eab60456bdd70e",
+  "rubricHash": "0x4201c2a950347823c494fcfc89f88fab1ca670b2086f66ed726aa9c7b0ec7925",
+  "capturedFrom": "fake",
+  "verdict": {
+    "criteria": [
+      {
+        "id": "dedupe_quality",
+        "score": 4,
+        "evidence": "fake judge: fixed score"
+      },
+      {
+        "id": "no_fabrication",
+        "score": 4,
+        "evidence": "fake judge: fixed score"
+      },
+      {
+        "id": "notes",
+        "score": 4,
+        "evidence": "fake judge: fixed score"
+      }
+    ],
+    "overall": "pass",
+    "injectionSuspected": false,
+    "rationale": "fake judge: fixed passing verdict, not a model output"
+  }
+}

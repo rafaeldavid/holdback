@@ -1,0 +1,33 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 59
+name: attack.offer-binds-kept-version
+description: >-
+  ADR-0036. A seller wants its deal judged under an older, weaker screen that the build still keeps. It offers terms
+  that bind screen-0 (here: offered while the build defaulted to screen-0), and the operators deploy a build whose
+  default is screen-1 before Bench A answers. As primary, Bench A accepts new deals only under its current default,
+  so it declines; the buyer cannot fund an offer no adjudicator accepted, and nothing is held.
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - restart_adjudicators: { screen: screen-0 }
+  - offer:              { by: seller, via: op-1 }
+  - restart_adjudicators: { screen: screen-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+expect:
+  problem: { step: 4, type: policy_mismatch }
+  balances:
+    atlas-buyer: "10000000000"
+    escrow: "0"
