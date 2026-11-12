@@ -67,7 +67,7 @@ node apps/test-agents/scripts/sell-to-test-buyer.mjs
 2. It exits 0 on a pass. It exits 1 when an upload is refused or a later step fails, after it rolls back each Worker that changed.
 3. Paste the Markdown line it prints into this file, under a heading for the task. The line gives the date, the commit and its branch, each new version and its rollback target, the smoke deal's ID and time, and pass or fail.
 
-**Before an operator deploy that changes the screen version** (since PR 386, T-367): check that no deal is open first. After such a deploy the adjudicator refuses every deal accepted before the deploy and still open, with `policy_mismatch`. Each such deal runs down to its default outcome with no judgment. Deploy only when no such deal is open. The three reads that list the open deals are in `docs/tasks/T-367-screen-audit-lines.md`, Handoff. This holds until the fix that T-373's decision record tracks is built.
+**Before an operator deploy that changes the screen version** (since PR 386, T-367): check that no deal is open first. After such a deploy the adjudicator refuses every deal accepted before the deploy and still open, with `policy_mismatch`. Each such deal runs down to its default outcome with no judgment. Deploy only when no such deal is open. The three reads that list the open deals are in `docs/tasks/T-367-screen-audit-lines.md`, Handoff. This holds until the fix that T-373's decision record (ADR-0036) tracks is built.
 
 **To roll back by hand**, use the rollback targets the line names, both operators together:
 - `npx wrangler@4 rollback <holdback-op1 target> --name holdback-op1`
@@ -125,6 +125,14 @@ Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wra
 - holdback-op1 `50fd05c4` and holdback-op2 `1a95b960`, with T-210's and T-211's fixes.
 
 After the deploy, a smoke deal ended Released in 44 s, and the test seller sold once each way (T-222 Evidence) [measured]. To roll back: holdback-op1 `5d369b0e`, holdback-op2 `1f169857` and crow-site `cb0adcb5` (`npx wrangler@4 rollback <version> --name <worker>`); `npx wrangler@4 delete --name crow-test-agents` removes the seller.
+
+### T-372 and PR 393: the hung store read, and a deploy that waits for its commit (operators deployed 2026-11-12)
+
+The coordinating session ran this deploy on Rafa's word. It carries T-372 (PR 389) and PR 393, which makes the deploy script wait until both nodes' discovery names the deployed commit before the smoke deal. The record line below is as the coordinating session captured it: its output filter cut each line at 300 characters, so the line's tail is missing and is not reconstructed here.
+
+**Deploy 2026-11-12 07:22 UTC, commit `ec498d9` on branch `main`: pass.** holdback-op1 `226e7887-b48e-49db-8595-5daf1cf45141` (rollback target `d8545ef2-7c4a-427c-ac3e-c17b9f4df039`), holdback-op2 `2bc6bd1a-a304-4e50-90f8-826074dd3207` (rollback target `2599701e-9ffe-4788-b694-8d2d8dfa4ef7`).
+
+What the coordinating session measured: the smoke deal `0xdb4baa7f9449304720a1b6764c99908e23af87f704f8ecd25a99d4d7baaf3890` ended Released in 54 s, and the script finished at 07:28:40 UTC after it waited for discovery to name the commit, the first live run of PR 393's wait. At 07:28 UTC both operators answer `demo.build.commit` `ec498d9`. Adjudicator a still registers `screen-1` with the same policy hash as before, so this deploy changed no judging policy.
 
 ### T-367: the screen change (operators and site deployed 2026-11-12)
 

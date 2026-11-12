@@ -149,8 +149,8 @@ Focus (Rafa, 2026-11-06; D53, narrowed the same day by D54 after his walkthrough
 - T-369 A task in the maintainers' private repository, with no file here.
 - [x] T-370 (done: PRs 217 and 216, 2026-11-12) The One-Click harness and the discovery fields of T-066, brought up to date, reviewed and merged. The discovery fields are live on both operators since the deploy of 06:53 UTC; the live harness run is Rafa's.
 - T-371 A task in the maintainers' private repository, with no file here.
-- [ ] T-372 (in progress: PR 389 open) A hung store read never stalls the adjudicator; refusals show, declines clear, and the relay checks the store.
-- [ ] T-373 (in progress) No task file or pull request on `main` yet.
+- [x] T-372 (done: PR 389, 2026-11-12; live from the operator deploy of 07:22 UTC) A hung store read never stalls the adjudicator; refusals show, declines clear, and the relay checks the store.
+- [x] T-373 (done: PR 390, 2026-11-12; ADR-0036) A decision record: a deal is judged under the policy it bound, on every later build. Its fix is not built yet.
 - D4 decided: the target is Ethereum mainnet (2026-11-01), built and tested on a local chain, then on Sepolia, the public testnet the demo settles on since D41 (2026-11-03). Mainnet deployment is a separate gate for Rafa after an audit. Record gas per deal in the evidence.
 
 Out of Phase 2 by D54 (Rafa's walkthrough, 2026-11-06): T-212, for the contract redeploy before mainnet; the scenario 11 redesign, as T-310; and T-221, paused until the centralized adjudicator is stable. All three moved to later phases (Future work, below). Phase 2 closes on Sepolia without a contract redeploy, because a new rules contract needs a new demo world (D49).
