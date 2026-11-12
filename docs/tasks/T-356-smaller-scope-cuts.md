@@ -84,7 +84,7 @@ For each pull request:
 
 Filled in per pull request. Labels: measured, inferred.
 
-**In sum** [measured]: five pull requests, each reviewed by one reviewer and one red team, none with a Critical or High finding; two Mediums (SC-6's off-chain expiry, found by both) fixed before merge. `HoldbackRules` runtime 19,609 bytes at `4f6cea0` and 19,651 at SC-5: SC-1 +189, SC-2 −179, SC-6 −205, SC-3 −42, SC-5 +279, so **426 bytes freed by the cuts and 468 added by the token check and the refusals, 42 bytes more in all**. `forge test` 353 → 388 with T-357's 7 counted between SC-2 and SC-6; 7 tests of removed features removed, each named below. Alignment known list 122 → 115.
+**In sum** [measured]: five pull requests, each reviewed by one reviewer and one red team, none with a Critical or High finding; two Mediums (SC-6's off-chain expiry, found by both) fixed before merge. `HoldbackRules` runtime 19,609 bytes at `4f6cea0` and 19,651 at SC-5: SC-1 +189, SC-2 −179, SC-6 −205, SC-3 −42, SC-5 +279, so **426 bytes freed by the cuts and 468 added by the token check and the refusals, 42 bytes more in all**. `forge test` 353 → 388 with T-357's 7 counted between SC-2 and SC-6; 5 tests of removed features removed (3 in SC-2, 2 in SC-6), each named below. Alignment known list 122 → 115.
 
 ### SC-1
 
