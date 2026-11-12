@@ -11,7 +11,7 @@ const ID = '0x5744dce2d35d087b9bf35bd4443a99807baa5bb2b94185c0b21505e0167309f7';
 
 type Help = { what: string; usage: (me: string) => string[]; example: (me: string) => string };
 
-const HELP: Record<string, Help> = {
+const HELP = {
   'buy-with-signer': {
     what: 'buys one job from a seller that prices by quote: it asks for the price, stops for your approval, then funds the deal, follows it and opens the work.',
     usage: (me) => [
@@ -31,31 +31,33 @@ const HELP: Record<string, Help> = {
     example: (me) => `HOLDBACK_OPERATORS=$OP1,$OP2 ${me} files deal-1 ${ID}`,
   },
   'deal-record': {
-    what: "writes one JSON record of a deal, read from every operator: the signed terms, each step, the checks and the judgment, and the settlement. It only reads.",
+    what: "writes one JSON record of a deal, read from every operator: the signed terms, each step, the checks and the judgment, and the settlement. It changes nothing on the operators.",
     usage: (me) => [`${me} <commitmentId> --as buyer|seller [--delivery <file>] [--settlement <file>] [--out <file>]`],
     example: (me) => `HOLDBACK_OPERATORS=$OP1,$OP2 ${me} ${ID} --as buyer --out record.json`,
   },
   'seller-adapter': {
     what: "sells your API's jobs on Crow: it serves /quote and /defaults, signs each offer, waits for the hold, runs the job and delivers the checked result.",
-    usage: (me) => [`${me} <config.json> [--sim]`, '  The file names your API (sellerApi) and any setting you change; HOLDBACK_KEY and HOLDBACK_OPERATORS come from the environment, or --sim takes both from a running `pnpm sim`.'],
+    usage: (me) => [`${me} <config.json> [--sim]`, '  The file names your API (sellerApi) and any setting you change; HOLDBACK_KEY and HOLDBACK_OPERATORS come from the environment, or --sim takes both from a running `pnpm sim`. A sample file: examples/seller-adapter.config.json.'],
     example: (me) => `${me} seller.json --sim`,
   },
-};
+} satisfies Record<string, Help>;
 
-/** Whether the arguments ask for help: `--help` or `-h` anywhere. */
-export const asksHelp = (args: readonly string[]): boolean => args.some((a) => a === '--help' || a === '-h');
+const isHelp = (a: string | undefined) => a === '--help' || a === '-h';
+/**
+ * The exit status a request for help takes, or null for none (T-397). `--help` or `-h` as the first argument asks for
+ * help: 0. Anywhere else it is a wrong call, so it exits 2 with the help printed and nothing run: exit 0 means "passed"
+ * to some of these commands, and a path that happens to be `-h` must not read as a pass.
+ */
+export const helpAsked = (args: readonly string[]): 0 | 2 | null => (isHelp(args[0]) ? 0 : args.some(isHelp) ? 2 : null);
 
 /**
  * The help of the command `name` (a file in examples/, without `.ts`), named as it is run from `from` (the caller's
  * import.meta.url): a line saying what it does, the usage, and one example call.
  */
-export function help(name: keyof typeof HELP & string, from: string): string {
-  const h = HELP[name];
-  if (!h) throw new Error(`no help for ${name}`);
+export function help(name: keyof typeof HELP, from: string): string {
+  const h: Help = HELP[name];
   const me = command(name, from);
   const [first, ...more] = h.usage(me);
   return [`${name}: ${h.what}`, `usage: ${first}`, ...more.map((l) => (l.startsWith('  ') ? l : `       ${l}`)), `example: ${h.example(me)}`].join('\n');
 }
 
-/** The example call of the command `name`, named as it is run from `from`. */
-export const exampleOf = (name: string, from: string): string => HELP[name]!.example(command(name, from));

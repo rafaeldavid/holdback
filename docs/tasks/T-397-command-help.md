@@ -26,7 +26,7 @@ Limits:
 - [x] In `site/buy.mjs`, `node buy.mjs --help`, `-h`, `node buy.mjs pay --help` and `node buy.mjs record -h` answer with exit 0, in the bundle's own names [measured, `tests/site-guides.test.ts`].
 - [x] The example that `node buy.mjs --help` prints is a line of the published `buy.txt` [measured, the same test].
 - [x] `buy-with-signer.ts` is 50 lines; both paths are within budget; the site check passes; `buy.mjs` is rebuilt.
-- [ ] One reviewer; findings fixed.
+- [x] One reviewer; findings fixed (below).
 - [ ] Merged by hand into `contracts-audit-ready` once `check` and `gitleaks` pass.
 
 ## Out of scope
@@ -35,7 +35,7 @@ Limits:
 
 ## Evidence
 
-**What each command prints** [measured, unbundled, 2026-11-12]. `node examples/<command>.ts --help` and `-h` exit 0. A call with no arguments exits 2 and prints the same three parts.
+**What each command prints** [measured, unbundled, 2026-11-12]. `node examples/<command>.ts --help` and `-h`, given as the first argument, exit 0. Help asked for in any later position is a wrong call: it prints the same text, runs nothing and exits 2. A call with no arguments also prints the text and exits 2, and so does `buy-with-signer resume` with no key store.
 
 | Command | Example in its help |
 | --- | --- |
@@ -51,16 +51,26 @@ Limits:
 
 **Checks** [measured]:
 - **Site check:** `node site/build.mjs && node site/check.mjs` passes.
-  - buyer: 19,165 bytes, about 4,792 of 5,000 tokens. It was about 4,775; one sentence in step 3 says `--help` prints the usage and the example.
+  - buyer: 19,195 bytes, about 4,799 of 5,000 tokens. It was about 4,775; one sentence in step 3 says `--help` prints the usage and the example.
   - seller: about 4,137 tokens, unchanged.
-- **The bundle:** `site/buy.mjs` is rebuilt, SHA-256 7328d91d2b7cf391319343b347d004bdbf3c203e634576c1cf53c2e048a39f05, 197,478 bytes. `site/try.mjs` is unchanged.
+- **The bundle:** `site/buy.mjs` is rebuilt, SHA-256 d2cfeef32d2e0815426d8c9dc1116e3e6a9572394099f853d192bad4d4cc37e6, 197,795 bytes. `site/try.mjs` is unchanged.
 - **Tests:** 8 files, 143 tests passed: `tests/site-guides.test.ts`, `examples/buy-with-signer.test.ts`, `buyer-signer.test.ts` (the 50-line cap), `entry.test.ts`, `deal-record.test.ts`, `check-delivery.test.ts`, `seller-adapter.test.ts` and `tests/cut-feature-alignment.test.ts`.
 - **Static checks:** eslint and `tsc -p examples` are clean.
+
+**The review** (reviewer subagent; ISSUES, none blocking), fixed:
+1. Help anywhere in the arguments exited 0, and exit 0 means "passed" to `check-delivery` and to `pay-from-wallet check`. So `check-delivery terms.json --reference -h x` exited 0 with no check run. Now only help as the first argument exits 0; anywhere else it exits 2 with the help printed. A test pins it in the bundle.
+2. `buy-with-signer resume` with no key store crashed with a TypeError. It now prints the help and exits 2.
+3. `seller-adapter`'s usage again points to the sample `examples/seller-adapter.config.json`.
+4. Wording: the `buy.txt` sentence; `check-delivery`'s exit 2 also means the command cannot run; `deal-record` "changes nothing on the operators", since it does write its own file.
+5. The unused `exampleOf` is gone, and `help()` takes only a name the table holds, checked at compile time.
+
+Left, as before this task: `buy-with-signer`'s other wrong calls end in a thrown error, so Node prints a source line and a stack trace above the help. Exit 1, with the help in the message. Catching them would push the file past its 50-line cap; that is for triage.
 
 ## Decisions
 
 - **One help module, with one exception.** Four commands share `examples/help.ts`, so the text and its example live in one place and the bundle names itself. `check-delivery` keeps its own text, because its import list is a test-held guarantee.
 - **A wrong call prints the whole help**, not only the usage. In the run, the buyer met only usage lines, without an example.
+- **Help exits 0 only as the first argument.** Some of these commands use exit 0 to mean "passed", so a `-h` that arrives as a value must not look like a pass.
 
 ## Handoff
 

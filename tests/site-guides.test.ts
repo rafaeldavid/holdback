@@ -103,6 +103,10 @@ describe('the checks on the guides', () => {
       expect(r.stdout).toMatch(new RegExp(`^${name}: [^\\n]+\\nusage: node buy\\.mjs`));
       expect(r.stdout).toMatch(/\nexample: \S/);
     }
+    // Help anywhere but first is a wrong call: it prints the help, runs nothing and exits 2, never 0 ("passed").
+    const late = run('record', '0x5744dce2d35d087b9bf35bd4443a99807baa5bb2b94185c0b21505e0167309f7', '--as', 'buyer', '--out', '-h');
+    expect(late.status).toBe(2);
+    expect(late.stderr).toMatch(/^deal-record: /);
     const example = /\nexample: (.+)/.exec(run('--help').stdout)?.[1] ?? '';
     // @ts-expect-error plain JavaScript module with no declarations
     const { publishedGuides } = await import('../site/build.mjs');

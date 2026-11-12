@@ -15,7 +15,7 @@
 // Env: HOLDBACK_OPERATORS (files, fund); CROW_EXPECT as for buy-with-signer.ts. Exit status 0 when done, 3 on a refusal.
 import { readFileSync } from 'node:fs';
 import { loadKeys, printable } from './buyer-signer.ts';
-import { asksHelp, command as commandFor, help } from './help.ts';
+import { command as commandFor, help, helpAsked } from './help.ts';
 import { checkPaymentFile, commitmentIdOf, knownPins, pinOf, Refusal } from './verify.ts';
 import { SEPOLIA } from './deployments.ts';
 
@@ -32,8 +32,10 @@ const expect = () => ({ expect: JSON.parse(process.env['CROW_EXPECT'] || '{}') }
 const usage = help('pay-from-wallet', import.meta.url); // what it does, the usage and one example (examples/help.ts)
 
 try {
-  if (asksHelp(args)) {
-    console.log(usage);
+  const asked = helpAsked(process.argv.slice(2));
+  if (asked !== null) {
+    (asked === 0 ? console.log : console.error)(usage);
+    process.exitCode = asked;
   } else if (command === 'files' && a && b) {
     const signer = await loadKeys(a, b, { ...expect(), log: () => {} });
     for (const f of await signer.fundingFiles(b)) out({ sign: f.path, digest: f.digest, check: f.check, summary: f.summary });

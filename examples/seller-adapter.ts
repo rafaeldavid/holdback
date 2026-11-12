@@ -62,7 +62,7 @@ import { Agent } from './agent.ts';
 import { convertReport, loadReportMapping, ReportNotConverted } from './report-converter.ts';
 import { FilesNotAdded, sellerApiClient, type SellerApiConfig } from './seller-adapter-api.ts';
 import { isAddressText, jcs, knownPins, moneyAddressWarnings, operatorFeeOf } from './verify.ts';
-import { asksHelp, help } from './help.ts';
+import { help, helpAsked } from './help.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -1271,9 +1271,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const args = process.argv.slice(2);
   const sim = args.includes('--sim');
   const files = args.filter((a) => a !== '--sim');
-  if (asksHelp(args)) {
-    console.log(help('seller-adapter', import.meta.url));
-    process.exit(0);
+  const asked = helpAsked(args);
+  if (asked !== null) {
+    (asked === 0 ? console.log : console.error)(help('seller-adapter', import.meta.url));
+    process.exit(asked);
   }
   if (files.length !== 1 || files[0]!.startsWith('--')) {
     console.error(help('seller-adapter', import.meta.url));

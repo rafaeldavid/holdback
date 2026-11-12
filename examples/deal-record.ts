@@ -22,7 +22,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import nacl from 'tweetnacl';
 import { recoverMessageAddress, recoverTypedDataAddress, type Hex } from 'viem';
 import { isMain } from './entry.ts';
-import { asksHelp, help } from './help.ts';
+import { help, helpAsked } from './help.ts';
 import { commitmentIdOf, deliveryHashOf, jcs, jcsHash, knownPins, operatorFeeOf, typedOf, type Pin } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -494,9 +494,10 @@ export async function dealRecord(id: Hex, o: Options): Promise<DealRecord> {
 
 /** The command: parses the arguments, reads the key from the environment, writes the record. */
 async function main(argv: string[]): Promise<number> {
-  if (asksHelp(argv)) {
-    process.stdout.write(`${help('deal-record', import.meta.url)}\n`);
-    return 0;
+  const asked = helpAsked(argv);
+  if (asked !== null) {
+    (asked === 0 ? process.stdout : process.stderr).write(`${help('deal-record', import.meta.url)}\n`);
+    return asked;
   }
   const [id, ...rest] = argv;
   const flag = (name: string) => {

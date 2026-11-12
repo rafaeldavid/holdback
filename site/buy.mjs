@@ -2074,7 +2074,6 @@ var init_entry = __esmMin((() => {
 */
 function help(name, from) {
 	const h = HELP[name];
-	if (!h) throw new Error(`no help for ${name}`);
 	const me = command$1(name, from);
 	const [first, ...more] = h.usage(me);
 	return [
@@ -2084,7 +2083,7 @@ function help(name, from) {
 		`example: ${h.example(me)}`
 	].join("\n");
 }
-var ID$2, HELP, asksHelp;
+var ID$2, HELP, isHelp, helpAsked;
 var init_help = __esmMin((() => {
 	init_entry();
 	ID$2 = "0x5744dce2d35d087b9bf35bd4443a99807baa5bb2b94185c0b21505e0167309f7";
@@ -2108,17 +2107,18 @@ var init_help = __esmMin((() => {
 			example: (me) => `HOLDBACK_OPERATORS=$OP1,$OP2 ${me} files deal-1 ${ID$2}`
 		},
 		"deal-record": {
-			what: "writes one JSON record of a deal, read from every operator: the signed terms, each step, the checks and the judgment, and the settlement. It only reads.",
+			what: "writes one JSON record of a deal, read from every operator: the signed terms, each step, the checks and the judgment, and the settlement. It changes nothing on the operators.",
 			usage: (me) => [`${me} <commitmentId> --as buyer|seller [--delivery <file>] [--settlement <file>] [--out <file>]`],
 			example: (me) => `HOLDBACK_OPERATORS=$OP1,$OP2 ${me} ${ID$2} --as buyer --out record.json`
 		},
 		"seller-adapter": {
 			what: "sells your API's jobs on Crow: it serves /quote and /defaults, signs each offer, waits for the hold, runs the job and delivers the checked result.",
-			usage: (me) => [`${me} <config.json> [--sim]`, "  The file names your API (sellerApi) and any setting you change; HOLDBACK_KEY and HOLDBACK_OPERATORS come from the environment, or --sim takes both from a running `pnpm sim`."],
+			usage: (me) => [`${me} <config.json> [--sim]`, "  The file names your API (sellerApi) and any setting you change; HOLDBACK_KEY and HOLDBACK_OPERATORS come from the environment, or --sim takes both from a running `pnpm sim`. A sample file: examples/seller-adapter.config.json."],
 			example: (me) => `${me} seller.json --sim`
 		}
 	};
-	asksHelp = (args) => args.some((a) => a === "--help" || a === "-h");
+	isHelp = (a) => a === "--help" || a === "-h";
+	helpAsked = (args) => isHelp(args[0]) ? 0 : args.some(isHelp) ? 2 : null;
 }));
 
 // examples/deal-record.ts
@@ -2659,9 +2659,10 @@ async function dealRecord(id, o) {
 }
 /** The command: parses the arguments, reads the key from the environment, writes the record. */
 async function main(argv) {
-	if (asksHelp(argv)) {
-		process.stdout.write(`${help("deal-record", import.meta.url)}\n`);
-		return 0;
+	const asked = helpAsked(argv);
+	if (asked !== null) {
+		(asked === 0 ? process.stdout : process.stderr).write(`${help("deal-record", import.meta.url)}\n`);
+		return asked;
 	}
 	const [id, ...rest] = argv;
 	const flag = (name) => {
@@ -4050,8 +4051,11 @@ var init_pay_from_wallet = __esmMin((async () => {
 	expect$1 = () => ({ expect: JSON.parse(process.env["CROW_EXPECT"] || "{}") });
 	usage$1 = help("pay-from-wallet", import.meta.url);
 	try {
-		if (asksHelp(args$1)) console.log(usage$1);
-		else if (command === "files" && a && b) {
+		const asked = helpAsked(process.argv.slice(2));
+		if (asked !== null) {
+			(asked === 0 ? console.log : console.error)(usage$1);
+			process.exitCode = asked;
+		} else if (command === "files" && a && b) {
 			const signer = await loadKeys(a, b, {
 				...expect$1(),
 				log: () => {}
@@ -4114,7 +4118,7 @@ var init_pay_from_wallet = __esmMin((async () => {
 
 // examples/buy-with-signer.ts
 var buy_with_signer_exports = /* @__PURE__ */ __exportAll({});
-var args, stop, at, termsFile, dl, deliveryFile, first, store, third, fourth, defaults, options, usage, say, expect, sh, finish, pay;
+var args, stop, at, termsFile, dl, deliveryFile, first, store, third, fourth, defaults, options, usage, asked, say, expect, sh, finish, pay;
 var init_buy_with_signer = __esmMin((async () => {
 	init_help();
 	init_buyer_signer();
@@ -4127,9 +4131,10 @@ var init_buy_with_signer = __esmMin((async () => {
 	deliveryFile = dl >= 0 ? args[dl + 1] : void 0;
 	[first, store, third, fourth, defaults, options] = args.filter((a, i) => a !== "--stop-after-funding" && (at < 0 || i !== at && i !== at + 1) && (dl < 0 || i !== dl && i !== dl + 1));
 	usage = help("buy-with-signer", import.meta.url);
-	if (asksHelp(args) || first === void 0) {
-		(first === void 0 ? console.error : console.log)(usage);
-		process.exit(first === void 0 ? 2 : 0);
+	asked = helpAsked(args);
+	if (asked !== null || first === void 0 || first === "resume" && !store) {
+		(asked === 0 ? console.log : console.error)(usage);
+		process.exit(asked ?? 2);
 	} else if (at >= 0 && (!termsFile || termsFile.startsWith("--"))) throw new Error("--expect-terms takes the path of your terms file");
 	else if (first !== "resume" && !/^[0-9]+$/.test(fourth ?? "")) throw new Error(`the most you pay is base units as a decimal string, the fourth argument\n${usage}`);
 	say = (x) => console.error(printable(JSON.stringify(x)));
