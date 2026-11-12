@@ -148,6 +148,58 @@ describe('neutrality.operator-lies-in-prepare', () => {
     expect(() => verify(honestOffer, { ...(intent as Extract<Intent, { kind: 'offer' }>), request: noNonce }, seller.address)).toThrow(/generate nonce yourself/);
   });
 
+  it('offer: the money addresses come from the agent\'s own request; a prepared offer that substitutes either is refused (ADR-0033 §6)', async () => {
+    const payout = '0x00000000000000000000000000000000000000a1', payment = '0x00000000000000000000000000000000000000b2', attacker = '0x000000000000000000000000000000000000dead';
+    // Without the inputs, each money address is its party's signing address, and the honest prepared offer verifies.
+    const plainReq = request();
+    const plain = await seller.call('POST', '/v1/prepare/offer', plainReq);
+    const plainIntent = await offerIntent(plainReq);
+    expect(verify(plain, plainIntent, seller.address).body).toMatchObject({ buyerPaymentAddress: buyer.address, sellerPayoutAddress: seller.address });
+    refusesEach(plain, plainIntent, seller.address, [
+      ['attack.prepare-substitutes-payout-address', both(0, 'sellerPayoutAddress', attacker)],
+      ['attack.prepare-substitutes-payment-address', both(0, 'buyerPaymentAddress', attacker)],
+    ]);
+    // With the inputs, the agent's own terms carry them: an operator that leaves them out or changes them is refused.
+    const req = request({ sellerPayoutAddress: payout, buyer: { address: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey, paymentAddress: payment } });
+    const intent = await offerIntent(req);
+    const prepared = await seller.call('POST', '/v1/prepare/offer', req);
+    const asked = { ...structuredClone(prepared) };
+    both(0, 'sellerPayoutAddress', payout)(asked);
+    both(0, 'buyerPaymentAddress', payment)(asked);
+    asked.submit.body.id = commitmentIdOf((({ id: _i, signatures: _s, ...t }) => t)(asked.submit.body)); // eslint-disable-line @typescript-eslint/no-unused-vars
+    expect(verify(redigest(asked), intent, seller.address).body).toMatchObject({ buyerPaymentAddress: payment, sellerPayoutAddress: payout });
+    refusesEach(asked, intent, seller.address, [
+      ['payout address back to the signing address', both(0, 'sellerPayoutAddress', seller.address)],
+      ['payout address to the attacker', both(0, 'sellerPayoutAddress', attacker)],
+      ['payment address to the attacker', both(0, 'buyerPaymentAddress', attacker)],
+    ]);
+    // A malformed address in the agent's own request stops it before anything is compared.
+    expect(() => verify(prepared, { ...(intent as Extract<Intent, { kind: 'offer' }>), request: { ...req, sellerPayoutAddress: '0x12' } }, seller.address)).toThrow(/sellerPayoutAddress must be an address/);
+  });
+
+  it('offerDirect: a public offer built by the agent itself, with no prepare call, names the money addresses it asked for and is accepted by the operators', async () => {
+    const payout = '0x00000000000000000000000000000000000000a1';
+    const offer = await seller.offerDirect(request({ sellerPayoutAddress: payout }));
+    expect(offer.terms).toMatchObject({ seller: seller.address, sellerPayoutAddress: payout, buyerPaymentAddress: buyer.address });
+    expect(offer.state.escrowState).toBe('Offered');
+    for (const api of honest) expect(((await (await fetch(`${api}/v1/commitments/${offer.id}`)).json()) as J).escrowState).toMatch(/Offered|AcceptedByAdjudicator/);
+  });
+
+  it('agree-and-fund: refuses terms whose payment address is not the buyer\'s own (ADR-0033 §6)', async () => {
+    const other = '0x00000000000000000000000000000000000000c3';
+    const offer = await seller.offerDirect(request({ buyer: { address: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey, paymentAddress: other } }));
+    await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);
+    const nonces = { agreeNonce: freshNonce(), fundingNonce: freshNonce() };
+    const prepared = await buyer.call('POST', '/v1/prepare/agree-and-fund', { commitmentId: offer.id, ...nonces });
+    const intent: Intent = { kind: 'agree-and-fund', terms: offer.terms, me: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey, maxTotal: 26_000_000n, ...nonces };
+    expect(() => verify(prepared, intent, buyer.address)).toThrow(`refusing to sign: the terms name ${other} as the payment address, not your ${buyer.address}`);
+    // Named as the buyer's own payment address, the funding and fee slots are the payment address's to sign, not this agent's.
+    const mine = verify(prepared, { ...intent, paymentAddress: other }, buyer.address);
+    expect(mine.toSign.map((s) => s.slot)).toEqual(['signature']);
+    expect(prepared.sign.map((s: J) => [s.slot, s.signer.toLowerCase()])).toEqual([['signature', buyer.address], ['fund.signature', other]]);
+    await expect(buyer.agreeAndFund(offer.terms, 26_000_000n)).rejects.toThrow(/that address signs the funding and the operator fee, not this agent/);
+  });
+
   it('offer: the default template, named or not, verifies; the server refuses it without a rubric', async () => {
     const rubric = { passThreshold: 300, criteria: [{ id: 'ok', description: 'Fine.', weight: 1, anchors: { '0': 'No', '2': 'Partly', '4': 'Yes' } }] };
     for (const req of [request({ template: 'default', checks: undefined, rubric }), (() => { const r: J = request({ rubric }); delete r.template; return r; })()]) {

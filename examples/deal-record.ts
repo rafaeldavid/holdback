@@ -29,7 +29,10 @@ export type Check = { check: string; ok: boolean | null; how?: string; why?: str
 /** A section of the record, or each operator's version of it when they differ. */
 export type Section<T> = T | { byOperator: Record<string, T> };
 export type Row = {
-  commitmentId: Hex; buyer: string | null; seller: string | null; price: Money | null; adjudicationFee: Money | null; operatorFee: Money | null;
+  commitmentId: Hex; buyer: string | null; seller: string | null;
+  /** The money addresses the terms name (ADR-0033), and which of them received money out of escrow: paidTo the price or the seller's share, refundedTo the rest. */
+  buyerPaymentAddress: string | null; sellerPayoutAddress: string | null; paidTo: string | null; refundedTo: string | null;
+  price: Money | null; adjudicationFee: Money | null; operatorFee: Money | null;
   outcome: string | null; reclaimed: boolean | null; offeredAt: string | null; agreedAt: string | null; fundedAt: string | null; deliveredAt: string | null;
   decidedAt: string | null; settledAt: string | null; panelDecision: string | null; transactions: string[] | null;
 };
@@ -116,7 +119,12 @@ async function read(api: string, id: Hex, party: 'buyer' | 'seller', wantKey: bo
   const judgment = (await get(api, `/v1/commitments/${id}/judgment`))?.body ?? null;
   const t = terms?.body ?? {};
   const balances: Record<string, J> = {};
-  for (const role of ['buyer', 'seller']) if (ADDRESS.test(String(t[role]))) balances[role] = (await get(api, `/v1/balances/${lc(t[role])}`))?.body ?? null;
+  // The parties' signing addresses and, when they differ, the two money addresses (ADR-0033), which hold the deal's money.
+  for (const role of ['buyer', 'seller', 'buyerPaymentAddress', 'sellerPayoutAddress']) {
+    const at = lc(t[role]);
+    const signer = role === 'buyerPaymentAddress' ? lc(t.buyer) : role === 'sellerPayoutAddress' ? lc(t.seller) : null;
+    if (ADDRESS.test(String(t[role])) && at !== signer) balances[role] = (await get(api, `/v1/balances/${at}`))?.body ?? null;
+  }
   const key = wantKey && party === 'buyer' && ADDRESS.test(String(t.buyer)) ? ((await get(api, `/v1/commitments/${id}/key?recipient=${lc(t.buyer)}`))?.body?.items ?? null) : null;
   return { api, discovery: discovery.body, state: state.body, terms, events, receipts, judgment, balances, key };
 }
@@ -304,11 +312,15 @@ async function view(a: Answers, id: Hex, o: Options, cache: Map<string, Uint8Arr
     const adjudicators = t ? [t.adjudication.adjudicator, t.adjudication.fallbackAdjudicator, t.adjudication.appealAdjudicator].map(lc) : [];
     const rest = (who: string) => postings.filter((x: J) => x.to !== lc(who)).every((x: J) => adjudicators.includes(x.to));
     const type = out.at(-1).type;
+    // ADR-0033: money goes to the seller's payout address and back to the buyer's payment address, never to a signing address that differs.
+    const payout = t?.sellerPayoutAddress ?? t?.seller, payment = t?.buyerPaymentAddress ?? t?.buyer;
     if (!t || !price) add('postings follow the outcome', null, 'the terms were not read');
-    else if (type === 'settlement.released') add('postings follow the outcome', to(t.seller, BigInt(price.amount)) && rest(t.seller), 'released: the price to the seller, the rest to adjudicators the terms name');
-    else if (type === 'settlement.refunded') add('postings follow the outcome', to(t.buyer, BigInt(price.amount)) && rest(t.buyer), 'refunded: the price to the buyer, the rest to adjudicators the terms name');
-    else if (type === 'settlement.reclaimed') add('postings follow the outcome', to(t.buyer, BigInt(hold.amount)) && postings.length === 1, 'reclaimed: the whole hold back to the buyer');
+    else if (type === 'settlement.released') add('postings follow the outcome', to(payout, BigInt(price.amount)) && rest(payout), "released: the price to the seller's payout address, the rest to adjudicators the terms name");
+    else if (type === 'settlement.refunded') add('postings follow the outcome', to(payment, BigInt(price.amount)) && rest(payment), "refunded: the price to the buyer's payment address, the rest to adjudicators the terms name");
+    else if (type === 'settlement.reclaimed') add('postings follow the outcome', to(payment, BigInt(hold.amount)) && postings.length === 1, "reclaimed: the whole hold back to the buyer's payment address");
     else add('postings follow the outcome', null, `${type}: the parties' own split; compare it with the settlement they signed`);
+    const apart = t ? [[t.buyer, payment], [t.seller, payout]].filter(([s, m]) => lc(s) !== lc(m)).map(([s]) => lc(s)) : [];
+    if (apart.length) add('signing addresses receive nothing', postings.every((x: J) => !apart.includes(x.to)), `no posting out of escrow goes to ${apart.join(' or ')}, which sign and differ from their money address`);
   }
   const transactions = events.filter((e) => typeof e.payload?.tx === 'string' && ID.test(e.payload.tx)).map((e) => ({ step: e.type, tx: e.payload.tx, url: pin?.chain?.explorer ? `${pin.chain.explorer}/tx/${e.payload.tx}` : null }));
   const settlement = { hold, operatorFee, postings, transactions };
@@ -354,8 +366,14 @@ export async function dealRecord(id: Hex, o: Options): Promise<DealRecord> {
   const t = agreed.terms ? merged.terms?.signed : null;
   const st = agreed.settlement ? merged.settlement : null;
   const settledAt = agreed.steps ? ((merged.steps as J[]).find((x) => SETTLED.includes(x.step))?.at ?? null) : null;
+  // Who received money out of escrow, by the money addresses the terms name (ADR-0033): the seller's payout address was
+  // paid, the buyer's payment address refunded. Adjudicators' fees are left out.
+  const received = (who: string | undefined) => (st && who ? st.postings.some((x: J) => x.to === lc(who) && BigInt(x.amount?.amount ?? 0) > 0n) : false);
   const row: Row = {
-    commitmentId: cid, buyer: t ? lc(t.buyer) : null, seller: t ? lc(t.seller) : null, price: t?.price ?? null, adjudicationFee: t?.adjudication?.fee ?? null, operatorFee: st?.operatorFee ?? null,
+    commitmentId: cid, buyer: t ? lc(t.buyer) : null, seller: t ? lc(t.seller) : null,
+    buyerPaymentAddress: t ? lc(t.buyerPaymentAddress) : null, sellerPayoutAddress: t ? lc(t.sellerPayoutAddress) : null,
+    paidTo: t && received(t.sellerPayoutAddress) ? lc(t.sellerPayoutAddress) : null, refundedTo: t && received(t.buyerPaymentAddress) ? lc(t.buyerPaymentAddress) : null,
+    price: t?.price ?? null, adjudicationFee: t?.adjudication?.fee ?? null, operatorFee: st?.operatorFee ?? null,
     outcome: agreed.outcome ? merged.outcome.escrowState : null, reclaimed: agreed.outcome ? merged.outcome.reclaimed : null,
     offeredAt: at('commitment.offered'), agreedAt: at('commitment.agreed'), fundedAt: at('hold.funded'), deliveredAt: at('delivery.submitted'), decidedAt: at('judgment.decided'), settledAt,
     panelDecision: agreed.judgment ? (merged.judgment?.decision ?? null) : null, transactions: st ? st.transactions.map((x: J) => x.url ?? x.tx) : null,
