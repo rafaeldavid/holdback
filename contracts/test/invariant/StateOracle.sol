@@ -59,7 +59,7 @@ library StateOracle {
         uint120 capturable; // the escrow's paymentState
         uint120 refundable;
         bool buyerReclaimed; // the buyer reclaimed on the escrow directly (section 5.2)
-        uint144 seedTag; // the tag a funded deal must store: the low 144 bits of the primary's seed commitment
+        uint144 seedTag; // the tag a funded deal must store: the primary's seed commitment hashed with the ID (L-4)
     }
 
     /// What the oracle reads about deal i of handler `x`: the rules contract, the escrow, and the handler's record
@@ -73,7 +73,7 @@ library StateOracle {
         s.decider = x.closedDecider(id);
         (, s.capturable, s.refundable) = x.holdOf(i);
         s.buyerReclaimed = x.cppReclaimed(id);
-        s.seedTag = x.seedTag();
+        s.seedTag = x.seedTag(id);
     }
 
     /// Checks deal i of handler `x` against the phase-one table.

@@ -261,7 +261,9 @@ contract PhaseOneRedTeamTest is Base {
         assertEq(uint8(da.stage), uint8(db.stage), "stage");
         assertEq(da.attempt, db.attempt, "attempt");
         assertEq(da.t1, db.t1, "t1");
-        assertEq(da.seedTag, db.seedTag, "seedTag");
+        // Since L-4 (T-380) each deal's tag binds its own ID: it says which deal, never who decided.
+        assertEq(da.seedTag, H.seedTag(keccak256(abi.encodePacked(SEED)), a), "seedTag a");
+        assertEq(db.seedTag, H.seedTag(keccak256(abi.encodePacked(SEED)), b), "seedTag b");
         assertEq(usdc.balanceOf(adjudicator), FEE, "P06 paid the primary");
         assertEq(usdc.balanceOf(appealAdj), FEE, "P10 paid the appeal adjudicator");
     }
@@ -285,7 +287,9 @@ contract PhaseOneRedTeamTest is Base {
         assertEq(uint8(da.stage), uint8(db.stage), "stage");
         assertEq(da.attempt, db.attempt, "attempt");
         assertEq(da.t1, db.t1, "t1");
-        assertEq(da.seedTag, db.seedTag, "seedTag");
+        // Since L-4 (T-380) each deal's tag binds its own ID: it says which deal, never who decided.
+        assertEq(da.seedTag, H.seedTag(keccak256(abi.encodePacked(SEED)), a), "seedTag a");
+        assertEq(db.seedTag, H.seedTag(keccak256(abi.encodePacked(SEED)), b), "seedTag b");
         (, uint120 ra) = _refundable(ta);
         (, uint120 rb) = _refundable(tb);
         assertEq(ra, FEE, "P11: the fee was captured");
