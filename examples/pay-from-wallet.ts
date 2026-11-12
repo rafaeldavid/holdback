@@ -15,7 +15,7 @@
 // Env: HOLDBACK_OPERATORS (files, fund); CROW_EXPECT as for buy-with-signer.ts. Exit status 0 when done, 3 on a refusal.
 import { readFileSync } from 'node:fs';
 import { loadKeys, printable } from './buyer-signer.ts';
-import { command as commandFor } from './entry.ts';
+import { command as commandFor, help, helpAsked } from './help.ts';
 import { checkPaymentFile, commitmentIdOf, knownPins, pinOf, Refusal } from './verify.ts';
 import { SEPOLIA } from './deployments.ts';
 
@@ -29,10 +29,14 @@ const fee = flag('--fee', 2), sim = flag('--sim', 0) !== undefined;
 const [command, a, b, c, d] = args;
 const out = (x: unknown) => console.log(printable(JSON.stringify(x)));
 const expect = () => ({ expect: JSON.parse(process.env['CROW_EXPECT'] || '{}') });
-const usage = `usage: ${commandFor('pay-from-wallet', import.meta.url)} files <store> <id> | fund <store> <id> <funding signature> [<operator-fee signature>] | check <file> <terms file> <buyer address> [--fee <to> <base units>] [--sim]`;
+const usage = help('pay-from-wallet', import.meta.url); // what it does, the usage and one example (examples/help.ts)
 
 try {
-  if (command === 'files' && a && b) {
+  const asked = helpAsked(process.argv.slice(2));
+  if (asked !== null) {
+    (asked === 0 ? console.log : console.error)(usage);
+    process.exitCode = asked;
+  } else if (command === 'files' && a && b) {
     const signer = await loadKeys(a, b, { ...expect(), log: () => {} });
     for (const f of await signer.fundingFiles(b)) out({ sign: f.path, digest: f.digest, check: f.check, summary: f.summary });
     console.error('Where the wallet is, run each check above and sign only a file it passes, whose digest the wallet shows.');

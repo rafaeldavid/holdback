@@ -87,7 +87,7 @@ describe('the checks on the guides', () => {
     copyFileSync(new URL('../site/buy.mjs', import.meta.url), join(dir, 'buy.mjs'));
     const run = (...args: string[]) => spawnSync(process.execPath, ['buy.mjs', ...args], { cwd: dir, encoding: 'utf8', env: { PATH: process.env['PATH'] ?? '' } });
     const pay = run('pay');
-    expect(pay.stderr).toMatch(/usage: node buy\.mjs pay files <store> <id> \| fund <store> <id>/);
+    expect(pay.stderr).toMatch(/usage: node buy\.mjs pay files <key store directory> <commitment ID>\n\s+node buy\.mjs pay check /);
     expect(pay.stderr).not.toMatch(/usage: approve|deal-record/);
     const record = run('record');
     expect(record.stderr).toMatch(/usage: node buy\.mjs record <commitmentId> --as buyer\|seller/);
@@ -95,7 +95,22 @@ describe('the checks on the guides', () => {
     const approve = run('approve', 'deal-1', 'not-an-id', '1');
     expect(approve.stderr).toMatch(/usage: node buy\.mjs <quote URL> <key store directory> '<scope as JSON>' <the most you pay, base units>/);
     expect(approve.stderr).toMatch(/node buy\.mjs approve <key store directory> <commitment ID>/);
-    expect(approve.stderr).not.toMatch(/--as buyer\|seller|files <store>/);
+    expect(approve.stderr).not.toMatch(/--as buyer\|seller|files <key store/);
+    // T-397: --help and -h answer with exit 0, and the buyer's example is the call buy.txt gives.
+    for (const [args, name] of [[['--help'], 'buy-with-signer'], [['-h'], 'buy-with-signer'], [['pay', '--help'], 'pay-from-wallet'], [['record', '-h'], 'deal-record']] as const) {
+      const r = run(...args);
+      expect(r.status, `${args.join(' ')}: ${r.stderr}`).toBe(0);
+      expect(r.stdout).toMatch(new RegExp(`^${name}: [^\\n]+\\nusage: node buy\\.mjs`));
+      expect(r.stdout).toMatch(/\nexample: \S/);
+    }
+    // Help anywhere but first is a wrong call: it prints the help, runs nothing and exits 2, never 0 ("passed").
+    const late = run('record', '0x5744dce2d35d087b9bf35bd4443a99807baa5bb2b94185c0b21505e0167309f7', '--as', 'buyer', '--out', '-h');
+    expect(late.status).toBe(2);
+    expect(late.stderr).toMatch(/^deal-record: /);
+    const example = /\nexample: (.+)/.exec(run('--help').stdout)?.[1] ?? '';
+    // @ts-expect-error plain JavaScript module with no declarations
+    const { publishedGuides } = await import('../site/build.mjs');
+    expect(publishedGuides({ op1: 'https://a.example', op2: 'https://b.example' }).get('buy.txt').split('\n').map((l: string) => l.trim())).toContain(example);
   });
 });
 
