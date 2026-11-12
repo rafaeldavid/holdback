@@ -6,7 +6,11 @@ import type { MutualSettlement } from './types.js';
 const BUYER = '0x1111111111111111111111111111111111111111';
 const SELLER = '0x2222222222222222222222222222222222222222';
 const THIRD = '0x9999999999999999999999999999999999999999';
-const terms = { buyer: BUYER, seller: SELLER, price: { token: 'tUSD', amount: '2000000000' } } as unknown as Parameters<typeof mutualSettlementProblem>[1];
+// ADR-0033: a settlement pays the parties' money addresses, which these terms set equal to the signing addresses.
+const terms = { buyerPaymentAddress: BUYER, sellerPayoutAddress: SELLER, price: { token: 'tUSD', amount: '2000000000' } } as unknown as Parameters<typeof mutualSettlementProblem>[1];
+const PAYMENT = '0x3333333333333333333333333333333333333333';
+const PAYOUT = '0x4444444444444444444444444444444444444444';
+const apart = { ...terms, buyerPaymentAddress: PAYMENT, sellerPayoutAddress: PAYOUT } as typeof terms;
 const pay = (to: string, amount: string) => ({ to, amount: { token: 'tUSD', amount } });
 const settlement = (payouts: ReturnType<typeof pay>[]): MutualSettlement =>
   ({
@@ -22,6 +26,12 @@ const settlement = (payouts: ReturnType<typeof pay>[]): MutualSettlement =>
   }) as unknown as MutualSettlement;
 
 describe('mutualSettlementProblem (D23)', () => {
+  it('with the money addresses apart, pays them and refuses the signing addresses as payees to the parties only (ADR-0033)', () => {
+    expect(mutualSettlementProblem(settlement([pay(PAYOUT, '1400000000'), pay(PAYMENT, '600000000')]), apart, { allowed: true, payoutsTo: 'parties' })).toBeUndefined();
+    expect(mutualSettlementProblem(settlement([pay(SELLER, '1400000000'), pay(PAYMENT, '600000000')]), apart, { allowed: true, payoutsTo: 'parties' })).toContain('not a party');
+    expect(mutualSettlementProblem(settlement([pay(PAYOUT, '1400000000'), pay(BUYER, '600000000')]), apart, { allowed: true, payoutsTo: 'parties' })).toContain('not a party');
+  });
+
   it('accepts a split between the parties that sums to the price', () => {
     expect(mutualSettlementProblem(settlement([pay(SELLER, '1400000000'), pay(BUYER, '600000000')]), terms, { allowed: true, payoutsTo: 'parties' })).toBeUndefined();
   });

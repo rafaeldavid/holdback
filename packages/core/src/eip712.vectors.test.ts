@@ -65,17 +65,17 @@ const values: Record<string, Hex32> = {
 
 // The same values as Vectors.t.sol. Changing one changes the signed encoding: it needs an ADR (ADR-0029 moved them).
 const pins: Record<string, Hex32> = {
-  commitmentId: '0x529405ab41df1b56773108432572110d616c6c7c57af5b3ebd00154eec003627',
-  schemaVersionHash: '0x039eb7c1a17686c95dc5e5f7bb8ad8976b26a2ed19913115218a992047cfcee5',
-  termsDigest: '0x78f007af036c3eba017d3090790b8c71b02e7b6a09f93edab14f6b72c992e1a9',
-  deliveryHash: '0x1d70f2ee1a2f03f0438c730ea47aec3989152b32927a3f6a37fc46f3b3a7772e',
-  decisionDigest: '0x77ce852f1204ab202d7ce466066b6aae816c612c1840a69217816c219abb40fd',
-  acceptanceDigest: '0x197971ce7307f9f2d8c61bbb914e3eef49e04fe747a90f9191b7d81687b2edb4',
-  agreeDigest: '0x75acef94809bbb682cd4059318096010276885586e6d89df16871caafb741b86',
-  earlyAcceptDigest: '0x8b3b3acb5f186c9f065ea40a5fc4c314e9e54f01490b932ef18a4654fd89cb88',
-  mutualDigest: '0x902fedd1cc7ae1ea7efbe1987a3d6b9277744d414aa4d67523a157c5858a724e',
-  appealDigest: '0x52e6969b9d47150bcd17190e43ccc3b93a40feb6208f3aea4d4c89a149ccd235',
-  panelSeed: '0x07a9721cfe7c323ec0815715c5a629b8cd46b5a5b0a35feaca57b0f76bd53f3e',
+  commitmentId: '0x6bdb0a2fe90f698ca6e4786c36d35b5147ef9abb0771057aa4c1a3911569b248',
+  schemaVersionHash: '0x15e7a716d821b9602c70f6d0f574efbb8147fb465215d43354c7b3e69d03ed92',
+  termsDigest: '0xce857ec719814ca437a36c4d8c05df882d685c72172a0333adfe30f3a8187e61',
+  deliveryHash: '0x93ab77cc02ea63b2c518c651abd645ebb44e3735f5efcbdc7221bde8c42d10d8',
+  decisionDigest: '0xcf2fff4c045473283a1414ae5c36847f25989f4aec9869c018805fd3b9e21f94',
+  acceptanceDigest: '0x67022aceda5ba70cb31d1ea142866b79e0de661257385e4ef36b767b5e448004',
+  agreeDigest: '0x06aaeb1dcb956056d5ccf829563bb722b8684fb293e79e65a475d94eb4b9a5f9',
+  earlyAcceptDigest: '0x0af6c0c7c9e76a8bab144abf72e1eb8ab3388cf1bba5c138bb1a487514474117',
+  mutualDigest: '0x32adb8a961ee550fd52e4fd24c8d92debbdb15104bb497bfd44236a4667a61d9',
+  appealDigest: '0xa1222f359777b62c6ec7b694b710d7b3c86b9914cb89e05e8d4b4f423aac3b52',
+  panelSeed: '0x11d7d7df48d0f1abe95c4cf05415151fe4007df150f1072d1e5730d2fd7d1121',
 };
 
 describe('cross-language vectors (Vectors.t.sol)', () => {

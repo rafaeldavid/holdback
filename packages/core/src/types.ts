@@ -1,5 +1,5 @@
-// Hand-written types for spec/schemas v0.10 (signed encoding 0.7: the EIP-712 domain version in eip712.ts; ADR-0023,
-// ADR-0024, ADR-0029). Values reach these types only through the parsers in parse.ts, which validate against the
+// Hand-written types for spec/schemas v0.11 (signed encoding 0.8: the EIP-712 domain version in eip712.ts; ADR-0023,
+// ADR-0024, ADR-0029, ADR-0033). Values reach these types only through the parsers in parse.ts, which validate against the
 // schema files. Phase 1 narrows the commitment to guaranteed_on_decision and maxSubmissions = 1 (ADR-0007).
 import type { TokenAmount } from './money/index.js';
 
@@ -159,11 +159,17 @@ export interface Timing {
 
 /** Everything the commitment ID hashes: the commitment minus id, signatures and adjudicatorAcceptance (ADR-0016). */
 export interface CommitmentTerms {
-  schemaVersion: '0.7';
+  schemaVersion: '0.8';
   clubId: string;
   rulebookHash: Hex32;
+  /** Signs the agreement, an early accept and a settlement; the content key is sealed to it. */
   buyer: Address;
+  /** Signs the terms, the delivery and a settlement. */
   seller: Address;
+  /** ADR-0033: funds the hold and receives every refund (the escrow's payer). May equal buyer. */
+  buyerPaymentAddress: Address;
+  /** ADR-0033: receives every payment to the seller (the escrow's receiver). May equal seller. */
+  sellerPayoutAddress: Address;
   deliverable: Deliverable;
   acceptance: AcceptanceSpec;
   price: TokenAmount;
