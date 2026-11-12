@@ -917,12 +917,18 @@ function expected(intent, op, now) {
 		primaryType: "MutualSettlement",
 		message: m
 	}));
+	if (intent.delivery !== void 0) {
+		if (!intent.releaseKey) refuse$1("a settlement that carries late work releases its key");
+		if (String(intent.delivery?.commitmentId).toLowerCase() !== id.toLowerCase()) refuse$1("the delivery you carry is for another commitment");
+		if (deliveryHashOf(intent.delivery).toLowerCase() !== String(intent.deliveryHash).toLowerCase()) refuse$1("deliveryHash is not the hash of the delivery you carry");
+	}
 	return {
 		path: `/v1/commitments/${id}/settlements`,
 		body: {
 			...m,
 			buyerSignature: null,
-			sellerSignature: null
+			sellerSignature: null,
+			...intent.delivery !== void 0 ? { delivery: intent.delivery } : {}
 		},
 		slots
 	};

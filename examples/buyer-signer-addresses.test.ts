@@ -373,6 +373,7 @@ describe('a wallet outside the signer pays (ADR-0033 §3)', () => {
     }
     const body = JSON.parse(sent[0]!);
     for (const sig of [body.fund.signature, body.operatorFee.signature]) expect(['1b', '1c']).toContain(sig.slice(130));
+    for (let i = 0; i < 50 && (await stateOf(id)) !== 'Held'; i++) await new Promise((r) => setTimeout(r, 100)); // one operator may record it a tick later
     expect(await stateOf(id)).toBe('Held');
   }, 60_000);
 

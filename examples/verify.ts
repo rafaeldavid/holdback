@@ -246,7 +246,11 @@ export type Intent =
   /** appealBondRateBps: from the club rulebook as at least two operators serve it. */
   // SimChain only (ADR-0031 §8): examples/e2e-scenarios-appeal.ts files party appeals on SimChain's full protocol.
   | { kind: 'appeal'; terms: J; me: string; grounds?: string; appealBondRateBps: number }
-  | { kind: 'settlement'; terms: J; payouts: J[]; releaseKey: boolean; deliveryHash: Hex | null; nonce: Hex };
+  /**
+   * delivery (SC-5b, the late-work settlement): the seller-signed delivery that was never posted, which the body
+   * carries; the settlement names it by deliveryHash, which must be that delivery's hash, and it must release the key.
+   */
+  | { kind: 'settlement'; terms: J; payouts: J[]; releaseKey: boolean; deliveryHash: Hex | null; nonce: Hex; delivery?: J };
 /** A slot's typed data is the message under the pinned Holdback domain, unless `typed` gives another (ERC-3009 on a chain). */
 type Plan = { path: string; body: J; slots: Array<{ slot: string; primaryType: string; signer: string; message: J; typed?: J }> };
 
@@ -362,7 +366,12 @@ function expected(intent: Intent, op: J, now: number): Plan {
   }
   const m = { type: 'MutualSettlement', commitmentId: id, deliveryHash: intent.deliveryHash, payouts: intent.payouts, releaseKey: intent.releaseKey, nonce: own(intent.nonce, op.nonce, 'nonce'), expiresAt: near(op.expiresAt, 0, 86_400, 'expiresAt') };
   const slots = [{ slot: 'buyerSignature', signer: t.buyer }, { slot: 'sellerSignature', signer: t.seller }].map((s) => ({ ...s, primaryType: 'MutualSettlement', message: m }));
-  return { path: `/v1/commitments/${id}/settlements`, body: { ...m, buyerSignature: null, sellerSignature: null }, slots };
+  if (intent.delivery !== undefined) {
+    if (!intent.releaseKey) refuse('a settlement that carries late work releases its key');
+    if (String(intent.delivery?.commitmentId).toLowerCase() !== id.toLowerCase()) refuse('the delivery you carry is for another commitment');
+    if (deliveryHashOf(intent.delivery).toLowerCase() !== String(intent.deliveryHash).toLowerCase()) refuse("deliveryHash is not the hash of the delivery you carry");
+  }
+  return { path: `/v1/commitments/${id}/settlements`, body: { ...m, buyerSignature: null, sellerSignature: null, ...(intent.delivery !== undefined ? { delivery: intent.delivery } : {}) }, slots };
 }
 
 /** The first path where two JSON values differ, for a refusal message. */
