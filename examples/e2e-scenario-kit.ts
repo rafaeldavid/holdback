@@ -1,10 +1,11 @@
 // What the scenarios of the first full EVM end-to-end round share (T-216): the scenario type, the deals' terms and
-// work, the prerequisite check, and the checks and appeal steps more than one scenario runs. e2e-scenarios.ts holds
-// the scenarios that run and the registry; e2e-scenarios-<group>.ts hold the four groups still being built. Every
-// file imports from here, never from e2e-scenarios.ts, so the registry can import the groups without a cycle.
+// work, the prerequisite check, and the checks more than one scenario runs. e2e-scenarios.ts holds the scenarios that
+// run and the registry; e2e-scenarios-<group>.ts hold the groups. The party-appeal scenarios and their helpers are in
+// e2e-scenarios-appeal.ts, which runs on SimChain only. Every file imports from here or from a group, never from
+// e2e-scenarios.ts, so the registry can import the groups without a cycle.
 import { fileURLToPath } from 'node:url';
 import { paymentHashOf } from './e2e-chain.ts';
-import { get, logsOf, reason, retry, short, sleep, trigger, waitPast, Waits, type Deal, type Run } from './e2e-run.ts';
+import { logsOf, short, Waits, type Deal, type Run } from './e2e-run.ts';
 
 export type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -39,8 +40,6 @@ export const RUBRIC = {
   ],
 };
 export const FRENCH = 'Les marchandises sont expédiées mardi. Le paiement est dû dans les 30 jours suivant la livraison.';
-/** What scenario 6's appellant holds before its deal: the price, both fees and the bond, with room (base units). */
-export const APPELLANT_FLOAT = 100_000_000n;
 
 export const here = (f: string) => fileURLToPath(new URL(f, import.meta.url));
 export const lc = (a: string) => a.toLowerCase();
@@ -74,17 +73,6 @@ export async function requires(r: Run, tasks: string[]): Promise<void> {
   }
 }
 
-/**
- * Stops a scenario with a party appeal before its first deal when the round runs on a chain: the phase-one contracts
- * take no party appeal and hold no bond (ADR-0031 §8), so it runs on SimChain only. The run records it as waiting on
- * ADR-0031, with the reason.
- */
-export function simChainOnly(r: Run, what: string): void {
-  if (!r.round.chain) return;
-  r.waitsFor = ['ADR-0031'];
-  throw new Waits(r.waitsFor, `not in phase one (ADR-0031): ${what}; the phase-one contracts take no party appeal, so this scenario runs on SimChain only`);
-}
-
 /** The judgment record each operator serves, from the first (informative: the state is what settled). */
 export async function judgment(deal: Deal): Promise<J | null> {
   try {
@@ -96,38 +84,6 @@ export async function judgment(deal: Deal): Promise<J | null> {
 
 /** The decision's checks in one line: "cols pass, rows FAIL". */
 export const checksLine = (j: J | null) => (j?.deterministic ?? []).map((c: J) => `${c.checkId} ${c.passed ? 'pass' : 'FAIL'}`).join(', ');
-
-/**
- * Sends `appeal-expiry` once the appeal window has closed, so the primary's bond is freed, then waits for both operators
- * to show the appeal expired. Since T-211 the demo's adjudicators expire their own decisions' appeals, so the window may
- * already be closed; the run says which. On a chain there is no window: the phase-one contracts take no party appeal,
- * and a first decision is final at once (ADR-0031 §8).
- */
-export async function expireAppeal(r: Run, deal: Deal, appealBy: string): Promise<void> {
-  r.step = 'appeal';
-  if (r.round.chain) {
-    r.say('no appeal window to close: on the phase-one contracts the first decision is final at once (ADR-0031 §8)');
-    deal.record.notes.push('no appeal expiry: not in phase one (ADR-0031)');
-    return;
-  }
-  r.say(`waiting for the appeal window to close at ${appealBy}, then appeal-expiry frees the primary's bond`);
-  await waitPast(r, deal.buyer, appealBy);
-  let closedBy = 'the round, through the API';
-  try {
-    await trigger(r, deal, 'appeal-expiry');
-    r.check('appeal-expiry relayed through the API', true, 'accepted');
-  } catch (e) {
-    const why = reason(e);
-    if (!/appeal state is expired/.test(why)) {
-      r.check('appeal-expiry relayed through the API', false, why);
-      throw e;
-    }
-    closedBy = 'someone else (the demo adjudicators expire their own appeals since T-211)';
-  }
-  await untilAppeal(r, deal, ['expired'], 120_000);
-  r.say(`the appeal window is closed; appeal-expiry sent by ${closedBy}`);
-  deal.record.notes.push(`appeal-expiry sent by ${closedBy}`);
-}
 
 /** The deal's last transaction's block, once `finish` has read it, for a chain read after the deal's last step; else the latest block. */
 export const lastBlock = (deal: Deal): bigint | undefined => (deal.record.chain?.block === undefined ? undefined : BigInt(deal.record.chain.block));
@@ -164,31 +120,4 @@ export function paidCheck(r: Run, deal: Deal, name: string, to: string, amount: 
   if (!r.round.chain) return;
   const hits = logsOf(deal.record, 'Transfer').filter((l) => lc(l.args.to) === lc(to) && BigInt(l.args.amount) === amount);
   r.check(name, hits.length === 1, `${hits.length} Transfer log(s) of ${r.round.amount(amount)} to ${short(to)}`);
-}
-
-/** An appeal through the API: the appellant's own approval for its bond on a chain, then prepare, verify, sign. */
-export async function appeal(r: Run, deal: Deal, who: 'buyer' | 'seller'): Promise<J> {
-  const { round } = r;
-  const agent = who === 'buyer' ? deal.buyer : deal.seller;
-  const { rulebook } = await agent.club(round.demo.clubId);
-  const prepared = await agent.call('POST', '/v1/prepare/appeal', { commitmentId: deal.id, appellant: agent.address });
-  return agent.signAndSubmit(prepared, { kind: 'appeal', terms: deal.terms, me: agent.address, appealBondRateBps: rulebook.appealBondRateBps });
-}
-
-/** The appeal bond the club's rulebook sets for the deal: its rate of the price, rounded up. */
-export async function appealBond(r: Run, deal: Deal): Promise<bigint> {
-  const { rulebook } = await deal.buyer.club(r.round.demo.clubId);
-  return (BigInt(deal.terms.price.amount) * BigInt(rulebook.appealBondRateBps) + 9_999n) / 10_000n;
-}
-
-/** Polls every operator until each reports one of `states` as the appeal state; stops once the decision deadline passes. */
-export async function untilAppeal(r: Run, deal: Deal, states: string[], timeoutMs: number): Promise<J> {
-  let seen: J[] = [];
-  for (const end = Date.now() + timeoutMs; Date.now() < end; await sleep(1000)) {
-    seen = await Promise.all(deal.buyer.sources().map((api) => get(deal.buyer, `/v1/commitments/${deal.id}`, api)));
-    if (seen.every((s) => states.includes(s.appealState))) return seen[0];
-    const by = seen[0]?.deadlines?.appealDecideBy;
-    if (by && (await retry(() => deal.buyer.settlementNow())) > Date.parse(by) + 30_000) throw new Error(`${short(deal.id)}: the appeal adjudicator did not decide by appealDecideBy ${by} (appeal ${seen.map((s) => s.appealState).join(' / ')})`);
-  }
-  throw new Error(`${short(deal.id)} appeal still ${seen.map((s) => s.appealState).join(' / ')} after ${timeoutMs / 1000} s, waiting for ${states.join(' or ')}`);
 }

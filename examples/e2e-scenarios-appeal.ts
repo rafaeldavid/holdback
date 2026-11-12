@@ -1,20 +1,101 @@
-// Round 1's scripted-adjudicator group (T-216): the scenarios where the round's own primary decides the outcome the
-// scenario gives it, a wrong one included (e2e-adjudicator.ts, `serve(r, { decide })`). e2e-scenarios.ts registers
-// this list; its tests are in e2e-scenarios-scripted.test.ts.
+// SimChain only: the round's party-appeal group (T-216, T-374). The phase-one contracts take no party appeal and hold
+// no bond (ADR-0031 §8, D57): a first decision by the primary or the fallback is final when written, and the
+// operators refuse an appeal and its expiry on a chain. SimChain keeps the full protocol on purpose, so this file keeps
+// the round's appeal scenarios and helpers for it, and no other e2e file names a party appeal:
 //
-// Both scenarios file a party appeal, which the phase-one contracts do not take (ADR-0031 §8): they run on SimChain
-// only (simChainOnly), and a chain round records them as waiting on ADR-0031. The primary is the round's
-// `adjudicator-1`, registered through the API. On SimChain no outsider can bond at run time, so the deals are priced at
-// zero: every step still runs, and the money checks hold at zero.
+// - 3c and 7, the scripted-adjudicator scenarios: the round's own primary decides the outcome the scenario gives it, a
+//   wrong one included (e2e-adjudicator.ts, `serve(r, { decide })`). The primary is the round's `adjudicator-1`,
+//   registered through the API. On SimChain no outsider can bond at run time, so these deals are priced at zero:
+//   every step still runs, and the money checks hold at zero.
+// - 6, an appeal upheld, with the demo world's own adjudicators.
+// - The helpers: `appeal` and its bond, the appeal-state poll, and `closeOnSimChain`, which closes a decided deal's
+//   appeal window on SimChain and does nothing on a chain.
+//
+// Each scenario stops before its first deal on a chain (simChainOnly), and the run records it as waiting on ADR-0031.
+// e2e-scenarios.ts registers APPEAL; the tests are in e2e-scenarios-appeal.test.ts.
 import { RoundAdjudicator } from './e2e-adjudicator.ts';
-import { buyerKeys, delta, deliver, ensureFunds, finish, fund, get, openDeal, reason, short, shortWindows, sleep, trigger, until, waitPast, type Deal, type Run } from './e2e-run.ts';
-import { APPELLANT_FLOAT, BAD_CSV, CHECKS, CSV, DATASET, appeal, appealBond, requires, settledChecks, simChainOnly, untilAppeal, type J, type Scenario } from './e2e-scenario-kit.ts';
+import { buyerKeys, delta, deliver, ensureFunds, finish, fund, get, openDeal, reason, retry, short, shortWindows, sleep, trigger, until, waitPast, Waits, type Deal, type Run } from './e2e-run.ts';
+import { BAD_CSV, CHECKS, CSV, DATASET, PRICE, requires, settledChecks, type J, type Scenario } from './e2e-scenario-kit.ts';
 
-/** The round's primary in both scenarios. */
+/** What an appellant holds before its deal: the price, both fees and the bond, with room (base units). */
+export const APPELLANT_FLOAT = 100_000_000n;
+
+/**
+ * Stops a scenario with a party appeal before its first deal when the round runs on a chain: the phase-one contracts
+ * take no party appeal and hold no bond (ADR-0031 §8), so it runs on SimChain only. The run records it as waiting on
+ * ADR-0031, with the reason.
+ */
+export function simChainOnly(r: Run, what: string): void {
+  if (!r.round.chain) return;
+  r.waitsFor = ['ADR-0031'];
+  throw new Waits(r.waitsFor, `not in phase one (ADR-0031): ${what}; the phase-one contracts take no party appeal, so this scenario runs on SimChain only`);
+}
+
+/**
+ * An appeal through the API: prepare, verify, sign. On a chain the operators refuse it with invalid_state, in every
+ * state (ADR-0031 §8); 5b checks that refusal after the appeal adjudicator's decision.
+ */
+export async function appeal(r: Run, deal: Deal, who: 'buyer' | 'seller'): Promise<J> {
+  const { round } = r;
+  const agent = who === 'buyer' ? deal.buyer : deal.seller;
+  const { rulebook } = await agent.club(round.demo.clubId);
+  const prepared = await agent.call('POST', '/v1/prepare/appeal', { commitmentId: deal.id, appellant: agent.address });
+  return agent.signAndSubmit(prepared, { kind: 'appeal', terms: deal.terms, me: agent.address, appealBondRateBps: rulebook.appealBondRateBps });
+}
+
+/** The appeal bond the club's rulebook sets for the deal: its rate of the price, rounded up. */
+export async function appealBond(r: Run, deal: Deal): Promise<bigint> {
+  const { rulebook } = await deal.buyer.club(r.round.demo.clubId);
+  return (BigInt(deal.terms.price.amount) * BigInt(rulebook.appealBondRateBps) + 9_999n) / 10_000n;
+}
+
+/** Polls every operator until each reports one of `states` as the appeal state; stops once the decision deadline passes. */
+export async function untilAppeal(r: Run, deal: Deal, states: string[], timeoutMs: number): Promise<J> {
+  let seen: J[] = [];
+  for (const end = Date.now() + timeoutMs; Date.now() < end; await sleep(1000)) {
+    seen = await Promise.all(deal.buyer.sources().map((api) => get(deal.buyer, `/v1/commitments/${deal.id}`, api)));
+    if (seen.every((s) => states.includes(s.appealState))) return seen[0];
+    const by = seen[0]?.deadlines?.appealDecideBy;
+    if (by && (await retry(() => deal.buyer.settlementNow())) > Date.parse(by) + 30_000) throw new Error(`${short(deal.id)}: the appeal adjudicator did not decide by appealDecideBy ${by} (appeal ${seen.map((s) => s.appealState).join(' / ')})`);
+  }
+  throw new Error(`${short(deal.id)} appeal still ${seen.map((s) => s.appealState).join(' / ')} after ${timeoutMs / 1000} s, waiting for ${states.join(' or ')}`);
+}
+
+/**
+ * Closes a decided deal's appeal window before its evidence is read, so the primary's bond is freed. On a chain it does
+ * nothing: the phase-one contracts write a decision as final, and the operators refuse an appeal-expiry trigger
+ * (ADR-0031 §8). On SimChain, when `done` (the deal's view after its decision) names an appeal window, it waits for the
+ * window to close and sends `appeal-expiry`, then waits for both operators to show the appeal expired. Since T-211 the
+ * demo's adjudicators expire their own decisions' appeals, so the window may already be closed; the run says which.
+ */
+export async function closeOnSimChain(r: Run, deal: Deal, done: J): Promise<void> {
+  const appealBy: string | undefined = done?.deadlines?.appealBy;
+  if (r.round.chain || !appealBy) return;
+  r.step = 'appeal';
+  r.say(`waiting for the appeal window to close at ${appealBy}, then appeal-expiry frees the primary's bond`);
+  await waitPast(r, deal.buyer, appealBy);
+  let closedBy = 'the round, through the API';
+  try {
+    await trigger(r, deal, 'appeal-expiry');
+    r.check('appeal-expiry relayed through the API', true, 'accepted');
+  } catch (e) {
+    const why = reason(e);
+    if (!/appeal state is expired/.test(why)) {
+      r.check('appeal-expiry relayed through the API', false, why);
+      throw e;
+    }
+    closedBy = 'someone else (the demo adjudicators expire their own appeals since T-211)';
+  }
+  await untilAppeal(r, deal, ['expired'], 120_000);
+  r.say(`the appeal window is closed; appeal-expiry sent by ${closedBy}`);
+  deal.record.notes.push(`appeal-expiry sent by ${closedBy}`);
+}
+
+/** The round's primary in 3c and 7. */
 const PRIMARY = 'adjudicator-1';
 /** 3c's appeal adjudicator: registered, never bonded (nothing on chain pays from an appeal adjudicator, L-5), never served. */
 const SILENT_APPEAL = 'adjudicator-2';
-/** The deals' price: zero on SimChain, where the round's primary holds no bond. */
+/** 3c's and 7's price: zero on SimChain, where the round's primary holds no bond. */
 const PRICE_ZERO = '0';
 
 interface Shape {
@@ -156,7 +237,49 @@ export async function overturnedBothWays(r: Run): Promise<void> {
   }
 }
 
-export const SCRIPTED: Scenario[] = [
+/**
+ * 6: the demo primary decides correctly, both ways; the favoured party's appeal is refused, the losing party appeals,
+ * and the demo appeal adjudicator upholds. The appellant loses its bond and the first outcome stands.
+ */
+export async function appealUpheld(r: Run): Promise<void> {
+  const { round } = r;
+  const [buyer, seller] = [round.address('buyer'), round.address('seller')];
+  const primary = round.demo.adjudicators.primary;
+  // The appeal windows are the parties' choice (D31): long enough for the appellant's filing, and for the appeal
+  // adjudicator's beacon round and its decision's block.
+  const windows = shortWindows(r, { appealWindowSec: Math.max(round.demo.minWindowSec, 180), appealDecideSec: Math.max(round.demo.minWindowSec, 120) });
+  for (const shape of [
+    { label: 'the seller appeals a correct reject', work: BAD_CSV, outcome: 'Refunded', appellant: 'seller', favoured: 'buyer' },
+    { label: 'the buyer appeals a correct accept', work: CSV, outcome: 'Released', appellant: 'buyer', favoured: 'seller' },
+  ] as const) {
+    // The appellant holds enough for the deal and its bond before the deal's starting balances are read.
+    await ensureFunds(r, shape.appellant, APPELLANT_FLOAT);
+    const deal = await openDeal(r, { label: shape.label, template: 'checks-only', deliverable: DATASET, checks: CHECKS, price: PRICE, timing: windows }, [buyer, seller, primary]);
+    await fund(r, deal);
+    const bond = await appealBond(r, deal);
+    await deliver(r, deal, shape.work);
+    r.step = 'outcome';
+    const done = await until(r, deal.buyer, deal.id, ['Released', 'Refunded', 'Escalated'], 300_000);
+    r.check(`${shape.appellant}: the first decision is ${shape.outcome}`, done.escrowState === shape.outcome, done.escrowState);
+    r.step = 'appeal';
+    const refused = await appeal(r, deal, shape.favoured).then(() => 'accepted', (e: Error) => reason(e));
+    r.check(`${shape.appellant}: the favoured party's appeal is refused`, /invalid_terms/.test(refused), refused);
+    await appeal(r, deal, shape.appellant);
+    r.say(`${shape.appellant} filed an appeal with a ${round.amount(bond)} bond`);
+    const decided = await untilAppeal(r, deal, ['upheld', 'overturned'], 600_000);
+    await finish(r, deal);
+    r.check(`${shape.appellant}: the appeal is upheld and the first outcome stands`, decided.appealState === 'upheld' && decided.escrowState === shape.outcome, `${decided.escrowState}, appeal ${decided.appealState}`);
+    // The seller appeals a refund it was not paid for; the buyer appeals a release it paid price and fees for. An
+    // upheld appellant loses its bond, and the rulebook's appeal fee (SimChain charges it).
+    const appealFee = BigInt((await deal.buyer.club(round.demo.clubId)).rulebook.appealFee?.amount ?? '0');
+    const paidByBuyer = BigInt(PRICE) + BigInt(deal.terms.adjudication.fee.amount) + (deal.operatorFee ?? 0n);
+    const expected = -(bond + appealFee + (shape.appellant === 'seller' ? 0n : paidByBuyer));
+    r.check(`${shape.appellant}: the appellant loses its bond`, delta(deal.record, round.address(shape.appellant)) === expected, `${shape.appellant} ${round.amount(delta(deal.record, round.address(shape.appellant)))}, expected ${round.amount(expected)}`);
+    r.check(`${shape.appellant}: both operators agree`, deal.record.operators?.agree === true, deal.record.operators?.views.map((v) => `${v.escrowState} ${v.appealState}`).join(' / ') ?? '');
+  }
+}
+
+export const APPEAL: Scenario[] = [
   {
     id: '3c',
     title: 'Timeouts: appeal expiry when the appeal adjudicator is silent (API)',
@@ -165,6 +288,16 @@ export const SCRIPTED: Scenario[] = [
       simChainOnly(r, 'a party appeal and its expiry');
       await requires(r, ['T-221']);
       await appealExpiry(r);
+    },
+  },
+  {
+    id: '6',
+    title: 'Appeal upheld (API)',
+    waitsFor: ['T-217'],
+    async run(r) {
+      simChainOnly(r, 'a party appeal');
+      await requires(r, ['T-217']);
+      await appealUpheld(r);
     },
   },
   {

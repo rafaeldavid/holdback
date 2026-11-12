@@ -12,7 +12,7 @@ import { BaseSequencer, type TestSpecification } from 'vitest/node';
 // To refresh it, sum the "✓ <file> (<n> tests) <ms>" lines of the four test jobs' logs.
 const COST: Record<string, number> = {
   'examples/e2e-scenarios-silent.test.ts': 1189,
-  'examples/e2e-scenarios-scripted.test.ts': 592,
+  'examples/e2e-scenarios-appeal.test.ts': 592,
   'examples/e2e-round.test.ts': 541,
   'apps/adjudicator/src/service.test.ts': 421,
   'examples/e2e-adjudicator.test.ts': 367,

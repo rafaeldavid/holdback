@@ -1,8 +1,8 @@
-// The scripted-adjudicator group's tests (T-216): 3c and 7 through the driver, as e2e-round.test.ts runs its scenarios.
-// On SimChain, always: the round's adjudicator cannot bond there, so its deals are priced at zero and every step runs
-// with the money checks at zero. On the contracts deployed to anvil, when anvil and `forge build` output are present:
-// both file a party appeal, which the phase-one contracts do not take (ADR-0031 §8), so the driver records both as
-// waiting on ADR-0031 and sends nothing for them.
+// SimChain only: the party-appeal group's tests (T-216, T-374), 3c and 7 through the driver, as e2e-round.test.ts runs
+// its scenarios; e2e-round.test.ts runs 6. The phase-one contracts take no party appeal (ADR-0031 §8). On SimChain,
+// always: the round's adjudicator cannot bond there, so 3c's and 7's deals are priced at zero and every step runs with
+// the money checks at zero. On the contracts deployed to anvil, when anvil and `forge build` output are present, the
+// driver records both as waiting on ADR-0031 and sends nothing for them.
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -17,7 +17,7 @@ const failed = (rec: J): string[] => rec.checks.filter((c: J) => !c.ok).map((c: 
 /** A check of a scenario record by name. */
 const check = (rec: J, name: string): J => rec.checks.find((c: J) => c.name === name);
 
-describe('e2e-scenarios-scripted.ts', () => {
+describe('e2e-scenarios-appeal.ts', () => {
   it('lists 3c and 7 with what they wait for, and nothing left to build', async () => {
     const r = await driver(['list'], {});
     expect(r.code, r.out).toBe(0);
@@ -35,7 +35,7 @@ describe('e2e-scenarios-scripted.ts', () => {
 
     it('runs 3c and 7, priced at zero: the silent appeal expires and the refund stands; both wrong decisions are overturned', async () => {
       const seed = generatePrivateKey();
-      const out = mkdtempSync(join(tmpdir(), 'e2e-scripted-'));
+      const out = mkdtempSync(join(tmpdir(), 'e2e-appeal-'));
       const r = await driver(['run', '3c', '7'], { E2E_SEPOLIA_SEED: seed, HOLDBACK_OPERATORS: demo.urls.join(','), E2E_OUT: out });
       const { folder, byId } = results(out);
       expect(r.out).toMatch(/^results: 3c pass, 7 pass$/m);
@@ -71,7 +71,7 @@ describe('e2e-scenarios-scripted.ts', () => {
 
     it('holds 3c and 7 on a chain: not in phase one (ADR-0031), with no deal opened', async () => {
       const seed = generatePrivateKey();
-      const out = mkdtempSync(join(tmpdir(), 'e2e-scripted-anvil-'));
+      const out = mkdtempSync(join(tmpdir(), 'e2e-appeal-anvil-'));
       const r = await driver(['run', '3c', '7'], { E2E_SEPOLIA_SEED: seed, HOLDBACK_OPERATORS: world.urls.join(','), E2E_OUT: out, HOLDBACK_DEPLOYMENT: JSON.stringify(world.deployment), SEPOLIA_RPC_URL: world.rpcUrl });
       const { folder, byId } = results(out);
       expect(r.out).toMatch(/^results: 3c waits, 7 waits$/m);

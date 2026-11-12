@@ -2,43 +2,36 @@
 // and their registry. Each is one or more real deals through the public API, plus direct contract calls where the
 // task says so, and each checks that the deal ends where the signed terms say. A scenario whose prerequisite is not
 // live yet (T-217, T-218, T-219 or T-221, shipped together by T-220's deploy) stops before its first deal and is
-// recorded as waiting. This file holds the scenarios that run; the four groups still being built live in
-// e2e-scenarios-<group>.ts, and SCENARIOS below registers all of them, in scenario order.
+// recorded as waiting. This file holds the scenarios built first; the groups live in e2e-scenarios-<group>.ts (the
+// party appeals, SimChain only, in e2e-scenarios-appeal.ts), and SCENARIOS below registers all of them, in scenario
+// order.
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { freshNonce } from './verify.ts';
-import { buyerKeys, buyerOpens, deliver, delta, ensureFunds, eventsOf, finish, fund, logsOf, offer, openDeal, reason, short, shortWindows, trigger, until, waitPast, type Run } from './e2e-run.ts';
+import { buyerKeys, buyerOpens, deliver, delta, eventsOf, finish, fund, logsOf, offer, openDeal, reason, short, shortWindows, trigger, until, waitPast, type Run } from './e2e-run.ts';
 import {
-  APPELLANT_FLOAT,
   BAD_CSV,
   CHECKS,
-  CSV,
   DATASET,
   FRENCH,
   PRICE,
   RUBRIC,
   TRANSLATION,
-  appeal,
-  appealBond,
   checksLine,
   cppCheck,
-  expireAppeal,
   here,
   judgment,
   lastBlock,
   lc,
   paidCheck,
-  requires,
   settledChecks,
-  simChainOnly,
-  untilAppeal,
   type J,
   type Scenario,
 } from './e2e-scenario-kit.ts';
+import { APPEAL, closeOnSimChain } from './e2e-scenarios-appeal.ts';
 import { DIRECT } from './e2e-scenarios-direct.ts';
 import { ESCALATION } from './e2e-scenarios-escalation.ts';
-import { SCRIPTED } from './e2e-scenarios-scripted.ts';
 import { SILENT } from './e2e-scenarios-silent.ts';
 
 export type { Scenario } from './e2e-scenario-kit.ts';
@@ -108,7 +101,7 @@ const BUILT: Scenario[] = [
       const scripted = members.some((m) => String(m.model).startsWith('placeholder-') || String(m.verdict?.rationale ?? '').startsWith('[fake judge'));
       r.check('a live panel judged', members.length > 0 && !scripted, members.length ? (scripted ? 'the panel was scripted (no model ran): the live budget was spent or the keys are missing' : `${members.length} pinned models`) : 'no judgment record served');
       if (done.escrowState === 'Released') r.check('the buyer opens the work with its released key', await buyerOpens(r, deal, FRENCH), 'decrypted, sha256 checked against the delivery');
-      if (done.deadlines?.appealBy) await expireAppeal(r, deal, done.deadlines.appealBy);
+      await closeOnSimChain(r, deal, done);
       await finish(r, deal);
       const price = BigInt(PRICE);
       const fee = BigInt(deal.terms.adjudication.fee.amount);
@@ -141,7 +134,7 @@ const BUILT: Scenario[] = [
       const keys = await buyerKeys(deal);
       r.check('no key reaches the buyer', keys.every((n) => n === 0), `the key read serves ${keys.join(' and ')} envelope(s) to the buyer`);
       const posted = await Promise.all(deal.buyer.sources().map(async (api) => (await eventsOf(deal.buyer, deal.id, api)).find((e) => e.type === 'delivery.submitted')?.payload?.deliveryHash ?? null));
-      if (done.deadlines?.appealBy) await expireAppeal(r, deal, done.deadlines.appealBy);
+      await closeOnSimChain(r, deal, done);
       await finish(r, deal);
       const fee = BigInt(deal.terms.adjudication.fee.amount);
       r.check('the buyer gets the price back; the adjudication and operator fees are spent', delta(deal.record, buyer) === -(fee + (deal.operatorFee ?? 0n)), `buyer ${round.amount(delta(deal.record, buyer))}`);
@@ -206,59 +199,20 @@ const BUILT: Scenario[] = [
       const offerExpiresInSec = round.demo.minWindowSec;
       const deal = await offer(r, { label: 'an offer nobody agrees to', template: 'checks-only', deliverable: DATASET, checks: CHECKS, price: PRICE, timing: shortWindows(r, { offerExpiresInSec }) }, [round.address('buyer'), round.address('seller')]);
       r.step = 'expire';
-      r.say(`nobody agrees; waiting for offerExpiresAt ${deal.terms.timing.offerExpiresAt}`);
+      r.say(`nobody agrees; waiting for offerExpiresAt ${deal.terms.timing.offerExpiresAt}, then for both operators to mark the offer Expired by their own clock`);
       await waitPast(r, deal.buyer, deal.terms.timing.offerExpiresAt);
-      await trigger(r, deal, 'expire-offer');
+      // SimChain only: its operators send no timeout of their own, so the round triggers the expiry there. On a chain
+      // the operators mark an unfunded offer Expired by their clock and send nothing (ADR-0031 §7).
+      if (!round.chain) await trigger(r, deal, 'expire-offer');
       await until(r, deal.buyer, deal.id, ['Expired'], 120_000);
       await finish(r, deal);
       r.check('both operators show Expired and agree', deal.record.operators?.agree === true && deal.record.operators.views.every((v) => v.escrowState === 'Expired'), deal.record.operators?.views.map((v) => v.escrowState).join(' / ') ?? '');
       if (round.chain && deal.record.chain) {
-        r.check('dealOf reads Expired', deal.record.chain.stage === 'Expired', deal.record.chain.stage);
-        r.check('expireOffer emits JobExpired', logsOf(deal.record, 'JobExpired').length === 1, `${logsOf(deal.record, 'JobExpired').length} log(s)`);
-      }
-    },
-  },
-  {
-    id: '6',
-    title: 'Appeal upheld (API)',
-    waitsFor: ['T-217'],
-    async run(r) {
-      simChainOnly(r, 'a party appeal');
-      await requires(r, ['T-217']);
-      const { round } = r;
-      const [buyer, seller] = [round.address('buyer'), round.address('seller')];
-      const primary = round.demo.adjudicators.primary;
-      // The appeal windows are the parties' choice (D31): long enough for the appellant's filing, and for the appeal
-      // adjudicator's beacon round and its decision's block.
-      const windows = shortWindows(r, { appealWindowSec: Math.max(round.demo.minWindowSec, 180), appealDecideSec: Math.max(round.demo.minWindowSec, 120) });
-      for (const shape of [
-        { label: 'the seller appeals a correct reject', work: BAD_CSV, outcome: 'Refunded', appellant: 'seller', favoured: 'buyer' },
-        { label: 'the buyer appeals a correct accept', work: CSV, outcome: 'Released', appellant: 'buyer', favoured: 'seller' },
-      ] as const) {
-        // The appellant holds enough for the deal and its bond before the deal's starting balances are read.
-        await ensureFunds(r, shape.appellant, APPELLANT_FLOAT);
-        const deal = await openDeal(r, { label: shape.label, template: 'checks-only', deliverable: DATASET, checks: CHECKS, price: PRICE, timing: windows }, [buyer, seller, primary]);
-        await fund(r, deal);
-        const bond = await appealBond(r, deal);
-        await deliver(r, deal, shape.work);
-        r.step = 'outcome';
-        const done = await until(r, deal.buyer, deal.id, ['Released', 'Refunded', 'Escalated'], 300_000);
-        r.check(`${shape.appellant}: the first decision is ${shape.outcome}`, done.escrowState === shape.outcome, done.escrowState);
-        r.step = 'appeal';
-        const refused = await appeal(r, deal, shape.favoured).then(() => 'accepted', (e: Error) => reason(e));
-        r.check(`${shape.appellant}: the favoured party's appeal is refused`, /invalid_terms/.test(refused), refused);
-        await appeal(r, deal, shape.appellant);
-        r.say(`${shape.appellant} filed an appeal with a ${round.amount(bond)} bond`);
-        const decided = await untilAppeal(r, deal, ['upheld', 'overturned'], 600_000);
-        await finish(r, deal);
-        r.check(`${shape.appellant}: the appeal is upheld and the first outcome stands`, decided.appealState === 'upheld' && decided.escrowState === shape.outcome, `${decided.escrowState}, appeal ${decided.appealState}`);
-        // The seller appeals a refund it was not paid for; the buyer appeals a release it paid price and fees for. An
-        // upheld appellant loses its bond, and the rulebook's appeal fee (SimChain only, simChainOnly above).
-        const appealFee = BigInt((await deal.buyer.club(round.demo.clubId)).rulebook.appealFee?.amount ?? '0');
-        const paidByBuyer = BigInt(PRICE) + BigInt(deal.terms.adjudication.fee.amount) + (deal.operatorFee ?? 0n);
-        const expected = -(bond + appealFee + (shape.appellant === 'seller' ? 0n : paidByBuyer));
-        r.check(`${shape.appellant}: the appellant loses its bond`, delta(deal.record, round.address(shape.appellant)) === expected, `${shape.appellant} ${round.amount(delta(deal.record, round.address(shape.appellant)))}, expected ${round.amount(expected)}`);
-        r.check(`${shape.appellant}: both operators agree`, deal.record.operators?.agree === true, deal.record.operators?.views.map((v) => `${v.escrowState} ${v.appealState}`).join(' / ') ?? '');
+        // The phase-one contracts store nothing for an unfunded offer, so its expiry is the operators' record only.
+        r.check('dealOf reads None: the chain holds nothing for an unfunded offer', deal.record.chain.stage === 'None', deal.record.chain.stage);
+        const expired = await Promise.all(deal.buyer.sources().map(async (api) => (await eventsOf(deal.buyer, deal.id, api)).filter((e) => e.type === 'offer.expired')));
+        const txs = deal.record.transactions.length;
+        r.check('no transaction is sent for the expiry', txs === 0 && expired.every((es) => es.length === 1 && es[0].payload?.tx === undefined), `${txs} transaction(s) touch the deal on chain; offer.expired per operator: ${expired.map((es) => (es.length ? es.map((e) => (e.payload?.tx ? `tx ${short(e.payload.tx)}` : 'no tx')).join(', ') : 'none')).join(' / ')}`);
       }
     },
   },
@@ -307,7 +261,7 @@ function registry(...lists: Scenario[][]): Scenario[] {
   return all.sort(order);
 }
 
-export const SCENARIOS: Scenario[] = registry(BUILT, SILENT, SCRIPTED, ESCALATION, DIRECT);
+export const SCENARIOS: Scenario[] = registry(BUILT, SILENT, APPEAL, ESCALATION, DIRECT);
 
 /** A scenario by its ID ("1", "3a"), or every one for "all". */
 export function pick(ids: readonly string[]): Scenario[] {

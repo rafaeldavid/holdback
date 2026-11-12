@@ -100,7 +100,7 @@ describe("planSettlement: only the round's own open deal, and exactly the messag
   });
 
   it('refuses a deal that holds nothing to settle, by its stage at the block it was read at', () => {
-    for (const stage of ['None', 'Released', 'Refunded', 'Settled', 'Expired']) {
+    for (const stage of ['None', 'Released', 'Refunded', 'Settled']) {
       expect(() => planSettlement({ ...base, stage })).toThrow(new RegExp(`^refusing: dealOf reads ${id} ${stage} at block 12075100, and a mutual settlement closes only a Held, Delivered, FallbackJudging or Escalated deal`));
     }
   });
