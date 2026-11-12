@@ -34,6 +34,7 @@ import {
   type BeaconFact,
   type Club,
   type CommitmentStateView,
+  type Delivery,
   type EncryptedKey,
   type EscrowEvent,
   type EscrowState,
@@ -779,7 +780,7 @@ export class SimChain implements Settlement {
         return p.commitmentId;
       }
       case 'mutual_settle':
-        return this.mutualSettle(tx, s.message);
+        return this.mutualSettle(tx, s.message, s.delivery);
       case 'trigger':
         return this.trigger_(tx, s.commitmentId, s.timeout);
     }
@@ -911,12 +912,14 @@ export class SimChain implements Settlement {
     return refuse('invalid_state', `a decision led to ${next.kind}`);
   }
 
-  private mutualSettle(tx: Tx, m: Extract<Submission, { kind: 'mutual_settle' }>['message']): Hex32 {
+  private mutualSettle(tx: Tx, m: Extract<Submission, { kind: 'mutual_settle' }>['message'], carried: Delivery | undefined): Hex32 {
     const id = m.commitmentId;
     const rec = this.recOf(tx, id);
     tx.useNonce(`mutual:${id}:${m.nonce}`);
     const prev = rec.state;
-    const next = this.stepped(prev, { type: 'mutual_settle', at: tx.at, message: m, rule: rec.club.rulebook.mutualSettlement });
+    // SC-5b (T-357): in Held the settlement carries the unposted delivery it names; core checks it as the contract does.
+    const late = prev.kind === 'Held' && m.releaseKey ? carried : undefined;
+    const next = this.stepped(prev, { type: 'mutual_settle', at: tx.at, message: m, rule: rec.club.rulebook.mutualSettlement, ...(late ? { delivery: late } : {}) });
     if (next.kind !== 'Settled') return refuse('invalid_state', `settlement led to ${next.kind}`);
     this.setState(tx, id, next);
     const { price, adjudication, buyer } = next.terms;
@@ -940,7 +943,11 @@ export class SimChain implements Settlement {
     }
     this.releaseAll(tx, id);
     tx.emit('commitment.settled', id, 'anyone', { payouts: next.payouts, keyReleased: next.keyReleased });
-    if (next.keyReleased) this.releaseHeld(tx, id, buyer, 'anyone', 'mutual settlement');
+    if (next.keyReleased && late) {
+      // The buyer's first envelope in the delivery both parties named, as the contract's key proof releases it (:381).
+      const env = late.encryptedKeys.find((k) => lc(k.recipient) === lc(buyer))!;
+      this.releaseKey(tx, id, signedEnvelope(env), 'anyone', 'mutual settlement');
+    } else if (next.keyReleased) this.releaseHeld(tx, id, buyer, 'anyone', 'mutual settlement');
     return id;
   }
 

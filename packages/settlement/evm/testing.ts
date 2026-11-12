@@ -265,7 +265,8 @@ export class EvmDeal {
     return { kind: 'decide', message: message as unknown as Decision };
   }
 
-  async mutual(toSeller: bigint, releaseKey: boolean): Promise<Submission> {
+  /** `carry`: the unposted delivery a settlement in Held names and releases (late work, ADR-0031 SC-5b, T-357). */
+  async mutual(toSeller: bigint, releaseKey: boolean, carry?: Delivery): Promise<Submission> {
     const price = BigInt(this.terms.price.amount);
     const payouts = [
       { to: this.terms.seller, amount: { token: this.chain.token, amount: toSeller.toString() } as TokenAmount },
@@ -274,7 +275,7 @@ export class EvmDeal {
     const body = { type: 'MutualSettlement' as const, commitmentId: this.id, deliveryHash: this.delivery ? deliveryHash(this.delivery) : null, payouts, releaseKey, nonce: this.nonce(), expiresAt: plusSeconds(this.chain.now(), 86400) };
     const buyerSignature = await signMessage(this.cast.buyer.key, this.chain.domain, body);
     const sellerSignature = await signMessage(this.cast.seller.key, this.chain.domain, body);
-    return { kind: 'mutual_settle', message: { ...body, buyerSignature, sellerSignature } };
+    return { kind: 'mutual_settle', message: { ...body, buyerSignature, sellerSignature }, ...(carry ? { delivery: carry } : {}) };
   }
 
   trigger(timeout: TimeoutKind): Submission {

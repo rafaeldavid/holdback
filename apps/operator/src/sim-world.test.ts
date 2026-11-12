@@ -1,7 +1,7 @@
 // End to end over HTTP: prepare -> sign (viem, the agent's own key) -> submit, against a sim world (SimChain,
 // two operators, three test adjudicators with fake judges). The operator signs no party message.
 import { readFileSync } from 'node:fs';
-import { holdbackDomain, termsDigest, type CommitmentTerms, type DeterministicCheck, type Hex32 } from '@holdback/core';
+import { deliveryHash, holdbackDomain, termsDigest, type CommitmentTerms, type Delivery, type DeterministicCheck, type Hex32, type MutualSettlement } from '@holdback/core';
 import { seal, wrapKeyForRecipients } from '@holdback/core/crypto';
 import { hashTypedData } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -218,6 +218,46 @@ describe('operator API: prepare, sign, submit', () => {
     expect((await timed({ offerExpiresInSec: 0 })).body.detail).toMatch(/createdAt must be before/);
     const y = await call('POST', '/v1/prepare/offer', { ...offerInput('buyer-1', 'seller-1'), createdAt: '+020270-01-01T00:00:00Z' });
     expect([y.status, y.body.detail]).toEqual([400, expect.stringMatching(/RFC 3339/)]);
+  });
+
+  // T-357, ADR-0031 SC-5b: late work settled by agreement. The seller signs a delivery it never posts and hands it to
+  // the buyer; prepare rebuilds the hash from that delivery, and the settlement layer releases its buyer envelope.
+  /** A delivery the seller signs and hands the buyer, never posted. */
+  async function unposted(id: Hex32, seller: string): Promise<Delivery> {
+    const sealed = await seal(new TextEncoder().encode(CSV));
+    const stored = (await call('POST', '/v1/ciphertext', sealed.ciphertext)).body;
+    const { recipients } = (await call('GET', `/v1/commitments/${id}/recipients`)).body;
+    const encryptedKeys = wrapKeyForRecipients(sealed.key, recipients.map((r: { address: string; encryptionPublicKey: string }) => ({ recipient: r.address, publicKey: r.encryptionPublicKey })));
+    const pd = (await call<Prepared>('POST', '/v1/prepare/delivery', { commitmentId: id, ciphertext: { uri: stored.uri, sha256: stored.id, bytes: stored.bytes }, plaintextSha256: sealed.plaintextSha256, encryptedKeys })).body;
+    return (await sign(pd, seller)).submit.body as unknown as Delivery;
+  }
+
+  it('prepares a settlement for an unposted delivery from the agent\'s own copy, and the settlement layer releases its key', async () => {
+    const id = await heldDeal('buyer-1', 'seller-1', '6000000');
+    const late = await unposted(id, 'seller-1');
+    const p = (await call<Prepared>('POST', '/v1/prepare/settlement', { commitmentId: id, nonce: nonce(), toSellerBps: 7000, delivery: late })).body;
+    // What the agent signs is rebuilt from its own intent: the hash of the delivery it holds, computed by itself.
+    expect(p.sign[0]!.typedData.message['deliveryHash']).toBe(deliveryHash(late));
+    expect(p.defaults).toMatchObject({ releaseKey: true });
+    expect(p.check.join(' ')).toMatch(/never posted.*nothing checks the seller's signature on it/);
+    expect(p.check.join(' ')).toMatch(/POST \/settlements does not carry a delivery yet/);
+    await sign(await sign(p, 'buyer-1'), 'seller-1');
+    const message = p.submit.body as unknown as MutualSettlement;
+    const r = await world.chain.submit({ kind: 'mutual_settle', message, delivery: late });
+    expect(r.ok ? r.state.escrowState : r.problem.detail).toBe('Settled');
+    const keys = (await call('GET', `/v1/commitments/${id}/key?recipient=${acct('buyer-1').address}`)).body.items;
+    const mine = late.encryptedKeys.find((k) => k.recipient.toLowerCase() === acct('buyer-1').address.toLowerCase())!;
+    expect(keys.map((k: { ciphertext: string }) => k.ciphertext)).toEqual([mine.ciphertext]);
+  });
+
+  it('refuses to prepare a settlement for a delivery of another deal or with no buyer envelope', async () => {
+    const id = await heldDeal('buyer-2', 'seller-2', '3000000');
+    const mine = await unposted(id, 'seller-2');
+    const other = { ...mine, commitmentId: `0x${'11'.repeat(32)}` };
+    expect((await call('POST', '/v1/prepare/settlement', { commitmentId: id, nonce: nonce(), toSellerBps: 5000, delivery: other })).body).toMatchObject({ type: 'invalid_terms', field: 'delivery.commitmentId' });
+    const noEnvelope = { ...mine, encryptedKeys: mine.encryptedKeys.filter((k) => k.recipient.toLowerCase() !== acct('buyer-2').address.toLowerCase()) };
+    expect((await call('POST', '/v1/prepare/settlement', { commitmentId: id, nonce: nonce(), toSellerBps: 5000, delivery: noEnvelope })).body).toMatchObject({ type: 'invalid_terms', field: 'delivery.encryptedKeys' });
+    expect((await call('POST', '/v1/prepare/settlement', { commitmentId: id, nonce: nonce(), toSellerBps: 5000, releaseKey: true })).body).toMatchObject({ type: 'invalid_terms', field: 'releaseKey' });
   });
 
   it('derives no nonce: a settlement takes the caller\'s, and the same inputs give the same typed data', async () => {

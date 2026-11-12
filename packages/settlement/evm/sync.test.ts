@@ -562,6 +562,31 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect(s.log().filter((e) => e.commitmentId === d.id).at(-1)).toMatchObject({ type: 'commitment.settled', submittedVia: 'direct', payload: { keyReleased: false } });
   }, 60_000);
 
+  // T-357, ADR-0031 SC-5b: late work settled directly on chain, releasing the key of a delivery this node never saw.
+  it('a late settlement sent directly that released a key waits for the delivery; the seller posts it, and the node joins it with no second transaction', async () => {
+    const { s, sync } = await node();
+    const d = await funded('direct-late-mutual', s);
+    await d.deliver(); // signed, never posted: the seller hands it to the buyer
+    const late = d.delivery!;
+    const m = ((await d.mutual(1_500_000_000n, true)) as { message: Parameters<typeof mutualView>[0] }).message;
+    const mined = await direct(cast.buyer, 'mutualSettle', [termsView(d.terms), mutualView(m), deliveryView(late), keyProof(late, d.terms.buyer)!]);
+    expect(await sync.pass()).toMatchObject({ applied: 0, behind: 1 });
+    expect((await s.state(d.id))!.escrowState).toBe('Settled');
+    expect(s.escrowState(d.id)!.kind).toBe('Held');
+    expect(s.lag(d.id)).toMatch(new RegExp(`${mined.hash}.*never posted`));
+    const sent = s.transactions().length;
+    const joined = await ok(s, { kind: 'deliver', delivery: late });
+    expect(joined.state.escrowState).toBe('Settled');
+    expect(s.transactions().slice(sent).map((t) => [t.hash, t.via])).toEqual([[mined.hash, 'direct']]);
+    expect(s.lag(d.id)).toBeNull();
+    const mine = late.encryptedKeys.find((k) => k.recipient.toLowerCase() === d.terms.buyer.toLowerCase())!;
+    // The key served while behind and the one recorded at the join are the same envelope: every join records it again,
+    // as the carried-decision join does (red-team round 3, H2), so the list holds it twice.
+    expect([...new Set((await s.keysFor(d.id, d.terms.buyer)).map((k) => k.ciphertext))]).toEqual([mine.ciphertext]);
+    expect(schemaErrors(s.log())).toEqual([]);
+    chained(s);
+  }, 60_000);
+
   it('a call inside a Multicall3 bundle is read through the bundle', async () => {
     const { s, sync } = await node();
     const d = await funded('multicall', s, { deliver: true });

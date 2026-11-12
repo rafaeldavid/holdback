@@ -1036,9 +1036,12 @@ export class EvmSettlement implements Settlement {
         const book = this.bookOf(m.commitmentId);
         const t = book.state.terms;
         if (!(await verifyMutualSettlement(this.domain, m, t.buyer, t.seller))) refuse('invalid_signature', 'the settlement is not signed by both the buyer and the seller');
-        const d = book.delivery;
+        // SC-5b (T-357): in Held the settlement carries the unposted delivery it names, as the contract's `dv` and key
+        // proof; core checks it first, as the contract does (:380-381). The contract stores no delivery for it.
+        const late = book.state.kind === 'Held' && m.releaseKey ? s.delivery : undefined;
+        const d = book.state.kind === 'Held' ? late : book.delivery;
         const proof = m.releaseKey && d ? (keyProof(d, t.buyer) ?? NO_KEY) : NO_KEY;
-        await this.call(m.commitmentId, 'mutualSettle', [termsView(t), mutualView(m), m.releaseKey && d ? deliveryView(d) : NO_DELIVERY, proof], (at) => [{ type: 'mutual_settle', at, message: m, rule: { allowed: true, payoutsTo: 'any' } }], options, dryRun, 'anyone');
+        await this.call(m.commitmentId, 'mutualSettle', [termsView(t), mutualView(m), m.releaseKey && d ? deliveryView(d) : NO_DELIVERY, proof], (at) => [{ type: 'mutual_settle', at, message: m, rule: { allowed: true, payoutsTo: 'any' }, ...(late ? { delivery: late } : {}) }], options, dryRun, 'anyone');
         return m.commitmentId;
       }
       case 'trigger':
@@ -1936,6 +1939,11 @@ export class EvmSettlement implements Settlement {
       const done = has('JobCompleted');
       return done && !has('Decided') && lc(String(done.args['evaluator'])) === lc(terms.buyer) ? null : 'no early acceptance by the buyer';
     }
+    // SC-5b (T-357): a settlement in Held that released the key of a delivery nobody posted.
+    if (c.fn === 'mutualSettle') {
+      const s = has('MutuallySettled');
+      return s && s.args['keyReleased'] === true && v['releaseKey'] === true && v['hasDelivery'] === true ? null : 'no settlement that released a key';
+    }
     return `${c.fn} carries no delivery`;
   }
 
@@ -1950,6 +1958,21 @@ export class EvmSettlement implements Settlement {
       const buyer = book.state.terms.buyer;
       const m: EarlyAccept = { type: 'EarlyAccept', commitmentId: id, buyer, attempt: Number(v['attempt']), deliveryHash: v['deliveryHash'] as Hex32, nonce: v['nonce'] as Hex32, expiresAt: chainTime(v['expiresAt']), signature: v['signature'] as Hex };
       return verifyMessage(this.domain, m, buyer);
+    }
+    if (c.fn === 'mutualSettle') {
+      const { buyer, seller } = book.state.terms;
+      const m: MutualSettlement = {
+        type: 'MutualSettlement',
+        commitmentId: id,
+        deliveryHash: v['hasDelivery'] ? (v['deliveryHash'] as Hex32) : null,
+        payouts: (v['payouts'] as Array<{ to: Address; amount: bigint }>).map((p) => ({ to: getAddress(p.to), amount: this.amount(BigInt(p.amount)) })),
+        releaseKey: Boolean(v['releaseKey']),
+        nonce: v['nonce'] as Hex32,
+        expiresAt: chainTime(v['expiresAt']),
+        buyerSignature: v['buyerSignature'] as Hex,
+        sellerSignature: v['sellerSignature'] as Hex,
+      };
+      return verifyMutualSettlement(this.domain, m, buyer, seller);
     }
     return false;
   }
@@ -2202,7 +2225,18 @@ export class EvmSettlement implements Settlement {
           buyerSignature: v['buyerSignature'] as Hex,
           sellerSignature: v['sellerSignature'] as Hex,
         };
-        return { fn: call.fn, steps: (at) => [{ type: 'mutual_settle', at, message: m, rule: { allowed: true, payoutsTo: 'any' } }], actor: 'anyone', ctx: {}, signed: () => verifyMutualSettlement(this.domain, m, terms.buyer, terms.seller), settlement: m };
+        // SC-5b (T-357): a settlement in Held that released a key carried an unposted delivery. The calldata holds it only
+        // as hashes, so core steps it from a copy this node holds (its own relay, a carried or kept copy) that hashes to
+        // the signed deliveryHash; without one the node waits, as for a carried decision it never saw (residual 13).
+        let late: Delivery | undefined;
+        if (s.kind === 'Held' && m.releaseKey && m.deliveryHash) {
+          const want = lc(m.deliveryHash);
+          const copies = [known, sub?.kind === 'mutual_settle' ? sub.delivery : undefined, book.carried, book.delivery, postedOf(book)];
+          late = copies.find((d): d is Delivery => !!d && lc(deliveryHash(d)) === want);
+          if (!late) return { wait: `a settlement in transaction ${tx.hash} released the key of delivery ${m.deliveryHash}, which was never posted and did not pass through this node, so this node holds no copy of it.` };
+        }
+        const carriedBy = late;
+        return { fn: call.fn, steps: (at) => [{ type: 'mutual_settle', at, message: m, rule: { allowed: true, payoutsTo: 'any' }, ...(carriedBy ? { delivery: carriedBy } : {}) }], actor: 'anyone', ctx: {}, signed: () => verifyMutualSettlement(this.domain, m, terms.buyer, terms.seller), settlement: m };
       }
       case 'expireOffer':
         return { fn: call.fn, steps: (at) => [{ type: 'expire', at }], actor: 'anyone', ctx: {}, signed: yes };
@@ -2423,7 +2457,9 @@ export class EvmSettlement implements Settlement {
     const waiting = behind.waiting!;
     await this.check({ ...d, type: 'Delivery' }, book.state.terms.seller, 'Delivery');
     const landed = this.decode(waiting[0]!.logs.filter((l) => l.topics[1] === id && lc(l.address) === lc(this.world.deployment.rules)) as unknown as Log[]).find((l) => l.eventName === 'JobSubmitted')?.args['deliverable'];
-    if (landed !== deliveryHash(d)) refuse('invalid_state', `the delivery that landed on chain for this deal is ${String(landed)}, not this one (${deliveryHash(d)})`);
+    // A settlement in Held that released a key (SC-5b, T-357) lands no delivery: its rebuild checks the copy against the
+    // signed deliveryHash instead, and waits again for another copy when it does not match.
+    if (landed !== undefined && landed !== deliveryHash(d)) refuse('invalid_state', `the delivery that landed on chain for this deal is ${String(landed)}, not this one (${deliveryHash(d)})`);
     if (dryRun) return id;
     delete book.behind;
     this.dirty.add(id);

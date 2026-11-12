@@ -505,6 +505,52 @@ describe('mutual settlement (ADR-0019)', () => {
   });
 });
 
+// T-357, ADR-0031 SC-5b: late work settled by agreement, the key released from the unposted delivery both signed.
+describe('late-work settlement in Held (SC-5b)', () => {
+  async function lateDeal(): Promise<{ w: World; late: Extract<Submission, { kind: 'deliver' }>['delivery'] }> {
+    const w = await world();
+    await w.ok(w.deal.offer());
+    await w.ok(w.deal.accept());
+    await w.ok(w.deal.agreeAndFund());
+    const deliverBy = secondsAt(w.deal.terms.timing.deliverBy);
+    w.chain.advance(deliverBy - secondsAt(w.chain.now()) + 60); // a minute after deliverBy
+    const sub = (await w.deal.deliver()) as Extract<Submission, { kind: 'deliver' }>;
+    expect(await w.refused(sub)).toBe('deadline_passed'); // the late delivery cannot land
+    return { w, late: sub.delivery };
+  }
+
+  it('pays the split and releases the buyer key from the delivery the settlement names, in one step', async () => {
+    const { w, late } = await lateDeal();
+    const r = await w.ok(w.deal.mutual({ releaseKey: true, carry: late }));
+    expect(types(r)).toEqual(['commitment.settled', 'key.released']);
+    expect(r.state).toMatchObject({ escrowState: 'Settled', settled: { keyReleased: true } });
+    expect(await w.bal(w.cast.seller)).toBe(1_000_000_000n + 1_400_000_000n);
+    const keys = await w.chain.keysFor(w.deal.id, w.cast.buyer.address);
+    const buyerEnvelope = late.encryptedKeys.find((k) => k.recipient.toLowerCase() === w.cast.buyer.address.toLowerCase())!;
+    expect(keys.map((k) => k.ciphertext)).toEqual([buyerEnvelope.ciphertext]);
+  });
+
+  it('refuses a settlement whose carried delivery is not the one both signed, and moves nothing', async () => {
+    const { w, late } = await lateDeal();
+    const other = { ...late, plaintextSha256: `sha256:${'f'.repeat(64)}` as typeof late.plaintextSha256 };
+    const r = await w.chain.submit(await w.deal.mutual({ releaseKey: true, carry: other }));
+    expect(r.ok ? 'ok' : [r.problem.type, r.problem.detail]).toEqual(['invalid_terms', expect.stringMatching(/does not hash to the signed deliveryHash/)]);
+    expect(w.chain.escrowState(w.deal.id)?.kind).toBe('Held');
+    expect(await w.chain.keysFor(w.deal.id, w.cast.buyer.address)).toEqual([]);
+  });
+
+  it('refuses releasing a key with no delivery carried', async () => {
+    const { w } = await lateDeal();
+    const r = await w.chain.submit(await w.deal.mutual({ releaseKey: true }));
+    expect(r.ok ? 'ok' : r.problem.detail).toMatch(/carries no delivery/);
+  });
+
+  it('refuses one party signing for both, carried delivery or not', async () => {
+    const { w, late } = await lateDeal();
+    expect(await w.refused(w.deal.mutual({ releaseKey: true, carry: late, signers: [w.cast.seller, w.cast.seller] }))).toBe('invalid_signature');
+  });
+});
+
 describe('coverage gate (ADR-0014 §2a, ADR-0007)', () => {
   it('pays an overturn only from the overturned commitment reservation, never from units another commitment reserved', async () => {
     const w = await world({ bonds: { primary: BOND, fallback: 2_500_000_000n, appeal: BOND } });
