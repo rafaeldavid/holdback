@@ -282,6 +282,7 @@ describe('HTTP contract: every operator response matches spec/openapi.json', () 
     const b = await held({ timing: { appealWindowSec: 300 } });
     await b.seller.deliver(b.terms, new TextEncoder().encode('customer_id,email\n'));
     expect((await b.buyer.waitFor(b.id, ['Released', 'Refunded'])).escrowState).toBe('Refunded');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     const appealed = await signed(await b.seller.call('POST', '/v1/prepare/appeal', { commitmentId: b.id, appellant: b.seller.address }), [b.seller]);
     expect((await b.seller.call('POST', appealed.path, appealed.body)).appealState).not.toBe('none');
 

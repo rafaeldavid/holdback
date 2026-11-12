@@ -223,6 +223,7 @@ export class SettlementAdapter implements AdjudicatorSettlement {
       .map(({ c }) => c.id);
   }
 
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   async expireAppeal(commitmentId: Hex32): Promise<Result<unknown, Problem>> {
     return fromSubmit(await this.#o.chain.trigger(commitmentId, 'appeal_expiry'));
   }

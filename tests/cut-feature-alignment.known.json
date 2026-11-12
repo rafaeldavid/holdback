@@ -2,24 +2,6 @@
   "files": {
     "README.md": "docs/ and the root docs [R6 part 2 (A); open for the rest]",
     "SECURITY.md": "docs/ and the root docs [R6 part 2 (A); open for the rest]",
-    "apps/adjudicator/scripts/mutants.mjs": "apps/adjudicator [R6 part 2, R8]",
-    "apps/adjudicator/src/_sim.ts": "apps/adjudicator [R6 part 2, R8]",
-    "apps/adjudicator/src/service.test.ts": "apps/adjudicator [R6 part 2, R8]",
-    "apps/adjudicator/src/service.ts": "apps/adjudicator [R6 part 2, R8]",
-    "apps/adjudicator/src/settlement-port.ts": "apps/adjudicator [R6 part 2, R8]",
-    "apps/adjudicator/src/simchain-adapter.test.ts": "apps/adjudicator [R6 part 2, R8]",
-    "apps/adjudicator/src/simchain-adapter.ts": "apps/adjudicator [R6 part 2, R8]",
-    "apps/demo-cloud/src/registration.anvil.test.ts": "apps/demo-cloud [R6 part 2, R6c-2; the cutover at R12]",
-    "apps/demo-cloud/src/telemetry.ts": "apps/demo-cloud [R6 part 2, R6c-2; the cutover at R12]",
-    "apps/demo-cloud/src/timeouts.anvil.test.ts": "apps/demo-cloud [R6 part 2, R6c-2; the cutover at R12]",
-    "apps/demo-cloud/src/world.test.ts": "apps/demo-cloud [R6 part 2, R6c-2; the cutover at R12]",
-    "apps/demo-cloud/src/world.ts": "apps/demo-cloud [R6 part 2, R6c-2; the cutover at R12]",
-    "apps/operator/src/_world.ts": "apps/operator [R6 part 2, R5, R6c-2]",
-    "apps/operator/src/prepare.ts": "apps/operator [R6 part 2, R5, R6c-2]",
-    "apps/operator/src/problems.ts": "apps/operator [R6 part 2, R5, R6c-2]",
-    "apps/operator/src/registry.ts": "apps/operator [R6 part 2, R5, R6c-2]",
-    "apps/operator/src/server.ts": "apps/operator [R6 part 2, R5, R6c-2]",
-    "apps/operator/src/sim-world.test.ts": "apps/operator [R6 part 2, R5, R6c-2]",
     "docs/api.md": "docs/ and the root docs [R6 part 2 (A); open for the rest]",
     "docs/architecture.md": "docs/ and the root docs [R6 part 2 (A); open for the rest]",
     "docs/audit/events.md": "docs/audit [R12]",
@@ -56,9 +38,6 @@
     "packages/core/src/state.ts": "packages/core [R6 part 1, R5, R6c-1, R8]",
     "packages/core/src/types.ts": "packages/core [R6 part 1, R5, R6c-1, R8]",
     "packages/core/src/validators.generated.ts": "packages/core [R6 part 1, R5, R6c-1, R8]",
-    "packages/sdk/src/client.ts": "packages/sdk, packages/testkit [open]",
-    "packages/sdk/src/operations.test.ts": "packages/sdk, packages/testkit [open]",
-    "packages/sdk/src/operations.ts": "packages/sdk, packages/testkit [open]",
     "packages/settlement/evm/abis.json": "packages/settlement/evm [R6 part 2, R5, R6c-1, R8]",
     "packages/settlement/evm/encode.ts": "packages/settlement/evm [R6 part 2, R5, R6c-1, R8]",
     "packages/settlement/evm/evm-settlement.test.ts": "packages/settlement/evm [R6 part 2, R5, R6c-1, R8]",
@@ -85,7 +64,6 @@
     "spec/openapi/paths.json": "spec/ [R6 part 2 (A); R6c-1 (G)]",
     "spec/schemas/appeal.schema.json": "spec/ [R6 part 2 (A); R6c-1 (G)]",
     "spec/schemas/club.schema.json": "spec/ [R6 part 2 (A); R6c-1 (G)]",
-    "spec/schemas/event.schema.json": "spec/ [R6 part 2 (A); R6c-1 (G)]",
-    "tests/contract/openapi.contract.test.ts": "tools/, scripts/, tests/ [open]"
+    "spec/schemas/event.schema.json": "spec/ [R6 part 2 (A); R6c-1 (G)]"
   }
 }

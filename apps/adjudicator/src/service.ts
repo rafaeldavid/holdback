@@ -236,6 +236,7 @@ export class Adjudicator {
       registration: (a) => this.#read('the registration read', () => p.registration(a), `registration|${a.toLowerCase()}`),
       ...(p.policy ? { policy: (h: Hex32) => this.#read('the policy read', () => p.policy!(h), `policy|${h}`) } : {}),
       triggerFallback: (id) => p.triggerFallback(id),
+      // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
       expireAppeal: (id) => p.expireAppeal(id),
       publishRecord: (r) => p.publishRecord(r),
       submit: (m) => p.submit(m),
@@ -360,6 +361,7 @@ export class Adjudicator {
     // expires them itself once due, first, so the bond they free counts for what follows. Phase one has neither.
     for (const id of port.phaseOne ? [] : await this.#list('appeal expiries', report, () => port.appealExpiriesDue(this.address))) {
       try {
+        // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
         if ((await port.expireAppeal(id)).ok) report.expired.push(id);
       } catch (e) {
         // T-372: the error's class only; the demo publishes refusals, and a relay's message can carry a keyed URL.
@@ -537,6 +539,7 @@ export class Adjudicator {
     if (this.#port.phaseOne) return null;
     const cover = await this.#port.bondCover(this.address, c);
     if (cover >= BigInt(c.price.amount)) return null;
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     return problem('coverage_exceeded', `${this.#cfg.name} has ${cover} free bond for this deal and the price is ${c.price.amount} ${c.price.token}: a fallback's decision is backed by its bond, so it declines rather than sign one it cannot cover`);
   }
 

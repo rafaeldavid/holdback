@@ -15,6 +15,7 @@ import {
   openPart,
   operatorFeeDue,
   parseAnyCommitment,
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   parseAppeal,
   parseDelivery,
   parseDisclosure,
@@ -301,6 +302,7 @@ function checkShape(op: Operation): void {
       message(op.message, 'Decision');
       return;
     case 'appeal':
+      // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
       parsed(parseAppeal(op.appeal));
       return;
     case 'settle':
@@ -348,6 +350,7 @@ export const TRIGGER_NEEDS: Record<string, string[]> = {
   fallback: ['Delivered'],
   default: ['FallbackJudging', 'Escalated'],
   apply_default: ['Defaulted'],
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   appeal_expiry: ['Released', 'Refunded'],
   settle: ['Disputed'],
 };
@@ -378,6 +381,7 @@ function signerOf(op: Operation): string | undefined {
     case 'fund':
       return op.message.from;
     case 'appeal':
+      // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
       return op.appeal.appellantAddress;
     default:
       return undefined;
@@ -427,6 +431,7 @@ function deepFreeze<T>(v: T): T {
 }
 const isAddress = (s: string | undefined): s is Address => s !== undefined && /^0x[0-9a-fA-F]{40}$/.test(s);
 /** The events that count as an adjudicator's use (ADR-0030 `observed.lastUsedAt`): an acceptance or a decision. */
+// SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
 const USES = new Set<string>(['adjudicator.accepted', 'judgment.decided', 'appeal.decided']);
 /** A cursor below every listing seq, so the adjudicator list pages oldest first through the newest-first paginate. */
 const LIST_TOP = 999_999_999_999_999;
@@ -900,6 +905,7 @@ export class Operator {
    * A bond to list beside a registration: the live read, else this world's own list. A listing read may be refused
    * past the node's read budget (T-221 review), so an unauthenticated page cannot fan out into unbounded chain reads.
    */
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   private async bondOf(a: Address): Promise<Bond | undefined> {
     const live = await this.liveBond(a, { listing: true });
     return (live === 'unreadable' ? undefined : live) ?? this.o.registry.adjudicators().find((x) => lc(x.address) === lc(a))?.bond;
@@ -912,6 +918,7 @@ export class Operator {
   private async listingOf(stored: StoredRegistration): Promise<Record<string, unknown>> {
     const r = stored.record;
     const zero = { token: r.fee.min.token, amount: '0' } as TokenAmount;
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     const read = await this.bondOf(r.address);
     const bond = read ?? { junior: zero, senior: zero, reserved: zero };
     const defaults: Partial<Record<string, Address>> = this.o.registry.defaultAdjudicators ?? {};
@@ -967,6 +974,7 @@ export class Operator {
     const s = await this.o.settlement.state(commitmentIdOf(op)).catch(() => null);
     if (!s) return p;
     // ADR-0031 §8: a phase-one appeal is refused in every state, so no state to wait for is named (T-349 review).
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     if (this.phaseOne && (op.kind === 'appeal' || (op.kind === 'trigger' && op.timeout === 'appeal_expiry'))) return { ...p, state: s.escrowState };
     const needs = needsOf(op);
     return { ...p, state: s.escrowState, ...(needs && !needs.includes(s.escrowState) ? { needs } : {}) };

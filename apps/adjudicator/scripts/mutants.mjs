@@ -79,6 +79,7 @@ const MUTANTS = [
   ['consent', 'a retry of a judged escalation needs cover (T-211, review round 3)', A('service.ts'), "cover: role === 'fallback' && cached !== 'escalate'", "cover: role === 'fallback'"],
   ['consent', 'cover not read again after the panel (T-211, red team F7)', A('service.ts'), "    if (task.role === 'fallback' && judged.outcome !== 'escalate') {\n      const short", "    if (false) {\n      const short"],
   ['consent', 'an escalation needs cover after the panel (T-211, review nit 3)', A('service.ts'), "if (task.role === 'fallback' && judged.outcome !== 'escalate') {", "if (task.role === 'fallback') {"],
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   ['consent', 'its own appeals never expired (T-211, red team F3)', A('service.ts'), '      if ((await port.expireAppeal(id)).ok) report.expired.push(id);', '      void id;'],
   ['consent', 'a throwing expiry aborts the pass (T-211, review nit 4)', A('service.ts'), "      } catch (e) {\n        // T-372: the error's class only; the demo publishes refusals", "      } catch (e) {\n        throw e; // T-372: the error's class only; the demo publishes refusals"],
   ['consent', "a task's terms not checked against the commitment ID (T-211, red team H5, J2)", A('service.ts'), '    const mismatch = this.#termsMismatch(commitment);\n    if (mismatch) return err(mismatch);', '    const mismatch = null;\n    if (mismatch) return err(mismatch);'],

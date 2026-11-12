@@ -610,6 +610,7 @@ describe('the daily budget for the timeouts the operators send (T-231)', () => {
     expect(await storage.get('ot:2026-11-06')).toEqual({ sent: 3, offers: 1 });
     // A restart reads the day's row: what was spent stays spent.
     const restarted = new TimeoutBudgetRows(storage, () => t, { perDay: 3, offersPerDay: 1 });
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     expect(await restarted.take('appeal_expiry')).toEqual({ opensAt: midnight, offersOnly: false });
     // A new UTC day starts from zero.
     t = midnight + 1;
