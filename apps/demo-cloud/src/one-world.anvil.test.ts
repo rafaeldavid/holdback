@@ -5,7 +5,8 @@
 //
 // The world's first open names the sim beacon (`beacon: 'sim'`), as the deployed build does; the second names drand
 // quicknet, as this build does on Sepolia. anvil's contracts verify the sim beacon, so no fallback or appeal decides
-// here (the Sepolia fork run does that, predeploy-fork.test.ts). No network and no secret: CI's anvil step can require
+// here (the Sepolia fork run does that: live-fork.test.ts opens a new world against the deployment record). No network
+// and no secret: CI's anvil step can require
 // it. Needs `anvil` on PATH and `forge build` output.
 import type { Hex } from 'viem';
 import { DRAND_QUICKNET, DRAND_QUICKNET_CHAIN_HASH, type Commitment, type Hex32 } from '@holdback/core';

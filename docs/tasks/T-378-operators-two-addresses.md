@@ -88,16 +88,46 @@ Labels: measured, inferred, guessed. All runs are on this task's branches, 2026-
   - Info 6 is this section;
   - Info 7 belongs to T-357's residual.
 
+**Part 2, one token, the 37 s warning and three follow-ups (this PR):**
+
+- `apps/operator/src/one-token.test.ts`: 11 of 11 tests pass [measured]. They cover one test per route that takes terms:
+  - the offer prepare route, plain and hash-only, for a price and for a fee in another token;
+  - `POST /v1/commitments` and its dry run, which relay nothing;
+  - `POST /v1/holds`;
+  - the settlement prepare route's payouts.
+  Each refusal names `tUSD (identifier tUSD, 6 decimals)`, and discovery states the same token. Terms in tUSD pass.
+- The 37 s notice (ADR-0032): below 37 s on a drand-quicknet club, the offer is prepared and carries the notice. At 37 s, and on the sim beacon, it does not [measured].
+- Item 84: `prepare-posted-delivery.test.ts` shows prepare refusing a `delivery` once one is posted, naming the posted hash [measured].
+- Item 63: on a chain settlement, the adjudicator's two consent rules give reasons that name no bond. The rules still apply, and `service.test.ts` checks both [measured].
+- Item 67 [measured]:
+  - 12 mutants no longer applied; each is retargeted to the current code.
+  - The full sweep (`node apps/adjudicator/scripts/mutants.mjs`) killed 81 of 83.
+  - Two survived: the publication catch, and the appeal panel's family minimum. Two new tests kill both, each rerun alone.
+  - The review (PR 412, Low 1) found one retargeted mutant equal to its neighbour. It is retired: nothing releases an envelope to the primary while it decides, so a change there is equivalent.
+  - So the list holds 82 mutants, and all apply and are killed (a dry count of the find strings, and each new kill rerun alone).
+- The touched suites (operator, adjudicator, demo-cloud, test-agents, sdk, `tests/contract`, the alignment and spec tests): 918 passed, 11 skipped, on the lane's tip `bfe57ed` [measured].
+- The reviewer gave ISSUES, all Low or Info:
+  - Low 1 is fixed by retiring the mutant;
+  - Low 2 is fixed in the notice's text and in the Handoff;
+  - Info 3 (the refusal names the primary's registration as the fee's source) is fixed, with a test;
+  - Info 4 is left: core refuses `TUSD` on SimChain later with its own message.
+
 ## Decisions
 
 1. **`pnpm demo` stays on the full protocol** (the coordinator, 2026-11-12, on this task's question). Phase one goes to `pnpm sim` and `PublicWorld` on SimChain. The Handoff lists any other local entry point that takes a party's own terms, with the profile it runs.
 2. **The offer's request field names** for the two addresses are `buyer.paymentAddress` and a top-level `sellerPayoutAddress`, both optional. T-379 proposed them on 2026-11-12, and the clients and `examples/verify.ts` use the same names.
 3. **`spec/openapi/paths.json`** is the source of `spec/openapi.json` (`pnpm openapi`). This task edits the source and regenerates the output (the coordinator, 2026-11-12).
 4. **The late delivery travels flat beside the settlement** as `delivery`, as `fund` does beside an `Agree`. It is not wrapped as `{settlement, delivery}`, so the route keeps one body form. The deal record gets no new marker in any event payload; the events already tell late work apart (the coordinator, 2026-11-12).
+5. **The token check reads the operator's own configuration** (`OperatorOptions.token`), not the settlement interface. `packages/settlement/src/interface.ts` is outside this task's paths. An operator configured without a token checks nothing; both worlds this repository runs configure one.
 
 ## Handoff
 
 **Open, for later work:**
+
+- **The 37 s notice assumes the 29 s beacon margin of ADR-0032,** which R8 (T-380) builds into the contract (PR 412 review, Low 2). Until that deployment, Sepolia's floor is 13 s, and the notice says it applies on a rules contract with that margin. A notice computed from the deployment's own margin can follow once the margin reaches the operator (T-380 adds `beaconMarginSec` to the settlement interface).
+
+- **The fallback window's floor** (43 s on mainnet, 44 s on Sepolia; ADR-0032 gate line BR-5) gets no notice. The brief named the escalation's 37 s only.
+- **The adjudicator's appeal-window limit on phase one** stays a refusal of its own choice (D29). Its reason now names no bond. Whether a phase-one adjudicator should keep the limit at all is open.
 
 - **No anvil test of the late-work route over the EVM settlement** (PR 408 review, Low 3). The EVM adapter's own late-work test covers the settlement step. The HTTP route is measured on SimChain only.
 

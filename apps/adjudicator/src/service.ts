@@ -494,19 +494,28 @@ export class Adjudicator {
   #untrusted(role: 'fallback' | 'appeal', who: Address, what: 'offer' | 'fallback turn' | 'terms'): Problem | null {
     const trusted = this.#trusted();
     if (trusted.includes(who.toLowerCase())) return null;
-    const why = `an appeal decided by an untrusted adjudicator could pay the price from this adjudicator's bond (${what === 'offer' ? 'T-212' : 'T-221, ADR-0030 §6'})`;
+    // Triage item 63 (T-378): on the phase-one contracts no bond is at stake (ADR-0031 §8); the rule stays the adjudicator's
+    // own consent rule (D29), and its reason says what is at stake there: the final word on the deals it escalates.
+    const why = this.#port.phaseOne
+      ? `on the phase-one contracts the appeal adjudicator decides every escalation, and its decision is final; ${this.#cfg.name} escalates only to an adjudicator it trusts (ADR-0031 §8, D29)`
+      : `an appeal decided by an untrusted adjudicator could pay the price from this adjudicator's bond (${what === 'offer' ? 'T-212' : 'T-221, ADR-0030 §6'})`;
     if (what === 'offer') return problem('invalid_terms', `${this.#cfg.name} does not trust ${who} as the ${role} adjudicator: ${why}; offer with a ${role} adjudicator it trusts`);
     if (what === 'terms') return problem('invalid_terms', `${this.#cfg.name} takes a fallback turn only under an appeal adjudicator it trusts (${trusted.join(', ')}), and ${who} is not one: ${why}`);
     // A fallback turn comes only after judgeBy, when core refuses the primary's decision; the parties may still settle.
     return problem('invalid_terms', `${this.#cfg.name} does not trust ${who} as the appeal adjudicator, so it declines this deal's fallback turn: ${why}. So no adjudicator will decide this deal's first instance; the default outcome applies at fallbackBy unless the parties settle by mutual agreement first`);
   }
 
-  /** D29 (T-211): a primary's or fallback's decision holds its bond until the appeal closes, and the deal sets how long. */
+  /**
+   * D29 (T-211): on the full protocol a primary's or fallback's decision holds its bond until the appeal closes, and the
+   * deal sets how long. On the phase-one contracts no bond is held; the limit stays this adjudicator's own choice.
+   */
   #windowsProblem(c: DecisionTask['commitment']): Problem | null {
     const limits = this.#cfg.appealLimits ?? DEFAULT_APPEAL_LIMITS;
     for (const [field, max] of [['appealWindowSec', limits.maxAppealWindowSec], ['appealDecideSec', limits.maxAppealDecideSec]] as const) {
       if (c.timing[field] > max) {
-        return problem('invalid_terms', `${this.#cfg.name} decides only deals whose ${field} is at most ${max} s: a decider's bond stays reserved until the appeal closes, and this deal sets ${c.timing[field]} s (T-211, D29)`);
+        // Triage item 63 (T-378): the phase-one contracts reserve no bond, so the reason there is how long a deal stays open.
+        const why = this.#port.phaseOne ? 'a deal it escalates stays open that long, and on the phase-one contracts nothing else bounds it' : "a decider's bond stays reserved until the appeal closes";
+        return problem('invalid_terms', `${this.#cfg.name} decides only deals whose ${field} is at most ${max} s: ${why}, and this deal sets ${c.timing[field]} s (T-211, D29)`);
       }
     }
     return null;
