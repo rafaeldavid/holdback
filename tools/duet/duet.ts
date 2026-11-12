@@ -4,7 +4,7 @@
 //
 //   pnpm duet list [--scenario <name>] [--buyer <vendor>] [--seller <vendor>]     what would run and what it may cost; sends nothing
 //   pnpm duet run --scenario paid|refund|bad-offer|late-offer --buyer claude|deepseek|scripted --seller claude|deepseek|scripted
-//                 [--buyer-model <id>] [--seller-model <id>] [--max-turns 60] [--max-tokens 3000000]
+//                 [--brief guided|direct] [--buyer-model <id>] [--seller-model <id>] [--max-turns 60] [--max-tokens 3000000]
 //                 [--world <operator URL>,<operator URL>] [--docs <guide URL>,<sell URL>] [--out <dir>] [--grace 90] [--timeout 1800]
 //   pnpm duet replay <run folder>                                                 the summary and the page again, from record.jsonl
 //   pnpm duet publish <run folder> [--to <file>]                                  the page for crow.direct/demo, into site/demo/index.html
@@ -13,6 +13,9 @@
 // claude, HOLDBACK_AGENT_OPENAI_COMPATIBLE_API_KEY and HOLDBACK_AGENT_OPENAI_COMPATIBLE_BASE_URL (https) for deepseek.
 // Give them with node's --env-file:
 //   node --env-file=<your env file> tools/duet/duet.ts run --buyer deepseek --seller claude --scenario paid
+// --brief picks what the company tells its agent: guided (the default) names Crow's guides and how to use them; direct
+// gives only the intent, the limits and the company's own setup, and says "through crow.direct", so the agent finds
+// the guides from the front door. A local run answers crow.direct from this machine's copy of the site.
 // Before a live run sends anything it prints the two models, the caps and the most the run can cost at list prices,
 // then waits 10 s (Ctrl-C stops it). A missing key stops it with one line, before anything is sent.
 // Exit code: 0 when the run ended as the scenario says, 1 when it did not, 2 when it could not start.
@@ -23,7 +26,7 @@ import { replayPage } from './replay.ts';
 import { JUDGE_KEY_ENV, KEY_ENV, liveProvider, MAX_OUTPUT_TOKENS, pinnedModel, type Provider } from './providers.ts';
 import type { Event } from './record.ts';
 import { finish, REPO, runDuet, type Side } from './run.ts';
-import { AGENT_NAME } from './scenarios.ts';
+import { AGENT_NAME, type BriefMode } from './scenarios.ts';
 import { SCENARIOS, scenario, type ScenarioName } from './scenarios.ts';
 
 const argv = process.argv.slice(2);
@@ -60,6 +63,8 @@ for (const s of scenarios) if (!SCENARIOS.includes(s)) fail(`${s} is not a scena
 const sides = { buyer: vendorOf(flag('buyer', cmd === 'list' ? 'deepseek' : undefined) ?? fail('run needs --buyer claude, deepseek or scripted')), seller: vendorOf(flag('seller', cmd === 'list' ? 'claude' : undefined) ?? fail('run needs --seller claude, deepseek or scripted')) };
 const pinned = (v: 'anthropic' | 'deepseek', id: string | undefined) => { try { return pinnedModel(v, id); } catch (e) { return fail((e as Error).message); } };
 const models = { buyer: sides.buyer === 'scripted' ? null : pinned(sides.buyer, flag('buyer-model')), seller: sides.seller === 'scripted' ? null : pinned(sides.seller, flag('seller-model')) };
+const brief = flag('brief', 'guided') as BriefMode;
+if (brief !== 'guided' && brief !== 'direct') fail('--brief is guided or direct');
 const graceSec = Number(flag('grace', '90')), timeoutSec = Number(flag('timeout', '1800'));
 if (!Number.isSafeInteger(graceSec) || graceSec < 0 || !Number.isSafeInteger(timeoutSec) || timeoutSec < 1) fail('--grace and --timeout are whole seconds');
 
@@ -112,14 +117,18 @@ if (docs && docs.length !== 2) fail('--docs takes the guide URL and the seller p
 const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, 'Z');
 const out = resolve(flag('out', join(REPO, 'reports', 'scratch', 'duet'))!, `${scenarios[0]}-${sides.buyer}-${sides.seller}-${stamp}`);
 try {
-  const r = await runDuet({ scenario: scenarios[0]!, buyer: live.buyer, seller: live.seller, out, caps, ...(world ? { world } : {}), ...(docs ? { docs: { guide: docs[0]!, sell: docs[1]! } } : {}), graceSec, timeoutSec, secrets, log: (l) => console.log(l) });
+  const r = await runDuet({ scenario: scenarios[0]!, buyer: live.buyer, seller: live.seller, out, caps, brief, ...(world ? { world } : {}), ...(docs ? { docs: { guide: docs[0]!, sell: docs[1]! } } : {}), graceSec, timeoutSec, secrets, log: (l) => console.log(l) });
   const s = r.summary;
   if (s.notStarted) {
     console.log(`\nThe run did not start: the ${AGENT_NAME[s.notStarted.role as 'buyer' | 'seller'] ?? s.notStarted.role}'s model provider refused its first request (${s.notStarted.reason}). No ticket: there was no deal to measure.\n  record  ${r.record}\n  replay  ${r.page}`);
     process.exit(2);
   }
   console.log(`\n${s.decisionRight ? 'As expected' : 'Not as expected'}: ${s.why}.`);
-  console.log(`  deal ${s.outcome.commitmentId ?? 'none'}, ${s.outcome.state}; tokens ${s.tokens.deal.toLocaleString('en-US')}; stalls ${s.stalls.length}; human interventions ${s.humanInterventions}; approvals by the buyer's standing rule ${s.ownerApprovals.length}`);
+  const k = (x: number) => x.toLocaleString('en-US');
+  const cost = s.costPerDealMicroUsd === null ? 'not priced (scripted)' : `USD ${(s.costPerDealMicroUsd / 1e6).toFixed(2)} at list price`;
+  console.log(`  brief ${s.brief}; ${s.engine}`);
+  console.log(`  tokens ${k(s.tokens.deal)}: ${k(s.tokens.split.fresh)} fresh input, ${k(s.tokens.split.cacheRead)} cache reads, ${k(s.tokens.split.cacheWrite)} cache writes, ${k(s.tokens.split.output)} output; ${cost}; peak context ${k(s.peakContext.buyer)} (buyer), ${k(s.peakContext.seller)} (seller)`);
+  console.log(`  deal ${s.outcome.commitmentId ?? 'none'}, ${s.outcome.state}; stalls ${s.stalls.length}; human interventions ${s.humanInterventions}; approvals by the buyer's standing rule ${s.ownerApprovals.length}`);
   console.log(`  record  ${r.record}\n  summary ${join(r.dir, 'summary.json')}\n  replay  ${r.page}`);
   if (r.ticket) console.log(`\n${r.over.length} ${r.over.length === 1 ? 'measure was' : 'measures were'} over the limit: ${r.over.map((x) => x.measure).join('; ')}.\nTicket: ${r.ticket}\nSend this ticket to the coordinator.`);
   else console.log('  Every measure is within its limit; no ticket.');

@@ -12,6 +12,8 @@ type Side = 'buyer' | 'seller';
 
 export interface Summary {
   scenario: string;
+  /** Which brief the agents had: `guided` (it names Crow's guides) or `direct` (only crow.direct). */
+  brief: string;
   /** The engine the run used, in plain words: the local simulator or the chain by name and ID. */
   engine: string;
   title: string;
@@ -22,7 +24,15 @@ export interface Summary {
    * 1. Tokens in and out, per agent and for the deal, and what used them: `guides`, the tokens spent carrying Crow's
    * guides (each turn's input holds every guide page read before it), and `work`, everything else.
    */
-  tokens: Record<Side, { input: number; output: number; cacheRead: number; guides: number; work: number }> & { deal: number };
+  tokens: Record<Side, { input: number; output: number; cacheRead: number; cacheWrite: number; fresh: number; guides: number; work: number }> & {
+    deal: number;
+    /** The deal's tokens by kind: fresh input, input read from the cache, input written to it, and output. */
+    split: { fresh: number; cacheRead: number; cacheWrite: number; output: number };
+  };
+  /** The largest input of any one turn, per agent: the context the agent carried at its peak. */
+  peakContext: Record<Side, number>;
+  /** The list-price cost of the deal's tokens in micro-USD, both agents together; null when neither side was priced. */
+  costPerDealMicroUsd: number | null;
   /** The guides as served (the largest body each fetch saw), in bytes and in tokens estimated at four bytes a token. */
   guides: { bytes: Record<string, number>; tokens: number; estimate: string };
   /** The list-price cost of those tokens in micro-USD, from config/model-prices.json; null for a scripted side. */
@@ -37,6 +47,8 @@ export interface Summary {
   ownerApprovals: Array<{ commitmentId: string; granted: boolean; reasons: string[] }>;
   /** 5. Settlement-layer seconds from the delivery the checks passed to the seller's payment; null when nobody was paid. */
   workPassesToPaidSec: number | null;
+  /** Why the time above is not given, when it is not. */
+  workPassesToPaidNote: string | null;
   /** 6. Whether the buyer funded, or asked its company to approve, terms its brief forbade. */
   forbiddenTerms: { funded: boolean; askedToApprove: boolean; detail: string };
   /** 7. Whether the run ended as the scenario says it should. */
@@ -112,7 +124,10 @@ export function measure(events: readonly Event[]): Summary {
   // 5: from the decision that the work passes (or, without one, the delivery) to the seller's payment, in settlement-layer seconds.
   const passed = evs.find((e) => e.type === 'judgment.decided' && e.outcome === 'accept') ?? evs.find((e) => e.type === 'delivery.submitted');
   const paid = evs.find((e) => e.type === 'settlement.released');
-  const workPassesToPaidSec = passed && paid ? Math.max(0, sec(paid.at) - sec(passed.at)) : null;
+  // The local simulator settles the decision and the payment within the same second, so the time is not measured there.
+  const onSimulator = (events.find((e) => e.kind === 'world') as J)?.local === true;
+  const workPassesToPaidSec = onSimulator ? null : passed && paid ? Math.max(0, sec(paid.at) - sec(passed.at)) : null;
+  const workPassesToPaidNote = onSimulator ? 'Not measured on the local simulator, which settles the decision and the payment within the same second; a test network measures it.' : workPassesToPaidSec === null ? 'Nobody was paid in this run.' : null;
 
   // 6: the terms the buyer funded, and what it asked its company to approve, against the company's required checks.
   const required: string[] = start?.policy?.requiredChecks ?? [];
@@ -144,22 +159,27 @@ export function measure(events: readonly Event[]): Summary {
   const ends = of('agent.end');
   return {
     scenario: start?.scenario ?? 'unknown',
+    brief: String(start?.brief ?? 'guided'),
     engine: String((events.find((e) => e.kind === 'world') as J)?.engine ?? start?.engine ?? 'unknown'),
     title: start?.title ?? '',
     expect: start?.expect ?? '',
     models: { buyer: start?.buyer ?? { vendor: '?', model: '?' }, seller: start?.seller ?? { vendor: '?', model: '?' } },
     outcome: { commitmentId: id, state, funded, keyToBuyer, buyerOpened: opened },
     tokens: {
-      ...(Object.fromEntries(sides.map((r) => [r, { input: tokens[r].input, output: tokens[r].output, cacheRead: tokens[r].cacheRead, guides: guideTokens[r], work: tokens[r].input + tokens[r].output - guideTokens[r] }])) as Record<Side, { input: number; output: number; cacheRead: number; guides: number; work: number }>),
+      ...(Object.fromEntries(sides.map((r) => [r, { input: tokens[r].input, output: tokens[r].output, cacheRead: tokens[r].cacheRead, cacheWrite: tokens[r].cacheWrite, fresh: Math.max(0, tokens[r].input - tokens[r].cacheRead - tokens[r].cacheWrite), guides: guideTokens[r], work: tokens[r].input + tokens[r].output - guideTokens[r] }])) as Record<Side, { input: number; output: number; cacheRead: number; cacheWrite: number; fresh: number; guides: number; work: number }>),
       deal: sides.reduce((n, r) => n + tokens[r].input + tokens[r].output, 0),
+      split: sides.reduce((a, r) => ({ fresh: a.fresh + Math.max(0, tokens[r].input - tokens[r].cacheRead - tokens[r].cacheWrite), cacheRead: a.cacheRead + tokens[r].cacheRead, cacheWrite: a.cacheWrite + tokens[r].cacheWrite, output: a.output + tokens[r].output }), { fresh: 0, cacheRead: 0, cacheWrite: 0, output: 0 }),
     },
     guides: { bytes: sizes, tokens: Math.ceil(Object.values(sizes).reduce((a, b) => a + b, 0) / 4), estimate: 'four bytes a token; the providers\' own counts differ a little' },
     costMicroUsd,
+    peakContext: Object.fromEntries(sides.map((r) => [r, of('model.turn', r).reduce((m, t) => Math.max(m, Number(t.tokensIn ?? 0)), 0)])) as Record<Side, number>,
+    costPerDealMicroUsd: costMicroUsd.buyer === null && costMicroUsd.seller === null ? null : (costMicroUsd.buyer ?? 0) + (costMicroUsd.seller ?? 0),
     calls,
     stalls,
     humanInterventions: of('human').length,
     ownerApprovals,
     workPassesToPaidSec,
+    workPassesToPaidNote,
     forbiddenTerms,
     decisionRight,
     notStarted,

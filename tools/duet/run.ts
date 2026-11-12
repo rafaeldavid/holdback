@@ -4,12 +4,12 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
-import { runAgent, type AgentEnd, type Caps } from './loop.ts';
+import { masterPrompt, runAgent, type AgentEnd, type Caps } from './loop.ts';
 import { measure, type Summary } from './measures.ts';
 import { scripted, type Provider } from './providers.ts';
 import { Recorder, Secrets } from './record.ts';
 import { replayPage } from './replay.ts';
-import { AGENT_NAME, buyerBrief, ITEM, scenario, SCOPE, sellerBrief, type ScenarioName } from './scenarios.ts';
+import { AGENT_NAME, buyerBrief, buyerBriefDirect, ITEM, scenario, SCOPE, sellerBrief, sellerBriefDirect, type BriefMode, type ScenarioName } from './scenarios.ts';
 import { limitsFor, overLimits, ticket, type Limits, type Over } from './tickets.ts';
 import type { Event } from './record.ts';
 import { buyerScript, sellerScript } from './scripted.ts';
@@ -19,6 +19,8 @@ import { startWorld } from './world.ts';
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 export const REPO = realpathSync(new URL('../../', import.meta.url).pathname);
+/** Crow's site: the address the direct brief names. */
+export const CROW_SITE = 'https://crow.direct';
 const SELLER_NAME = 'audit-reports';
 
 /** A side's model: a live provider, or `scripted`, which plays the scenario's fixed calls. */
@@ -42,6 +44,8 @@ export interface RunOptions {
   commandTimeoutMs?: { short: number; long: number };
   /** Secrets to scrub everywhere besides those the run makes: the model API keys. */
   secrets?: string[];
+  /** The brief's style: `guided` (the default) names Crow's guides; `direct` names only crow.direct (scenarios.ts). */
+  brief?: BriefMode;
   /** Limits in place of limits.json's for this scenario (the tests set one low to see a ticket). */
   limits?: Partial<Limits>;
   log?: (line: string) => void;
@@ -120,7 +124,7 @@ export async function runDuet(o: RunOptions): Promise<RunResult> {
   secrets.add(sellerKey);
   const rec = new Recorder(join(dir, 'record.jsonl'), secrets);
   const vendorOf = (x: Side) => (x === 'scripted' ? { vendor: 'scripted', model: 'scripted' } : { vendor: x.vendor, model: x.model });
-  rec.add('runner', 'run.start', { scenario: s.name, title: s.title, expect: s.expect, endState: s.endState, buyer: vendorOf(o.buyer), seller: vendorOf(o.seller), caps: o.caps, world: o.world ? 'running' : 'local phase-one world', checkout: checkout(), policy: s.policy, scope: SCOPE, item: ITEM, sellerRule: s.sellerRule ?? null, sellerRulePlain: s.sellerRulePlain ?? null, buyerRule: s.buyerRule ?? null, note: s.note ?? null, engine: o.world ? `the running world at ${o.world.join(', ')} (its chain is named in the next line)` : 'the local simulator, phase-one rules' });
+  rec.add('runner', 'run.start', { scenario: s.name, title: s.title, expect: s.expect, endState: s.endState, buyer: vendorOf(o.buyer), seller: vendorOf(o.seller), caps: o.caps, world: o.world ? 'running' : 'local phase-one world', checkout: checkout(), policy: s.policy, scope: SCOPE, item: ITEM, brief: o.brief ?? 'guided', sellerRule: s.sellerRule ?? null, sellerRulePlain: s.sellerRulePlain ?? null, buyerRule: s.buyerRule ?? null, note: s.note ?? null, engine: o.world ? `the running world at ${o.world.join(', ')} (its chain is named in the next line)` : 'the local simulator, phase-one rules' });
 
   say(`Starting ${o.world ? `against ${o.world.join(', ')}` : 'the local phase-one world'}.`);
   const world = await startWorld({ rec, ...(o.world ? { world: o.world } : {}), ...(o.docs ? { docs: o.docs } : {}), sellerPublic: join(real.sellerWork, 'public'), sellerName: SELLER_NAME, report: s.report, onSecret: (v) => secrets.add(v) });
@@ -129,22 +133,31 @@ export async function runDuet(o: RunOptions): Promise<RunResult> {
     const adapterPort = await freePort();
     const sellerPage = `${world.web}/sellers/${SELLER_NAME}/`;
     const adapter = `http://127.0.0.1:${adapterPort}`;
-    rec.add('runner', 'world', { engine: world.engine, docsChanges: world.docsChanges, local: world.local, chainId: world.chainId, token: world.token, operators: world.operators, docs: world.docs, sellerPage, jobApi: world.jobApi.api, adapter });
+    // On a local run, https://crow.direct is answered from this machine's copy of the site, home page included, so an
+    // agent can find the guides from the front door as a visitor would. A run against a named world uses the real site.
+    const alias = world.local ? { from: CROW_SITE, to: world.web } : undefined;
+    rec.add('runner', 'world', { engine: world.engine, docsChanges: world.docsChanges, local: world.local, chainId: world.chainId, token: world.token, operators: world.operators, docs: world.docs, sellerPage, jobApi: world.jobApi.api, adapter, ...(alias ? { siteAlias: "crow.direct is answered from this machine's copy of the site, home page included." } : {}) });
 
     const ops: Allow[] = world.operators.map((u) => ({ origin: originOf(u) }));
     const problems: Allow = { origin: 'https://crow.direct', paths: ['/problems/'] };
     const docAllow = (d: { guide: string; sell: string; buy: string }): Allow[] => [...[d.guide, d.sell, d.buy].map((u) => ({ origin: originOf(u), paths: [new URL(u).pathname] })), { origin: originOf(d.guide), paths: [new URL('ref/', d.guide).pathname] }];
-    const page: Allow = { origin: originOf(world.web), paths: [`/sellers/${SELLER_NAME}/`] };
-    const buyerAllow: Allow[] = [...ops, ...docAllow(world.docs), page, { origin: adapter, paths: ['/defaults', '/quote'] }, problems];
-    const sellerAllow: Allow[] = [...ops, ...docAllow(world.docs), page, { origin: originOf(world.jobApi.url) }, { origin: adapter, paths: ['/defaults', '/quote'] }, problems];
+    // The seller's page with or without its trailing slash; the site's own pages, its root included.
+    const page: Allow = { origin: originOf(world.web), paths: [`/sellers/${SELLER_NAME}/`, `/sellers/${SELLER_NAME}`, '/', '/index.html'] };
+    const site: Allow = { origin: CROW_SITE };
+    const buyerAllow: Allow[] = [...ops, ...docAllow(world.docs), page, { origin: adapter, paths: ['/defaults', '/quote'] }, problems, site];
+    const sellerAllow: Allow[] = [...ops, ...docAllow(world.docs), page, { origin: originOf(world.jobApi.url) }, { origin: adapter, paths: ['/defaults', '/quote'] }, problems, site];
 
     const timeouts = o.commandTimeoutMs ?? { short: 180_000, long: 1_200_000 };
     const stops = { buyer: new AbortController(), seller: new AbortController() };
-    const buyerTools = new Toolbox({ signal: stops.buyer.signal, role: 'buyer', work: real.buyerWork, owner: real.buyerCompany, repo: REPO, operators: world.operators, allow: buyerAllow, secrets, rec, keyStore, policy: s.policy, timeoutMs: timeouts });
-    const sellerTools = new Toolbox({ signal: stops.seller.signal, role: 'seller', work: real.sellerWork, owner: real.sellerCompany, repo: REPO, operators: world.operators, allow: sellerAllow, secrets, rec, sellerKey, adapterPort, jobApi: world.jobApi.url, timeoutMs: timeouts });
+    const buyerTools = new Toolbox({ signal: stops.buyer.signal, role: 'buyer', work: real.buyerWork, owner: real.buyerCompany, repo: REPO, operators: world.operators, allow: buyerAllow, secrets, rec, keyStore, policy: s.policy, timeoutMs: timeouts, ...(alias ? { alias } : {}) });
+    const sellerTools = new Toolbox({ signal: stops.seller.signal, role: 'seller', work: real.sellerWork, owner: real.sellerCompany, repo: REPO, operators: world.operators, allow: sellerAllow, secrets, rec, sellerKey, adapterPort, jobApi: world.jobApi.url, timeoutMs: timeouts, ...(alias ? { alias } : {}) });
     const facts = () => ({ docs: world.docs, sellerPage, jobApi: world.jobApi.api, adapterPort, keyStore, token: world.token, local: world.local });
-    const briefs = { buyer: buyerBrief(s, facts()), seller: sellerBrief(s, facts()) };
-    const scriptFacts = () => ({ docs: world.docs, sellerPage, jobApi: { ...world.jobApi.api, url: world.jobApi.url }, adapterPort, keyStore, operator: world.operators[0]! });
+    const mode: BriefMode = o.brief ?? 'guided';
+    const briefs = mode === 'direct' ? { buyer: buyerBriefDirect(s, facts()), seller: sellerBriefDirect(s, facts()) } : { buyer: buyerBrief(s, facts()), seller: sellerBrief(s, facts()) };
+    const systems = mode === 'direct' ? { buyer: masterPrompt('buyer', AGENT_NAME.buyer), seller: masterPrompt('seller', AGENT_NAME.seller) } : undefined;
+    // In the direct brief the scripted agents start from crow.direct, as a live one would.
+    const scriptDocs = mode === 'direct' ? { guide: `${CROW_SITE}/llms.txt`, sell: `${CROW_SITE}/sell.txt`, buy: `${CROW_SITE}/buy.txt`, home: `${CROW_SITE}/` } : world.docs;
+    const scriptFacts = () => ({ docs: scriptDocs, sellerPage, jobApi: { ...world.jobApi.api, url: world.jobApi.url }, adapterPort, keyStore, operator: world.operators[0]! });
     const providerOf = (role: 'buyer' | 'seller', side: Side): Provider => (side !== 'scripted' ? side : scripted(role === 'buyer' ? buyerScript(s.name, scriptFacts()) : sellerScript(s.name, scriptFacts())));
 
     // Both agents run at once. When one finishes, the other has graceSec more; the whole run has timeoutSec.
@@ -152,7 +165,8 @@ export async function runDuet(o: RunOptions): Promise<RunResult> {
     const grace = (other: 'buyer' | 'seller') => setTimeout(() => stops[other].abort(`its counterparty finished ${o.graceSec ?? 90} s earlier`), (o.graceSec ?? 90) * 1000);
     const timers: NodeJS.Timeout[] = [];
     const play = (role: 'buyer' | 'seller', tools: Toolbox) =>
-      runAgent({ role, provider: providerOf(role, role === 'buyer' ? o.buyer : o.seller), brief: briefs[role], tools, caps: o.caps, rec, signal: stops[role].signal }).then((end) => {
+      runAgent({ role, provider: providerOf(role, role === 'buyer' ? o.buyer : o.seller), brief: briefs[role], ...(systems ? { system: systems[role] } : {}), tools, caps: o.caps, rec, signal: stops[role].signal }).then((end) => {
+        if (role === 'seller') sellerEnded = true;
         say(`The ${AGENT_NAME[role]} ${end.status}: ${end.outcome}`);
         const other = role === 'buyer' ? 'seller' : 'buyer';
         if (end.status === 'error' && !end.started) {
@@ -163,10 +177,22 @@ export async function runDuet(o: RunOptions): Promise<RunResult> {
         } else timers.push(grace(other));
         return end;
       });
-    say('Both agents start.');
+    // The seller starts first, and the buyer once the seller's page is served (or the seller has stopped), so the
+    // measures describe the deal and not a race to the page. The record says how long the buyer waited.
+    let sellerEnded = false;
+    const pageUp = async (): Promise<boolean> => { try { return (await fetch(sellerPage, { signal: AbortSignal.timeout(5000) })).status === 200; } catch { return false; } };
+    const buyerStarts = async (): Promise<AgentEnd> => {
+      const waitFrom = Date.now();
+      let published = await pageUp();
+      while (!published && !sellerEnded && !stops.buyer.signal.aborted && Date.now() - waitFrom < 600_000) { await new Promise((r) => setTimeout(r, 500)); published = await pageUp(); }
+      rec.add('runner', 'buyer.start', { afterMs: Date.now() - waitFrom, sellerPagePublished: published });
+      say(published ? `The ${AGENT_NAME.buyer} starts: the seller's page is up.` : `The ${AGENT_NAME.buyer} starts without the seller's page.`);
+      return play('buyer', buyerTools);
+    };
+    say(`The ${AGENT_NAME.seller} starts.`);
 
     try {
-      ends = await Promise.all([play('seller', sellerTools), play('buyer', buyerTools)]);
+      ends = await Promise.all([play('seller', sellerTools), buyerStarts()]);
     } finally {
       for (const c of Object.values(stops)) if (!c.signal.aborted) c.abort('the run ended'); // ends any command still running
       clearTimeout(whole);
