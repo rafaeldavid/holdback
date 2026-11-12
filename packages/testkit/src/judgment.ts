@@ -54,6 +54,14 @@ async function readReference(uri: string): Promise<Uint8Array> {
   return bytes;
 }
 
+/**
+ * The runner's content store for delivery ciphertext (T-347): it returns every delivered fixture file except those under
+ * fixtures/data/unstored/. A delivery of one of those stands for a seller-signed Delivery whose ciphertext no store
+ * returns (never uploaded, lost or withheld). The runner refuses it as the adjudicator service does: not judged, no
+ * record, retried; the fallback and then the default outcome follow if it never comes.
+ */
+const UNSTORED_DIR = 'fixtures/data/unstored/';
+
 export type Role = 'primary' | 'fallback' | 'appeal';
 
 export interface PanelMemberView {
@@ -146,6 +154,11 @@ export async function runJudgment(input: RunJudgmentInput, judges: JudgeProvider
   const familiesAvailable = new Set(registry.active.map((e) => e.family)).size;
   const size = appeal ? policy.appealPanelSize : policy.panelSize;
   const minFamilies = appeal ? Math.max(policy.minFamilies, Math.min(policy.minFamiliesAppeal, familiesAvailable)) : policy.minFamilies;
+
+  if (input.source.startsWith(UNSTORED_DIR)) {
+    const { uri, sha256: ct } = input.delivery.ciphertext;
+    return err(problem('adjudicator_unavailable', `the delivery's ciphertext ${uri} (${ct}) was not returned by the runner's store (${input.source} is under ${UNSTORED_DIR}); not judged, retrying (no record)`));
+  }
 
   // Intake on the delivered bytes: the runner hands the plaintext over as its own "ciphertext" with an
   // identity opener, so the library still checks the MIME allowlist, size, plaintext hash and UTF-8.

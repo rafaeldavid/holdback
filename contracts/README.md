@@ -8,7 +8,7 @@ Crow's settlement contracts (protocol name Holdback), their tests and the Sepoli
 | `test/` | Foundry tests: `unit/`, `fuzz/`, `invariant/` with its handler in `handlers/`, and `crosscheck/` |
 | `script/` | `deploy-sepolia.sh`; `TestUSDC.sol`, the open-mint test token on Sepolia; `LocalUSDC.sol`, `LocalMulticall3.sol` and `SimBeacon.sol` (the local chain's beacon, refused on any chain but 31337), helpers for the anvil tests |
 | `deployments/` | The Sepolia deployment records |
-| `lib/commerce-payments` | A git submodule: Coinbase's Commerce Payments Protocol, with the nested libraries `remappings.txt` names |
+| `lib/commerce-payments` | A git submodule: Coinbase's Commerce Payments Protocol, with the nested libraries `remappings.txt` names. Its README lists two escrow addresses on Base: `0xf968…b19c` is version 1.1.0, and `0xBdEA…0cff` is version 1.0.0 with the older fee interface (ADR-0034 §3.4) |
 
 ## Prerequisites
 
@@ -42,14 +42,15 @@ forge test
 
 | Suite | Files | What it checks |
 | --- | --- | --- |
-| `test/unit/` | 26 test files and `Base.sol` | Each entry point and each review fix. `Vectors.t.sol` pins the EIP-712 hashes against `packages/core`. `GasPerDeal.t.sol` holds gas budgets |
+| `test/unit/` | One test file per entry point or review fix, and `Base.sol` | Each entry point and each review fix. `Vectors.t.sol` pins the EIP-712 hashes against `packages/core`. `GasPerDeal.t.sol` holds gas budgets |
 | `test/fuzz/` | `NoAdmin`, `Postings` | No admin path and postings that balance. `foundry.toml` sets no fuzz run count, so Foundry's default applies |
-| `test/invariant/` | `RulesInvariants.t.sol`, `HandlerSmoke.t.sol`, with `test/handlers/RulesHandler.sol` | 11 invariants, each at 256 runs with depth 100 (listed in [`docs/audit/invariants.md`](../docs/audit/invariants.md)). The counts are set inline in `RulesInvariants.t.sol`, not in `foundry.toml` |
-| `test/crosscheck/` | 10 files | Cases from the public-audit cross-check (`docs/reviews/2026-11-03-public-audit-crosscheck.md`) |
+| `test/invariant/` | `RulesInvariants.t.sol`, `HandlerSmoke.t.sol` and `StateOracle.t.sol` (with `StateOracle.sol`), with `test/handlers/RulesHandler.sol` | The invariants listed in [`docs/audit/invariants.md`](../docs/audit/invariants.md). Their run count and depth are set inline in `RulesInvariants.t.sol`, not in `foundry.toml` |
+| `test/crosscheck/` | One file per case | Cases from the public-audit cross-check (`docs/reviews/2026-11-03-public-audit-crosscheck.md`), and the drand verifier's reviews |
+| `test/differential/` | `SideBySide.t.sol` and `PinnedSource.t.sol`, with the pinned old side in `old/` and a planted mutant in `planted/` | The side-by-side harness (T-341): the deployed source and today's source run the same calls, and any difference not in `AllowList.sol` fails |
 
 Notes:
 - `NoAdmin.fuzz.t.sol` reads the compiled ABIs from `out/`, and the drand tests read `../fixtures/beacon`. `foundry.toml` grants read access to those two paths only.
-- The last recorded run passed 293 tests in 46 suites, 0 skipped, on 2026-11-11 (CI run 43085901114, after T-335 and T-336). The deployed commit `64be1f1` passed 241 (`docs/tasks/T-212-contract-hardening.md`, Evidence). Run `forge test` for today's count.
+- `forge test` prints today's count of tests and suites. The deployed commit `64be1f1` passed 241 (`docs/tasks/T-212-contract-hardening.md`, Evidence).
 - CI runs `forge test` in its `contracts` job. Its `anvil` job runs `forge build`, because `forge test` does not compile `script/`, which the anvil tests need.
 
 ## TypeScript tests that need anvil

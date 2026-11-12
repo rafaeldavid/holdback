@@ -76,3 +76,24 @@ e444e0864c3aabafdb544052abc5d54261abe373:site/llms.txt:generic-api-key:161
 59b13228fa5131784ae607501b09dae6a964dfb7:tests/metrics/fixtures/deal-once.events.json:generic-api-key:130
 59b13228fa5131784ae607501b09dae6a964dfb7:tests/metrics/fixtures/deal-once.events.json:generic-api-key:166
 59b13228fa5131784ae607501b09dae6a964dfb7:tests/metrics/fixtures/deal-once.events.json:generic-api-key:186
+# False positive: a made-up curl user and URL password in a scrub test (T-370), the input the run file must drop.
+d977f8a676caa22c9b6b380db94fea50b3d1d2ed:tests/metrics/one-click.test.ts:curl-auth-user:140
+# False positives: main's squash commits, new to this branch with the sync of main (T-374, PR 398; Rafa, 2026-11-12:
+# "Yes, you merge it"). The same content main's list accepts above under its pull-request commits (59b1322, 7a516d5),
+# under the commit IDs the squash gave it: T-066's recorded fixtures, where "token" is the public address of the
+# open-mint test token tUSDC on Sepolia; a made-up address keyed `token` in the T-216 adjudicator's digest test; and
+# anvil's published key for dev account 1 (guards no value), a literal in the public world's test (T-220).
+69021a6043b62899c84167cfe746a0c5b15a4b96:apps/demo-cloud/src/world.test.ts:generic-api-key:865
+69021a6043b62899c84167cfe746a0c5b15a4b96:apps/demo-cloud/src/world.test.ts:generic-api-key:903
+1a2cbd392ba23749b90656091fe0e92abaea6522:examples/e2e-adjudicator.test.ts:generic-api-key:50
+c85147df56fd5e69dbb18cc8d750068e4ed11791:tests/metrics/fixtures/deal-once.events.json:generic-api-key:56
+c85147df56fd5e69dbb18cc8d750068e4ed11791:tests/metrics/fixtures/deal-once.events.json:generic-api-key:65
+c85147df56fd5e69dbb18cc8d750068e4ed11791:tests/metrics/fixtures/deal-once.events.json:generic-api-key:83
+c85147df56fd5e69dbb18cc8d750068e4ed11791:tests/metrics/fixtures/deal-once.events.json:generic-api-key:111
+c85147df56fd5e69dbb18cc8d750068e4ed11791:tests/metrics/fixtures/deal-once.events.json:generic-api-key:115
+c85147df56fd5e69dbb18cc8d750068e4ed11791:tests/metrics/fixtures/deal-once.events.json:generic-api-key:126
+c85147df56fd5e69dbb18cc8d750068e4ed11791:tests/metrics/fixtures/deal-once.events.json:generic-api-key:130
+c85147df56fd5e69dbb18cc8d750068e4ed11791:tests/metrics/fixtures/deal-once.events.json:generic-api-key:166
+c85147df56fd5e69dbb18cc8d750068e4ed11791:tests/metrics/fixtures/deal-once.events.json:generic-api-key:186
+c85147df56fd5e69dbb18cc8d750068e4ed11791:tests/metrics/fixtures/discovery.json:generic-api-key:26
+c85147df56fd5e69dbb18cc8d750068e4ed11791:tests/metrics/fixtures/discovery.json:generic-api-key:83

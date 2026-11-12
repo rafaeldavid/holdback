@@ -1,5 +1,5 @@
 // The audit-report deal template (T-317): the terms file, its sample reports, the worked example in
-// spec/examples and the "Writing checks for a report" section of site/llms.txt. Every check here runs
+// spec/examples and the "Writing checks for a report" section of site/sell.txt (in site/llms.txt until T-359). Every check here runs
 // through @holdback/judgment's own check library, the one an adjudicator runs.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -310,10 +310,11 @@ const supported = (k: string) => SAMPLES.some((v) => { const r = compiles(k, v);
 const ignored = (k: string) =>
   SAMPLES.every((v) => { const r = compiles(k, v); return r.ok && ['other', 1, {}, []].every((x) => r.value(x) === undefined); });
 
-describe('site/llms.txt, "Writing checks for a report"', () => {
-  const md = read('site/llms.txt');
+describe('site/sell.txt, "Writing checks for a report"', () => {
+  const md = read('site/sell.txt');
   const start = md.indexOf('\n## Writing checks for a report\n');
-  const section = start < 0 ? '' : md.slice(start + 1, md.indexOf('\n## ', start + 1));
+  const end = md.indexOf('\n## ', start + 1);
+  const section = start < 0 ? '' : md.slice(start + 1, end < 0 ? undefined : end);
   const listed = (label: string) => {
     const line = section.split('\n').find((l) => l.startsWith(label)) ?? '';
     return [...line.slice(label.length).matchAll(/`([^`]+)`/g)].map((m) => m[1]!);
@@ -321,9 +322,11 @@ describe('site/llms.txt, "Writing checks for a report"', () => {
   const recipes: JudgmentCheck[] = [...section.matchAll(/```json\n([\s\S]*?)\n```/g)].map((m) => JSON.parse(m[1]!));
   const recipe = (id: string) => recipes.filter((c) => c.id === id);
 
-  it('exists, between the buyer checks section and Encodings', () => {
-    expect(start).toBeGreaterThan(md.indexOf('\n## Writing checks that protect a buyer\n'));
-    expect(start).toBeLessThan(md.indexOf('\n## Encodings\n'));
+  it('exists on the seller page, and the agent guide points to it instead of copying it', () => {
+    expect(start).toBeGreaterThan(0);
+    const guide = read('site/llms.txt');
+    expect(guide).not.toContain('\n## Writing checks for a report\n');
+    expect(guide).toContain('"Writing checks for a report" in https://crow.direct/sell.txt');
   });
 
   it('lists exactly the keywords the json_schema interpreter supports', () => {
