@@ -104,6 +104,12 @@ describe('LiveChain refuses a rules contract under another EIP-712 domain (ADR-0
     }
   });
 
+  it('refuses a beacon margin that is not whole non-negative seconds before it reads the chain', () => {
+    for (const bad of ['29', 29.5, -1, '0x1d']) {
+      expect(() => new LiveChain({ deployment: { ...deployment, beaconMarginSec: bad as never }, rpcUrls: [rpc], relayerKey: RELAYER })).toThrow(/beaconMarginSec must be whole non-negative seconds/);
+    }
+  });
+
   it('compares the name too', () => {
     expect(domainMismatch({ name: 'Other', version: '0.8' }, holdbackDomain(31337))).toMatch(/"Other" 0\.8/);
     expect(domainMismatch({ name: 'Holdback', version: '0.8' }, holdbackDomain(31337))).toBeNull();
