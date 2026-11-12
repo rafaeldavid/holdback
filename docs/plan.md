@@ -136,10 +136,10 @@ Focus (Rafa, 2026-11-06; D53, narrowed the same day by D54 after his walkthrough
 - [ ] T-356 (merged to `contracts-audit-ready`: PRs 366, 368, 370, 371 and 372, 2026-11-12; waits for the freeze) Five smaller cuts to the phase-one contracts. Its task file is on that branch.
 - [ ] T-357 (merged to `contracts-audit-ready`: PR 367, 2026-11-12; waits for the freeze) A mutual settlement can settle late work and release its key. Its task file is on that branch.
 - [ ] T-358 (in progress on `contracts-audit-ready`; waits for the freeze) The two address fields in the phase-one contracts (ADR-0033).
-- [ ] T-359 (in progress) The seller's page in the agent docs.
+- [x] T-359 (done: PR 373, 2026-11-12; live from the site deploy of 05:14 UTC) The seller's page, `https://crow.direct/sell.txt`, linked from `llms.txt`.
 - T-360 A task in the maintainers' private repository, with no file here.
 - [ ] T-361 (in progress) Rubric readiness: the screen and the delivery check.
-- [ ] T-362 (in progress) The docs batch: the doc follow-ups from T-329 to T-361 that describe `main`. Task file `docs/tasks/T-362-docs-batch.md`.
+- [x] T-362 (done: PR 374, 2026-11-12; the `CLAUDE.md` change, PR 375, waits for Rafa) The docs batch: the doc follow-ups from T-329 to T-361 that describe `main`. Task file `docs/tasks/T-362-docs-batch.md`.
 - D4 decided: the target is Ethereum mainnet (2026-11-01), built and tested on a local chain, then on Sepolia, the public testnet the demo settles on since D41 (2026-11-03). Mainnet deployment is a separate gate for Rafa after an audit. Record gas per deal in the evidence.
 
 Out of Phase 2 by D54 (Rafa's walkthrough, 2026-11-06): T-212, for the contract redeploy before mainnet; the scenario 11 redesign, as T-310; and T-221, paused until the centralized adjudicator is stable. All three moved to later phases (Future work, below). Phase 2 closes on Sepolia without a contract redeploy, because a new rules contract needs a new demo world (D49).
