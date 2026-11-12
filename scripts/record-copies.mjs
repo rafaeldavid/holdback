@@ -63,7 +63,8 @@ export function valuesOf(record) {
  * The old values and what each becomes: `pairs` (old → new, lowercase keys) for every field both records name with
  * different values, and `retired` for the old deployment's own contracts and transactions (its `contracts` entries)
  * that the new record no longer names anywhere, such as a cut vault. An outside contract the old record named, such as
- * Permit2, is not retired: it is not this deployment's. Fails when one old value would become two new ones.
+ * the canonical token-approval contract, is not retired: it is not this deployment's. Fails when one old value would
+ * become two new ones.
  */
 export function changes(oldRecord, newRecord) {
   const before = valuesOf(oldRecord);
