@@ -161,14 +161,22 @@ All measured on this Mac on 2026-11-12 unless marked. The harness, `reports/scra
 
 ### The cutover-day sheet
 
-Open one terminal for the whole day and start it with these two lines; every command below uses them, and the round of step 15 reads `.env` from the folder it runs in:
+**Decided on 2026-11-12** (Rafa: "Yes, all four"):
+
+- no switch that pauses new deals;
+- the tags `contracts-phase-one-1` (frozen) and `contracts-phase-one-2` (the audit's fixes), pushed by Rafa;
+- one cutover branch from the frozen commit, merged to `main` at the end, with the coordinator holding every other merge to `main` from step 0 to step 11;
+- no separate rehearsal copy of the operators.
+
+**Both protected branches take only pull requests,** `main` and `contracts-audit-ready`. Each needs a pull request with `check` and `gitleaks` passing, and allows no force push. The cutover branch reaches `main` by step 3's pull request, merged at step 11.1, and the lane by a second pull request after it (step 11.2b). gitleaks flags the record's commit until Rafa's `.gitleaksignore` lines name it (step 3.7), and the same lines serve both pull requests.
+
+Open one terminal for the whole day and start it with this line; every command below uses `W` and `R`:
 
 ```sh
 export W=/Users/rafa/Documents/escrow/.worktrees/cutover-phase-one R=https://ethereum-sepolia-rpc.publicnode.com
-cd $W
 ```
 
-`W` is the cutover worktree made at step 0. `R` is Sepolia's public RPC. A keyed URL may replace it, set from the environment; but when a cast or forge call fails, its error can print the URL it called [measured by the PR 434 review], so prefer the public node, and never share a failing step's output while a keyed URL is set.
+Run `cd $W` once step 0 has made the worktree; the round of item 16 reads `.env` from the folder it runs in. `W` is the cutover worktree. `R` is Sepolia's public RPC. A keyed URL may replace it, set from the environment; but when a cast or forge call fails, its error can print the URL it called [measured by the PR 434 review], so prefer the public node, and never share a failing step's output while a keyed URL is set.
 
 **Values Rafa supplies, by name only:**
 
@@ -181,36 +189,57 @@ cd $W
 
 **The commands, in order:**
 
-1. **Step 0, baseline.** Run `git -C /Users/rafa/Documents/escrow fetch origin` and make the worktree as the page says. Then:
+1. **First, the deployer's balance.** Run `cast balance <deployer address> --ether --rpc-url $R`; it must show at least 0.5 Sepolia ETH.
+   - **Why 0.5:** one deploy of the five contracts used 8,674,078 gas on anvil, 0.17 ETH at 20 gwei. A failed run is rerun whole, and Sepolia's gas price moves.
+   - **Today's deployer is short.** The deployer of the 2026-11-04 record, `0x1A4435488eaF1A37d2327d44Fe67e97d83203B64`, held 0.1074 Sepolia ETH at 19:59 UTC on 2026-11-12 [measured by the coordinator]. Fund it, or use a new throwaway key, before anything else.
+2. **Step 0, baseline.**
+   - `git -C /Users/rafa/Documents/escrow fetch origin`.
+   - **The frozen commit** is the lane's tip at the moment of the freeze. It comes after the reviews' pull request (449), the mutation run's tests-only pull request and the open tool and docs pull requests have merged, and nothing merges to the lane after it until step 11.2b. It is not `0180a39`, which lacks the tools and docs merged after it.
+   - Make the worktree there: `git -C /Users/rafa/Documents/escrow worktree add $W -b cutover-phase-one <frozen commit>`. Then run the page's submodule and install lines, and `cd $W`.
+   - **Its `contracts/src` equals `0180a39`'s,** the last commit that changed it. `git -C $W diff --quiet 0180a39f941194f3a90733e5f785675caa6c2f32 -- contracts/src; echo $?` prints `0`. The page's runtime-hash command (step 0.1.2) prints `HoldbackRules` 20,449 bytes `545f80b5…0c47` and `DrandQuicknetBeacon` 3,216 bytes `3a8c11c6…e38c96`.
    - `git -C $W merge-base --is-ancestor origin/main HEAD; echo $?` prints `0`.
-   - `cast balance <deployer> --ether --rpc-url $R` shows at least 0.5 ETH.
-   - `npx wrangler@4 deployments status --name <each Worker> --json`, for holdback-op1, holdback-op2, crow-test-agents and crow-site. Write the four versions down: they are the rollback targets.
-2. **Step 1, the quiet.** List the open deals on both nodes (the page's `curl`), and wait for each, or record it as left behind.
-3. **Step 2.1, rehearse.** `pnpm -C $W exec vitest run packages/settlement/evm/deploy-script.test.ts` passes: 15 tests, 38 s on this Mac.
-4. **Step 2.2.** `cast chain-id --rpc-url $R` prints `11155111`.
-5. **Step 2.3.** `node $W/scripts/record-copies.mjs keep --rpc $R` prints `kept contracts/deployments/sepolia.json as contracts/deployments/sepolia-2026-11-04T0830Z-domain-0.7.json` [measured by the PR 434 review: a read-only run against the public Sepolia node, on a scratch copy of today's record], and the `--old` line with full paths. Run it before step 2.4.
-6. **Step 2.4.** `$W/contracts/script/deploy-sepolia.sh $R <keystore-file> <password-file>` prints the token note, then `wrote …/contracts/deployments/sepolia.json`.
-7. **Step 2.6.** `cast call <new rules> 'eip712Domain()(bytes1,string,string,uint256,address,bytes32,uint256[])' --rpc-url $R` reads `"Holdback"` and `"0.8"`.
-8. **Step 3.1.** Run the `--old` line step 2.3 printed: `node $W/scripts/record-copies.mjs --root $W --old contracts/deployments/sepolia-2026-11-04T0830Z-domain-0.7.json --new contracts/deployments/sepolia.json`. It prints `record-copies: pass: …`. Until T-385 removes them, it fails on exactly two `site/llms.txt` lines that name the cut vault.
-9. **Step 3.2.** `$W/contracts/script/deploy-sepolia.sh --check $R` prints `… matches the chain and the build at <frozen commit>`.
-10. **Step 3.3.** `$W/contracts/script/deploy-sepolia.sh --verify $R`, with `ETHERSCAN_API_KEY` unset, prints `the five contracts are verified on Sourcify (Etherscan needs a key and a newer forge; not run)`.
-11. **Step 3.4 to 3.8.** `node $W/site/check.mjs`; the page's guards; one commit; the pull request into `main`; Rafa's gitleaks lines; `pnpm -C $W verify`.
-12. **Step 4.** The two fork suites, each with `SEPOLIA_FORK_RPC` set, run one at a time; a skip is a failure.
+   - Run `npx wrangler@4 deployments status --name <each Worker> --json` for holdback-op1, holdback-op2, crow-test-agents and crow-site. Write the four versions down: they are the rollback targets.
+   - From here to step 11 the coordinator holds every merge to `main`.
+3. **Step 1, the quiet.** List the open deals on both nodes (the page's `curl`), and wait for each, or record it as left behind.
+4. **Step 2.1, rehearse.** `pnpm -C $W exec vitest run packages/settlement/evm/deploy-script.test.ts` passes: 15 tests, 38 s on this Mac.
+5. **Step 2.2.** `cast chain-id --rpc-url $R` prints `11155111`.
+6. **Step 2.3.** `node $W/scripts/record-copies.mjs keep --rpc $R` prints `kept contracts/deployments/sepolia.json as contracts/deployments/sepolia-2026-11-04T0830Z-domain-0.7.json` [measured by the PR 434 review: a read-only run against the public Sepolia node, on a scratch copy of today's record], and the `--old` line with full paths. Run it before step 2.4.
+7. **Step 2.4.** `$W/contracts/script/deploy-sepolia.sh $R <keystore-file> <password-file>` prints the token note, then `wrote …/contracts/deployments/sepolia.json`.
+8. **Step 2.6.** `cast call <new rules> 'eip712Domain()(bytes1,string,string,uint256,address,bytes32,uint256[])' --rpc-url $R` reads `"Holdback"` and `"0.8"`.
+9. **Step 3.1.** Run the `--old` line step 2.3 printed: `node $W/scripts/record-copies.mjs --root $W --old contracts/deployments/sepolia-2026-11-04T0830Z-domain-0.7.json --new contracts/deployments/sepolia.json`. It prints `record-copies: pass: …`. Until T-385 removes them, it fails on exactly two `site/llms.txt` lines that name the cut vault.
+10. **Step 3.2.** `$W/contracts/script/deploy-sepolia.sh --check $R` prints `… matches the chain and the build at <frozen commit>`.
+11. **Step 3.3.** `$W/contracts/script/deploy-sepolia.sh --verify $R`, with `ETHERSCAN_API_KEY` unset, prints `the five contracts are verified on Sourcify (Etherscan needs a key and a newer forge; not run)`.
+12. **Step 3.4 to 3.8.** `node $W/site/check.mjs`; the page's guards; one commit; the pull request into `main`; Rafa's gitleaks lines; `pnpm -C $W verify`.
+13. **Step 4.** The two fork suites, each with `SEPOLIA_FORK_RPC` set, run one at a time; a skip is a failure.
     - `apps/demo-cloud/src/live-fork.test.ts` shows one deal through the public world against the new contracts, on a fork.
     - `apps/adjudicator/src/drand-fork.test.ts` shows an escalation and its decision from live drand rounds, both accepted by the new rules contract. It is the one check of the beacon and the 29 s margin against real rounds before the operators deploy.
-13. **Step 5.** The quiet again, within one minute of step 6.
-14. **Step 6.** Run `pnpm -C $W demo-cloud:deploy`. Before any upload it prints the deal guard's line: `Deal guard: <n> open deals at the demo adjudicators checked against the new build's kept-policies.json; none would lose its judge.`
+14. **Step 5.** The quiet again, within one minute of step 6.
+15. **Step 6.** Run `pnpm -C $W demo-cloud:deploy`. Before any upload it prints the deal guard's line: `Deal guard: <n> open deals at the demo adjudicators checked against the new build's kept-policies.json; none would lose its judge.`
     - `<n>` must equal the deals recorded as left behind in step 1.5, normally 0. The guard checks policies, not worlds, so its pass is not the quiet's proof.
     - **A `Refused:` with exit code 2** means an open old-world deal binds a policy the new build dropped. Nothing was uploaded. Do not set `HOLDBACK_DEPLOY_WITHDRAWN`; go back to step 1 for that deal.
     - **A `WARNING:` that the deals could not be read** means the guard checked the policy files only. Read the deals by hand (step 1.3) before going on.
     - The deploy then waits for both nodes to serve the new commit (about five minutes on 2026-11-12) and ends `pass` with a smoke deal `Released`. At the fee of 0 the smoke buyer pays 26 tUSDC (price 25, adjudication fee 1) and the seller receives 25, with no operator-fee transfer [measured on anvil at `1db0003`: `buyer 974 tUSDC, seller 1025 tUSDC` after 1,000 each].
     - Read `/v1/status` and `/.well-known/holdback.json` on both nodes: the new rules address and the new token.
-15. **Step 7.** Run `node --env-file-if-exists=.env $W/examples/e2e-round.ts run 5b --t220 --no-homepage`, then `… run 12 --no-homepage`. Each prints `results: … pass`. Scenario 12 prints `PASS: 31 of 31 checks held`, with "no operator fee moves: the fee is 0" on both deals [measured on anvil at `e5d2529`].
-16. **Step 8.** `node $W/apps/test-agents/scripts/deploy.mjs`; then the two `site/try.mjs --seller` deals and `sell-to-test-buyer.mjs`.
-17. **Step 11.1, part of point of no return 2.** Merge the step-3 pull request into `main` (a revert only from here). The site deploys from `main`, because the lane's agent docs describe the phase-one deployment.
-18. **Step 9, point of no return 1.** Run `git -C $W fetch origin && git -C $W switch --detach origin/main`. Then `pnpm -C $W site:deploy` ends `pass`. Then run the one command from `https://crow.direct/llms.txt` in an empty folder: it ends `Released`.
-19. **Step 10.** The founder console.
-20. **The rest of step 11.** `$W/contracts/script/deploy-sepolia.sh --check $R` from `main`, the tag (the rest of point of no return 2), `docs/audit/scope.md`, and the rehearsal cases.
+16. **Step 7.** Run `node --env-file-if-exists=.env $W/examples/e2e-round.ts run 5b --t220 --no-homepage`, then `… run 12 --no-homepage`. Each prints `results: … pass`. Scenario 12 prints `PASS: 31 of 31 checks held`, with "no operator fee moves: the fee is 0" on both deals [measured on anvil at `e5d2529`].
+17. **Step 8.** `node $W/apps/test-agents/scripts/deploy.mjs`; then the two `site/try.mjs --seller` deals and `sell-to-test-buyer.mjs`.
+18. **Step 11.1, part of point of no return 2.** Merge the step-3 pull request into `main` (a revert only from here). The site deploys from `main`, because the lane's agent docs describe the phase-one deployment.
+19. **Step 9, point of no return 1.** Run `git -C $W fetch origin && git -C $W switch --detach origin/main`. Then `pnpm -C $W site:deploy` ends `pass`. Then run the one command from `https://crow.direct/llms.txt` in an empty folder: it ends `Released`.
+20. **Step 10.** The founder console.
+21. **The rest of step 11.**
+    - `$W/contracts/script/deploy-sepolia.sh --check $R` from `main`.
+    - The pull request from `cutover-phase-one` into `contracts-audit-ready` (11.2b), merged once `check` and `gitleaks` pass.
+    - The tag, which completes point of no return 2. It goes on step 11.1's merge commit on `main`. The coordinator holds every other merge, so `origin/main` is that commit; check its subject names the step-3 pull request first. Rafa runs:
+
+      ```sh
+      git -C $W fetch origin main
+      git -C $W log -1 --format='%H %s' origin/main
+      git -C $W tag -a contracts-phase-one-1 origin/main -m "Holdback phase-one contracts, frozen for the audit and deployed on Sepolia"
+      git -C $W push origin contracts-phase-one-1
+      ```
+
+    - **An auditor checks the tag** with the page's two `git diff --quiet` lines (step 11.3). The first compares the tag with the record's `commit`, the second with `0180a39`, both over `contracts/src`; each prints `0`. Then the runtime hashes at the tag match step 0.1.2's.
+
+    - Then `docs/audit/scope.md` and the rehearsal cases.
 
 **Rollback at each point:**
 
@@ -226,7 +255,8 @@ cd $W
 **Before the day, Rafa decides:**
 
 - **When to run it.** R11's reviews come first, and the rehearsal is rerun at the frozen commit with step 2.1's command.
-- **The deployer.** Reuse the deployer of the live record, `0x1A4435488eaF1A37d2327d44Fe67e97d83203B64`, or a new throwaway key. It needs at least 0.5 Sepolia ETH.
+- **The deployer.** Reuse the deployer of the live record, `0x1A4435488eaF1A37d2327d44Fe67e97d83203B64`, or a new throwaway key. It needs at least 0.5 Sepolia ETH, and the live record's deployer held 0.1074 on 2026-11-12 at 19:59 UTC.
+- **Decided on 2026-11-12,** and so no longer open: no pause switch; the tag names; one cutover branch, with the coordinator holding merges to `main`; no separate rehearsal copy of the operators.
 
 **For other sessions:**
 

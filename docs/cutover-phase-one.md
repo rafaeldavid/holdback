@@ -4,6 +4,17 @@
 
 This page moves the live test service from the contracts deployed on 2026-11-04 to the phase-one contracts. It covers the contracts, two operators, the test seller and buyer, the site with its pinned client, and the founder console. The cutover of 2026-11-04 in [`operations.md`](operations.md) is its model.
 
+## Decided on 2026-11-12
+
+Rafa accepted four choices for this redeploy ("Yes, all four", relayed by the coordinator):
+
+1. **No switch that pauses new deals** before the switch-over. The quiet of steps 1 and 5 is a wait and two checks, and the race between step 5 and step 6 is accepted (gap 1 of T-363).
+2. **The tag names:** the frozen version is tagged `contracts-phase-one-1`, the version with the audit's fixes `contracts-phase-one-2`. Rafa pushes each tag (step 11.3).
+3. **One cutover branch,** `cutover-phase-one`, cut from the frozen commit and merged to `main` at the end. No other merge to `main` while it runs: the coordinator holds merges to `main` from step 0 to step 11.
+4. **No separate rehearsal copy of the operators** on Sepolia. The live test service is the stage. Steps 6 to 8 run before the first point of no return, with a rollback, and the old world stays intact (gap 13 of T-363).
+
+**Both protected branches take only pull requests:** `main` and, since 2026-11-12, `contracts-audit-ready`. Each requires a pull request whose `check` and `gitleaks` pass, and allows no force push. So the cutover branch reaches `main` by step 3's pull request, merged at step 11.1. It reaches the lane by a pull request from `cutover-phase-one` into `contracts-audit-ready` after that merge (step 11.2b). Nobody pushes to either branch directly.
+
 ## Rules for the whole run
 
 1. **Sepolia only.** Every chain step runs on Ethereum Sepolia, chain ID 11155111. Before any step that names an RPC, run `cast chain-id --rpc-url <rpc-url>`. If it prints anything else, stop. This page does not apply to another chain, and no line of it may be adapted to a mainnet chain ID. A mainnet deploy needs an audit, Rafa's written approval and its own checklist ([`operations.md`](operations.md), Gates). The deploy script refuses any other chain, except a rehearsal on a local anvil behind a `http://127.0.0.1` RPC that never writes the Sepolia record, and so does the operators' chain client (`packages/settlement/evm/live.ts`) [measured by reading].
@@ -42,21 +53,34 @@ This page moves the live test service from the contracts deployed on 2026-11-04 
 
 **Who:** Rafa decides; a session may run the reads.
 
-1. **The lane is frozen.** Every gate of the refinement plan has passed, `main` is merged into `contracts-audit-ready`, and the lane's tip is the commit to audit. Call it the frozen commit. **Second pass:** the gates wait for R7 to R11.
-2. **`main` takes no merge until step 11.** Every deploy script refuses, with exit code 2, a checkout that lacks `origin/main`'s commits after a fresh fetch (`scripts/deploy-lib.mjs:100`) [measured]. If `main` moves mid-run, merge it into the cutover branch and repeat step 3's checks before the next deploy.
+1. **The lane is frozen.** The freeze is two checks, and both must hold:
+   1. **The frozen commit is the lane's tip at the moment of the freeze.** It comes after the reviews' pull request (449), the mutation run's tests-only pull request, and the tool and docs pull requests still open, have merged. Nothing merges to the lane after it, until step 11.2b brings the cutover's record back. It is not `0180a39`, which lacks the tools and docs merged after it, among them the buyer tool's date check (`609cdd7`) and the short guides (`541dbd8`) [measured by T-387].
+   2. **Its `contracts/src` is identical to `0180a39f941194f3a90733e5f785675caa6c2f32`'s,** the last commit that changed `contracts/src` (a comment). Two checks show it. `git diff --quiet 0180a39f941194f3a90733e5f785675caa6c2f32 <frozen commit> -- contracts/src; echo $?` prints `0`. And the runtime code, as the SHA-256 of each artifact's `deployedBytecode` without its CBOR metadata tail (T-384's method), reads:
+      - `HoldbackRules`: 20,449 bytes, `545f80b56390f540e5a98d715c7a436914af83d3653bf458d14c380ff53b0c47`;
+      - `DrandQuicknetBeacon`: 3,216 bytes, `3a8c11c6bc2940b404c417b538bdd6a40c431717c4d32e62dfa5ab3479e38c96`.
+
+      [Measured by T-384, and again by T-383 at `00e4658`.] The command, in bash, from the cutover worktree:
+
+      ```bash
+      for id in src/HoldbackRules.sol:HoldbackRules src/DrandQuicknetBeacon.sol:DrandQuicknetBeacon; do code=$(forge inspect --root contracts $id deployedBytecode); body=${code#0x}; n=$((16#${body: -4})); stripped=${body:0:$(( ${#body} - (n+2)*2 ))}; echo "$id $(( ${#stripped} / 2 )) bytes $(printf '%s' "$stripped" | xxd -r -p | shasum -a 256 | cut -d' ' -f1)"; done
+      ```
+
+   The audit's scope names both: the tagged commit (step 11.3), and `0180a39` as the last change to `contracts/src`. **Second pass:** the gates wait for R7 to R11.
+2. **`main` takes no merge until step 11: the coordinator holds every merge to `main` from step 0 to step 11** (decided, 2026-11-12). Every deploy script refuses, with exit code 2, a checkout that lacks `origin/main`'s commits after a fresh fetch (`scripts/deploy-lib.mjs:100`) [measured]. If `main` moves mid-run, merge it into the cutover branch and repeat step 3's checks before the next deploy.
 3. **Make the cutover worktree** at the frozen commit:
 
    ```sh
    git -C /Users/rafa/Documents/escrow fetch origin
-   git -C /Users/rafa/Documents/escrow worktree add /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one -b cutover-phase-one origin/contracts-audit-ready
+   git -C /Users/rafa/Documents/escrow worktree add /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one -b cutover-phase-one <the frozen commit>
+   git -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one diff --quiet 0180a39f941194f3a90733e5f785675caa6c2f32 -- contracts/src; echo $?
    git -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one submodule update --init --recursive
    pnpm -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one install --frozen-lockfile
    ```
 
-   Every command below runs against this worktree. The submodule line is needed for `forge` [inferred: a new worktree has empty submodule folders].
+   Every command below runs against this worktree. The submodule line is needed for `forge` [inferred: a new worktree has empty submodule folders]. The `diff --quiet` line must print `0`: `contracts/src` equals `0180a39`'s (check 0.1.2). A `1` means the contract source changed after it: stop, and confirm the audit's scope with the coordinator before going on.
 4. **It holds `main`.** `git -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one merge-base --is-ancestor origin/main HEAD; echo $?` prints 0.
 5. **The tools answer:** `forge --version`, `cast --version`, `jq --version`, `node --version` (22), `npx wrangler@4 whoami` (Rafa's Cloudflare login).
-6. **The deployer has test ETH.** The deployment of 2026-11-03 used 75,443,236 gas for the larger, old set of contracts [measured, `docs/tasks/T-206-contract-review.md:126`]. At 20 gwei that is 1.51 Sepolia ETH. The phase-one set used 8,674,078 gas for its five creations on anvil (Prague) [measured, T-383's rehearsal], 0.17 ETH at 20 gwei; Sepolia's figure may differ [inferred]. Keep at least 0.5 Sepolia ETH, which also covers a whole rerun. Read the balance: `cast balance <deployer-address> --ether --rpc-url https://ethereum-sepolia-rpc.publicnode.com`. The deployer of the live record is `0x1A4435488eaF1A37d2327d44Fe67e97d83203B64`; reusing it is Rafa's call.
+6. **The deployer has test ETH.** The deployment of 2026-11-03 used 75,443,236 gas for the larger, old set of contracts [measured, `docs/tasks/T-206-contract-review.md:126`]. At 20 gwei that is 1.51 Sepolia ETH. The phase-one set used 8,674,078 gas for its five creations on anvil (Prague) [measured, T-383's rehearsal], 0.17 ETH at 20 gwei; Sepolia's figure may differ [inferred]. Keep at least 0.5 Sepolia ETH, which also covers a whole rerun. Read the balance: `cast balance <deployer-address> --ether --rpc-url https://ethereum-sepolia-rpc.publicnode.com`. The deployer of the live record is `0x1A4435488eaF1A37d2327d44Fe67e97d83203B64`; reusing it is Rafa's call. **It held 0.1074 Sepolia ETH on 2026-11-12 at 19:59 UTC** [measured by the coordinator from a public endpoint]: below 0.5, so fund it, or a new deployer, before the day. 0.1074 ETH covers one deploy only while Sepolia's gas stays under about 12 gwei, and no rerun [inferred from the anvil figure].
 7. **The relayer's funding lane has test ETH:** `cast balance 0x601137a8DE7E195E1426f57C053aFa49B20Ef555 --ether --rpc-url https://ethereum-sepolia-rpc.publicnode.com`. The new world uses the same relayer key and the same four lanes, and tops each deal lane up by 0.03 ETH when it falls below 0.01 ETH (`apps/demo-cloud/src/world.ts:210-211`) [measured]. Do not run `apps/demo-cloud/scripts/relayer.mjs` or `apps/test-agents/scripts/seed.mjs`: both secrets stay as they are.
 8. **Write down each Worker's live version,** the rollback target for the whole run:
 
@@ -247,7 +271,7 @@ AL-1 deleted the third suite of the first pass, `predeploy-fork.test.ts`, which 
 3. Read the agents: `curl -s https://crow.direct/agents/test-seller/health` and `curl -s https://crow.direct/agents/test-buyer/health`. Each must say `"open": 0`. If one does not, the deal it holds is on the old contracts: record its ID as left behind (step 1.5), as for an operator's deal. The agents' storage is new with each record (T-383: its name is the record's rules address), so that deal stays in the old storage, which a rollback serves again.
 
 **It must show:** all three lines true within the same minute.
-**The race that remains:** a stranger can open a deal between this check and step 6, because nothing can refuse new deals (gap 1 of T-363). Step 6.5 looks for it.
+**The race that remains:** a stranger can open a deal between this check and step 6, because nothing can refuse new deals (gap 1 of T-363; no pause switch, accepted on 2026-11-12). Step 6.5 looks for it.
 **Rollback:** none. **Stopping here is safe.**
 
 ## Step 6. The operators and the new world; one smoke deal (plan steps 5 and 6)
@@ -399,13 +423,30 @@ It must show the new rules address, the new token and the new world's start bloc
 
 1. **Merge the pull request of step 3 into `main`.** `main` then holds the build that is live and the record it settles on. This runs right after step 8, before step 9: the site deploys from `main`.
 2. **Confirm once more, from `main`:** `contracts/script/deploy-sepolia.sh --check https://ethereum-sepolia-rpc.publicnode.com`.
-3. **Tag the frozen commit,** the `commit` field of `contracts/deployments/sepolia.json`. The repository has no tag today [measured], so the name is Rafa's to choose (gap 9 of T-363). Pushing a tag reaches outside the repository.
+2b. **The lane takes the record too,** by a pull request from `cutover-phase-one` into `contracts-audit-ready`. Merge it once its `check` and `gitleaks` pass; both branches are protected, so nothing is pushed to them directly.
+3. **Tag `contracts-phase-one-1`** (decided, 2026-11-12) on the merge commit of step 11.1 on `main`, where Rafa's choice 3 puts the end of the cutover. Rafa pushes it; pushing a tag reaches outside the repository. The coordinator holds every other merge to `main`, so `origin/main` is that merge commit; the first command shows it, and its subject must name the step-3 pull request:
+
+   ```sh
+   git -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one fetch origin main
+   git -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one log -1 --format='%H %s' origin/main
+   git -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one tag -a contracts-phase-one-1 origin/main -m "Holdback phase-one contracts, frozen for the audit and deployed on Sepolia"
+   git -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one push origin contracts-phase-one-1
+   ```
+
+   **How an auditor checks the tag:** the tagged commit's `contracts/src` equals the frozen commit's, the record's `commit`, and `0180a39`'s. Each of these prints `0`:
+
+   ```sh
+   git diff --quiet contracts-phase-one-1 "$(git show contracts-phase-one-1:contracts/deployments/sepolia.json | jq -r .commit)" -- contracts/src; echo $?
+   git diff --quiet contracts-phase-one-1 0180a39f941194f3a90733e5f785675caa6c2f32 -- contracts/src; echo $?
+   ```
+
+   Then the runtime hashes of check 0.1.2, at the tag, match the two values there. The redeploy with the audit's fixes is tagged `contracts-phase-one-2` the same way, on its own cutover's merge commit.
 4. **`docs/audit/scope.md` names the frozen commit,** the rules contract's size and the code-line count. The words package writes it. **Second pass.**
 5. **The pilot's rehearsal cases on the new world,** one at a time: `pnpm -C <checkout> audit-deal --live --case <case>` for released, redelivered, rubric, refunded, missed-deadline, shown-mismatch and resume. **Second pass:** the tool with `--case` is on `main` (T-355) and reaches the lane when `main` is merged into it; its live cases are built and have not run.
 6. **Write the record into [`operations.md`](operations.md),** in the coordinator's docs commit: the old world's name, rules address and record file; the new ones; every Worker's version and rollback target; each smoke and test deal; the deals left behind in step 1.5. Say that the new world bonds no one. Say that the old vault still holds the three demo adjudicators' deposits of 25,000 tUSDC each. They are test tokens, and the world has no withdrawal path for them (gap 12 of T-363).
 7. **Update the daily log** in the private repository.
 
-**It must show:** `--check` passes from `main`; the tag points at the record's commit; the seven cases have a deal record each.
+**It must show:** `--check` passes from `main`; the tag points at step 11.1's merge commit, and the auditor's two `git diff` lines of step 11.3 print `0`; the seven cases have a deal record each.
 **Rollback:** a revert on `main` only; `main` takes no force push. Moving a pushed tag is a history rewrite and a gate.
 
 **Point of no return 2.** The merge and the tag fix the commit an auditor reads. A contract change after this step is a new deployment and a new run of this page.
