@@ -26,11 +26,14 @@
 //    guide names exists and so does every section it cites by name, every crow.direct link resolves, no sentence is in two guides, every call a guide names is a
 //    route in docs/api.md, every file under examples/, fixtures/ or spec/ and every pnpm script a guide names exists,
 //    and the deployment's addresses are in llms.txt alone (scripts/record-copies.mjs rewrites them there). A publish build writes every guide.
+// 13. The buyer's one file (T-393): site/buy.mjs is the current bundle of the buyer's commands, imports only Node's
+//    own modules, viem and tweetnacl, declares its commands in its banner, and buy.txt's first step installs it by its
+//    sha256.
 // 12. The budget (T-393): each role's first-deal path, the front door plus its page, is within FIRST_DEAL_BUDGET
 //    (site/guides.mjs). With HOLDBACK_AGENT_ANTHROPIC_API_KEY set it counts with Anthropic's count_tokens for the
 //    pinned model; without it, bytes divided by four. It says which.
 import { existsSync, readFileSync } from 'node:fs';
-import { ASSETS, BASE, BUY_URL, filled, page, pins, problemPages, publishedGuides, SELL_URL, SITE_URL, strip, TEST_SELLER_URL, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
+import { ASSETS, BASE, BUY_COMMANDS, BUY_MJS_URL, BUY_URL, buyBundle, buyInstall, buySha256, filled, page, pins, problemPages, publishedGuides, SELL_URL, SITE_URL, strip, TEST_SELLER_URL, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
 import { apiRoutes, citedSections, duplicateSentences, hasSection, FIRST_DEAL_BUDGET, guideFiles, guideSource, measurePaths, namedCalls, namedReferences, referenceFiles, routeKnown } from './guides.mjs';
 
 const here = (p) => new URL(p, import.meta.url);
@@ -229,7 +232,7 @@ const roles = sectionOf(md, 'Read one page for your role');
 expect(roles.includes(BUY_URL) && roles.includes(SELL_URL), `llms.txt has a "Read one page for your role" section that links ${BUY_URL} and ${SELL_URL}`);
 
 // 11. The guides together (T-393).
-const published = new Set(['index.html', 'try.mjs', 'version.json', ...ASSETS]);
+const published = new Set(['index.html', 'try.mjs', 'buy.mjs', 'version.json', ...ASSETS]);
 const scripts = JSON.parse(read('../package.json')).scripts;
 const refs = referenceFiles();
 const listed = [...sectionOf(md, 'Reference').matchAll(/^- `([a-z0-9-]+\.txt)`/gm)].map((m) => `ref/${m[1]}`).sort();
@@ -267,6 +270,28 @@ if (existsSync(here('../reports/site-out/llms.txt'))) {
   } catch {}
   for (const [p, text] of built) expect(existsSync(here(`../reports/site-out/${p}`)) && read(`../reports/site-out/${p}`) === text, `reports/site-out/${p} is missing or stale against site/${p}: build with --out again`);
 }
+
+// 13. The buyer's one file (T-393): site/buy.mjs is the current bundle of site/buy-entry.mjs, importing only Node's
+//     own modules, viem and tweetnacl; its banner declares the commands it holds before any module runs; buy.txt's
+//     first step carries the one install command, with the file's current sha256.
+const buyFile = read('buy.mjs');
+expect(buyFile === (await buyBundle()), 'site/buy.mjs is stale against examples/: run node site/build.mjs');
+const buyImports = [...new Set([...buyFile.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]))].sort();
+expect(buyImports.every((m) => m.startsWith('node:') || ['tweetnacl', 'viem', 'viem/accounts'].includes(m)) && !/@holdback\/|\bimport\(/.test(buyFile), `site/buy.mjs must import only node:*, viem, viem/accounts and tweetnacl, and nothing dynamically (it imports ${buyImports.join(', ')})`);
+const declares = `Object.defineProperty(globalThis, 'crowCommands', { value: Object.freeze(${JSON.stringify(BUY_COMMANDS)})`;
+expect(buyFile.indexOf(declares) > 0 && buyFile.indexOf(declares) < buyFile.indexOf('\nimport '), "site/buy.mjs's banner must declare crowCommands, as BUY_COMMANDS in site/build.mjs, before any module");
+const install = buyInstall();
+const firstStep = sectionOf(buy, 'First hour').split(/\n(?=\d+\. \*\*)/)[1] ?? '';
+expect(count(buy, '{{BUY_INSTALL}}') === 1 && firstStep.includes('```sh\n   {{BUY_INSTALL}}\n   ```'), 'buy.txt must carry {{BUY_INSTALL}} once, in an sh block in the first step of "First hour"');
+expect(install.includes(`curl -fsSL ${BUY_MJS_URL} -o buy.mjs.part `) && install.endsWith(`echo "${buySha256()}  buy.mjs.part" | shasum -a 256 -c && mv buy.mjs.part buy.mjs`) && (filledGuides.get('buy.txt') ?? '').includes(install), 'the published buy.txt does not carry the install command with the current sha256 of site/buy.mjs');
+// The dispatcher's words and the banner's commands are one table: each `node buy.mjs <word>` routes to its own command,
+// and every command a bundled file names is one the banner declares, or it would print a file crow-buy does not have.
+const words = JSON.parse((/const SUBCOMMANDS = (\{[^}]*\});/.exec(read('buy-entry.mjs'))?.[1] ?? '{}').replace(/(\w+):/g, '"$1":').replace(/'/g, '"'));
+const routed = { 'buy-with-signer': 'node buy.mjs', ...Object.fromEntries(Object.entries(words).map(([w, name]) => [name, `node buy.mjs ${w}`])) };
+expect(JSON.stringify(Object.entries(routed).sort()) === JSON.stringify(Object.entries(BUY_COMMANDS).sort()), `site/buy-entry.mjs routes ${JSON.stringify(routed)}, and BUY_COMMANDS in site/build.mjs declares ${JSON.stringify(BUY_COMMANDS)}: they must be the same`);
+for (const [, name] of buyFile.matchAll(/command(?:\$\d+)?\("([a-z-]+)"/g)) expect(Object.hasOwn(BUY_COMMANDS, name), `site/buy.mjs prints the command ${name}, which BUY_COMMANDS does not declare: it would print node examples/${name}.ts`);
+for (const [name, line] of Object.entries(BUY_COMMANDS)) expect(!(filledGuides.get('buy.txt') ?? '').includes(`node examples/${name}.ts`) && buy.includes(line), `buy.txt must run ${name} as \`${line}\`, the file step one installs`);
+if (existsSync(here('../reports/site-out/llms.txt'))) expect(existsSync(here('../reports/site-out/buy.mjs')) && read('../reports/site-out/buy.mjs') === buyFile, 'reports/site-out/buy.mjs is missing or differs from site/buy.mjs: build with --out again');
 
 // 12. The budget (T-393).
 let measured = [];
