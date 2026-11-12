@@ -360,6 +360,36 @@ describe('seller adapter: one configuration file (T-331)', () => {
   }, 30_000);
 });
 
+describe('seller adapter: a mandate that ends', () => {
+  it('refuses a quote with 503 when the mandate has ended, and asks the seller API for no price', async () => {
+    let aheadMs = 0;
+    const own = await PublicWorld.open({ storage: new MemoryStorage(), env: {}, now: () => Date.now() + aheadMs, telemetryLog: () => {} });
+    const served = await serveTwoOrigins(own, { tickMs: 100 });
+    const discovery = (await (await fetch(`${served.urls[0]}/.well-known/holdback.json`)).json()) as J;
+    stub = await startStubSellerApi({ port: 0, token: discovery.demo.token.id });
+    const key = generatePrivateKey();
+    const seller = new Agent(served.urls, key, new Uint8Array(32));
+    const buyer = new Agent(served.urls, generatePrivateKey(), new Uint8Array(32).fill(7));
+    let running: RunningAdapter | undefined;
+    try {
+      await seller.call('POST', '/v1/faucet', { address: seller.address, amount: '1' }); // a 30-day mandate, from no faucet the adapter asks
+      running = await startSellerAdapter({ ...shipped, port: 0, sellerApi: stub.api, mandate: { fromFaucet: false }, journal: join(mkdtempSync(join(tmpdir(), 't366-')), 'journal.json'), pollMs: 50, log: () => {} }, { HOLDBACK_KEY: key, HOLDBACK_OPERATORS: served.urls.join(',') });
+      expect((await quoteFor(running, buyer)).status).toBe(200);
+      expect(stub.calls.quote).toBe(1);
+
+      aheadMs += 31 * 86_400_000; // past the mandate's 30 days
+      const late = await quoteFor(running, buyer);
+      expect(late.status, JSON.stringify(late.body)).toBe(503);
+      expect(late.body).toEqual({ type: 'seller_unavailable', detail: 'the seller holds no mandate to offer now' });
+      expect(stub.calls.quote).toBe(1); // the refused quote asked the seller API for nothing
+      expect(running.deals()).toHaveLength(1);
+    } finally {
+      await running?.close();
+      await served.close();
+    }
+  }, 30_000);
+});
+
 describe('seller adapter: on operators that charge a fee', () => {
   it('quotes the operator fee and the total, and the deal settles with the fee paid', async () => {
     const shared = world;

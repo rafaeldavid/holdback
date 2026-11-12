@@ -1095,6 +1095,17 @@ The full text is kept privately (`docs/private-materials.md`).
 - **What does not change:** the rule, the gate lines and the residuals of ADR-0032. Gate line BR-6 still measures the runs on mainnet before a deploy there, and the margin can be raised then, before the deploy fixes it.
 - **Litmus tests.** Unchanged from D59.
 
+## D64. The screen flags what text asks of the judges, and passes honest audit reports (ADR-0035)
+
+**Adopted 2026-11-12 by T-367** (roadmap row N87), after T-361 measured nine honest audit lines each flagging a whole report, and one red-team pass. Rafa may overrule any line.
+
+- **Weak and strong phrases.** Phrases that are ordinary in an audit ("bypass the previous check", "Expected output: [PASS]", "a pre-approved allowance", "the acceptance criteria are met", "its system prompt", "Reviewer note") flag only within 80 characters of a judging word: the verdict, the rubric, the judges, the panel, an evaluator, a grader, an adjudicator. A phrase that names the judges or the verdict and tells the reader what to decide still flags alone, wherever it sits.
+- **Encoded text flags for what it decodes to.** A JWT or a hex-encoded function signature passes. Decoded text with a signal, a judging word, or five words of prose in a row, flags; so does any Morse, text encoded deeper than two levels, and decoded text past 1 MiB.
+- **No judge reads past the limit.** A one-line delivery over 100,000 characters is cut to the limit, and the judges are told.
+- **The red team** found 1 High and 4 Medium bypasses in the first draft; all are fixed, with 22 tests. Four Lows stay open in T-367's Handoff.
+- **Litmus tests.** Neutrality: no actor gains a way to stop a deal. The hold: unchanged. Defended judgment: an honest seller's report no longer escalates for audit wording; every paired attack still flags [measured, `screen.test.ts`].
+- **What it changes:** `packages/judgment` (`screen-1`, a new policy hash), the scenario recordings (re-seated, no outcome changed), `docs/judgment-and-defenses.md`. The adjudicator's redeploy carries the new policy hash and is Rafa's.
+
 ## D65. A deal is judged under the policy it bound, on every later build (ADR-0036)
 
 **Proposed 2026-11-12 by T-373,** after T-367 (PR 386) found that an operator deploy that changes the screen leaves a deal accepted before it without a judge. ADR-0036 is Proposed; Rafa may overrule any line. Nothing is built.

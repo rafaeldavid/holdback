@@ -2,11 +2,11 @@
 
 - **Status:** Proposed, 2026-11-12 (D65). Rafa may overrule any line. Nothing here is built.
 - **Raised by:** T-373, from the finding in T-367's Handoff (PR 386). Research: this note, one scratch test that was run and not committed, and one red-team pass (last section).
-- **Builds on:** ADR-0001, ADR-0006 (the policy and registry bindings), ADR-0030 section 6 (the bound policy is read by its hash), ADR-0031 (phase one: the first decision is final), ADR-0035 (the screen's second version; PR 386, open when this was written); D26, D28, D29, D31, D32.
+- **Builds on:** ADR-0001, ADR-0006 (the policy and registry bindings), ADR-0030 section 6 (the bound policy is read by its hash), ADR-0031 (phase one: the first decision is final), ADR-0035 (the screen's second version; PR 386, merged on 2026-11-12 as `8d20405` while this record was in review); D26, D28, D29, D31, D32.
 - **Amends:** ADR-0006's policy binding. A build honours every version it keeps, where today it honours only its own.
 - **Changes when built:** `packages/judgment`, `apps/adjudicator`, `packages/testkit`, `apps/demo-cloud`, `scripts/deploy-lib.mjs`, `fixtures/`. No contract, signed type, schema or API route. This record changes no code.
 
-Labels: **measured** (read at the cited line, or run, at commit `e1e8df2`, `origin/main` on 2026-11-12), **documented**, **inferred** (from reading, not from a run), **guessed**.
+Labels: **measured** (read at the cited line, or run, at commit `e1e8df2`, `origin/main` on 2026-11-12), **documented**, **inferred** (from reading, not from a run), **guessed**. PR 386 and PR 216 merged after that commit; the line numbers are those of `e1e8df2`.
 
 ## Summary
 
@@ -72,7 +72,7 @@ Labels: **measured** (read at the cited line, or run, at commit `e1e8df2`, `orig
 - **A kept version is frozen in behaviour.** A fix that changes what it flags or decides is a new version. A fix that only bounds its running time may land in place.
 - **A replay holds it there.** Today's digests pin less than the table covers: 20 screened strings and the aggregation table (`screen.test.ts:86-122`, `aggregate.test.ts:176-191`). So each kept policy keeps recorded scenarios whose judgment record, rebuilt from the recorded verdicts, must hash the same. One scenario per read path: a whole file, a seeded sample, a stride sample. A change in any stage that alters a kept policy's result fails it.
 - **Retirement is a decision, never a schedule.** A version can go when no live registration names it and no open deal binds it. Nothing needs retiring before mainnet.
-- **The first kept set:** `screen-0` restored from the commit before PR 386 merges, with its sampler; `screen-1`; `agg-3`; the two templates; the scripted and the live registry.
+- **The first kept set:** `screen-0` restored from `00be274`, the commit before PR 386 merged, with its sampler; `screen-1`; `agg-3`; the two templates; the scripted and the live registry.
 
 ### 2. A version withdrawn for a security reason
 
@@ -127,7 +127,7 @@ An earlier screen has a known bypass, and a deal bound to it is still open.
 - **A static check runs in CI first.** The kept policies and registries are one data file. A test fails when a build drops an entry without a retired or withdrawn mark and its decision reference.
 - **The live check asks the new build, not a table.** For each open deal that names this operator's adjudicators, it asks the question `declines` answers: policy, registry, seats. It reads the deals from the public reads T-367's Handoff lists. It prints each deal it would orphan, with its state and next deadline, and exits with code 2.
 - **The override names one version and its decision.** The guard still refuses every other orphan. The orphaned deals go into the deploy's record line. A deploy under the override never rolls back on its own to a build that judges under the withdrawn version.
-- **A new default ships in two deploys.** The first carries the new version or registry. A later one makes it the default. The guard refuses a default the live build does not carry, so an automatic rollback always lands on a build that can judge every open deal. The build task sources the live build's kept file; the status document names no commit today.
+- **A new default ships in two deploys.** The first carries the new version or registry. A later one makes it the default. The guard refuses a default the live build does not carry, so an automatic rollback always lands on a build that can judge every open deal. It reads the live build's kept file at the commit the discovery document names (`build.commit`, since PR 216).
 - **A failed read warns.** The deploy may be the fix for the outage that broke the read, and the static check has passed.
 
 ### 5. A deal the build still cannot judge
@@ -181,11 +181,11 @@ Three cases remain: a withdrawn version, an outside primary's policy, and a mist
 
 ## Until the build lands
 
-A deploy that changes a version or a registry goes out only when no open deal binds the outgoing policy. T-367's Handoff gives the reads. This is section 1's rejected option, so it is a stopgap: any open deal blocks the deploy, a stranger's unfunded test deal included, and Rafa decides whether such a deal counts. PR 386's deploy is the first. The build should land before the pilot's deal opens.
+A deploy that changes a version or a registry goes out only when no open deal binds the outgoing policy. T-367's Handoff gives the reads. This is section 1's rejected option, so it is a stopgap: any open deal blocks the deploy, a stranger's unfunded test deal included, and Rafa decides whether such a deal counts. PR 386 is merged, so the next operator deploy is the first such deploy. The build should land before the pilot's deal opens.
 
 ## The build's task
 
-One task, change kind 5, in the judgment lane after T-372 merges, with the notice and the deploy guard as its last commits. In `packages/judgment/src/`: a kept table of screen versions, template pairs and aggregation versions, `screen-0` and its sampler restored from the commit before PR 386, and `runPipeline` selecting by the four values it is given. In `apps/adjudicator/src/`: `policy.ts` (`checkPolicyBinding` checks "carried"; a kept-policies data file with retired and withdrawn marks), `service.ts` (`#boundPolicy`, the registry by hash with its provider, `declines`, the decline of an offer that names a withdrawn version) and `scripts/mutants.mjs`. In `packages/testkit/src/`: a scenario step that restarts the adjudicators on another default, the record replay, and recordings that tell the role from any kept template hash. In `apps/demo-cloud/`: the notice computed at read time in `src/world.ts`, and the guard in `scripts/deploy.mjs` with its pre-flight in `scripts/deploy-lib.mjs` and tests in `src/deploy-preflight.test.ts`. Fixtures and tests: section 6. Docs it updates: the policy-binding paragraph of `docs/judgment-and-defenses.md`, the maintainers' row and the residuals of `docs/neutrality.md`, the deploy steps of `docs/operations.md`, and a row in `docs/team.md`'s Rules and checks. Review: one red-team pass, blocking findings only, aimed at a kept version that drifts under its label, a party steering a deal onto a weaker kept version, a deploy or rollback the guard lets through, and a notice that misstates what follows. The first deploy that carries `screen-0` and `screen-1` together is Rafa's gate.
+One task, change kind 5, in the judgment lane after T-372 merges, with the notice and the deploy guard as its last commits. In `packages/judgment/src/`: a kept table of screen versions, template pairs and aggregation versions, `screen-0` and its sampler restored from `00be274`, and `runPipeline` selecting by the four values it is given. In `apps/adjudicator/src/`: `policy.ts` (`checkPolicyBinding` checks "carried"; a kept-policies data file with retired and withdrawn marks), `service.ts` (`#boundPolicy`, the registry by hash with its provider, `declines`, the decline of an offer that names a withdrawn version) and `scripts/mutants.mjs`. In `packages/testkit/src/`: a scenario step that restarts the adjudicators on another default, the record replay, and recordings that tell the role from any kept template hash. In `apps/demo-cloud/`: the notice computed at read time in `src/world.ts`, and the guard in `scripts/deploy.mjs` with its pre-flight in `scripts/deploy-lib.mjs` and tests in `src/deploy-preflight.test.ts`. Fixtures and tests: section 6. Docs it updates: the policy-binding paragraph of `docs/judgment-and-defenses.md`, the maintainers' row and the residuals of `docs/neutrality.md`, the deploy steps of `docs/operations.md`, and a row in `docs/team.md`'s Rules and checks. Review: one red-team pass, blocking findings only, aimed at a kept version that drifts under its label, a party steering a deal onto a weaker kept version, a deploy or rollback the guard lets through, and a notice that misstates what follows. The first deploy that carries `screen-0` and `screen-1` together is Rafa's gate.
 
 ## Not decided here
 

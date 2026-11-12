@@ -11,11 +11,11 @@ Atlas funds the hold and then goes silent: it never accepts early, never appeals
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=43 |
 | Prefix | neutrality. (an actor fails: terms-compliant terminal state anyway) |
 | Settlement | SimChain (T-006) driving @holdback/core `step` |
-| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x8cb8…ea79 |
+| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0xd136…9300 |
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0xe5Fe…A50b |
 | Seller | tidewater-seller 0xe6c7…589A |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0xf543…d963 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x5e1d…9e04 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xF39a…19eb · fallback bench-b 0x48E4…67DE · appeal bench-c 0x78fb…aA6C |
 | Operators | op-1 · op-2 |
 
@@ -52,16 +52,16 @@ Outages:
 - **Intake:** plaintext 0x1939…87e5 · text/csv · 511912 bytes (fixtures/data/dataset-cleaning/customers.clean.csv) · hash verified ✓ · normalized
 - **Deterministic checks:** cols ✓ · rows ✓ · uniq ✓ · dates ✓ · id_nulls ✓ · name_nulls ✓ · email_nulls ✓ · emails (optional) ✓ · hidden ✓
 - **Screen:** clean
-- **Panel:** 3 judges from 2 families (policy: 3 seats, at least 2 families) · first-instance template 0xabb5…4dd2 · rubric 0x4201…7925 · seed source: commit-reveal (commitment 0x7525…504c, seed 0xa680…f8d1, recomputed: match)
-  - qwen-a · openai-compatible/qwen · placeholder-qwen-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x3ce0…b17f
-  - gpt-a · openai-compatible/gpt · placeholder-gpt-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x05a3…e72a
-  - gpt-b · openai-compatible/gpt · placeholder-gpt-b-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x04fa…af8e
-- **Aggregate:** accept (weighted score 4.00; 3 pass, 0 fail of 3 valid; pass families gpt, qwen). Reasons: 3 of 3 valid verdicts pass, from 2 families, score at or above 3.
+- **Panel:** 3 judges from 3 families (policy: 3 seats, at least 2 families) · first-instance template 0xabb5…4dd2 · rubric 0x4201…7925 · seed source: commit-reveal (commitment 0x7525…504c, seed 0xa680…f8d1, recomputed: match)
+  - claude-a · anthropic/claude · placeholder-claude-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0xfa0e…ac75
+  - gpt-a · openai-compatible/gpt · placeholder-gpt-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x6160…5ab4
+  - qwen-a · openai-compatible/qwen · placeholder-qwen-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0xe0b8…f55c
+- **Aggregate:** accept (weighted score 4.00; 3 pass, 0 fail of 3 valid; pass families claude, gpt, qwen). Reasons: 3 of 3 valid verdicts pass, from 3 families, score at or above 3.
 - **Signed:** accept.
 
 ## Receipts and log
 
-- Events 0–8. Chain head 0xc2f3…cfc3. Replay of 6 SimChain submissions from genesis matches the settlement state.
+- Events 0–8. Chain head 0x76b7…13a2. Replay of 6 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 6 (rcpt-0001–rcpt-0006). The runner labels them without signing; the operator API signs real receipts.
 
 ## Invariants

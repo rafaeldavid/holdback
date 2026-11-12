@@ -61,8 +61,8 @@ This task confirms or refutes that finding, then writes the decision record that
 **Length.** The record runs to about 4,300 words with its tables and paths. Its summary says how to read it in ten minutes: the summary, the finding's table and the seven bold recommendations.
 
 **For the coordinator:**
-- **A merge note.** PR 386 also appends to `docs/decisions-today.md`. Whichever of the two merges second resolves the conflict by keeping both entries, D64 then D65.
-- **Until the build lands,** a deploy that changes a version or a registry goes out only when no open deal binds the outgoing policy (T-367's Handoff gives the reads). PR 386's deploy is the first.
+- **PR 386 merged first** (`8d20405`), so this branch merged `main` and kept both entries, D64 then D65. `screen-0` now lives only in git: `git show 00be274:packages/judgment/src/screen.ts`.
+- **Until the build lands,** a deploy that changes a version or a registry goes out only when no open deal binds the outgoing policy (T-367's Handoff gives the reads). The next operator deploy is the first: `main` now registers `screen-1`.
 - **Docs the build updates,** since this task edits no other shared doc: `docs/judgment-and-defenses.md` (the policy-binding paragraph), `docs/neutrality.md` (the maintainers' row, its fixture, and a residual: three adjudicators on one build are one point of failure for judgment), `docs/operations.md` (the two-deploy rule), `docs/team.md` (a Rules and checks row).
 
 **For the triage file** (lower priority, found in passing, not verified by a run):
