@@ -5,7 +5,7 @@
 - **Depends on:** T-358 (R6c-1, merged to `contracts-audit-ready` at `a37a48d`: the two fields, schema v0.11, domain 0.8), ADR-0033, T-374 part 1 (rafaeldavid/holdback#398: main of 2026-11-12 into the lane, with T-366 and T-368), T-378 (R6c-2, the operator side, running beside this task)
 - **Paths this task may touch:** `examples/buyer-signer.ts` and its tests, `examples/buy-with-signer.ts` and its test, `examples/seller-adapter.ts` with its configuration files and tests, `examples/audit-deal.ts` and its test, `examples/deal-record.ts` and its test, `examples/agent.ts`, `examples/verify.ts` and its test, the terms templates these tools ship in `examples/`, `site/llms.txt`, this task file. Never `contracts/`, `packages/`, `apps/`, `spec/`, `formal/`, `fixtures/` or any other file under `docs/`
 - **Human gate:** no for the branch. The site deploy, the operator deploy, the Sepolia rehearsal and the merge to `main` are Rafa's
-- **Status:** in progress
+- **Status:** done on the merge of rafaeldavid/holdback#417 (with #405 `4429d6c`, #410 `99ab549` and #415 `4141280`)
 - **Agent/session:** implementer session, change kind 4: one reviewer per pull request, and one red team on the pull request that accepts an outside signature
 
 ## Intent
