@@ -55,10 +55,18 @@ export interface Env {
 
 /**
  * The worlds the Workers serve, one per settlement. Bump a name to start a fresh world: a schema change can make a
- * stored journal unreplayable (v0.8's rulebook hash refused v0.7's offers), a new deployment needs a new chain world,
- * and the old world's storage stays for a rollback.
+ * stored journal unreplayable (v0.8's rulebook hash refused v0.7's offers), and the old world's storage stays for a
+ * rollback. A new deployment needs a new chain world, so the Sepolia name is the record's rules address (T-383): a new
+ * contracts/deployments/sepolia.json is a new world, with no second edit.
  */
-const WORLD_NAMES = { sim: 'holdback-public-demo-2026-11-04', sepolia: 'holdback-public-demo-sepolia-2026-11-04' } as const;
+const WORLD_NAMES = {
+  sim: 'holdback-public-demo-2026-11-04',
+  get sepolia(): string {
+    return `holdback-public-demo-sepolia-${sepoliaDeployment().rules.toLowerCase()}`;
+  },
+};
+/** contracts/deployments/sepolia.json, embedded in the bundle (scripts/embed.mjs). */
+const sepoliaDeployment = (): DeploymentFile => JSON.parse(readFileSync(new URL('../../../contracts/deployments/sepolia.json', import.meta.url), 'utf8')) as DeploymentFile;
 type Settlement = keyof typeof WORLD_NAMES;
 const NODE = 'x-holdback-node';
 const ORIGIN = 'x-holdback-origin';
@@ -94,7 +102,7 @@ function redact(message: string, env: Env): string {
 function sepolia(env: Env): LiveSettlement {
   const key = env.SEPOLIA_RELAYER_KEY;
   if (!key || !/^0x[0-9a-fA-F]{64}$/.test(key)) throw new Error('SEPOLIA_RELAYER_KEY is not set: it is a Worker secret on holdback-op1 (apps/demo-cloud/scripts/relayer.mjs)');
-  const deployment = JSON.parse(readFileSync(new URL('../../../contracts/deployments/sepolia.json', import.meta.url), 'utf8')) as DeploymentFile;
+  const deployment = sepoliaDeployment();
   const keyed = (env.SEPOLIA_RPC_URLS ?? '').split(',').map((u) => u.trim()).filter(Boolean);
   const maxFee = Number(env.SEPOLIA_MAX_FEE_GWEI);
   return { chain: new LiveChain({ deployment, rpcUrls: [...keyed, ...SEPOLIA_PUBLIC_RPCS], relayerKey: key as `0x${string}`, ...(maxFee > 0 ? { maxFeeGwei: maxFee } : {}) }) };
