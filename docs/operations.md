@@ -128,13 +128,15 @@ After the deploy, a smoke deal ended Released in 44 s, and the test seller sold 
 
 ### T-367: the screen change (operators and site deployed 2026-11-12)
 
-Rafa ran the operator deploy, from `8d20405`, the commit that holds PR 386 (T-367). The coordinating session ran the site deploy on Rafa's word. It uploaded no changed asset, because a site version `a806e65b` with the same content was already live; that earlier version's record line was not captured.
+Rafa ran the operator deploy, from `8d20405`, the commit that holds PR 386 (T-367), and the site deploy of 06:57 UTC, which uploaded `sell.txt`, `llms.txt` and `version.json`. The coordinating session ran the site deploy of 07:00 UTC on Rafa's word; it changed no asset.
 
 **Deploy 2026-11-12 06:55 UTC, commit `8d20405` on branch `main`: pass.** holdback-op1 `d8545ef2-7c4a-427c-ac3e-c17b9f4df039` (rollback target `08524578-c766-4633-8b95-e9dc9e153b72`), holdback-op2 `2599701e-9ffe-4788-b694-8d2d8dfa4ef7` (rollback target `c3c15379-fedb-4533-8941-0ac762d61a2a`). Smoke deal `0x4a3c63f95360cfa13493a6c6295c52745ed63ec95eccf9f7d826072eb1b7d0af` Released in 50 s.
 
+**Site deploy 2026-11-12 06:57 UTC, commit `8d20405` on branch `main`: pass.** crow-site `a806e65b-fff0-470a-9bc9-d4039a14b087` (rollback target `cb842681-4a45-4f9a-a97e-265dc725f323`).
+
 **Site deploy 2026-11-12 07:00 UTC, commit `8d20405` on branch `main`: pass.** crow-site `3564b317-b922-435f-9e7f-9c1b09ddec55` (rollback target `a806e65b-fff0-470a-9bc9-d4039a14b087`).
 
-**Open, Unknown:** after the 06:55 deploy the live service still reports `demo.build.commit` `00be274` and a registered adjudicator policy with `screenVersion` `screen-0` [measured by the coordinating session]. Two sessions are finding out why. Until they report, this record does not say which screen the live adjudicators run.
+**The screen is live** [measured by the coordinating session]. The live operators serve `8d20405` since about 07:01 UTC, and the three demo adjudicators register `screen-1`. Just after the 06:55 deploy the service still reported `00be274` and `screen-0`. A smoke deal against the new screen at 07:05 UTC, `0x7b1b107c3921c73c0ab25fd91a3397e738930e22de5399ec4592aaa05c867d87`, ended Released in 42 s.
 
 ### T-366, T-368 and T-370: the seller adapter's API shapes, the buyer's approval stop and the discovery fields (operators deployed 2026-11-12)
 
