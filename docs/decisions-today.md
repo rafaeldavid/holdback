@@ -415,7 +415,7 @@ Rafa first asked that both parties be able to change any term, as in a regular c
 What follows from it:
 
 - Bounded loss (scope caps, bonds, expiry) and a clean, signed, attributable record come before new protocol steps for edge cases. This is the same rule as "assume honest parties until the demo works", made permanent.
-- The record should serve as evidence. A party should be able to export one commitment's signed terms, receipts, judgment record and audit-chain proof and hand them to a court or arbitrator (backlog: evidence bundle).
+- The record should serve as evidence. A party should be able to export one commitment's signed terms, receipts, judgment record and audit-chain proof and hand them to a court (backlog: evidence bundle).
 - A rulebook should say which law governs and where disputes go, so the signed messages bind (PRD Assumption 1). The protocol records that choice; it does not enforce it (backlog).
 - **Both parties remember everything, equally.** Each side ends the exchange holding the same complete record: every message either party signed, every operator receipt, the adjudicator's judgment record with reasons, the decision and the settlement postings, each verifiable without trusting an operator. Neither party can hold a part of the record the other cannot see. ADR-0020 already makes bodies and judgment records readable by both parties at every disclosure level; the work itself still follows the hold (the buyer gets it with payment; on a refund the seller keeps it, and both hold its hash).
 - Neutrality is unchanged: no party gets a technical freeze. Courts act on real-world parties (residual 5), not on the settlement layer.
@@ -544,7 +544,7 @@ Wording owed elsewhere if accepted: the scope hard rule in `CLAUDE.md` and the n
 
 - **The protocol and API are rails.** They hold funds, check signatures, enforce deadlines and settle. They need keys, hashes and amounts, not identities or content. Buyer and seller find each other and agree however they like; the protocol assumes they know each other (Rafa, same day). Per-deal keys that do not link to a party's long-term identity follow naturally, and are the default for private deals (D34, ADR-0024).
 - **Disclosure is a choice.** Who a party is, what it bought, the terms and the judgment are disclosed by each party, to whom and when it chooses. The default is minimal; a party can reveal more to its counterparty, an adjudicator, a club or a court (D26 evidence by selective disclosure).
-- **Arbitration can be private.** Adjudicators may run judges through private inference: a provider that keeps no prompts or outputs, such as Venice, as an adjudicator option. Mandatory rules still hold: pinned model IDs, at least two families, no tools for judges, untrusted deliverables, the verdict schema. Backlog row under Judgment defenses.
+- **Judgment can be private.** Adjudicators may run judges through private inference: a provider that keeps no prompts or outputs, such as Venice, as an adjudicator option. Mandatory rules still hold: pinned model IDs, at least two families, no tools for judges, untrusted deliverables, the verdict schema. Backlog row under Judgment defenses.
 - **Shapes:** ADR-0024 (private deals) and T-207; the mailbox and identity may leave the protocol entirely.
 
 ## D36. Parties may choose their judge panel; Crow offers a default; OpenRouter as a provider

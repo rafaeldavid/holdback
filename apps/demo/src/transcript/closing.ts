@@ -20,7 +20,7 @@ export function closing(): Closing {
     residualsIntro: 'Four of the 12 residual control points in docs/neutrality.md, the ones an AI lab is likely to ask about first; the other eight are listed there.',
     residuals: [
       { n: 3, title: 'Collusion', line: 'An adjudicator colluding with one party is bounded by commit-reveal panels, cross-family judges, appeals and the bond, not eliminated.' },
-      { n: 5, title: 'Legal process', line: 'The design limits what any one party can do technically; it does not place anyone beyond the law. Both parties hold the same signed record to take to a court or arbitrator.' },
+      { n: 5, title: 'Legal process', line: 'The design limits what any one party can do technically; it does not place anyone beyond the law. Both parties hold the same signed record to take to a court.' },
       { n: 6, title: 'Adjudicator plaintext access', line: 'An adjudicator that decrypts the work to judge it can copy it. Bonds and appeals do not reach this.' },
       { n: 8, title: 'Self-reported model identity', line: 'The record names the models that judged, but no provider signs responses, so a cheaper model could run under a pinned name.' },
     ],

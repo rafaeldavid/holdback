@@ -129,19 +129,38 @@ Focus (Rafa, 2026-11-06; D53, narrowed the same day by D54 after his walkthrough
 - [ ] T-349 (merged to `contracts-audit-ready` through PR 361, 2026-11-11, into T-346's branch, which PR 352 merged; waits for the freeze) The EVM settlement path has no party appeals and no bonds. Its task file is on that branch.
 - [x] T-350 (done: PRs 353 and 362, 2026-11-11 and 2026-11-12; D60, D62, ADR-0033) The decision record for the seller's payout address and the buyer's payment address.
 - [x] T-351 (done: PR 359, 2026-11-11; D61, ADR-0034) The settlement chain for the mainnet test, and its gate.
-- [ ] T-352 (in progress: PRs 358 and 365 merged on 2026-11-11 and 2026-11-12; the mutation run is paused) Coverage and mutation tooling for the contracts, with first results.
+- [ ] T-352 (in progress: PRs 358 and 365 merged on 2026-11-11 and 2026-11-12; the mutation run waits for T-380 and T-384's first pull request) Coverage and mutation tooling for the contracts, with first results.
 - [x] T-353 (done: PR 348, 2026-11-11) The drand verifier, a second read by another model family.
 - [ ] T-354 (merged to `contracts-audit-ready`: PR 351, 2026-11-11; waits for the freeze) A test lists which files still use a feature phase one cuts. Its task file is on that branch.
 - [x] T-355 (done: PR 363, 2026-11-12) The audit deal rehearses the pilot's cases end to end (`pnpm audit-deal --case`).
 - [ ] T-356 (merged to `contracts-audit-ready`: PRs 366, 368, 370, 371 and 372, 2026-11-12; waits for the freeze) Five smaller cuts to the phase-one contracts. Its task file is on that branch.
 - [ ] T-357 (merged to `contracts-audit-ready`: PR 367, 2026-11-12; waits for the freeze) A mutual settlement can settle late work and release its key. Its task file is on that branch.
-- [ ] T-358 (in progress on `contracts-audit-ready`; waits for the freeze) The two address fields in the phase-one contracts (ADR-0033).
+- [ ] T-358 (merged to `contracts-audit-ready`: PR 387, 2026-11-12; waits for the freeze) The two address fields in the phase-one contracts (ADR-0033).
 - [x] T-359 (done: PR 373, 2026-11-12; live from the site deploy of 05:14 UTC) The seller's page, `https://crow.direct/sell.txt`, linked from `llms.txt`.
 - T-360 A task in the maintainers' private repository, with no file here.
 - [x] T-361 (done: PR 376, 2026-11-12) Rubric readiness: the screen on an audit report that quotes exploit code, and `check-delivery` warns when the judges read a sample.
 - [ ] T-363 (merged to `contracts-audit-ready`: PR 379, 2026-11-12; waits for the freeze) The phase-one cutover checklist, first pass. Its task file is on that branch.
 - [x] T-362 (done: PR 374, 2026-11-12; its `CLAUDE.md` change became T-364's PR 375) The docs batch: the doc follow-ups from T-329 to T-361 that describe `main`. Task file `docs/tasks/T-362-docs-batch.md`.
 - [x] T-364 (done: PRs 380 and 375, 2026-11-12) No running numbers in the standing docs: the rule in `docs/writing.md`, the sweep and a check. Task file `docs/tasks/T-364-no-running-numbers.md`.
+- [x] T-365 (done: PR 385, 2026-11-12; its CI job is PR 388, merged the same day) `pnpm send-timeout` sends a deal's due timeout with no operator, cutover package CU-2.
+- [x] T-366 (done: PR 383, 2026-11-12) The seller adapter calls a seller API of another shape from its configuration.
+- [x] T-367 (done: PR 386, 2026-11-12; live on the operators since about 07:01 UTC) The screen passes honest audit reports, and no judge reads past the limit.
+- [x] T-368 (done: PR 384, 2026-11-12) The buyer's command stops for approval before it funds, and the simulator's faucet grants a mandate.
+- T-369 A task in the maintainers' private repository, with no file here.
+- [x] T-370 (done: PRs 217 and 216, 2026-11-12) The One-Click harness and the discovery fields of T-066, brought up to date, reviewed and merged. The discovery fields are live on both operators since the deploy of 06:53 UTC; the live harness run is Rafa's.
+- T-371 A task in the maintainers' private repository, with no file here.
+- [x] T-372 (done: PR 389, 2026-11-12; live from the operator deploy of 07:22 UTC) A hung store read never stalls the adjudicator; refusals show, declines clear, and the relay checks the store.
+- [x] T-373 (done: PR 390, 2026-11-12; ADR-0036) A decision record: a deal is judged under the policy it bound, on every later build. T-377 builds it.
+- [ ] T-374 (merged to `contracts-audit-ready`: PRs 398 and 404, 2026-11-12; waits for the freeze) The contract branch takes main of 2026-11-12, and the code follows the phase-one contracts (AL-1). Its task file is on that branch.
+- [ ] T-375 (merged to `contracts-audit-ready`: PRs 396, 399, 400, 406, 407 and 409, 2026-11-12; waits for the freeze) Hidden state made explicit in the phase-one contracts (R7). Its task file is on that branch.
+- [ ] T-376 (merged to `contracts-audit-ready`: PRs 401 and 411, 2026-11-12; waits for the freeze) The formal model's phase-one profile, with the two money addresses and the stored closing reason. Its task file is on that branch.
+- [x] T-377 (done: PRs 395 and 397, 2026-11-12; live from the operator deploy of 09:44 UTC) A deal is judged under the policy it bound, across builds (ADR-0036). Task file `docs/tasks/T-377-bound-policy-build.md`.
+- [ ] T-378 (merged to `contracts-audit-ready`: PRs 403, 408, 412, 416 and 421, 2026-11-12; one follow-up open; waits for the freeze) The operators follow the payment and payout addresses (R6c-2). Its task file is on that branch.
+- [ ] T-379 (merged to `contracts-audit-ready`: PRs 405, 410, 415 and 417, 2026-11-12; waits for the freeze) The client tools follow the two money addresses, and a wallet outside the tool can pay (R6c-3). Its task file is on that branch.
+- [ ] T-380 (in progress on `contracts-audit-ready`: PRs 414, 418 and 420 merged on 2026-11-12, one more open) The remaining contract fixes (R8). Its task file is on that branch.
+- [ ] T-381 (merged to `contracts-audit-ready`: PR 413, 2026-11-12; waits for the freeze) The test round's scenario 12: a deal with two money addresses. Its task file is on that branch.
+- T-382 A task in the maintainers' private repository, with no file here. Its public part, PR 419 (no "arbitration" on the site; Private Delivery), is on `main` and waits for a site deploy.
+- [ ] T-383 (in progress on `contracts-audit-ready`: PR 422 merged on 2026-11-12, more open) The deploy script, the start-up check and the record's copies (CU-1). Its task file is on that branch.
 - D4 decided: the target is Ethereum mainnet (2026-11-01), built and tested on a local chain, then on Sepolia, the public testnet the demo settles on since D41 (2026-11-03). Mainnet deployment is a separate gate for Rafa after an audit. Record gas per deal in the evidence.
 
 Out of Phase 2 by D54 (Rafa's walkthrough, 2026-11-06): T-212, for the contract redeploy before mainnet; the scenario 11 redesign, as T-310; and T-221, paused until the centralized adjudicator is stable. All three moved to later phases (Future work, below). Phase 2 closes on Sepolia without a contract redeploy, because a new rules contract needs a new demo world (D49).

@@ -94,13 +94,15 @@ describe('the adjudicator alarm (T-057)', () => {
 
   it('a stuck case slows down; a write brings the alarm forward, and the fallback takes over at judgeBy', async () => {
     const dep = deploy();
+    // Accepted under the live registry, then redeployed without the live judges' keys before the primary's pass: no
+    // provider reaches the registry the deal bound, so it refuses the delivery on every pass (registry_mismatch, ADR-0036).
+    dep.restart(LIVE);
     const timing = { offerExpiresInSec: 30, fundWithinSec: 45, deliverWithinSec: 60, judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 0, appealDecideSec: 60 };
     const { seller, buyer, offer, state } = await offered(timing);
     await dep.fire(Date.now() + 2000);
     await buyer.agreeAndFund(offer.terms, 30_000_000n);
     await seller.deliver(offer.terms, CSV);
-    // Redeployed with live judges before the primary's pass: it refuses the delivery on every pass (registry_mismatch).
-    dep.restart(LIVE);
+    dep.restart();
     const start = Date.now();
     await dep.fire(start + 40_000);
     expect(await state()).toBe('Delivered');
@@ -113,28 +115,30 @@ describe('the adjudicator alarm (T-057)', () => {
     await dep.fire(Date.now() + 1000);
     expect(await fresh.state()).toBe('AcceptedByAdjudicator');
 
-    // The stuck case's fallback takes its turn at judgeBy, not at the slow cadence's next pass. Redeployed with live
-    // judges, it binds another registry too, so it declines the takeover at once instead of triggering one it would
-    // refuse (T-221 review), and the state read says why.
+    // The stuck case's fallback takes its turn at judgeBy, not at the slow cadence's next pass. On this build it cannot
+    // judge the bound registry either, so it declines the takeover at once instead of triggering one it would refuse
+    // (T-221 review). The state read has said so since the restart, before judgeBy (ADR-0036 section 5).
     const { deadlines } = await buyer.call('GET', `/v1/commitments/${offer.id}`);
     const judgeBy = Date.parse(deadlines.judgeBy);
-    const declined = async () => (((await buyer.call('GET', `/v1/commitments/${offer.id}`)).notices ?? []) as string[]).some((n) => /fallback adjudicator declined this deal's fallback turn: .*registry/.test(n));
+    const said = async () => (((await buyer.call('GET', `/v1/commitments/${offer.id}`)).notices ?? []) as string[]).some((n) => /primary adjudicator .* cannot judge this deal: this build does not carry registry .*fallback adjudicator .* cannot judge it either/.test(n));
     await dep.fire(judgeBy - 1);
-    expect(await declined()).toBe(false);
+    expect(await said()).toBe(true);
     expect(dep.alarm.at).toBe(judgeBy);
     await dep.fire(judgeBy + 1000);
-    expect(await declined()).toBe(true);
+    expect(await said()).toBe(true);
     const events = (await buyer.call('GET', `/v1/commitments/${offer.id}/events?limit=200`)).items as J[];
     expect(events.some((e) => e.type === 'fallback.triggered')).toBe(false);
   });
 
   it('an overdue alarm (its handler threw) is retried within a second, not moved to a later takeover', async () => {
     const dep = deploy();
+    dep.restart(LIVE);
     const { seller, buyer, offer } = await offered();
     await dep.fire(Date.now() + 2000);
     await buyer.agreeAndFund(offer.terms, 30_000_000n);
     await seller.deliver(offer.terms, CSV);
-    dep.restart(LIVE);
+    // Redeployed without the live judges' keys: the live registry the deal bound has no provider here.
+    dep.restart();
     // The primary refuses on every pass; 15 minutes on, only the takeover a day away stays scheduled.
     await dep.fire(Date.now() + 20 * MINUTE);
     const { deadlines } = await buyer.call('GET', `/v1/commitments/${offer.id}`);
