@@ -518,7 +518,8 @@ contract HoldbackRules is EIP712 {
 
     // Deadlines (RF-3, T-375): each one is written once, here, and read wherever it applies, so an opposing pair (the
     // step that needs `now < X` and the timeout that needs `now >= X`) always splits time at the same instant
-    // (`docs/audit/state-model.md` section 6). Every sum is in 256 bits over 64-bit and 40-bit terms, so none overflows.
+    // (`docs/audit/state-model.md` section 6). Every deadline sum is in 256 bits over 64-bit and 40-bit terms, so none
+    // overflows. The escalation's round adds 1 in 64 bits, which the beacon's arithmetic keeps in range.
     // The terms' own deadlines (offerExpiresAt, fundBy, deliverBy, judgeBy, fallbackBy) are read from `t.timing`.
 
     /// @dev The appeal adjudicator's deadline on an escalation made at `t1`: the decision needs `now` before it, and
