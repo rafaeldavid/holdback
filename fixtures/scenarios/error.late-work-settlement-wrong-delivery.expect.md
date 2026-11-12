@@ -11,11 +11,11 @@ T-357, ADR-0031 SC-5b (Rafa, 2026-11-11: "Yes, keep it"). Tidewater misses deliv
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=357 |
 | Prefix | error. (the system must refuse a step; invariants hold) |
 | Settlement | SimChain (T-006) driving @holdback/core `step` |
-| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x8cb8…ea79 |
+| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0xd136…9300 |
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0xd9bc…492d |
 | Buyer | atlas-buyer 0xdA8a…b934 |
 | Seller | tidewater-seller 0x76bD…5d77 |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x5c11…7c33 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x4cfd…a521 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xa4a9…Dd70 · fallback bench-b 0x3EE6…724c · appeal bench-c 0x8560…7A78 |
 | Operators | op-1 · op-2 |
 
@@ -33,7 +33,7 @@ T-357, ADR-0031 SC-5b (Rafa, 2026-11-11: "Yes, keep it"). Tidewater misses deliv
 
 Refusals:
 
-- Step 5 mutual_settle (carries the unposted delivery of fixtures/data/dataset-cleaning/customers.clean.csv, names fixtures/data/dataset-cleaning/customers.clean.row-drop.csv): invalid_terms: the carried delivery does not hash to the signed deliveryHash 0x42ce9e50d97b8fa20e17ee8536038f2089a2ea5ca3f0a0bc679797a4a07dde2e; it hashes to 0x15a1b040438cfd2de8686f113593fc4449ac5d83cae0ff9738eb69b05427ae66
+- Step 5 mutual_settle (carries the unposted delivery of fixtures/data/dataset-cleaning/customers.clean.csv, names fixtures/data/dataset-cleaning/customers.clean.row-drop.csv): invalid_terms: the carried delivery does not hash to the signed deliveryHash 0xce143c36439ea8c507bcde1c51771c623f41820393c71dc4c4421cb20d3f63ef; it hashes to 0xe78d6a1a1034faaf77c2fbbe2971809ee5c7a984a6b39867a23dd55991a3a68a
 
 ## Balances (tUSD)
 
@@ -49,13 +49,13 @@ Refusals:
 
 ## Receipts and log
 
-- Events 0–5. Chain head 0x86c1…65b9. Replay of 5 SimChain submissions from genesis matches the settlement state.
+- Events 0–5. Chain head 0xa748…bb40. Replay of 5 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 4 (rcpt-0001–rcpt-0004). The runner labels them without signing; the operator API signs real receipts.
 - Receipts from op-2: 2 (rcpt-0005–rcpt-0006). The runner labels them without signing; the operator API signs real receipts.
 
 ## Invariants
 
-- conservation ✓ · no negative balances ✓ · settled once ✓ · escrow empty after settlement ✓ · key released atomically with payment n/a · event hash chain links ✓ · replay matches the settlement state ✓
+- conservation ✓ · no negative balances ✓ · settled once ✓ · escrow empty after settlement ✓ · key released atomically with payment ✓ · event hash chain links ✓ · replay matches the settlement state ✓
 
 ## Outcome
 

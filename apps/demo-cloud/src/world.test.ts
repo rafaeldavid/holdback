@@ -13,7 +13,9 @@ import { LiveChain, type DeploymentFile } from '@holdback/settlement/live';
 import { encodePublicKey, generateEncryptionKeyPair } from '@holdback/core/crypto';
 import { MemoryFeedbackStore, signRegistration, testAccount, type StoredRegistration, type TestAccount } from '@holdback/operator';
 import { MemoryStorage, PublicWorld, type PublicWorldOptions } from './index.js';
-import { DEMO_FAUCET_MAX_GRANT, DEMO_MAX_CIPHERTEXT_BYTES, TimeoutBudgetRows } from './world.js';
+import { checkExchange } from '../../../tests/contract/openapi-check.ts';
+import { JudgeBudget } from './judges.js';
+import { DEMO_FAUCET_MAX_GRANT, DEMO_MAX_CIPHERTEXT_BYTES, TimeoutBudgetRows, buildCommit, relayerFacts } from './world.js';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -38,6 +40,8 @@ async function serve(options: Partial<PublicWorldOptions> = {}, storage = new Me
 }
 
 const freshAgent = (urls: string[]) => new Agent(urls, generatePrivateKey(), nacl.randomBytes(32));
+/** The offer route's two lines for money addresses it filled with the signing addresses (ADR-0033 §7, T-378). */
+const DEFAULTED = [expect.stringMatching(/^Payment address: not set/), expect.stringMatching(/^Payout address: not set/)];
 const post = (url: string, body: unknown, key?: string) =>
   fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...(key ? { 'idempotency-key': key } : {}) }, body: JSON.stringify(body) });
 
@@ -66,6 +70,23 @@ describe('public mode', () => {
     // Malformed input and a missing Idempotency-Key are refused.
     expect((await post(`${urls[0]}/v1/faucet`, { address: 'nope' }, 'k-5')).status).toBe(400);
     expect((await post(`${urls[0]}/v1/faucet`, { address: freshAgent(urls).address })).status).toBe(400);
+  });
+
+  it('sends the tokens to a payment address and the mandate to the signing address (ADR-0033 §5, T-378)', async () => {
+    const { urls } = await serve();
+    const [signing, payment] = [freshAgent(urls), freshAgent(urls)];
+    const r = await post(`${urls[0]}/v1/faucet`, { address: signing.address, paymentAddress: payment.address }, 'k-pay-1');
+    expect(r.status).toBe(200);
+    const grant = (await r.json()) as J;
+    expect(grant).toMatchObject({ address: signing.address, paymentAddress: payment.address, granted: { amount: '1000000000' }, balance: { amount: '1000000000' } });
+    expect(grant.mandate.agent).toBe(signing.address);
+    const held = async (a: string) => ((await (await fetch(`${urls[1]}/v1/balances/${a}`)).json()) as J).amount;
+    expect([await held(signing.address), await held(payment.address)]).toEqual(['0', '1000000000']);
+    // The window counts the signing address: a second per-deal key funds from the same standing payment address.
+    const next = freshAgent(urls);
+    expect((await post(`${urls[0]}/v1/faucet`, { address: next.address, paymentAddress: payment.address }, 'k-pay-2')).status).toBe(200);
+    expect(await held(payment.address)).toBe('2000000000');
+    expect((await post(`${urls[0]}/v1/faucet`, { address: next.address, paymentAddress: 'nope' }, 'k-pay-3')).status).toBe(400);
   });
 
   it('grants once when two requests for one address arrive together', async () => {
@@ -230,10 +251,11 @@ describe('public mode', () => {
     const d = await discovery(urls);
     const [seller, buyer] = [freshAgent(urls), freshAgent(urls)];
     const r = (await (await post(`${urls[0]}/v1/prepare/offer`, offerRequest(d, seller, buyer, RUBRIC_OFFER))).json()) as J;
-    expect(r.notices).toEqual([expect.stringMatching(/scripted/)]);
+    // The route's own two lines for the money addresses it filled (ADR-0033 §7) come first; this world adds the panel's.
+    expect(r.notices).toEqual([...DEFAULTED, expect.stringMatching(/scripted/)]);
     const c = (await (await post(`${urls[0]}/v1/prepare/offer`, offerRequest(d, seller, buyer))).json()) as J;
     expect(c.kind).toBe('offer');
-    expect(c.notices).toBeUndefined();
+    expect(c.notices).toEqual(DEFAULTED);
   });
 
   it('declines a private offer it cannot open, and says so before the offer and on the state read (F1)', async () => {
@@ -602,7 +624,7 @@ describe('live judges (T-028), with a stand-in for the models', () => {
     expect(notes).toMatch(/7 live judge calls a day/);
     const d = await discovery(urls);
     const r = (await (await post(`${urls[0]}/v1/prepare/offer`, offerRequest(d, freshAgent(urls), freshAgent(urls), RUBRIC_OFFER))).json()) as J;
-    expect(r.notices).toEqual([expect.stringMatching(/live judge panel/)]);
+    expect(r.notices).toEqual([...DEFAULTED, expect.stringMatching(/live judge panel/)]);
   });
 
   it('judges a rubric deal live within the daily budget, then falls back to marked scripted judges', async () => {
@@ -1020,5 +1042,82 @@ describe('the Sepolia world names drand quicknet, changed in place (T-220, D49)'
     const local = new LiveChain({ deployment: { ...deployment, chainId: 31337 }, rpcUrls: ['http://127.0.0.1:9'], relayerKey: '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d' });
     const anvil = await PublicWorld.open({ storage: new MemoryStorage(), env: {}, live: { chain: local }, onError: () => {} });
     expect((await get(anvil, '/v1/clubs/demo-club')).rulebook.randomness).toEqual({ source: 'sim' });
+  });
+});
+
+describe('discovery publishes what Crow Control reads by script (T-066, slice 3)', () => {
+  const deployment = JSON.parse(readFileSync(new URL('../../../contracts/deployments/sepolia.json', import.meta.url), 'utf8')) as DeploymentFile;
+  /** anvil's second well-known dev key (public; guards no value). Opening reads no chain, so no RPC answers here. */
+  const RELAYER = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d';
+  const chain = () => new LiveChain({ deployment, rpcUrls: ['http://127.0.0.1:9'], relayerKey: RELAYER });
+  const demoOf = async (world: PublicWorld): Promise<J> => ((await (await world.fetch(new Request('http://127.0.0.1/.well-known/holdback.json'), { node: 0, origin: 'http://127.0.0.1', client: '127.0.0.1' })).json()) as J).demo;
+  const COMMIT = '0123456789abcdef0123456789abcdef01234567';
+
+  it('names the deployed commit from BUILD_COMMIT, and null for anything that is not 40 hex characters', async () => {
+    expect((await demoOf(await PublicWorld.open({ storage: new MemoryStorage(), env: { BUILD_COMMIT: COMMIT } }))).build).toEqual({ commit: COMMIT });
+    expect((await demoOf(await PublicWorld.open({ storage: new MemoryStorage(), env: {} }))).build).toEqual({ commit: null });
+    expect(buildCommit({ BUILD_COMMIT: COMMIT.toUpperCase() })).toBe(COMMIT);
+    expect(buildCommit({ BUILD_COMMIT: 'main' })).toBe(null);
+    expect(buildCommit({ BUILD_COMMIT: `${COMMIT}0` })).toBe(null);
+  });
+
+  it('lists the relayer lanes and the faucet mints a day on a chain world only', async () => {
+    const live = chain();
+    const d = await demoOf(await PublicWorld.open({ storage: new MemoryStorage(), env: {}, live: { chain: live }, onError: () => {} }));
+    expect(d.relayer).toEqual({ fundingLane: live.funding.toLowerCase(), dealLanes: live.lanes.slice(1).map((a) => a.address.toLowerCase()) });
+    expect(d.relayer.dealLanes).toHaveLength(3);
+    expect(d.faucet.mintsPerDay).toBe(600);
+    // Addresses only: no lane key reaches the document.
+    for (const key of live.secretsForTest()) expect(JSON.stringify(d).toLowerCase()).not.toContain(key.slice(2).toLowerCase());
+    const sim = await demoOf(await PublicWorld.open({ storage: new MemoryStorage(), env: {} }));
+    expect(sim.relayer).toBeUndefined();
+    expect(sim.faucet.mintsPerDay).toBeUndefined();
+  });
+
+  it('takes the funding lane first and the deal lanes after it', () => {
+    const lanes = [{ address: '0xAA00000000000000000000000000000000000001' }, { address: '0xBB00000000000000000000000000000000000002' }];
+    expect(relayerFacts({ funding: lanes[0]!.address, lanes })).toEqual({ fundingLane: '0xaa00000000000000000000000000000000000001', dealLanes: ['0xbb00000000000000000000000000000000000002'] });
+  });
+
+  it("splits today's live judge tokens by model, counts only, and keeps them across a rebuild", async () => {
+    const storage = new MemoryStorage();
+    const now = () => Date.parse('2026-11-05T12:00:00Z');
+    const budget = new JudgeBudget(storage, 30, now);
+    await budget.take();
+    budget.usage({ provider: 'anthropic', model: 'claude-opus-5-5@2026-09-21', inputTokens: 900, outputTokens: 180 });
+    await budget.take();
+    budget.usage({ provider: 'openai-compatible', model: 'deepseek-flash@2026-11-01', inputTokens: 1000, outputTokens: 200 });
+    budget.usage({ provider: 'anthropic', model: 'claude-opus-5-5@2026-09-21', inputTokens: 887, outputTokens: 181 });
+    const today = await budget.used();
+    expect(today).toMatchObject({ calls: 2, inputTokens: 2787, outputTokens: 561 });
+    expect(today.byModel).toEqual({ 'claude-opus-5-5@2026-09-21': { calls: 2, input: 1787, output: 361 }, 'deepseek-flash@2026-11-01': { calls: 1, input: 1000, output: 200 } });
+    await budget.flush();
+    expect((await new JudgeBudget(storage, 30, now).used()).byModel).toEqual(today.byModel);
+  });
+
+  it("serves a discovery document the node's own contract accepts, on SimChain and on a chain world", async () => {
+    const live = chain();
+    for (const world of [await PublicWorld.open({ storage: new MemoryStorage(), env: { BUILD_COMMIT: COMMIT } }), await PublicWorld.open({ storage: new MemoryStorage(), env: {}, live: { chain: live }, onError: () => {} })]) {
+      const url = new URL('http://127.0.0.1/.well-known/holdback.json');
+      const r = await world.fetch(new Request(url), { node: 0, origin: 'http://127.0.0.1', client: '127.0.0.1' });
+      expect(checkExchange({ method: 'GET', url, status: r.status, headers: r.headers, body: Buffer.from(await r.arrayBuffer()) }).errors).toEqual([]);
+    }
+  });
+
+  it('starts a new UTC day with no tokens by model', async () => {
+    const storage = new MemoryStorage();
+    let t = Date.parse('2026-11-05T23:59:00Z');
+    const budget = new JudgeBudget(storage, 30, () => t);
+    await budget.take();
+    budget.usage({ provider: 'anthropic', model: 'claude-opus-5-5@2026-09-21', inputTokens: 10, outputTokens: 2 });
+    t = Date.parse('2026-11-06T00:01:00Z');
+    expect((await budget.used()).byModel).toEqual({});
+  });
+
+  it('serves tokensToday.byModel with a live panel', async () => {
+    const inner = markerFake();
+    const { urls } = await serve({ judgeProvider: { complete: (r: Parameters<typeof inner.complete>[0]) => inner.complete(r) }, liveCallsPerDay: 7 });
+    const index = ((await (await fetch(`${urls[0]}/`)).json()) as J).demo;
+    expect(index.judges.tokensToday).toEqual({ input: 0, output: 0, byModel: {} });
   });
 });

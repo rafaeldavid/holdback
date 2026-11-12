@@ -161,6 +161,8 @@ export interface OperatorOptions {
   fee?: OperatorFeeSchedule;
   /** On an EVM settlement layer: the ERC-3009 messages the buyer signs to fund and to pay the fee (ADR-0025). */
   erc3009?: Erc3009Signing;
+  /** This deployment's own contracts by name, for the money-address warnings of prepare (ADR-0033 §7). Absent: none. */
+  contracts?: ReadonlyArray<{ name: string; address: Address }>;
   /** Advisory notices this node adds to prepare, write and state answers (NoticeSubject). Absent: none. */
   notices?: (about: NoticeSubject) => readonly string[] | Promise<readonly string[]>;
   /** A demo world's facts for discovery (DemoFacts). Absent: this node is not a demo. */
@@ -300,6 +302,9 @@ function checkShape(op: Operation): void {
       return;
   }
 }
+
+/** T-372: how long the delivery relay waits on this node's store before it relays without the check, in milliseconds. */
+const STORE_CHECK_MS = 2_000;
 
 const MISSING_ID =
   'id is required: the commitment ID is the EIP-712 struct hash (hashStruct, primary type CommitmentTerms) of the terms, without id and signatures. ' +
@@ -705,12 +710,16 @@ export class Operator {
     const refused = this.o.policy?.(deepFreeze(structuredClone(op)), await this.policyContext(op));
     if (refused) fail(refused.type, refused.detail);
     if (dryRun) {
+      await this.refuseUnstoredDelivery(op);
       await this.refuseUnpayableFallback(op);
       return this.send(ctx, await this.dryRun(op));
     }
     return this.idempotent(ctx, raw, async () => {
       // Inside the handler, so a retry of a relayed write replays its answer even if a bond or the fee changed since
       // (ADR-0030 §5). The fallback refusal comes before the fee, so a buyer is never asked to pay for terms refused here.
+      // T-372: inside the handler, so a delivery this key already relayed replays its answer even if the store lost the
+      // bytes since (red team L1); a refusal is not stored, so the same key works once the bytes are up.
+      await this.refuseUnstoredDelivery(op);
       await this.refuseUnpayableFallback(op);
       await this.chargeFee(op);
       const r = await this.relay(ctx, op, await this.bondNoticesFor(op));
@@ -755,6 +764,47 @@ export class Operator {
         'Prepare it again with POST /v1/prepare/agree-and-fund and sign the operatorFee slot, or send the same signed agreement to another operator or directly to the settlement layer, where no fee of this operator applies',
       { fee: { to: schedule.to, token: due.token, amount: due.amount } },
     );
+  }
+
+  /**
+   * T-372: a node with a ciphertext store relays no delivery whose ciphertext that store does not hold. An adjudicator
+   * reading the bytes there could not judge it, and the deal would reach its default outcome with the seller none the
+   * wiser; this tells the seller now, with the next step. Only a definite "not held" refuses: a store that fails or does
+   * not answer within STORE_CHECK_MS lets the relay go on as before. A relay refusal (ADR-0005, D27): nothing changes on
+   * the settlement layer, and the same signed delivery still goes through any operator that holds the bytes, or directly.
+   */
+  private async refuseUnstoredDelivery(op: Operation): Promise<void> {
+    const store = this.o.store;
+    if (!store || op.kind !== 'deliver') return;
+    // A delivery already on the settlement layer (sent there directly, and now joined to this node's book) is not
+    // refused: the settlement layer, not this node, has the say (red team L4).
+    const state = await this.o.settlement.state(op.delivery.commitmentId).catch(() => null);
+    if (state && state.escrowState !== 'Held') return;
+    // The signed hash, and the one the URI ends in when it names one: an adjudicator may read the bytes by either (L2).
+    const { sha256: signed, uri } = op.delivery.ciphertext;
+    const named = /(sha256:[0-9a-f]{64})$/.exec(uri)?.[1];
+    for (const id of new Set([signed, ...(named ? [named] : [])])) {
+      if (!(await this.lacks(store, id as Sha256))) continue;
+      fail(
+        'relay_refused',
+        `this node's store holds no ciphertext ${id}, which this delivery names, so an adjudicator reading it here could not judge it. ` +
+          'Upload the bytes with POST /v1/ciphertext (to this node, or to the store your adjudicators read) and send the same signed delivery again; ' +
+          'or send it to another operator that holds them, or straight to the settlement layer',
+      );
+    }
+  }
+
+  /** True only when this node's store answers "not held" for `id` within STORE_CHECK_MS (T-372). */
+  private async lacks(store: CiphertextStore, id: Sha256): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([store.get(id), new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error('store check timed out')), STORE_CHECK_MS)))]);
+      return false;
+    } catch (e) {
+      return e instanceof StoreError && e.code === 'not_found';
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**
@@ -1043,13 +1093,16 @@ export class Operator {
    */
   private async faucet(ctx: Ctx, raw: unknown): Promise<StoredResponse> {
     const faucet = this.o.registry.faucet ?? fail('not_found', 'this node has no faucet: it does not serve a test network');
-    const b = (raw && typeof raw === 'object' ? raw : {}) as { address?: unknown; amount?: unknown };
+    const b = (raw && typeof raw === 'object' ? raw : {}) as { address?: unknown; amount?: unknown; paymentAddress?: unknown };
     if (!isAddress(b.address as string)) fail('invalid_terms', 'the faucet takes {"address": "0x<40 hex>"}: your own address; make your own keys', { field: 'address' });
     if (b.amount !== undefined && (typeof b.amount !== 'string' || !/^[1-9][0-9]{0,30}$/.test(b.amount))) fail('invalid_terms', 'amount, when given, is base units as a decimal string', { field: 'amount' });
+    // ADR-0033 §5: a per-deal signing key holds no tokens. The tokens go to the payment address, the mandate to `address`.
+    if (b.paymentAddress !== undefined && !isAddress(b.paymentAddress as string)) fail('invalid_terms', 'paymentAddress, when given, is the address that funds your holds ("0x<40 hex>"): the faucet sends the tokens there and the mandate to address', { field: 'paymentAddress' });
     const address = lc(b.address as string) as Address;
-    const r = await faucet(address, { ...(typeof b.amount === 'string' ? { amount: BigInt(b.amount) } : {}), client: this.client(ctx) });
+    const paymentAddress = b.paymentAddress === undefined ? undefined : (lc(b.paymentAddress as string) as Address);
+    const r = await faucet(address, { ...(typeof b.amount === 'string' ? { amount: BigInt(b.amount) } : {}), ...(paymentAddress ? { paymentAddress } : {}), client: this.client(ctx) });
     if (!r.ok) fail(r.problem.type, r.problem.detail, { ...(r.retryAfterSec !== undefined ? { retryAfterSec: r.retryAfterSec } : {}), ...(r.field !== undefined ? { field: r.field } : {}) });
-    return this.ok({ address, ...(r as Extract<typeof r, { ok: true }>).grant });
+    return this.ok({ address, ...(paymentAddress ? { paymentAddress } : {}), ...(r as Extract<typeof r, { ok: true }>).grant });
   }
 
   // Prepare, ciphertext
@@ -1095,6 +1148,7 @@ export class Operator {
       state: (id) => this.o.settlement.state(id),
       ...(this.o.fee ? { operatorFee: this.o.fee } : {}),
       ...(this.o.erc3009 ? { erc3009: this.o.erc3009 } : {}),
+      ...(this.o.contracts ? { contracts: this.o.contracts } : {}),
     };
   }
 

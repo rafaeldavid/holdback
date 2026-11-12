@@ -4,6 +4,8 @@
 // event only), replays each commitment's state machine from the log with deadlines from the signed terms,
 // re-derives each posting from the signed terms, the signed decisions and the club rulebook, replays the
 // postings from genesis into its own ledger, and compares. Party reports only add findings.
+// The sim runs on SimChain, which keeps the full protocol: party appeals, appeal bonds, adjudicator bonds and the
+// offer expiry. The checks for those are SimChain only; the phase-one contracts have none of them (ADR-0031).
 import {
   canonicalKeccak,
   commitmentId,
@@ -106,6 +108,7 @@ interface Ctx {
   pending?: { by: string; role: Role; outcome: 'accept' | 'reject' } | undefined;
   /** The first-instance decision that moved the escrow. */
   first?: { by: string; outcome: 'accept' | 'reject' };
+  /** A party appeal, SimChain only. */
   appeal: { state: 'none' | 'open' | 'upheld' | 'overturned' | 'expired'; appealBy?: string; decideBy?: string; closedAt?: string; appellant?: string };
   /** An overturn whose bond payout has not been seen yet. */
   owedOverturn: boolean;
@@ -210,7 +213,7 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
         })
       : null;
     let expected: Posting[] | null = null;
-    /** Postings derived here because the event does not list them (bond.slashed, commitment.settled). */
+    /** Postings derived here because the event does not list them (bond.slashed, SimChain only; commitment.settled). */
     let derived: Posting[] | null = null;
     const c = ctxs.get(id);
     if (e.type !== 'commitment.offered' && id && !c) {
@@ -387,6 +390,7 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
         step(c!, e, ['Offered', 'AcceptedByAdjudicator', 'Agreed'], 'Expired');
         c!.settledAt = e.at;
         break;
+      // SimChain only, to the end of bond.slashed: party appeals and bonds (ADR-0031 §8).
       case 'appeal.filed': {
         const appellant = actor;
         if (![c!.buyer, c!.seller].includes(appellant)) within(e, `appeal filed by ${appellant}, who is not a party`);
@@ -397,15 +401,15 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
         const bond = BigInt((e.payload['bond'] as { amount: string }).amount);
         if (bond < required) within(e, `appeal bond ${bond} is below the required ${required}`);
         const fee = BigInt(rb?.appealFee.amount ?? '0');
+        // SimChain only: the signed Appeal message.
         const ok = await take('appeal', id, (s) => s.appeal, (a) => lc(a.appellantAddress) === appellant && lc(a.appellant === 'buyer' ? c!.buyer : c!.seller) === appellant && BigInt(a.bond.amount) === bond && signedBy({ ...a, type: 'Appeal' } as SignableMessage, appellant));
         if (!ok) within(e, `no unused appeal with bond ${bond} signed by ${appellant}`);
-        expected = [
-          { from: acct.party(appellant), to: acct.appealBond(id), amount: bond },
-          { from: acct.party(appellant), to: acct.appealFee(id), amount: fee },
-        ].filter((p) => p.amount !== 0n);
+        // SimChain only: the appellant posts the bond and the fee, and the appeal opens.
+        expected = [{ from: acct.party(appellant), to: acct.appealBond(id), amount: bond }, { from: acct.party(appellant), to: acct.appealFee(id), amount: fee }].filter((p) => p.amount !== 0n);
         c!.appeal = { ...c!.appeal, state: 'open', appellant };
         break;
       }
+      // SimChain only: the appeal adjudicator decides a party appeal.
       case 'appeal.decided': {
         const appealAdj = c!.adjudicators.appeal;
         if (actor !== appealAdj) within(e, `decided by ${actor}, not the appeal adjudicator`);
@@ -422,6 +426,7 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
         const fee = ledger.get(acct.appealFee(id)) ?? 0n;
         expected = [
           { from: acct.appealFee(id), to: acct.party(appealAdj), amount: fee },
+          // SimChain only: an upheld appeal's bond goes to the first adjudicator; an overturn returns it to the appellant.
           verdict === 'upheld' ? { from: acct.appealBond(id), to: acct.junior(c!.first?.by ?? ''), amount: bond } : { from: acct.appealBond(id), to: acct.party(c!.appeal.appellant ?? ''), amount: bond },
         ].filter((p) => p.amount !== 0n);
         c!.appeal = { ...c!.appeal, state: verdict, closedAt: e.at };
@@ -431,6 +436,7 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
         }
         break;
       }
+      // SimChain only: the appeal window closes.
       case 'appeal.expired': {
         const a = c!.appeal;
         if (a.state === 'none') notBefore(e, a.appealBy, 'appealBy');
@@ -440,6 +446,7 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
         expected =
           a.state === 'open'
             ? [
+                // SimChain only: an undecided appeal returns the bond and the fee to the appellant.
                 { from: acct.appealBond(id), to: acct.party(a.appellant ?? ''), amount: ledger.get(acct.appealBond(id)) ?? 0n },
                 { from: acct.appealFee(id), to: acct.party(a.appellant ?? ''), amount: ledger.get(acct.appealFee(id)) ?? 0n },
               ].filter((p) => p.amount !== 0n)
@@ -447,6 +454,7 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
         c!.appeal = { ...a, state: 'expired', closedAt: a.state === 'open' ? a.decideBy! : (a.appealBy ?? e.at) };
         break;
       }
+      // SimChain only: an adjudicator's bond pays an overturn or a default.
       case 'bond.slashed': {
         const a = lc(String(e.payload['adjudicator']));
         const junior = BigInt((e.payload['junior'] as { amount: string }).amount);
@@ -631,13 +639,15 @@ function classify(c: Ctx, now: number): ['final' | 'open' | 'unexplained', strin
       if (c.via !== 'first_instance') return ['final', `${what} (${c.via}); final at ${c.settledAt}`];
       const a = c.appeal;
       if (a.state === 'none') return now >= ms(a.appealBy!) ? ['final', `${what}; final at ${a.appealBy}`] : ['open', `${what}; a party may appeal until ${a.appealBy}`];
+      // SimChain only: a party appeal, and the appeal-expiry timeout that closes it.
       if (a.state === 'open') return now >= ms(a.decideBy!) ? ['final', `${what}; the appeal went undecided, final at ${a.decideBy}`] : until(a.decideBy, `${what}; the appeal adjudicator decides`, 'appeal-expiry');
       return ['final', `${what}; appeal ${a.state}, final at ${a.closedAt}`];
     }
+    // A transaction on SimChain (SimChain only); on the phase-one contracts the operators record the expiry by their clock, with no transaction.
     case 'Offered':
     case 'AcceptedByAdjudicator':
       return until(t.offerExpiresAt, 'waiting for the buyer to agree and fund', 'expire-offer');
-    case 'Agreed':
+    case 'Agreed': // SimChain only, as above
       return until(t.fundBy, 'waiting for the buyer to fund', 'expire-offer');
     case 'Held':
       return until(t.deliverBy, 'waiting for the seller to deliver', 'reclaim');

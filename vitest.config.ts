@@ -12,7 +12,7 @@ import { BaseSequencer, type TestSpecification } from 'vitest/node';
 // To refresh it, sum the "✓ <file> (<n> tests) <ms>" lines of the four test jobs' logs.
 const COST: Record<string, number> = {
   'examples/e2e-scenarios-silent.test.ts': 1189,
-  'examples/e2e-scenarios-scripted.test.ts': 592,
+  'examples/e2e-scenarios-appeal.test.ts': 592,
   'examples/e2e-round.test.ts': 541,
   'apps/adjudicator/src/service.test.ts': 421,
   'examples/e2e-adjudicator.test.ts': 367,
@@ -39,6 +39,7 @@ const COST: Record<string, number> = {
   'apps/demo/src/transcript/narrate.test.ts': 43,
   'apps/operator/src/sim-world.test.ts': 42,
   'examples/seller-adapter.test.ts': 40, // T-318, measured locally at about 4 s; not yet measured in CI
+  'examples/seller-adapter-job-api.test.ts': 35, // T-366, measured locally at about 3.5 s; not yet measured in CI
   'examples/seller-adapter-terms.test.ts': 30, // T-330, measured locally at about 3 s; not yet measured in CI
   'tests/contract/openapi.contract.test.ts': 36,
   'examples/buyer-signer-outcome.test.ts': 50, // T-325, measured locally at about 5 s; not yet measured in CI

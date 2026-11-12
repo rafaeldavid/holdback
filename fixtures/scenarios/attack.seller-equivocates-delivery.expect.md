@@ -11,11 +11,11 @@ T-212 item 3, ADR-0029 (T-206 L-1). Tidewater signs two deliveries for attempt 1
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=211 |
 | Prefix | attack. (adversarial input: must not auto-accept) |
 | Settlement | SimChain (T-006) driving @holdback/core `step` |
-| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x8cb8…ea79 |
+| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0xd136…9300 |
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0xd9bc…492d |
 | Buyer | atlas-buyer 0xb317…F371 |
 | Seller | tidewater-seller 0x0Ef5…9106 |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x2512…6aaf · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0xe2c7…4714 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0x9a5b…106d · fallback bench-b 0xa140…DAbC · appeal bench-c 0x9cE9…A10E |
 | Operators | op-1 · op-2 |
 
@@ -34,7 +34,7 @@ T-212 item 3, ADR-0029 (T-206 L-1). Tidewater signs two deliveries for attempt 1
 
 Refusals:
 
-- Step 5 early_accept (names a second signed delivery, fixtures/data/dataset-cleaning/customers.clean.csv, not the posted one): invalid_terms: the message names delivery 0x58d8d1050c6c0a8cb7df8686c07a5fd94838993d1349ed91900d221723b8a737, not the posted delivery 0x484fc6c862f33d345ab7f0cfe4416aa90805289ea48289881b6ad84522571784
+- Step 5 early_accept (names a second signed delivery, fixtures/data/dataset-cleaning/customers.clean.csv, not the posted one): invalid_terms: the message names delivery 0xfa759449c9023871603d9902eadc47fda08a8a954c6de0a3ccea5be3b5ff7084, not the posted delivery 0x2345b55723154619d403f370d2f7e239483009b8335b489f0e41435419522ab9
 
 ## Balances (tUSD)
 
@@ -57,7 +57,7 @@ Refusals:
 
 ## Receipts and log
 
-- Events 0–7. Chain head 0x4860…5c80. Replay of 6 SimChain submissions from genesis matches the settlement state.
+- Events 0–7. Chain head 0xe7f7…f2da. Replay of 6 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). The runner labels them without signing; the operator API signs real receipts.
 
 ## Invariants

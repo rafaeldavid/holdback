@@ -11,11 +11,11 @@ T-327 review, finding 2. The terms require a reference file, and after the adjud
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=329 |
 | Prefix | neutrality. (an actor fails: terms-compliant terminal state anyway) |
 | Settlement | SimChain (T-006) driving @holdback/core `step` |
-| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x8cb8…ea79 |
+| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0xd136…9300 |
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0xd9bc…492d |
 | Buyer | atlas-buyer 0x1C80…5ebE |
 | Seller | tidewater-seller 0xB679…1e81 |
-| Terms | fixtures/terms/clean-customers-reference-withheld.yaml (loaded) · commitment 0x6cb3…f08a · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-reference-withheld.yaml (loaded) · commitment 0xbf87…0a1a · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0x3A61…4785 · fallback bench-b 0xe2aB…6552 · appeal bench-c 0x31c5…7b17 |
 | Operators | op-1 · op-2 |
 
@@ -58,7 +58,7 @@ Outages:
 
 ## Receipts and log
 
-- Events 0–11. Chain head 0xa68c…8d90. Replay of 8 SimChain submissions from genesis matches the settlement state.
+- Events 0–11. Chain head 0x17d5…d6db. Replay of 8 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). The runner labels them without signing; the operator API signs real receipts.
 - Receipts from op-2: 3 (rcpt-0006–rcpt-0008). The runner labels them without signing; the operator API signs real receipts.
 

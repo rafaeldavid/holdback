@@ -383,7 +383,8 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     const bonded = { ...unsigned, bondReserved: d.terms.price };
     const message = { ...bonded, signature: await signMessage(cast.primary.key, chain.domain, bonded as UnsignedMessage) };
     const r = await chain.submit({ kind: 'adjudicator_accept', message }, { via: 'op-1', sender: cast.operator.key });
-    expect(r.ok ? 'ok' : r.problem.type).toBe('invalid_terms');
+    // One rule, one problem type: core's phase-one profile refuses the same acceptance with acceptance_mismatch.
+    expect(r.ok ? 'ok' : r.problem.type).toBe('acceptance_mismatch');
     expect(r.ok ? '' : r.problem.detail).toMatch(/bondReserved must be 0 \(ADR-0031 §8\)/);
     expect(chain.escrowState(d.id)?.kind).toBe('Offered');
     expect(chain.transactions()).toHaveLength(0);

@@ -51,7 +51,7 @@ Line numbers are those of `contracts/src/HoldbackRules.sol` at `a37a48d`, the la
 - **Hidden state it answers:** IS-2. `decide` holds the deal in memory while `_acceptDelivery` writes the same word in storage, then writes the memory copy back, with the attempt copied across by hand.
 - **What:** `decide` loads the word into one local copy at the start, and every path stores it once, in `_firstInstance` or `_escalationDecision`, before any token moves. `_acceptDelivery` stops writing the word: it checks the delivery, stores its hash and returns it, and each caller sets the attempt in its own write. A view, `_turn`, returns whose turn it is, the deadline and the beacon round. The two closing helpers stay: a build that folded them into one block measured 409 bytes larger, against 36 bytes for this shape.
 - **Why no behaviour changes:** every check runs in the same order with the same inputs, so every refusal has the same reason. The stored word after the call is the same, the events come in the same order, and the one write still comes before the first call that moves tokens.
-- **One difference inside a call, and nowhere else:** in `Held`, while the adjudicator's signature and the beacon are checked, a contract signer or beacon that reads `dealOf` saw `Held` with attempt 1, a word no row of the state model allows. It now sees `Held` with attempt 0. No transaction's result depends on it, unless an ERC-1271 answer reads the rules contract in the middle of a call.
+- **One difference inside a call, and nowhere else:** in `decide` from `Held`, while the primary adjudicator's ERC-1271 signature is checked (that path calls no beacon), a contract signer that reads `dealOf` saw `Held` with attempt 1 and now sees `Held` with attempt 0; in both, `deliveryHashOf` is already set, so neither is a legal row of the state model. Only a staticcall can see either, and no transaction's result depends on it.
 - **Gates:** the side-by-side harness with an empty allow list; the state oracle and every invariant; `forge test`; the runtime size before and after.
 
 ### PR 5: RF-3, each deadline in one place
@@ -134,6 +134,30 @@ One reviewer pass on commit `318b8e4`: PASS, three Low and three Info. It measur
 | Info | `contracts/README.md` and `.gas-snapshot` are outside the listed paths | Both follow from the removal; kept |
 | Info | Rounding is no longer fuzzed on chain | Phase one has no rate arithmetic on chain; `Postings` asserts the fee share of 0 |
 
+### PR 3 (RF-4)
+
+One reviewer pass on commit `3b49cc0`: ISSUES, no Critical, High or Medium; two Low, three Info. It found every terminal write sets the reason and decider section 9.2 requires, in the same write as the stage and before any external call; the word is 27 bytes, one slot; no off-chain reader of `dealOf` breaks [measured by it with `git grep`]; the ABI diff is `dealOf`'s tuple only.
+
+| Severity | Finding | Done |
+| --- | --- | --- |
+| Low | Neither new check had a planted failure | `test_planted_wrongStoredReasonOrDeciderFailsTheOracle`: a reclaimed deal whose stored reason says Defaulted, and a primary's decision whose stored decider says Fallback, each fail the oracle with its message |
+| Low | The allow-list entry did not tie the reason to the stage | It now applies section 9.2's rule: Decided gives Released or Refunded, AcceptedEarly Released, Settled Settled, Reclaimed and Defaulted Refunded |
+| Info | The storage-layout comment in `StateOracle.t.sol` stopped at the seed tag | It names bytes 25 and 26 |
+| Info | `.gas-snapshot` is not regenerated | Handoff; no CI step checks it |
+| Info | `docs/audit/state-model.md` section 9 says no contract has the closing reason yet | Handoff, for AL-2 |
+
+### PR 4 (RF-2)
+
+One reviewer pass on commit `f454da3`: PASS, three Low and four Info, none in code that runs. It read every path of the three callers and found the same checks in the same order, the same final word, the same event order, and every write before the first token call; it measured the re-seat's blob ids and pins.
+
+| Severity | Finding | Done |
+| --- | --- | --- |
+| Low | The task file said the in-call difference shows during the beacon check too; from Held no beacon is called, and neither intermediate word is a legal row | Corrected above |
+| Low | Two handler comments still said the pinned side overrides `_dealOf` | Corrected |
+| Low | `docs/audit/state-model.md` says `_acceptDelivery` is the only writer of `attempt` | Handoff, for AL-2 |
+| Info | `earlyAccept` from Held still writes the slot twice, as before | Kept out of this refactor |
+| Info | Gas falls by one warm write in `deliver` and in `decide` from Held | None needed |
+
 ## Decisions
 
 - **The clock stays below 2^40 s in the handler.** The word stores times in 40 bits, and bounding them is R8's fix. Without the cap, a warp to a boundary offer's far deadline would let `t1` wrap and fail the oracle for a known, out-of-scope reason.
@@ -142,4 +166,7 @@ One reviewer pass on commit `318b8e4`: PASS, three Low and three Info. It measur
 ## Handoff
 
 - **For AL-2 (`docs/audit/`), from PR 2:** `docs/audit/invariants.md` still lists `test/fuzz/Rounding.fuzz.t.sol`, which PR 2 removed; `docs/audit/scope.md` says the Holdback contracts import `FixedPointMathLib`, and since PR 2 no file in `contracts/src` does [measured by PR 2's reviewer].
+- **For AL-2, from PR 3:** `docs/audit/state-model.md` section 9 ("No contract has these changes yet", and the "Written today at" column of 9.3) predates RF-4: the word now stores `reason` and `decider`, as section 9.2 specifies. `contracts/.gas-snapshot` is not regenerated by this package; no CI step checks it.
+- **For R4b (the formal model's second pass):** the deal's word stores its closing reason (`Open`, `Decided`, `AcceptedEarly`, `Settled`, `Reclaimed`, `Defaulted`) and its decider (`None`, `Primary`, `Fallback`, `Appeal`) since RF-4, written with the closing stage and never changed after. The model can name the outcome by the reason instead of inferring it.
+- **For AL-2, from PR 4:** `docs/audit/state-model.md` (illegal class I02) says `_acceptDelivery` is the only writer of `attempt` and `decide` copies it. Since RF-2 the three callers write it: `deliver` and `earlyAccept` through storage, `decide` in its one write of the word.
 - **For R8, from PR 1's review:** the clause `t.timing.fundBy > type(uint48).max` in `_paymentInfo` cannot be reached since SC-5, because `fundBy < fallbackBy <= expiry` [inferred]. R8 may drop it or keep it as a guard, and when it adds its own bounds it removes the handler's clock cap (`CLOCK_CAP`) and adds those bounds to `_boundary`.

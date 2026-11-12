@@ -2,7 +2,8 @@
 // after a scenario closes a deal it left holding money by its timeouts through the API or says why it cannot, the
 // driver finds a deal another run of the same round keys offered, and one run at a time holds the round's lock. The
 // money fixtures are round 1's 2026-11-05T190711Z records of scenarios 4 and 5a, whose balance windows took in a second
-// run's scenario 1 (2026-11-05T193705Z, funded in block 12,071,597 and paid in 12,071,600).
+// run's scenario 1 (2026-11-05T193705Z, funded in block 12,071,597 and paid in 12,071,600). They keep the records' token
+// transfers and drop the bond vault's logs and bond holdings, as the phase-one contracts hold no bond (ADR-0031 §8).
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,8 +18,6 @@ import { Refusal } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
-// tUSDC on Sepolia. The name is not "token": gitleaks' generic-api-key rule keys on it (PR 219).
-const ASSET = '0x5029787d7e141f2d51788035cc23903652d196b6';
 const BUYER = '0x6c6cf80d54c0b7dc11cc2a7b2d1990202f3679b5';
 const SELLER = '0x8b01fec41ca6a4537934cbe3b4227f2f13709f39';
 const FEE_TO = '0x966216a0e06a6d78197714e221a1958e3c7b1ae2';
@@ -29,39 +28,37 @@ const FALLBACK = '0x594a2253389936fc7b75d8857f5489cd83de68a2';
 const DEMO_PRIMARY = '0x71f8a3e163528c773fb358a718294a0b32697c9e';
 
 const transfer = (from: string, to: string, amount: string) => ({ contract: 'token', event: 'Transfer', args: { from, to, amount } });
-const bondEvent = (event: string, adjudicator: string, amount: string) => ({ contract: 'bonds', event, args: { adjudicator, token: ASSET, amount } });
 const tx = (block: number, logs: J[]): DealRecord['transactions'][number] => ({
   tx: `0x${block.toString(16).padStart(64, '0')}`, status: 'success', from: BUYER as Hex, to: null, block, blockHash: `0x${'00'.repeat(32)}`, gasUsed: '0', effectiveGasPrice: '0', calls: [], logs, steps: [], link: '', sentBy: 'operator',
 });
-const holding = (token: string, bond = '0', free = bond): Holding => ({ token, bond, free });
-const funding = (block: number, primary: string) =>
-  tx(block, [transfer(BUYER, FEE_TO, '4710000'), bondEvent('BondEncumbered', primary, '25000000'), transfer(BUYER, COLLECTOR, '26000000'), transfer(COLLECTOR, STORE, '26000000')]);
+const holding = (token: string): Holding => ({ token, bond: '0', free: '0' });
+const funding = (block: number) => tx(block, [transfer(BUYER, FEE_TO, '4710000'), transfer(BUYER, COLLECTOR, '26000000'), transfer(COLLECTOR, STORE, '26000000')]);
 
 /** Scenario 4's deal 0xa46d7a…fea8 as recorded: its own transactions' logs, and wallet balances that took in another deal. */
 const FOUR: DealRecord = {
   label: "the round's silent primary, the demo fallback and appeal adjudicators", id: `0x${'a4'.repeat(32)}`, relay: 'https://api.crow.direct', notes: [],
   transactions: [
-    funding(12_071_562, ADJ_1),
+    funding(12_071_562),
     tx(12_071_563, []),
     tx(12_071_592, []),
-    tx(12_071_593, [bondEvent('BondReleased', ADJ_1, '25000000'), bondEvent('BondEncumbered', FALLBACK, '25000000'), transfer(STORE, FALLBACK, '1000000'), transfer(STORE, SELLER, '25000000')]),
-    tx(12_071_599, [bondEvent('BondReleased', FALLBACK, '25000000')]),
+    tx(12_071_593, [transfer(STORE, FALLBACK, '1000000'), transfer(STORE, SELLER, '25000000')]),
+    tx(12_071_599, []),
   ],
   chain: { stage: 'Released', attempt: 1, payment: { collected: true, capturable: '0', refundable: '26000000' }, block: 12_071_599 },
   balances: {
-    before: { [BUYER]: holding('808810000'), [SELLER]: holding('1113750000'), [ADJ_1]: holding('1000000', '25000000'), [FALLBACK]: holding('0', '25000000000') },
-    after: { [BUYER]: holding('747390000'), [SELLER]: holding('1138750000'), [ADJ_1]: holding('1000000', '25000000'), [FALLBACK]: holding('1000000', '25000000000') },
+    before: { [BUYER]: holding('808810000'), [SELLER]: holding('1113750000'), [ADJ_1]: holding('1000000'), [FALLBACK]: holding('0') },
+    after: { [BUYER]: holding('747390000'), [SELLER]: holding('1138750000'), [ADJ_1]: holding('1000000'), [FALLBACK]: holding('1000000') },
   },
 };
 
 /** Scenario 5a's deal 0x3a279b…dfb2 as recorded: refunded by its default, while the seller's wallet took another deal's 25 tUSDC. */
 const FIVE_A: DealRecord = {
   label: 'checks-only, a check that runs out of its work budget', id: `0x${'3a'.repeat(32)}`, relay: 'https://api.crow.direct', notes: [],
-  transactions: [funding(12_071_601, DEMO_PRIMARY), tx(12_071_602, []), tx(12_071_604, [bondEvent('BondReleased', DEMO_PRIMARY, '25000000')]), tx(12_071_610, [transfer(STORE, BUYER, '26000000')])],
+  transactions: [funding(12_071_601), tx(12_071_602, []), tx(12_071_604, []), tx(12_071_610, [transfer(STORE, BUYER, '26000000')])],
   chain: { stage: 'Refunded', attempt: 1, payment: { collected: true, capturable: '0', refundable: '0' }, block: 12_071_610 },
   balances: {
-    before: { [BUYER]: holding('747390000'), [SELLER]: holding('1138750000'), [DEMO_PRIMARY]: holding('26000000', '25002500000', '24977500000') },
-    after: { [BUYER]: holding('742680000'), [SELLER]: holding('1163750000'), [DEMO_PRIMARY]: holding('28000000', '25002500000', '24977500000') },
+    before: { [BUYER]: holding('747390000'), [SELLER]: holding('1138750000'), [DEMO_PRIMARY]: holding('26000000') },
+    after: { [BUYER]: holding('742680000'), [SELLER]: holding('1163750000'), [DEMO_PRIMARY]: holding('28000000') },
   },
 };
 
@@ -81,7 +78,7 @@ describe('the money checks count only the deal itself (round 1, 2026-11-05)', ()
     expect(flowOf(FIVE_A, DEMO_PRIMARY)).toEqual({ token: '0', bond: '0', free: '0' });
   });
 
-  it('counts no bond on a chain: the phase-one contracts hold none (ADR-0031 §8), so a vault log from an older deployment moves nothing', () => {
+  it('counts no bond on a chain: the phase-one contracts hold none (ADR-0031 §8), so only token transfers move', () => {
     expect(flowOf(FOUR, ADJ_1)).toEqual({ token: '0', bond: '0', free: '0' });
     expect(flowOf(FOUR, FALLBACK)).toEqual({ token: '1000000', bond: '0', free: '0' });
   });

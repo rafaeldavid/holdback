@@ -11,7 +11,8 @@
 import { keccak256, parseAbi, toBytes, type Hex } from 'viem';
 import { STAGES } from './e2e-chain.ts';
 import { buyerKeys, buyerOpens, delta, deliver, eventsOf, finish, fund, get, logsOf, openDeal, reason, retry, short, shortWindows, sleep, trigger, until, waitPast, type Deal, type Run } from './e2e-run.ts';
-import { appeal, checksLine, judgment, lc, paidCheck, PRICE, requires, RUBRIC, settledChecks, TRANSLATION, type J, type Scenario } from './e2e-scenario-kit.ts';
+import { appeal } from './e2e-scenarios-appeal.ts';
+import { checksLine, judgment, lc, paidCheck, PRICE, requires, RUBRIC, settledChecks, TRANSLATION, type J, type Scenario } from './e2e-scenario-kit.ts';
 
 /** 5a's dataset: one row per customer with the account manager's notes. */
 export const NOTES = { kind: 'dataset', description: 'notes.csv, one row per customer with the account notes', format: 'text/csv' };
@@ -47,9 +48,12 @@ const BEACON_ABI = parseAbi(['function roundAt(uint256 t) pure returns (uint64)'
 const OUTCOMES = ['accept', 'reject', 'escalate'] as const;
 const ROLES = ['primary', 'fallback', 'appeal'] as const;
 
-/** The judgment.decided events each operator serves for the deal, as [operator origin, events]. */
+/**
+ * The judgment.decided events each operator serves for the deal, as [operator origin, events]. The appeal adjudicator's
+ * decision on an escalation is one too, with role `appeal`, on SimChain and on a chain alike.
+ */
 async function decisions(deal: Deal): Promise<Array<{ origin: string; events: J[] }>> {
-  return Promise.all(deal.buyer.sources().map(async (api) => ({ origin: new URL(api).origin, events: (await eventsOf(deal.buyer, deal.id, api)).filter((e) => e.type === 'judgment.decided' || e.type === 'appeal.decided') })));
+  return Promise.all(deal.buyer.sources().map(async (api) => ({ origin: new URL(api).origin, events: (await eventsOf(deal.buyer, deal.id, api)).filter((e) => e.type === 'judgment.decided') })));
 }
 const by = (events: J[], who: string) => events.filter((e) => lc(String(e.actor)) === lc(who));
 const decidedLine = (seen: Array<{ origin: string; events: J[] }>) => seen.map((s) => `${s.origin}: ${s.events.map((e) => `${short(String(e.actor))} ${e.payload?.role} ${e.payload?.outcome}`).join(', ') || 'none'}`).join('; ');

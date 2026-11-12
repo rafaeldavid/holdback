@@ -48,6 +48,7 @@ import {
   validateTiming,
   APPEAL_WINDOW_PROBLEM,
   ZERO_HOLD_PROBLEM,
+  PHASE_ONE_NO_APPEAL,
 } from '@holdback/core';
 import type { ApiProblem } from './problems.js';
 import { freeBond, hasBond, type Bond } from './registrations.js';
@@ -83,13 +84,8 @@ export interface Prepared {
   notices?: string[];
 }
 
-/**
- * ADR-0031 §8 (D57): the phase-one contracts take no party appeal, so this node prepares and relays none on them. The
- * agent gets the reason and what it can still do, not a revert.
- */
-export const PHASE_ONE_NO_APPEAL =
-  'this settlement runs the phase-one contracts, which have no party appeals and no bonds (ADR-0031, D57): the first decision by the primary or the fallback adjudicator is final on chain. ' +
-  'Nothing reopens it. The signed decision and its judgment record are your evidence (D26); before you sign your next deal, choose the three adjudicators and the default outcome you can rely on';
+/** The reason a phase-one settlement gives a party appeal, from core, where it is written once (ADR-0031 §8). */
+export { PHASE_ONE_NO_APPEAL };
 
 /** What preparing needs from the operator's view of the settlement layer. Reads only. */
 export interface PrepareContext {
@@ -120,6 +116,11 @@ export interface PrepareContext {
   operatorFee?: OperatorFeeSchedule;
   /** On an EVM settlement layer: what the buyer signs to fund and to pay the operator fee (ADR-0025). */
   erc3009?: Erc3009Signing;
+  /**
+   * This deployment's own contracts, by name (`rules`, `escrow`, `collector`, `token`, `beacon`, `multicall3`): a money
+   * address equal to one gets an advisory notice (ADR-0033 §7). Absent: SimChain, which has none.
+   */
+  contracts?: ReadonlyArray<{ name: string; address: Address }>;
 }
 
 /**
@@ -323,7 +324,10 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
   if (template !== 'default' && template !== 'checks-only') bad('template is "default" (checks, then a judge panel on the rubric) or "checks-only"', 'template');
   if (!isAddress(input['seller'])) bad('seller (your address) is required', 'seller');
   const buyer = input['buyer'];
-  if (!isObj(buyer) || !isAddress(buyer['address']) || typeof buyer['encryptionPublicKey'] !== 'string') bad('buyer is {"address", "encryptionPublicKey"}, as the buyer gave them to you', 'buyer');
+  if (!isObj(buyer) || !isAddress(buyer['address']) || typeof buyer['encryptionPublicKey'] !== 'string') bad('buyer is {"address", "encryptionPublicKey", "paymentAddress"?}, as the buyer gave them to you', 'buyer');
+  // ADR-0033 §6: each party names its own money address; absent, the signing address, said in one notice each.
+  if (buyer!['paymentAddress'] !== undefined && !isAddress(buyer!['paymentAddress'])) bad('buyer.paymentAddress, when given, is the address that funds the hold and receives every refund, as the buyer gave it to you', 'buyer.paymentAddress');
+  if (input['sellerPayoutAddress'] !== undefined && !isAddress(input['sellerPayoutAddress'])) bad('sellerPayoutAddress, when given, is the address that receives every payment to you; take it from your own configuration', 'sellerPayoutAddress');
   const { slate, filled } = slateIn(ctx, input['adjudicators']);
   if (typeof input['clubId'] !== 'string') bad('clubId is required (GET /v1/clubs/{id})', 'clubId');
   const club = ctx.club(input['clubId'] as string) ?? bad(`no club ${String(input['clubId'])}`, 'clubId');
@@ -341,7 +345,11 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
   await current('appeal');
   const base = {
     clubId: club.id,
-    buyer: { address: lc(buyer!['address'] as string) as Address, encryptionPublicKey: buyer!['encryptionPublicKey'] as string },
+    buyer: {
+      address: lc(buyer!['address'] as string) as Address,
+      encryptionPublicKey: buyer!['encryptionPublicKey'] as string,
+      ...(buyer!['paymentAddress'] !== undefined ? { paymentAddress: lc(buyer!['paymentAddress'] as string) as Address } : {}),
+    },
     adjudicators: slate,
     price: amountIn(input['price'], 'price'),
     deliverable: input['deliverable'] as unknown as TermsDraft['deliverable'],
@@ -363,6 +371,7 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
   const createdAt = givenCreatedAt ?? ctx.now();
   const resolved = {
     seller: lc(input['seller'] as string) as Address,
+    ...(input['sellerPayoutAddress'] !== undefined ? { sellerPayoutAddress: lc(input['sellerPayoutAddress'] as string) as Address } : {}),
     rulebookHash: club.rulebookHash,
     policyId: primary.policy.id,
     policyHash: primary.policyHash,
@@ -392,7 +401,12 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
   }
   const shortfall = await fallbackBondRefusal(ctx, terms);
   if (shortfall) bad(shortfall, 'adjudicators.fallback');
-  const notices = [...(await bondNotices(ctx, terms)), ...declineNotices(turns, terms)];
+  const notices = [
+    ...addressDefaultNotices(terms, { payment: buyer!['paymentAddress'] === undefined, payout: input['sellerPayoutAddress'] === undefined }),
+    ...moneyAddressNotices(ctx, terms),
+    ...(await bondNotices(ctx, terms)),
+    ...declineNotices(turns, terms),
+  ];
   const total = BigInt(terms.price.amount) + BigInt(terms.adjudication.fee.amount);
   const named = (role: AdjudicatorRole) => (filled[role] ? `${role} ${filled[role]} (this operator's default)` : `${role} ${slate[role]}`);
   return {
@@ -402,6 +416,7 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
     submit: { method: 'POST', path: '/v1/commitments', body: { ...terms, id, signatures: { seller: null } } },
     check: [
       `you are the seller ${terms.seller}; the buyer is ${terms.buyer}`,
+      `payments to you go to sellerPayoutAddress ${terms.sellerPayoutAddress}, which must be the address in your own configuration; the buyer's payment address ${terms.buyerPaymentAddress} funds the hold and receives every refund`,
       `price ${amountText(terms.price)}; adjudication fee ${amountText(terms.adjudication.fee)} (the buyer holds ${amountText({ token: terms.price.token, amount: total.toString() } as TokenAmount)}; the fee is kept on a refund)`,
       `adjudicators: ${(['primary', 'fallback', 'appeal'] as const).map(named).join(', ')}`,
       `policy id ${quoted(terms.adjudication.policyId)} (the primary's own label, untrusted text), policyHash ${terms.adjudication.policyHash} = keccak256(JCS(policy)) of the primary's registration; registryHash ${terms.adjudication.registryHash}`,
@@ -472,6 +487,40 @@ async function turnProblems(ctx: Pick<PrepareContext, 'declines'>, c: AnyCommitm
     if (why) out[role] = why;
   }
   return out;
+}
+
+/** ADR-0033 §7: one line for each money address the request left out, so the party knows its signing address holds the money. */
+function addressDefaultNotices(t: Pick<AnyCommitmentTerms, 'buyer' | 'seller'>, absent: { payment: boolean; payout: boolean }): string[] {
+  return [
+    ...(absent.payment ? [`Payment address: not set. The buyer's signing address ${t.buyer} funds the hold, and refunds return to it; the buyer may name buyer.paymentAddress`] : []),
+    ...(absent.payout ? [`Payout address: not set. Payments go to the seller's signing address ${t.seller}; name sellerPayoutAddress so the key that signs never holds the income`] : []),
+  ];
+}
+
+const ZERO_ADDRESS = `0x${'0'.repeat(40)}`;
+
+/**
+ * ADR-0033 §7: advisory warnings, never refusals (D31), for a money address that would lose or strand the money or hand
+ * it to a decider: the zero address, one of this deployment's own contracts, Multicall3, or one of the deal's three
+ * adjudicators. The contract compares none of them (ADR-0033 §2).
+ */
+export function moneyAddressNotices(ctx: Pick<PrepareContext, 'contracts'>, t: Pick<AnyCommitmentTerms, 'buyerPaymentAddress' | 'sellerPayoutAddress' | 'adjudication'>): string[] {
+  const out: string[] = [];
+  const contracts = ctx.contracts ?? [];
+  const adjudicators = ROLE_OF.map(([role, field]) => [role, t.adjudication[field]] as const);
+  const check = (field: 'buyerPaymentAddress' | 'sellerPayoutAddress', a: Address) => {
+    const payout = field === 'sellerPayoutAddress';
+    if (lc(a) === ZERO_ADDRESS) out.push(payout ? `${field} is the zero address: payments to the seller would be lost or would revert, depending on the token` : `${field} is the zero address: no signature can fund this deal`);
+    const own = contracts.find((c) => lc(c.address) === lc(a));
+    if (own?.name === 'multicall3' && payout) out.push(`${field} ${a} is Multicall3: anyone could take the seller's payment, because Multicall3 makes any call it is asked to`);
+    else if (own) out.push(payout ? `${field} ${a} is this deployment's ${own.name}: payments to the seller would be stranded there` : `${field} ${a} is this deployment's ${own.name}: no signature can fund this deal`);
+    for (const [role, adj] of adjudicators) {
+      if (lc(adj) === lc(a)) out.push(`${field} ${a} is the ${role} adjudicator: the adjudicator that decides would receive the price on ${payout ? 'an accept' : 'a reject'}`);
+    }
+  };
+  check('sellerPayoutAddress', t.sellerPayoutAddress);
+  check('buyerPaymentAddress', t.buyerPaymentAddress);
+  return out.map((n) => `${n}. You may still choose it`);
 }
 
 const declineNotices = (turns: Partial<Record<AdjudicatorRole, string>>, c: Pick<AnyCommitmentTerms, 'adjudication'>): string[] =>
@@ -582,6 +631,7 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
     check: [
       `you are the buyer ${c.buyer}; the seller is ${c.seller}`,
       `you authorize ${amountText({ token: c.price.token, amount: total } as TokenAmount)}: price ${amountText(c.price)} plus fee ${amountText(c.adjudication.fee)}; the fee is kept on a refund`,
+      `the payment address ${c.buyerPaymentAddress} signs fund.signature${fee ? ' and operatorFee.signature' : ''}, funds the hold and receives every refund; it must be your own. The signing address ${c.buyer} signs the agreement. Payments to the seller go to its payout address ${c.sellerPayoutAddress}, which must be the one in the offer you approved (ADR-0033 §6)`,
       ...(fee && due
         ? [
             `you also pay this operator's operator fee of ${operatorFeeText(due, schedule!)}, the schedule in its discovery document's fees.operator; it is a separate transfer, never part of the hold, and not refunded, even on a refund. Another operator, or direct submission to the settlement layer, relays this agreement without it`,
@@ -655,7 +705,7 @@ async function earlyAccept(ctx: PrepareContext, input: Record<string, unknown>):
     submit: { method: 'POST', path: `/v1/commitments/${c.id}/accept`, body: { ...m, signature: null } },
     check: [
       `you are the buyer ${c.buyer}`,
-      `you accept the delivery and release ${amountText(c.price)} to the seller ${c.seller} now`,
+      `you accept the delivery and release ${amountText(c.price)} to the seller's payout address ${c.sellerPayoutAddress} now; the fee ${amountText(c.adjudication.fee)} returns to your payment address ${c.buyerPaymentAddress}`,
       `deliveryHash ${posted.deliveryHash} is the hash of the delivery you opened, computed yourself from the seller-signed delivery (EIP-712 struct hash without its signature); the settlement layer refuses an accept for any other delivery`,
       'open your envelope first: get the signed delivery from the seller, check it is the one the settlement layer holds (its deliveryHash in delivery.submitted, as at least two operators serve it), open your envelope with your own key, decrypt the ciphertext and check the plaintext hash; the envelope the seller supplied is what an early accept releases, and nothing else checks it',
       'no appeal follows an early accept (D32): if your envelope does not open, do not accept early; an adjudicator\'s decision re-seals the key to your terms key',
@@ -704,6 +754,13 @@ function lateDeliveryIn(c: AnyCommitment, v: unknown): Delivery | undefined {
   const d = r.value;
   if (lc(d.commitmentId) !== lc(c.id)) bad(`delivery is for ${d.commitmentId}, not ${c.id}`, 'delivery.commitmentId');
   return d;
+}
+
+/** Which money address a payout names, for the check line; both roles when the two addresses are one (ADR-0033 §8). */
+function payeeLabel(c: Pick<AnyCommitmentTerms, 'sellerPayoutAddress' | 'buyerPaymentAddress'>, to: Address): string {
+  const payout = lc(to) === lc(c.sellerPayoutAddress);
+  const payment = lc(to) === lc(c.buyerPaymentAddress);
+  return payout && payment ? " (the seller's payout address and the buyer's payment address)" : payout ? " (the seller's payout address)" : payment ? " (the buyer's payment address)" : '';
 }
 
 async function settlement(ctx: PrepareContext, input: Record<string, unknown>): Promise<Prepared> {
@@ -763,8 +820,8 @@ async function settlement(ctx: PrepareContext, input: Record<string, unknown>): 
     ],
     submit: { method: 'POST', path: `/v1/commitments/${c.id}/settlements`, body: { ...m, buyerSignature: null, sellerSignature: null } },
     check: [
-      `payouts: ${payouts.map((p) => `${amountText(p.amount)} to ${p.to}${lc(p.to) === lc(c.seller) ? ' (seller)' : lc(p.to) === lc(c.buyer) ? ' (buyer)' : ''}`).join('; ')} (they must sum to the price ${amountText(c.price)})`,
-      `the fee ${amountText(c.adjudication.fee)} returns to the buyer`,
+      `payouts: ${payouts.map((p) => `${amountText(p.amount)} to ${p.to}${payeeLabel(c, p.to)}`).join('; ')} (they must sum to the price ${amountText(c.price)})`,
+      `the fee ${amountText(c.adjudication.fee)} returns to the buyer's payment address ${c.buyerPaymentAddress}`,
       releaseKey ? 'the buyer receives the content key' : 'the content key is not released',
       'both parties sign the identical typed data; either may submit once both signatures are in',
       ...(late

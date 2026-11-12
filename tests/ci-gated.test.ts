@@ -17,14 +17,13 @@ const EXEMPT: Record<string, string> = {
   // A fork of Sepolia needs a Sepolia RPC, and CI configures no public endpoint. Each runs before a deploy.
   'apps/adjudicator/src/drand-fork.test.ts': 'needs SEPOLIA_FORK_RPC: a public RPC, which CI does not configure',
   'apps/demo-cloud/src/live-fork.test.ts': 'needs SEPOLIA_FORK_RPC: a public RPC, which CI does not configure',
-  'apps/demo-cloud/src/predeploy-fork.test.ts': 'needs SEPOLIA_FORK_RPC: a public RPC, which CI does not configure',
   // Round 1's driver against the demo world on anvil. Each file's other suites run in the test shards. The anvil
   // halves take minutes, and one check is sensitive to machine load (docs/team.md, the row from T-231), so a job that
   // must not skip would fail on a slow runner. They run locally, with Foundry, in `pnpm test`.
   'examples/e2e-round.test.ts': "the round driver's anvil half: minutes long and load-sensitive; runs locally",
   'examples/e2e-scenarios-direct.test.ts': "the round driver's anvil half: minutes long and load-sensitive; runs locally",
   'examples/e2e-scenarios-escalation.test.ts': "the round driver's anvil half: minutes long and load-sensitive; runs locally",
-  'examples/e2e-scenarios-scripted.test.ts': "the round driver's anvil half: minutes long and load-sensitive; runs locally",
+  'examples/e2e-scenarios-appeal.test.ts': "the round driver's anvil half: minutes long and load-sensitive; runs locally",
   'examples/e2e-scenarios-silent.test.ts': "the round driver's anvil half: minutes long and load-sensitive; runs locally",
   'examples/e2e-settle.test.ts': "the round driver's anvil half: minutes long and load-sensitive; runs locally",
   // Gated on the platform, not on a tool: the cases run in the test shards, on Linux as a user who is not root.

@@ -154,9 +154,9 @@ describe('e2e-round.ts', () => {
       const r = await driver(['run', '1', '2', '3a', '3d', '6', '10a', '--no-homepage'], env);
       expect(r.out).toMatch(/^results: 1 fail, 2 (pass|fail), 3a pass, 3d pass, 6 waits, 10a pass$/m);
       const { folder, byId } = results(out);
-      // anvil 1.0.0's eth_estimateGas sometimes refuses expireAppeal ("gas floor exceeds the gas limit"), so the
-      // operator's relay answers 500 and the driver closes the window directly (backlog); on Sepolia the run shows it.
-      const known = ['a live panel judged', 'appeal-expiry relayed through the API'];
+      // Scenario 1 asks for a live panel, and this world has no model keys. On the phase-one contracts a decision is
+      // final when written, so the round sends no trigger after it.
+      const known = ['a live panel judged'];
       for (const id of ['1', '2']) for (const c of byId[id].checks.filter((x: J) => !x.ok)) expect(known, `${id}: ${c.name}: ${c.detail}`).toContain(c.name);
       // 6 files a party appeal, which the phase-one contracts do not take: it runs on SimChain only (ADR-0031 §8).
       expect(byId['6']).toMatchObject({ status: 'waits', waitsFor: ['ADR-0031'] });
