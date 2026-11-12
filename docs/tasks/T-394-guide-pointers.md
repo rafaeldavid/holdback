@@ -5,7 +5,7 @@
 - **Depends on:** T-393 (the short guides, holdback PR 444, `541dbd8`)
 - **Paths this task may touch:** `apps/operator/src/server.ts`, `apps/operator/src/openapi/index.ts`, `apps/test-agents/src/buyer.ts`, `seller.ts`, `sell-once.ts` and their tests, `apps/demo-cloud/src/world.ts`, `spec/openapi/paths.json` and the regenerated `spec/openapi.json`, `fixtures/terms/audit-report.yaml`, this file
 - **Human gate:** no
-- **Status:** in progress
+- **Status:** done (holdback PR 452)
 - **Agent/session:** Opus 5.5, the T-378 session; change kind 4 (text an agent reads in answers); one reviewer
 
 ## Intent
@@ -25,10 +25,10 @@ No route, field or schema changes. The OpenAPI document changes in description t
 
 ## Acceptance criteria
 
-- [ ] Each answer an agent receives names a file under `https://crow.direct/` that exists on the lane, and a heading in it that exists.
-- [ ] The operator's and the OpenAPI document's pointer to the guide call it the front door, which links the buyer's page, the seller's page and the reference.
-- [ ] No other pointer into the old guide's sections remains in this task's paths (one search).
-- [ ] The tests that assert an answer's text follow; `pnpm validate:spec` reports `spec/openapi.json` fresh.
+- [x] Each answer an agent receives names a file under `https://crow.direct/` that exists on the lane, and a heading in it that exists.
+- [x] The operator's and the OpenAPI document's pointer to the guide call it the front door, which links the buyer's page, the seller's page and the reference.
+- [x] No other pointer into the old guide's sections remains in this task's paths (one search).
+- [x] The tests that assert an answer's text follow; `pnpm validate:spec` reports `spec/openapi.json` fresh.
 
 ## Evidence
 
