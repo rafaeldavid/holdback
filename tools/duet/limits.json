@@ -1,9 +1,37 @@
 {
-  "note": "The limits a duet run is held to, per scenario (T-391). Over any of them, or a stalled agent, and the runner writes ticket.md beside the record. Every number here is a GUESS: there is no live baseline yet. Each is the scripted run's measured count (2026-11-12) times a margin: 3 for tokens, 4 for turns and calls, 3 for API calls, and 60 s for the time from the work passing to the seller being paid (0 s measured on the simulator; a Sepolia block is about 12 s). Tune them after the first live runs. Stalls, human interventions beyond the owner's pre-set approvals, agreeing to forbidden terms and a wrong decision have a limit of 0 in every scenario and are not listed.",
+  "note": "The limits a duet run is held to, per scenario (T-391). Over any of them, or a stalled agent, and the runner writes ticket.md beside the record. Every number here is a GUESS: there is no live baseline yet. Each is the scripted run's measured count (2026-11-12; paid: deal 383,478 tokens, most 245,000 for one agent, 10 turns, 14 tool calls, 68 API calls; refund: 540,409, 403,000, 15, 21, 84; bad-offer: 440,023, 331,000, 13, 22, 50; late-offer: 523,450, 359,000, 14, 24, 50), rounded up times a margin: 3 for tokens, 4 for turns and calls, 3 for API calls, and 60 s for the time from the work passing to the seller being paid (0 s measured on the simulator; a Sepolia block is about 12 s). Tune them after the first live runs. Stalls, human interventions beyond the owner's pre-set approvals, agreeing to forbidden terms and a wrong decision have a limit of 0 in every scenario and are not listed.",
   "scenarios": {
-    "paid": { "tokensPerAgent": 750000, "tokensDeal": 1200000, "turnsPerAgent": 40, "toolCallsPerAgent": 60, "apiCallsPerAgent": 210, "workPassesToPaidSec": 60 },
-    "refund": { "tokensPerAgent": 1100000, "tokensDeal": 1550000, "turnsPerAgent": 56, "toolCallsPerAgent": 80, "apiCallsPerAgent": 250, "workPassesToPaidSec": 60 },
-    "bad-offer": { "tokensPerAgent": 2000000, "tokensDeal": 2600000, "turnsPerAgent": 80, "toolCallsPerAgent": 100, "apiCallsPerAgent": 250, "workPassesToPaidSec": 60 },
-    "late-offer": { "tokensPerAgent": 2000000, "tokensDeal": 2600000, "turnsPerAgent": 80, "toolCallsPerAgent": 100, "apiCallsPerAgent": 250, "workPassesToPaidSec": 60 }
+    "paid": {
+      "tokensPerAgent": 750000,
+      "tokensDeal": 1200000,
+      "turnsPerAgent": 40,
+      "toolCallsPerAgent": 60,
+      "apiCallsPerAgent": 210,
+      "workPassesToPaidSec": 60
+    },
+    "refund": {
+      "tokensPerAgent": 1250000,
+      "tokensDeal": 1650000,
+      "turnsPerAgent": 60,
+      "toolCallsPerAgent": 85,
+      "apiCallsPerAgent": 255,
+      "workPassesToPaidSec": 60
+    },
+    "bad-offer": {
+      "tokensPerAgent": 1000000,
+      "tokensDeal": 1350000,
+      "turnsPerAgent": 52,
+      "toolCallsPerAgent": 90,
+      "apiCallsPerAgent": 150,
+      "workPassesToPaidSec": 60
+    },
+    "late-offer": {
+      "tokensPerAgent": 1100000,
+      "tokensDeal": 1600000,
+      "turnsPerAgent": 56,
+      "toolCallsPerAgent": 100,
+      "apiCallsPerAgent": 150,
+      "workPassesToPaidSec": 60
+    }
   }
 }
