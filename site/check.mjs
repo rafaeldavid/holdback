@@ -283,7 +283,13 @@ expect(buyFile.indexOf(declares) > 0 && buyFile.indexOf(declares) < buyFile.inde
 const install = buyInstall();
 const firstStep = sectionOf(buy, 'First hour').split(/\n(?=\d+\. \*\*)/)[1] ?? '';
 expect(count(buy, '{{BUY_INSTALL}}') === 1 && firstStep.includes('```sh\n   {{BUY_INSTALL}}\n   ```'), 'buy.txt must carry {{BUY_INSTALL}} once, in an sh block in the first step of "First hour"');
-expect(install.includes(`curl -fsSLO ${BUY_MJS_URL} `) && install.includes(`echo "${buySha256()}  buy.mjs" | shasum -a 256 -c`) && (filledGuides.get('buy.txt') ?? '').includes(install), 'the published buy.txt does not carry the install command with the current sha256 of site/buy.mjs');
+expect(install.includes(`curl -fsSL ${BUY_MJS_URL} -o buy.mjs.part `) && install.endsWith(`echo "${buySha256()}  buy.mjs.part" | shasum -a 256 -c && mv buy.mjs.part buy.mjs`) && (filledGuides.get('buy.txt') ?? '').includes(install), 'the published buy.txt does not carry the install command with the current sha256 of site/buy.mjs');
+// The dispatcher's words and the banner's commands are one table: each `node buy.mjs <word>` routes to its own command,
+// and every command a bundled file names is one the banner declares, or it would print a file crow-buy does not have.
+const words = JSON.parse((/const SUBCOMMANDS = (\{[^}]*\});/.exec(read('buy-entry.mjs'))?.[1] ?? '{}').replace(/(\w+):/g, '"$1":').replace(/'/g, '"'));
+const routed = { 'buy-with-signer': 'node buy.mjs', ...Object.fromEntries(Object.entries(words).map(([w, name]) => [name, `node buy.mjs ${w}`])) };
+expect(JSON.stringify(Object.entries(routed).sort()) === JSON.stringify(Object.entries(BUY_COMMANDS).sort()), `site/buy-entry.mjs routes ${JSON.stringify(routed)}, and BUY_COMMANDS in site/build.mjs declares ${JSON.stringify(BUY_COMMANDS)}: they must be the same`);
+for (const [, name] of buyFile.matchAll(/command(?:\$\d+)?\("([a-z-]+)"/g)) expect(Object.hasOwn(BUY_COMMANDS, name), `site/buy.mjs prints the command ${name}, which BUY_COMMANDS does not declare: it would print node examples/${name}.ts`);
 for (const [name, line] of Object.entries(BUY_COMMANDS)) expect(!(filledGuides.get('buy.txt') ?? '').includes(`node examples/${name}.ts`) && buy.includes(line), `buy.txt must run ${name} as \`${line}\`, the file step one installs`);
 if (existsSync(here('../reports/site-out/llms.txt'))) expect(existsSync(here('../reports/site-out/buy.mjs')) && read('../reports/site-out/buy.mjs') === buyFile, 'reports/site-out/buy.mjs is missing or differs from site/buy.mjs: build with --out again');
 

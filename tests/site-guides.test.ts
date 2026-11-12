@@ -74,4 +74,27 @@ describe('the checks on the guides', () => {
     expect(guidePage('Run:\n{{BUY_INSTALL}}\n', 'buy.txt', () => 'mkdir -p crow-buy')).toBe('Run:\nmkdir -p crow-buy\n');
     expect(() => guidePage('Run {{BUY_INSTALL}}', 'sell.txt')).toThrow('sell.txt has a {{placeholder}}');
   });
+
+  it("runs each of buy.mjs's subcommands, and only that one, with no network", async () => {
+    const { mkdtempSync, mkdirSync, copyFileSync, symlinkSync, realpathSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { spawnSync } = await import('node:child_process');
+    // buy.mjs imports viem and tweetnacl as packages: run it from a folder that has them, as crow-buy does.
+    const dir = mkdtempSync(join(tmpdir(), 'crow-buy-'));
+    mkdirSync(join(dir, 'node_modules'));
+    for (const p of ['viem', 'tweetnacl']) symlinkSync(realpathSync(new URL(`../examples/node_modules/${p}`, import.meta.url)), join(dir, 'node_modules', p));
+    copyFileSync(new URL('../site/buy.mjs', import.meta.url), join(dir, 'buy.mjs'));
+    const run = (...args: string[]) => spawnSync(process.execPath, ['buy.mjs', ...args], { cwd: dir, encoding: 'utf8', env: { PATH: process.env['PATH'] ?? '' } });
+    const pay = run('pay');
+    expect(pay.stderr).toMatch(/files <store> <id> \| fund <store> <id>/);
+    expect(pay.stderr).not.toMatch(/usage: approve|deal-record/);
+    const record = run('record');
+    expect(record.stderr).toMatch(/<commitmentId> --as buyer\|seller/);
+    expect(record.stderr).not.toMatch(/files <store>/);
+    const approve = run('approve', 'deal-1', 'not-an-id', '1');
+    expect(approve.stderr).toMatch(/usage: approve <key store directory> <commitment ID>/);
+    expect(approve.stderr).not.toMatch(/--as buyer\|seller|files <store>/);
+  });
 });
+
