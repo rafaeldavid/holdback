@@ -14,7 +14,7 @@ import {Field, Fields, Obs} from "./Observation.sol";
 import {NewSide, OldSide, PlantedSide} from "./Sides.sol";
 
 /// @title The side-by-side harness (T-341, refinement gate VG-1)
-/// @notice The old contracts (`old/`, the deployed commit 64be1f1) and the source under test (`contracts/src/`)
+/// @notice The old contracts (`parent/`, the change's parent commit; T-356) and the source under test (`contracts/src/`)
 ///         take the same random sequence of invariant-handler actions from the same starting state, at the same
 ///         addresses. After every step the harness compares every field of `Observation.sol`: the action's result,
 ///         every checked call's outcome, every event, every token and ether balance, every hold, the vault, every
@@ -302,10 +302,11 @@ contract SideBySideTest is Test {
         r.stagesSeen |= _stageMask(n);
         r.rowsSeen |= _rowMask(b);
         bytes32[] memory nd = _digests(n);
-        (HoldbackRules rules, address vault,) = b.system();
+        address served = b.tokens()[0];
+        address funded = b.fundToken();
         for (uint256 f; f < Fields.COUNT; f++) {
             if (od[f] == nd[f]) continue;
-            AllowList.Verdict memory v = AllowList.allowed(Field(f), i, o, n, address(rules), vault);
+            AllowList.Verdict memory v = AllowList.allowed(Field(f), i, o, n, served, funded);
             if (bytes(v.change).length == 0) {
                 (r.differs, r.step, r.field, r.action) = (true, i, Field(f), n.action);
                 return;
@@ -441,7 +442,7 @@ contract SideBySideTest is Test {
 
     /// The rules contract's views and immutables, each as its raw return (a call that fails records its failure).
     function _surface(address rules) internal view returns (bytes memory) {
-        string[13] memory views = [
+        string[14] memory views = [
             string("eip712Domain()"),
             "ESCROW()",
             "ERC3009_COLLECTOR()",
@@ -454,6 +455,7 @@ contract SideBySideTest is Test {
             "KEY_MUTUAL()",
             "KEY_APPEAL()",
             "MUTUAL_FEE_SHARE_BPS()",
+            "TOKEN()",
             "typedDataHash(bytes32)"
         ];
         bytes[] memory out = new bytes[](views.length);

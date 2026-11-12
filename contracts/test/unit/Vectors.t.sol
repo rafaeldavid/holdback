@@ -79,7 +79,7 @@ contract VectorsTest is Test {
     /// commitment ID is core's terms digest, and `_digest` (used by the vectors below) builds the same domain.
     function test_termsDigest_matchesCore() public {
         vm.chainId(31337);
-        bytes memory args = abi.encode(address(0), address(0), address(0), uint64(0), address(0));
+        bytes memory args = abi.encode(address(0), address(0), address(0), uint64(0), address(0), TOKEN);
         deployCodeTo("HoldbackRules.sol:HoldbackRules", args, VERIFYING);
         bytes32 core = 0x78f007af036c3eba017d3090790b8c71b02e7b6a09f93edab14f6b72c992e1a9;
         assertEq(HoldbackRules(VERIFYING).typedDataHash(ID), core);
