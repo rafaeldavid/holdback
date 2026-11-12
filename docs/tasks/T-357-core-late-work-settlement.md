@@ -5,7 +5,7 @@
 - **Depends on:** T-340 (the state model's finding F-1), T-342 (ADR-0031, SC-5b)
 - **Paths this task may touch:** `packages/core/src/state.ts` (the mutual-settlement lines and what they call) and its tests; the simulator's mutual-settlement path (`packages/settlement/sim/`); `packages/settlement/src/interface.ts` (the `mutual_settle` submission only); `packages/settlement/evm/` and `apps/operator/` where this path needs them; one new scenario fixture with its terms and data; one new contract test file under `contracts/test/unit/`; `docs/decisions/ADR-0019-mutual-settlement.md` (an amendment section only); `formal/` (the settlement action); `tests/cut-feature-alignment.known.json` if the change alters it; this file.
 - **Human gate:** no
-- **Status:** in progress
+- **Status:** review
 - **Agent/session:** T-357 session, change kind 5 (settlement and judgment code)
 
 ## Intent
@@ -22,15 +22,15 @@ This task makes the off-chain side take exactly what the contract takes on this 
 
 ## Acceptance criteria
 
-- [ ] The contract's conditions for `mutualSettle` are written down below with line numbers, and core checks the same ones on this path.
-- [ ] A scenario fixture with its `.expect.md` shows a late delivery settled by agreement with the key released in the same step, on SimChain and on the contract.
-- [ ] A settlement naming a delivery that does not match the key is refused on both, with a named error.
-- [ ] Every case core refused before and the contract also refuses is still refused, each with its test.
-- [ ] One new contract test file: the delivery named in the settlement is the one whose key is released; a settlement naming one delivery cannot release another's key.
-- [ ] Prepare can build such a settlement from the agent's own delivery, and the hash it returns is rebuilt from that delivery.
-- [ ] ADR-0019 has a short dated amendment with Rafa's words.
-- [ ] The formal model allows the path; the safety run passes; the liveness run ran once.
-- [ ] The neutrality fixtures pass; `pnpm typecheck`, `pnpm lint`, core's tests and both anvil jobs pass.
+- [x] The contract's conditions for `mutualSettle` are written down below with line numbers, and core checks the same ones on this path.
+- [x] A scenario fixture with its `.expect.md` shows a late delivery settled by agreement with the key released in the same step, on SimChain and on the contract.
+- [x] A settlement naming a delivery that does not match the key is refused on both, with a named error.
+- [x] Every case core refused before and the contract also refuses is still refused, each with its test.
+- [x] One new contract test file: the delivery named in the settlement is the one whose key is released; a settlement naming one delivery cannot release another's key.
+- [x] Prepare can build such a settlement from the agent's own delivery, and the hash it returns is rebuilt from that delivery.
+- [x] ADR-0019 has a short dated amendment with Rafa's words.
+- [x] The formal model allows the path; the safety run passes; the liveness run ran once.
+- [x] The neutrality fixtures pass; `pnpm typecheck`, `pnpm lint`, core's tests and both anvil jobs pass.
 
 ## Out of scope
 
@@ -41,9 +41,29 @@ This task makes the off-chain side take exactly what the contract takes on this 
 
 Fill this in before review. Label each item measured, inferred or guessed.
 
+All measured on this branch, 2026-11-12, on the maintainer's machine, unless marked.
+
 - Commands run and results:
-- Snapshot diffs:
-- Metrics:
+  - `pnpm typecheck`: passes. `pnpm lint`: passes, no findings. `pnpm validate:spec`: 35 of 35 examples valid; openapi 43 operations, fresh.
+  - Core, SimChain and the operator (`vitest run packages/core/src packages/settlement/sim apps/operator/src/sim-world.test.ts`): 28 files, 1,092 tests pass. New: 13 in core's late-work block, 4 in SimChain's, 2 in the operator's.
+  - `pnpm snap`: 39 of 39 fixtures pass on SimChain, the neutrality fixtures among them.
+  - `pnpm snap --settlement local error.late-work-settlement-wrong-delivery`: passes on the contract on anvil; the transcript is identical to SimChain's; 2 transactions, 428,856 gas.
+  - Anvil, the two new tests (`vitest run packages/settlement/evm/evm-settlement.test.ts packages/settlement/evm/sync.test.ts -t late`): 2 pass. One settles late work through the `Settlement` interface with the delivery; the other sends it straight to the contract, and the node waits, then joins the posted delivery with no second transaction.
+  - `forge test --match-contract "MutualSettleNamedDeliveryTest|LateCarriedDeliveryTest"`: 14 pass, 7 of them new in `MutualSettleNamedDelivery.t.sol`.
+  - `formal/check.sh safety`: passes, 132,339 distinct states, depth 31, 9 s. `formal/check.sh broken/`: 12 of 12 variants still fail as expected. `formal/check.sh live-`, run once: 7 of 7 configs pass, 286,916 to 328,790 distinct states, depth 32, 71 to 215 s each.
+  - The full `pnpm test` run locally failed in every anvil suite and in two timing tests while TLC's liveness run shared the machine; `packages/judgment/src/preflight.test.ts` passes alone (17 tests). CI's shards and anvil jobs are the gate.
+- Snapshot diffs: one new snapshot, `error.late-work-settlement-wrong-delivery.expect.md`; no other snapshot changed.
+- Metrics: tokens for this task, over the 200k target [inferred]: the API-route question, the EVM rebuild's wait path and one review round added work.
+
+**Review** (one `reviewer` subagent, given CLAUDE.md, ADR-0001, ADR-0019, ADR-0031, `docs/neutrality.md` and `docs/audit/state-model.md`, and not this session's conclusions): ISSUES, with no Critical or High findings. It found no path by which one party, an operator or an adjudicator gets the key or moves funds alone, and no settlement core takes that the contract refuses. Fixed in one round:
+- M1: the adapter's rebuild now waits for a direct late settlement and joins the delivery when posted; the key is recorded once.
+- M2: the buyer holds its own envelope before it pays; ADR-0019's amendment and prepare say so, and say the exchange rests on the ciphertext.
+- L1: the read model names no posted delivery after a settlement in Held.
+- L2: the commitment id is compared in any letter case.
+- L3: prepare asks for a buyer envelope only when the key is released.
+- M3: this Evidence section.
+
+Left: L4 (the testkit's atomic-key invariant covers decisions only; `simchain.test.ts` checks the settlement case) and L5 (no test that prepare refuses a `delivery` once one is posted, nor that SimChain ignores a carried delivery in Delivered).
 
 ## Decisions
 
@@ -82,7 +102,7 @@ Not checked by the contract, and so not by core on this path: the seller's signa
 
 **The delivery travels beside the settlement, not in it.** `EscrowEvent` `mutual_settle` and the `Settlement` interface's `mutual_settle` submission gain an optional `delivery`, read only in Held with `releaseKey`. The signed `MutualSettlement` type and `spec/schemas/` are unchanged. `packages/settlement/src/interface.ts` and `packages/testkit` (the scenario step's `carry` and `names`) are outside the listed paths; both are needed for the path to run on both settlement layers.
 
-**An operator that did not relay the settlement waits.** The adapter's rebuild from chain steps a Held settlement with a key only from a copy of the delivery it holds (its relay note, a carried, posted or kept copy). Without one it waits, as for a carried decision it never saw (residual 13).
+**An operator that did not relay the settlement waits.** The adapter's rebuild from chain steps a Held settlement with a key only from a copy of the delivery it holds (its relay note, a carried, posted or kept copy). Without one it confirms the transaction from its `MutuallySettled` log and both signatures, waits, and joins once either party posts that delivery to `POST /deliveries` (`sync.test.ts`, the late-settlement test). Until then it serves the buyer's key from the `KeyReleased` log (residual 13).
 
 **The coordinator chose option A on 2026-11-12:** no change to `spec/openapi.json`, the SDK route body or the server's `POST /settlements` here; the route change rides with schema v0.11.
 
