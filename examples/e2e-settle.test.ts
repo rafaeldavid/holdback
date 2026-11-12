@@ -36,12 +36,12 @@ const addressOf = (seed: Hex, role: 'buyer' | 'seller') => privateKeyToAccount(r
 
 /** Public terms in the shape the operators serve, on Sepolia's token: 25 tUSDC, with a 1 tUSDC adjudication fee. */
 const termsOf = (buyer: string, seller: string, nonce = `0x${'44'.repeat(32)}`) => ({
-  schemaVersion: '0.7', clubId: 'demo-club', rulebookHash: `0x${'11'.repeat(32)}`, buyer, seller,
+  schemaVersion: '0.8', clubId: 'demo-club', rulebookHash: `0x${'11'.repeat(32)}`, buyer, seller, buyerPaymentAddress: buyer, sellerPayoutAddress: seller,
   deliverable: { kind: 'dataset', description: 'customers.csv', format: 'text/csv' },
   acceptance: { deterministicChecks: [{ id: 'rows', type: 'row_count_range', required: true, min: 3, max: 3 }], rubric: { criteria: [], passThreshold: 0 } },
   price: { token: ASSET, amount: '25000000' },
   adjudication: { adjudicator: DEMO_PRIMARY, fallbackAdjudicator: '0x0000000000000000000000000000000000000b0b', appealAdjudicator: '0x0000000000000000000000000000000000000c0c', policyId: 'demo-policy', fee: { token: ASSET, amount: '1000000' }, registryHash: `0x${'22'.repeat(32)}`, policyHash: `0x${'33'.repeat(32)}` },
-  timing: { offerExpiresAt: '2026-11-06T07:41:41Z', fundBy: '2026-11-06T07:56:41Z', deliverBy: '2026-11-07T07:26:41Z', judgeBy: '2026-11-07T07:27:41Z', fallbackBy: '2026-11-07T07:28:41Z', appealWindowSec: 60, appealDecideSec: 60, maxSubmissions: 1 },
+  timing: { offerExpiresAt: '2026-11-06T07:41:41Z', fundBy: '2026-11-06T07:56:41Z', deliverBy: '2026-11-07T07:26:41Z', judgeBy: '2026-11-07T07:27:41Z', fallbackBy: '2026-11-07T07:28:41Z', appealWindowSec: 0, appealDecideSec: 60, maxSubmissions: 1 },
   settlement: { mode: 'guaranteed_on_decision', token: ASSET }, remedy: { onReject: 'full_refund' }, disclosure: { level: 'public' },
   buyerEncryptionPublicKey: 'A'.repeat(43), nonce, createdAt: '2026-11-06T07:26:41Z',
 });
@@ -155,7 +155,7 @@ async function standIn(o: { terms: J; stage: string; answers?: [Answer, Answer] 
     const send = (status: number, body: unknown) => res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
     const url = req.url ?? '';
     if (url === '/.well-known/holdback.json') return send(200, discovery());
-    if (url === '/v1/status') return send(200, { schemaVersion: '0.10', domain: pin.domain });
+    if (url === '/v1/status') return send(200, { schemaVersion: '0.11', domain: pin.domain });
     if (url === `/v1/commitments/${id}/terms`) return send(200, served);
     if (url === `/v1/commitments/${id}`) return send(200, { commitmentId: id, escrowState: settled ? 'Settled' : o.stage, updatedAt: '2026-11-06T07:26:50Z', notices: [BEHIND] });
     if (req.method === 'POST' && url === `/v1/commitments/${id}/settlements`) {

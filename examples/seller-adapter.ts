@@ -206,7 +206,7 @@ export const config: SellerAdapterConfig = {
     { when: [{ field: 'options.panel', equals: true }], rubric: true },
   ],
   // 15 minutes to accept, 30 to fund, 7 days to deliver, 2 minutes for each adjudicator, 5 for appeals.
-  timing: { offerExpiresInSec: 900, fundWithinSec: 1800, deliverWithinSec: 604_800, judgeWithinSec: 120, fallbackWithinSec: 120, appealWindowSec: 300, appealDecideSec: 300 },
+  timing: { offerExpiresInSec: 900, fundWithinSec: 1800, deliverWithinSec: 604_800, judgeWithinSec: 120, fallbackWithinSec: 120, appealWindowSec: 0, appealDecideSec: 300 }, // phase one: no party appeal (ADR-0033 §2b)
   journal: 'seller-adapter.journal.json',
   pollMs: 5000,
   // After a refused result, fetch it again every 10 minutes until deliverBy. To be told, and to say when it is fixed:

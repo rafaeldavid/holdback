@@ -45,7 +45,7 @@ async function served<T>(r: Run, a: RoundAdjudicator, script: Script, f: () => P
 describe('adjudicatorTyped', () => {
   it('hashes an acceptance, decisions and a registration as core does', async () => {
     const core = await import(pathToFileURL(createRequire(join(root, 'apps/operator/package.json')).resolve('@holdback/core')).href);
-    const domain = { name: 'Holdback' as const, version: '0.7', chainId: 11155111, verifyingContract: '0xf38287e5c5c1f20c6d03be500edbf8a244f27cfa' as Hex };
+    const domain = { name: 'Holdback' as const, version: '0.8', chainId: 11155111, verifyingContract: '0xf38287e5c5c1f20c6d03be500edbf8a244f27cfa' as Hex };
     const h = (c: string) => `0x${c.repeat(64)}` as Hex;
     const asset = '0x2c6fa6f2ad3b2b44fb4c2e4d2a3e3cfcf96ae3a8';
     const me = '0x5d10fecab9242e66cb134b77309a3566ed75e3dd';

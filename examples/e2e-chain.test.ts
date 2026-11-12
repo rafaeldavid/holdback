@@ -19,13 +19,14 @@ type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 /** Public terms in the shape the operators serve, on Sepolia's token. */
 const terms = {
-  schemaVersion: '0.7', clubId: 'demo-club', rulebookHash: `0x${'11'.repeat(32)}`,
+  schemaVersion: '0.8', clubId: 'demo-club', rulebookHash: `0x${'11'.repeat(32)}`,
   buyer: '0x59d794504087069ded88dc3c8f3ff9dda8e44e36', seller: '0xd89876c20a42ffa707d0bb7a72607a03d5423ed7',
+  buyerPaymentAddress: '0x59d794504087069ded88dc3c8f3ff9dda8e44e36', sellerPayoutAddress: '0xd89876c20a42ffa707d0bb7a72607a03d5423ed7',
   deliverable: { kind: 'dataset', description: 'customers.csv', format: 'text/csv' },
   acceptance: { deterministicChecks: [{ id: 'rows', type: 'row_count_range', required: true, min: 3, max: 3 }], rubric: { criteria: [], passThreshold: 0 } },
   price: { token: SEPOLIA!.token.address.toLowerCase(), amount: '25000000' },
   adjudication: { adjudicator: '0x71f8a3e163528c773fb358a718294a0b32697c9e', fallbackAdjudicator: '0x0000000000000000000000000000000000000b0b', appealAdjudicator: '0x0000000000000000000000000000000000000c0c', policyId: 'demo-policy', fee: { token: SEPOLIA!.token.address.toLowerCase(), amount: '1000000' }, registryHash: `0x${'22'.repeat(32)}`, policyHash: `0x${'33'.repeat(32)}` },
-  timing: { offerExpiresAt: '2026-11-04T10:00:00Z', fundBy: '2026-11-04T10:15:00Z', deliverBy: '2026-11-05T10:00:00Z', judgeBy: '2026-11-05T10:01:00Z', fallbackBy: '2026-11-05T10:02:00Z', appealWindowSec: 60, appealDecideSec: 60, maxSubmissions: 1 },
+  timing: { offerExpiresAt: '2026-11-04T10:00:00Z', fundBy: '2026-11-04T10:15:00Z', deliverBy: '2026-11-05T10:00:00Z', judgeBy: '2026-11-05T10:01:00Z', fallbackBy: '2026-11-05T10:02:00Z', appealWindowSec: 0, appealDecideSec: 60, maxSubmissions: 1 },
   settlement: { mode: 'guaranteed_on_decision', token: SEPOLIA!.token.address.toLowerCase() }, remedy: { onReject: 'full_refund' }, disclosure: { level: 'public' },
   buyerEncryptionPublicKey: 'A'.repeat(43), nonce: `0x${'44'.repeat(32)}`, createdAt: '2026-11-04T09:45:00Z',
 };

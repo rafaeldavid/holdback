@@ -392,7 +392,7 @@ export interface OfferSpec {
 /** The demo club's shortest windows (discovery's `demo.minWindowSec`), so a scenario takes minutes. */
 export const shortWindows = (run: Run, extra: Record<string, number> = {}) => {
   const m = run.round.demo.minWindowSec;
-  return { judgeWithinSec: m, fallbackWithinSec: m, appealWindowSec: m, appealDecideSec: m, ...extra };
+  return { judgeWithinSec: m, fallbackWithinSec: m, appealWindowSec: 0, appealDecideSec: m, ...extra };
 };
 
 /** The seller offers through the API; the deal's record starts with every party's holdings. */

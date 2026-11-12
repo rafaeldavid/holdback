@@ -10,7 +10,7 @@ import { SEPOLIA, type DeploymentFile } from './deployments.ts';
 
 export type Domain = { name: 'Holdback'; version: string; chainId: number; verifyingContract: Hex };
 /** SimChain's domain, as `pnpm sim` prints it. Configure yours; never take it from an operator. */
-export const SIMCHAIN_DOMAIN: Domain = { name: 'Holdback', version: '0.7', chainId: 31337, verifyingContract: '0x00000000000000000000000000000000484f4c44' };
+export const SIMCHAIN_DOMAIN: Domain = { name: 'Holdback', version: '0.8', chainId: 31337, verifyingContract: '0x00000000000000000000000000000000484f4c44' };
 export const configuredDomain = (): Domain => ({
   ...SIMCHAIN_DOMAIN,
   ...(process.env['HOLDBACK_CHAIN_ID'] ? { chainId: Number(process.env['HOLDBACK_CHAIN_ID']) } : {}),
@@ -37,7 +37,7 @@ export type Pin = { domain: Domain; token: { id: string; symbol: string; decimal
 export function pinOf(d: DeploymentFile, explorer?: string): Pin {
   const lc = (a: string) => a.toLowerCase() as Hex;
   return {
-    domain: { name: 'Holdback', version: '0.7', chainId: d.chainId, verifyingContract: lc(d.rules) },
+    domain: { name: 'Holdback', version: '0.8', chainId: d.chainId, verifyingContract: lc(d.rules) },
     token: { id: lc(d.token.address), symbol: d.token.symbol, decimals: d.token.decimals },
     chain: {
       tokenDomain: { name: d.token.name, version: d.token.version, chainId: d.chainId, verifyingContract: lc(d.token.address) },
@@ -68,7 +68,7 @@ const PAYMENT_INFO_TYPEHASH = keccak256(toBytes('PaymentInfo(address operator,ad
 
 /**
  * The funding nonce on a chain (ADR-0025): CPP's PaymentInfo hash with the payer zeroed. Every field comes from the
- * terms and the pinned deployment (operator = the rules contract, receiver = seller, maxAmount = price + fee,
+ * terms and the pinned deployment (operator = the rules contract, receiver = the seller's payout address (ADR-0033), maxAmount = price + fee,
  * preApprovalExpiry = fundBy, both other expiries = fallbackBy + appealDecideSec + margin, salt = commitment ID).
  */
 export function fundingNonceOf(t: J, id: Hex, c: ChainPin): Hex {
@@ -76,7 +76,7 @@ export function fundingNonceOf(t: J, id: Hex, c: ChainPin): Hex {
   const expiry = Number(secs(t.timing.fallbackBy)) + Number(t.timing.appealDecideSec) + c.expiryMarginSec;
   const inner = keccak256(
     encodeAbiParameters(parseAbiParameters('bytes32, address, address, address, address, uint120, uint48, uint48, uint48, uint16, uint16, address, uint256'), [
-      PAYMENT_INFO_TYPEHASH, c.rules, ZERO_ADDRESS, t.seller, t.price.token, total, Number(secs(t.timing.fundBy)), expiry, expiry, 0, 10_000, ZERO_ADDRESS, BigInt(id),
+      PAYMENT_INFO_TYPEHASH, c.rules, ZERO_ADDRESS, t.sellerPayoutAddress, t.price.token, total, Number(secs(t.timing.fundBy)), expiry, expiry, 0, 10_000, ZERO_ADDRESS, BigInt(id),
     ]),
   );
   return keccak256(encodeAbiParameters(parseAbiParameters('uint256, address, bytes32'), [BigInt(c.tokenDomain.chainId), c.escrow, inner]));
@@ -92,7 +92,7 @@ const erc3009Typed = (primaryType: string, c: ChainPin, m: J): J => ({
 
 const f = (name: string, type: string) => ({ name, type });
 const exp = [f('nonce', 'bytes32'), f('expiresAt', 'uint64')];
-/** The EIP-712 types of schema 0.10, domain version 0.7 (packages/core/src/eip712.ts), pinned here. */
+/** The EIP-712 types of schema 0.11, domain version 0.8 (packages/core/src/eip712.ts), pinned here. */
 export const TYPES = {
   TokenAmount: [f('token', 'string'), f('amount', 'uint256')],
   Adjudication: [f('adjudicator', 'address'), f('fallbackAdjudicator', 'address'), f('appealAdjudicator', 'address'), f('policyId', 'string'), f('fee', 'TokenAmount'), f('registryHash', 'bytes32'), f('policyHash', 'bytes32')],
@@ -100,7 +100,7 @@ export const TYPES = {
   Settlement: [f('mode', 'string'), f('token', 'string')],
   Remedy: [f('onReject', 'string')],
   Disclosure: [f('level', 'string')],
-  CommitmentTerms: [f('schemaVersion', 'string'), f('clubId', 'string'), f('rulebookHash', 'bytes32'), f('buyer', 'address'), f('seller', 'address'), f('deliverableHash', 'bytes32'), f('acceptanceHash', 'bytes32'), f('price', 'TokenAmount'), f('adjudication', 'Adjudication'), f('timing', 'Timing'), f('settlement', 'Settlement'), f('remedy', 'Remedy'), f('disclosure', 'Disclosure'), f('buyerEncryptionPublicKey', 'string'), f('nonce', 'bytes32'), f('createdAt', 'uint64')],
+  CommitmentTerms: [f('schemaVersion', 'string'), f('clubId', 'string'), f('rulebookHash', 'bytes32'), f('buyer', 'address'), f('seller', 'address'), f('buyerPaymentAddress', 'address'), f('sellerPayoutAddress', 'address'), f('deliverableHash', 'bytes32'), f('acceptanceHash', 'bytes32'), f('price', 'TokenAmount'), f('adjudication', 'Adjudication'), f('timing', 'Timing'), f('settlement', 'Settlement'), f('remedy', 'Remedy'), f('disclosure', 'Disclosure'), f('buyerEncryptionPublicKey', 'string'), f('nonce', 'bytes32'), f('createdAt', 'uint64')],
   Agree: [f('commitmentId', 'bytes32'), f('buyer', 'address'), ...exp],
   FundingAuthorization: [f('scheme', 'string'), f('commitmentId', 'bytes32'), f('from', 'address'), f('value', 'uint256'), f('token', 'string'), f('validAfter', 'uint64'), f('validBefore', 'uint64'), ...exp],
   // Schema 0.7 (ADR-0023), same domain version 0.6: the buyer's operator fee.
@@ -130,7 +130,7 @@ export const TYPES = {
   // Schema 0.10 (ADR-0030), same domain version 0.7: an adjudicator's self-signed registration.
   AdjudicatorRegistration: [f('adjudicator', 'address'), f('encryptionPublicKey', 'string'), f('keyId', 'string'), f('policyHash', 'bytes32'), f('registryHash', 'bytes32'), f('fee', 'TokenAmount'), f('poolTermsHash', 'bytes32'), f('bodyHash', 'bytes32'), f('issuedAt', 'uint64'), ...exp],
 };
-const DEFAULT_TIMING: Record<string, number> = { offerExpiresInSec: 900, fundWithinSec: 1800, deliverWithinSec: 86_400, judgeWithinSec: 300, fallbackWithinSec: 300, appealWindowSec: 300, appealDecideSec: 300 };
+const DEFAULT_TIMING: Record<string, number> = { offerExpiresInSec: 900, fundWithinSec: 1800, deliverWithinSec: 86_400, judgeWithinSec: 300, fallbackWithinSec: 300, appealWindowSec: 0, appealDecideSec: 300 };
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 export class Refusal extends Error {}
@@ -237,7 +237,9 @@ function expected(intent: Intent, op: J, now: number): Plan {
     const timing = { ...DEFAULT_TIMING, ...r.timing }, createdAt = near(op.createdAt, 600, 60, 'createdAt');
     const deliverBy = plus(createdAt, timing['deliverWithinSec']!), judgeBy = plus(deliverBy, timing['judgeWithinSec']!);
     const terms = {
-      schemaVersion: '0.7', clubId: r.clubId, rulebookHash: intent.rulebookHash, buyer: r.buyer.address.toLowerCase(), seller: r.seller.toLowerCase(), deliverable: r.deliverable,
+      schemaVersion: '0.8', clubId: r.clubId, rulebookHash: intent.rulebookHash, buyer: r.buyer.address.toLowerCase(), seller: r.seller.toLowerCase(),
+      // ADR-0033 §7: with no separate address named, each money address is its party's signing address (R6c-3 adds the inputs).
+      buyerPaymentAddress: r.buyer.address.toLowerCase(), sellerPayoutAddress: r.seller.toLowerCase(), deliverable: r.deliverable,
       acceptance: { deterministicChecks: r.checks ?? [], rubric: r.template === 'checks-only' ? { criteria: [], passThreshold: 0 } : r.rubric }, price: r.price,
       adjudication: { adjudicator: r.adjudicators.primary, fallbackAdjudicator: r.adjudicators.fallback, appealAdjudicator: r.adjudicators.appeal, policyId: reg.policy.id, fee: r.fee ?? reg.fee.min, registryHash: reg.registry.hash, policyHash: reg.policyHash },
       timing: { offerExpiresAt: plus(createdAt, timing['offerExpiresInSec']!), fundBy: plus(createdAt, timing['fundWithinSec']!), deliverBy, judgeBy, fallbackBy: plus(judgeBy, timing['fallbackWithinSec']!), appealWindowSec: timing['appealWindowSec'], appealDecideSec: timing['appealDecideSec'], maxSubmissions: 1 },
@@ -266,22 +268,23 @@ function expected(intent: Intent, op: J, now: number): Plan {
     // On a chain the token pulls the funds on its own ERC-3009 signature: valid from 0, nonce fixed by the terms.
     const c = intent.chain;
     if (c && intent.fundingNonce.toLowerCase() !== fundingNonceOf(t, id, c).toLowerCase()) refuse('on this chain the funding nonce is fixed by the terms: pass fundingNonceOf(terms)');
-    const fund = { type: 'FundingAuthorization', scheme: 'erc3009', commitmentId: id, from: t.buyer, value: total.toString(), token: t.price.token, validAfter: c ? '1970-01-01T00:00:00Z' : t.createdAt, validBefore: t.timing.fundBy, nonce: own(intent.fundingNonce, op.fund?.nonce, 'fundingNonce'), expiresAt: t.timing.fundBy };
-    const fundTyped = c ? erc3009Typed('ReceiveWithAuthorization', c, { from: t.buyer, to: c.collector, value: total, validAfter: 0n, validBefore: secs(t.timing.fundBy), nonce: fund.nonce }) : undefined;
-    const slots = [{ slot: 'signature', primaryType: 'Agree', signer: t.buyer, message: agree }, { slot: 'fund.signature', primaryType: fundTyped ? 'ReceiveWithAuthorization' : 'FundingAuthorization', signer: t.buyer, message: fund, ...(fundTyped ? { typed: fundTyped } : {}) }];
+    // ADR-0033: the buyer's payment address signs the funding and the operator fee; the signing address the agreement.
+    const fund = { type: 'FundingAuthorization', scheme: 'erc3009', commitmentId: id, from: t.buyerPaymentAddress, value: total.toString(), token: t.price.token, validAfter: c ? '1970-01-01T00:00:00Z' : t.createdAt, validBefore: t.timing.fundBy, nonce: own(intent.fundingNonce, op.fund?.nonce, 'fundingNonce'), expiresAt: t.timing.fundBy };
+    const fundTyped = c ? erc3009Typed('ReceiveWithAuthorization', c, { from: t.buyerPaymentAddress, to: c.collector, value: total, validAfter: 0n, validBefore: secs(t.timing.fundBy), nonce: fund.nonce }) : undefined;
+    const slots = [{ slot: 'signature', primaryType: 'Agree', signer: t.buyer, message: agree }, { slot: 'fund.signature', primaryType: fundTyped ? 'ReceiveWithAuthorization' : 'FundingAuthorization', signer: t.buyerPaymentAddress, message: fund, ...(fundTyped ? { typed: fundTyped } : {}) }];
     if (due === 0n) return { path: `/v1/commitments/${id}/agree`, body: { ...agree, signature: null, fund: { ...fund, signature: null } }, slots };
     const feeNonce = intent.operatorFee!.nonce;
     if ([intent.agreeNonce, intent.fundingNonce].some((n) => String(n).toLowerCase() === String(feeNonce).toLowerCase())) refuse('the operator fee nonce must differ from agreeNonce and fundingNonce');
     if (c && feeNonce.toLowerCase() !== operatorFeeNonceOf(id).toLowerCase()) refuse('on this chain the operator fee nonce is fixed by the commitment: pass operatorFeeNonceOf(id)');
     const fee = {
-      type: 'TransferAuthorization', scheme: 'erc3009', purpose: 'operator_fee', commitmentId: id, from: t.buyer, to: intent.operatorFee!.schedule.to, value: due.toString(), token: t.price.token,
+      type: 'TransferAuthorization', scheme: 'erc3009', purpose: 'operator_fee', commitmentId: id, from: t.buyerPaymentAddress, to: intent.operatorFee!.schedule.to, value: due.toString(), token: t.price.token,
       validAfter: c ? '1970-01-01T00:00:00Z' : t.createdAt, validBefore: t.timing.fundBy, nonce: own(feeNonce, op.operatorFee?.nonce, 'operatorFeeNonce'), expiresAt: t.timing.fundBy,
     };
-    const feeTyped = c ? erc3009Typed('TransferWithAuthorization', c, { from: t.buyer, to: fee.to, value: due, validAfter: 0n, validBefore: secs(t.timing.fundBy), nonce: fee.nonce }) : undefined;
+    const feeTyped = c ? erc3009Typed('TransferWithAuthorization', c, { from: t.buyerPaymentAddress, to: fee.to, value: due, validAfter: 0n, validBefore: secs(t.timing.fundBy), nonce: fee.nonce }) : undefined;
     return {
       path: `/v1/commitments/${id}/agree`,
       body: { ...agree, signature: null, fund: { ...fund, signature: null }, operatorFee: { ...fee, signature: null } },
-      slots: [...slots, { slot: 'operatorFee.signature', primaryType: feeTyped ? 'TransferWithAuthorization' : 'TransferAuthorization', signer: t.buyer, message: fee, ...(feeTyped ? { typed: feeTyped } : {}) }],
+      slots: [...slots, { slot: 'operatorFee.signature', primaryType: feeTyped ? 'TransferWithAuthorization' : 'TransferAuthorization', signer: t.buyerPaymentAddress, message: fee, ...(feeTyped ? { typed: feeTyped } : {}) }],
     };
   }
   if (intent.kind === 'delivery') {
@@ -470,7 +473,8 @@ export function privateOfferTerms(x: PrivateOfferInput): J {
   const createdAt = iso(Date.parse(x.createdAt));
   const deliverBy = plus(createdAt, timing['deliverWithinSec']!), judgeBy = plus(deliverBy, timing['judgeWithinSec']!);
   return {
-    schemaVersion: '0.7', clubId: x.clubId, rulebookHash: x.rulebookHash, buyer: x.buyer.address.toLowerCase(), seller: x.seller.toLowerCase(),
+    schemaVersion: '0.8', clubId: x.clubId, rulebookHash: x.rulebookHash, buyer: x.buyer.address.toLowerCase(), seller: x.seller.toLowerCase(),
+    buyerPaymentAddress: x.buyer.address.toLowerCase(), sellerPayoutAddress: x.seller.toLowerCase(),
     deliverable: { ...x.deliverable, salt: x.salts.deliverable, sellerEncryptionPublicKey: x.sellerEncryptionPublicKey },
     acceptance: { ...x.acceptance, salt: x.salts.acceptance },
     price: x.price,

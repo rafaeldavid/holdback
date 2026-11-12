@@ -10,7 +10,7 @@ const seller = '0x00000000000000000000000000000000000000c1';
 const third = '0x00000000000000000000000000000000000000d1';
 const token = '0x00000000000000000000000000000000000000e1';
 const amt = (amount: string) => ({ token, amount }) as TokenAmount;
-const commitment = { id, buyer, seller, price: amt('2000000') } as unknown as AnyCommitment;
+const commitment = { id, buyer, seller, buyerPaymentAddress: buyer, sellerPayoutAddress: seller, price: amt('2000000') } as unknown as AnyCommitment;
 
 const ctx = (phaseOne: boolean): PrepareContext => ({
   ...(phaseOne ? { phaseOne: true } : {}),
@@ -30,18 +30,18 @@ describe('prepare settlement on the phase-one contracts (SC-3)', () => {
   it('refuses a payout to a third address, naming the field and the reason', async () => {
     const r = await prepare('settlement', ctx(true), input(third)).catch((e: unknown) => e);
     expect(r).toBeInstanceOf(PrepareError);
-    expect((r as PrepareError).problem).toMatchObject({ field: 'payouts.1.to', detail: expect.stringMatching(/neither the buyer nor the seller.*\(ADR-0031 §4\)/) });
+    expect((r as PrepareError).problem).toMatchObject({ field: 'payouts.1.to', detail: expect.stringMatching(/neither the buyer's payment address nor the seller's payout address.*\(ADR-0031 §4, ADR-0033\)/) });
   });
 
   // The commitment here is a stub that carries only what the payee check reads, so the two cases below stop later, at
   // the typed data; what they show is that the SC-3 refusal does not fire for them.
   it('does not refuse a split between the parties', async () => {
     const r = await prepare('settlement', ctx(true), input(buyer)).catch((e: unknown) => e);
-    expect(String((r as Error).message ?? '')).not.toMatch(/neither the buyer nor the seller/);
+    expect(String((r as Error).message ?? '')).not.toMatch(/neither the buyer's payment address nor the seller's payout address/);
   });
 
   it('does not refuse a third-party payout on the full protocol (SimChain keeps D23)', async () => {
     const r = await prepare('settlement', ctx(false), input(third)).catch((e: unknown) => e);
-    expect(String((r as Error).message ?? '')).not.toMatch(/neither the buyer nor the seller/);
+    expect(String((r as Error).message ?? '')).not.toMatch(/neither the buyer's payment address nor the seller's payout address/);
   });
 });

@@ -23,14 +23,17 @@ export interface RelativeTiming {
   appealDecideSec: number;
 }
 
-/** 15 minutes to accept, 30 to fund, a day to deliver, 5 minutes for each adjudicator and for appeals. */
+/**
+ * 15 minutes to accept, 30 to fund, a day to deliver, 5 minutes for each adjudicator, and no party appeal: phase one
+ * has none and requires an appeal window of 0 (ADR-0033 §2b). An agent on the full protocol (SimChain) names its own.
+ */
 export const DEFAULT_TIMING: RelativeTiming = {
   offerExpiresInSec: 900,
   fundWithinSec: 1800,
   deliverWithinSec: 86_400,
   judgeWithinSec: 300,
   fallbackWithinSec: 300,
-  appealWindowSec: 300,
+  appealWindowSec: 0,
   appealDecideSec: 300,
 };
 
@@ -107,11 +110,15 @@ export function completeTerms(d: TermsDraft, r: ResolvedTerms): CommitmentTerms 
   const deliverBy = plusSeconds(createdAt, d.timing.deliverWithinSec);
   const judgeBy = plusSeconds(deliverBy, d.timing.judgeWithinSec);
   return {
-    schemaVersion: '0.7',
+    schemaVersion: '0.8',
     clubId: d.clubId,
     rulebookHash: r.rulebookHash,
     buyer: d.buyer.address,
     seller: r.seller,
+    // ADR-0033 §7: with no separate address named, each defaults to its party's signing address. The prepare routes'
+    // inputs for a separate address are the operator package's (R6c-2).
+    buyerPaymentAddress: d.buyer.address,
+    sellerPayoutAddress: r.seller,
     deliverable: structuredClone(d.deliverable),
     acceptance: structuredClone(d.acceptance),
     price: { ...d.price },

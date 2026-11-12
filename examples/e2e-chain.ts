@@ -75,6 +75,8 @@ export function termsTuple(t: J) {
     rulebookHash: t.rulebookHash as Hex,
     buyer: getAddress(t.buyer),
     seller: getAddress(t.seller),
+    buyerPaymentAddress: getAddress(t.buyerPaymentAddress), // ADR-0033
+    sellerPayoutAddress: getAddress(t.sellerPayoutAddress),
     deliverableHash: jcsHash(t.deliverable),
     acceptanceHash: jcsHash(t.acceptance),
     token: getAddress(t.price.token),

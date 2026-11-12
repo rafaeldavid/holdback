@@ -108,7 +108,7 @@ describe('adjudicator profiles (T-017)', () => {
     expect(views.map((v) => v.name)).toEqual(['Clearfield Adjudication', 'Northgate Review', 'Atrium Appeals', 'Swiftline Verdicts']);
     expect(views.map((v) => v.selected)).toEqual(['primary', 'fallback', 'appeal', 'declined']);
     const [a, , c, s] = views;
-    expect(a!.terms).toMatchObject({ fee: { token: 'tUSD', amount: (50n * TUSD).toString() }, panelSize: 3, minFamilies: 2, threshold: { numerator: 2, denominator: 3 }, appealWindowSec: 300 });
+    expect(a!.terms).toMatchObject({ fee: { token: 'tUSD', amount: (50n * TUSD).toString() }, panelSize: 3, minFamilies: 2, threshold: { numerator: 2, denominator: 3 }, appealWindowSec: 0 });
     // judgeWithinSec, fallbackWithinSec and appealDecideSec from fixtures/terms/clean-customers-2000.yaml.
     expect(a!.terms.deadline).toEqual({ sec: 120, after: 'deliverBy' });
     expect(views[1]!.terms.deadline).toEqual({ sec: 120, after: 'judgeBy' });

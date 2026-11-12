@@ -46,6 +46,7 @@ import {
   type TokenAmount,
   type UnsignedMessage,
   validateTiming,
+  APPEAL_WINDOW_PROBLEM,
   ZERO_HOLD_PROBLEM,
 } from '@holdback/core';
 import type { ApiProblem } from './problems.js';
@@ -347,6 +348,8 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
     ...(input['fee'] !== undefined ? { fee: amountIn(input['fee'], 'fee') } : {}),
     ...(input['timing'] !== undefined ? { timing: timingIn(input['timing'])! } : {}),
   };
+  // ADR-0033 §2b: a phase-one deal states an appeal window of 0 (the default); said before the seller signs.
+  if (ctx.phaseOne && (base.timing?.appealWindowSec ?? 0) !== 0) bad(APPEAL_WINDOW_PROBLEM, 'timing.appealWindowSec');
   let draft: TermsDraft;
   try {
     draft =
@@ -374,7 +377,8 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
   // The same for the deadlines (SC-5, review): core refuses them at submission and the contract at funding, unless all
   // five are in strict order and meet the rulebook's windows. Said here, before the seller signs.
   if (ctx.phaseOne) {
-    const timed = validateTiming(terms.timing, club.rulebook);
+    // The phase-one rule above replaces the rulebook's appeal-window minimum, as in core's phase_one profile.
+    const timed = validateTiming(terms.timing, { minWindowsSec: { ...club.rulebook.minWindowsSec, appealWindow: 0 } });
     if (!timed.ok) bad(timed.error.detail, 'timing');
   }
   const id = commitmentId(terms);
@@ -718,15 +722,16 @@ async function settlement(ctx: PrepareContext, input: Record<string, unknown>): 
     const split = splitBps(c.price, BigInt(bps as number));
     if (!split.ok) return bad('cannot split the price');
     payouts = [
-      { to: c.seller, amount: split.value.share },
-      { to: c.buyer, amount: split.value.remainder },
+      // ADR-0033: the money goes to the seller's payout address and back to the buyer's payment address.
+      { to: c.sellerPayoutAddress, amount: split.value.share },
+      { to: c.buyerPaymentAddress, amount: split.value.remainder },
     ].filter((p) => p.amount.amount !== '0');
   }
-  // ADR-0031 §4 (SC-3): the phase-one contracts pay a settlement to the buyer and the seller only. Said here, before
-  // either party signs a settlement the contract would refuse.
+  // ADR-0031 §4 (SC-3), ADR-0033: the phase-one contracts pay a settlement to the buyer's payment address and the
+  // seller's payout address only. Said here, before either party signs a settlement the contract would refuse.
   if (ctx.phaseOne) {
-    const i = payouts.findIndex((p) => lc(p.to) !== lc(c.seller) && lc(p.to) !== lc(c.buyer));
-    if (i >= 0) bad(`payouts[${i}].to ${payouts[i]!.to} is neither the buyer nor the seller: the phase-one contracts pay a mutual settlement to the parties only (ADR-0031 §4)`, `payouts.${i}.to`);
+    const i = payouts.findIndex((p) => lc(p.to) !== lc(c.sellerPayoutAddress) && lc(p.to) !== lc(c.buyerPaymentAddress));
+    if (i >= 0) bad(`payouts[${i}].to ${payouts[i]!.to} is neither the buyer's payment address nor the seller's payout address: the phase-one contracts pay a mutual settlement to those two only (ADR-0031 §4, ADR-0033)`, `payouts.${i}.to`);
   }
   const posted = await ctx.delivery(c.id);
   // SC-5b (T-357): with nothing posted, the agent may name the late delivery it holds, as the seller signed it. Its hash

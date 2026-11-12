@@ -27,7 +27,7 @@ export interface SellOnceOptions {
   log?: (line: string) => void;
 }
 
-const TIMING = { offerExpiresInSec: 600, fundWithinSec: 900, deliverWithinSec: 3600, judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 60, appealDecideSec: 60 };
+const TIMING = { offerExpiresInSec: 600, fundWithinSec: 900, deliverWithinSec: 3600, judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 0, appealDecideSec: 60 }; // phase one: no party appeal (ADR-0033 §2b)
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function sellOnce(o: SellOnceOptions): Promise<{ id: Hex; status: J }> {
