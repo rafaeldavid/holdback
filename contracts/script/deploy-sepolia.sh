@@ -58,6 +58,7 @@ fail() {
 }
 
 VERIFY=no
+VERIFY_FORGE="${VERIFY_FORGE:-forge}"
 if [ "${1:-}" = --check ] || [ "${1:-}" = --verify ]; then
   [ "$#" -eq 2 ] || fail "usage: deploy-sepolia.sh $1 <rpc-url>"
   MODE=check
@@ -361,49 +362,64 @@ RECORD="$(jq -n \
   }')"
 
 # run_verify <explorer> <command...>: runs one verification, or prints it under VERIFY_DRY_RUN=1. No key is ever on
-# the command line: forge reads ETHERSCAN_API_KEY from the environment itself.
+# the command line: forge reads ETHERSCAN_API_KEY from the environment itself. forge's own output can still carry the
+# key (a failed request prints its URL, `?apikey=…`; review of PR 424), so it is captured and the key's value replaced
+# before anything is printed.
 run_verify() {
-  local who="$1"
+  local who="$1" out status
   shift
   if [ "${VERIFY_DRY_RUN:-}" = 1 ]; then
     echo "deploy-sepolia: would run: $*"
-  else
-    "$@" || fail "$who verification failed: $*"
+    return 0
   fi
+  status=0
+  out="$("$@" 2>&1)" || status=$?
+  if [ -n "${ETHERSCAN_API_KEY:-}" ]; then out="${out//"$ETHERSCAN_API_KEY"/<ETHERSCAN_API_KEY>}"; fi
+  printf '%s\n' "$out"
+  [ "$status" -eq 0 ] || fail "$who verification failed (exit $status): $*"
 }
 
-# verify_one <path:Contract> <address> [constructor-signature args...]: Sourcify, then Etherscan when a key is set.
+# verify_one <Sourcify|Etherscan> <path:Contract> <address> [constructor-signature args...]. Neither run takes a
+# verifier URL or key from the environment (forge reads VERIFIER_URL and VERIFIER_API_KEY), so a submission goes to the
+# named explorer only; Sourcify also runs without ETHERSCAN_API_KEY, so no key goes to it.
 verify_one() {
-  local id="$1" address="$2" encoded=""
-  shift 2
+  local who="$1" id="$2" address="$3" encoded=""
+  shift 3
   if [ "$#" -gt 0 ]; then
     encoded="$(cast abi-encode "$@")" || fail "encoding the constructor arguments of $id failed"
   fi
-  local base=(forge verify-contract "$address" "$id" --root "$ROOT" --chain "$CHAIN" --watch)
+  local base=("$VERIFY_FORGE" verify-contract "$address" "$id" --root "$ROOT" --chain "$CHAIN" --watch)
   if [ -n "$encoded" ]; then base+=(--constructor-args "$encoded"); fi
-  # Sourcify takes no key, so none goes to it.
-  run_verify Sourcify env -u ETHERSCAN_API_KEY "${base[@]}" --verifier sourcify
-  if [ -n "${ETHERSCAN_API_KEY:-}" ]; then run_verify Etherscan "${base[@]}" --verifier etherscan; fi
+  if [ "$who" = Sourcify ]; then
+    run_verify Sourcify env -u ETHERSCAN_API_KEY -u VERIFIER_URL -u VERIFIER_API_KEY "${base[@]}" --verifier sourcify
+  else
+    run_verify Etherscan env -u VERIFIER_URL -u VERIFIER_API_KEY "${base[@]}" --verifier etherscan
+  fi
 }
 
-# verify_all: the five contracts, each with the constructor arguments the checked record holds.
+# verify_all: the five contracts on Sourcify, then, with a key, the five on Etherscan: a failure on Etherscan leaves
+# Sourcify complete. Each takes the constructor arguments of the record --check has just derived and matched.
 verify_all() {
-  if [ "$CHAIN" = "$LOCAL" ] && [ "${VERIFY_DRY_RUN:-}" != 1 ]; then
+  # A rehearsal may name a stand-in for forge's verify-contract (a test's), which sends nothing; Sepolia may not.
+  if [ "$CHAIN" = "$SEPOLIA" ] && [ "$VERIFY_FORGE" != forge ]; then fail "on Sepolia --verify runs forge itself; unset VERIFY_FORGE"; fi
+  if [ "$CHAIN" = "$LOCAL" ] && [ "${VERIFY_DRY_RUN:-}" != 1 ] && [ "$VERIFY_FORGE" = forge ]; then
     fail "no explorer serves the local chain; a rehearsal runs --verify with VERIFY_DRY_RUN=1"
   fi
-  local c3009_text rules_text c3009_args rules_args
-  c3009_text="$(jq -er '.contracts.ERC3009PaymentCollector.args | join(" ")' "$OUT")" || fail "the record has no collector arguments"
-  rules_text="$(jq -er '.contracts.HoldbackRules.args | join(" ")' "$OUT")" || fail "the record has no rules arguments"
+  local c3009_text rules_text c3009_args rules_args who explorers=(Sourcify)
+  c3009_text="$(jq -er '.contracts.ERC3009PaymentCollector.args | join(" ")' <<<"$RECORD")" || fail "the record has no collector arguments"
+  rules_text="$(jq -er '.contracts.HoldbackRules.args | join(" ")' <<<"$RECORD")" || fail "the record has no rules arguments"
   read -r -a c3009_args <<<"$c3009_text"
   read -r -a rules_args <<<"$rules_text"
   [ "${#c3009_args[@]}" -eq 2 ] || fail "the record's collector has ${#c3009_args[@]} arguments, not 2"
   [ "${#rules_args[@]}" -eq 6 ] || fail "the record's rules contract has ${#rules_args[@]} arguments, not 6"
-  # The addresses are the record's, which --check has just matched against the chain and this build.
-  verify_one "$ESCROW_ID" "$ESCROW"
-  verify_one "$C3009_ID" "$C3009" 'constructor(address,address)' "${c3009_args[@]}"
-  verify_one "$BEACON_ID" "$BEACON"
-  verify_one "$TOKEN_ID" "$TOKEN"
-  verify_one "$RULES_ID" "$RULES" 'constructor(address,address,uint64,address,address,uint64)' "${rules_args[@]}"
+  if [ -n "${ETHERSCAN_API_KEY:-}" ]; then explorers+=(Etherscan); fi
+  for who in "${explorers[@]}"; do
+    verify_one "$who" "$ESCROW_ID" "$ESCROW"
+    verify_one "$who" "$C3009_ID" "$C3009" 'constructor(address,address)' "${c3009_args[@]}"
+    verify_one "$who" "$BEACON_ID" "$BEACON"
+    verify_one "$who" "$TOKEN_ID" "$TOKEN"
+    verify_one "$who" "$RULES_ID" "$RULES" 'constructor(address,address,uint64,address,address,uint64)' "${rules_args[@]}"
+  done
   if [ "${VERIFY_DRY_RUN:-}" = 1 ]; then
     echo "deploy-sepolia: dry run: nothing was sent to an explorer"
   elif [ -n "${ETHERSCAN_API_KEY:-}" ]; then
