@@ -157,8 +157,7 @@
         "provider": "firstParty",
         "costBasis": "list"
       }
-    },
-    "credential_expires_at": "2026-11-14T19:02:17.218Z"
+    }
   },
   "book": {
     "wallMs": 106000,

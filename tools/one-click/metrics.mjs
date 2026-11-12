@@ -11,9 +11,11 @@ import { HEX32, divRound, iso } from '../../scripts/metrics/lib.mjs';
 
 export const OPUS = 'claude-opus-5-5';
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+export const HOMEPAGE = 'https://crow.direct/';
+export const WORKERS = ['holdback-op1', 'holdback-op2', 'crow-test-agents'];
 const MILLION = 1_000_000n;
 const PRICE_FIELDS = ['input', 'cacheWrite5m', 'cacheWrite1h', 'cacheRead', 'output'];
-const MODEL_ID = /^[a-z0-9.@[\]-]{1,64}$/;
+export const MODEL_ID = /^[a-z0-9.@[\]-]{1,64}$/;
 
 const count = (v) => (Number.isSafeInteger(v) && v >= 0 ? v : 0);
 
@@ -27,17 +29,108 @@ const HIDDEN = new RegExp(
   'gu',
 );
 
+const IPV4 = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
+const IPV6 = /\[[0-9A-Fa-f:.]{2,45}\]/g;
+
+/** A URL as origin and path only: no user, password, query or fragment, and an IP host replaced. */
+function urlPart(href) {
+  try {
+    const u = new URL(href);
+    const host = u.host.replace(IPV6, '<ip>').replace(IPV4, '<ip>');
+    return `${u.protocol}//${host}${u.pathname}`;
+  } catch {
+    return '<url>';
+  }
+}
+
 /**
- * A command or URL as the run file may keep it: one line, local paths replaced, long opaque runs cut, at most 300
- * characters. The fresh assistant writes these, so nothing in them is trusted.
+ * A command or URL as the run file may keep it: one line, header and credential values dropped, URLs as origin and
+ * path, IP addresses and local paths replaced, long opaque runs cut, at most 300 characters. The fresh assistant
+ * writes these, so nothing in them is trusted.
  */
 export function scrub(text) {
   return String(text ?? '')
     .slice(0, 4000)
     .replace(HIDDEN, ' ')
+    .replace(/(^|\s)(-H|--header|-b|--cookie|--oauth2-bearer)(\s+|=)("[^"]*"|'[^']*'|\S+)/g, '$1$2$3<value>')
+    .replace(/(^|\s)(-u|--user)(\s+|=)("[^"]*:[^"]*"|'[^']*:[^']*'|[^\s-]\S*:\S*)/g, '$1$2$3<value>')
+    .replace(/\bhttps?:\/\/[^\s'"`<>|;)]+/g, (m) => urlPart(m))
+    .replace(IPV6, '<ip>')
+    .replace(IPV4, '<ip>')
     .replace(/\/(?:Users|home|private|var|tmp|opt|root)\/[^\s'"`;|&)]*/g, '<local path>')
     .replace(/\b(sk-[A-Za-z0-9_-]{6,}|[A-Za-z0-9+/_=-]{120,})/g, '<redacted>')
     .slice(0, 300);
+}
+
+const FILE_TOOLS = ['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Glob', 'Grep'];
+
+/** What an approval request shows in the run file: a Bash command or a file path scrubbed, a URL as origin and path, any other tool by its name only. */
+export function summaryOf(tool, input) {
+  if (tool === 'Bash') return scrub(input?.command);
+  if (tool === 'WebFetch') return typeof input?.url === 'string' ? scrub(urlPart(input.url)) : '';
+  if (FILE_TOOLS.includes(tool)) return scrub(input?.file_path ?? input?.notebook_path ?? input?.path ?? '');
+  return '';
+}
+
+// Requests that name this machine's user's own files or keychain are denied, not answered, as tools/one-click/
+// outsider.mjs does: an outside agent has no such files to reach.
+const DENY = [/\/Users\/[^/\s]+\/(Documents|Library|Desktop|Downloads|\.ssh|\.aws|\.config|\.claude|crow-)/i, /\/home\/[^/\s]+\/(\.ssh|\.aws|\.config|\.claude)/i, /\.env\b/, /~\/(\.ssh|\.aws|\.claude|\.config|crow-|Documents|Library)/, /\$HOME\/(\.ssh|\.aws|\.claude|\.config)/, /\bsecurity\s+find-/, /\bkeychain\b/i];
+
+/** True when a tool request names a local path the harness refuses. */
+export function deniedRequest(tool, input) {
+  const text = tool === 'Bash' ? String(input?.command ?? '') : JSON.stringify(input ?? {});
+  return DENY.some((re) => re.test(text));
+}
+
+// The names the fresh assistant's environment keeps. No Claude, Anthropic, SSH agent, cloud or git credential
+// variable of this machine reaches it; values are copied by name, never read for content or printed.
+export const ENV_KEEP = ['HOME', 'PATH', 'SHELL', 'USER', 'LOGNAME', 'TMPDIR', 'LANG', 'LC_ALL', 'TERM', '__CF_USER_TEXT_ENCODING', 'NVM_DIR', 'NVM_BIN', 'NVM_INC', 'HOMEBREW_PREFIX', 'HOMEBREW_CELLAR', 'HOMEBREW_REPOSITORY', 'COMMAND_MODE'];
+
+/** The child's environment: only ENV_KEEP's names from `source`, plus the client app name. */
+export function childEnv(source) {
+  const env = {};
+  for (const k of ENV_KEEP) if (typeof source[k] === 'string') env[k] = source[k];
+  env.CLAUDE_AGENT_SDK_CLIENT_APP = 'crow-one-click-harness/0.3';
+  return env;
+}
+
+/** A fresh count for one Worker's tail. */
+export const emptyTailCount = () => ({ requests: 0, cpuMs: null, wallMs: null, durableObjectRequests: 0, durableObjectWallMs: null });
+
+/**
+ * Adds one `wrangler tail` event to a Worker's count. A Durable Object event counts only in the Durable Object
+ * fields, so ops-cost does not price it twice; any other event counts in requests, CPU and wall time.
+ */
+export function countTailEvent(c, e) {
+  const cpu = Number.isFinite(e?.cpuTime) && e.cpuTime >= 0 ? Math.round(e.cpuTime) : null;
+  const wall = Number.isFinite(e?.wallTime) && e.wallTime >= 0 ? Math.round(e.wallTime) : null;
+  if (e?.executionModel === 'durableObject') {
+    c.durableObjectRequests += 1;
+    if (wall !== null) c.durableObjectWallMs = (c.durableObjectWallMs ?? 0) + wall;
+    return c;
+  }
+  c.requests += 1;
+  if (cpu !== null) c.cpuMs = (c.cpuMs ?? 0) + cpu;
+  if (wall !== null) c.wallMs = (c.wallMs ?? 0) + wall;
+  return c;
+}
+
+/**
+ * The run file's `cloudflare` field from the tails. A Worker whose tail did not connect, or exited before the run
+ * ended, is left out with a gap line, so a dead tail never reads as 0 requests; with none connected the field is
+ * null. `otherDealsInWindow` is null when the run found no commitment, since its own deal cannot be told apart.
+ * @param {{ tails: Record<string, { connected: boolean, exitedEarly: boolean, count: object }>, window: { from: string, to: string }, otherDeals: number|null, commitmentId: string|null }} input
+ */
+export function cloudflareOf({ tails, window, otherDeals, commitmentId }) {
+  const gaps = [];
+  const workers = {};
+  for (const [name, t] of Object.entries(tails)) {
+    if (!WORKERS.includes(name)) continue;
+    if (t.connected && !t.exitedEarly) workers[name] = t.count;
+    else gaps.push(`wrangler tail on ${name} ${t.connected ? 'exited before the run ended' : 'never connected'}, so its counts are left out.`);
+  }
+  if (!Object.keys(workers).length) return { cloudflare: null, gaps: [...gaps, 'No wrangler tail connected, so the Cloudflare counts read unknown.'] };
+  return { cloudflare: { basis: 'tail', window, otherDealsInWindow: commitmentId ? otherDeals : null, workers }, gaps };
 }
 
 /** A decimal or exponent string (the SDK's dollar figures, as String(number) gives them) as micro-USD, rounded. */
@@ -98,8 +191,8 @@ export const runIdOf = (startedAtMs, scenario) => `${iso(startedAtMs).replace(/:
  *   effort: string|null, maxReplies: number, timeoutMs: number }, prices: object|null, startedAtMs: number,
  *   generatedAtMs: number, commit: string, sdkVersion: string, cloudflare?: object|null, sources?: object[] }} input
  */
-export function buildRunFile({ init, result, book, options, prices, startedAtMs, generatedAtMs, commit, sdkVersion, cloudflare = null, sources = [] }) {
-  const gaps = [];
+export function buildRunFile({ init, result, book, options, prices, startedAtMs, generatedAtMs, commit, sdkVersion, cloudflare = null, sources = [], promptSource = `${HOMEPAGE} #prompt`, harnessGaps = [] }) {
+  const gaps = harnessGaps.map(String).slice(0, 20);
   const opus = prices?.models?.[OPUS] ?? null;
   if (!opus) gaps.push('config/model-prices.json has no claude-opus-5-5 entry, so the cost at Opus 5.5 reads unknown.');
 
@@ -163,7 +256,7 @@ export function buildRunFile({ init, result, book, options, prices, startedAtMs,
       maxReplies: options.maxReplies,
       timeoutMs: options.timeoutMs,
     },
-    prompt: { text: String(book.prompt?.text ?? '').slice(0, 2000), source: 'https://escrow.stream/ #prompt', matchesExpected: !!book.prompt?.matchesExpected },
+    prompt: { text: String(book.prompt?.text ?? '').slice(0, 2000), source: String(promptSource).slice(0, 200), matchesExpected: !!book.prompt?.matchesExpected },
     model: {
       requested: options.model ?? null,
       init: typeof init?.model === 'string' && MODEL_ID.test(init.model) ? init.model : null,

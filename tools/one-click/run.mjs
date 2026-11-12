@@ -3,34 +3,35 @@
 // live homepage's prompt to a settled deal, and writes one run file (tools/one-click/metrics.mjs builds it; its schema is
 // scripts/metrics/schemas/one-click.schema.json). The fresh assistant gets default permissions, no settings, no MCP
 // servers, a filtered environment and an empty folder; the harness answers every permission request with "allow" and
-// counts it. That is why where it runs is Rafa's gate (T-066, Gates item 1): it approves tools as the user who runs it.
+// counts it, except a request that names this machine's user's own files, which it denies. That is why where it runs is
+// Rafa's gate (T-066, Gates item 1): it approves tools as the user who runs it.
 //
 //   (once) npm ci --ignore-scripts --prefix tools/one-click
 //   node tools/one-click/run.mjs --scenario buyer --effort medium --out reports/scratch/one-click [--logs <dir>] [--tail]
 //
-// --effort unset  passes no effort, so the hooks record the SDK's default for the model.
-// --tail          counts Cloudflare events per Worker with `npx wrangler@4 tail` during the run (wrangler's login; Gates
-//                 item 4). Counts only: no header, URL path or IP is kept (D39).
-// --logs <dir>    keeps the SDK's raw messages as JSON lines, outside git (outside the repository, or under reports/).
-// --probe         asks only "Reply with the single word: ok", denies every tool, touches no Crow site, and prints the
-//                 effort the hooks saw and the model; it writes no run file. With --effort unset it finds the default.
-import { query } from '@anthropic-ai/claude-agent-sdk';
+// --effort unset     passes no effort, so the hooks record the SDK's default for the model.
+// --tail             counts Cloudflare events per Worker with `npx wrangler@4 tail` during the run (wrangler's login;
+//                    Gates item 4). Counts only: no header, URL path or IP is kept (D39).
+// --logs <dir>       keeps the SDK's raw messages as JSON lines, outside git (outside the repository, or under reports/).
+// --probe            asks only "Reply with the single word: ok", with no tools at all, touches no Crow site, and prints
+//                    the effort the hooks saw and the model; it writes no run file. With --effort unset it finds the default.
+// --dry-run <file>   plays a script (tools/one-click/scripted.mjs) in place of the model: no SDK, no key, no network.
+//                    It writes a run file from the script, as CI's test does (tests/metrics/one-click.test.ts).
 import { spawn } from 'node:child_process';
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { check } from '../../scripts/metrics/check.mjs';
 import { DEFAULTS, ROOT, Sources, fetchCapped, gitCommit, iso, readEvents } from '../../scripts/metrics/lib.mjs';
-import { EFFORTS, buildRunFile, runIdOf } from './metrics.mjs';
+import { EFFORTS, HOMEPAGE, MODEL_ID, WORKERS, buildRunFile, childEnv, cloudflareOf, countTailEvent, deniedRequest, emptyTailCount, runIdOf, summaryOf } from './metrics.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // The homepage prompt changes with the site (T-229 added the one command to it), so the harness records the prompt
 // as served and checks only that it is the homepage's deal prompt.
 const EXPECTED_PREFIX = 'Run a test deal with Crow';
 const REPLY = 'Yes, go ahead.';
-const WORKERS = ['holdback-op1', 'holdback-op2', 'crow-test-agents'];
 
 const args = parseArgs({
   options: {
@@ -41,6 +42,7 @@ const args = parseArgs({
     logs: { type: 'string' },
     tail: { type: 'boolean', default: false },
     probe: { type: 'boolean', default: false },
+    'dry-run': { type: 'string' },
     'max-replies': { type: 'string', default: '6' },
     'timeout-ms': { type: 'string', default: '600000' },
   },
@@ -53,6 +55,9 @@ if (args.scenario === 'seller') {
   process.exit(3);
 }
 if (args.effort !== 'unset' && !EFFORTS.includes(args.effort)) fail(`--effort is one of ${EFFORTS.join(', ')}, or unset`);
+if (args.model !== 'unset' && !MODEL_ID.test(args.model)) fail('--model is a model ID (lower-case letters, digits, dots and dashes), or unset');
+const dryRun = args['dry-run'] ? resolve(args['dry-run']) : null;
+if (dryRun && (args.tail || args.probe)) fail('--dry-run takes neither --tail nor --probe');
 const maxReplies = Number.parseInt(args['max-replies'], 10);
 const timeoutMs = Number.parseInt(args['timeout-ms'], 10);
 if (!Number.isSafeInteger(maxReplies) || maxReplies < 0 || !Number.isSafeInteger(timeoutMs) || timeoutMs < 10_000) fail('--max-replies and --timeout-ms take whole numbers');
@@ -64,54 +69,81 @@ function fail(message) {
   process.exit(2);
 }
 
-const t0 = Date.now();
+// The run is named by when the harness started; its clock (`at`) restarts when the prompt is sent, so neither the
+// homepage fetch nor the tail's connect wait counts as the assistant's time.
+const startedAt = Date.now();
+let t0 = startedAt;
 const at = () => Date.now() - t0;
 const note = (s) => console.error(`[${String(Math.round(at() / 1000)).padStart(4)} s] ${s}`);
-const sdkVersion = JSON.parse(readFileSync(join(HERE, 'node_modules/@anthropic-ai/claude-agent-sdk/package.json'), 'utf8')).version;
-const runId = runIdOf(t0, args.scenario);
+const script = dryRun ? JSON.parse(readFileSync(dryRun, 'utf8')) : null;
+const { query } = script ? { query: (await import('./scripted.mjs')).scriptedQuery(script) } : await import('@anthropic-ai/claude-agent-sdk');
+const sdkVersion = script
+  ? JSON.parse(readFileSync(join(HERE, 'package.json'), 'utf8')).dependencies['@anthropic-ai/claude-agent-sdk']
+  : JSON.parse(readFileSync(join(HERE, 'node_modules/@anthropic-ai/claude-agent-sdk/package.json'), 'utf8')).version;
+const runId = runIdOf(startedAt, args.scenario);
 const rawPath = logsDir ? join(logsDir, `${runId}.jsonl`) : null;
 if (rawPath) mkdirSync(logsDir, { recursive: true });
 const raw = (kind, data) => rawPath && appendFileSync(rawPath, `${JSON.stringify({ atMs: at(), kind, ...data })}\n`);
 const sources = new Sources();
+const harnessGaps = [];
 
-// --- The prompt, verbatim from the live homepage's #prompt span.
+// --- The prompt, verbatim from the live homepage's #prompt span (or the script's, in a dry run).
 function decode(s) {
   return s.replace(/&#39;|&#x27;|&apos;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 }
 let prompt = 'Reply with the single word: ok';
-if (!args.probe) {
-  const page = await fetchCapped('https://escrow.stream/');
-  sources.record('homepage', 'https://escrow.stream/', t0, page.ok, page.ms, page.ok ? null : page.error);
+let promptSource = `${HOMEPAGE} #prompt`;
+if (script) {
+  prompt = String(script.prompt ?? '');
+  promptSource = 'dry run: a script, not the homepage';
+} else if (!args.probe) {
+  const page = await fetchCapped(HOMEPAGE);
+  sources.record('homepage', HOMEPAGE, startedAt, page.ok, page.ms, page.ok ? null : page.error);
   const m = page.ok ? /<span[^>]*id="prompt"[^>]*>([^<]{1,2000})<\/span>/.exec(page.text) : null;
-  if (!m) fail('no #prompt span on https://escrow.stream/');
+  if (!m) fail(`no #prompt span on ${HOMEPAGE}`);
   prompt = decode(m[1]).trim();
   note(`prompt (${prompt.startsWith(EXPECTED_PREFIX) ? 'the deal prompt' : 'NOT the deal prompt'}, ${prompt.length} characters)`);
 }
 
-// --- A clean environment: a fresh visitor has none of this machine's Claude or Anthropic variables. Filtered by name
-// only; no value is read or printed. Authentication comes from this machine's Claude Code login.
-const KEEP = ['HOME', 'PATH', 'SHELL', 'USER', 'LOGNAME', 'TMPDIR', 'LANG', 'LC_ALL', 'TERM', '__CF_USER_TEXT_ENCODING', 'NVM_DIR', 'NVM_BIN', 'NVM_INC', 'HOMEBREW_PREFIX', 'HOMEBREW_CELLAR', 'HOMEBREW_REPOSITORY', 'SSH_AUTH_SOCK', 'COMMAND_MODE'];
-const env = {};
-for (const k of KEEP) if (process.env[k] !== undefined) env[k] = process.env[k];
-env.CLAUDE_AGENT_SDK_CLIENT_APP = 'crow-one-click-harness/0.2';
+// --- A clean environment (metrics.mjs, ENV_KEEP): no Claude, Anthropic, SSH agent or cloud variable of this machine.
+// Filtered by name only; no value is read or printed. Authentication comes from this machine's Claude Code login.
+const env = childEnv(process.env);
 const workdir = mkdtempSync(join(tmpdir(), 'crow-one-click-'));
 
-// --- Cloudflare counts from wrangler tail. Each event is read, counted and dropped; nothing of it is stored.
+// --- Cloudflare counts from wrangler tail. Each event is read, counted and dropped; nothing of it is stored. A tail
+// counts only if it connected and was still running when the run ended (metrics.mjs, cloudflareOf).
+const CONNECTED = /Connected to|Successfully created tail/i;
 function startTail() {
-  const counts = {};
+  const tails = {};
   const procs = [];
+  let stopping = false;
   for (const w of WORKERS) {
-    const c = (counts[w] = { requests: 0, cpuMs: null, wallMs: null, durableObjectRequests: 0, durableObjectWallMs: null });
-    const p = spawn('npx', ['--yes', 'wrangler@4', 'tail', w, '--format', 'json'], { stdio: ['ignore', 'pipe', 'ignore'] });
+    const t = (tails[w] = { connected: false, exitedEarly: false, count: emptyTailCount() });
+    const p = spawn('npx', ['--yes', 'wrangler@4', 'tail', w, '--format', 'json'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    p.on('error', () => {
+      t.exitedEarly = true;
+    });
+    p.on('exit', () => {
+      if (!stopping) t.exitedEarly = true;
+    });
+    p.stderr.setEncoding('utf8');
+    p.stderr.on('data', (chunk) => {
+      if (CONNECTED.test(chunk)) t.connected = true;
+    });
     // wrangler prints each event as an indented JSON object, so the reader splits objects by brace depth.
     let depth = 0;
     let inString = false;
     let escaped = false;
     let buf = '';
+    let line = '';
     p.stdout.setEncoding('utf8');
     p.stdout.on('data', (chunk) => {
       for (const ch of chunk) {
-        if (depth === 0 && ch !== '{') continue;
+        if (depth === 0 && ch !== '{') {
+          line = ch === '\n' ? '' : (line + ch).slice(-200);
+          if (CONNECTED.test(line)) t.connected = true;
+          continue;
+        }
         buf += ch;
         if (inString) {
           if (escaped) escaped = false;
@@ -121,16 +153,8 @@ function startTail() {
         else if (ch === '{') depth += 1;
         else if (ch === '}' && --depth === 0) {
           try {
-            const e = JSON.parse(buf);
-            c.requests += 1;
-            const cpu = Number.isFinite(e?.cpuTime) ? Math.round(e.cpuTime) : null;
-            const wall = Number.isFinite(e?.wallTime) ? Math.round(e.wallTime) : null;
-            if (cpu !== null) c.cpuMs = (c.cpuMs ?? 0) + cpu;
-            if (wall !== null) c.wallMs = (c.wallMs ?? 0) + wall;
-            if (e?.executionModel === 'durableObject') {
-              c.durableObjectRequests += 1;
-              if (wall !== null) c.durableObjectWallMs = (c.durableObjectWallMs ?? 0) + wall;
-            }
+            countTailEvent(t.count, JSON.parse(buf));
+            t.connected = true;
           } catch {
             // Not an event: skipped.
           }
@@ -145,7 +169,13 @@ function startTail() {
     });
     procs.push(p);
   }
-  return { counts, stop: () => procs.forEach((p) => p.kill('SIGINT')) };
+  return {
+    tails,
+    stop: () => {
+      stopping = true;
+      procs.forEach((p) => p.kill('SIGINT'));
+    },
+  };
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let tail = null;
@@ -190,7 +220,7 @@ function inputQueue() {
   };
 }
 
-// --- Bookkeeping, in integer ms from the start.
+// --- Bookkeeping, in integer ms from when the prompt was sent.
 const toolUses = new Map(); // tool_use id -> { tool, startMs, endMs, input }
 const book = { prompt: { text: prompt, matchesExpected: prompt.startsWith(EXPECTED_PREFIX) }, permissionRequests: [], conversational: [], toolCalls: [], errors: [], timedOut: false };
 const effortSeen = [];
@@ -202,7 +232,6 @@ let replies = 0;
 
 const isTry = (u) => u && u.tool === 'Bash' && /try\.mjs/.test(u.input?.command ?? '') && /\bnode\s/.test(u.input?.command ?? '');
 const textOf = (content) => (typeof content === 'string' ? content : Array.isArray(content) ? content.map((c) => (c.type === 'text' ? c.text : '')).join('\n') : '');
-const summaryOf = (tool, input) => (tool === 'Bash' ? input?.command : tool === 'WebFetch' ? input?.url : input?.file_path ?? JSON.stringify(input ?? {}).slice(0, 300));
 
 const recordEffort = (where) => async (input) => {
   const level = input?.effort?.level;
@@ -225,6 +254,11 @@ const canUseTool = async (toolName, toolInput, opts) => {
     note('AskUserQuestion answered');
     return { behavior: 'allow', updatedInput: { ...toolInput, answers }, toolUseID: opts.toolUseID };
   }
+  if (deniedRequest(toolName, toolInput)) {
+    book.errors.push(`denied a ${toolName} request that named a local path`);
+    note(`denied: ${toolName} names a local path`);
+    return { behavior: 'deny', message: 'Not allowed: that names files outside this task.', toolUseID: opts.toolUseID };
+  }
   book.permissionRequests.push({ atMs: start, tool: toolName, summary: summaryOf(toolName, toolInput), waitMs: at() - start });
   note(`approval ${book.permissionRequests.length}: ${toolName}`);
   return { behavior: 'allow', updatedInput: toolInput, toolUseID: opts.toolUseID };
@@ -239,6 +273,7 @@ const q = query({
     strictMcpConfig: true,
     mcpServers: {},
     systemPrompt: { type: 'preset', preset: 'claude_code' },
+    ...(args.probe ? { tools: [] } : {}),
     canUseTool,
     env,
     ...(args.model === 'unset' ? {} : { model: args.model }),
@@ -267,6 +302,7 @@ const timer = setTimeout(async () => {
   }, 15_000).unref();
 }, timeoutMs);
 
+t0 = Date.now();
 input.push(prompt);
 try {
   for await (const msg of q) {
@@ -343,17 +379,21 @@ if (tail) {
   await sleep(10_000);
   tail.stop();
   const tailTo = Date.now();
-  const log = await readEvents(sources, [DEFAULTS.op1, DEFAULTS.op2], { back: 2000 });
-  let otherDealsInWindow = null;
-  if (log) {
-    const others = new Set();
-    for (const e of log.events) {
-      const t = Date.parse(e.at);
-      if (t >= tailFrom - 10_000 && t <= tailTo && typeof e.commitmentId === 'string' && e.commitmentId.toLowerCase() !== book.commitmentId?.toLowerCase()) others.add(e.commitmentId.toLowerCase());
+  let otherDeals = null;
+  if (book.commitmentId) {
+    const log = await readEvents(sources, [DEFAULTS.op1, DEFAULTS.op2], { back: 2000 });
+    if (log) {
+      const others = new Set();
+      for (const e of log.events) {
+        const t = Date.parse(e.at);
+        if (t >= tailFrom - 10_000 && t <= tailTo && typeof e.commitmentId === 'string' && e.commitmentId.toLowerCase() !== book.commitmentId.toLowerCase()) others.add(e.commitmentId.toLowerCase());
+      }
+      otherDeals = others.size;
     }
-    otherDealsInWindow = others.size;
   }
-  cloudflare = { basis: 'tail', window: { from: iso(tailFrom - 10_000), to: iso(tailTo) }, otherDealsInWindow, workers: tail.counts };
+  const cf = cloudflareOf({ tails: tail.tails, window: { from: iso(tailFrom - 10_000), to: iso(tailTo) }, otherDeals, commitmentId: book.commitmentId });
+  cloudflare = cf.cloudflare;
+  harnessGaps.push(...cf.gaps);
 }
 
 let prices = null;
@@ -368,19 +408,25 @@ const run = buildRunFile({
   book,
   options: { scenario: args.scenario, model: args.model === 'unset' ? null : args.model, effort: args.effort === 'unset' ? null : args.effort, maxReplies, timeoutMs },
   prices,
-  startedAtMs: t0,
+  startedAtMs: startedAt,
   generatedAtMs: Date.now(),
   commit: gitCommit(ROOT),
   sdkVersion,
   cloudflare,
   sources: sources.list,
+  promptSource,
+  harnessGaps,
 });
-mkdirSync(resolve(args.out), { recursive: true });
-const outFile = join(resolve(args.out), `${run.runId}.json`);
-writeFileSync(outFile, `${JSON.stringify(run, null, 2)}\n`);
 rmSync(workdir, { recursive: true, force: true });
+// The run file takes its name only after it passes its schema; a failing one stays as <runId>.json.invalid.
 const ok = check('one-click', run);
+const outDir = resolve(args.out);
+mkdirSync(outDir, { recursive: true });
+const outFile = join(outDir, `${run.runId}.json`);
+const tmpFile = `${outFile}.invalid`;
+writeFileSync(tmpFile, `${JSON.stringify(run, null, 2)}\n`);
+if (ok.ok) renameSync(tmpFile, outFile);
 note(`${run.outcome.state}: ${run.approvals.total} approvals, effort ${run.model.effortApplied ?? 'unknown'}, USD ${run.cost.atOpus55.usdMicros ?? 'unknown'} micro at Opus 5.5`);
-note(`run file ${ok.ok ? 'valid' : 'INVALID'}: ${outFile}`);
+note(`run file ${ok.ok ? `valid: ${outFile}` : `INVALID: ${tmpFile}`}`);
 if (!ok.ok) console.error(ok.errors.join('\n'));
 process.exit(ok.ok ? 0 : 1);

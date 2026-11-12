@@ -1,10 +1,15 @@
 // T-066 slice 1: tools/one-click/metrics.mjs on fixtures cut from the two harness runs of 2026-11-05 (T-066 Context):
 // the SDK's init and result messages, without the assistant's text, and the harness's bookkeeping. No network, and the
-// Agent SDK is not installed in CI: metrics.mjs imports none of it.
+// Agent SDK is not installed in CI: metrics.mjs imports none of it, and run.mjs --dry-run (T-370) plays a script in
+// place of the SDK.
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { check } from '../../scripts/metrics/check.mjs';
-import { buildRunFile, decimalToMicros, runIdOf, scrub, tokensOf, unionMs } from '../../tools/one-click/metrics.mjs';
-import { config, json } from './helpers';
+import { buildRunFile, childEnv, cloudflareOf, countTailEvent, decimalToMicros, deniedRequest, emptyTailCount, runIdOf, scrub, summaryOf, tokensOf, unionMs } from '../../tools/one-click/metrics.mjs';
+import { FIXTURES, ONCE, ROOT, config, json } from './helpers';
 
 const prices = config('model-prices.json');
 const COMMIT = '7639613453bc367ed3ac0122cdb38e4e4553765d';
@@ -129,5 +134,107 @@ describe('helpers', () => {
 
   it('names a run by its start and scenario', () => {
     expect(runIdOf(Date.parse('2026-11-05T13:35:12.345Z'), 'seller')).toBe('2026-11-05T13-35-12Z-seller');
+  });
+
+  it('drops header and credential values, query strings and IP addresses from a summary', () => {
+    expect(scrub(`curl -H 'x-api-key: abc' http://10.0.0.5/v1?k=1`)).toBe('curl -H <value> http://<ip>/v1');
+    expect(scrub('curl --header="Authorization: Bearer z" -u me:pw https://u:p@api.crow.direct/v1/x#f')).toBe('curl --header=<value> -u <value> https://api.crow.direct/v1/x');
+    expect(scrub('sort -u -t: -k2')).toBe('sort -u -t: -k2');
+    expect(scrub('curl http://[::1]:8787/')).toBe('curl http://<ip>:8787/');
+  });
+
+  it("shows a tool other than Bash, WebFetch or a file tool by its name only, never the assistant's input", () => {
+    expect(summaryOf('Task', { prompt: 'secret plan' })).toBe('');
+    expect(summaryOf('WebFetch', { url: 'https://crow.direct/llms.txt?x=1', prompt: 'text' })).toBe('https://crow.direct/llms.txt');
+    expect(summaryOf('Read', { file_path: '/Users/a/b.txt' })).toBe('<local path>');
+  });
+
+  it("denies requests that name this machine's user's files", () => {
+    expect(deniedRequest('Read', { file_path: '/Users/a/.ssh/id_ed25519' })).toBe(true);
+    expect(deniedRequest('Bash', { command: 'cat .env.local' })).toBe(true);
+    expect(deniedRequest('Bash', { command: 'security find-generic-password -s x' })).toBe(true);
+    expect(deniedRequest('Bash', { command: 'curl -sS https://crow.direct/llms.txt' })).toBe(false);
+  });
+
+  it('passes the assistant no SSH agent, Anthropic, Claude or cloud variable', () => {
+    const env = childEnv({ HOME: '/h', PATH: '/bin', SSH_AUTH_SOCK: '/s', ANTHROPIC_API_KEY: 'k', CLAUDE_CODE_OAUTH_TOKEN: 't', AWS_SECRET_ACCESS_KEY: 'a', GITHUB_TOKEN: 'g' });
+    expect(Object.keys(env).sort()).toEqual(['CLAUDE_AGENT_SDK_CLIENT_APP', 'HOME', 'PATH']);
+  });
+});
+
+describe('the Cloudflare counts', () => {
+  it('counts a Durable Object event only in the Durable Object fields', () => {
+    const c = emptyTailCount();
+    countTailEvent(c, { cpuTime: 3, wallTime: 10 });
+    countTailEvent(c, { executionModel: 'durableObject', cpuTime: 2, wallTime: 7 });
+    expect(c).toEqual({ requests: 1, cpuMs: 3, wallMs: 10, durableObjectRequests: 1, durableObjectWallMs: 7 });
+  });
+
+  const window = { from: '2026-11-12T00:00:00.000Z', to: '2026-11-12T00:05:00.000Z' };
+  const live = { connected: true, exitedEarly: false, count: { ...emptyTailCount(), requests: 4 } };
+
+  it('reads unknown, not 0, when no tail connected', () => {
+    const dead = { connected: false, exitedEarly: true, count: emptyTailCount() };
+    const r = cloudflareOf({ tails: { 'holdback-op1': dead, 'holdback-op2': dead, 'crow-test-agents': dead }, window, otherDeals: 0, commitmentId: ONCE });
+    expect(r.cloudflare).toBe(null);
+    expect(r.gaps.at(-1)).toMatch(/read unknown/);
+  });
+
+  it('leaves out a Worker whose tail exited, with a gap line', () => {
+    const r = cloudflareOf({ tails: { 'holdback-op1': live, 'holdback-op2': { ...live, exitedEarly: true } }, window, otherDeals: 2, commitmentId: ONCE });
+    expect(Object.keys(r.cloudflare?.workers ?? {})).toEqual(['holdback-op1']);
+    expect(r.cloudflare?.otherDealsInWindow).toBe(2);
+    expect(r.gaps).toEqual(['wrangler tail on holdback-op2 exited before the run ended, so its counts are left out.']);
+  });
+
+  it('writes no count of other deals when the run found no commitment', () => {
+    expect(cloudflareOf({ tails: { 'holdback-op1': live }, window, otherDeals: 3, commitmentId: null }).cloudflare?.otherDealsInWindow).toBe(null);
+  });
+});
+
+describe('run.mjs --dry-run: the harness end to end, with no model, key or network', () => {
+  const RUN = join(ROOT, 'tools/one-click/run.mjs');
+  const SCRIPT = join(FIXTURES, 'one-click-script.json');
+  const harness = (...extra: string[]) => {
+    const out = mkdtempSync(join(tmpdir(), 'one-click-test-'));
+    const r = spawnSync(process.execPath, [RUN, '--dry-run', SCRIPT, '--out', out, ...extra], { encoding: 'utf8', timeout: 60_000 });
+    const files = readdirSync(out);
+    const run = files.length === 1 && files[0].endsWith('.json') ? JSON.parse(readFileSync(join(out, files[0]), 'utf8')) : null;
+    rmSync(out, { recursive: true, force: true });
+    return { status: r.status, stderr: r.stderr, files, run };
+  };
+
+  it('writes one valid run file for a Released deal', () => {
+    const { status, files, run } = harness();
+    expect(status).toBe(0);
+    expect(files).toHaveLength(1);
+    expect(check('one-click', run)).toEqual({ ok: true, errors: [] });
+    expect(run.outcome).toMatchObject({ state: 'Released', commitmentId: ONCE });
+    expect(run.outcome.txs).toHaveLength(3);
+    expect(run.model).toMatchObject({ requested: 'claude-opus-5-5', effortRequested: 'medium', effortApplied: 'medium', effortSource: 'hook' });
+    expect(run.cost.atOpus55.usdMicros).toBe('182499');
+    expect(run.cloudflare).toBe(null);
+  });
+
+  it('counts four tool approvals and one chat reply, and denies the local key file', () => {
+    const { run } = harness();
+    expect(run.approvals).toMatchObject({ total: 5, toolPermission: 4, conversational: 1, byTool: { Bash: 3, WebFetch: 1 } });
+    expect(run.errors).toEqual(['denied a Read request that named a local path']);
+  });
+
+  it('keeps no header value, query string, IP address, local path or assistant text in the run file', () => {
+    const text = JSON.stringify(harness().run);
+    for (const leak of ['abc123', 'token=zzz', '10.0.0.5', 'id_ed25519', 'ref=abc', 'must not reach', 'must not be read', '/Users/']) expect(text).not.toContain(leak);
+  });
+
+  it('passes the requested effort to the hooks', () => {
+    expect(harness('--effort', 'high').run.model).toMatchObject({ effortRequested: 'high', effortApplied: 'high' });
+  });
+
+  it('refuses a model ID the schema would refuse, before it starts', () => {
+    const { status, stderr, files } = harness('--model', 'Claude Opus');
+    expect(status).toBe(2);
+    expect(stderr).toMatch(/--model is a model ID/);
+    expect(files).toEqual([]);
   });
 });
