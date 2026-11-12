@@ -2,7 +2,6 @@
 pragma solidity 0.8.28;
 
 import {LibString} from "solady/utils/LibString.sol";
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 /// @title HoldbackTypes
 /// @notice The settlement view (ADR-0024 §8) and the EIP-712 struct hashes `packages/core/src/eip712.ts` signs.
@@ -405,23 +404,8 @@ library HoldbackTypes {
 }
 
 /// @title Money
-/// @notice ADR-0022 rounding on chain: every rate multiplication names its direction (rule 5).
+/// @notice The basis-point scale of every rate (ADR-0022). Phase one has no rate arithmetic on chain: the bond
+///         requirement, payout and split helpers left with SC-7's bonds, and the mutual fee share is 0 (ADR-0031 §8).
 library Money {
     uint256 internal constant ALL_BPS = 10_000;
-
-    /// @notice Rule 1: a requirement rounds up.
-    function requirement(uint256 amount, uint256 bps) internal pure returns (uint256) {
-        return FixedPointMathLib.mulDivUp(amount, bps, ALL_BPS);
-    }
-
-    /// @notice Rule 3: a payout from a bond rounds down; the bond keeps the dust.
-    function payout(uint256 amount, uint256 bps) internal pure returns (uint256) {
-        return FixedPointMathLib.mulDiv(amount, bps, ALL_BPS);
-    }
-
-    /// @notice Rule 2: a split of one pot rounds the rate side down; the remainder goes to the named party.
-    function split(uint256 pot, uint256 bps) internal pure returns (uint256 share, uint256 remainder) {
-        share = FixedPointMathLib.mulDiv(pot, bps, ALL_BPS);
-        remainder = pot - share;
-    }
 }

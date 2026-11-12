@@ -8,7 +8,7 @@ import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 import {IHoldbackBeacon} from "../parent/IHoldbackBeacon.sol";
 import {HoldbackTypes as H, Money} from "../parent/HoldbackTypes.sol";
 
-// T-341, PLANTED BEHAVIOUR CHANGE. A test fixture, never deployed: the pinned copy `../parent/HoldbackRules.a37a48d.sol`
+// T-341, PLANTED BEHAVIOUR CHANGE. A test fixture, never deployed: the pinned copy `../parent/HoldbackRules.3b49cc0.sol`
 // with two edits, these imports and one deleted line in `_acceptDelivery` (`deliveryHashOf[id] = dh;`). It is the
 // "stores no delivery hash" mutant of known issue G-5. `SideBySide.t.sol` and `StateOracle.t.sol` prove that the
 // side-by-side harness and the delivery liveness invariant both fail on it. T-356 re-based it on each change's parent.
@@ -36,6 +36,28 @@ contract HoldbackRules is EIP712 {
         Settled
     }
 
+    /// @notice Why a deal closed (`docs/audit/state-model.md` section 9.2). `Open` exactly while the stage is None,
+    ///         Held, Delivered, FallbackJudging or Escalated; written in the storage write that closes the deal, and
+    ///         never changed after. `Decided` gives Released or Refunded, `AcceptedEarly` Released, `Settled` Settled,
+    ///         `Reclaimed` and `Defaulted` Refunded.
+    enum Reason {
+        Open,
+        Decided,
+        AcceptedEarly,
+        Settled,
+        Reclaimed,
+        Defaulted
+    }
+
+    /// @notice Which adjudicator's decision closed the deal and received its fee: not `None` exactly when the reason
+    ///         is `Decided`.
+    enum Decider {
+        None,
+        Primary,
+        Fallback,
+        Appeal
+    }
+
     /// @notice One storage word per commitment. Phase one has no party appeal and no bond (ADR-0031 §8): the first
     ///         decision by the primary or the fallback, and an escalation's decision, are final when written.
     struct Deal {
@@ -43,6 +65,8 @@ contract HoldbackRules is EIP712 {
         uint8 attempt; // delivery attempt seen on chain (0 until a delivery is verified)
         uint40 t1; // decidedAt, escalatedAt or fallbackSince
         uint144 seedTag; // low 144 bits of the primary's seedCommitment
+        Reason reason; // why the deal closed; Open while it is open (RF-4)
+        Decider decider; // whose decision closed it; None unless the reason is Decided (RF-4)
     }
 
     // Key release paths (ADR-0012).
@@ -314,6 +338,7 @@ contract HoldbackRules is EIP712 {
         }
         d.stage = m.outcome == H.OUTCOME_ACCEPT ? Stage.Released : Stage.Refunded;
         d.t1 = uint40(block.timestamp);
+        (d.reason, d.decider) = (Reason.Decided, m.role == H.ROLE_PRIMARY ? Decider.Primary : Decider.Fallback);
         _deals[id] = d;
         _settleDecision(id, t, adjudicator, m);
     }
@@ -321,6 +346,7 @@ contract HoldbackRules is EIP712 {
     /// @dev The appeal adjudicator's decision on an escalated case, final when written.
     function _escalationDecision(bytes32 id, H.Terms calldata t, Deal memory d, H.Decision calldata m) internal {
         d.stage = m.outcome == H.OUTCOME_ACCEPT ? Stage.Released : Stage.Refunded;
+        (d.reason, d.decider) = (Reason.Decided, Decider.Appeal);
         _deals[id] = d;
         _settleDecision(id, t, t.appealAdjudicator, m);
     }
@@ -369,7 +395,7 @@ contract HoldbackRules is EIP712 {
         if (m.attempt != dv.attempt || m.deliveryHash != dh || dh != deliveryHashOf[id]) revert InvalidMessage();
         _requireKeyProof(t.buyer, dv.encryptedKeysHash, k);
 
-        d.stage = Stage.Released;
+        (d.stage, d.reason) = (Stage.Released, Reason.AcceptedEarly);
         AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(id, t);
         if (t.price > 0) _capture(pi, t.price, 0, address(0));
         if (t.fee > 0) _void(pi);
@@ -409,7 +435,7 @@ contract HoldbackRules is EIP712 {
             _requireKeyProof(t.buyer, dv.encryptedKeysHash, k);
         }
 
-        d.stage = Stage.Settled;
+        (d.stage, d.reason) = (Stage.Settled, Reason.Settled);
         _payOut(id, t, m.payouts);
         emit MutuallySettled(id, m.releaseKey);
         if (m.releaseKey) _releaseKey(id, t.buyer, KEY_MUTUAL, k.scheme, k.ciphertext);
@@ -454,7 +480,7 @@ contract HoldbackRules is EIP712 {
         Deal storage d = _deals[id];
         if (d.stage != Stage.Held) revert WrongStage(d.stage);
         if (block.timestamp < t.timing.deliverBy) revert TooEarly();
-        _refundAll(id, t, d);
+        _refundAll(id, t, d, Reason.Reclaimed);
         emit JobExpired(id);
     }
 
@@ -484,13 +510,13 @@ contract HoldbackRules is EIP712 {
             revert WrongStage(s);
         }
         emit Defaulted(id, s);
-        _refundAll(id, t, d);
+        _refundAll(id, t, d, Reason.Defaulted);
     }
 
     // Internals
 
-    function _refundAll(bytes32 id, H.Terms calldata t, Deal storage d) internal {
-        d.stage = Stage.Refunded;
+    function _refundAll(bytes32 id, H.Terms calldata t, Deal storage d, Reason reason) internal {
+        (d.stage, d.reason) = (Stage.Refunded, reason);
         AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(id, t);
         // From authorizationExpiry the buyer's payment address may have reclaimed on CPP already (ADR-0003's backstop). The deal still
         // closes here; there is just nothing left to void.

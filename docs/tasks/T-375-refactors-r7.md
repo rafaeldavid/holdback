@@ -49,7 +49,7 @@ Line numbers are those of `contracts/src/HoldbackRules.sol` at `a37a48d`, the la
 ### PR 4: RF-2, `decide` reads the deal's word once and writes it once
 
 - **Hidden state it answers:** IS-2. `decide` holds the deal in memory while `_acceptDelivery` writes the same word in storage, then writes the memory copy back, with the attempt copied across by hand.
-- **What:** `decide` loads the word into one local copy at the start and stores it once, just before the money moves. `_acceptDelivery` stops writing the word: it checks the delivery, stores its hash and returns it, and each caller sets the attempt itself. A view, `_turn`, returns whose turn it is, the deadline and the beacon round. `_firstInstance` and `_escalationDecision` fold into one closing block.
+- **What:** `decide` loads the word into one local copy at the start, and every path stores it once, in `_firstInstance` or `_escalationDecision`, before any token moves. `_acceptDelivery` stops writing the word: it checks the delivery, stores its hash and returns it, and each caller sets the attempt in its own write. A view, `_turn`, returns whose turn it is, the deadline and the beacon round. The two closing helpers stay: a build that folded them into one block measured 409 bytes larger, against 36 bytes for this shape.
 - **Why no behaviour changes:** every check runs in the same order with the same inputs, so every refusal has the same reason. The stored word after the call is the same, the events come in the same order, and the one write still comes before the first call that moves tokens.
 - **One difference inside a call, and nowhere else:** in `Held`, while the adjudicator's signature and the beacon are checked, a contract signer or beacon that reads `dealOf` saw `Held` with attempt 1, a word no row of the state model allows. It now sees `Held` with attempt 0. No transaction's result depends on it, unless an ERC-1271 answer reads the rules contract in the middle of a call.
 - **Gates:** the side-by-side harness with an empty allow list; the state oracle and every invariant; `forge test`; the runtime size before and after.
@@ -90,6 +90,11 @@ The coordinator relayed on 2026-11-12 that an earlier sync of `main` into the la
 - **Full suite** [measured, local `forge test`]: 57 suites, 417 tests passed, 0 failed, in 290 s. `testFuzz_sideBySide` passed 257 runs with the one RF-4 allow-list entry; `test_sideBySide_reachesEveryRow` landed 571 calls (the same as PR 2); the 11 invariants passed 256 runs of 100 calls, the state oracle now checking the stored reason and decider against the handler's record on every deal after every call.
 - **Runtime size of `HoldbackRules`** [measured, artifact]: 19,914 bytes before, 20,504 bytes after, **590 bytes added**. The limit is 24,576 bytes, so 4,072 bytes remain.
 - **`abis.json`** regenerated with `node scripts/evm-abis.mjs`: `dealOf`'s tuple gains `reason` and `decider` (`uint8`, the two enums). No other entry changed.
+
+### PR 4: RF-2, `decide` reads the word once and writes it once
+
+- **Full suite** [measured, local `forge test`, with the harness's parent re-seated to RF-4's source at `3b49cc0` and an empty allow list]: 57 suites, 417 tests passed, 0 failed. `testFuzz_sideBySide` passed 257 runs; `test_sideBySide_reachesEveryRow` landed 571 calls.
+- **Runtime size of `HoldbackRules`** [measured, single-contract builds of the same source tree]: 20,504 bytes for RF-4 (the parent copy), 20,540 bytes with RF-2, **36 bytes added**. A first build that also folded `_firstInstance` and `_escalationDecision` into one closing block measured 20,940 bytes (409 added) and was not kept.
 
 ## Review
 
