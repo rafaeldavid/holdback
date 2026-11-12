@@ -162,11 +162,12 @@ export function replayPage(events: readonly Event[], s: Summary): string {
     : `A real run. The buyer is ${who('buyer')} and the seller is ${who('seller')}: two models${s.models.buyer.vendor !== s.models.seller.vendor ? ' from two vendors' : ''}, each working its own tools through Crow's public API. They never spoke to each other directly, and nobody typed anything while it ran.`;
   const preset = [
     "each agent's brief",
-    `the buyer's approval policy: a budget of ${money({ amount: start?.policy?.budget, token: '' }).trim()} test tokens, with the required checks ${(start?.policy?.requiredChecks ?? []).join(' and ')}`,
+    `the buyer's approval policy: a budget of ${money({ amount: start?.policy?.budget, token: '' }).trim()} test tokens, the required checks ${(start?.policy?.requiredChecks ?? []).join(' and ')}, the report due within ${Math.round(Number(start?.policy?.latestDeliverySec ?? 0) / 86_400)} days, and an offer dated within ${Math.round(Number(start?.policy?.createdAtBandSec ?? 0) / 60)} minutes of now`,
     ...(start?.sellerRule ? [`the seller's rule: “${cut(String(start.sellerRule), 240).replace(/[.\s]+$/, '')}”`] : []),
   ];
   const ok = s.decisionRight;
-  const worldLine = world?.local ? 'Local test world · SimChain' : `Test network · chain ${esc(String(world?.chainId ?? ''))}`;
+  const engine = String(world?.engine ?? s.engine ?? 'an unknown engine');
+  const engineShort = world?.local ? 'Local simulator · phase-one rules' : `${engine.charAt(0).toUpperCase()}${engine.slice(1)}`;
   const row = (label: string, value: string, extra = '') => `<div class="row"><span class="label">${esc(label)}</span><span class="value">${extra}${esc(value)}</span></div>`;
   const avatar = (r: 'buyer' | 'seller') => `<span class="avatar ${r}" aria-hidden="true">${r === 'buyer' ? 'B' : 'S'}</span>`;
 
@@ -215,6 +216,9 @@ html,body{margin:0;background:var(--canvas);color:var(--ink);font:15px/1.4 var(-
 .progress{height:3px;background:var(--fill)}
 .progress span{display:block;height:100%;width:100%;background:var(--accent);transition:width .5s var(--arrive)}
 main{max-width:880px;margin:0 auto;padding:28px 16px 64px}
+.engine{margin:0 0 10px;font-size:13px;font-weight:600;color:var(--ink2)}
+.callout{display:flex;gap:10px;align-items:flex-start;background:var(--surface);border-radius:var(--r-win);padding:12px 16px;margin:14px 0 0;font-size:14px}
+.callout p{margin:0}.callout .glyph{color:var(--accent);margin-top:2px}
 .large{font-size:34px;line-height:1.15;font-weight:700;letter-spacing:-.02em;margin:0}
 .subtitle{color:var(--ink2);font-size:17px;margin:6px 0 0}
 .lead{margin:16px 0 0;font-size:15px;max-width:680px}
@@ -273,6 +277,7 @@ footer{font-size:12px;color:var(--ink3);margin:28px 12px 0;max-width:680px}
 <body>
 <div class="toolbar"><div class="toolbar-inner"><div class="app">Deal Replay<small>${esc(s.title)}</small></div><div class="spacer"></div><div class="seg" id="controls" hidden><button id="back" type="button" aria-label="Previous step">Back</button><button id="play" type="button" class="primary">Play</button><button id="next" type="button" aria-label="Next step">Next</button><button id="all" type="button">All</button></div></div><div class="progress"><span id="bar"></span></div></div>
 <main>
+<p class="engine">This run used ${esc(engine)}.</p>
 <div class="large">Two agents, one deal</div>
 <p class="subtitle">${esc(s.title)}</p>
 <p class="lead">${esc(lead)} Test tokens only: nothing here is real money.</p>
@@ -281,12 +286,13 @@ footer{font-size:12px;color:var(--ink3);margin:28px 12px 0;max-width:680px}
 <div class="group">
 ${row('Buyer', model('buyer'), avatar('buyer'))}
 ${row('Seller', model('seller'), avatar('seller'))}
-${row('Where', worldLine)}
+${row('Engine', engineShort)}
 ${row('Expected', s.expect)}
 ${row('Outcome', '', `<span class="badge ${ok ? 'good' : 'bad'}">${esc(s.outcome.state)}</span> `)}
 ${row('Run time', end ? secs(Number(end.t)) : '')}
 </div>
 <p class="footnote">Set by the owners before the run: ${esc(preset.join('; '))}. Every other choice, each agent made itself.</p>
+${start?.note ? `<div class="callout">${icon('note')}<p>${esc(String(start.note))}</p></div>` : ''}
 
 <div class="section">The deal, step by step</div>
 <div class="conversation">

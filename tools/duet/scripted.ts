@@ -32,6 +32,7 @@ export function sellerScript(s: ScenarioName, f: ScriptFacts): ScriptStep[] {
     pollMs: 500,
     redelivery: { refetchEverySec: 600 },
     ...(s === 'bad-offer' ? { termsRules: [{ when: [], dropChecks: ['coverage'] }] } : {}),
+    ...(s === 'late-offer' ? { termsRules: [{ when: [], timing: { deliverWithinSec: 94_608_000 } }] } : {}),
   };
   const card = { type: 'crow-agent', name: 'Audit reports', offers: [{ id: 'audit-report', description: 'A security audit report of smart contract files at one commit', pricing: { kind: 'quoted', quote: `${adapter}/quote`, defaults: `${adapter}/defaults` } }] };
   const page = `<!doctype html><html><head><meta charset="utf-8"><title>Audit reports</title></head><body><h1>Audit reports for smart contracts</h1><p>Priced by quote, sold through Crow.</p><script type="application/json" id="crow-agent">${JSON.stringify(card)}</script></body></html>`;
@@ -62,7 +63,7 @@ export function sellerScript(s: ScenarioName, f: ScriptFacts): ScriptStep[] {
       },
     );
   }
-  if (s === 'bad-offer') {
+  if (s === 'bad-offer' || s === 'late-offer') {
     // The buyer should walk away: wait a while for a hold that never comes, then report.
     let n = 0;
     steps.push(
@@ -103,10 +104,12 @@ export function buyerScript(s: ScenarioName, f: ScriptFacts): ScriptStep[] {
       const checks: Array<{ id: string; required: boolean }> = offer ? JSON.parse(offer).checks ?? [] : [];
       const missing = ['coverage', 'scope'].filter((k) => !checks.some((x) => x.id === k && x.required));
       if (missing.length) return { text: `The offer has no required ${missing.join(' or ')} check, which my owner requires. I refuse it: nothing is signed or paid.`, calls: [call('finish', { outcome: 'Refused the offer', report: `Offer ${id} drops the required check ${missing.join(', ')}; my owner requires it. Nothing was signed or paid.` })] };
-      return { text: `The offer matches my brief: within budget, with the coverage and scope checks. I approve it.`, calls: [call('run_command', { command: 'buy-with-signer', args: ['approve', f.keyStore, id, BUDGET] })] };
+      // The late offer: this scripted buyer looks only at the checks, so it asks to approve, and the owner's policy answers.
+      return { text: `The offer is within budget, with the coverage and scope checks. I approve it.`, calls: [call('run_command', { command: 'buy-with-signer', args: ['approve', f.keyStore, id, BUDGET] })] };
     },
     (c) => {
       const r = c.results().at(-1) ?? '';
+      if (/pre-set policy does not approve/.test(r)) return { text: 'My owner\'s policy refused the offer. Nothing was signed or paid.', calls: [call('finish', { outcome: 'Refused by my owner\'s policy', report: `Offer ${id}: ${r.slice(0, 400)}` })] };
       const outcome = /"outcome":"(released|refunded)"/i.exec(r)?.[1] ?? 'unknown';
       return { calls: [call('finish', { outcome, report: `Deal ${id} ended ${outcome}.` })] };
     },

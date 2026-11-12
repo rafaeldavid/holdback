@@ -3,13 +3,14 @@
 // record anyone can replay. Test tokens only: SimChain locally, or a testnet world named by its operators.
 //
 //   pnpm duet list [--scenario <name>] [--buyer <vendor>] [--seller <vendor>]     what would run and what it may cost; sends nothing
-//   pnpm duet run --scenario paid|refund|bad-offer --buyer claude|deepseek|scripted --seller claude|deepseek|scripted
+//   pnpm duet run --scenario paid|refund|bad-offer|late-offer --buyer claude|deepseek|scripted --seller claude|deepseek|scripted
 //                 [--buyer-model <id>] [--seller-model <id>] [--max-turns 60] [--max-tokens 3000000]
 //                 [--world <operator URL>,<operator URL>] [--docs <guide URL>,<sell URL>] [--out <dir>] [--grace 90] [--timeout 1800]
 //   pnpm duet replay <run folder>                                                 the summary and the page again, from record.jsonl
 //
-// A live side reads its key from the environment: HOLDBACK_ANTHROPIC_API_KEY for claude, HOLDBACK_OPENAI_COMPATIBLE_API_KEY
-// and HOLDBACK_OPENAI_COMPATIBLE_BASE_URL for deepseek, as the live judges do. Give them with node's --env-file:
+// A live side reads the agents' own key from the environment, never the live judges': HOLDBACK_AGENT_ANTHROPIC_API_KEY for
+// claude, HOLDBACK_AGENT_OPENAI_COMPATIBLE_API_KEY and HOLDBACK_AGENT_OPENAI_COMPATIBLE_BASE_URL (https) for deepseek.
+// Give them with node's --env-file:
 //   node --env-file=<your env file> tools/duet/duet.ts run --buyer deepseek --seller claude --scenario paid
 // Before a live run sends anything it prints the two models, the caps and the most the run can cost at list prices,
 // then waits 10 s (Ctrl-C stops it). A missing key stops it with one line, before anything is sent.
@@ -17,7 +18,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { inputPrice, measure } from './measures.ts';
-import { KEY_ENV, liveProvider, MAX_OUTPUT_TOKENS, pinnedModel, type Provider } from './providers.ts';
+import { JUDGE_KEY_ENV, KEY_ENV, liveProvider, MAX_OUTPUT_TOKENS, pinnedModel, type Provider } from './providers.ts';
 import type { Event } from './record.ts';
 import { replayPage } from './replay.ts';
 import { REPO, runDuet, type Side } from './run.ts';
@@ -39,11 +40,11 @@ if (cmd === 'replay') {
   console.log(`Wrote ${join(dir, 'summary.json')} and ${join(dir, 'replay.html')}.`);
   process.exit(0);
 }
-if (cmd !== 'run' && cmd !== 'list') fail('usage: duet list | run --scenario <paid|refund|bad-offer> --buyer <claude|deepseek|scripted> --seller <…> | replay <run folder>');
+if (cmd !== 'run' && cmd !== 'list') fail('usage: duet list | run --scenario <paid|refund|bad-offer|late-offer> --buyer <claude|deepseek|scripted> --seller <…> | replay <run folder>');
 
 const caps = { turns: Number(flag('max-turns', '60')), tokens: Number(flag('max-tokens', '3000000')) };
 if (!Number.isSafeInteger(caps.turns) || caps.turns < 1 || !Number.isSafeInteger(caps.tokens) || caps.tokens < 1) fail('--max-turns and --max-tokens are whole numbers above 0');
-const scenarios: ScenarioName[] = flag('scenario') ? [flag('scenario') as ScenarioName] : cmd === 'list' ? [...SCENARIOS] : fail('run needs --scenario paid, refund or bad-offer');
+const scenarios: ScenarioName[] = flag('scenario') ? [flag('scenario') as ScenarioName] : cmd === 'list' ? [...SCENARIOS] : fail('run needs --scenario paid, refund, bad-offer or late-offer');
 for (const s of scenarios) if (!SCENARIOS.includes(s)) fail(`${s} is not a scenario: ${SCENARIOS.join(', ')}`);
 const sides = { buyer: vendorOf(flag('buyer', cmd === 'list' ? 'deepseek' : undefined) ?? fail('run needs --buyer claude, deepseek or scripted')), seller: vendorOf(flag('seller', cmd === 'list' ? 'claude' : undefined) ?? fail('run needs --seller claude, deepseek or scripted')) };
 const models = { buyer: sides.buyer === 'scripted' ? null : pinnedModel(sides.buyer, flag('buyer-model')), seller: sides.seller === 'scripted' ? null : pinnedModel(sides.seller, flag('seller-model')) };
@@ -61,7 +62,7 @@ const plan = () => {
     ...lines,
     `  caps   ${caps.turns} turns and ${caps.tokens.toLocaleString('en-US')} tokens per agent, ${MAX_OUTPUT_TOKENS} output tokens per turn`,
     `  cost   at most ${usd(total)} per run at list prices (config/model-prices.json): each agent's token cap at its input price plus every turn's output cap at its output price; cached input costs less, so a run costs less`,
-    `  world  ${flag('world') ? flag('world') : 'the local phase-one world (SimChain, test tokens), started in this process'}`,
+    `  engine ${flag('world') ? `the running world at ${flag('world')}` : 'the local simulator, phase-one rules (SimChain, test tokens), started in this process'}`,
   ].join('\n');
 };
 
@@ -77,7 +78,7 @@ for (const r of ['buyer', 'seller'] as const) {
   if (typeof p === 'string') fail(p);
   live[r] = p as Provider;
 }
-for (const k of Object.values(KEY_ENV)) if (env[k]) secrets.push(env[k]!);
+for (const k of [...Object.values(KEY_ENV), ...JUDGE_KEY_ENV]) if (env[k]) secrets.push(env[k]!); // scrubbed wherever they might appear
 if (live.buyer !== 'scripted' || live.seller !== 'scripted') {
   console.log('Sending starts in 10 s. Ctrl-C stops it.');
   await new Promise((r) => setTimeout(r, 10_000));

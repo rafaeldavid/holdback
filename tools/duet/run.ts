@@ -96,14 +96,14 @@ export async function runDuet(o: RunOptions): Promise<RunResult> {
   secrets.add(sellerKey);
   const rec = new Recorder(join(dir, 'record.jsonl'), secrets);
   const vendorOf = (x: Side) => (x === 'scripted' ? { vendor: 'scripted', model: 'scripted' } : { vendor: x.vendor, model: x.model });
-  rec.add('runner', 'run.start', { scenario: s.name, title: s.title, expect: s.expect, endState: s.endState, buyer: vendorOf(o.buyer), seller: vendorOf(o.seller), caps: o.caps, world: o.world ? 'running' : 'local phase-one world', checkout: checkout(), policy: s.policy, sellerRule: s.sellerRule ?? null, buyerRule: s.buyerRule ?? null });
+  rec.add('runner', 'run.start', { scenario: s.name, title: s.title, expect: s.expect, endState: s.endState, buyer: vendorOf(o.buyer), seller: vendorOf(o.seller), caps: o.caps, world: o.world ? 'running' : 'local phase-one world', checkout: checkout(), policy: s.policy, sellerRule: s.sellerRule ?? null, buyerRule: s.buyerRule ?? null, note: s.note ?? null, engine: o.world ? `the running world at ${o.world.join(', ')} (its chain is named in the next line)` : 'the local simulator, phase-one rules' });
 
   say(`Starting ${o.world ? `against ${o.world.join(', ')}` : 'the local phase-one world'}.`);
-  const world = await startWorld({ repo: REPO, rec, ...(o.world ? { world: o.world } : {}), ...(o.docs ? { docs: o.docs } : {}), sellerPublic: join(real.sellerWork, 'public'), sellerName: SELLER_NAME, report: s.report, onSecret: (v) => secrets.add(v) });
+  const world = await startWorld({ rec, ...(o.world ? { world: o.world } : {}), ...(o.docs ? { docs: o.docs } : {}), sellerPublic: join(real.sellerWork, 'public'), sellerName: SELLER_NAME, report: s.report, onSecret: (v) => secrets.add(v) });
   const adapterPort = await freePort();
   const sellerPage = `${world.web}/sellers/${SELLER_NAME}/`;
   const adapter = `http://127.0.0.1:${adapterPort}`;
-  rec.add('runner', 'world', { local: world.local, chainId: world.chainId, token: world.token, operators: world.operators, docs: world.docs, sellerPage, jobApi: world.jobApi.api, adapter });
+  rec.add('runner', 'world', { engine: world.engine, docsChanges: world.docsChanges, local: world.local, chainId: world.chainId, token: world.token, operators: world.operators, docs: world.docs, sellerPage, jobApi: world.jobApi.api, adapter });
 
   const ops: Allow[] = world.operators.map((u) => ({ origin: originOf(u) }));
   const problems: Allow = { origin: 'https://crow.direct', paths: ['/problems/'] };

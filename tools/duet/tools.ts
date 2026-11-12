@@ -31,6 +31,12 @@ export interface Policy {
   budget: string;
   /** Check IDs every offer must carry as required checks. */
   requiredChecks: string[];
+  /** The latest delivery the owner accepts, as seconds from now: `deliverBy` may be no later. */
+  latestDeliverySec: number;
+  /** How long after that delivery date the judging may run: every other deadline must fall before both together. */
+  decisionSlackSec: number;
+  /** How far an offer's `createdAt` may lie from settlement time, either way. A postdated offer would move every window. */
+  createdAtBandSec: number;
 }
 
 export interface ToolboxOptions {
@@ -222,13 +228,13 @@ export class Toolbox {
     if (args.length > 12 || args.some((a) => a.length > 20_000)) throw new Refused('at most 12 arguments of at most 20,000 characters each');
     if (args.some((a) => a.includes('\0'))) throw new Refused('an argument with a NUL character is refused');
     if (command === 'adapter-log') return this.adapterLog();
-    const checked = this.check(command, args);
+    const checked = await this.check(command, args);
     if (command === 'seller-adapter') return this.startAdapter(checked);
     return this.exec(command, checked, command === 'buy-with-signer' && ['approve', 'resume'].includes(args[0] ?? '') ? 'long' : 'short');
   }
 
   /** The arguments as the command will get them, each one checked; or a refusal naming the one at fault. */
-  private check(command: string, args: string[]): string[] {
+  private async check(command: string, args: string[]): Promise<string[]> {
     const file = (a: string | undefined, what: string, mustExist = true) => {
       if (!a) throw new Refused(`${command} needs ${what}`);
       this.inside(a, { mustExist });
@@ -255,7 +261,7 @@ export class Toolbox {
         store(rest[1]);
         if (!ID.test(rest[2]!)) throw new Refused('the commitment ID is 0x and 64 hex digits');
         if (!DEC.test(rest[3]!)) throw new Refused('the most you pay is base units as a decimal string');
-        this.approval(rest[2]!.toLowerCase(), rest[3]!);
+        await this.approval(rest[2]!.toLowerCase(), rest[3]!);
         return args;
       }
       if (first === 'resume') {
@@ -307,8 +313,22 @@ export class Toolbox {
     throw new Refused(`${command} takes no arguments here`);
   }
 
-  /** The owner's pre-set answer to the approval stop, read from the offer the stop showed with this key store. */
-  private approval(id: string, max: string): void {
+  /** Settlement time as the first operator serves it, in Unix seconds; the local clock if it does not answer. */
+  private async settlementNow(): Promise<number> {
+    try {
+      const d = await (await fetch(`${this.o.operators[0]}/.well-known/holdback.json`, { signal: AbortSignal.timeout(10_000) })).json() as J;
+      const t = Date.parse(String(d?.settlementTime ?? ''));
+      if (Number.isFinite(t)) return Math.floor(t / 1000);
+    } catch { /* fall back to the local clock */ }
+    return Math.floor(Date.now() / 1000);
+  }
+
+  /**
+   * The owner's pre-set answer to the approval stop, read from the offer the stop showed with this key store: the
+   * budget, the required checks, a delivery no later than the owner accepts, every other deadline within the judging
+   * slack after it, and a createdAt inside the band around settlement time.
+   */
+  private async approval(id: string, max: string): Promise<void> {
     const policy = this.o.policy;
     if (!policy) throw new Refused('your owner has set no approval policy: nothing is approved');
     const shown = this.shownOffer(id);
@@ -320,6 +340,18 @@ export class Toolbox {
       if (BigInt(max) > BigInt(policy.budget)) why.push(`the most you pay, ${max}, is above the owner's budget of ${policy.budget}`);
       const checks: J[] = Array.isArray(shown.checks) ? shown.checks : [];
       for (const c of policy.requiredChecks) if (!checks.some((k) => k?.id === c && k?.required === true)) why.push(`the offer has no required check "${c}", which the owner requires`);
+      const now = await this.settlementNow();
+      const iso = (t: number) => new Date(t * 1000).toISOString().replace('.000Z', 'Z');
+      const at = (v: unknown) => (typeof v === 'string' ? Date.parse(v) / 1000 : NaN);
+      const created = at(shown.createdAt);
+      if (!Number.isFinite(created) || Math.abs(created - now) > policy.createdAtBandSec) why.push(`the offer says it was made at ${String(shown.createdAt)}, outside ${policy.createdAtBandSec} s of settlement time ${iso(now)}`);
+      const deliverBy = at(shown.deadlines?.deliverBy);
+      const latest = now + policy.latestDeliverySec;
+      if (!Number.isFinite(deliverBy) || deliverBy > latest) why.push(`delivery is due by ${String(shown.deadlines?.deliverBy)}, after the latest the owner accepts, ${iso(latest)}`);
+      for (const [k, v] of Object.entries(shown.deadlines ?? {})) {
+        const t = at(v);
+        if (typeof v === 'string' && Number.isFinite(t) && t > latest + policy.decisionSlackSec) why.push(`${k} is ${v}, after ${iso(latest + policy.decisionSlackSec)}, the owner's latest delivery plus its judging slack`);
+      }
     }
     this.o.rec.add('buyer', 'approval', { commitmentId: id, granted: why.length === 0, by: 'owner policy (pre-set)', reasons: why, policy });
     if (why.length) throw new Refused(`your owner's pre-set policy does not approve this offer: ${why.join('; ')}. Nothing was signed or paid.`);

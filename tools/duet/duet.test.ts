@@ -16,7 +16,7 @@ const tmp = (name: string) => realpathSync(mkdtempSync(join(tmpdir(), `duet-${na
 const lines = (file: string) => readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
 
 describe('three scenarios, scripted, on the local phase-one world', () => {
-  for (const [name, state] of [['paid', 'Released'], ['refund', 'Refunded'], ['bad-offer', 'no hold']] as const) {
+  for (const [name, state] of [['paid', 'Released'], ['refund', 'Refunded'], ['bad-offer', 'no hold'], ['late-offer', 'no hold']] as const) {
     it(`${name} ends ${state}, with a record, a summary of the seven measures and a replay page`, async () => {
       const fakeModelKey = 'sk-ant-test-0123456789abcdefghijklmnop';
       const r = await runDuet({ scenario: name, buyer: 'scripted', seller: 'scripted', out: join(tmp(name), 'run'), caps: { turns: 400, tokens: 50_000_000 }, graceSec: 30, timeoutSec: 180, secrets: [fakeModelKey] });
@@ -25,7 +25,8 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       expect(s.decisionRight).toBe(true);
       expect(s.humanInterventions).toBe(0);
       expect(s.stalls).toEqual([]);
-      expect(s.forbiddenTerms).toMatchObject({ funded: false, askedToApprove: false });
+      expect(s.forbiddenTerms).toMatchObject({ funded: false, askedToApprove: name === 'late-offer' });
+      expect(s.engine).toBe('the local simulator, phase-one rules (SimChain, chain 31337)');
       expect(r.ends.map((e) => e.status)).toEqual(['finished', 'finished']);
       if (name === 'paid') {
         expect(s.outcome).toMatchObject({ keyToBuyer: true, buyerOpened: true });
@@ -34,6 +35,11 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       }
       if (name === 'refund') expect(s.outcome).toMatchObject({ funded: true, keyToBuyer: false, buyerOpened: false });
       if (name === 'bad-offer') expect(s.ownerApprovals).toEqual([]);
+      if (name === 'late-offer') {
+        expect(s.ownerApprovals).toHaveLength(1);
+        expect(s.ownerApprovals[0]!.granted).toBe(false);
+        expect(s.ownerApprovals[0]!.reasons.join(' ')).toMatch(/delivery is due by .* after the latest the owner accepts/);
+      }
 
       // The record: model turns with vendor, model and tokens; tool calls with sizes; API calls with status; chain events.
       const events = lines(r.record);
@@ -46,6 +52,10 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       // The page: one file, from the record, with no script loaded from anywhere and no key in it.
       const page = readFileSync(r.page, 'utf8');
       expect(page).toContain('Two agents, one deal');
+      expect(page).toContain('This run used the local simulator, phase-one rules');
+      if (name === 'refund') expect(page).toContain('would have held this report back');
+      // The docs served are the published ones with only the operators changed, and the record says so.
+      expect(events.find((e) => e.kind === 'world').docsChanges[0]).toMatch(/^llms\.txt: OP1 and OP2 name this world's operators/);
       expect(page).toContain("Both sides are scripted");
       expect(page).not.toMatch(/<script[^>]+src=/i);
       for (const text of [readFileSync(r.record, 'utf8'), page, readFileSync(join(r.dir, 'summary.json'), 'utf8')]) expect(r.leaks(text)).toBe(false);
@@ -66,7 +76,7 @@ function box(o: Partial<ToolboxOptions> = {}) {
   mkdirSync(join(owner, 'keys'), { recursive: true });
   const secrets = new Secrets();
   const rec = new Recorder(join(dir, 'record.jsonl'), secrets);
-  const tools = new Toolbox({ role: 'seller', work, owner, repo: REPO, operators: ['http://127.0.0.1:1'], allow: [{ origin: 'http://127.0.0.1:2', paths: ['/allowed', '/sellers/'] }], secrets, rec, adapterPort: 4567, jobApi: 'http://127.0.0.1:3', sellerKey: `0x${'ab'.repeat(32)}`, keyStore: join(owner, 'keys'), policy: { budget: '100', requiredChecks: ['coverage'] }, ...o });
+  const tools = new Toolbox({ role: 'seller', work, owner, repo: REPO, operators: ['http://127.0.0.1:1'], allow: [{ origin: 'http://127.0.0.1:2', paths: ['/allowed', '/sellers/'] }], secrets, rec, adapterPort: 4567, jobApi: 'http://127.0.0.1:3', sellerKey: `0x${'ab'.repeat(32)}`, keyStore: join(owner, 'keys'), policy: { budget: '100', requiredChecks: ['coverage'], latestDeliverySec: 3600, decisionSlackSec: 600, createdAtBandSec: 300 }, ...o });
   return { tools, work, owner, rec, secrets };
 }
 
@@ -118,10 +128,27 @@ describe("the agents' tools hold their limits", () => {
   it("answers the approval stop with the owner's policy: an offer without a required check is refused and recorded", async () => {
     const { tools, owner, rec } = box({ role: 'buyer' });
     const id = `0x${'22'.repeat(32)}`;
-    writeFileSync(join(owner, 'keys', `0x${'33'.repeat(20)}.json`), JSON.stringify({ address: `0x${'33'.repeat(20)}`, shown: { commitmentId: id, offer: { fees: { total: { amount: '90' } }, checks: [{ id: 'scope', required: true }] } } }));
-    const r = await tools.call('run_command', { command: 'buy-with-signer', args: ['approve', join(owner, 'keys'), id, '100'] });
-    expect(r.content).toMatch(/pre-set policy does not approve this offer: the offer has no required check "coverage"/);
-    expect(rec.events.find((e) => e.kind === 'approval')).toMatchObject({ granted: false, commitmentId: id });
+    const now = Math.floor(Date.now() / 1000);
+    const iso = (t: number) => new Date(t * 1000).toISOString().replace('.000Z', 'Z');
+    const write = (offer: Record<string, unknown>) => writeFileSync(join(owner, 'keys', `0x${'33'.repeat(20)}.json`), JSON.stringify({ address: `0x${'33'.repeat(20)}`, shown: { commitmentId: id, offer } }));
+    const fine = { fees: { total: { amount: '90' } }, checks: [{ id: 'coverage', required: true }], createdAt: iso(now), deadlines: { offerExpiresAt: iso(now + 60), fundBy: iso(now + 120), deliverBy: iso(now + 1800), judgeBy: iso(now + 2400), maxSubmissions: 1 } };
+    const cases: Array<[Record<string, unknown>, RegExp]> = [
+      [{ ...fine, checks: [{ id: 'scope', required: true }] }, /the offer has no required check "coverage"/],
+      [{ ...fine, checks: [{ id: 'coverage', required: false }] }, /no required check "coverage"/],
+      [{ ...fine, fees: { total: { amount: '101' } } }, /above the owner's budget of 100/],
+      [{ ...fine, createdAt: iso(now + 86_400 * 365 * 3) }, /outside 300 s of settlement time/],
+      [{ ...fine, createdAt: iso(now - 3600) }, /outside 300 s of settlement time/],
+      [{ ...fine, deadlines: { ...fine.deadlines, deliverBy: iso(now + 7200) } }, /delivery is due by .* after the latest the owner accepts/],
+      [{ ...fine, deadlines: { ...fine.deadlines, judgeBy: iso(now + 86_400) } }, /judgeBy is .* the owner's latest delivery plus its judging slack/],
+    ];
+    for (const [offer, why] of cases) {
+      write(offer);
+      const r = await tools.call('run_command', { command: 'buy-with-signer', args: ['approve', join(owner, 'keys'), id, '100'] });
+      expect(r.content).toMatch(/pre-set policy does not approve this offer/);
+      expect(r.content).toMatch(why);
+    }
+    expect(rec.events.filter((e) => e.kind === 'approval').every((e) => e.granted === false && e.commitmentId === id)).toBe(true);
+    expect(rec.events.filter((e) => e.kind === 'approval')).toHaveLength(cases.length);
   });
 
   it("refuses an adapter configuration that names another URL, a credential, a callback, or another port", async () => {
@@ -146,6 +173,7 @@ describe("the agents' tools hold their limits", () => {
 
   it("builds the commands' environment from nothing: no model key, only the seller's own key for the seller", () => {
     process.env['HOLDBACK_ANTHROPIC_API_KEY'] = 'sk-ant-should-not-pass';
+    process.env['HOLDBACK_AGENT_ANTHROPIC_API_KEY'] = 'sk-ant-agent-should-not-pass';
     try {
       const seller = box().tools.env();
       const buyer = box({ role: 'buyer' }).tools.env();
@@ -157,6 +185,7 @@ describe("the agents' tools hold their limits", () => {
       expect(buyer['HOLDBACK_KEY']).toBeUndefined();
     } finally {
       delete process.env['HOLDBACK_ANTHROPIC_API_KEY'];
+      delete process.env['HOLDBACK_AGENT_ANTHROPIC_API_KEY'];
     }
   });
 
@@ -213,8 +242,11 @@ describe('the loop and the providers', () => {
   });
 
   it('names a missing key in one line, before anything is sent', () => {
-    expect(liveProvider('anthropic', 'claude-opus-5-5@2026-09-21', {})).toBe('anthropic needs HOLDBACK_ANTHROPIC_API_KEY in the environment: nothing was sent');
-    expect(liveProvider('deepseek', 'deepseek-v4-pro@2026-11-01', { HOLDBACK_OPENAI_COMPATIBLE_API_KEY: 'x' })).toMatch(/needs an https HOLDBACK_OPENAI_COMPATIBLE_BASE_URL/);
+    expect(liveProvider('anthropic', 'claude-opus-5-5@2026-09-21', {})).toBe('anthropic needs HOLDBACK_AGENT_ANTHROPIC_API_KEY in the environment: nothing was sent');
+    expect(liveProvider('deepseek', 'deepseek-v4-pro@2026-11-01', { HOLDBACK_AGENT_OPENAI_COMPATIBLE_API_KEY: 'x', HOLDBACK_AGENT_OPENAI_COMPATIBLE_BASE_URL: 'http://api.deepseek.com' })).toMatch(/needs an https HOLDBACK_AGENT_OPENAI_COMPATIBLE_BASE_URL/);
+    // The judges' keys are never a fallback: with only those set, a live side still refuses to start.
+    expect(liveProvider('anthropic', 'claude-opus-5-5@2026-09-21', { HOLDBACK_ANTHROPIC_API_KEY: 'judge-key' })).toMatch(/needs HOLDBACK_AGENT_ANTHROPIC_API_KEY/);
+    expect(liveProvider('deepseek', 'deepseek-v4-pro@2026-11-01', { HOLDBACK_OPENAI_COMPATIBLE_API_KEY: 'judge-key', HOLDBACK_OPENAI_COMPATIBLE_BASE_URL: 'https://api.deepseek.com' })).toMatch(/needs HOLDBACK_AGENT_OPENAI_COMPATIBLE_API_KEY/);
   });
 });
 
@@ -233,7 +265,7 @@ describe('the command line', () => {
     const started = Date.now();
     const r = spawnSync(process.execPath, ['tools/duet/duet.ts', 'run', '--scenario', 'paid', '--buyer', 'deepseek', '--seller', 'claude'], { cwd: REPO, env, encoding: 'utf8' });
     expect(r.status).toBe(2);
-    expect(r.stderr.trim().split('\n')).toEqual(['duet: deepseek needs HOLDBACK_OPENAI_COMPATIBLE_API_KEY in the environment: nothing was sent']);
+    expect(r.stderr.trim().split('\n')).toEqual(['duet: deepseek needs HOLDBACK_AGENT_OPENAI_COMPATIBLE_API_KEY in the environment: nothing was sent']);
     expect(Date.now() - started).toBeLessThan(9_000);
   });
 });

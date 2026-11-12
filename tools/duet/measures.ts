@@ -12,6 +12,8 @@ type Side = 'buyer' | 'seller';
 
 export interface Summary {
   scenario: string;
+  /** The engine the run used, in plain words: the local simulator or the chain by name and ID. */
+  engine: string;
   title: string;
   expect: string;
   models: Record<Side, { vendor: string; model: string }>;
@@ -111,6 +113,7 @@ export function measure(events: readonly Event[]): Summary {
   const ends = of('agent.end');
   return {
     scenario: start?.scenario ?? 'unknown',
+    engine: String((events.find((e) => e.kind === 'world') as J)?.engine ?? start?.engine ?? 'unknown'),
     title: start?.title ?? '',
     expect: start?.expect ?? '',
     models: { buyer: start?.buyer ?? { vendor: '?', model: '?' }, seller: start?.seller ?? { vendor: '?', model: '?' } },

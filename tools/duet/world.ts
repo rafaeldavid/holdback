@@ -7,7 +7,7 @@
 import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { extname, join, resolve, sep } from 'node:path';
+import { extname, resolve, sep } from 'node:path';
 import { startStubSellerApi, type StubSellerApi } from '../../examples/seller-adapter-stub.ts';
 import type { Recorder } from './record.ts';
 
@@ -18,6 +18,10 @@ export interface World {
   operators: string[];
   /** The docs both agents are pointed to. */
   docs: { guide: string; sell: string };
+  /** What the runner changed in the docs it serves, in plain words: empty for a running world's own docs. */
+  docsChanges: string[];
+  /** The engine, as a person should read it: the local simulator, or the chain by name and ID. */
+  engine: string;
   /** The web's base URL; the seller's page is `${web}/sellers/<name>/`. */
   web: string;
   jobApi: StubSellerApi;
@@ -61,20 +65,26 @@ async function web(o: { docs?: { guide: string; sell: string }; sellers: Record<
   return { url: await listen(server), server };
 }
 
-/** llms.txt as the site publishes it, for this world: its operators in place of OP1 and OP2, editor notes left out. */
-export function localGuide(operators: string[], repo: string): { guide: string; sell: string } {
-  const strip = (t: string) => t.split('\n').filter((l) => !l.startsWith('%% ')).join('\n');
-  const guide = strip(readFileSync(join(repo, 'site/llms.txt'), 'utf8'))
-    .replaceAll('{{OP1}}', operators[0]!)
-    .replaceAll('{{OP2}}', operators[1] ?? operators[0]!)
-    .replaceAll('{{TRY_COMMAND}}', '# The one-command test deal runs on the public test service only, not on this local world.');
-  return { guide, sell: strip(readFileSync(join(repo, 'site/sell.txt'), 'utf8')) };
+/**
+ * The agent docs exactly as the site publishes them (site/build.mjs: editor notes left out, the one-command try filled
+ * in), with one change: this world's operators in place of the public ones. Every stall is then a finding about the
+ * real docs. The change is listed in the record's header.
+ */
+export async function localGuide(operators: string[]): Promise<{ guide: string; sell: string; changes: string[] }> {
+  const build: string = '../../site/build.mjs'; // plain JavaScript with no declarations: its three functions are typed here
+  const site = (await import(build)) as { strip(md: string): string; tryCommand(): string; sellerPage(txt: string): string };
+  const guide = site.strip(readFileSync(new URL('../../site/llms.txt', import.meta.url), 'utf8')).replace('{{OP1}}', operators[0]!).replace('{{OP2}}', operators[1] ?? operators[0]!).replace('{{TRY_COMMAND}}', () => site.tryCommand());
+  if (/\{\{[A-Z0-9_]+\}\}/.test(guide)) throw new Error('site/llms.txt has a placeholder the published build does not fill');
+  const sell = site.sellerPage(readFileSync(new URL('../../site/sell.txt', import.meta.url), 'utf8'));
+  return { guide, sell, changes: [`llms.txt: OP1 and OP2 name this world's operators (${operators.slice(0, 2).join(', ')}) in place of the public test service's; nothing else differs from the published file`, 'sell.txt: as published, unchanged'] };
 }
+
+/** The engine in plain words. A simulator run must never read as a testnet run. */
+export const engineOf = (local: boolean, chainId: number): string => (local ? `the local simulator, phase-one rules (SimChain, chain ${chainId})` : chainId === 11155111 ? 'Ethereum Sepolia, a public test network (chain 11155111)' : `the chain with ID ${chainId}, a test network`);
 
 export const PUBLIC_DOCS = { guide: 'https://crow.direct/llms.txt', sell: 'https://crow.direct/sell.txt' } as const;
 
 export interface WorldOptions {
-  repo: string;
   rec: Recorder;
   /** Operators of a running world; left out, a local phase-one world starts here. */
   world?: string[];
@@ -106,14 +116,16 @@ export async function startWorld(o: WorldOptions): Promise<World> {
   const chainId = Number(discovery?.domain?.chainId ?? discovery?.eip712Domain?.chainId ?? 0);
   if (chainId === 1) throw new Error('the world names Ethereum mainnet (chain 1): duet runs on SimChain, a local chain or a testnet only');
   const token = String(discovery?.demo?.token?.id ?? 'tUSD');
-  const docs = local ? localGuide(operators, o.repo) : undefined;
-  const w = await web({ ...(docs ? { docs } : {}), sellers: { [o.sellerName]: o.sellerPublic } });
+  const docs = local ? await localGuide(operators) : undefined;
+  const w = await web({ ...(docs ? { docs: { guide: docs.guide, sell: docs.sell } } : {}), sellers: { [o.sellerName]: o.sellerPublic } });
   closers.push(() => closeServer(w.server));
   const jobApi = await startStubSellerApi({ port: 0, report: o.report, token, pollsUntilComplete: 1 });
   closers.push(() => jobApi.close());
   return {
     operators,
     docs: local ? { guide: `${w.url}/llms.txt`, sell: `${w.url}/sell.txt` } : (o.docs ?? PUBLIC_DOCS),
+    docsChanges: docs?.changes ?? [],
+    engine: engineOf(local, chainId),
     web: w.url,
     jobApi,
     chainId,

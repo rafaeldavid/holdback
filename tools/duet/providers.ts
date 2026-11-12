@@ -1,7 +1,8 @@
 // The model providers a duet agent talks to (T-391): Anthropic's Messages API and an OpenAI-compatible chat
-// completions API (DeepSeek), each with tool calls, plus a scripted provider for the tests. Keys come from the
-// environment variables the judges' clients read (apps/adjudicator/src/providers/live.ts) and go only into the
-// request's own header: never into a prompt, a tool result, an error or the record. Model IDs are the pinned ones in
+// completions API (DeepSeek), each with tool calls, plus a scripted provider for the tests. The agents' keys are their
+// own, apart from the live judges': HOLDBACK_AGENT_*, with no fallback to the judges' variables, so a run never spends
+// from or exposes the keys the adjudicators use. A key goes only into the request's own header: never into a prompt,
+// a tool result, an error or the record, and nothing of it (no prefix, no length) is ever named. Model IDs are the pinned ones in
 // config/judges-live.yaml; a trailing "@<date>" is dropped before the call, as the judges' clients do.
 import { readFileSync } from 'node:fs';
 
@@ -49,8 +50,10 @@ export interface Provider {
   turn(system: string, history: readonly Turn[], tools: readonly ToolSpec[]): Promise<Answer>;
 }
 
-export const KEY_ENV = { anthropic: 'HOLDBACK_ANTHROPIC_API_KEY', deepseek: 'HOLDBACK_OPENAI_COMPATIBLE_API_KEY' } as const;
-export const BASE_URL_ENV = 'HOLDBACK_OPENAI_COMPATIBLE_BASE_URL';
+export const KEY_ENV = { anthropic: 'HOLDBACK_AGENT_ANTHROPIC_API_KEY', deepseek: 'HOLDBACK_AGENT_OPENAI_COMPATIBLE_API_KEY' } as const;
+export const BASE_URL_ENV = 'HOLDBACK_AGENT_OPENAI_COMPATIBLE_BASE_URL';
+/** The live judges' variables: never read for a run, only scrubbed wherever they might appear. */
+export const JUDGE_KEY_ENV = ['HOLDBACK_ANTHROPIC_API_KEY', 'HOLDBACK_OPENAI_COMPATIBLE_API_KEY'] as const;
 /** Output tokens a turn may use, thinking included. */
 export const MAX_OUTPUT_TOKENS = 8192;
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
@@ -118,7 +121,9 @@ async function post(url: string, headers: Record<string, string>, body: unknown,
     const json: J = await res.json().catch(() => undefined);
     if (!res.ok) {
       const e = json?.error;
-      const detail = [e?.type, typeof e?.message === 'string' ? e.message.slice(0, 300) : undefined].filter(Boolean).join(': ');
+      // A vendor's message may quote part of a key ("invalid key sk-…"): any key-shaped token is dropped.
+      const message = typeof e?.message === 'string' ? e.message.slice(0, 300).replace(/\b(sk|ds|key)[-_][A-Za-z0-9_-]{2,}/gi, '[key]').replace(/[A-Za-z0-9_-]{24,}/g, '[redacted]') : undefined;
+      const detail = [e?.type, message].filter(Boolean).join(': ');
       throw new VendorError(res.status, detail);
     }
     return json;
