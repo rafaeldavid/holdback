@@ -5,7 +5,7 @@
 - **Depends on:** T-380 (package R8, last pull request 426, lane tip `73bbafa`), T-375 (package R7: the values R9 names), T-341 and T-356 (the side-by-side harness)
 - **Paths this task may touch:** `contracts/src/*`, the new `contracts/src/IHoldbackRules.sol` included; `contracts/test/*` for the renames and for what the layout requires; `packages/settlement/evm/abis.json` when the build regenerates it; this task file. Lines in `contracts/script/` (T-383) or `contracts/scripts/mutants.json` (T-352) go to their owners through the coordinator
 - **Human gate:** no for the branch. The freeze, the merge to `main` and the redeploy are Rafa's
-- **Status:** review (pull request 1 merged as `c629d06`; pull request 2 open)
+- **Status:** done (holdback PR 433 merged as `c629d06`, PR 441 as `d3cd460`)
 - **Agent/session:** implementer session, change kind 7 (smart contracts); one reviewer subagent per pull request
 
 ## Intent
@@ -30,8 +30,8 @@ Non-goals: no behaviour change; no change to a signed type, the signing domain o
 - [x] Pull request 1: `H.isValidOutcome(role, outcome)` replaces the numeric-order bound in `decide`, and a test over every role and outcome byte shows it accepts exactly what the old rule accepted.
 - [x] Pull request 1: `ONLY_ATTEMPT` names the one delivery attempt; the three "Appeal…" test files are "Escalation…"; `AppealKey.t.sol`'s header loses the rule no path reaches.
 - [x] Pull request 1: the test edits the layout needs are mechanical (the qualifier and one import line) and counted; the runtime code is identical to the parent's except for the outcome check, shown by one build without it; the full kind 7 recipe passes, the side-by-side harness with an empty allow list.
-- [ ] Pull request 2: every external and public function, event and error, every struct, enum and stored field of the phase-one source is described; the runtime code is identical before and after, with both hashes recorded, and the ABI unchanged.
-- [ ] Each pull request has one reviewer who checks the descriptions against the code and against phase one; every inaccuracy found is fixed.
+- [x] Pull request 2: every external and public function, event and error, every struct, enum and stored field of the phase-one source is described; the runtime code is identical before and after, with both hashes recorded, and the ABI unchanged.
+- [x] Each pull request has one reviewer who checks the descriptions against the code and against phase one; every inaccuracy found is fixed.
 
 ## Out of scope
 
@@ -71,6 +71,10 @@ Fill this in before review. Label each item measured, inferred or guessed.
 - **Suites**: none run locally. The runtime code is identical, so no test can change (Rafa, 2026-11-12). CI runs on the pull request.
 - **Review**: one reviewer subagent checked every description against the code, CPP and Solady: 6 false statements, 3 gaps and 4 style points in the first draft, all fixed in the second commit. The worst: the deadlines map ordered the escalation's deadline after `fallbackBy`, and said nothing of the escrow's expiry, where captures stop and voids go on. It found the revert and event lists of `deliver`, `decide`, `reclaim`, `triggerFallback` and `triggerDefault` accurate. It also found accurate the writes of `t1`, `attempt`, `reason` and `decider`, the money flows, and the enforced and signed-only fields of `HoldbackTypes`.
 
+### Pull request 2: merged
+
+- Holdback PR 441 merged into `contracts-audit-ready` as `d3cd460` on 2026-11-12, after all 12 CI checks passed on its head `256639f`. The merged `contracts/src`, `contracts/test` and `abis.json` equal the branch's, so the hashes above hold for `d3cd460` [measured: `git diff 256639f d3cd460`].
+
 ## Decisions
 
 - **Layout (a), the full interface** (the coordinator, 2026-11-12, inside Rafa's condition of the same day: identical runtime code, no forced edits in other sessions' files). Measured on a scratch branch at `100cde3`: moving every declaration into `IHoldbackRules.sol` leaves the runtime code of every contract identical (HoldbackRules 20,422 bytes, sha256 without the metadata tail `fef84eaa…5db295`, before and after). The ABI keeps every entry, selector, topic and encoding; three entries change only their `internalType` string (`dealOf`, event `Defaulted`, error `WrongStage` now name `IHoldbackRules.Stage` and `IHoldbackRules.Deal`), and nothing in the repository reads that string. Solidity does not resolve an inherited type, error or event through the derived contract's name, so the tests that wrote `HoldbackRules.X` now write `IHoldbackRules.X`. The narrower layouts were not taken: an interface without `dealOf`, the events and the errors would leave out most of what an auditor reads.
@@ -79,7 +83,10 @@ Fill this in before review. Label each item measured, inferred or guessed.
 
 ## Handoff
 
-- **Pull request 1** merged as `c629d06`. **Pull request 2** (the descriptions) is open; when it merges, Status becomes done.
+- **Done.** Pull request 1 merged as `c629d06`, pull request 2 as `d3cd460`. Layout (a): `IHoldbackRules.sol` holds the declarations and the descriptions, and `HoldbackRules.sol` points to it with `@inheritdoc`. `HoldbackRules` runtime: 20,449 bytes, `545f80b5…0c47`.
+- **Open for R11 (T-388), from its reviews so far** (the coordinator, 2026-11-12): the second model family's read of its first 19 questions found no description wrong. The escrow-expiry sentences are in its question 24, not yet asked; Rafa runs it on `d3cd460`. A false sentence it finds gets a comment-only follow-up, proved by the runtime hashes.
+- **R11 review 1's one omission, fixed here** (Info): `earlyAccept`'s refusals now name the escrow's `ZeroAuthorization` (a price of 0, a fee above 0, after the payment address's reclaim: the void of the fee reverts). The other paths that capture or void need no such line [measured by reading `HoldbackRules.sol`]: `decide` runs only before its deadlines, so before the expiry and any reclaim, and captures nothing at zero; `mutualSettle` already names it; `_refundAll` voids nothing when the hold is empty. The runtime code stays `545f80b5…0c47` and `3a8c11c6…e38c96`, and the ABI is identical [measured].
+- **For T-385 (`docs/audit/scope.md`)**, from the same reviews: the scope should say that the funding's safety against a front-run rests on the token keeping ERC-3009's payee rule (`receiveWithAuthorization` pays only the caller, the collector). That is the docs' line; the contracts' descriptions do not claim it.
 - **For R11 (T-388, the two full reviews)**: the descriptions in `IHoldbackRules.sol` are the auditor's first read; check them against the code like the code itself. Three points to read: (1) the outcome check `H.isValidOutcome` (`HoldbackTypes.sol`), equivalent to the old bound by `ValidOutcome.t.sol`; (2) the sentences on the escrow's expiry (captures stop at `authorizationExpiry`, voids do not, the payer may reclaim), which rest on CPP's `AuthCaptureEscrow.sol` lines 179, 277-278, 304-308 and 323-332 at `6b0a5ef`; (3) the three places where the code looks wrong, below.
 - **Code that looked wrong (reported, not changed):**
   1. The appeal adjudicator's decision on an escalated case may carry any `appealGroundHash`. `_firstInstance` requires `keccak256("")`; `_escalationDecision` checks nothing. ADR-0031 §8, point 3, says the ground can be required empty for every role. It is signed and never emitted.
