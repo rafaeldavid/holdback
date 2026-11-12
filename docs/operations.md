@@ -136,6 +136,16 @@ Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wra
 
 After the deploy, a smoke deal ended Released in 44 s, and the test seller sold once each way (T-222 Evidence) [measured]. To roll back: holdback-op1 `5d369b0e`, holdback-op2 `1f169857` and crow-site `cb0adcb5` (`npx wrangler@4 rollback <version> --name <worker>`); `npx wrangler@4 delete --name crow-test-agents` removes the seller.
 
+### T-377: a deal is judged under the policy it bound (operators and site deployed 2026-11-12, 09:44 UTC)
+
+The coordinating session ran both deploys on Rafa's word ("Yes, deploy both"), from `899a670`. The operators carry T-377 (PRs 395 and 397, ADR-0036): a build keeps the earlier screen beside the new one and judges a deal under the policy it bound, and the state read names an adjudicator that cannot judge. The site upload carried `sell.txt` and `version.json`; the live `version.json` names `899a670` and the live `sell.txt` equals main's [measured by the coordinating session]. The record lines, as that session captured them:
+
+**Deploy 2026-11-12 09:44 UTC, commit `899a670` on branch `main`: pass.** holdback-op1 `e54f7b7f-000a-4ada-9202-fc58cc404c8c` (rollback target `226e7887-b48e-49db-8595-5daf1cf45141`), holdback-op2 `4acf9fcc-7b6a-4e62-aaa6-f0eb4bb8ffc7` (rollback target `2bc6bd1a-a304-4e50-90f8-826074dd3207`).
+
+**Site deploy 2026-11-12 09:44 UTC, commit `899a670` on branch `main`: pass.** crow-site `0bf253cd-b694-4bf2-890d-1e8d78cf48de` (rollback target `3564b317-b922-435f-9e7f-9c1b09ddec55`).
+
+PR 419 (no "arbitration" on the site; "Frontier AI Verification" and "Private Delivery" on the home page) merged after these deploys, as `039a7c4`, and is not live until the next site deploy.
+
 ### T-372 and PR 393: the hung store read, and a deploy that waits for its commit (operators deployed 2026-11-12)
 
 The coordinating session ran this deploy on Rafa's word. It carries T-372 (PR 389) and PR 393, which makes the deploy script wait until both nodes' discovery names the deployed commit before the smoke deal. The record line below is as the coordinating session captured it: its output filter cut each line at 300 characters, so the line's tail is missing and is not reconstructed here.
