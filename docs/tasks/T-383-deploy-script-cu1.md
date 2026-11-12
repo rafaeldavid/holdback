@@ -142,6 +142,7 @@ All measured on this Mac on 2026-11-12 unless marked. The harness, `reports/scra
 | after | the earlier record and world | | | run 2: the dated copy equals run 1's record byte for byte; a `LiveChain` on the earlier record still passes its start-up check (the rollback's world) |
 
 - **Whole runs:** 58 s and 43 s.
+- **Rerun at the operators' fee of 0.** At `1db0003` (T-384's interface file, T-385, T-386's round margin, T-389's fees at 0), merged into this branch as `220601d`, the world opened with `wrangler.op1.jsonc`'s fee settings. Both runs passed every step up to the round, with times within a second of the first runs. The smoke deal's buyer paid 26 tUSDC (`buyer 974 tUSDC, seller 1025 tUSDC`). Scenario 12 failed 2 of 31 checks in both runs: "the operator fee is paid once" expects one fee transfer, and at a fee of 0 there is none (`examples/e2e-scenario-kit.ts`, `settledChecks`, outside this task's paths; sent to the coordinator).
 - **Rerun on the lane's new tip.** At `690edfd` (main merged into the lane, PR 432, with the operators' deal guard), merged into this branch as `0d38499`, both runs passed again from a fresh start: every step as above, 48 s and 42 s. A third run on `e4e930c`, after the review's fixes, also passed.
 - **No hand edit** between the runs: run 2 started from run 1's files as left.
 - **The five creations used 8,674,078 gas** on anvil.
@@ -202,9 +203,9 @@ cd $W
     - `<n>` must equal the deals recorded as left behind in step 1.5, normally 0. The guard checks policies, not worlds, so its pass is not the quiet's proof.
     - **A `Refused:` with exit code 2** means an open old-world deal binds a policy the new build dropped. Nothing was uploaded. Do not set `HOLDBACK_DEPLOY_WITHDRAWN`; go back to step 1 for that deal.
     - **A `WARNING:` that the deals could not be read** means the guard checked the policy files only. Read the deals by hand (step 1.3) before going on.
-    - The deploy then waits for both nodes to serve the new commit (about five minutes on 2026-11-12) and ends `pass` with a smoke deal `Released`.
+    - The deploy then waits for both nodes to serve the new commit (about five minutes on 2026-11-12) and ends `pass` with a smoke deal `Released`. At the fee of 0 the smoke buyer pays 26 tUSDC (price 25, adjudication fee 1) and the seller receives 25, with no operator-fee transfer [measured on anvil at `1db0003`: `buyer 974 tUSDC, seller 1025 tUSDC` after 1,000 each].
     - Read `/v1/status` and `/.well-known/holdback.json` on both nodes: the new rules address and the new token.
-15. **Step 7.** `node --env-file-if-exists=.env $W/examples/e2e-round.ts run 5b --t220 --no-homepage`, then `… run 12 --no-homepage`. Each prints `results: … pass`.
+15. **Step 7.** Run `node --env-file-if-exists=.env $W/examples/e2e-round.ts run 5b --t220 --no-homepage`, then `… run 12 --no-homepage`. Each prints `results: … pass`. Until the round's shared fee check follows the fee of 0, scenario 12 prints `FAIL: 29 of 31 checks held`. The two failures are "the operator fee is paid once", one per deal, and are expected; any other failure is not.
 16. **Step 8.** `node $W/apps/test-agents/scripts/deploy.mjs`; then the two `site/try.mjs --seller` deals and `sell-to-test-buyer.mjs`.
 17. **Step 11.1, part of point of no return 2.** Merge the step-3 pull request into `main` (a revert only from here). The site deploys from `main`, because the lane's agent docs describe the phase-one deployment.
 18. **Step 9, point of no return 1.** Run `git -C $W fetch origin && git -C $W switch --detach origin/main`. Then `pnpm -C $W site:deploy` ends `pass`. Then run the one command from `https://crow.direct/llms.txt` in an empty folder: it ends `Released`.
@@ -231,5 +232,6 @@ cd $W
 
 - **T-385:** remove the two `site/llms.txt` lines that name the cut vault.
 - **The words session:** `examples/try.ts`'s line about a 60 s appeal window.
+- **The round's owner:** `settledChecks` in `examples/e2e-scenario-kit.ts` expects one operator-fee transfer even at a fee of 0, so scenario 12 fails 2 checks at T-389's settings. CI misses it because `examples/e2e-world.ts` runs the round at 1 bp.
 
 **A follow-up worth having:** promote `reports/scratch/t383-rehearse.ts` to a committed rehearsal command, so each loop of the audit reruns the whole page with one line. It is a separate change and needs its own review.
