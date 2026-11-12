@@ -67,8 +67,11 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       expect(page).toContain('<div class="large">Crow</div>');
       // The opening comes from PITCH, so a change of its words breaks no test here.
       expect(page).toContain(`<p class="subtitle">${PITCH.descriptor.replace(/'/g, '&#39;')}</p>`);
-      expect(page).toContain('rehearsed by scripted stand-ins rather than AI models, on a local test setup with test money');
-      expect(page).toContain('no person stepped in');
+      for (const b of PITCH.beats) expect(page).toContain(`<span class="beat-label">${b.label}</span>`);
+      // The proof beat tells what this run did: Rafa's sentence when the work passed, what happened instead otherwise.
+      const ending = name === 'paid' ? 'paid' : name === 'refund' ? 'refunded' : 'declined';
+      expect(page).toContain(PITCH.proof(ending, 'a software security audit').replace(/'/g, '&#39;'));
+      expect(page.indexOf('beat-label">Proof')).toBeLessThan(page.indexOf('How the payment is held'));
       expect(page).toContain('A test run on a local test setup, with test money.');
       expect(page).toContain('This run used a local test setup, so it has no public payment records to link.');
       expect(page).not.toMatch(/href="http:\/\/(127\.0\.0\.1|localhost)/);

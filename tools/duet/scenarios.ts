@@ -13,6 +13,8 @@ export const SCENARIOS: readonly ScenarioName[] = ['paid', 'refund', 'bad-offer'
 export const SCOPE = { commit: '7c1e4b9a2d3f5068a1b2c3d4e5f60718293a4b5c', files: ['contracts/Vault.sol', 'contracts/InterestModel.sol', 'contracts/PriceFeed.sol'], lines: 400 } as const;
 /** The buyer owner's budget, everything included: 750.00 test tokens in base units (6 decimals). */
 export const BUDGET = '750000000';
+/** What the buyer buys, as the replay page names it. */
+export const ITEM = 'a software security audit';
 /** The checks the buyer's owner requires in every offer: each file in scope reviewed, every finding inside the scope. */
 export const REQUIRED_CHECKS = ['coverage', 'scope'] as const;
 /** The buyer owner's dates: the report within 3 days (259,200 s), judging within a day after that, an offer made within 10 minutes of now. */
