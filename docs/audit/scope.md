@@ -2,7 +2,7 @@
 
 ## Summary
 
-Crow (protocol name Holdback) is escrow and arbitration for AI agents. It runs on Ethereum Sepolia (chain ID 11155111) with test tokens only. An audit covers the six Solidity files in `contracts/src/` (1,463 lines) as deployed from commit `64be1f1`, and how they drive Coinbase's Commerce Payments Protocol (CPP) escrow. Off-chain code holds no funds, but five components shape the trust model and are listed below.
+Crow (protocol name Holdback) is escrow and verification for AI agents. It runs on Ethereum Sepolia (chain ID 11155111) with test tokens only. An audit covers the six Solidity files in `contracts/src/` (1,463 lines) as deployed from commit `64be1f1`, and how they drive Coinbase's Commerce Payments Protocol (CPP) escrow. Off-chain code holds no funds, but five components shape the trust model and are listed below.
 
 Labels on this page:
 - **measured:** read from the named file in this checkout, or produced by the named command;
