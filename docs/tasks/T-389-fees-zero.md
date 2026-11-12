@@ -35,7 +35,7 @@ Non-goals: the adjudication fee stays as it is (it pays the adjudicator and is p
 | `apps/demo-cloud/test/anvil.ts`, `examples/e2e-world.ts`, `apps/test-agents/src/test-world.ts`, `examples/try.test.ts`, `examples/buyer-signer*.test.ts`, `examples/audit-deal.ts` (its local world), `apps/demo-cloud/src/world.test.ts`, `lanes.test.ts`, `examples/e2e-scenarios-direct.test.ts` | 1 bp, 0.01 minimum, some with the 4.70 gas quote | Test worlds with their own values: they keep proving the machinery with a non-zero fee. Unchanged. |
 | deploy script (`apps/demo-cloud/scripts/`) | none set; `deal.ts` only reads the schedule | Nothing to change. |
 
-**Assumed or stated** [measured by reading the code; behaviour at 0 inferred from it, then measured by the new test]:
+**Assumed or stated** [measured by reading the code; behaviour at 0 inferred from it, then measured by the new tests]:
 
 | Place | At a fee of 0 |
 |---|---|
@@ -74,7 +74,7 @@ Fill this in before review. Label each item measured, inferred or guessed.
   - `pnpm typecheck`: exit 0. `pnpm lint`: exit 0. [measured]
   - `pnpm snap`: exit 0. `pnpm snap --settlement=local`: exit 0. [measured]
   - `npx vitest run apps/demo-cloud apps/operator apps/test-agents examples`, with anvil on PATH and `forge build` output: 76 files and 898 tests passed. 1 file (2 tests) skipped: `apps/demo-cloud/src/live-fork.test.ts`, which needs a Sepolia RPC. [measured]
-  - New `apps/demo-cloud/src/pilot-fee.anvil.test.ts`: 3 of 3 passed in 22 s. [measured] It reads the fee variables from `wrangler.op1.jsonc`, checks that both nodes publish the schedule at 0, and funds two deals from a payment address apart from the signing key:
+  - New suite "the first pilots' zero operator fee" in `apps/demo-cloud/src/live.test.ts`: 3 of 3 passed in 22 s. [measured] It sits in that file so CI's anvil "world" job, which must not skip, runs it (`tests/ci-gated.test.ts` refuses a gated file that CI does not name, and `.github/` is not this task's to change). It reads the fee variables from `wrangler.op1.jsonc`, checks that both nodes publish the schedule at 0, and funds two deals from a payment address apart from the signing key:
     - prepare asks for the agreement and the funding only (two slots, no `operatorFee` body);
     - the payment address gets exactly the price plus the adjudication fee;
     - on Released it ends at 0 and the seller gains 25 tUSDC; on Refunded it ends at 25 tUSDC and the seller gains nothing;
@@ -83,7 +83,7 @@ Fill this in before review. Label each item measured, inferred or guessed.
   - Non-zero fee tests unchanged and passing with their own values: `apps/operator/src/fee.test.ts`, `apps/demo-cloud/src/live.test.ts` (4.71 tUSDC on anvil), `world.test.ts`, `examples/buyer-signer*.test.ts`. [measured, in the run above]
   - The sim addition (`apps/operator/src/sim-text.ts`, asked for by the coordinator): `pnpm sim`'s start-up text is true of its profile. On phase one, one line says there are no bonds and no party appeals and the first decision is final; no bond or appeal figure is printed; on a default outcome the buyer gets the price and the adjudication fee back and nothing compensates the seller. The full profile keeps its bond and appeal economics. The third line is the operator fee the nodes publish ("none" in the sim by default). `sim-text.test.ts` pins both texts; `sim-world-phase-one.test.ts` pins that the one profile constant drives both the world and the text. 9 of 9 passed; `pnpm sim` itself printed the phase-one text. [measured]
 - **Snapshot diffs:** none. [measured]
-- **Metrics:** a buyer on a 25 tUSDC deal pays 30.71 tUSDC before (25 price + 1 adjudication fee + 4.71 operator fee; `live.test.ts` on anvil) and 26.00 tUSDC after (`pilot-fee.anvil.test.ts`). [measured]
+- **Metrics:** a buyer on a 25 tUSDC deal pays 30.71 tUSDC before (25 price + 1 adjudication fee + 4.71 operator fee; `live.test.ts` on anvil) and 26.00 tUSDC after (the zero-fee suite in `live.test.ts`). [measured]
 - **Review:** one reviewer subagent with CLAUDE.md, ADR-0023, D33 and the threat model returned PASS. It had 3 non-blocking findings: Handoff and Evidence were empty (filled here), and a stale comment in `apps/test-agents/src/test-world.ts` (fixed). On the sim addition it found 3 non-blocking issues: the default-outcome refund wording, the profile written in two places, and the zero-fee wording. All 3 are fixed. [measured]
 
 ## Decisions
