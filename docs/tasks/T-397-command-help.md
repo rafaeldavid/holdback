@@ -115,4 +115,14 @@ All five now follow the same rule. The table shows each command with `--help` fi
 - `tools/duet/` (T-391): the run tool's wrapper should pass `--help` through to the command, as the commands now answer it. `adapter-log` is the run tool's own command.
 - Triage: `buy-with-signer`'s other wrong calls end in a thrown error, so Node prints a source line and a stack trace above the help. Catching them needs room the 50-line cap does not leave.
 
+**The two live contacts** (for Rafa's record). Read from `examples/try.ts` and `examples/agent.ts`, and from the saved output of run 1; neither command was run again.
+1. **Run 1:** `node examples/try.ts --help`, before the fix, on 2026-11-13. It ignored `--help` and ran `main()`. Run 2 was `node examples/try.ts` with no arguments, after the fix; no arguments is a valid call, and its output was discarded. Neither run named `--seller`, so `try` played both sides and never contacted the test seller.
+2. **The requests, per run:** at the step named "keys", `Agent.trusted('/.well-known/holdback.json')` sent two GETs at the same moment, one to each operator:
+   - `GET https://api.crow.direct/.well-known/holdback.json`
+   - `GET https://api2.crow.direct/.well-known/holdback.json`
+3. **Where each run stopped:** right after those two reads. The served EIP-712 domain, version 0.7, matched none of the domains `examples/verify.ts` pins (0.8). `main()` threw `Refusal`, which exits 3, before it made a key, asked the faucet, sealed a proposal or prepared anything.
+   - For run 1 this is measured: its saved output ends `refused at keys: refusing to sign: the operators serve EIP-712 domain {… "version":"0.7"}`.
+   - For run 2 it is inferred: it took the same code path and also exited 3.
+4. **Did anything change state there?** No. All four requests (two a run) were reads of the discovery document: no faucet mint, no offer, no proposal at the test seller, no write of any kind. The one effect is that each read counts against the operators' per-client read limit, 1,200 reads a minute, so 2 a run.
+
 **How to resume.** `examples/help.ts` holds the text. `tests/site-guides.test.ts` checks that `buy.mjs`'s help answers, and that its example is a line of `buy.txt`.
