@@ -5,6 +5,7 @@
 // behind "Exact call" disclosures. Every string from the record is escaped: an agent's words, or anything it quoted,
 // is shown as text, never as markup. The only network use is a link the reader clicks. A small inline script steps
 // through the run; without it, every step shows.
+import { readFileSync } from 'node:fs';
 import type { Summary } from './measures.ts';
 import type { Event } from './record.ts';
 import type { Over } from './tickets.ts';
@@ -247,18 +248,12 @@ export const HERO = {
   closing: 'Live in early access on test money.',
 };
 /**
- * Crow's mark: a crow in flight, as the crow flies, the direct way (Rafa, 2026-11-12). Three solid shapes in the
- * text's colour: the far wing, the near wing and the body, each cut from the one behind by a thin line of the page's
- * colour. Drawn for this page; for the header and the tab icon.
+ * Crow's mark: a crow in flight, as the crow flies (Rafa, 2026-11-12). One path, read from crow-mark.svg beside this
+ * file (where it came from is in README.md, "The mark"), drawn in the text's colour for the header and the tab icon.
  */
-export const CROW_MARK = {
-  far: 'M15.7 7.5C15.1 5.1 13.5 2.8 10.9.9L11.3 2.9 9.9 2.4 10.9 4.3 9.5 4.2C11 5.9 12.2 7.5 13 9.1Z',
-  near: 'M14.1 8.5C12.1 6.1 8.9 3.5 3.9 2.1L5.4 3.9 2.9 3.7 5 5.4 2.7 5.7 5.5 7 3.9 7.8C6.9 9.3 9.1 10.9 10.9 12.5Z',
-  body: 'M22.2 8.8 19.4 9.5C19.2 12.6 17 15.3 13.6 16.6 11.6 17.4 9.4 17.6 7.6 17.6L2.4 20 1.6 18.8 5.6 16C7.4 12.6 10.6 9.8 13.9 8.1 15.4 6.6 17.9 6.4 19.3 7.6Z',
-};
-/** The mark as SVG paths: `ink` fills the shapes, `cut` draws the line between them. */
-const markPaths = (ink: string, cut: string) => `<path d="${CROW_MARK.far}" fill="${ink}"/><path d="${CROW_MARK.near}" fill="${ink}" stroke="${cut}" stroke-width=".6" paint-order="stroke"/><path d="${CROW_MARK.body}" fill="${ink}" stroke="${cut}" stroke-width=".6" paint-order="stroke"/>`;
-const FAVICON = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">${markPaths('#1d1d1f', '#ffffff')}</svg>`)}`;
+export const CROW_MARK = /\sd="([^"]+)"/.exec(readFileSync(new URL('./crow-mark.svg', import.meta.url), 'utf8'))?.[1] ?? '';
+const markSvg = (fill: string, cls = '') => `<svg${cls ? ` class="${cls}"` : ''} viewBox="0 0 24 24" aria-hidden="true"><path fill="${fill}" fill-rule="evenodd" d="${CROW_MARK}"/></svg>`;
+const FAVICON = `data:image/svg+xml,${encodeURIComponent(markSvg('#1d1d1f').replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" '))}`;
 
 /** Where "Request early access" goes: the sign-up form on Crow's site. */
 export const EARLY_ACCESS = 'https://crow.direct/#join-form';
@@ -509,7 +504,7 @@ footer{font-size:12px;color:var(--ink3);margin:40px 0 0;max-width:720px}
 </style>
 </head>
 <body>
-<div class="toolbar"><div class="toolbar-inner"><a class="app" href="#" aria-label="${esc(PITCH.title)}"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true">${markPaths('currentColor', 'var(--page)')}</svg><span>${esc(PITCH.title)}<small>${esc(PITCH.descriptor)}</small></span></a><div class="spacer"></div><a class="navlink" href="#learn-more">Learn more</a><a class="button quiet" href="${esc(EARLY)}" rel="noopener">Request early access</a></div></div>
+<div class="toolbar"><div class="toolbar-inner"><a class="app" href="#" aria-label="${esc(PITCH.title)}">${markSvg('currentColor', 'mark')}<span>${esc(PITCH.title)}<small>${esc(PITCH.descriptor)}</small></span></a><div class="spacer"></div><a class="navlink" href="#learn-more">Learn more</a><a class="button quiet" href="${esc(EARLY)}" rel="noopener">Request early access</a></div></div>
 
 <main id="demo-view">
 <div class="hero">

@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { measure } from './measures.ts';
-import { EARLY_ACCESS, forPublishing, HERO, PITCH, replayPage } from './replay.ts';
+import { CROW_MARK, EARLY_ACCESS, forPublishing, HERO, PITCH, replayPage } from './replay.ts';
 import { startWorld } from './world.ts';
 import { runAgent } from './loop.ts';
 import { anthropic, liveProvider, openaiCompatible, scripted, type Turn } from './providers.ts';
@@ -102,7 +102,8 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       expect(banned(readerText(published))).toEqual([]);
       expect(readerText(published)).not.toMatch(/\bowners?\b/i);
       // The header carries Crow's mark, and so does the tab.
-      expect(page).toContain('<svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M15.7 7.5');
+      expect(page).toContain('<svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M');
+      expect(CROW_MARK.length).toBeGreaterThan(1000);
       expect(page).toContain('<link rel="icon" href="data:image/svg+xml,');
       // The reader's text, outside the engineers' section and the "Exact call" disclosures, uses no protocol words.
       expect(banned(readerText(page))).toEqual([]);

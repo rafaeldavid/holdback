@@ -133,6 +133,10 @@ The published page differs from the local one in two ways:
 
 The record's secret list has already been applied to everything on the page.
 
+## The mark
+
+`crow-mark.svg` is Crow's mark on the demo page: a crow in flight, "as the crow flies", the direct way. It sits in the header and serves as the tab icon. Rafa supplied the image on 2026-11-12 for this use. It was traced into this one path, which is filled with the text's colour. If the image is redrawn or replaced, replace this file; the page reads the path from it.
+
 ## Limits and tickets
 
 `limits.json` sets a limit for each measure in each scenario. The first limits are guesses: the measured scripted counts times a stated margin. They get tuned after the first live runs.
