@@ -5,7 +5,7 @@
 - **Depends on:** T-316 (the check runner), T-320 (the audit-report rubric)
 - **Paths this task may touch:** `packages/judgment/src/screen.test.ts`, `fixtures/data/audit-report/report.exploit-code.json`, `examples/check-delivery.ts`, `examples/check-delivery.test.ts`, this file
 - **Human gate:** no
-- **Status:** review
+- **Status:** done (PR 376, merged 2026-11-12 at 05:19 UTC as `277b597`)
 - **Agent/session:** T-361 implementer session, change kind 5 (judgment tests; no judgment code changed)
 
 ## Intent

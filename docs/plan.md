@@ -138,7 +138,8 @@ Focus (Rafa, 2026-11-06; D53, narrowed the same day by D54 after his walkthrough
 - [ ] T-358 (in progress on `contracts-audit-ready`; waits for the freeze) The two address fields in the phase-one contracts (ADR-0033).
 - [x] T-359 (done: PR 373, 2026-11-12; live from the site deploy of 05:14 UTC) The seller's page, `https://crow.direct/sell.txt`, linked from `llms.txt`.
 - T-360 A task in the maintainers' private repository, with no file here.
-- [ ] T-361 (in progress) Rubric readiness: the screen and the delivery check.
+- [x] T-361 (done: PR 376, 2026-11-12) Rubric readiness: the screen on an audit report that quotes exploit code, and `check-delivery` warns when the judges read a sample.
+- [ ] T-363 (merged to `contracts-audit-ready`: PR 379, 2026-11-12; waits for the freeze) The phase-one cutover checklist, first pass. Its task file is on that branch.
 - [x] T-362 (done: PR 374, 2026-11-12; the `CLAUDE.md` change, PR 375, waits for Rafa) The docs batch: the doc follow-ups from T-329 to T-361 that describe `main`. Task file `docs/tasks/T-362-docs-batch.md`.
 - [x] T-364 (done: PR 380, 2026-11-12; the `CLAUDE.md` part, PR 375, waits for Rafa) No running numbers in the standing docs: the rule in `docs/writing.md`, the sweep and a check. Task file `docs/tasks/T-364-no-running-numbers.md`.
 - D4 decided: the target is Ethereum mainnet (2026-11-01), built and tested on a local chain, then on Sepolia, the public testnet the demo settles on since D41 (2026-11-03). Mainnet deployment is a separate gate for Rafa after an audit. Record gas per deal in the evidence.
