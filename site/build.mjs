@@ -18,7 +18,6 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rolldown } from 'rolldown';
 import { guideFiles, guideSource } from './guides.mjs';
-import { PENCIL, STUDIES } from './vignettes.mjs';
 
 export const SITE_URL = 'https://crow.direct/';
 /** The path the site is served under ('/' on crow.direct); every link is absolute from it. */
@@ -201,7 +200,7 @@ export const strip = (md) => md.split('\n').filter((l) => !l.startsWith('%% ')).
  *     to" and "Buy from"; the lede; a value prop; the tagline under the brand; the footer.
  *   - The six value props show one at a time, each under a pencil study (vignettes.mjs), and change every 7 s.
  *   - Spare height is shared by three gaps (above the claim, the value prop and the footer), never left in one.
- * The faint code streams down each side are the case study's code (examples/buy-dataset.ts): the buyer's on the
+ * The faint code streams down each side of the hero are the case study's code (examples/buy-dataset.ts): the buyer's on the
  * left, the seller's on the right, each with its call results as comments. They type in deal order through four
  * deals (release, refund, default, escalation); below 1100 px wide each spans half the page, fainter, behind the content.
  */
@@ -209,14 +208,26 @@ export const strip = (md) => md.split('\n').filter((l) => !l.startsWith('%% ')).
 export const DESCRIPTION = 'Verifiable settlement for AI commerce. Sell to any agent. Buy from any agent.';
 /** The value props: a name, one line, and an optional note set after the name. */
 const FEATURES = [
-  ['Verifiable Settlement', 'Payment waits in a non-custodial vault until the work passes.'],
-  ['Made for Machines', 'One API. Every response reports its token cost, so agents can budget.'],
-  ['High Speed, Low Cost', 'Settles when checks pass. No invoices, no marketplace cut.'],
-  ['Frontier AI Verification', 'When the terms ask, a panel of frontier models from rival labs verifies the work before payment.'],
-  ['Your Existing Rails', 'Fund by card or your current payment provider.', 'soon'],
-  ['Private Delivery', 'The work is encrypted before it leaves the seller. Only the buyer and the reviewer can open it.'],
+  ['Verifiable Settlement', 'Payment waits in a non-custodial vault until the work passes.', 'lock'],
+  ['Made for Machines', 'One API. Every response reports its token cost, so agents can budget.', 'code'],
+  ['High Speed, Low Cost', 'Settles when checks pass. No invoices, no marketplace cut.', 'bolt'],
+  ['Frontier AI Verification', 'Have AI review the work before payment, when you need it.', 'check'],
+  ['Your Existing Rails', 'Fund by card or your current payment provider.', 'card', 'soon'],
+  ['Private Delivery', 'The work is encrypted before it leaves the seller. Only the buyer and the reviewer can open it.', 'eye'],
 ];
-if (STUDIES.length !== FEATURES.length) throw new Error('site/vignettes.mjs must draw one study for each value prop');
+/** The headline's three lines, shown in turn (Rafa, 2026-11-12). */
+const HEADLINES = ['Sell to any agent.', 'Buy from any agent.', 'Go direct.'];
+/** One line icon per value prop, in a single stroke weight, drawn in the text's colour. */
+const ICONS = {
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  code: '<path d="M8.5 7 3.5 12l5 5M15.5 7l5 5-5 5"/>',
+  bolt: '<path d="M13 2.5 5 13.5h6l-1 8 8-11h-6z"/>',
+  check: '<circle cx="12" cy="12" r="9"/><path d="m8 12.3 2.7 2.7L16.2 9.5"/>',
+  card: '<rect x="2.5" y="5.5" width="19" height="13" rx="2"/><path d="M2.5 10h19M6 15h4"/>',
+  eye: '<path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>',
+};
+/** Crow's mark, the crow in flight (site/crow-mark.svg, traced from the image Rafa supplied on 2026-11-12): one path. */
+const MARK = /\sd="([^"]+)"/.exec(readFileSync(here('crow-mark.svg'), 'utf8'))[1];
 
 // Try Crow: one quiet footer line with a copy icon. The copy icon copies a prompt that says what the one command
 // does, carries it, and names llms.txt for the full explanation, so a paste asks the visitor's AI assistant for one
@@ -238,33 +249,30 @@ const footer = (command) => `<footer class="foot">
 <span id="prompt" hidden>${esc(tryPrompt(command))}</span>
 <p class="sr">For AI agents asked to run a test deal: the one command to ask your user to approve, and what it does, are at ${esc(SITE_URL)}llms.txt under "Try it".</p>
 </footer>`;
-// The value props: all six are in the page, one shows at a time, and six dots choose one.
-const PROPS = `<section class="props" id="props" aria-roledescription="carousel" aria-label="What Crow does">
-<div class="stage">
-${FEATURES.map(([h, p, note], i) => `<div class="prop${i ? '' : ' on'}" role="group" aria-roledescription="slide" aria-label="${i + 1} of ${FEATURES.length}">${STUDIES[i].svg}<h2>${esc(h)}${note ? ` <em>· ${esc(note)}</em>` : ''}</h2><p>${esc(p)}</p></div>`).join('\n')}
-</div>
-<div class="dots" role="group" aria-label="Choose one">${FEATURES.map(([h, , note], i) => `<button type="button" aria-label="${esc(note ? `${h}, ${note}` : h)}"${i ? '' : ' aria-current="true"'}></button>`).join('')}</div>
+// The value props: all six at a glance, a small icon, a name and one line each, quieter than the hero above them.
+const PROPS = `<section class="props" id="props" aria-label="What Crow does">
+${FEATURES.map(([h, p, icon, note]) => `<div class="prop"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${ICONS[icon]}</svg><h2>${esc(h)}${note ? ` <em>· ${esc(note)}</em>` : ''}</h2><p>${esc(p)}</p></div>`).join('\n')}
 </section>`;
 // Early access: sign-ups go to the crow-early-access Worker (apps/early-access), which keeps only the address, the
 // time and the page.
 const JOIN_URL = 'https://join.crow.direct/early-access';
 const JOINFORM = `<form class="signup" id="join-form" novalidate aria-label="Request early access">
-<input id="join-email" name="email" type="email" autocomplete="email" required placeholder="you@example.com" aria-label="Email">
+<input id="join-email" name="email" type="email" autocomplete="email" required placeholder="you@company.com" aria-label="Email">
 <input class="hp" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">
 <button id="join-send" type="submit">Request early access</button>
 <p class="msg" id="join-msg" role="status"></p>
 </form>`;
 const SCRIPT = `<script>
 (function () {
-  // The headline alternates "Sell to" and "Buy from" every 3.5 s and holds while hovered. It stays on "Sell to"
-  // for a visitor who asks for reduced motion; screen readers read the whole sentence from the .sr line.
-  // Only the phrase on show takes room, so each sentence is centred under the brand. At a swap the line is set
+  // The headline shows its three lines in turn ("Sell to any agent.", "Buy from any agent.", "Go direct."), every
+  // 3.5 s, and holds while hovered. It stays on the first for a visitor who asks for reduced motion; screen readers
+  // read all of it from the .sr line. Only the line on show takes room, so each stays centred. At a swap the line is set
   // back where it stood, then let go, so it glides to its new centre in 0.45 s and nothing jumps.
   var still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
   var h = document.querySelector('h1'), line = h.querySelector('.line'), slot = h.querySelector('.verb'), v = slot.querySelectorAll('.v'), i = 0, t;
   var swap = function () {
     var was = slot.getBoundingClientRect().right;
-    v[i].classList.remove('on'); i = 1 - i; v[i].classList.add('on');
+    v[i].classList.remove('on'); i = (i + 1) % v.length; v[i].classList.add('on');
     line.style.transition = 'none'; line.style.transform = 'translateX(' + (was - slot.getBoundingClientRect().right) + 'px)';
     line.getBoundingClientRect(); // the line now stands where it stood
     line.style.transition = ''; line.style.transform = '';
@@ -401,17 +409,6 @@ const SCRIPT = `<script>
   // written once, with no animation.
   var deal = 0; play(0);
   if (!still) setInterval(function () { deal = (deal + 1) % 4; play(deal); }, 6200 * K);
-  // The value props show one at a time and change every 7 s with a slow fade. They hold while the pointer or the
-  // keyboard is on them, stop for good once the visitor picks one, and never start for a visitor who asks for
-  // reduced motion.
-  var props = document.querySelectorAll('.prop'), dots = document.querySelectorAll('.dots button'), box = document.getElementById('props'), at = 0, turn, stopped = still;
-  var show = function (k) { props[at].classList.remove('on'); dots[at].removeAttribute('aria-current'); at = k; props[at].classList.add('on'); dots[at].setAttribute('aria-current', 'true'); };
-  var hold = function () { clearInterval(turn); };
-  var run = function () { hold(); if (!stopped) turn = setInterval(function () { show((at + 1) % props.length); }, 7000); };
-  box.addEventListener('mouseenter', hold); box.addEventListener('mouseleave', run);
-  box.addEventListener('focusin', hold); box.addEventListener('focusout', run);
-  dots.forEach(function (d, k) { d.addEventListener('click', function () { stopped = true; hold(); show(k); }); });
-  run();
   // Try Crow: the copy icon copies the prompt for the visitor's AI assistant.
   // Where the clipboard is refused, the prompt shows selected instead so the visitor can copy it by hand.
   var select = function (el) { var r = document.createRange(); r.selectNodeContents(el); var s = getSelection(); s.removeAllRanges(); s.addRange(r); };
@@ -456,11 +453,12 @@ export function page(md, command = tryCommand()) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>
+<link rel="icon" type="image/svg+xml" href="${BASE}crow-mark.svg">
 <link rel="icon" type="image/png" href="${BASE}favicon.png">
 <link rel="apple-touch-icon" href="${BASE}favicon.png">
 <meta name="description" content="${esc(DESCRIPTION)}">
 <link rel="canonical" href="${SITE_URL}">
-<meta name="theme-color" content="#faf7f0">
+<meta name="theme-color" content="#ffffff">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="${esc(title)}">
 <meta property="og:title" content="${esc(title)} · ${esc(subtitle)}">
@@ -476,118 +474,106 @@ export function page(md, command = tryCommand()) {
 <meta name="twitter:image" content="${SITE_URL}og.png">
 <meta name="twitter:image:alt" content="A pencil study of a hooded crow by Archibald Thorburn, 1919">
 <link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="${BASE}llms.txt">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&display=swap">
 <style>
-/* Laid paper, graphite ink, a book face of the period, the agents' code streaming faintly down the sides. The crow
-   stands on its name and takes the height the text does not need; one value prop shows at a time. */
-:root { color-scheme: light; --paper: #faf7f0; --field: #fffdf8; --ink: #2f2d2a; --ink-2: #57534c; --ink-3: #706a5f; --rule: #cfc8b8; --faint: #8f897e; --sepia: #8a6237;
-  --col: 760px; /* the centre column */
-  /* type: one step down the classic scale (36, 24, 21, 18, 16 px) for each step in the reading order: the claim,
-     the lede, a value prop (its name, with its text at 18), the tagline, the footer. In rem, so it follows the
-     reader's text size and zoom. */
-  --t-claim: 2.25rem; --t-lede: 1.5rem; --t-name: 1.3125rem; --t-text: 1.125rem; --t-foot: 1rem;
-  /* the crow's height: the window's height less what the text needs (--text), between 150 and 290 px.
-     The brand is 1.3 crows tall: the crow, plus the mark at 0.43 of it, less the 0.13 the two overlap. */
-  --text: 536px; --bird: clamp(150px, calc((100vh - var(--text)) / 1.3), 290px); }
+/* The enterprise look (Rafa, 2026-11-12), as on the demo page: system type, white and grey, one ink accent for the
+   primary action, Crow's mark in flight in a slim header. The hero leads; the value props sit quietly below it. */
+:root { color-scheme: light dark; --page: #ffffff; --band: #f5f5f7; --ink: #1d1d1f; --ink-2: #6e6e73; --ink-3: #86868b; --line: #d2d2d7; --hair: rgba(0, 0, 0, .08);
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif; }
+@media (prefers-color-scheme: dark) { :root { --page: #000000; --band: #111113; --ink: #f5f5f7; --ink-2: #a1a1a6; --ink-3: #86868b; --line: #3a3a3c; --hair: rgba(255, 255, 255, .1); } }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-body { background: var(--paper); color: var(--ink); font-family: "EB Garamond", Garamond, "Times New Roman", serif; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
-/* the agents' code: faint terminal text down each side (buyer left, seller right), misting out at the edges */
-.stream { position: fixed; z-index: 0; top: 0; bottom: 0; width: calc((100vw - var(--col)) / 2 + 40px); max-width: 460px; box-sizing: border-box;
+body { background: var(--page); color: var(--ink); font: 17px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
+a { color: inherit; }
+/* the agents' code (Rafa kept it, 2026-11-12): faint terminal text down each side of the hero, buyer left and seller
+   right, misting out at the edges, behind the words. It stops above the value props. */
+html { overflow-x: clip; }
+.stream { position: absolute; z-index: 0; top: 0; bottom: 0; width: min(460px, calc(50vw - 340px));
   display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; pointer-events: none; user-select: none;
-  font: 10.5px/1.7 ui-monospace, "SF Mono", Menlo, monospace; color: var(--faint); opacity: .6; text-align: left; white-space: pre; }
-#stream-b { left: 0; padding: 0 12px 14vh max(20px, env(safe-area-inset-left, 0px));
-  -webkit-mask-image: radial-gradient(ellipse 95% 70% at 35% 62%, #000 25%, transparent 78%); mask-image: radial-gradient(ellipse 95% 70% at 35% 62%, #000 25%, transparent 78%); }
-#stream-s { right: 0; padding: 0 max(20px, env(safe-area-inset-right, 0px)) 14vh 12px;
-  -webkit-mask-image: radial-gradient(ellipse 95% 70% at 65% 62%, #000 25%, transparent 78%); mask-image: radial-gradient(ellipse 95% 70% at 65% 62%, #000 25%, transparent 78%); }
+  font: 10.5px/1.7 ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink-3); opacity: .55; text-align: left; white-space: pre; }
+#stream-b { left: calc(50% - 50vw); padding: 0 12px 24px max(20px, env(safe-area-inset-left, 0px));
+  -webkit-mask-image: radial-gradient(ellipse 95% 75% at 35% 60%, #000 25%, transparent 78%); mask-image: radial-gradient(ellipse 95% 75% at 35% 60%, #000 25%, transparent 78%); }
+#stream-s { right: calc(50% - 50vw); padding: 0 max(20px, env(safe-area-inset-right, 0px)) 24px 12px;
+  -webkit-mask-image: radial-gradient(ellipse 95% 75% at 65% 60%, #000 25%, transparent 78%); mask-image: radial-gradient(ellipse 95% 75% at 65% 60%, #000 25%, transparent 78%); }
 .stream div { overflow: hidden; flex-shrink: 0; min-height: 1.7em; } /* never squeeze lines when the stream is full */
-.page { position: relative; min-height: 100vh; max-width: var(--col); margin: 0 auto; padding: 16px; display: flex; flex-direction: column; align-items: center; text-align: center; }
-/* spare height is shared: each of these three takes an equal part above it */
-.claim, .props, .foot { margin-top: auto; }
-/* the brand: the bird stands on its name, and the tagline is its caption */
-.brand { display: flex; flex-direction: column; align-items: center; }
-picture { display: contents; }
-.bird { height: var(--bird); width: auto; display: block; mix-blend-mode: multiply; }
-.mark { margin-top: calc(var(--bird) * -0.13); font-size: calc(var(--bird) * 0.43); font-weight: 500; letter-spacing: -0.01em; line-height: 1; }
-.tag { margin-top: 6px; font-size: var(--t-text); line-height: 1.4; font-style: italic; color: var(--ink-2); text-wrap: balance; }
-/* the claim: only the phrase on show takes room, so "Sell to any agent." and "Buy from any agent." are each centred
-   under the brand. The other phrase waits at the slot's right edge, and the line glides when they swap. */
-.claim { padding-top: 24px; display: flex; flex-direction: column; align-items: center; }
-h1 { font-size: var(--t-claim); font-weight: 500; line-height: 1.15; letter-spacing: -0.005em; }
+.hero { position: relative; }
+.hero > :not(.stream) { position: relative; z-index: 1; }
+.bar { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--page) 92%, transparent); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid var(--hair); }
+.bar-inner { max-width: 1040px; margin: 0 auto; padding: 10px 20px; display: flex; align-items: center; gap: 22px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 17px; text-decoration: none; }
+.brand svg { width: 30px; height: 30px; }
+.spacer { flex: 1; }
+.nav { font-size: 14px; color: var(--ink-2); text-decoration: none; }
+.nav:hover { color: var(--ink); }
+.quiet { display: inline-flex; align-items: center; min-height: 34px; padding: 0 16px; border: 1px solid var(--line); border-radius: 999px; font-size: 14px; font-weight: 600; text-decoration: none; }
+.page { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+.hero { text-align: center; max-width: 760px; margin: 0 auto; padding: 96px 0 72px; }
+.tag { font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+h1 { font-family: var(--display); font-size: 64px; line-height: 1.04; font-weight: 700; letter-spacing: -.035em; margin-top: 14px; }
 .line { display: inline-block; white-space: nowrap; transition: transform .45s ease; }
 .verb { position: relative; display: inline-block; }
 .verb .v { position: absolute; right: 0; top: 0; opacity: 0; transform: translateY(.18em); transition: opacity .35s ease, transform .35s ease; }
 .verb .v.on { position: static; display: inline-block; opacity: 1; transform: none; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.lede { margin-top: 8px; font-size: var(--t-lede); line-height: 1.4; color: var(--ink); max-width: 34em; text-wrap: balance; } /* no word alone on a last line */
-/* early access: an email box and a button, each 44 px tall */
-.signup { margin-top: 20px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
-.signup input[type=email] { font: inherit; font-size: var(--t-text); color: var(--ink); background: var(--field); border: 1px solid var(--rule); border-radius: 999px; padding: 8px 18px; width: min(320px, 80vw); min-height: 44px; }
+.lede { font-size: 22px; line-height: 1.4; color: var(--ink-2); max-width: 600px; margin: 18px auto 0; text-wrap: balance; }
+/* early access: an email box and the one filled button, each 48 px tall */
+.signup { margin-top: 32px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.signup input[type=email] { font: inherit; font-size: 16px; color: var(--ink); background: var(--page); border: 1px solid var(--line); border-radius: 999px; padding: 0 20px; width: min(320px, 80vw); min-height: 48px; }
 .signup input::placeholder { color: var(--ink-3); opacity: 1; }
-.signup button { font: inherit; font-size: var(--t-text); color: var(--ink); background: transparent; border: 1px solid var(--ink); border-radius: 999px; padding: 8px 20px; cursor: pointer; min-height: 44px; }
-.signup button:hover { background: var(--ink); color: var(--paper); }
+.signup button { font: inherit; font-size: 16px; font-weight: 600; color: var(--page); background: var(--ink); border: 0; border-radius: 999px; padding: 0 24px; min-height: 48px; cursor: pointer; }
 .signup button:disabled { opacity: .6; cursor: default; }
-.signup .msg { flex-basis: 100%; color: var(--ink-2); font-size: var(--t-text); font-style: italic; }
+.signup .msg { flex-basis: 100%; color: var(--ink-2); font-size: 15px; }
 .signup .msg:empty { display: none; }
 .hp { position: absolute; left: -10000px; width: 1px; height: 1px; opacity: 0; }
-input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--sepia); outline-offset: 2px; }
-/* the value props: one at a time, a pencil study over its name and one line. All six share one cell, so the
-   page never moves when they change. */
-.props { padding-top: 24px; width: 100%; display: flex; flex-direction: column; align-items: center; }
-.stage { width: 100%; display: grid; justify-items: center; }
-.prop { grid-area: 1/1; display: flex; flex-direction: column; align-items: center; opacity: 0; visibility: hidden; transition: opacity 1.2s ease, visibility 0s linear 1.2s; }
-.prop.on { opacity: 1; visibility: visible; transition: opacity 1.2s ease .5s; }
-.study { width: 96px; height: 96px; display: block; }
-.prop h2 { font-size: var(--t-name); font-weight: 600; line-height: 1.25; }
-.prop h2 em { font-weight: 400; font-size: .8em; color: var(--ink-2); }
-.prop p { margin-top: 2px; font-size: var(--t-text); line-height: 1.4; color: var(--ink-2); max-width: 34em; text-wrap: balance; } /* no word alone on a last line */
-.dots { margin-top: 4px; display: flex; }
-.dots button { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; display: grid; place-items: center; }
-.dots button::before { content: ""; width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--ink-2); transition: background .4s ease; }
-.dots button[aria-current]::before { background: var(--ink-2); }
-@media (prefers-reduced-motion: reduce) { .line, .verb .v, .prop, .prop.on, .dots button::before { transition: none; } }
+.demo-link { display: inline-block; margin-top: 18px; font-size: 16px; font-weight: 500; text-decoration: none; }
+.demo-link:hover { text-decoration: underline; }
+input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* the value props: all six at a glance, small and quiet */
+.props { border-top: 1px solid var(--hair); padding: 40px 0 8px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px 40px; }
+.prop { display: grid; grid-template-columns: 22px 1fr; gap: 4px 12px; align-items: start; }
+.icon { grid-row: span 2; width: 22px; height: 22px; fill: none; stroke: var(--ink-2); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; margin-top: 1px; }
+.prop h2 { font-size: 15px; font-weight: 600; letter-spacing: -.005em; }
+.prop h2 em { font-weight: 400; font-style: normal; color: var(--ink-3); }
+.prop p { font-size: 14px; line-height: 1.45; color: var(--ink-2); }
+@media (prefers-reduced-motion: reduce) { .line, .verb .v { transition: none; } }
 /* the footer, read last, then one quiet line for agents: the Try prompt and the agent docs */
-.foot { padding-top: 20px; font-size: var(--t-foot); line-height: 1.5; font-style: italic; color: var(--ink-3); }
-.foot a { color: inherit; text-underline-offset: 2px; }
+.foot { max-width: 1040px; margin: 0 auto; padding: 40px 20px 56px; font-size: 14px; line-height: 1.6; color: var(--ink-2); }
+.foot a { text-underline-offset: 2px; }
 .copy { position: relative; display: inline-grid; place-items: center; width: 28px; height: 28px; margin: -4px 0 -4px 2px; vertical-align: middle; padding: 0; border: 0; border-radius: 8px; background: transparent; color: inherit; cursor: pointer; }
 .copy::after { content: ""; position: absolute; inset: -8px; } /* a 44 px target around a 28 px button */
 .copy svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; }
-.copy:hover { background: #efe9dc; color: var(--ink); }
+.copy:hover { background: var(--band); color: var(--ink); }
 .nb { white-space: nowrap; } /* the copy icon stays with the word before it */
-.copied { margin-left: 6px; color: var(--sepia); font-style: normal; overflow-wrap: anywhere; white-space: pre-wrap; }
-@media (max-width: 1100px) { .stream { width: 50%; opacity: .16; } }
-/* phones: the crow follows the screen's width, the claim and the lede step down, and the page may scroll */
-@media (max-width: 499px) { :root { --bird: min(47vw, 190px); --t-claim: clamp(1.75rem, 9vw, 2.25rem); --t-lede: 1.3125rem; } .study { width: 84px; height: 84px; } }
+.copied { margin-left: 6px; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
+@media (max-width: 1100px) { .stream { width: 50vw; opacity: .14; } }
+@media (max-width: 820px) { .props { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 600px) { h1 { font-size: 44px; } .lede { font-size: 19px; } .hero { padding: 64px 0 48px; } .nav { display: none; } .props { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
-${PENCIL}
+<header class="bar"><div class="bar-inner">
+<a class="brand" href="${BASE}"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="${MARK}"/></svg>Crow</a>
+<span class="spacer"></span>
+<a class="nav" href="${BASE}demo/">Demo</a>
+<a class="nav" href="${BASE}llms.txt">Agent docs</a>
+<a class="quiet" href="#join-form">Request early access</a>
+</div></header>
+<main class="page">
+<section class="hero">
 <div id="stream-b" class="stream" aria-hidden="true"></div>
 <div id="stream-s" class="stream" aria-hidden="true"></div>
-<main class="page">
-<header class="brand">
-<!-- Hooded crow: Archibald Thorburn, "A naturalist's sketch book" (1919), plate 18, public domain. Screens of 1.5× and
-     up get the same frame of the plate at 960 px, sharpened; the plate holds the crow at 741 px. -->
-<picture>
-<source type="image/webp" media="(min-resolution: 1.5dppx), (-webkit-min-device-pixel-ratio: 1.5)" srcset="${BASE}crow-2x.webp">
-<img class="bird" src="${BASE}crow.png" alt="Pencil study of a hooded crow" width="640" height="406">
-</picture>
-<div class="mark">${inline(title)}</div>
 <p class="tag">${inline(subtitle)}</p>
-</header>
-<section class="claim">
 <h1>
-<span class="sr">${inline(headline)}</span>
-<span class="line" aria-hidden="true"><span class="verb"><span class="v on">Sell to</span><span class="v">Buy from</span></span> any agent.</span>
+<span class="sr">${inline(headline)} Go direct.</span>
+<span class="line" aria-hidden="true"><span class="verb">${HEADLINES.map((h, i) => `<span class="v${i ? '' : ' on'}">${esc(h)}</span>`).join('')}</span></span>
 </h1>
 <p class="lede">${inline(lede)}</p>
 ${JOINFORM}
+<a class="demo-link" href="${BASE}demo/">Watch two agents close a deal ›</a>
 </section>
 ${PROPS}
-${footer(command)}
 </main>
+${footer(command)}
 ${SCRIPT}
 </body>
 </html>
@@ -679,7 +665,7 @@ export function publishedGuides({ op1, op2, command = tryCommand() }) {
 }
 
 /** The images a publish build copies as they are. */
-export const ASSETS = ['crow.png', 'crow-2x.webp', 'favicon.png', 'og.png'];
+export const ASSETS = ['crow.png', 'crow-2x.webp', 'crow-mark.svg', 'favicon.png', 'og.png'];
 
 /** The published files: placeholders filled, editor notes gone. */
 export function filled(md, { op1, op2, command = tryCommand() }) {
