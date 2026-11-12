@@ -760,7 +760,8 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect(await s.tokenBalance(cast.operator.address, true)).toBe(fees + 4_710_000n);
   }, 60_000);
 
-  it('timeouts sent by a stranger: an offer expires, and a held deal is reclaimed', async () => {
+  // ADR-0031 §7 (SC-6): an unfunded offer's expiry is never on chain; a stranger can only send the reclaim.
+  it('timeouts: a held deal reclaimed by a stranger syncs; an offer expires in the node\'s own record, with no transaction', async () => {
     const { s, sync } = await node();
     const offered = new EvmDeal(s, cast, club, 'direct-expire');
     await ok(s, await offered.offer());
@@ -768,11 +769,18 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     const held = await funded('direct-reclaim', s);
     expect(s.openDeals()).toEqual({ recent: 2, idle: 0 });
     await jump(3_601);
-    await direct(cast.stranger, 'expireOffer', [termsView(offered.terms)]);
     await direct(cast.stranger, 'reclaim', [termsView(held.terms)]);
-    expect(await sync.pass()).toMatchObject({ applied: 2 });
+    expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
+    const txs = s.transactions().length;
+    expect((await s.trigger(offered.id, 'expire_offer', { via: 'op-1' })).ok).toBe(true);
+    expect(s.transactions()).toHaveLength(txs);
     expect((await s.state(offered.id))!.escrowState).toBe('Expired');
-    expect(s.log().filter((e) => e.commitmentId === offered.id).at(-1)).toMatchObject({ type: 'offer.expired', submittedVia: 'direct', payload: { from: 'AcceptedByAdjudicator' } });
+    expect((await s.stage(offered.id)).stage).toBe('None');
+    expect(s.log().filter((e) => e.commitmentId === offered.id).at(-1)).toMatchObject({ type: 'offer.expired', submittedVia: 'op-1', payload: { from: 'AcceptedByAdjudicator' } });
+    // A later sync pass reads the chain's None for the expired offer and does not put it behind.
+    await sync.pass();
+    expect(s.behindStage(offered.id)).toBeNull();
+    expect((await s.state(offered.id))!.escrowState).toBe('Expired');
     expect((await s.state(held.id))!.escrowState).toBe('Refunded');
     expect(s.log().filter((e) => e.commitmentId === held.id).at(-1)).toMatchObject({ type: 'settlement.reclaimed', submittedVia: 'direct' });
     expect(s.openDeals()).toEqual({ recent: 0, idle: 0 });
@@ -1290,7 +1298,9 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect(await s.keysFor(d.id, cast.fallback.address)).toEqual([]);
   }, 60_000);
 
-  it('a copied fund leg with a planted offer expiry after it: the view records the funding (red-team round 2, A)', async () => {
+  // SC-6 (T-356): the planted call was an offer expiry, which the phase-one contracts no longer have; a reclaim before
+  // deliverBy is refused there the same way, so it stands in.
+  it('a copied fund leg with a planted early reclaim after it: the view records the funding (red-team round 2, A)', async () => {
     const { s, sync } = await node();
     const d = new EvmDeal(s, cast, club, 'planted-expiry');
     await ok(s, await d.offer());
@@ -1300,7 +1310,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     if (sub.kind !== 'agree_and_fund' || accept.kind !== 'adjudicator_accept') throw new Error('unreachable');
     const sellerSignature = s.log().find((e) => e.commitmentId === d.id && e.type === 'commitment.offered')!.payload['sellerSignature'] as Hex;
     const fundLeg = rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(sub.agree), { signature: sub.funding.signature }]);
-    await plantedAfter(watcher, fundLeg, rulesCall('expireOffer', [termsView(d.terms)]));
+    await plantedAfter(watcher, fundLeg, rulesCall('reclaim', [termsView(d.terms)]));
     expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
     expect(s.escrowState(d.id)!.kind).toBe('Held');
     expect((await ok(s, await d.deliver())).state.escrowState).toBe('Delivered');
