@@ -1,7 +1,7 @@
 // One test deal on the ’crow demo. Test tokens only (tUSD on SimChain, tUSDC on Sepolia): nothing here is real money.
 //
 // With --seller <intake URL>, this script is the buyer and Crow's test seller (apps/test-agents, D47) is the other
-// party: the buyer seals a proposal to the seller's intake, as site/llms.txt "Two agents, two people" describes,
+// party: the buyer seals a proposal to the seller's intake, as site/ref/intake.txt "Two agents, two people" describes,
 // reads the commitment ID back with its status token, checks the offer on both operators against its own intent and
 // the seller's published address, then agrees and funds; the seller delivers; the adjudicator's checks decide; the
 // buyer opens its copy. With --outcome refund the buyer asks for work that fails a check, to see a refund. When the

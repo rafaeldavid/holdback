@@ -3,7 +3,7 @@
 //   node examples/pay-from-wallet.ts files <key store directory> <commitment ID>
 //       writes the two messages the payment address signs, as eth_signTypedData_v4 files beside the key file, and prints
 //       one sentence for each: who pays whom how much, until when, for which deal. buy-with-signer.ts runs this step
-//       when CROW_PAYMENT_ADDRESS is set. Sign each file in the wallet (see site/llms.txt, "Pay from your own wallet").
+//       when CROW_PAYMENT_ADDRESS is set. Sign each file in the wallet (see site/ref/http-buyer.txt, "Pay from your own wallet").
 //   node examples/pay-from-wallet.ts fund <key store directory> <commitment ID> <funding signature> [<operator-fee signature>]
 //       funds the deal with the wallet's signatures, as 0x and 130 hex characters, only if each recovers to the payment
 //       address over the message the signer rebuilt from the approved terms. Then follow it with buy-with-signer.ts resume.
