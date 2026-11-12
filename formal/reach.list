@@ -1,38 +1,57 @@
-# Reach witnesses: states the model must reach. One per line: profile, addresses, witness.
+# Reach witnesses: states the model must reach. One per line: profile, addresses, halted, witness.
 #   profile    full | phase-one
 #   addresses  equal | apart   (each money address equal to its signing address, or both apart)
+#   halted     none | any      (no actor halts, or one named actor halts at some point)
 #   witness    an operator W_... of Holdback.tla, which says "this state is never reached"
 # formal/check.sh runs each witness as an invariant and requires TLC to violate it, so a safety config cannot pass
 # because the model lost the behaviour it is about. Rows P06 to P17 are docs/audit/state-model.md, section 9.3.
 
-# Phase one: every closing row of the state model.
-phase-one apart W_ReleasedByPrimary            # P06
-phase-one apart W_RefundedByPrimary            # P07
-phase-one apart W_ReleasedByFallback           # P08
-phase-one apart W_RefundedByFallback           # P09
-phase-one apart W_ReleasedOnEscalation         # P10
-phase-one apart W_RefundedOnEscalation         # P11
-phase-one apart W_DefaultedAfterFallback       # P12, the fallback missed fallbackBy
-phase-one apart W_DefaultedAfterEscalation     # P12, an escalated case went undecided
-phase-one apart W_AcceptedEarlyAfterDelivery   # P13
-phase-one apart W_AcceptedEarlyInHeld          # P13, the early accept carried the delivery
-phase-one apart W_Reclaimed                    # P14
-phase-one apart W_SettledInHeld                # P15, no key released
-phase-one apart W_SettledLateWorkWithKey       # P15, late work: after deliverBy, with the key
-phase-one apart W_SettledAfterDelivery         # P16
-phase-one apart W_SettledUnderFallback         # P17
-phase-one apart W_SettledUnderEscalation       # P17
-phase-one apart W_DecidedCarryingDelivery      # the primary's decision carried the delivery
-phase-one apart W_ClosedAfterEscrowReclaim     # the payment address reclaimed on the escrow, then a timeout closed the deal
-phase-one apart W_BothClosed                   # both commitments end in one behaviour
+# Phase one: every closing row of the state model, by the step that closes it.
+phase-one apart none W_ReleasedByPrimary                 # P06, after a posted delivery
+phase-one apart none W_RefundedByPrimary                 # P07, after a posted delivery
+phase-one apart none W_ReleasedByFallback                # P08
+phase-one apart none W_RefundedByFallback                # P09
+phase-one apart none W_ReleasedOnEscalation              # P10
+phase-one apart none W_RefundedOnEscalation              # P11
+phase-one apart none W_DefaultedAfterFallback            # P12, the fallback missed fallbackBy
+phase-one apart none W_DefaultedAfterEscalation          # P12, an escalated case went undecided
+phase-one apart none W_AcceptedEarlyAfterDelivery        # P13
+phase-one apart none W_AcceptedEarlyAfterJudgeBy         # P13, racing the fallback's takeover
+phase-one apart none W_AcceptedEarlyInHeld               # P13, the early accept carried the delivery
+phase-one apart none W_Reclaimed                         # P14
+phase-one apart none W_SettledInHeld                     # P15, no key released
+phase-one apart none W_SettledLateWorkWithKey            # P15, late work: after deliverBy, with the key
+phase-one apart none W_SettledAfterDelivery              # P16
+phase-one apart none W_SettledUnderFallback              # P17
+phase-one apart none W_SettledUnderEscalation            # P17
+phase-one apart none W_SettledRefundOnlyAfterExpiry      # a settlement that only refunds, after the escrow's expiry
+
+# Phase one: the steps between, and the ones phase one adds.
+phase-one apart none W_EscalatedByPrimary                # P05, after a posted delivery
+phase-one apart none W_EscalatedByFallback               # P05
+phase-one apart none W_FallbackTriggered                 # P04
+phase-one apart none W_FallbackTriggeredAfterFallbackBy  # P04, the trigger came late
+phase-one apart none W_ReleasedCarryingDelivery          # the primary's decision carried the delivery
+phase-one apart none W_RefundedCarryingDelivery
+phase-one apart none W_EscalatedCarryingDelivery
+phase-one apart none W_ReclaimedOnEscrowInHeld           # the payment address reclaimed on the escrow
+phase-one apart none W_ReclaimedOnEscrowWhileEscalated
+phase-one apart none W_ClosedAfterEscrowReclaim          # then a timeout closed the deal
+phase-one apart none W_BothClosed                        # both commitments end in one behaviour
+phase-one apart any  W_ClosedAfterCrash                  # an actor halted and a deal still closed
+phase-one equal none W_ReleasedByPrimary                 # the same machine with the addresses equal
 
 # Full: what phase one cuts is still reached here, and the shared rows too.
-full equal W_AppealOverturned
-full equal W_AppealUpheld
-full equal W_AppealUndecided
-full equal W_OfferExpired
-full equal W_DefaultedState
-full equal W_FallbackBondEncumbered
-full equal W_DefaultedAfterEscalation
-full equal W_ClosedAfterEscrowReclaim
-full apart W_AppealOverturned
+full equal none W_AppealOverturned
+full equal none W_AppealUpheld
+full equal none W_AppealUndecided
+full equal none W_AppealWindowExpired
+full equal none W_OfferExpired
+full equal none W_DefaultApplied
+full equal none W_FallbackBondEncumbered
+full equal none W_ReleasedByPrimary
+full equal none W_RefundedByFallback
+full equal none W_DefaultedAfterEscalation
+full equal none W_ClosedAfterEscrowReclaim
+full apart none W_AppealOverturned
+full apart any  W_ClosedAfterCrash

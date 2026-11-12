@@ -96,7 +96,7 @@ printf '%-46s %-7s %12s %6s %10s\n' config result distinct depth wall
 selected() { # name
   case "$1" in
     *"$filter"*) return 0 ;;
-    reach/*) [ "$filter" = safety ] ;;
+    */reach/*) [ "$filter" = safety ] ;;
     *) return 1 ;;
   esac
 }
@@ -150,7 +150,7 @@ for cfg in "$here"/full/*.cfg "$here"/phase-one/*.cfg; do run "$(named "$cfg")" 
 for cfg in "$here"/broken/full/*.cfg "$here"/broken/phase-one/*.cfg; do run "$(named "$cfg")" "$cfg" bites; done
 
 # Reach witnesses: one generated config each, in formal/.reach/.
-while read -r profile addresses witness _; do
+while read -r profile addresses halted witness _; do
   case "$profile" in ''|'#'*) continue ;; esac
   case "$profile" in
     full) constant=full ;;
@@ -162,10 +162,15 @@ while read -r profile addresses witness _; do
     apart) apart='{"buyer", "seller"}' ;;
     *) echo "reach.list: unknown addresses $addresses" >&2; exit 2 ;;
   esac
-  name="reach/$profile-$addresses/$witness"
+  case "$halted" in
+    none|any) ;;
+    *) echo "reach.list: unknown halted $halted" >&2; exit 2 ;;
+  esac
+  name="$profile/reach/$witness.$addresses"
+  [ "$halted" = any ] && name="$name.halting"
   cfg="$reach/${name//\//-}.cfg"
-  printf 'SPECIFICATION Spec\nCONSTANTS\n  C = {c1, c2}\n  Halted = "none"\n  Bug = "none"\n  Profile = "%s"\n  Apart = %s\nINVARIANTS\n  %s\n' \
-    "$constant" "$apart" "$witness" >"$cfg"
+  printf 'SPECIFICATION Spec\nCONSTANTS\n  C = {c1, c2}\n  Halted = "%s"\n  Bug = "none"\n  Profile = "%s"\n  Apart = %s\nINVARIANTS\n  %s\n' \
+    "$halted" "$constant" "$apart" "$witness" >"$cfg"
   run "$name" "$cfg" reached "Invariant $witness is violated"
 done <"$here/reach.list"
 

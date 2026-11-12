@@ -23,8 +23,11 @@
 (* it is apart from the buyer, and "anyone" (the permissionless timeout    *)
 (* trigger). Named actors get no fairness: each may stop at any time.      *)
 (* Halted names one actor that is certain to stop at some point (Crash,    *)
-(* weakly fair) and acts no more after it. Only the "anyone" triggers and  *)
-(* the passage of time are weakly fair.                                    *)
+(* weakly fair) and acts no more after it; "any" lets the check choose the *)
+(* actor. Only the "anyone" triggers and the passage of time are weakly    *)
+(* fair. A signature is "the named actor took the step": a step that needs *)
+(* a signature needs that actor not crashed, and the property Signed holds *)
+(* every step to the signers it records.                                   *)
 (*                                                                          *)
 (* Time: each commitment's absolute deadlines are strictly ordered         *)
 (* (timing.ts: offerExpiresAt < fundBy < deliverBy < judgeBy < fallbackBy; *)
@@ -91,14 +94,17 @@ Named == Parties \cup Adjs \cup {"operator", "beacon", PayAddr}
 
 SharedBugs == {"none", "second_capture", "operator_authors", "early_reclaim", "key_separate", "buyer_only_timeout",
                "double_refund", "late_judge_by", "capture_after_expiry", "refund_to_signer", "pay_signer",
-               "fund_from_signer", "early_accept_keeps_fee", "reject_releases_key", "reject_refunds_fee"}
-FullBugs == {"mint", "keep_bond_after_cpp", "slash_keeps_enc"}
+               "fund_from_signer", "early_accept_keeps_fee", "reject_releases_key", "reject_refunds_fee",
+               "settle_alone", "fund_without_payer", "early_fallback", "late_delivery", "wrong_decider"}
+FullBugs == {"mint", "keep_bond_after_cpp", "slash_keeps_enc", "overturn_pays_signer"}
 P1Bugs == {"default_pays_fee", "late_early_accept", "fund_after_expiry", "expire_recorded"}
 
 ASSUME Profile \in {"full", "phase_one"}
 ASSUME Apart \subseteq Parties
-ASSUME Halted \in Named \cup {"none"}
+\* Halted: "none", one named actor, or "any": one actor stops, and the check covers each choice of which.
+ASSUME Halted \in Named \cup {"none", "any"}
 ASSUME Bug \in SharedBugs \cup (IF P1 THEN P1Bugs ELSE FullBugs)
+ASSUME Bug = "overturn_pays_signer" => Apart = Parties
 \* A fault that pays or debits a signing address shows only where that address is apart from the money address.
 ASSUME Bug \in {"refund_to_signer", "fund_from_signer"} => "buyer" \in Apart
 ASSUME Bug = "pay_signer" => "seller" \in Apart
@@ -124,7 +130,7 @@ VARIABLES
   key,        \* the buyer can read the delivery (content key released to it)
   moves,      \* steps that debited escrow[c]
   out,        \* the ledger: what escrow[c] paid to PayAddr, to PayoutAddr and to each fee account (an observer)
-  up,         \* the Halted actor has not crashed yet
+  down,       \* the actor that has crashed, or "none"
   wallet, escrow, fees, bond, apBond, apFee,  \* accounts
   cppExp,     \* CPP's authorizationExpiry has passed (tracked while the commitment is funded)
   cppRec,     \* the payment address reclaimed the hold on CPP directly
@@ -159,7 +165,7 @@ money == <<wallet, escrow, fees, bond, apBond, apFee>>
 led == <<moves, out>>
 cppv == <<cppExp, cppRec>>
 bondv == <<enc, flags>>
-vars == <<esc, via, ap, appellant, clk, escClk, apClk, key, led, up, money, cppv, bondv, act>>
+vars == <<esc, via, ap, appellant, clk, escClk, apClk, key, led, down, money, cppv, bondv, act>>
 
 RECURSIVE SumOver(_, _)
 SumOver(f, S) == IF S = {} THEN 0 ELSE LET x == CHOOSE x \in S : TRUE IN f[x] + SumOver(f, S \ {x})
@@ -173,8 +179,9 @@ N == Cardinality(C)
 \* signature stays with the signer), and each adjudicator posts a bond.
 InitialTotal == N * Hold + (IF P1 THEN 0 ELSE 2 * N * (ApBond + ApFee) + 3 * N * Price)
 
-\* An actor acts only while it is not the halted one, or has not crashed yet.
-Can(a) == a # Halted \/ up
+\* An actor acts only while it has not crashed. A signature is "the named actor took the step", so a step that
+\* needs an actor's signature needs Can of that actor.
+Can(a) == a # down
 
 \* Who may fire a timeout: anyone (the operator and every party included), or under the
 \* buyer_only_timeout bug the buyer alone.
@@ -238,7 +245,7 @@ Init ==
   /\ key = [c \in C |-> FALSE]
   /\ moves = [c \in C |-> 0]
   /\ out = [c \in C |-> [pay |-> 0, payout |-> 0, fee |-> NoFees]]
-  /\ up = TRUE
+  /\ down = "none"
   /\ wallet = [h \in Holders |-> (IF h = PayAddr THEN N * Hold ELSE 0)
                                  + (IF h \in Parties /\ ~P1 THEN N * (ApBond + ApFee) ELSE 0)]
   /\ escrow = [c \in C |-> 0]
@@ -262,7 +269,7 @@ Offer(c) ==
   /\ esc[c] = "None"
   /\ esc' = [esc EXCEPT ![c] = "Offered"]
   /\ Act("offer", {"seller"}, c)
-  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, led, up, money, cppv, bondv>>
+  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, led, down, money, cppv, bondv>>
 
 \* adjudicator_accept: the primary accepts (seed commitment; a bond reserved in the full profile, 0 in phase one)
 \* before offerExpiresAt.
@@ -271,7 +278,7 @@ AdjAccept(c) ==
   /\ esc[c] = "Offered" /\ clk[c] < 1
   /\ esc' = [esc EXCEPT ![c] = "AcceptedByAdjudicator"]
   /\ Act("adjudicator_accept", {"primary"}, c)
-  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, led, up, money, cppv, bondv>>
+  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, led, down, money, cppv, bondv>>
 
 \* agree: the buyer signs the same terms hash before offerExpiresAt.
 Agree(c) ==
@@ -279,13 +286,14 @@ Agree(c) ==
   /\ esc[c] = "AcceptedByAdjudicator" /\ clk[c] < 1
   /\ esc' = [esc EXCEPT ![c] = "Agreed"]
   /\ Act("agree", {"buyer"}, c)
-  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, led, up, money, cppv, bondv>>
+  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, led, down, money, cppv, bondv>>
 
 \* fund: the payment address's funding authorization (ADR-0033), before FundBy. Posting PayAddr -> escrow
 \* (price + fee). Full profile: the primary's bond is encumbered for the price, and uncovered funding is refused.
-\* Phase one has no bond. The fund_from_signer bug pulls the money from the buyer's signing address.
+\* Phase one has no bond. The fund_from_signer bug pulls the money from the buyer's signing address; under
+\* fund_without_payer the buyer's signing key alone is enough to fund.
 Fund(c) ==
-  /\ Can(PayAddr) /\ \E r \in Relays : TRUE
+  /\ Can(IF Bug = "fund_without_payer" THEN "buyer" ELSE PayAddr) /\ \E r \in Relays : TRUE
   /\ esc[c] = "Agreed" /\ clk[c] < FundGuard
   /\ IF P1 THEN UNCHANGED bondv
            ELSE /\ Free("primary") >= Price
@@ -295,15 +303,15 @@ Fund(c) ==
   /\ wallet' = [wallet EXCEPT ![IF Bug = "fund_from_signer" THEN "buyer" ELSE PayAddr] = @ - Hold]
   /\ escrow' = [escrow EXCEPT ![c] = @ + Hold]
   /\ Act("fund", {PayAddr}, c)
-  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, led, up, fees, bond, apBond, apFee, cppv>>
+  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, led, down, fees, bond, apBond, apFee, cppv>>
 
-\* deliver: the seller's delivery (attempt 1), before deliverBy.
+\* deliver: the seller's delivery (attempt 1), before deliverBy. The late_delivery bug drops the deadline.
 Deliver(c) ==
   /\ Can("seller") /\ \E r \in Relays : TRUE
-  /\ esc[c] = "Held" /\ clk[c] < 3
+  /\ esc[c] = "Held" /\ (clk[c] < 3 \/ Bug = "late_delivery")
   /\ esc' = [esc EXCEPT ![c] = "Delivered"]
   /\ Act("deliver", {"seller"}, c)
-  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, led, up, money, cppv, bondv>>
+  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, led, down, money, cppv, bondv>>
 
 \* A decision's release or refund of the escrow in one step; on accept the buyer's key moves in the same step
 \* (ADR-0012), except under the key_separate bug. Accept: escrow -> PayoutAddr (price). Reject: escrow -> PayAddr
@@ -341,7 +349,7 @@ FirstInstance(c, role, o) ==
                                                 ELSE IF a \in flags[c] THEN enc[a] - Price ELSE enc[a]]
                       /\ flags' = [flags EXCEPT ![c] = {"fallback"}]
             /\ UNCHANGED <<escClk, bond, apBond, apFee>>
-  /\ UNCHANGED <<appellant, clk, up, cppv>>
+  /\ UNCHANGED <<appellant, clk, down, cppv>>
 
 \* decide by the primary, before judgeBy. Its seed is its own commit-reveal: no beacon. In Delivered in both
 \* profiles. Phase one also takes it in Held: HoldbackRules.decide lands the seller-signed delivery the decision
@@ -356,11 +364,12 @@ DecidePrimary(c, o) ==
         /\ Act("decide", {"primary", "seller"}, c)
   /\ FirstInstance(c, "primary", o)
 
-\* decide by the fallback in FallbackJudging, before fallbackBy; needs the beacon round at judgeBy.
+\* decide by the fallback in FallbackJudging, before fallbackBy; needs the beacon round at judgeBy. Under the
+\* wrong_decider bug its decision pays the fee to the primary and is recorded as the primary's.
 DecideFallback(c, o) ==
   /\ Can("fallback") /\ Can("beacon")
   /\ esc[c] = "FallbackJudging" /\ clk[c] < 5
-  /\ FirstInstance(c, "fallback", o)
+  /\ FirstInstance(c, IF Bug = "wrong_decider" THEN "primary" ELSE "fallback", o)
   /\ Act("decide", {"fallback"}, c)
 
 \* decide by the appeal adjudicator in Escalated, before its appealDecideBy (state.ts escalationDecision).
@@ -375,7 +384,7 @@ DecideEscalated(c, o) ==
   /\ Settle(c, o = "accept", "appeal")
   /\ ReleaseAll(c)
   /\ Act("decide", {"appeal"}, c)
-  /\ UNCHANGED <<ap, appellant, clk, escClk, apClk, up, bond, apBond, apFee, cppv>>
+  /\ UNCHANGED <<ap, appellant, clk, escClk, apClk, down, bond, apBond, apFee, cppv>>
 
 \* Escrow effect of early acceptance: escrow -> PayoutAddr (price); escrow -> PayAddr (fee: no adjudicator judged);
 \* key released. The early_accept_keeps_fee bug pays the fee to the primary instead.
@@ -391,7 +400,7 @@ EarlyAcceptEffect(c) ==
   /\ Debit(c, Hold, 0)
   /\ key' = [key EXCEPT ![c] = TRUE]
   /\ ReleaseAll(c)
-  /\ UNCHANGED <<ap, appellant, clk, escClk, apClk, up, bond, apBond, apFee, cppv>>
+  /\ UNCHANGED <<ap, appellant, clk, escClk, apClk, down, bond, apBond, apFee, cppv>>
 
 \* early_accept: the buyer's signature (no deadline beyond the message's own expiry). In Delivered in both
 \* profiles. Phase one also takes it in Held (T-376): HoldbackRules.earlyAccept lands the seller-signed delivery
@@ -418,7 +427,7 @@ ReleaseKeyLate(c) ==
   /\ esc[c] = "Released" /\ ~key[c]
   /\ key' = [key EXCEPT ![c] = TRUE]
   /\ Act("release_key", {}, c)
-  /\ UNCHANGED <<esc, via, ap, appellant, clk, escClk, apClk, led, up, money, cppv, bondv>>
+  /\ UNCHANGED <<esc, via, ap, appellant, clk, escClk, apClk, led, down, money, cppv, bondv>>
 
 \* mutual_settle (ADR-0019): both parties sign a split of the price; the fee returns to the buyer. The seller's
 \* share s goes to PayoutAddr and the rest to PayAddr: phase one refuses any other payee, a signing address that
@@ -427,9 +436,9 @@ ReleaseKeyLate(c) ==
 \* delivery nobody posted, and the key released is the buyer's envelope in it. The model has no delivery identity:
 \* both parties' signatures are what bind the key to that delivery, and the key still moves only with the payment.
 \* A seller share is a CPP capture (authorization unexpired); an all-buyer split is a void only, which works
-\* after the expiry while anything is still held.
+\* after the expiry while anything is still held. Under the settle_alone bug the buyer's signature is enough.
 MutualSettle(c, s, releaseKey) ==
-  /\ Can("buyer") /\ Can("seller") /\ \E r \in Relays : TRUE
+  /\ Can("buyer") /\ (Can("seller") \/ Bug = "settle_alone") /\ \E r \in Relays : TRUE
   /\ esc[c] \in Settleable
   /\ IF s > 0 THEN ~cppExp[c] ELSE ~cppRec[c]
   /\ esc' = [esc EXCEPT ![c] = "Settled"]
@@ -440,7 +449,7 @@ MutualSettle(c, s, releaseKey) ==
   /\ key' = [key EXCEPT ![c] = releaseKey]
   /\ ReleaseAll(c)
   /\ Act("mutual_settle", Parties, c)
-  /\ UNCHANGED <<ap, appellant, clk, escClk, apClk, up, bond, apBond, apFee, cppv>>
+  /\ UNCHANGED <<ap, appellant, clk, escClk, apClk, down, bond, apBond, apFee, cppv>>
 
 \* file_appeal (full profile): the party a first-instance decision went against appeals it before appealBy, paying
 \* bond and fee from the address that signs the appeal (ADR-0033 section 4). Only that party (T-206 L-7, D43).
@@ -456,7 +465,7 @@ FileAppeal(c, p) ==
   /\ apBond' = [apBond EXCEPT ![c] = @ + ApBond]
   /\ apFee' = [apFee EXCEPT ![c] = @ + ApFee]
   /\ Act("file_appeal", {p}, c)
-  /\ UNCHANGED <<esc, via, clk, escClk, apClk, key, led, up, escrow, fees, bond, cppv, bondv>>
+  /\ UNCHANGED <<esc, via, clk, escClk, apClk, key, led, down, escrow, fees, bond, cppv, bondv>>
 
 \* decide on an open appeal (full profile; state.ts stepAppeal), before its appealDecideBy; needs the beacon round
 \* after the filing. Upheld: appealbond -> bond of the first-instance adjudicator. Overturned: that bond pays the
@@ -470,7 +479,9 @@ DecideAppeal(c, o) ==
   /\ LET first == IF esc[c] = "Released" THEN "accept" ELSE "reject"
          a == via[c]
          p == appellant[c]
-         wronged == IF first = "accept" THEN PayAddr ELSE PayoutAddr
+         wronged == IF Bug = "overturn_pays_signer"
+                      THEN (IF first = "accept" THEN "buyer" ELSE "seller")
+                      ELSE (IF first = "accept" THEN PayAddr ELSE PayoutAddr)
      IN IF o = first
           THEN /\ ap' = [ap EXCEPT ![c] = "upheld"]
                /\ bond' = [bond EXCEPT ![a] = @ + ApBond]
@@ -487,7 +498,7 @@ DecideAppeal(c, o) ==
        THEN /\ flags' = [flags EXCEPT ![c] = {}] /\ UNCHANGED enc
        ELSE ReleaseAll(c)
   /\ Act("decide_appeal", {"appeal"}, c)
-  /\ UNCHANGED <<esc, via, appellant, clk, escClk, apClk, key, led, up, escrow, cppv>>
+  /\ UNCHANGED <<esc, via, appellant, clk, escClk, apClk, key, led, down, escrow, cppv>>
 
 -----------------------------------------------------------------------------
 (* Permissionless timeouts: anyone may trigger them (TimeoutKind in settlement/src/interface.ts). *)
@@ -502,7 +513,7 @@ Expire(c) ==
      \/ esc[c] = "Agreed" /\ clk[c] >= FundBy
   /\ esc' = [esc EXCEPT ![c] = "Expired"]
   /\ Act("expire", TrigSigners, c)
-  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, led, up, money, cppv, bondv>>
+  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, led, down, money, cppv, bondv>>
 
 \* reclaim: Held after deliverBy; escrow -> PayAddr (price + fee), or nothing after a CPP reclaim, and the
 \* primary's bond released either way. The early_reclaim bug fires it at fundBy; refund_to_signer pays the buyer's
@@ -517,15 +528,15 @@ Reclaim(c) ==
   /\ Debit(c, Refunds(c), 0)
   /\ CloseBonds(c)
   /\ Act("reclaim", TrigSigners, c)
-  /\ UNCHANGED <<ap, appellant, clk, escClk, apClk, key, up, bond, apBond, apFee, cppv>>
+  /\ UNCHANGED <<ap, appellant, clk, escClk, apClk, key, down, bond, apBond, apFee, cppv>>
 
-\* fallback: Delivered after judgeBy.
+\* fallback: Delivered after judgeBy. The early_fallback bug fires it at deliverBy, while the primary is on time.
 TriggerFallback(c) ==
   /\ Trig
-  /\ esc[c] = "Delivered" /\ clk[c] >= 4
+  /\ esc[c] = "Delivered" /\ clk[c] >= (IF Bug = "early_fallback" THEN 3 ELSE 4)
   /\ esc' = [esc EXCEPT ![c] = "FallbackJudging"]
   /\ Act("trigger_fallback", TrigSigners, c)
-  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, led, up, money, cppv, bondv>>
+  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, led, down, money, cppv, bondv>>
 
 \* default: FallbackJudging after fallbackBy, or Escalated after its appealDecideBy.
 \* Full profile: the commitment becomes Defaulted, and ApplyDefault refunds it in a second step.
@@ -547,7 +558,7 @@ TriggerDefault(c) ==
        ELSE /\ esc' = [esc EXCEPT ![c] = "Defaulted"]
             /\ UNCHANGED <<led, money>>
   /\ Act("trigger_default", TrigSigners, c)
-  /\ UNCHANGED <<ap, appellant, clk, escClk, apClk, key, up, cppv, bondv>>
+  /\ UNCHANGED <<ap, appellant, clk, escClk, apClk, key, down, cppv, bondv>>
 
 \* apply_default (full profile): Defaulted -> Refunded. escrow -> PayAddr (price + fee), or nothing after a CPP
 \* reclaim; the deal's bonds are released. The liable bonds compensate the seller at PayoutAddr (state.ts,
@@ -567,7 +578,7 @@ ApplyDefault(c) ==
   /\ esc' = [esc EXCEPT ![c] = "Refunded"]
   /\ CloseBonds(c)
   /\ Act("apply_default", TrigSigners, c)
-  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, up, apBond, apFee, cppv>>
+  /\ UNCHANGED <<via, ap, appellant, clk, escClk, apClk, key, down, apBond, apFee, cppv>>
 
 \* appeal_expiry (full profile): none after appealBy (nothing moves); open after appealDecideBy (bond and fee
 \* returned to the appellant's signing address).
@@ -583,7 +594,7 @@ ExpireAppeal(c) ==
   /\ ap' = [ap EXCEPT ![c] = "expired"]
   /\ ReleaseAll(c)
   /\ Act("expire_appeal", TrigSigners, c)
-  /\ UNCHANGED <<esc, via, appellant, clk, escClk, apClk, key, led, up, escrow, fees, bond, cppv>>
+  /\ UNCHANGED <<esc, via, appellant, clk, escClk, apClk, key, led, down, escrow, fees, bond, cppv>>
 
 -----------------------------------------------------------------------------
 (* Environment: time and the halting actor. *)
@@ -600,13 +611,13 @@ TickAbs(c) ==
   /\ clk[c] < Horizon(esc[c])
   /\ clk' = [clk EXCEPT ![c] = @ + 1]
   /\ Act("tick", {}, c)
-  /\ UNCHANGED <<esc, via, ap, appellant, escClk, apClk, key, led, up, money, cppv, bondv>>
+  /\ UNCHANGED <<esc, via, ap, appellant, escClk, apClk, key, led, down, money, cppv, bondv>>
 
 TickEsc(c) ==
   /\ esc[c] = "Escalated" /\ escClk[c] < 1
   /\ escClk' = [escClk EXCEPT ![c] = 1]
   /\ Act("tick", {}, c)
-  /\ UNCHANGED <<esc, via, ap, appellant, clk, apClk, key, led, up, money, cppv, bondv>>
+  /\ UNCHANGED <<esc, via, ap, appellant, clk, apClk, key, led, down, money, cppv, bondv>>
 
 \* The appeal window and the appeal's decision window (full profile).
 TickAppeal(c) ==
@@ -615,7 +626,7 @@ TickAppeal(c) ==
      \/ ap[c] = "open" /\ apClk[c] < 2
   /\ apClk' = [apClk EXCEPT ![c] = @ + 1]
   /\ Act("tick", {}, c)
-  /\ UNCHANGED <<esc, via, ap, appellant, clk, escClk, key, led, up, money, cppv, bondv>>
+  /\ UNCHANGED <<esc, via, ap, appellant, clk, escClk, key, led, down, money, cppv, bondv>>
 
 \* CPP's authorizationExpiry passes. It is fallbackBy + appealDecideSec + EXPIRY_MARGIN
 \* (HoldbackRules._paymentInfo), so with ordered deadlines it comes after every deadline a capture could
@@ -634,7 +645,7 @@ TickExpiry(c) ==
   /\ cppExp' = [cppExp EXCEPT ![c] = TRUE]
   /\ clk' = IF OnTime(c) THEN clk ELSE [clk EXCEPT ![c] = 5]
   /\ Act("tick", {}, c)
-  /\ UNCHANGED <<esc, via, ap, appellant, escClk, apClk, key, led, up, money, cppRec, bondv>>
+  /\ UNCHANGED <<esc, via, ap, appellant, escClk, apClk, key, led, down, money, cppRec, bondv>>
 
 \* The payer's reclaim on CPP (AuthCaptureEscrow.reclaim, the payer only, from authorizationExpiry), outside the
 \* rules contract: the whole hold goes back to the payment address, which is the only address that can call it
@@ -647,11 +658,11 @@ CppReclaim(c) ==
   /\ UNCHANGED fees
   /\ Debit(c, Hold, 0)
   /\ Act("cpp_reclaim", {PayAddr}, c)
-  /\ UNCHANGED <<esc, via, ap, appellant, clk, escClk, apClk, key, up, bond, apBond, apFee, cppExp, bondv>>
+  /\ UNCHANGED <<esc, via, ap, appellant, clk, escClk, apClk, key, down, bond, apBond, apFee, cppExp, bondv>>
 
 Crash ==
-  /\ Halted # "none" /\ up
-  /\ up' = FALSE
+  /\ Halted # "none" /\ down = "none"
+  /\ \E a \in (IF Halted = "any" THEN Named ELSE {Halted}) : down' = a
   /\ Act("crash", {}, CHOOSE c \in C : TRUE)
   /\ UNCHANGED <<esc, via, ap, appellant, clk, escClk, apClk, key, led, money, cppv, bondv>>
 
@@ -690,7 +701,7 @@ TypeOK ==
   /\ ap \in [C -> ApStates]
   /\ appellant \in [C -> {"na"} \cup Parties]
   /\ clk \in [C -> 0..5] /\ escClk \in [C -> 0..1] /\ apClk \in [C -> 0..2]
-  /\ key \in [C -> BOOLEAN] /\ moves \in [C -> Nat] /\ up \in BOOLEAN
+  /\ key \in [C -> BOOLEAN] /\ moves \in [C -> Nat] /\ down \in Named \cup {"none"}
   /\ out \in [C -> [pay : Int, payout : Int, fee : [Adjs -> Int]]]
   /\ wallet \in [Holders -> Int] /\ escrow \in [C -> Int] /\ fees \in [Adjs -> Int]
   /\ bond \in [Adjs -> Int] /\ apBond \in [C -> Int] /\ apFee \in [C -> Int]
@@ -739,21 +750,18 @@ Decider(c) == IF via[c] = "escalation" THEN "appeal" ELSE via[c]
 \* decided received the fee, and no other adjudicator received anything.
 PaidAsClosed ==
   \A c \in C :
-    LET o == out[c] IN
-    IF cppRec[c]
-      THEN o = [pay |-> Hold, payout |-> 0, fee |-> NoFees]
-      ELSE CASE esc[c] = "Released" /\ via[c] \in {"primary", "fallback", "escalation"}
-                  -> o = [pay |-> 0, payout |-> Price, fee |-> OnlyFee(Decider(c))]
-             [] esc[c] = "Refunded" /\ via[c] \in {"primary", "fallback", "escalation"}
-                  -> o = [pay |-> Price, payout |-> 0, fee |-> OnlyFee(Decider(c))]
-             [] esc[c] = "Released" /\ via[c] = "early"
-                  -> o = [pay |-> Fee, payout |-> Price, fee |-> NoFees]
-             [] esc[c] = "Refunded" /\ via[c] \in {"reclaim", "default_fb", "default_esc"}
-                  -> o = [pay |-> Hold, payout |-> 0, fee |-> NoFees]
-             [] esc[c] = "Settled"
-                  -> o.fee = NoFees /\ o.payout \in 0..Price /\ o.pay = Hold - o.payout
-             [] esc[c] \in MoneyDone -> FALSE    \* closed with a via no row above names
-             [] OTHER -> o = [pay |-> 0, payout |-> 0, fee |-> NoFees]
+    LET o == out[c]
+        decided == via[c] \in {"primary", "fallback", "escalation"}
+        refundedWhole == via[c] \in {"reclaim", "default_fb", "default_esc"}
+    IN IF cppRec[c]
+         THEN o = [pay |-> Hold, payout |-> 0, fee |-> NoFees]
+         ELSE /\ esc[c] \notin MoneyDone => o = [pay |-> 0, payout |-> 0, fee |-> NoFees]
+              /\ esc[c] = "Released" => \/ decided /\ o = [pay |-> 0, payout |-> Price, fee |-> OnlyFee(Decider(c))]
+                                        \/ via[c] = "early" /\ o = [pay |-> Fee, payout |-> Price, fee |-> NoFees]
+              /\ esc[c] = "Refunded" => \/ decided /\ o = [pay |-> Price, payout |-> 0, fee |-> OnlyFee(Decider(c))]
+                                        \/ refundedWhole /\ o = [pay |-> Hold, payout |-> 0, fee |-> NoFees]
+              /\ esc[c] = "Settled" => /\ via[c] = "mutual" /\ o.fee = NoFees
+                                       /\ o.payout \in 0..Price /\ o.pay = Hold - o.payout
 
 \* A default refunds the buyer: the payment address has the whole hold back, the seller's payout address and the
 \* adjudicators got nothing from the escrow. (Full profile: the seller's compensation comes from bonds, not the escrow.)
@@ -801,13 +809,24 @@ Turn(c) == CASE esc[c] = "Delivered" -> "primary"
 
 DefaultDue(c) == (esc[c] = "FallbackJudging" /\ clk[c] >= 5) \/ (esc[c] = "Escalated" /\ escClk[c] >= 1)
 
+\* Every signer the step names was able to act: an actor that has crashed signs nothing. The checks below read
+\* the signers a step records; this ties that record to the actors. It bites only where an actor halts.
+Signed == \A a \in act'.signers : Can(a)
+
+\* A decision by the adjudicator whose turn it is, on time, with the beacon for the fallback and the appeal
+\* adjudicator. Phase one: also the primary's decision in Held, with the seller's signature on the delivery it
+\* carries, before deliverBy.
+DecisionOK(c) ==
+  /\ act'.name = "decide"
+  /\ \/ /\ act'.signers = {Turn(c)} /\ OnTime(c)
+        /\ Turn(c) # "primary" => Can("beacon")
+     \/ P1 /\ act'.signers = {"primary", "seller"} /\ esc[c] = "Held" /\ clk[c] < 3
+
 EscrowDebitOK(c) ==
   /\ act'.c = c
-  /\ \/ /\ act'.name = "decide" /\ act'.signers = {Turn(c)} /\ OnTime(c)
-        /\ Turn(c) # "primary" => Can("beacon")
+  /\ \/ DecisionOK(c)
      \/ act'.name = "early_accept" /\ act'.signers = {"buyer"} /\ esc[c] = "Delivered"
-     \* Phase one: a decision or an early accept that carries the seller-signed delivery, before deliverBy.
-     \/ P1 /\ act'.name = "decide" /\ act'.signers = {"primary", "seller"} /\ esc[c] = "Held" /\ clk[c] < 3
+     \* Phase one: an early accept that carries the seller-signed delivery, before deliverBy.
      \/ P1 /\ act'.name = "early_accept" /\ act'.signers = {"buyer", "seller"} /\ esc[c] = "Held" /\ clk[c] < 3
      \/ act'.name = "mutual_settle" /\ act'.signers = Parties /\ esc[c] \in Settleable
      \/ act'.name = "reclaim" /\ esc[c] = "Held" /\ clk[c] >= 3
@@ -836,7 +855,7 @@ WalletDebitOK(h) ==
   \/ ~P1 /\ h \in Parties /\ act'.name = "file_appeal" /\ act'.signers = {h}
 
 Authorized ==
-  /\ (Halted \in act'.signers) => up
+  /\ Signed
   /\ \A c \in C : Decreased(escrow, c) => EscrowDebitOK(c)
   /\ \A h \in Holders : Decreased(wallet, h) => WalletDebitOK(h)
   /\ \A a \in Adjs : Decreased(bond, a) => BondDebitOK(a)
@@ -844,6 +863,81 @@ Authorized ==
   /\ \A c \in C : (Decreased(apBond, c) \/ Decreased(apFee, c)) => AppealDebitOK(c)
 
 AuthorizedMoves == [][Authorized]_vars
+
+\* Every step that changes a deal's stage is justified too, whether or not it moves money: by the stage before
+\* it, the step's name and signers, and the deadline. These steps decide who may move the money next. The record
+\* of how a deal closed (via) is the step that closed it, so the adjudicator PaidAsClosed finds paid is the one
+\* whose turn it was.
+Loser(c) == IF esc[c] = "Released" THEN "buyer" ELSE "seller"
+
+DecidedVia(c) == CASE esc[c] \in {"Held", "Delivered"} -> "primary"
+                   [] esc[c] = "FallbackJudging" -> "fallback"
+                   [] esc[c] = "Escalated" -> "escalation"
+                   [] OTHER -> "na"
+
+StageChangeOK(c) ==
+  LET a == esc[c]
+      b == esc'[c]
+      n == act'.name
+      s == act'.signers
+  IN /\ act'.c = c
+     /\ \/ a = "None" /\ b = "Offered" /\ n = "offer" /\ s = {"seller"}
+        \/ a = "Offered" /\ b = "AcceptedByAdjudicator" /\ n = "adjudicator_accept" /\ s = {"primary"} /\ clk[c] < 1
+        \/ a = "AcceptedByAdjudicator" /\ b = "Agreed" /\ n = "agree" /\ s = {"buyer"} /\ clk[c] < 1
+        \/ a = "Agreed" /\ b = "Held" /\ n = "fund" /\ s = {PayAddr} /\ clk[c] < FundBy
+        \/ a = "Held" /\ b = "Delivered" /\ n = "deliver" /\ s = {"seller"} /\ clk[c] < 3
+        \/ a # "Escalated" /\ b = "Escalated" /\ DecisionOK(c) /\ via'[c] = via[c]
+        \/ b \in {"Released", "Refunded"} /\ DecisionOK(c) /\ via'[c] = DecidedVia(c)
+        \/ /\ b = "Released" /\ n = "early_accept" /\ via'[c] = "early"
+           /\ \/ a = "Delivered" /\ s = {"buyer"}
+              \/ P1 /\ a = "Held" /\ s = {"buyer", "seller"} /\ clk[c] < 3
+        \/ a \in Settleable /\ b = "Settled" /\ n = "mutual_settle" /\ s = Parties /\ via'[c] = "mutual"
+        \/ a = "Held" /\ b = "Refunded" /\ n = "reclaim" /\ clk[c] >= 3 /\ via'[c] = "reclaim"
+        \/ a = "Delivered" /\ b = "FallbackJudging" /\ n = "trigger_fallback" /\ clk[c] >= 4 /\ via'[c] = via[c]
+        \/ /\ DefaultDue(c) /\ n = "trigger_default" /\ b = (IF P1 THEN "Refunded" ELSE "Defaulted")
+           /\ via'[c] = (IF a = "FallbackJudging" THEN "default_fb" ELSE "default_esc")
+        \/ ~P1 /\ a = "Defaulted" /\ b = "Refunded" /\ n = "apply_default" /\ via'[c] = via[c]
+        \/ /\ ~P1 /\ b = "Expired" /\ n = "expire" /\ via'[c] = via[c]
+           /\ (a \in {"Offered", "AcceptedByAdjudicator"} /\ clk[c] >= 1) \/ (a = "Agreed" /\ clk[c] >= 2)
+
+\* The appeal state: opened and closed at once by a first-instance decision (phase one), or opened by it and then
+\* moved by the losing party's filing, the appeal adjudicator's decision or an expiry (full profile).
+AppealChangeOK(c) ==
+  LET a == ap[c]
+      b == ap'[c]
+  IN /\ act'.c = c
+     /\ \/ /\ a = "na" /\ b = (IF P1 THEN "expired" ELSE "none")
+           /\ DecisionOK(c) /\ esc[c] # "Escalated" /\ esc'[c] \in {"Released", "Refunded"}
+        \/ /\ ~P1 /\ a = "none" /\ b = "open" /\ act'.name = "file_appeal" /\ apClk[c] < 1
+           /\ act'.signers = {Loser(c)} /\ appellant'[c] = Loser(c)
+        \/ ~P1 /\ a = "open" /\ b \in {"upheld", "overturned"} /\ AppealDecidedOK(c)
+        \/ /\ ~P1 /\ b = "expired" /\ act'.name = "expire_appeal"
+           /\ (a = "none" /\ apClk[c] >= 1) \/ (a = "open" /\ apClk[c] >= 2)
+
+AuthorizedSteps ==
+  [][/\ Signed
+     /\ \A c \in C : /\ esc'[c] # esc[c] => StageChangeOK(c)
+                     /\ via'[c] # via[c] => esc'[c] # esc[c]
+                     /\ ap'[c] # ap[c] => AppealChangeOK(c)]_vars
+
+\* Full profile (ADR-0033 section 4): a stake made by a later signature stays with the signer, and what a bond
+\* pays a wronged party goes to that party's money address. The filing takes the appeal bond and fee from the
+\* losing party's signing address and from nobody else. An overturn pays the price to the wronged party's money
+\* address and returns the bond to the appellant's signing address; an upheld appeal moves no wallet; an undecided
+\* one returns bond and fee to the appellant's signing address. The default compensation the bonds pay lands on
+\* the payout address.
+BondMoneyLands ==
+  [][\A c \in C :
+       /\ (ap[c] = "none" /\ ap'[c] = "open")
+            => wallet' = [wallet EXCEPT ![Loser(c)] = @ - (ApBond + ApFee)]
+       /\ (ap[c] = "open" /\ ap'[c] # "open")
+            => wallet' = [h \in Holders |->
+                 wallet[h]
+                 + (IF ap'[c] = "overturned" /\ h = (IF esc[c] = "Released" THEN PayAddr ELSE PayoutAddr) THEN Price ELSE 0)
+                 + (IF ap'[c] = "overturned" /\ h = appellant[c] THEN ApBond ELSE 0)
+                 + (IF ap'[c] = "expired" /\ h = appellant[c] THEN ApBond + ApFee ELSE 0)]
+       /\ (esc[c] = "Defaulted" /\ esc'[c] = "Refunded")
+            => wallet'[PayoutAddr] - wallet[PayoutAddr] = SumOver(bond, Adjs) - SumOver(bond', Adjs)]_vars
 
 \* The payment address funds the hold (ADR-0033): whatever enters an escrow leaves the payment address in the same
 \* step, a funding it signed, and no other holder's balance changes.
@@ -912,37 +1006,57 @@ BondsFreed == \A c \in C : (esc[c] = "Held") ~> (esc[c] \in MoneyDone /\ flags[c
 -----------------------------------------------------------------------------
 (* Reach witnesses. Each names a state the model must reach. formal/check.sh runs each as an invariant and        *)
 (* requires TLC to violate it (formal/reach.list). They show that the safety configs do not pass for want of       *)
-(* behaviour: every closing row of the phase-one state model is reached, and the full profile still reaches what   *)
-(* phase one cuts.                                                                                                 *)
+(* behaviour: every closing row of the phase-one state model is reached, by the step its name says, and the full   *)
+(* profile still reaches what phase one cuts. Did reads act, the last step, so a witness names the step that       *)
+(* reached the state and the stage the deal was in before it.                                                      *)
 
-Closed(state, how) == \E c \in C : esc[c] = state /\ via[c] = how
-Stepped(name, from) == act.name = name /\ act.from \in from
+Did(name, from, c) == act.c = c /\ act.name = name /\ act.from = from
+Some(P(_)) == \E c \in C : P(c)
 
-W_ReleasedByPrimary == ~Closed("Released", "primary")
-W_RefundedByPrimary == ~Closed("Refunded", "primary")
-W_ReleasedByFallback == ~Closed("Released", "fallback")
-W_RefundedByFallback == ~Closed("Refunded", "fallback")
-W_ReleasedOnEscalation == ~Closed("Released", "escalation")
-W_RefundedOnEscalation == ~Closed("Refunded", "escalation")
-W_DefaultedAfterFallback == ~Closed("Refunded", "default_fb")
-W_DefaultedAfterEscalation == ~Closed("Refunded", "default_esc")
-W_Reclaimed == ~Closed("Refunded", "reclaim")
-W_AcceptedEarlyAfterDelivery == ~Stepped("early_accept", {"Delivered"})
-W_AcceptedEarlyInHeld == ~Stepped("early_accept", {"Held"})
-W_DecidedCarryingDelivery == ~Stepped("decide", {"Held"})
-W_SettledInHeld == ~(Stepped("mutual_settle", {"Held"}) /\ ~key[act.c])
-W_SettledLateWorkWithKey == ~(Stepped("mutual_settle", {"Held"}) /\ key[act.c] /\ clk[act.c] = 3)
-W_SettledAfterDelivery == ~Stepped("mutual_settle", {"Delivered"})
-W_SettledUnderFallback == ~Stepped("mutual_settle", {"FallbackJudging"})
-W_SettledUnderEscalation == ~Stepped("mutual_settle", {"Escalated"})
-W_ClosedAfterEscrowReclaim == ~(\E c \in C : cppRec[c] /\ esc[c] = "Refunded")
+\* Decisions after a posted delivery, by each adjudicator, each way.
+W_ReleasedByPrimary == ~Some(LAMBDA c : Did("decide", "Delivered", c) /\ esc[c] = "Released" /\ via[c] = "primary")
+W_RefundedByPrimary == ~Some(LAMBDA c : Did("decide", "Delivered", c) /\ esc[c] = "Refunded" /\ via[c] = "primary")
+W_EscalatedByPrimary == ~Some(LAMBDA c : Did("decide", "Delivered", c) /\ esc[c] = "Escalated")
+W_ReleasedByFallback == ~Some(LAMBDA c : Did("decide", "FallbackJudging", c) /\ esc[c] = "Released" /\ via[c] = "fallback")
+W_RefundedByFallback == ~Some(LAMBDA c : Did("decide", "FallbackJudging", c) /\ esc[c] = "Refunded" /\ via[c] = "fallback")
+W_EscalatedByFallback == ~Some(LAMBDA c : Did("decide", "FallbackJudging", c) /\ esc[c] = "Escalated")
+W_ReleasedOnEscalation == ~Some(LAMBDA c : Did("decide", "Escalated", c) /\ esc[c] = "Released" /\ via[c] = "escalation")
+W_RefundedOnEscalation == ~Some(LAMBDA c : Did("decide", "Escalated", c) /\ esc[c] = "Refunded" /\ via[c] = "escalation")
+\* Phase one: the primary's decision carries the delivery from Held.
+W_ReleasedCarryingDelivery == ~Some(LAMBDA c : Did("decide", "Held", c) /\ esc[c] = "Released")
+W_RefundedCarryingDelivery == ~Some(LAMBDA c : Did("decide", "Held", c) /\ esc[c] = "Refunded")
+W_EscalatedCarryingDelivery == ~Some(LAMBDA c : Did("decide", "Held", c) /\ esc[c] = "Escalated")
+\* Timeouts.
+W_Reclaimed == ~Some(LAMBDA c : Did("reclaim", "Held", c))
+W_FallbackTriggered == ~Some(LAMBDA c : Did("trigger_fallback", "Delivered", c) /\ clk[c] = 4)
+W_FallbackTriggeredAfterFallbackBy == ~Some(LAMBDA c : Did("trigger_fallback", "Delivered", c) /\ clk[c] = 5)
+W_DefaultedAfterFallback == ~Some(LAMBDA c : Did("trigger_default", "FallbackJudging", c))
+W_DefaultedAfterEscalation == ~Some(LAMBDA c : Did("trigger_default", "Escalated", c))
+\* Early accept: after a delivery, after judgeBy (racing the fallback), and in Held carrying the delivery.
+W_AcceptedEarlyAfterDelivery == ~Some(LAMBDA c : Did("early_accept", "Delivered", c) /\ clk[c] < 4)
+W_AcceptedEarlyAfterJudgeBy == ~Some(LAMBDA c : Did("early_accept", "Delivered", c) /\ clk[c] >= 4)
+W_AcceptedEarlyInHeld == ~Some(LAMBDA c : Did("early_accept", "Held", c))
+\* Mutual settlement in each of its four stages; late work with its key; a refund-only split after the expiry.
+W_SettledInHeld == ~Some(LAMBDA c : Did("mutual_settle", "Held", c) /\ ~key[c])
+W_SettledLateWorkWithKey == ~Some(LAMBDA c : Did("mutual_settle", "Held", c) /\ key[c] /\ clk[c] = 3)
+W_SettledAfterDelivery == ~Some(LAMBDA c : Did("mutual_settle", "Delivered", c))
+W_SettledUnderFallback == ~Some(LAMBDA c : Did("mutual_settle", "FallbackJudging", c))
+W_SettledUnderEscalation == ~Some(LAMBDA c : Did("mutual_settle", "Escalated", c))
+W_SettledRefundOnlyAfterExpiry == ~Some(LAMBDA c : act.c = c /\ act.name = "mutual_settle" /\ cppExp[c])
+\* The payment address's reclaim on the escrow, and the timeout that closes the deal after it.
+W_ReclaimedOnEscrowInHeld == ~Some(LAMBDA c : Did("cpp_reclaim", "Held", c))
+W_ReclaimedOnEscrowWhileEscalated == ~Some(LAMBDA c : Did("cpp_reclaim", "Escalated", c))
+W_ClosedAfterEscrowReclaim == ~Some(LAMBDA c : cppRec[c] /\ esc[c] = "Refunded")
 W_BothClosed == ~(\A c \in C : esc[c] \in MoneyDone)
+\* An actor crashed and a funded deal still closed (the halting configs are not empty of crashes).
+W_ClosedAfterCrash == ~(down # "none" /\ Some(LAMBDA c : esc[c] \in MoneyDone))
 \* Full profile only: what phase one cuts is still reached here.
-W_AppealOverturned == ~(\E c \in C : ap[c] = "overturned")
-W_AppealUpheld == ~(\E c \in C : ap[c] = "upheld")
-W_AppealUndecided == ~(\E c \in C : ap[c] = "expired" /\ appellant[c] # "na")
-W_OfferExpired == ~(\E c \in C : esc[c] = "Expired")
-W_DefaultedState == ~(\E c \in C : esc[c] = "Defaulted")
-W_FallbackBondEncumbered == ~(\E c \in C : flags[c] = {"fallback"})
+W_AppealOverturned == ~Some(LAMBDA c : ap[c] = "overturned")
+W_AppealUpheld == ~Some(LAMBDA c : ap[c] = "upheld")
+W_AppealUndecided == ~Some(LAMBDA c : ap[c] = "expired" /\ appellant[c] # "na")
+W_AppealWindowExpired == ~Some(LAMBDA c : ap[c] = "expired" /\ appellant[c] = "na")
+W_OfferExpired == ~Some(LAMBDA c : esc[c] = "Expired")
+W_DefaultApplied == ~Some(LAMBDA c : Did("apply_default", "Defaulted", c))
+W_FallbackBondEncumbered == ~Some(LAMBDA c : flags[c] = {"fallback"})
 
 =============================================================================

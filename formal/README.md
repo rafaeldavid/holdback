@@ -25,7 +25,8 @@ formal/check.sh              # every config and every witness; exits 0 iff all m
 formal/check.sh safety       # the safety configs of both profiles, and the reach witnesses (seconds)
 formal/check.sh broken/      # every deliberately broken variant: each must still fail (seconds)
 formal/check.sh live-        # the liveness configs of both profiles (tens of minutes: run it in the background)
-formal/check.sh phase-one/   # everything of the phase-one profile; full/ likewise
+formal/check.sh phase-one/   # everything of the phase-one profile, liveness included; full/ likewise
+formal/check.sh reach/       # the reach witnesses alone
 ```
 
 The argument is a filter on the config's name. CI runs `safety` and `broken/` on every pull request, and
@@ -75,7 +76,8 @@ a step from the base's `Next`.
 | Money | Abstract units in the holders' wallets, `escrow[c]`, adjudicator fee accounts and, in the full profile, adjudicator bonds, `apBond[c]` and `apFee[c]`. Postings follow `docs/architecture.md`, "Hold and settlement postings". Values: price 2, fee 1, appeal bond 1, appeal fee 1, default compensation 1 per liable bond. |
 | The ledger | `out[c]` records what `escrow[c]` paid to the payment address, to the payout address and to each fee account. It is an observer: in each step that debits the escrow it adds what that step itself credited to those accounts. The properties compare it with how the deal closed. |
 | Time | The absolute deadlines are strictly ordered, so `clk[c]` counts how many have passed (1 offerExpiresAt, 2 fundBy, 3 deliverBy, 4 judgeBy, 5 fallbackBy). Core refuses any other order (`packages/core/src/timing.ts:35-49`), and so does the contract at funding (`HoldbackRules.sol:198-204`). Relative deadlines get their own counters: `escClk` for the escalation's appealDecideBy, `apClk` for appealBy and then appealDecideBy. Each tick is its own step, so TLC explores every interleaving of deadlines across commitments and actions. An action is on time iff its deadline has not passed. A timeout fires iff it has. |
-| Halting | `Halted` names one actor. A weakly fair `Crash` step stops it at some point, which may be any point, and it never acts after that. |
+| Halting | `Halted` names one actor, or `"any"` to let the check choose it. A weakly fair `Crash` step stops that actor at some point, which may be any point, and it never acts after that. |
+| Signatures | A signature is "the named actor took the step". A step that needs an actor's signature needs that actor not crashed, and each step records its signers. `Signed` holds every step to that record. It can fail only where an actor halts, so the `safety-halting` and `live-*` configs are the ones that check it. |
 | Fairness | Weak fairness applies only to the "anyone" timeouts, the clock and `Crash`. No named actor is ever required to act, so every config also covers any actor stopping at any time. |
 | Operator | Relays signed messages or is bypassed (ADR-0005). It has no action that authors a message. |
 | Beacon | Fallback, escalation and appeal decisions need it (ADR-0018: no beacon fact, no decision). The primary does not. |
@@ -100,11 +102,25 @@ a step from the base's `Next`.
   apart from every other address.
 - **Terms out of order.** A `deliverBy` or a `judgeBy` after the escrow's expiry cannot be signed into a deal:
   both profiles refuse the terms. The `late-judge-by` variants show what the refusal prevents.
-- **A third-party payout in a settlement.** The full protocol allows one where the rulebook does (D23). The
-  model splits the price between the two money addresses in both profiles.
+- **A token that refuses a transfer.** Every void and capture in the model succeeds. On the contract a transfer
+  the token refuses makes `reclaim`, `triggerDefault` and the escrow's own `reclaim` revert, so `FundedSettles`
+  rests on the token letting transfers through. Token-issuer risk is out of the audit's scope
+  (`docs/audit/scope.md`); `docs/audit/state-model.md`, section 5.3, states the assumption.
+- **What a message signs.** A settlement's split is chosen by the step; the model does not record the split the
+  parties signed, so it cannot tell a payout that differs from the signed one. The funding's amount is fixed.
+- **Addresses that coincide with an adjudicator,** and one adjudicator in two roles. The contract allows both.
+- **A contract signer whose answer changes** between two steps (ADR-0031 section 5).
+- **A third-party payout in a settlement,** and a share of the fee for the sitting adjudicator. The full protocol
+  allows both where the rulebook does (D23). The model splits the price between the two money addresses and
+  returns the whole fee, in both profiles.
 - **The full profile's economics.** Each adjudicator starts with a bond that covers both commitments, so the
   coverage gate never blocks. A bond too small, a zero appeal bond and an appeal adjudicator's own bond (known
   issues L-3 and L-5) are not modelled; phase one ships none of them.
+- **SimChain's own bond bookkeeping.** The full profile's bond steps follow the bond vault the lane deleted:
+  funding encumbers the primary's bond, and a fallback's decision moves the encumbrance. SimChain reserves the
+  primary's bond at its acceptance, the fallback's at the takeover and the appeal adjudicator's at an escalation
+  (`packages/settlement/sim/simchain.ts`) [measured by T-376's review]. The bond properties therefore describe
+  the vault's rule, which returns with bonds (ADR-0031), and not SimChain's steps one for one.
 - **The rest:** `settle_after_window` and the `settle` timeout, scopes and mandates, rulebook checks, more than
   one delivery attempt, the operator fee, and appeal clauses beyond core's default rules.
 - **The contract's stored closing reason and decider.** See "Waiting for RF-4".
@@ -129,7 +145,9 @@ a step from the base's `Next`.
 | `KeyOnlyWithPayment` | invariant | both | The buyer holds the content key only in Released, or in Settled when the settlement released it, and always holds it in Released. |
 | `RefundedNeverReleasedKey` | invariant | both | A Refunded deal's buyer does not hold the key. With `AtomicKey`, which says a key is never taken back, it never held it. |
 | `BondCovered`, `EncMatchesDeals`, `BondsReleasedAtClose` | invariants | full | No encumbrance exceeds its bond; each encumbrance is the price times the open deals that flag the adjudicator; a deal holds a bond only while funded or appealable. |
-| `AuthorizedMoves` | action property | both | Every debit is justified by the state before the step and by who signed it. An escrow debit needs: the decision of the adjudicator whose turn it is, on time, with a beacon for the fallback and the appeal adjudicator; or the buyer's early accept after a delivery; or both parties' settlement; or reclaim after deliverBy; or the default outcome after its deadline; or the payment address's own reclaim after the escrow's expiry. In phase one a decision or an early accept in Held also qualifies, with the seller's signature on the delivery it carries, before deliverBy. A wallet debit needs the payment address's own funding before the funding deadline, or, in the full profile, a party's own appeal. Bond and appeal-stake debits need an appeal decision, an expired appeal or the default outcome. Fee accounts are never debited. The halted actor signs nothing after it crashes. |
+| `AuthorizedMoves` | action property | both | Every debit is justified by the state before the step and by who signed it. An escrow debit needs: the decision of the adjudicator whose turn it is, on time, with a beacon for the fallback and the appeal adjudicator; or the buyer's early accept after a delivery; or both parties' settlement; or reclaim after deliverBy; or the default outcome after its deadline; or the payment address's own reclaim after the escrow's expiry. In phase one a decision or an early accept in Held also qualifies, with the seller's signature on the delivery it carries, before deliverBy. A wallet debit needs the payment address's own funding before the funding deadline, or, in the full profile, a party's own appeal. Bond and appeal-stake debits need an appeal decision, an expired appeal or the default outcome. Fee accounts are never debited. Every signer the step names was able to act (`Signed`). |
+| `AuthorizedSteps` | action property | both | Every step that changes a deal's stage is justified, whether or not it moves money: by the stage before it, the step's name and signers, and the deadline. A delivery needs the seller, before deliverBy. The fallback takes over only from judgeBy. Only the adjudicator whose turn it is escalates. The record of how a deal closed is the step that closed it, so the adjudicator `PaidAsClosed` finds paid is the one whose turn it was. In the full profile the appeal state moves only by the losing party's filing in time, the appeal adjudicator's decision in time, or an expiry. |
+| `BondMoneyLands` | action property | full | A filing takes the appeal bond and fee from the losing party's signing address and from nobody else. An overturn pays the price to the wronged party's money address and returns the bond to the appellant's signing address. An undecided appeal returns bond and fee there. The default compensation lands on the payout address (ADR-0033 section 4). |
 | `PaymentAddressFunds` | action property | both | Whatever enters an escrow leaves the payment address in the same step, a funding that address signed, and no other holder's balance changes. |
 | `SignersOnlyStake` | action property | both | A signing address apart from its money address never pays or receives deal money. Its balance changes only by its own appeal stake, in the full profile. |
 | `FirstDecisionFinal` | action property | both | Once an escrow is paid out, the deal's outcome, key, escrow and ledger never change. In phase one nothing about the deal changes, and no later step that names it moves money. |
@@ -139,11 +157,17 @@ a step from the base's `Next`.
 | `FundedSettles` | liveness | both | `Held ~> Released, Refunded or Settled`, for each commitment: every funded deal ends. |
 | `FundedFinal`, `OfferEnds`, `BondsFreed` | liveness | full | The appeal state closes too; every offer ends, expired or paid out; every encumbered bond is freed. Phase one has no appeal state to close, records no expiry and has no bond. |
 
+Some properties follow from others and are kept for their plain names. `DefaultRefundsBuyer` is the default row
+of `PaidAsClosed`. `RefundedNeverReleasedKey` follows from `KeyOnlyWithPayment`. In phase one `SignersOnlyStake`
+says what `SignersHoldNothing` says; it adds something only in the full profile, where a signer holds its appeal
+stake. `PaymentAddressFunds` adds to `AuthorizedMoves` that the debit and the credit are the same amount and that
+no other balance moves.
+
 The five properties the phase-one contracts must keep, and where each is checked:
 
 | The promise | Property | Config |
 | --- | --- | --- |
-| No money moves without a signature, a decision or a passed deadline | `AuthorizedMoves`, `PaymentAddressFunds` | `phase-one/safety-*` |
+| No money moves without a signature, a decision or a passed deadline | `AuthorizedMoves`, `AuthorizedSteps`, `PaymentAddressFunds` | `phase-one/safety-*`; the signatures in `phase-one/safety-halting` and `phase-one/live-*` |
 | Each escrow pays once | `SettleOnce`, `FirstDecisionFinal` | `phase-one/safety-*` |
 | Every funded deal ends | `FundedSettles` | `phase-one/live-*` |
 | A deal that ends Refunded never released its key | `RefundedNeverReleasedKey`, `AtomicKey` | `phase-one/safety-*` |
@@ -155,8 +179,14 @@ The five properties the phase-one contracts must keep, and where each is checked
 | --- | --- | --- |
 | `full/safety-equal.cfg`, `full/safety-apart.cfg` | none | every invariant and action property of the full profile, with each money address equal to its signing address, and with both apart |
 | `phase-one/safety-equal.cfg`, `safety-apart.cfg`, `safety-buyer-apart.cfg`, `safety-seller-apart.cfg` | none | every invariant and action property of the phase-one profile, for each choice of which money addresses are apart |
-| `full/live-<actor>.cfg` | buyer, seller, primary, fallback, appeal, operator, beacon (addresses equal), payer (addresses apart) | the four liveness properties, plus `TypeOK`, `Conservation` and `SettleOnce` |
-| `phase-one/live-<actor>.cfg` | the same eight actors, addresses apart | `FundedSettles`, plus `TypeOK`, `Conservation`, `SettleOnce` and `PhaseOneCuts` |
+| `full/safety-halting.cfg`, `phase-one/safety-halting.cfg` | any one actor, addresses apart | the same invariants and action properties while one actor halts at some point; TLC covers each choice of actor. This is where a missing signature shows |
+| `full/live-<actor>.cfg` | buyer, seller, primary, fallback, appeal, operator, beacon (addresses equal), payer (addresses apart) | the four liveness properties and every action property, plus `TypeOK`, `Conservation` and `SettleOnce` |
+| `phase-one/live-<actor>.cfg` | the same eight actors, addresses apart | `FundedSettles` and every action property, plus `TypeOK`, `Conservation`, `SettleOnce` and `PhaseOneCuts` |
+
+The liveness verdict does not depend on which actor halts: no fair step needs a named actor, so a halt only
+removes optional steps. Each `live-<actor>` config is the record for that actor that `docs/neutrality.md` asks
+for, and it also checks that the halted actor signs nothing after it stops. The operator's halt changes nothing
+the model can see, because a signed message always has the direct route.
 
 Each broken config sets `Bug` to one planted fault and names the property that must fail. Its `\* expect:` line is
 what TLC must print; `check.sh` requires that TLC fails on that config and that its output matches the line.
@@ -174,6 +204,12 @@ what TLC must print; `check.sh` requires that TLC fails on that config and that 
 | `broken/phase-one/fund-after-expiry.cfg` | funding lands after `offerExpiresAt` | `LapsedOfferNeverFunds` |
 | `broken/phase-one/expire-recorded.cfg` | the contract records an offer's expiry | `PhaseOneCuts` |
 | `broken/phase-one/late-early-accept.cfg` | an early accept in Held lands its delivery after `deliverBy` | `AuthorizedMoves` |
+| `broken/phase-one/fund-from-signer-negative.cfg`, `double-refund-escrow.cfg`, `reject-releases-key-payment.cfg` | three of the faults above, against a second property | `NonNegative`, `EscrowMatchesState`, `KeyOnlyWithPayment` |
+| `broken/*/settle-alone.cfg` | a settlement needs the buyer's signature only, and the seller has halted | `AuthorizedMoves` |
+| `broken/*/fund-without-payer.cfg` | the buyer's signing key alone funds the hold, and the payment address has halted | `AuthorizedMoves` |
+| `broken/*/early-fallback.cfg` | the fallback takes over at deliverBy, while the primary is on time | `AuthorizedSteps` |
+| `broken/*/late-delivery.cfg` | a delivery lands after deliverBy | `AuthorizedSteps` |
+| `broken/*/wrong-decider.cfg` | the fallback's decision pays the primary and is recorded as the primary's | `AuthorizedSteps` |
 | `broken/*/late-judge-by.cfg` | terms whose `judgeBy` falls after the escrow's expiry are taken | `ExpiryAfterCaptures` |
 | `broken/*/operator-authors.cfg` | the operator submits an early accept the buyer never signed | `AuthorizedMoves` |
 | `broken/*/early-reclaim.cfg` | reclaim fires at fundBy instead of deliverBy | `AuthorizedMoves` |
@@ -185,16 +221,27 @@ what TLC must print; `check.sh` requires that TLC fails on that config and that 
 | `broken/full/mint.cfg` | the default outcome pays compensation without debiting bonds | `Conservation` |
 | `broken/full/keep-bond-after-cpp.cfg` | after a reclaim on the escrow the timeout keeps the deal's bonds | `BondsReleasedAtClose` |
 | `broken/full/slash-keeps-enc.cfg`, `slash-uncovered.cfg` | an overturn slashes the bond but keeps the encumbrance | `EncMatchesDeals`, `BondCovered` |
+| `broken/full/overturn-pays-signer.cfg` | an overturn pays the wronged party's signing address | `BondMoneyLands` |
+| `broken/full/pay-signer.cfg`, `refund-to-signer.cfg`, `fund-from-signer.cfg`, `early-accept-keeps-fee.cfg` | the phase-one faults of the same names, in the full profile | `EscrowLedger`, `SignersOnlyStake`, `PaymentAddressFunds`, `PaidAsClosed` |
+| `broken/full/buyer-only-timeout-offer.cfg`, `buyer-only-timeout-final.cfg`, `keep-bond-liveness.cfg` | two faults above, against the full profile's other liveness properties | `OfferEnds`, `FundedFinal`, `BondsFreed` |
 
-`broken/*/` means the variant runs in both profiles, one config each.
+`broken/*/` means the variant runs in both profiles, one config each. `TypeOK` has no broken config.
 
 **Reach witnesses.** `reach.list` names states the model must reach, one per line. Each is an operator `W_...`
 that says "this state is never reached"; `check.sh` runs it as an invariant and requires TLC to violate it. A
-safety config that passes because the model lost a behaviour would lose its witness. The phase-one witnesses are
-the closing rows P06 to P17 of `docs/audit/state-model.md`, section 9.3, and the steps phase one adds: an early
-accept and a decision that carry the delivery, a late-work settlement with its key, and a close after the payment
-address's reclaim on the escrow. The full-profile witnesses are what phase one cuts: an appeal overturned, upheld
-and undecided, an offer's recorded expiry, the `Defaulted` state and a fallback's encumbered bond.
+witness reads the model's record of the last step, so it names the step that reached the state and the stage the
+deal was in before it: a decision after a posted delivery is a different witness from a decision that carried
+the delivery. A safety config that passes because the model lost one of these steps loses its witness.
+
+- **Phase one:** every closing row of `docs/audit/state-model.md`, section 9.3 (P06 to P17), by the step that
+  closes it; the steps between (an escalation by the primary and by the fallback, the fallback's takeover on time
+  and late); the steps phase one adds (an early accept and each outcome of a decision that carry the delivery, a
+  late-work settlement with its key); the payment address's reclaim on the escrow and the close after it; and a
+  close after an actor halted.
+- **Full:** what phase one cuts (an appeal overturned, upheld, undecided and not filed, an offer's recorded
+  expiry, the default applied in its second step, a fallback's encumbered bond), and some shared rows.
+
+The witnesses cover steps, not every interleaving: a step the list does not name can still go missing unseen.
 
 **What became of `broken/late-judge-by.cfg`.** It moved, and it changed meaning. T-337 wrote it as the record of
 an open issue (L-6): the deployed contract took terms whose `judgeBy` falls after the escrow's expiry. The lane's
