@@ -17,11 +17,20 @@ type Clock = { genesis: number; period: number };
 const QUICKNET: Clock = { genesis: 1692803367, period: 3 };
 /** SimChain's beacon: round t at unix second t. */
 const SIM: Clock = { genesis: 1, period: 1 };
-/** The latest round published at or before `iso`, as core's beaconRoundAt and the contract's BEACON.roundAt count it. */
-const roundAt = (c: Clock, iso: string): number => {
-  const t = Math.floor(Date.parse(iso) / 1000);
-  return t < c.genesis ? 0 : Math.floor((t - c.genesis) / c.period) + 1;
-};
+/** The latest round published at or before unix second `t`, as core's beaconRoundAt and the contract's BEACON.roundAt count it. */
+const roundAtSec = (c: Clock, t: number): number => (t < c.genesis ? 0 : Math.floor((t - c.genesis) / c.period) + 1);
+
+/**
+ * The first round published strictly after `lastChoiceSec + marginSec` (ADR-0032 §3.1), as the rules contract's
+ * `_roundAfter` and core's `roundAfter` compute it: `roundAt(lastChoice + margin) + 1`. The fallback's round takes
+ * `lastChoice = judgeBy − 1`; the margin is the contract's `BEACON_MARGIN()`, 0 on SimChain and a local chain.
+ */
+export const roundAfter = (c: Clock, lastChoiceSec: number, marginSec: number): number => roundAtSec(c, lastChoiceSec + marginSec) + 1;
+
+/** The fallback's round for a deal whose terms say `judgeBy` (HoldbackRules._fallbackRound, ADR-0032). */
+export const fallbackRound = (c: Clock, judgeBy: string, marginSec: number): number => roundAfter(c, Math.floor(Date.parse(judgeBy) / 1000) - 1, marginSec);
+
+export { QUICKNET, SIM, type Clock };
 
 /**
  * The deal's price. On a chain the round's adjudicator needs no bond (ADR-0031 §8); on SimChain it would need one, and
@@ -251,7 +260,9 @@ export const SILENT: Scenario[] = [
       const { rulebook } = await deal.buyer.club(round.demo.clubId);
       const source: string = rulebook.randomness?.source ?? 'sim';
       const clock = source === 'drand-quicknet' ? QUICKNET : source === 'sim' ? SIM : null;
-      const want = clock ? roundAt(clock, deal.terms.timing.judgeBy) : null;
+      // ADR-0032: the first round after judgeBy − 1 + the contract's margin; SimChain has no margin.
+      const margin = round.chain ? await round.chain.beaconMarginSec() : 0;
+      const want = clock ? fallbackRound(clock, deal.terms.timing.judgeBy, margin) : null;
       const rounds = decided.map((es) => es.at(-1)?.payload?.beaconRound ?? null);
       await closeOnSimChain(r, deal, done);
       await finish(r, deal);
@@ -265,7 +276,7 @@ export const SILENT: Scenario[] = [
         r.check('the demo fallback adjudicator decides', decided.every((es) => es.at(-1)?.payload?.role === 'fallback') && log.length === 1 && lc(log[0]!.args.adjudicator) === fallback, `Decided by ${log.map((l) => short(l.args.adjudicator)).join(', ') || 'nobody'}; role ${decided.map((es) => es.at(-1)?.payload?.role ?? 'none').join(' / ')}`);
         const named = decides.at(-1)?.args?.[1]?.beaconRound;
         const takeover = logsOf(deal.record, 'FallbackTriggered')[0]?.args?.beaconRound;
-        r.check("the fallback decision's beacon is drand-quicknet at the round of judgeBy", source === 'drand-quicknet' && want !== null && Number(named) === want && Number(takeover) === want && rounds.every((x) => Number(x) === want), `the club's beacon ${source}; the round at judgeBy ${want ?? 'unknown'}; decide's beaconRound ${named ?? 'none'}, FallbackTriggered's ${takeover ?? 'none'}, both operators' ${rounds.join(' and ')}; HoldbackRules verified its BLS signature, or decide would have reverted`);
+        r.check("the fallback decision's beacon is drand-quicknet at the fallback's round, the first after judgeBy − 1 + the margin", source === 'drand-quicknet' && want !== null && Number(named) === want && Number(takeover) === want && rounds.every((x) => Number(x) === want), `the club's beacon ${source}; margin ${margin} s; the fallback's round ${want ?? 'unknown'}; decide's beaconRound ${named ?? 'none'}, FallbackTriggered's ${takeover ?? 'none'}, both operators' ${rounds.join(' and ')}; HoldbackRules verified its BLS signature, or decide would have reverted`);
         r.check('the key reaches the buyer on chain', keysToBuyer(deal).length === 1, `${keysToBuyer(deal).length} KeyReleased log(s) to the buyer`);
         paidCheck(r, deal, 'the price reaches the seller on chain', seller, BigInt(price));
         paidCheck(r, deal, 'the adjudication fee goes to the fallback, whose decision settles', fallback, fee);
@@ -273,7 +284,7 @@ export const SILENT: Scenario[] = [
         const actors = decided.map((es) => lc(es.at(-1)?.actor ?? 'none'));
         r.check('the demo fallback adjudicator decides', decided.every((es) => es.at(-1)?.payload?.role === 'fallback') && actors.every((a) => a === fallback), `judgment.decided by ${actors.map(short).join(' / ')}, role ${decided.map((es) => es.at(-1)?.payload?.role ?? 'none').join(' / ')}`);
         // SimChain's beacon is the settlement layer's own clock, not drand: the drand proof is checked on a chain.
-        r.check(`the fallback decision's beacon is ${source} at the round of judgeBy`, want !== null && rounds.every((x) => Number(x) === want), `the round at judgeBy ${want ?? 'unknown'}; both operators' judgment.decided ${rounds.join(' and ')}; drand quicknet is checked on a chain`);
+        r.check(`the fallback decision's beacon is ${source} at the fallback's round, the first after judgeBy − 1 + the margin`, want !== null && rounds.every((x) => Number(x) === want), `the fallback's round ${want ?? 'unknown'} (margin ${margin} s); both operators' judgment.decided ${rounds.join(' and ')}; drand quicknet is checked on a chain`);
       }
     },
   },

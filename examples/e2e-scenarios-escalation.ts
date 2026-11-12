@@ -112,8 +112,10 @@ async function defaultAfterEscalation(r: Run): Promise<void> {
   const [buyer, seller] = [round.address('buyer'), round.address('seller')];
   const { primary, appeal: appealAdj } = round.demo.adjudicators;
   // The appeal adjudicator's window after the escalation, the parties' choice (D31): room to read the beacon and run
-  // the same check again before appealDecideBy.
-  const timing = shortWindows(r, { appealDecideSec: Math.max(round.demo.minWindowSec, 20) });
+  // the same check again before appealDecideBy. Its round is published only after the escalation plus the contract's
+  // BEACON_MARGIN (ADR-0032: 29 s on Sepolia, 0 on anvil), so the window covers the margin as well.
+  const margin = round.chain ? await round.chain.beaconMarginSec() : 0;
+  const timing = shortWindows(r, { appealDecideSec: Math.max(round.demo.minWindowSec, margin + 20) });
   const deal = await openDeal(r, { label: 'checks-only, a check that runs out of its work budget', template: 'checks-only', deliverable: NOTES, checks: BUDGET_CHECKS, price: PRICE, timing }, [buyer, seller, primary, appealAdj]);
   await fund(r, deal);
   await deliver(r, deal, NOTES_CSV);
@@ -254,8 +256,9 @@ async function decidedOnAppeal(r: Run): Promise<void> {
   r.check('the adjudication fee goes to the appeal adjudicator', feePaid.length === 1 && lc(feePaid[0]!.args.adjudicator) === lc(appealAdj) && BigInt(feePaid[0]!.args.amount) === fee, feePaid.map((l) => `${round.amount(l.args.amount)} to ${short(l.args.adjudicator)}`).join('; ') || 'no FeePaid log');
   const toBuyer = logsOf(deal.record, 'KeyReleased').filter((l) => lc(l.args.recipient) === buyer);
   r.check(outcome === 'accept' ? 'the key reaches the buyer on chain' : 'no KeyReleased log names the buyer', toBuyer.length === (outcome === 'accept' ? 1 : 0), `${toBuyer.length} KeyReleased log(s) to the buyer`);
-  // The appeal adjudicator's seed: the beacon round after the escalation's block (HoldbackRules.decide), proven as the
-  // rulebook's beacon: a 48-byte BLS signature on drand quicknet, an empty proof on the sim beacon (anvil only).
+  // The appeal adjudicator's seed: the first beacon round after the escalation's block time plus the contract's
+  // BEACON_MARGIN (HoldbackRules._escalationRound, ADR-0032: 29 s on Sepolia, 0 on anvil), proven as the rulebook's
+  // beacon: a 48-byte BLS signature on drand quicknet, an empty proof on the sim beacon (anvil only).
   const all = decides(deal);
   const escalation = all.find((d) => ROLES[Number(d.m.role)] === 'primary');
   const final = all.find((d) => ROLES[Number(d.m.role)] === 'appeal');
@@ -264,13 +267,14 @@ async function decidedOnAppeal(r: Run): Promise<void> {
   let ok = false;
   if (escalation && final) {
     const at = (await chain.client.getBlock({ blockNumber: BigInt(escalation.block) })).timestamp;
-    const expected = Number(await chain.client.readContract({ address: chain.deployment.beacon as Hex, abi: BEACON_ABI, functionName: 'roundAt', args: [at] })) + 1;
+    const margin = BigInt(await chain.beaconMarginSec());
+    const expected = Number(await chain.client.readContract({ address: chain.deployment.beacon as Hex, abi: BEACON_ABI, functionName: 'roundAt', args: [at + margin] })) + 1;
     const sigBytes = (String(final.m.beaconSignature ?? '0x').length - 2) / 2;
     const proof = source === 'drand-quicknet' ? sigBytes === 48 : sigBytes === 0;
     ok = Number(final.m.beaconRound) === expected && lc(String(final.m.beaconSourceHash)) === keccak256(toBytes(source)) && proof;
-    detail = `beacon round ${final.m.beaconRound}, the round after the escalation at ${at} s is ${expected}; source ${source}${lc(String(final.m.beaconSourceHash)) === keccak256(toBytes(source)) ? '' : ' (the decision names another)'}; proof ${sigBytes} bytes`;
+    detail = `beacon round ${final.m.beaconRound}, the first round after the escalation at ${at} s + the margin ${margin} s is ${expected}; source ${source}${lc(String(final.m.beaconSourceHash)) === keccak256(toBytes(source)) ? '' : ' (the decision names another)'}; proof ${sigBytes} bytes`;
   }
-  r.check("the appeal decision is seeded from the beacon round after the escalation, proven as the rulebook's beacon", ok, detail);
+  r.check("the appeal decision is seeded from the first beacon round after the escalation plus the margin, proven as the rulebook's beacon", ok, detail);
 }
 
 export const ESCALATION: Scenario[] = [
