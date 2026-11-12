@@ -5,7 +5,7 @@
 //
 // Needs anvil, forge, cast and jq on PATH and `forge build` output in contracts/out; the CI anvil job has all four.
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -86,6 +86,7 @@ export class Rehearsal {
     await r.rpcCall('anvil_setCode', [MULTICALL3, multicall3Code()]);
     writeFileSync(r.passwordFile, 'rehearsal only\n');
     const keys = join(dir, 'keys');
+    mkdirSync(keys);
     const made = await run('cast', ['wallet', 'new', keys, '--unsafe-password', 'rehearsal only']);
     if (made.code !== 0) throw new Error(`cast wallet new failed: ${made.stderr}`);
     const address = /0x[0-9a-fA-F]{40}/.exec(made.stdout)?.[0];
