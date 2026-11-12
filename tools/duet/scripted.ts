@@ -7,7 +7,7 @@ import { BUDGET, SCOPE, type ScenarioName } from './scenarios.ts';
 
 export interface ScriptFacts {
   /** The guides; with `home`, the direct brief: the agent starts from the site's front door. */
-  docs: { guide: string; sell: string; buy: string; home?: string };
+  docs: { guide: string; sell: string; buy: string; home?: string; /** With the direct brief: the local copy's own address, which the seller tries once and is refused. */ local?: string };
   sellerPage: string;
   jobApi: { quote: string; start: string; result: string; url: string };
   adapterPort: number;
@@ -40,7 +40,7 @@ export function sellerScript(s: ScenarioName, f: ScriptFacts): ScriptStep[] {
   let id = '';
   let polls = 0;
   const steps: ScriptStep[] = [
-    () => ({ text: f.docs.home ? 'I start at crow.direct, then read its guide for agents and its page for sellers.' : 'I read Crow\'s guides first.', calls: [...(f.docs.home ? [call('fetch_url', { url: f.docs.home })] : []), call('fetch_url', { url: f.docs.guide }), call('fetch_url', { url: f.docs.sell })] }),
+    () => ({ text: f.docs.home ? 'I start at crow.direct, then read its guide for agents and its page for sellers.' : 'I read Crow\'s guides first.', calls: [...(f.docs.home ? [call('fetch_url', { url: f.docs.home })] : []), call('fetch_url', { url: f.docs.guide }), call('fetch_url', { url: f.docs.sell }), ...(f.docs.local ? [call('fetch_url', { url: f.docs.local })] : [])] }),
     () => ({ text: 'I set up our selling tool with our order system, and start it.', calls: [call('write_file', { path: 'seller.json', content: JSON.stringify(config, null, 2) }), call('run_command', { command: 'seller-adapter', args: ['seller.json'] })] }),
     () => ({ text: 'I publish our page, so a buyer can find where to ask for a price.', calls: [call('write_file', { path: 'public/index.html', content: page }), call('write_file', { path: 'public/agent.json', content: JSON.stringify(card, null, 2) })] }),
     // Wait for a buyer's quote: the adapter logs "<id> is offered to …".
