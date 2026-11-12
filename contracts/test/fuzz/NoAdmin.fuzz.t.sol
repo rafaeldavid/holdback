@@ -70,7 +70,8 @@ contract NoAdminFuzzTest is Base {
     function _allowlist(uint256 i) internal pure returns (string[] memory s) {
         if (i == 0) {
             // T-346 (ADR-0031 §8): BONDS(), KEY_APPEAL(), expireAppeal( and fileAppeal( left with the phase-one cut.
-            s = new string[](22);
+            // T-356 (ADR-0031 §2, SC-1): TOKEN(), the deployment's one token, an immutable set at deploy.
+            s = new string[](23);
             s[0] = "BEACON()";
             s[1] = "ERC3009_COLLECTOR()";
             s[2] = "ESCROW()";
@@ -93,6 +94,7 @@ contract NoAdminFuzzTest is Base {
             s[19] = "triggerFallback(";
             s[20] = "typedDataHash(bytes32)";
             s[21] = "deliveryHashOf(bytes32)"; // a read: the posted delivery every signature names (ADR-0029)
+            s[22] = "TOKEN()";
         } else if (i == 1) {
             s = new string[](11);
             s[0] = "PAYMENT_INFO_TYPEHASH()";

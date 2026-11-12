@@ -115,12 +115,15 @@ contract WithstoodTest is Base {
     }
 
     /// Reentrancy through a hook token: the payee of a mutual settlement re-enters during its payout. The deal is
-    /// already Settled (effects before interactions) and CPP's transient guard refuses nested operator calls.
+    /// already Settled (effects before interactions) and CPP's transient guard refuses nested operator calls. Since
+    /// SC-1 a deployment serves one token and assumes it has no hook (ADR-0031 §2); this test deploys one for a hook
+    /// token anyway, so the ordering defense stays proven if that assumption is ever broken.
     function test_defense_reentrant_payee_cannot_move_funds_again() public {
         HookToken hook = new HookToken();
         Reenterer r = new Reenterer();
         hook.setHook(address(r));
         hook.mint(buyer, 1_000_000_000);
+        rules = new HoldbackRules(escrow, address(collector3009), address(collectorPermit2), MARGIN, sim, address(hook));
 
         H.Terms memory t = _terms();
         t.token = address(hook);
@@ -164,7 +167,7 @@ contract WithstoodTest is Base {
         H.Agree memory g = _agree(t, BUYER_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
         HoldbackRules other =
-            new HoldbackRules(escrow, address(collector3009), address(collectorPermit2), MARGIN, sim);
+            new HoldbackRules(escrow, address(collector3009), address(collectorPermit2), MARGIN, sim, address(usdc));
         vm.expectRevert(HoldbackRules.BadSignature.selector);
         other.agreeAndFund(t, s, a, g, f);
         // The genuine deployment still accepts the same messages.

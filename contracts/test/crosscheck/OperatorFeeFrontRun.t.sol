@@ -28,6 +28,8 @@ contract OperatorFeeFrontRunTest is Base {
         super.setUp();
         usdc = MockERC3009Token(address(new LocalUSDC())); // Base's handle; LocalUSDC has the mock's interface
         usdc.mint(buyer, 1_000_000_000);
+        // SC-1: a deployment serves the one token it was built for, so the rules contract is redeployed for LocalUSDC.
+        rules = new HoldbackRules(escrow, address(collector3009), address(collectorPermit2), MARGIN, sim, address(usdc));
         mc = new LocalMulticall3();
         operatorFeeTo = makeAddr("operator fee");
     }

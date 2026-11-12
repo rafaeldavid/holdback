@@ -23,7 +23,11 @@ contract PinnedSourceTest is Test {
     bytes32 internal constant TYPES = 0x14bb6f68982c733a257c70e02e98595a9eaadde5825792b3a9e4db46ae16f514;
     bytes32 internal constant BEACON_IFACE = 0x91f6b5fa005d7ea75b872d7dc19293167379c43e0e61550f25f9e65db476de28;
     bytes32 internal constant SIM = 0x674a26c77a2803179c8b0e9e2571c2bf16e785126f022e2a3c151cc86b968a41;
-    bytes32 internal constant PLANTED = 0x5c3bdc14a989104a11b03eeeae7de0f41cd6d74eb1d9a4098edf806d1212167d;
+    string internal constant PARENT = "test/differential/parent/";
+    bytes32 internal constant PARENT_RULES = 0x48a75d731de0e545a7f61b1cbc3d99aa7174a74f38433e807d42117287badda7;
+    bytes32 internal constant PARENT_TYPES = 0xfe5c9629f6740f28b98994982a92ff144aa069daef33c1adc637922c4848cdb0;
+    bytes32 internal constant PARENT_BEACON_IFACE = 0xd9a32bbbbf432f05199e0fb35c82aff4f944783ffd9fc59816d094fba5db2ae3;
+    bytes32 internal constant PLANTED = 0xa5226603cdcc2f61dd74382c339d17f719b673c6f5b40d506ec5ebf2a941afb8;
 
     /// The keccak256 the compiler recorded for `source` in the artifact at `artifact`.
     function _compiled(string memory artifact, string memory source) internal view returns (bytes32) {
@@ -40,13 +44,26 @@ contract PinnedSourceTest is Test {
         assertEq(_compiled("old/SimBeacon.sol/SimBeacon.json", string.concat(OLD, "SimBeacon.sol")), SIM, "old/SimBeacon");
     }
 
-    /// The planted copy: `old/HoldbackRules.64be1f1.sol`, its imports pointed at `../old/`, a header comment, and
-    /// the line `deliveryHashOf[id] = dh;` deleted. It compiles against the pinned old files.
+    /// T-356: the harness's old side is the change's parent commit, `parent/`: `contracts/src/` at `4f6cea0`, the
+    /// three files the pinned side deploys (the sim beacon is `script/SimBeacon.sol`, unchanged since). Each file has
+    /// the same git blob id as `4f6cea0:contracts/src/<file>` (measured 2026-11-12 with `git hash-object` against
+    /// `git rev-parse`); the values below are the compiler's keccak256 of those bytes.
+    function test_parentIsTheChangesParent() public view {
+        string memory a = "HoldbackRules.4f6cea0.sol/HoldbackRules.json";
+        assertEq(_compiled(a, string.concat(PARENT, "HoldbackRules.4f6cea0.sol")), PARENT_RULES, "parent/HoldbackRules");
+        assertEq(_compiled(a, string.concat(PARENT, "HoldbackTypes.sol")), PARENT_TYPES, "parent/HoldbackTypes");
+        assertEq(_compiled(a, string.concat(PARENT, "IHoldbackBeacon.sol")), PARENT_BEACON_IFACE, "parent/IHoldbackBeacon");
+    }
+
+    /// The planted copy: `parent/HoldbackRules.4f6cea0.sol`, its imports pointed at `../parent/`, a header comment,
+    /// and the line `deliveryHashOf[id] = dh;` deleted. It compiles against the pinned parent files.
     function test_plantedCopyIsPinned() public view {
         string memory a = "HoldbackRules.planted.sol/HoldbackRules.json";
         assertEq(_compiled(a, "test/differential/planted/HoldbackRules.planted.sol"), PLANTED, "planted copy");
-        assertEq(_compiled(a, string.concat(OLD, "HoldbackBonds.sol")), BONDS, "planted: old/HoldbackBonds");
-        assertEq(_compiled(a, string.concat(OLD, "HoldbackTypes.sol")), TYPES, "planted: old/HoldbackTypes");
+        assertEq(_compiled(a, string.concat(PARENT, "HoldbackTypes.sol")), PARENT_TYPES, "planted: parent/HoldbackTypes");
+        assertEq(
+            _compiled(a, string.concat(PARENT, "IHoldbackBeacon.sol")), PARENT_BEACON_IFACE, "planted: parent/IHoldbackBeacon"
+        );
     }
 
     /// The copies share their contract names with `src/`. Forge writes the copies' artifacts elsewhere and keeps
