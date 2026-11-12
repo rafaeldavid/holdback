@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {SignerBase, SwitchWallet} from "./ContractSigners.sol";
 
@@ -31,7 +32,7 @@ contract Erc1271GasBurnTest is SignerBase {
         for (uint256 i; i < limits.length; i++) {
             (bool ok, bytes memory ret, uint256 used) = _relayWithGas(data, limits[i]);
             assertFalse(ok, "the burned call fails");
-            assertEq(ret, abi.encodeWithSelector(HoldbackRules.BadSignature.selector), "refused, not out of gas");
+            assertEq(ret, abi.encodeWithSelector(IHoldbackRules.BadSignature.selector), "refused, not out of gas");
             assertGe(used, limits[i] * 62 / 64, "the wallet burned about 63/64 of the limit");
             assertLe(used, limits[i] + 10_000, "never more than the limit plus the call's own cost");
             assertEq(_state(t, id, address(0)), before, "no state changed");
@@ -54,11 +55,11 @@ contract Erc1271GasBurnTest is SignerBase {
 
         w.setMode(BURN);
         _refusedAtBothLimits(t, id, data, "deliver");
-        _is(id, HoldbackRules.Stage.Held);
+        _is(id, IHoldbackRules.Stage.Held);
 
         vm.warp(t.timing.deliverBy);
         rules.reclaim(t);
-        _is(id, HoldbackRules.Stage.Refunded);
+        _is(id, IHoldbackRules.Stage.Refunded);
         assertEq(usdc.balanceOf(buyer), buyerStart, "the buyer is whole");
     }
 
@@ -76,13 +77,13 @@ contract Erc1271GasBurnTest is SignerBase {
 
         w.setMode(BURN);
         _refusedAtBothLimits(t, id, data, "decide");
-        _is(id, HoldbackRules.Stage.Delivered);
+        _is(id, IHoldbackRules.Stage.Delivered);
 
         vm.warp(t.timing.judgeBy);
         rules.triggerFallback(t);
         uint256 buyerBefore = usdc.balanceOf(buyer);
         rules.decide(t, _fallbackDecision(t, id, H.OUTCOME_REJECT, fallbackAdj, FB_PK), _noDelivery(), "");
-        _is(id, HoldbackRules.Stage.Refunded);
+        _is(id, IHoldbackRules.Stage.Refunded);
         assertEq(usdc.balanceOf(buyer) - buyerBefore, PRICE);
         assertEq(usdc.balanceOf(fallbackAdj), FEE);
     }
@@ -101,11 +102,11 @@ contract Erc1271GasBurnTest is SignerBase {
 
         w.setMode(BURN);
         _refusedAtBothLimits(t, id, data, "earlyAccept");
-        _is(id, HoldbackRules.Stage.Delivered);
+        _is(id, IHoldbackRules.Stage.Delivered);
 
         uint256 sellerBefore = usdc.balanceOf(seller);
         rules.decide(t, _primary(t, id, H.OUTCOME_ACCEPT), _noDelivery(), "");
-        _is(id, HoldbackRules.Stage.Released);
+        _is(id, IHoldbackRules.Stage.Released);
         assertEq(usdc.balanceOf(seller) - sellerBefore, PRICE);
     }
 
@@ -124,14 +125,14 @@ contract Erc1271GasBurnTest is SignerBase {
 
         w.setMode(BURN);
         _refusedAtBothLimits(t, id, data, "agreeAndFund");
-        _is(id, HoldbackRules.Stage.None);
+        _is(id, IHoldbackRules.Stage.None);
 
         // The offer lapses unfunded: nothing is recorded on chain (SC-6), and funding it is refused for its deadline
         // before the wallet is asked anything.
         vm.warp(t.timing.offerExpiresAt);
         (bool ok, bytes memory ret) = address(rules).call(data);
         assertFalse(ok);
-        assertEq(ret, abi.encodeWithSelector(HoldbackRules.DeadlinePassed.selector));
-        _is(id, HoldbackRules.Stage.None);
+        assertEq(ret, abi.encodeWithSelector(IHoldbackRules.DeadlinePassed.selector));
+        _is(id, IHoldbackRules.Stage.None);
     }
 }

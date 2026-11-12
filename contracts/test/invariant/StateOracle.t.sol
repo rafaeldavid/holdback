@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {RulesHandler} from "../handlers/RulesHandler.sol";
 import {PlantedHandler} from "../differential/Sides.sol";
@@ -179,10 +180,10 @@ contract StateOracleTest is Test {
         _at("P14");
         bytes32 slot = _slot(h.dealId(0), 0);
         uint256 word = uint256(vm.load(address(rules), slot));
-        assertEq((word >> 200) & 0xff, uint8(HoldbackRules.Reason.Reclaimed), "byte 25 is not the closing reason");
+        assertEq((word >> 200) & 0xff, uint8(IHoldbackRules.Reason.Reclaimed), "byte 25 is not the closing reason");
         _plantFails(
             slot,
-            (word & ~(uint256(0xff) << 200)) | (uint256(uint8(HoldbackRules.Reason.Defaulted)) << 200),
+            (word & ~(uint256(0xff) << 200)) | (uint256(uint8(IHoldbackRules.Reason.Defaulted)) << 200),
             "P14: the stored closing reason or decider is not how the deal closed"
         );
 
@@ -194,10 +195,10 @@ contract StateOracleTest is Test {
         _at("P06");
         slot = _slot(h.dealId(0), 0);
         word = uint256(vm.load(address(rules), slot));
-        assertEq((word >> 208) & 0xff, uint8(HoldbackRules.Decider.Primary), "byte 26 is not the decider");
+        assertEq((word >> 208) & 0xff, uint8(IHoldbackRules.Decider.Primary), "byte 26 is not the decider");
         _plantFails(
             slot,
-            (word & ~(uint256(0xff) << 208)) | (uint256(uint8(HoldbackRules.Decider.Fallback)) << 208),
+            (word & ~(uint256(0xff) << 208)) | (uint256(uint8(IHoldbackRules.Decider.Fallback)) << 208),
             "P06: the stored closing reason or decider is not how the deal closed"
         );
     }
@@ -208,7 +209,7 @@ contract StateOracleTest is Test {
         bytes32 id = h.dealId(0);
         bytes32 slot = _slot(id, 0);
         uint256 word = uint256(vm.load(address(rules), slot));
-        assertEq(uint8(word), uint8(HoldbackRules.Stage.Held), "slot 0 is not _deals");
+        assertEq(uint8(word), uint8(IHoldbackRules.Stage.Held), "slot 0 is not _deals");
         assertEq(h.word(id).seedTag, h.seedTag(id), "the word's layout is not stage, attempt, t1, seedTag");
         this.assertAllLegal(h);
         uint256 low = ~uint256(0xffff);
@@ -223,8 +224,8 @@ contract StateOracleTest is Test {
         );
 
         // 2. A delivered deal with no stored delivery hash (I04).
-        uint256 delivered = (word & low) | uint256(uint8(HoldbackRules.Stage.Delivered)) | (uint256(1) << 8);
-        s.d.stage = HoldbackRules.Stage.Delivered;
+        uint256 delivered = (word & low) | uint256(uint8(IHoldbackRules.Stage.Delivered)) | (uint256(1) << 8);
+        s.d.stage = IHoldbackRules.Stage.Delivered;
         s.d.attempt = 1;
         s.d.t1 = 0;
         _plantFails(slot, delivered, string.concat("no legal row (section 9): ", StateOracle.describe(s)));
@@ -233,19 +234,19 @@ contract StateOracleTest is Test {
         //    every entry point's back), with its delivery hash and a decision time.
         vm.store(address(rules), _slot(id, 1), keccak256("a delivery"));
         assertEq(rules.deliveryHashOf(id), keccak256("a delivery"), "slot 1 is not deliveryHashOf");
-        s.d.stage = HoldbackRules.Stage.Released;
+        s.d.stage = IHoldbackRules.Stage.Released;
         s.d.t1 = uint40(block.timestamp);
         s.deliveryHash = keccak256("a delivery");
         _plantFails(
             slot,
-            (word & low) | uint256(uint8(HoldbackRules.Stage.Released)) | (uint256(1) << 8)
+            (word & low) | uint256(uint8(IHoldbackRules.Stage.Released)) | (uint256(1) << 8)
                 | (uint256(block.timestamp) << 16),
             string.concat("no legal row (section 9): ", StateOracle.describe(s))
         );
 
         // 4. A word that matches row P04 (the fallback's turn) but whose t1 is before judgeBy: only the row's time
         //    bound catches it.
-        uint256 p04 = (word & low) | uint256(uint8(HoldbackRules.Stage.FallbackJudging)) | (uint256(1) << 8)
+        uint256 p04 = (word & low) | uint256(uint8(IHoldbackRules.Stage.FallbackJudging)) | (uint256(1) << 8)
             | (uint256(block.timestamp) << 16);
         assertLt(block.timestamp, h.termsOf(0).timing.judgeBy);
         _plantFails(slot, p04, "P04: t1 before judgeBy");
@@ -261,13 +262,13 @@ contract StateOracleTest is Test {
         t = h.termsOf(0);
         t.timing.judgeBy = judgeBy;
         t.timing.fallbackBy = fallbackBy;
-        s.d = HoldbackRules.Deal({
-            stage: HoldbackRules.Stage.Escalated,
+        s.d = IHoldbackRules.Deal({
+            stage: IHoldbackRules.Stage.Escalated,
             attempt: 1,
             t1: t1,
             seedTag: h.seedTag(h.dealId(0)),
-            reason: HoldbackRules.Reason.Open,
-            decider: HoldbackRules.Decider.None
+            reason: IHoldbackRules.Reason.Open,
+            decider: IHoldbackRules.Decider.None
         });
         s.deliveryHash = keccak256("a delivery");
         s.seedTag = h.seedTag(h.dealId(0));

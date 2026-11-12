@@ -1,4 +1,4 @@
-// The public demo's own world (apps/demo-cloud, the code the live nodes run, with their 1 bp operator fee) served in
+// The public demo's own world (apps/demo-cloud, the code the live nodes run; this test world keeps a 1 bp operator fee, which the live nodes charged before T-389 set theirs to 0) served in
 // this process on two origins, as examples/try.test.ts serves it: http://127.0.0.1:<port> is node 0 and
 // http://localhost:<port> node 1. The test agents reach it over HTTP only, like any agent. Tests only.
 import { MemoryStorage, PublicWorld, type PublicWorldOptions } from '@holdback/demo-cloud';

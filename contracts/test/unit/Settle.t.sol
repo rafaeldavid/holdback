@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -28,7 +29,7 @@ contract EarlyAcceptTest is Base {
         (H.Terms memory t, bytes32 id) = _funded();
         (H.Delivery memory d, H.KeyProof memory k) = _deliver(t, id);
         rules.earlyAccept(t, _early(t, id, BUYER_PK), d, _deliverySig(id, d, SELLER_PK), k);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Released));
     }
 
     function test_refuses_notTheBuyer() public {
@@ -36,7 +37,7 @@ contract EarlyAcceptTest is Base {
         (H.Delivery memory d, H.KeyProof memory k) = _delivery();
         H.EarlyAccept memory m = _early(t, id, OTHER_PK);
         bytes memory dsig = _deliverySig(id, d, SELLER_PK);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.earlyAccept(t, m, d, dsig, k);
     }
 
@@ -46,7 +47,7 @@ contract EarlyAcceptTest is Base {
         k.ciphertext = "an envelope the seller never sealed";
         H.EarlyAccept memory m = _early(t, id, BUYER_PK);
         bytes memory dsig = _deliverySig(id, d, SELLER_PK);
-        vm.expectRevert(HoldbackRules.BadKeyProof.selector);
+        vm.expectRevert(IHoldbackRules.BadKeyProof.selector);
         rules.earlyAccept(t, m, d, dsig, k);
     }
 
@@ -56,7 +57,7 @@ contract EarlyAcceptTest is Base {
         H.EarlyAccept memory m = _early(t, id, BUYER_PK);
         bytes memory dsig = _deliverySig(id, d, SELLER_PK);
         rules.earlyAccept(t, m, d, dsig, k);
-        vm.expectRevert(abi.encodeWithSelector(HoldbackRules.WrongStage.selector, HoldbackRules.Stage.Released));
+        vm.expectRevert(abi.encodeWithSelector(IHoldbackRules.WrongStage.selector, IHoldbackRules.Stage.Released));
         rules.earlyAccept(t, m, d, dsig, k);
     }
 }
@@ -96,7 +97,7 @@ contract MutualSettleTest is Base {
         assertEq(usdc.balanceOf(seller), s0 + 13_000_000);
         assertEq(usdc.balanceOf(buyer), b0 + 13_000_000 + FEE);
         assertEq(_held(t), 0);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Settled));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Settled));
     }
 
     function test_beforeDelivery_noKey() public {
@@ -106,7 +107,7 @@ contract MutualSettleTest is Base {
         H.Mutual memory m = _mutual(t, id, p, false, bytes32(0));
         H.KeyProof memory none;
         rules.mutualSettle(t, m, _noDelivery(), none);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Settled));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Settled));
         assertEq(_held(t), 0);
     }
 
@@ -116,7 +117,7 @@ contract MutualSettleTest is Base {
         p[0] = H.Payout(seller, PRICE + FEE);
         H.Mutual memory m = _mutual(t, id, p, false, bytes32(0));
         H.KeyProof memory none;
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, m, _noDelivery(), none);
     }
 
@@ -127,7 +128,7 @@ contract MutualSettleTest is Base {
         H.Mutual memory m = _mutual(t, id, p, false, bytes32(0));
         m.sellerSignature = m.buyerSignature;
         H.KeyProof memory none;
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.mutualSettle(t, m, _noDelivery(), none);
     }
 
@@ -138,7 +139,7 @@ contract MutualSettleTest is Base {
         H.Mutual memory m = _mutual(t, id, p, false, bytes32(0));
         H.KeyProof memory none;
         rules.mutualSettle(t, m, _noDelivery(), none);
-        vm.expectRevert(abi.encodeWithSelector(HoldbackRules.WrongStage.selector, HoldbackRules.Stage.Settled));
+        vm.expectRevert(abi.encodeWithSelector(IHoldbackRules.WrongStage.selector, IHoldbackRules.Stage.Settled));
         rules.mutualSettle(t, m, _noDelivery(), none);
     }
 }

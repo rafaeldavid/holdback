@@ -64,7 +64,9 @@ async function signedWithWindow(w: SimWorld): Promise<Record<string, unknown>> {
 describe('pnpm sim runs the phase-one rules (T-378)', () => {
   it('pnpm sim opens its world on the phase-one profile', () => {
     const bin = readFileSync(new URL('./sim-bin.ts', import.meta.url), 'utf8');
-    expect(bin).toMatch(/startSimWorld\(\{[^}]*profile: 'phase_one'/);
+    expect(bin).toMatch(/const PROFILE = 'phase_one'/);
+    expect(bin).toMatch(/startSimWorld\(\{[^}]*profile: PROFILE/);
+    expect(bin).toMatch(/simStartText\([^)]*profile: PROFILE/);
   });
 
   it('the offer prepare route refuses a non-zero appeal window with the chain\'s problem; the full protocol prepares it', async () => {

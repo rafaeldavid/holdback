@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Vm} from "forge-std/Vm.sol";
 import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -56,9 +57,9 @@ contract AfterCppReclaimTest is Base {
         rules.reclaim(t);
         (uint256 n,) = _refunds();
         assertEq(n, 0, "no Refunded for money the rules contract did not move");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
         assertEq(usdc.balanceOf(buyer), b0, "the buyer was refunded once, by CPP");
-        vm.expectRevert(abi.encodeWithSelector(HoldbackRules.WrongStage.selector, HoldbackRules.Stage.Refunded));
+        vm.expectRevert(abi.encodeWithSelector(IHoldbackRules.WrongStage.selector, IHoldbackRules.Stage.Refunded));
         rules.reclaim(t);
     }
 
@@ -69,7 +70,7 @@ contract AfterCppReclaimTest is Base {
         _cppReclaim(t);
         rules.triggerFallback(t);
         rules.triggerDefault(t);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
     }
 
     function test_escalated_defaultClosesTheDeal() public {
@@ -80,7 +81,7 @@ contract AfterCppReclaimTest is Base {
         rules.triggerDefault(t);
         (uint256 n,) = _refunds();
         assertEq(n, 0, "no Refunded for money the rules contract did not move");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
     }
 
     /// Before SC-5, D31 let a deliverBy fall after authorizationExpiry: nobody could reclaim through the rules contract
@@ -93,9 +94,9 @@ contract AfterCppReclaimTest is Base {
         H.Acceptance memory acc = _acceptance(t, ADJ_PK);
         H.Agree memory ag = _agree(t, BUYER_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.agreeAndFund(t, ss, acc, ag, f);
-        assertEq(uint8(_stage(hx.id(t))), uint8(HoldbackRules.Stage.None));
+        assertEq(uint8(_stage(hx.id(t))), uint8(IHoldbackRules.Stage.None));
     }
 
     /// The other money paths still revert after a CPP reclaim (nothing left to capture or void); the timeouts
@@ -115,7 +116,7 @@ contract AfterCppReclaimTest is Base {
         rules.earlyAccept(t, m, dv, dsig, k);
         rules.triggerFallback(t);
         rules.triggerDefault(t);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
     }
 
     // ------------------------------------------------------------ moved from CppReclaimStrandsBonds.t.sol (T-346)
@@ -133,7 +134,7 @@ contract AfterCppReclaimTest is Base {
         assertEq(usdc.balanceOf(buyer), b0 + PRICE + FEE, "the buyer has the money back");
 
         rules.reclaim(t);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded), "the deal closes");
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded), "the deal closes");
         assertEq(usdc.balanceOf(buyer), b0 + PRICE + FEE, "paid back once");
     }
 
@@ -166,7 +167,7 @@ contract AfterCppReclaimTest is Base {
         rules.mutualSettle(t, m, d, none);
 
         rules.triggerDefault(t);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
     }
 
     // L-6, closed by SC-5 (T-356, ADR-0031 §6). This test flipped as its note promised.
@@ -185,9 +186,9 @@ contract AfterCppReclaimTest is Base {
         H.Agree memory ag = _agree(t, BUYER_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
         uint256 b0 = usdc.balanceOf(buyer);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.agreeAndFund(t, ss, acc, ag, f);
-        assertEq(uint8(_stage(hx.id(t))), uint8(HoldbackRules.Stage.None));
+        assertEq(uint8(_stage(hx.id(t))), uint8(IHoldbackRules.Stage.None));
         assertEq(usdc.balanceOf(buyer), b0, "nothing held, so nothing to strand");
     }
 
@@ -204,7 +205,7 @@ contract AfterCppReclaimTest is Base {
         assertEq(amount, PRICE + FEE);
         assertEq(usdc.balanceOf(buyer), b0 + PRICE + FEE, "refunded by the rules contract");
         assertEq(_capturable(t), 0);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
     }
 
     function test_afterExpiry_defaultStillVoids() public {

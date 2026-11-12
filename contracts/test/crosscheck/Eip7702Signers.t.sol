@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {SignerBase} from "./ContractSigners.sol";
 
@@ -124,7 +125,7 @@ contract Eip7702SignersTest is SignerBase {
         uint256 buyerBefore = usdc.balanceOf(buyer);
         uint256 sellerBefore = usdc.balanceOf(seller);
         rules.earlyAccept(t, m, d, "", k);
-        _is(id, HoldbackRules.Stage.Released);
+        _is(id, IHoldbackRules.Stage.Released);
         assertEq(usdc.balanceOf(seller) - sellerBefore, PRICE);
         assertEq(usdc.balanceOf(buyer) - buyerBefore, FEE);
     }
@@ -136,10 +137,10 @@ contract Eip7702SignersTest is SignerBase {
         _delegate(SELLER_PK, address(selfKey));
         _delegate(ADJ_PK, address(selfKey));
         _deliver(t, id);
-        _is(id, HoldbackRules.Stage.Delivered);
+        _is(id, IHoldbackRules.Stage.Delivered);
         uint256 sellerBefore = usdc.balanceOf(seller);
         rules.decide(t, _primary(t, id, H.OUTCOME_ACCEPT), _noDelivery(), "");
-        _is(id, HoldbackRules.Stage.Released);
+        _is(id, IHoldbackRules.Stage.Released);
         assertEq(usdc.balanceOf(seller) - sellerBefore, PRICE);
         assertEq(usdc.balanceOf(adjudicator), FEE);
     }
@@ -155,15 +156,15 @@ contract Eip7702SignersTest is SignerBase {
         H.Decision memory m = _primary(t, id, H.OUTCOME_ACCEPT);
 
         _delegate(ADJ_PK, address(executorOnly));
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.decide(t, m, _noDelivery(), "");
-        _is(id, HoldbackRules.Stage.Delivered);
+        _is(id, IHoldbackRules.Stage.Delivered);
 
         vm.warp(t.timing.judgeBy);
         rules.triggerFallback(t);
         uint256 sellerBefore = usdc.balanceOf(seller);
         rules.decide(t, _fallbackDecision(t, id, H.OUTCOME_ACCEPT, fallbackAdj, FB_PK), _noDelivery(), "");
-        _is(id, HoldbackRules.Stage.Released);
+        _is(id, IHoldbackRules.Stage.Released);
         assertEq(usdc.balanceOf(seller) - sellerBefore, PRICE);
         assertEq(usdc.balanceOf(fallbackAdj), FEE);
         assertEq(usdc.balanceOf(adjudicator), 0, "the primary gets nothing");
@@ -178,13 +179,13 @@ contract Eip7702SignersTest is SignerBase {
         _delegate(ADJ_PK, address(sessionKey));
 
         H.Decision memory byOwnKey = _primary(t, id, H.OUTCOME_REJECT);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.decide(t, byOwnKey, _noDelivery(), "");
         H.Decision memory bySession =
             _signDecision(t, id, _decision(H.ROLE_PRIMARY, H.OUTCOME_REJECT), adjudicator, SESSION_PK);
         uint256 buyerBefore = usdc.balanceOf(buyer);
         rules.decide(t, bySession, _noDelivery(), "");
-        _is(id, HoldbackRules.Stage.Refunded);
+        _is(id, IHoldbackRules.Stage.Refunded);
         assertEq(usdc.balanceOf(buyer) - buyerBefore, PRICE);
         assertEq(usdc.balanceOf(adjudicator), FEE, "the fee goes to the delegated account");
     }
@@ -200,14 +201,14 @@ contract Eip7702SignersTest is SignerBase {
         uint256 buyerStart = usdc.balanceOf(buyer);
 
         _delegate(SELLER_PK, address(executorOnly));
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.agreeAndFund(t, sellerSig, acc, ag, f);
         assertEq(usdc.balanceOf(buyer), buyerStart);
 
         // The offer lapses unfunded: nothing is recorded on chain (SC-6), and funding it is now refused for its deadline.
         vm.warp(t.timing.offerExpiresAt);
-        vm.expectRevert(HoldbackRules.DeadlinePassed.selector);
+        vm.expectRevert(IHoldbackRules.DeadlinePassed.selector);
         rules.agreeAndFund(t, sellerSig, acc, ag, f);
-        _is(hx.id(t), HoldbackRules.Stage.None);
+        _is(hx.id(t), IHoldbackRules.Stage.None);
     }
 }

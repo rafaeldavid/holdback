@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -11,7 +12,7 @@ contract AgreeAndFundTest is Base {
         uint256 before = usdc.balanceOf(buyer);
         bytes32 id = _fund(t);
         assertEq(id, hx.id(t));
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Held));
         assertEq(usdc.balanceOf(buyer), before - PRICE - FEE);
         assertEq(_held(t), PRICE + FEE);
         assertEq(usdc.balanceOf(address(rules)), 0, "the rules contract never holds funds");
@@ -23,7 +24,7 @@ contract AgreeAndFundTest is Base {
         H.Agree memory g = _agree(t, BUYER_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
         bytes memory s = _sellerSig(t, OTHER_PK);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.agreeAndFund(t, s, a, g, f);
     }
 
@@ -33,7 +34,7 @@ contract AgreeAndFundTest is Base {
         H.Agree memory g = _agree(t, BUYER_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
         bytes memory s = _sellerSig(t, SELLER_PK);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.agreeAndFund(t, s, a, g, f);
     }
 
@@ -43,7 +44,7 @@ contract AgreeAndFundTest is Base {
         H.Agree memory g = _agree(t, OTHER_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
         bytes memory s = _sellerSig(t, SELLER_PK);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.agreeAndFund(t, s, a, g, f);
     }
 
@@ -54,7 +55,7 @@ contract AgreeAndFundTest is Base {
         g.signature = "";
         H.Funding memory f = _erc3009(t, BUYER_PK);
         bytes memory s = _sellerSig(t, SELLER_PK);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.agreeAndFund(t, s, a, g, f);
     }
 
@@ -65,7 +66,7 @@ contract AgreeAndFundTest is Base {
         H.Agree memory g = _agree(t, BUYER_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
         t.price = PRICE - 1; // a relayer edits the view: the commitment ID moves, every signature fails
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.agreeAndFund(t, s, a, g, f);
     }
 
@@ -76,7 +77,7 @@ contract AgreeAndFundTest is Base {
         H.Agree memory g = _agree(t, BUYER_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
         rules.agreeAndFund(t, s, a, g, f);
-        vm.expectRevert(abi.encodeWithSelector(HoldbackRules.WrongStage.selector, HoldbackRules.Stage.Held));
+        vm.expectRevert(abi.encodeWithSelector(IHoldbackRules.WrongStage.selector, IHoldbackRules.Stage.Held));
         rules.agreeAndFund(t, s, a, g, f);
     }
 
@@ -87,7 +88,7 @@ contract AgreeAndFundTest is Base {
         H.Agree memory g = _agree(t, BUYER_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
         vm.warp(t.timing.offerExpiresAt);
-        vm.expectRevert(HoldbackRules.DeadlinePassed.selector);
+        vm.expectRevert(IHoldbackRules.DeadlinePassed.selector);
         rules.agreeAndFund(t, s, a, g, f);
     }
 
@@ -101,7 +102,7 @@ contract AgreeAndFundTest is Base {
         H.Agree memory g = _agree(t, BUYER_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
         bytes memory s = _sellerSig(t, SELLER_PK);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.agreeAndFund(t, s, a, g, f);
     }
 
