@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { keccak256, type Hex } from 'viem';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { DRAND_QUICKNET_CHAIN_HASH } from './beacon.js';
+import { DRAND_QUICKNET, DRAND_QUICKNET_CHAIN_HASH, roundAfter } from './beacon.js';
 import { rulebookHash } from './canonical.js';
 import { commitmentId, deliveryHash, termsOf } from './eip712.js';
 import type { TokenAmount } from './money/index.js';
@@ -756,7 +756,8 @@ describe('beacon rounds on the clock the rulebook names (ADR-0018 §6, T-217)', 
   });
 
   it('counts the fallback and appeal rounds on the quicknet clock, and the sim rounds as before', () => {
-    expect(beaconRoundFor(run(toFallback, drandOffered()), 'fallback')).toBe(roundAt(secondsOf(T.judgeBy)));
+    // ADR-0032: the fallback's round is the first published at or after judgeBy, roundAt(judgeBy − 1) + 1.
+    expect(beaconRoundFor(run(toFallback, drandOffered()), 'fallback')).toBe(roundAt(secondsOf(T.judgeBy) - 1) + 1);
     expect(beaconRoundFor(run(toEscalated, drandOffered()), 'appeal')).toBe(roundAt(secondsOf(escalatedAt)) + 1);
     expect(beaconRoundFor(run(toAppealOpen, drandOffered()), 'appeal')).toBe(roundAt(secondsOf(T.appealFiled)) + 1);
     expect(beaconRoundFor(run(toFallback), 'fallback')).toBe(secondsOf(T.judgeBy));
@@ -777,7 +778,7 @@ describe('beacon rounds on the clock the rulebook names (ADR-0018 §6, T-217)', 
   ])('agrees with DrandQuicknetBeacon.roundAt at %s', (_name, t) => {
     const fallback = run(toFallback, drandOffered());
     if (fallback.kind !== 'FallbackJudging') throw new Error('setup');
-    expect(beaconRoundFor({ ...fallback, terms: { ...fallback.terms, timing: { ...fallback.terms.timing, judgeBy: atSecond(t) } } }, 'fallback')).toBe(roundAt(t));
+    expect(beaconRoundFor({ ...fallback, terms: { ...fallback.terms, timing: { ...fallback.terms.timing, judgeBy: atSecond(t) } } }, 'fallback')).toBe(roundAt(Math.max(0, t - 1)) + 1);
     const escalated = run(toEscalated, drandOffered());
     if (escalated.kind !== 'Escalated') throw new Error('setup');
     expect(beaconRoundFor({ ...escalated, escalation: { ...escalated.escalation, at: atSecond(t) } }, 'appeal')).toBe(roundAt(t) + 1);
@@ -792,10 +793,63 @@ describe('beacon rounds on the clock the rulebook names (ADR-0018 §6, T-217)', 
       const value = testBeacon(round);
       return { type: 'decide', at: T.fallbackDecide, message: decision('fallback', 'accept', { seed: panelSeed(id, 'fallback', 1, value), beacon: { source: 'drand-quicknet', round, value, signature: `0x${'8f'.repeat(48)}` } }), beacon: { round, value } };
     };
-    const ok = step(s, withRound(roundAt(secondsOf(T.judgeBy))));
+    const ok = step(s, withRound(roundAt(secondsOf(T.judgeBy) - 1) + 1));
     expect(ok.ok ? ok.value.kind : ok.error.type).toBe('Released');
     const sim = step(s, withRound(secondsOf(T.judgeBy)));
     expect(sim.ok ? sim.value.kind : sim.error.type).toBe('seed_mismatch');
+  });
+});
+
+// ADR-0032 (T-380): the panel round is taken BEACON_MARGIN seconds after the last choice, as the rules contract's
+// `_roundAfter` takes it: roundAt(lastChoice + margin) + 1, with lastChoice = judgeBy − 1 for the fallback and the
+// escalation's (or the filing's) second for the appeal adjudicator.
+describe('the beacon margin (ADR-0032)', () => {
+  const drandOffered = (): EscrowState => ({ ...offered(), beaconSource: 'drand-quicknet' });
+  const G = 1692803367;
+  const roundAt = (t: number): number => (t < G ? 0 : Math.floor((t - G) / 3) + 1);
+  const published = (r: number): number => G + (r - 1) * 3;
+
+  it('adds the margin to both rounds, on the drand clock and the sim clock', () => {
+    for (const margin of [0, 29]) {
+      expect(beaconRoundFor(run(toFallback, drandOffered()), 'fallback', margin)).toBe(roundAt(secondsOf(T.judgeBy) - 1 + margin) + 1);
+      expect(beaconRoundFor(run(toEscalated, drandOffered()), 'appeal', margin)).toBe(roundAt(secondsOf(escalatedAt) + margin) + 1);
+      expect(beaconRoundFor(run(toFallback), 'fallback', margin)).toBe(secondsOf(T.judgeBy) + margin);
+      expect(beaconRoundFor(run(toEscalated), 'appeal', margin)).toBe(secondsOf(escalatedAt) + margin + 1);
+    }
+  });
+
+  it('publishes the round between margin + 1 and margin + 3 seconds after the last choice, for 300 seconds of drand clock', () => {
+    for (let t = 1_790_000_000; t < 1_790_000_300; t++) {
+      const r = roundAfter(DRAND_QUICKNET, t, 29);
+      expect(published(r) - t).toBeGreaterThanOrEqual(30);
+      expect(published(r) - t).toBeLessThanOrEqual(32);
+      expect(published(r - 1)).toBeLessThanOrEqual(t + 29);
+    }
+  });
+
+  it("names ADR-0032's rounds: the escalation at 1,790,000,000 s and the fallback at judgeBy 1,790,172,800 s", () => {
+    expect(roundAfter(DRAND_QUICKNET, 1_790_000_000, 29)).toBe(32_398_889);
+    expect(roundAfter(DRAND_QUICKNET, 1_790_172_800 - 1, 29)).toBe(32_456_489);
+    expect(roundAfter(DRAND_QUICKNET, 1_790_000_000, 0)).toBe(32_398_879);
+    expect(roundAfter(DRAND_QUICKNET, 1_790_172_800 - 1, 0)).toBe(32_456_479);
+  });
+
+  it('steps a fallback decision for the margin round, and refuses the round without the margin', () => {
+    const s = run(toFallback, drandOffered());
+    const withRound = (round: number): EscrowEvent => {
+      const value = testBeacon(round);
+      return { type: 'decide', at: T.fallbackDecide, message: decision('fallback', 'accept', { seed: panelSeed(id, 'fallback', 1, value), beacon: { source: 'drand-quicknet', round, value, signature: `0x${'8f'.repeat(48)}` } }), beacon: { round, value } };
+    };
+    const margined = roundAt(secondsOf(T.judgeBy) - 1 + 29) + 1;
+    const ok = step(s, withRound(margined), 'phase_one', 29);
+    expect(ok.ok ? ok.value.kind : ok.error.type).toBe('Released');
+    const bare = step(s, withRound(roundAt(secondsOf(T.judgeBy) - 1) + 1), 'phase_one', 29);
+    expect(bare.ok ? bare.value.kind : bare.error.type).toBe('seed_mismatch');
+  });
+
+  it('refuses a margin that is not whole non-negative seconds', () => {
+    expect(() => roundAfter(DRAND_QUICKNET, 1_790_000_000, -1)).toThrow(RangeError);
+    expect(() => roundAfter(DRAND_QUICKNET, 1_790_000_000, 0.5)).toThrow(RangeError);
   });
 });
 

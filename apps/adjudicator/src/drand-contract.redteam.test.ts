@@ -14,7 +14,35 @@ import { createPublicClient, createWalletClient, http, numberToBytes, sha256, ty
 import { privateKeyToAccount } from 'viem/accounts';
 import { foundry } from 'viem/chains';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  beaconRoundFor,
+  commitmentId,
+  holdbackDomain,
+  plusSeconds,
+  rulebookHash,
+  signMessage,
+  signTerms,
+  type AdjudicatorRegistration,
+  type Address as CoreAddress,
+  type Club,
+  type CommitmentTerms,
+  type Decision,
+  type Delivery,
+  type Judgment,
+  type Mandate,
+  type Rulebook,
+  type TokenAmount,
+  type UnsignedMessage,
+} from '@holdback/core';
+import { encodePublicKey, encryptionKeyPairFromSecretKey, seal, wrapKeyForRecipients } from '@holdback/core/crypto';
+import { EvmWorld } from '@holdback/settlement/evm';
+import { EvmSettlement, rebindToken } from '@holdback/settlement/live';
+import { SIM_RULEBOOK, type Genesis } from '@holdback/settlement/sim';
+import { keccak256, stringToBytes } from 'viem';
+import { sign } from 'viem/accounts';
 import { QUICKNET_DST, quicknetValue } from './drand.js';
+import { policyHashOf } from './policy.js';
+import { placeholderRegistry, testAdjudicator, type TestAdjudicator } from './test-adjudicator.js';
 
 const ARTIFACT = new URL('../../../contracts/out/DrandQuicknetBeacon.sol/DrandQuicknetBeacon.json', import.meta.url);
 const haveAnvil = spawnSync('anvil', ['--version'], { encoding: 'utf8' }).status === 0;
@@ -180,5 +208,153 @@ describe.runIf(ready)('the local check against DrandQuicknetBeacon on anvil (red
       if (chain !== local) disagreements.push(`round ${r}`);
     }
     expect(disagreements).toEqual([]);
+  }, 120_000);
+});
+
+// ADR-0032 (T-380, R8 fix 2), the done test: the reference adjudicator decides a fallback turn and an escalation on
+// anvil, against HoldbackRules deployed with a beacon margin of 7 s over the sim beacon (round(t) = t). The fallback's
+// round is judgeBy + 7 and the escalation's t1 + 8. The service reads the margin from the settlement layer
+// (EvmSettlement.beaconMarginSec, the contract's BEACON_MARGIN()); a service that kept the old rule would sign rounds
+// judgeBy and t1 + 1, which the contract refuses with BadSeed and core with seed_mismatch. Gated like the suite above.
+const RULES_ARTIFACT = new URL('../../../contracts/out/HoldbackRules.sol/HoldbackRules.json', import.meta.url);
+describe.runIf(ready && existsSync(RULES_ARTIFACT))('the reference adjudicator with a beacon margin on anvil (ADR-0032)', () => {
+  const MARGIN = 7;
+  const root = new URL('../../../', import.meta.url).pathname;
+  const EXAMPLE = JSON.parse(readFileSync(new URL('../../../spec/examples/commitment.example.json', import.meta.url), 'utf8')) as CommitmentTerms;
+  const CSV = readFileSync(new URL('../../../fixtures/data/dataset-cleaning/customers.clean.csv', import.meta.url), 'utf8');
+  const secs = (ts: string) => Math.floor(Date.parse(ts) / 1000);
+  const at = (t: number) => new Date(t * 1000).toISOString().replace('.000Z', 'Z');
+  /** Keys from public labels; they guard no value. */
+  const actor = (name: string) => {
+    const key = keccak256(stringToBytes(`holdback/t-380-margin/${name}`));
+    return { name, key, address: privateKeyToAccount(key).address.toLowerCase() as CoreAddress, enc: encryptionKeyPairFromSecretKey(Uint8Array.from(Buffer.from(keccak256(stringToBytes(`enc/${name}`)).slice(2), 'hex'))) };
+  };
+  let world: EvmWorld;
+  beforeAll(async () => {
+    world = await EvmWorld.start(root, { beaconMarginSec: MARGIN });
+  }, 60_000);
+  afterAll(async () => {
+    await world?.stop();
+  });
+
+  it('decides the fallback on round judgeBy + 7 (it escalates) and the escalation on round t1 + 8; the contract accepts both', async () => {
+    const [buyer, seller, primary, fallback, appeal] = ['buyer', 'seller', 'primary', 'fallback', 'appeal'].map(actor) as [ReturnType<typeof actor>, ReturnType<typeof actor>, ReturnType<typeof actor>, ReturnType<typeof actor>, ReturnType<typeof actor>];
+    const token = world.deployment.token.toLowerCase();
+    const amount = (v: bigint) => ({ token, amount: v.toString() }) as TokenAmount;
+    const domain = holdbackDomain(world.chainId, world.deployment.rules.toLowerCase() as CoreAddress);
+    const rulebook: Rulebook = { ...rebindToken(SIM_RULEBOOK, 'tUSD', token), disclosureMin: 'public', minWindowsSec: { judge: 10, fallback: 60, appealWindow: 0, appealDecide: 60 }, appealFee: amount(0n), randomness: { source: 'sim' } };
+    const club: Club = { id: 't-380-margin', name: 'T-380 margin club', operator: primary.address, rulebook, rulebookHash: rulebookHash(rulebook) };
+    const start = '2026-01-01T00:00:00Z';
+    const mandates: Mandate[] = [];
+    for (const who of [buyer, seller]) {
+      const principal = actor(`${who.name}-principal`);
+      const big = amount(10n ** 15n);
+      const body = { principal: principal.address, agent: who.address, clubId: club.id, scope: { roles: ['buyer', 'seller'], maxPerCommitment: big, maxDaily: big, expiresAt: plusSeconds(start, 365 * 86_400) }, nonce: keccak256(stringToBytes(`mandate/${who.name}`)), issuedAt: start } as Omit<Mandate, 'signature'>;
+      mandates.push({ ...body, signature: await signMessage(principal.key, domain, { ...body, type: 'Mandate' } as UnsignedMessage) } as Mandate);
+    }
+    const price = 5_000_000n;
+    const fee = 1_000_000n;
+    const bond = { junior: '0', senior: '0' };
+    const genesis: Genesis = { start, simSeed: keccak256(stringToBytes('t-380-margin')), chainId: world.chainId, token, clubs: [club], mandates, members: [], balances: { [buyer.address]: (100n * price).toString(), [seller.address]: '0' }, bonds: { [primary.address]: bond, [fallback.address]: bond, [appeal.address]: bond } };
+    const evm = await EvmSettlement.create(world, genesis, [buyer, seller, primary, fallback, appeal].map((a) => a.address));
+    expect(evm.beaconMarginSec).toBe(MARGIN);
+
+    const blobs = new Map<string, Uint8Array>();
+    const records = new Map<string, Judgment>();
+    const registrations = new Map<string, AdjudicatorRegistration>();
+    const registry = placeholderRegistry();
+    const service = (a: ReturnType<typeof actor>, judges?: Parameters<typeof testAdjudicator>[0]['judges']): TestAdjudicator => {
+      const adj = testAdjudicator({
+        name: a.name,
+        label: `t380-${a.name}`,
+        signingKey: a.key,
+        encryptionSecretKey: a.enc.secretKey,
+        chain: evm,
+        store: { ciphertext: async (uri) => blobs.get(uri)!, publishRecord: async (r) => (records.set(r.recordHash, r), `mem://records/${r.recordHash}`) },
+        registration: async (address) => registrations.get(address.toLowerCase()) ?? null,
+        domain,
+        fee: amount(fee),
+        registry,
+        trustedAdjudicators: [primary.address, fallback.address, appeal.address],
+        ...(judges ? { judges } : {}),
+      });
+      registrations.set(adj.address, { ...adj.registration(), pool: {} as never, poolTermsHash: `0x${'00'.repeat(32)}`, status: 'active' });
+      return adj;
+    };
+    const p = service(primary);
+    // Only one family answers at the fallback, so its panel cannot accept or reject: it escalates.
+    const f = service(fallback, { 'gpt-a': 'timeout', 'gpt-b': 'timeout', 'qwen-a': 'timeout', 'qwen-b': 'timeout' });
+    const a = service(appeal);
+    const must = (r: { ok: boolean; problem?: { detail: string } }) => {
+      if (!r.ok) throw new Error(r.problem?.detail);
+      evm.advance(1);
+    };
+    const signed = async <T extends UnsignedMessage>(who: ReturnType<typeof actor>, m: T) => ({ ...m, signature: await signMessage(who.key, domain, m) });
+
+    const now = evm.now();
+    const terms = {
+      ...EXAMPLE,
+      schemaVersion: '0.8',
+      clubId: club.id,
+      rulebookHash: club.rulebookHash,
+      buyer: buyer.address,
+      seller: seller.address,
+      buyerPaymentAddress: buyer.address,
+      sellerPayoutAddress: seller.address,
+      price: amount(price),
+      adjudication: { adjudicator: primary.address, fallbackAdjudicator: fallback.address, appealAdjudicator: appeal.address, policyId: p.service.policy.id, fee: amount(fee), registryHash: registry.hash, policyHash: policyHashOf(p.service.policy) },
+      timing: { offerExpiresAt: plusSeconds(now, 60), fundBy: plusSeconds(now, 70), deliverBy: plusSeconds(now, 80), judgeBy: plusSeconds(now, 90), fallbackBy: plusSeconds(now, 600), appealWindowSec: 0, appealDecideSec: 300, maxSubmissions: 1 },
+      settlement: { mode: 'guaranteed_on_decision', token },
+      remedy: { onReject: 'full_refund' },
+      disclosure: { level: 'public' },
+      buyerEncryptionPublicKey: encodePublicKey(buyer.enc.publicKey),
+      nonce: keccak256(stringToBytes('t-380-margin/terms')),
+      createdAt: now,
+    } as unknown as CommitmentTerms;
+    delete (terms as Partial<{ id: unknown; signatures: unknown }>).id;
+    delete (terms as Partial<{ id: unknown; signatures: unknown }>).signatures;
+    const id = commitmentId(terms);
+    must(await evm.submit({ kind: 'offer', commitment: { ...terms, id, signatures: { seller: await signTerms(seller.key, domain, terms) } } }));
+    expect((await p.runOnce()).accepted).toEqual([id]);
+    evm.advance(1);
+    const agree = await signed(buyer, { type: 'Agree', commitmentId: id, buyer: buyer.address, nonce: keccak256(stringToBytes(`agree/${id}`)), expiresAt: terms.timing.offerExpiresAt } as const);
+    const fa = await evm.fundingAuthorization(terms);
+    const funding = { type: 'FundingAuthorization' as const, scheme: 'erc3009' as const, commitmentId: id, from: buyer.address, value: fa.value.toString(), token, validAfter: fa.validAfter, validBefore: fa.validBefore, nonce: fa.nonce, expiresAt: terms.timing.fundBy, signature: await sign({ hash: fa.digest, privateKey: buyer.key, to: 'hex' }) };
+    must(await evm.submit({ kind: 'agree_and_fund', agree, funding }, { idempotencyKey: `fund/${id}` }));
+    const sealed = await seal(new TextEncoder().encode(CSV));
+    const uri = `mem://ciphertext/${sealed.ciphertextSha256}`;
+    blobs.set(uri, sealed.ciphertext);
+    const recipients = [primary, fallback, appeal, buyer].map((x) => ({ recipient: x.address, publicKey: x.enc.publicKey }));
+    const body: Omit<Delivery, 'signature'> = { commitmentId: id, attempt: 1, ciphertext: { uri, sha256: sealed.ciphertextSha256, bytes: sealed.ciphertext.length, cipher: 'aes-256-gcm' }, plaintextSha256: sealed.plaintextSha256, plaintextMime: 'text/csv', encryptedKeys: wrapKeyForRecipients(sealed.key, recipients), submittedAt: evm.now() };
+    must(await evm.submit({ kind: 'deliver', delivery: (await signed(seller, { ...body, type: 'Delivery' as const })) as unknown as Delivery }, { idempotencyKey: `deliver/${id}` }));
+    expect(evm.escrowState(id)?.kind).toBe('Delivered');
+
+    // The primary stays silent. At judgeBy the fallback triggers its takeover; its round, judgeBy + 7, is not out yet.
+    const judgeBy = secs(terms.timing.judgeBy);
+    evm.advanceTo(terms.timing.judgeBy);
+    const early = await f.runOnce();
+    expect(evm.escrowState(id)?.kind).toBe('FallbackJudging');
+    expect(early.decided).toEqual([]);
+    expect(beaconRoundFor(evm.escrowState(id)!, 'fallback', MARGIN)).toBe(judgeBy + MARGIN);
+    evm.advanceTo(at(judgeBy + MARGIN));
+    expect((await f.runOnce()).decided.map((d) => d.role)).toEqual(['fallback']);
+    const escalated = evm.escrowState(id)!;
+    if (escalated.kind !== 'Escalated') throw new Error(`expected Escalated, got ${escalated.kind}`);
+    expect(escalated.escalation.by).toBe('fallback');
+    const t1 = secs(escalated.escalation.at);
+    expect(beaconRoundFor(escalated, 'appeal', MARGIN)).toBe(t1 + MARGIN + 1);
+
+    // The appeal adjudicator waits for round t1 + 8, then decides on it; the work passes.
+    evm.advanceTo(at(t1 + MARGIN));
+    expect((await a.runOnce()).decided).toEqual([]);
+    evm.advanceTo(at(t1 + MARGIN + 1));
+    expect((await a.runOnce()).decided.map((d) => d.role)).toEqual(['appeal']);
+    const after = evm.escrowState(id)!;
+    expect(after.kind).toBe('Released');
+    const final = after.kind === 'Released' && after.via.kind === 'escalation' ? after.via.decision : (undefined as never as Decision);
+    expect(final).toMatchObject({ role: 'appeal', outcome: 'accept', beacon: { source: 'sim', round: t1 + MARGIN + 1 } });
+    // Both decisions name the margin rounds in the settlement log.
+    const decided = evm.log().filter((e) => e.type === 'judgment.decided' && e.commitmentId === id).map((e) => e.payload as { role?: string; beaconRound?: number });
+    expect(decided.map((d) => [d.role, d.beaconRound])).toEqual([['fallback', judgeBy + MARGIN], ['appeal', t1 + MARGIN + 1]]);
   }, 120_000);
 });

@@ -122,7 +122,7 @@ contract WithstoodTest is Base {
         hook.setHook(address(r));
         hook.setWatched(seller);
         hook.mint(buyer, 1_000_000_000);
-        rules = new HoldbackRules(escrow, address(collector3009), MARGIN, sim, address(hook));
+        rules = new HoldbackRules(escrow, address(collector3009), MARGIN, sim, address(hook), _beaconMargin());
 
         H.Terms memory t = _terms();
         t.token = address(hook);
@@ -166,7 +166,7 @@ contract WithstoodTest is Base {
         H.Agree memory g = _agree(t, BUYER_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
         HoldbackRules other =
-            new HoldbackRules(escrow, address(collector3009), MARGIN, sim, address(usdc));
+            new HoldbackRules(escrow, address(collector3009), MARGIN, sim, address(usdc), _beaconMargin());
         vm.expectRevert(HoldbackRules.BadSignature.selector);
         other.agreeAndFund(t, s, a, g, f);
         // The genuine deployment still accepts the same messages.

@@ -9,24 +9,25 @@ import {Base} from "./Base.sol";
 /// T-209: HoldbackRules deployed with the drand quicknet verifier. Fallback and appeal decisions must carry the real
 /// quicknet signature of the round settlement state fixes; the value is sha256(signature) and the seed follows from
 /// it. The rounds are real (fixtures/beacon/drand-quicknet.json): the Base clock starts at 1790000000 and the terms'
-/// judgeBy is 1790172800, so the fallback round is 32456478 and the first round after an escalation at 1790000000 is
-/// 32398879 (published at 1790000001).
+/// judgeBy is 1790172800. With the margin of Ethereum mainnet and Sepolia, 29 s (ADR-0032), the fallback round is
+/// 32456489, the first after judgeBy - 1 + 29 (published at 1790172831), and the round after an escalation at 1790000000
+/// is 32398889, the first after 1790000029 (published at 1790000031).
 contract DrandDecideTest is Base {
     DrandQuicknetBeacon internal drand;
 
-    uint64 internal constant FALLBACK_ROUND = 32_456_478;
+    uint64 internal constant FALLBACK_ROUND = 32_456_489;
     bytes internal constant FALLBACK_SIG =
-        hex"b528568aa3bcf0f15bd15391bfd424012dfa4efae8a9b335e3c7aa98871a9108220ac137cf5626cc732db3e1a2e5cdc6";
-    bytes32 internal constant FALLBACK_RAND = 0x6e43305f170a9857d0fffa0446668d13dd5907d9eff9f8cee6a3d9774b8a8bad;
-    uint64 internal constant APPEAL_ROUND = 32_398_879;
+        hex"80e0f0939fbf00616f0b7c6c72f49ac3830e71a9de74caf893d8e2ab87e09cf4c4c25e22ade438341af31e5b8e8ef19a";
+    bytes32 internal constant FALLBACK_RAND = 0xef651f11574106af1fa2a82281a0f2035ade32ab6436a38aadefb87c44d45c42;
+    uint64 internal constant APPEAL_ROUND = 32_398_889;
     bytes internal constant APPEAL_SIG =
-        hex"8692364a570f4638daa28f489f6ab6c3a3daafc5e80b5fa203f54969b9d104cd2342539a141574dadf291fd1af2df219";
-    bytes32 internal constant APPEAL_RAND = 0xcc44c7b6a69f0cc3a74a432f0606011d8856754ca524faffff30741baa0a5f6f;
+        hex"aadc47543192e0e9a42d523c61497580755ffa8b27904517dfe9fe8598405ae9b31d5193ece7c71e38cada7d76581584";
+    bytes32 internal constant APPEAL_RAND = 0xdc2dd34fdb40f96278691242ba26f20f9f4e212c6ea4afe1b630aa9749eeed55;
 
     function setUp() public override {
         super.setUp();
         drand = new DrandQuicknetBeacon();
-        rules = new HoldbackRules(escrow, address(collector3009), MARGIN, drand, address(usdc));
+        rules = new HoldbackRules(escrow, address(collector3009), MARGIN, drand, address(usdc), DRAND_MARGIN);
     }
 
     function _drandDecision(bytes32 id, uint8 role, uint8 outcome, uint64 round, bytes memory sig)
@@ -46,8 +47,11 @@ contract DrandDecideTest is Base {
         (t, id) = _funded();
         _deliver(t, id);
         vm.warp(t.timing.judgeBy);
+        vm.expectEmit(address(rules));
+        emit HoldbackRules.FallbackTriggered(id, FALLBACK_ROUND);
         rules.triggerFallback(t);
-        assertEq(drand.roundAt(t.timing.judgeBy), FALLBACK_ROUND, "the Base clock lands on the fixture round");
+        assertEq(drand.roundAt(t.timing.judgeBy - 1 + DRAND_MARGIN) + 1, FALLBACK_ROUND, "the fixture round");
+        vm.warp(1_790_172_831); // round 32456489 is published at judgeBy + 31 s
     }
 
     function test_fallback_decidesWithTheRealQuicknetRound() public {
@@ -63,8 +67,8 @@ contract DrandDecideTest is Base {
         (H.Terms memory t, bytes32 id) = _funded();
         _deliver(t, id);
         rules.decide(t, _primary(t, id, H.OUTCOME_ESCALATE), _noDelivery(), "");
-        assertEq(drand.roundAt(block.timestamp) + 1, APPEAL_ROUND);
-        vm.warp(block.timestamp + 1); // round 32398879 is published at 1790000001
+        assertEq(drand.roundAt(block.timestamp + DRAND_MARGIN) + 1, APPEAL_ROUND);
+        vm.warp(block.timestamp + 31); // round 32398889 is published at 1790000031
         H.Decision memory m = _drandDecision(id, H.ROLE_APPEAL, H.OUTCOME_REJECT, APPEAL_ROUND, APPEAL_SIG);
         assertEq(m.beaconValue, APPEAL_RAND);
         m = _signDecision(t, id, m, appealAdj, AP_PK);

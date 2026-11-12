@@ -65,6 +65,8 @@ export interface DeploymentFile {
   bonds?: string;
   beacon: string;
   expiryMarginSec?: number;
+  /** The rules contract's `BEACON_MARGIN()` in seconds (ADR-0032). Absent: 0, which a shared chain's contract refuses at deploy. */
+  beaconMarginSec?: number;
 }
 
 /**
@@ -216,6 +218,7 @@ export class LiveChain implements EvmChain {
   readonly token: DeploymentFile['token'];
   readonly tokenDomain: { name: string; version: string };
   readonly expiryMargin: bigint;
+  readonly beaconMarginSec: number;
   /** The funding lane, then the deal lanes. */
   readonly lanes: readonly PrivateKeyAccount[];
   private readonly keys: readonly Hex[];
@@ -259,6 +262,13 @@ export class LiveChain implements EvmChain {
     this.token = o.deployment.token;
     this.tokenDomain = { name: o.deployment.token.name, version: o.deployment.token.version };
     this.expiryMargin = BigInt(o.deployment.expiryMarginSec ?? 86_400);
+    // A margin that is not whole non-negative seconds (a string, a fraction) would pass the BEACON_MARGIN() check by
+    // BigInt and then throw in every round computation (T-380 red team, L-1): refuse it here.
+    const beaconMargin: unknown = o.deployment.beaconMarginSec ?? 0;
+    if (typeof beaconMargin !== 'number' || !Number.isSafeInteger(beaconMargin) || beaconMargin < 0) {
+      throw new RangeError(`the deployment file's beaconMarginSec must be whole non-negative seconds, got ${JSON.stringify(beaconMargin)}`);
+    }
+    this.beaconMarginSec = beaconMargin;
     this.keys = [o.relayerKey, ...Array.from({ length: DEAL_LANES }, (_, i) => laneKey(o.relayerKey, i + 1))];
     this.lanes = this.keys.map((k) => privateKeyToAccount(k));
     this.maxFee = parseGwei(String(o.maxFeeGwei ?? 20));
@@ -319,6 +329,11 @@ export class LiveChain implements EvmChain {
     // eslint-disable-next-line no-restricted-syntax -- T-232: read before any write, and EXPIRY_MARGIN is a constant of the deployed contract.
     const margin = (await this.publicClient.readContract({ address: this.deployment.rules, abi: this.abis.rules, functionName: 'EXPIRY_MARGIN' })) as bigint;
     if (BigInt(margin) !== this.expiryMargin) throw new RangeError(`the rules contract's EXPIRY_MARGIN is ${margin}, the deployment file says ${this.expiryMargin}`);
+    // ADR-0032: the fallback and escalation rounds add the contract's margin. A node that counted another would ask the
+    // adjudicators for a round the contract refuses, and every such deal would default.
+    // eslint-disable-next-line no-restricted-syntax -- read before any write, and BEACON_MARGIN is a constant of the deployed contract.
+    const beaconMargin = (await this.publicClient.readContract({ address: this.deployment.rules, abi: this.abis.rules, functionName: 'BEACON_MARGIN' })) as bigint;
+    if (BigInt(beaconMargin) !== BigInt(this.beaconMarginSec)) throw new RangeError(`the rules contract's BEACON_MARGIN is ${beaconMargin}, the deployment file says ${this.beaconMarginSec}`);
   }
 
   floor(): bigint {

@@ -17,10 +17,11 @@ import {Base} from "./Base.sol";
 abstract contract GasBase is Base {
     uint256 internal constant FUND_BUDGET = 300_000; // measured 233,994 (--isolate, 2026-11-04)
 
-    /// The drand quicknet round for the Base terms' judgeBy (fixtures/beacon/drand-quicknet.json).
-    uint64 internal constant FALLBACK_ROUND = 32_456_478;
+    /// The drand quicknet round for the Base terms' judgeBy with a margin of 29 s (ADR-0032;
+    /// fixtures/beacon/drand-quicknet.json).
+    uint64 internal constant FALLBACK_ROUND = 32_456_489;
     bytes internal constant FALLBACK_SIG =
-        hex"b528568aa3bcf0f15bd15391bfd424012dfa4efae8a9b335e3c7aa98871a9108220ac137cf5626cc732db3e1a2e5cdc6";
+        hex"80e0f0939fbf00616f0b7c6c72f49ac3830e71a9de74caf893d8e2ab87e09cf4c4c25e22ade438341af31e5b8e8ef19a";
 
     /// T-209: the drand variant redeploys the rules contract behind the quicknet verifier.
     function _drand() internal pure virtual returns (bool);
@@ -29,7 +30,7 @@ abstract contract GasBase is Base {
         super.setUp();
         if (_drand()) {
             rules = new HoldbackRules(
-                escrow, address(collector3009), MARGIN, new DrandQuicknetBeacon(), address(usdc)
+                escrow, address(collector3009), MARGIN, new DrandQuicknetBeacon(), address(usdc), DRAND_MARGIN
             );
         }
         (H.Terms memory t, bytes32 id) = _funded();

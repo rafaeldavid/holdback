@@ -74,6 +74,7 @@ export class EvmWorld implements EvmChain {
   readonly clock = 'scenario' as const;
   readonly relayer: Address = privateKeyToAccount(ANVIL_DEPLOYER_KEY).address;
   readonly expiryMargin = EXPIRY_MARGIN;
+  readonly beaconMarginSec: number;
   private snapshotId: Hex | null = null;
 
   private constructor(
@@ -86,16 +87,23 @@ export class EvmWorld implements EvmChain {
     private readonly proc: ChildProcess | null,
     private readonly deployRules: (simSeed: Hex) => Promise<RulesDeployment>,
     private readonly receiptTimeoutMs: number,
-  ) {}
+    beaconMarginSec: number,
+  ) {
+    this.beaconMarginSec = beaconMarginSec;
+  }
 
   /**
    * Starts anvil on a free localhost port and deploys. `root` is the repository root (for contracts/out).
    * `blockTimeSec`: mine a block every so many seconds at wall-clock time instead of one per transaction at the
    * scenario's second, so anvil stands in for a testnet (a LiveChain over `rpcUrl`, ADR-0028). `token`: LocalUSDC
    * (the fixtures') or TestUSDC (the Sepolia demo's tUSDC, D42). `receiptTimeoutMs`: how long a send waits for its
-   * receipt before it throws (10 s, or three blocks if `blockTimeSec` makes that longer).
+   * receipt before it throws (10 s, or three blocks if `blockTimeSec` makes that longer). `beaconMarginSec`: the rules
+   * contract's `BEACON_MARGIN` (ADR-0032), 0 unless a test asks for the margin of a shared chain.
    */
-  static async start(root: string, options: { rpcUrl?: string; blockTimeSec?: number; token?: 'local-usdc' | 'test-usdc'; receiptTimeoutMs?: number } = {}): Promise<EvmWorld> {
+  static async start(
+    root: string,
+    options: { rpcUrl?: string; blockTimeSec?: number; token?: 'local-usdc' | 'test-usdc'; receiptTimeoutMs?: number; beaconMarginSec?: number } = {},
+  ): Promise<EvmWorld> {
     let proc: ChildProcess | null = null;
     let rpcUrl = options.rpcUrl;
     if (!rpcUrl) {
@@ -116,12 +124,14 @@ export class EvmWorld implements EvmChain {
       assertSafeChain(chainId);
       if (chainId !== LOCAL_CHAIN_ID) throw new RangeError(`kind local expects anvil chain id ${LOCAL_CHAIN_ID}, got ${chainId}`);
       const testUsdc = options.token === 'test-usdc';
-      const { base, abis, deployRules } = await deploy(root, rpcUrl, publicClient, testUsdc ? ['TestUSDC.sol', 'TestUSDC'] : ['LocalUSDC.sol', 'LocalUSDC'], receiptTimeoutMs);
+      // ADR-0032: a local chain runs a margin of 0 unless a test asks for another (the drand and margin tests).
+      const beaconMarginSec = options.beaconMarginSec ?? 0;
+      const { base, abis, deployRules } = await deploy(root, rpcUrl, publicClient, testUsdc ? ['TestUSDC.sol', 'TestUSDC'] : ['LocalUSDC.sol', 'LocalUSDC'], receiptTimeoutMs, beaconMarginSec);
       // Snapshot before the beacon and the rules contract, then deploy them once to learn their addresses.
       const snapshotId = await publicClient.request({ method: 'evm_snapshot' as never, params: [] as never }) as Hex;
       const rules = await deployRules(BOOT_SIM_SEED);
       const tokenDomain = testUsdc ? { name: 'Crow Test USDC', version: '1' } : { name: 'USD Coin', version: '1' };
-      const world = new EvmWorld(rpcUrl, publicClient, { ...base, ...rules }, abis, tokenDomain, proc, deployRules, receiptTimeoutMs);
+      const world = new EvmWorld(rpcUrl, publicClient, { ...base, ...rules }, abis, tokenDomain, proc, deployRules, receiptTimeoutMs, beaconMarginSec);
       world.snapshotId = snapshotId;
       return world;
     } catch (e) {
@@ -237,6 +247,7 @@ async function deploy(
   client: PublicClient,
   tokenArtifact: [file: string, name: string],
   receiptTimeoutMs: number,
+  beaconMarginSec: number,
 ): Promise<{ base: Omit<Deployment, keyof RulesDeployment>; abis: Abis; deployRules: (simSeed: Hex) => Promise<RulesDeployment> }> {
   const wallet = createWalletClient({ account: privateKeyToAccount(ANVIL_DEPLOYER_KEY), chain: foundry, transport: http(rpcUrl) });
   const one = async (a: Artifact, args: unknown[] = []): Promise<Address> => {
@@ -261,7 +272,7 @@ async function deploy(
   const deployRules = async (simSeed: Hex): Promise<RulesDeployment> => {
     const beacon = await one(beaconA, [simSeed]);
     // The settlement token is a constructor immutable: a deployment serves one token (ADR-0031 §2, SC-1).
-    const rules = await one(rulesA, [escrow, erc3009Collector, EXPIRY_MARGIN, beacon, tokenAddr]);
+    const rules = await one(rulesA, [escrow, erc3009Collector, EXPIRY_MARGIN, beacon, tokenAddr, BigInt(beaconMarginSec)]);
     const fromBlock = (await client.getBlockNumber()) + 1n;
     return { rules, beacon, fromBlock };
   };

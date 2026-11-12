@@ -94,6 +94,11 @@ export interface EvmChain {
   senderFor(lane: string): Address;
   /** The rules contract's CPP authorizationExpiry margin after fallbackBy + appealDecideSec, in seconds (ADR-0025). */
   readonly expiryMargin: bigint;
+  /**
+   * The rules contract's `BEACON_MARGIN()` in seconds (ADR-0032): how far after the last choice the fallback and
+   * escalation rounds are taken. 0 on a local chain; 29 on Ethereum mainnet and Sepolia.
+   */
+  readonly beaconMarginSec: number;
   /** The token's EIP-712 domain name and version, which ERC-3009 authorizations are signed under. */
   readonly tokenDomain: { name: string; version: string };
   /** eth_call from `from`; throws the RPC error on a revert. `at` (scenario clock): the pending block's second. */
