@@ -82,7 +82,8 @@ export function keep({ root, rpc, reads = castReads, log = console.log }) {
     writeFileSync(path, text);
     log(`record-copies: kept ${LIVE_RECORD} as ${name}`);
   }
-  log(`record-copies: after the deploy, run: node scripts/record-copies.mjs --old ${name} --new ${LIVE_RECORD}`);
+  // A line that runs from any folder: this script's own path and the root it worked in (review of PR 434).
+  log(`record-copies: after the deploy, run: node ${fileURLToPath(import.meta.url)} --root ${root} --old ${name} --new ${LIVE_RECORD}`);
   return name;
 }
 

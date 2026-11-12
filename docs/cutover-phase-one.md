@@ -1,6 +1,6 @@
 # The phase-one cutover: checklist
 
-**Status: second pass for steps 2, 3 and 6, rehearsed twice on a local chain.** Written on 2026-11-12 against `contracts-audit-ready` at `02ddb24` (T-363); steps 2, 3 and 6 were rehearsed on anvil from the lane at `e4e930c`, twice in a row with no hand edit (T-383 part 2; the measured times below are from those runs). Nothing on this page has run on Sepolia. The whole-diff reviews (R11) still come before it runs for real, and the cutover-day sheet with every command in order is in [`tasks/T-383-deploy-script-cu1.md`](tasks/T-383-deploy-script-cu1.md), Handoff.
+**Status: second pass for steps 2, 3, 6 and 7, rehearsed twice on a local chain.** Written on 2026-11-12 against `contracts-audit-ready` at `02ddb24` (T-363); steps 2, 3, 6 and 7 were rehearsed on anvil from the lane at `e4e930c`, twice in a row with no hand edit (T-383 part 2; the measured times below are from those runs). Nothing on this page has run on Sepolia. The whole-diff reviews (R11) still come before it runs for real, and the cutover-day sheet with every command in order is in [`tasks/T-383-deploy-script-cu1.md`](tasks/T-383-deploy-script-cu1.md), Handoff.
 
 This page moves the live test service from the contracts deployed on 2026-11-04 to the phase-one contracts. It covers the contracts, two operators, the test seller and buyer, the site with its pinned client, and the founder console. The cutover of 2026-11-04 in [`operations.md`](operations.md) is its model.
 
@@ -131,7 +131,7 @@ This page moves the live test service from the contracts deployed on 2026-11-04 
    node /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/scripts/record-copies.mjs keep --rpc https://ethereum-sepolia-rpc.publicnode.com
    ```
 
-   It prints `record-copies: kept contracts/deployments/sepolia.json as contracts/deployments/sepolia-<YYYY-MM-DD>T<HHMM>Z-domain-<version>.json` and the `--old` line for step 3.1. Write the name down. For the record of 2026-11-04 it should name `…sepolia-2026-11-04T<HHMM>Z-domain-0.7.json` [inferred: its first block's time is read on the day]. Rerunning it is safe: the same content again is a no-op, and other content under the same name is refused. **Run it before step 2.4, never after:** run after the deploy, it would keep the new record, and step 3.1 then fails with "the two records name the same contracts" [inferred from the code]. Do not commit yet: the deploy must record the frozen commit as `HEAD`.
+   It prints `record-copies: kept contracts/deployments/sepolia.json as contracts/deployments/sepolia-<YYYY-MM-DD>T<HHMM>Z-domain-<version>.json` and the `--old` line for step 3.1. Write the name down. For the record of 2026-11-04 it names `contracts/deployments/sepolia-2026-11-04T0830Z-domain-0.7.json` [measured by the PR 434 review: a read-only run against the public Sepolia node, on a scratch copy of today's record]. Rerunning it is safe: the same content again is a no-op, and other content under the same name is refused. **Run it before step 2.4, never after:** run after the deploy, it would keep the new record, and step 3.1 then fails with "the two records name the same contracts" [inferred from the code]. Do not commit yet: the deploy must record the frozen commit as `HEAD`.
 4. **Deploy:**
 
    ```sh
@@ -157,7 +157,7 @@ This page moves the live test service from the contracts deployed on 2026-11-04 
 | File | What changes | Guarded by |
 | --- | --- | --- |
 | `contracts/deployments/sepolia.json` | Written by step 2 | `deploy-sepolia.sh --check` |
-| `contracts/deployments/sepolia-2026-11-04T<HHMM>Z-domain-0.7.json` | The old record, kept in step 2.3 under the name the command printed | `tests/contract-stack.test.ts` ("every kept earlier deployment") |
+| `contracts/deployments/sepolia-2026-11-04T0830Z-domain-0.7.json` | The old record, kept in step 2.3 under the name the command printed | `tests/contract-stack.test.ts` ("every kept earlier deployment") |
 | `examples/deployments.ts` | The command writes the new record as the `SEPOLIA` constant, whole, with its comment. The type no longer requires the second collector, which is not in phase one | `examples/deployments.test.ts` |
 | `site/llms.txt`, `examples/verify.ts`, `tools/contract-stack/plain.json` | The command replaces each old address and hash with the new one, in the letter case it was written in | `node site/check.mjs` compares both blocks with `examples/verify.ts` |
 | `packages/settlement/evm/accepted-tokens.json` | The command replaces Sepolia's token with the new one | `deploy-sepolia.sh --check`, and the operators' start-up |
@@ -175,10 +175,10 @@ This page moves the live test service from the contracts deployed on 2026-11-04 
 1. **Write the record's copies, by one command.** It substitutes, rebuilds the site, then sweeps: it fails, naming each `file:line`, if any old address or hash remains in a tracked file, in any spelling (no `0x`, padded to 32 bytes, inside a longer hex string), outside its history list: the dated records; `docs/tasks/`, `docs/reviews/`, `docs/research/`, `docs/operations.md`, this page, and `docs/audit/scope.md` (step 11.4 rewrites it); the recorded fixtures under `tests/metrics/fixtures/`; and three fixed test vectors (`examples/e2e-run.test.ts`, `examples/e2e-adjudicator.test.ts`, `examples/send-timeout.test.ts`). The list and the reason for each are at the top of the script.
 
    ```sh
-   node /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/scripts/record-copies.mjs --old <the dated name step 2.3 printed> --new contracts/deployments/sepolia.json
+   node /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/scripts/record-copies.mjs --root /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one --old <the dated name step 2.3 printed> --new contracts/deployments/sepolia.json
    ```
 
-   Step 2.3 printed this line in full; copy it from there rather than typing the name. It must end with `record-copies: pass: …` [measured on anvil: 0.5 s, `pass: 12 value(s) replaced`, both rehearsals]. On the lane at the time of writing it fails on exactly two lines of `site/llms.txt` that name the cut vault [measured, `tests/record-copies.test.ts`]; the docs session (T-385) removes them before the freeze. Any other line it names is a pin to fix by hand, then rerun the command: a rerun is safe, because the substitution finds nothing left to replace and the sweep runs again.
+   Step 2.3 printed this line in full, with both full paths, so it runs from any folder; copy it from there rather than typing the name. It must end with `record-copies: pass: …` [measured on anvil: 0.5 s, `pass: 12 value(s) replaced`, both rehearsals]. On the lane at the time of writing it fails on exactly two lines of `site/llms.txt` that name the cut vault [measured, `tests/record-copies.test.ts`]; the docs session (T-385) removes them before the freeze. Any other line it names is a pin to fix by hand, then rerun the command: a rerun is safe, because the substitution finds nothing left to replace and the sweep runs again.
 2. **Check the deployment, read-only,** now with all three token values:
 
    ```sh
@@ -192,7 +192,7 @@ This page moves the live test service from the contracts deployed on 2026-11-04 
    /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/contracts/script/deploy-sepolia.sh --verify https://ethereum-sepolia-rpc.publicnode.com
    ```
 
-   It must end with `the five contracts are verified on Sourcify; set ETHERSCAN_API_KEY to verify on Etherscan too`. What Sourcify answers on Sepolia has not been tried [T-383 tested the commands it builds on a local chain only, as a dry run: 2.5 s]. A contract already verified is skipped, so a rerun is safe [inferred from forge; not run]. If one contract fails, the script stops there; rerun the step. For the record: forge 1.0.0's binary names only Etherscan's retired V1 endpoint [inferred by the T-383 review; not run].
+   It must end with `the five contracts are verified on Sourcify (Etherscan needs a key and a newer forge; not run)`. What Sourcify answers on Sepolia has not been tried [T-383 tested the commands it builds on a local chain only, as a dry run: 2.5 s]. A contract already verified is skipped, so a rerun is safe [inferred from forge; not run]. If one contract fails, the script stops there; rerun the step. For the record: forge 1.0.0's binary names only Etherscan's retired V1 endpoint [inferred by the T-383 review; not run].
 4. Check the site:
 
    ```sh

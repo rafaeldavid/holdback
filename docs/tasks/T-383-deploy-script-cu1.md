@@ -159,7 +159,14 @@ All measured on this Mac on 2026-11-12 unless marked. The harness, `reports/scra
 
 ### The cutover-day sheet
 
-Every command runs from the cutover worktree, `W=/Users/rafa/Documents/escrow/.worktrees/cutover-phase-one`, made at step 0. `R` is Sepolia's public RPC, `https://ethereum-sepolia-rpc.publicnode.com`, or a keyed URL kept in the environment.
+Open one terminal for the whole day and start it with these two lines; every command below uses them, and the round of step 15 reads `.env` from the folder it runs in:
+
+```sh
+export W=/Users/rafa/Documents/escrow/.worktrees/cutover-phase-one R=https://ethereum-sepolia-rpc.publicnode.com
+cd $W
+```
+
+`W` is the cutover worktree made at step 0. `R` is Sepolia's public RPC. A keyed URL may replace it, set from the environment; but when a cast or forge call fails, its error can print the URL it called [measured by the PR 434 review], so prefer the public node, and never share a failing step's output while a keyed URL is set.
 
 **Values Rafa supplies, by name only:**
 
@@ -179,12 +186,12 @@ Every command runs from the cutover worktree, `W=/Users/rafa/Documents/escrow/.w
 2. **Step 1, the quiet.** List the open deals on both nodes (the page's `curl`), and wait for each, or record it as left behind.
 3. **Step 2.1, rehearse.** `pnpm -C $W exec vitest run packages/settlement/evm/deploy-script.test.ts` passes: 15 tests, 38 s on this Mac.
 4. **Step 2.2.** `cast chain-id --rpc-url $R` prints `11155111`.
-5. **Step 2.3.** `node $W/scripts/record-copies.mjs keep --rpc $R` prints `kept contracts/deployments/sepolia.json as contracts/deployments/sepolia-2026-11-04T<HHMM>Z-domain-0.7.json` and the `--old` line. Run it before step 2.4.
+5. **Step 2.3.** `node $W/scripts/record-copies.mjs keep --rpc $R` prints `kept contracts/deployments/sepolia.json as contracts/deployments/sepolia-2026-11-04T0830Z-domain-0.7.json` [measured by the PR 434 review: a read-only run against the public Sepolia node, on a scratch copy of today's record], and the `--old` line with full paths. Run it before step 2.4.
 6. **Step 2.4.** `$W/contracts/script/deploy-sepolia.sh $R <keystore-file> <password-file>` prints the token note, then `wrote …/contracts/deployments/sepolia.json`.
 7. **Step 2.6.** `cast call <new rules> 'eip712Domain()(bytes1,string,string,uint256,address,bytes32,uint256[])' --rpc-url $R` reads `"Holdback"` and `"0.8"`.
-8. **Step 3.1.** Run the `--old` line step 2.3 printed: `node $W/scripts/record-copies.mjs --old <dated name> --new contracts/deployments/sepolia.json`. It prints `record-copies: pass: …`. Until T-385 removes them, it fails on exactly two `site/llms.txt` lines that name the cut vault.
+8. **Step 3.1.** Run the `--old` line step 2.3 printed: `node $W/scripts/record-copies.mjs --root $W --old contracts/deployments/sepolia-2026-11-04T0830Z-domain-0.7.json --new contracts/deployments/sepolia.json`. It prints `record-copies: pass: …`. Until T-385 removes them, it fails on exactly two `site/llms.txt` lines that name the cut vault.
 9. **Step 3.2.** `$W/contracts/script/deploy-sepolia.sh --check $R` prints `… matches the chain and the build at <frozen commit>`.
-10. **Step 3.3.** `$W/contracts/script/deploy-sepolia.sh --verify $R` prints `the five contracts are verified on Sourcify; …`.
+10. **Step 3.3.** `$W/contracts/script/deploy-sepolia.sh --verify $R`, with `ETHERSCAN_API_KEY` unset, prints `the five contracts are verified on Sourcify (Etherscan needs a key and a newer forge; not run)`.
 11. **Step 3.4 to 3.8.** `node $W/site/check.mjs`; the page's guards; one commit; the pull request into `main`; Rafa's gitleaks lines; `pnpm -C $W verify`.
 12. **Step 4.** The three fork suites, with `SEPOLIA_FORK_RPC` set. Each runs and passes; a skip is a failure.
 13. **Step 5.** The quiet again, within one minute of step 6.

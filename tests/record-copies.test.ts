@@ -110,7 +110,8 @@ describe('keep: the live record copied to its dated name', () => {
     const lines: string[] = [];
     expect(keep({ root: dir, rpc: 'http://127.0.0.1:1', reads: reads(), log: (l: string) => lines.push(l) })).toBe('contracts/deployments/sepolia-2026-11-04T0941Z-domain-0.7.json');
     expect(readFileSync(join(dir, 'contracts/deployments/sepolia-2026-11-04T0941Z-domain-0.7.json'), 'utf8')).toBe(readFileSync(join(dir, 'contracts/deployments/sepolia.json'), 'utf8'));
-    expect(lines.at(-1)).toBe('record-copies: after the deploy, run: node scripts/record-copies.mjs --old contracts/deployments/sepolia-2026-11-04T0941Z-domain-0.7.json --new contracts/deployments/sepolia.json');
+    // Full paths, so the line runs from any folder (review of PR 434).
+    expect(lines.at(-1)).toBe(`record-copies: after the deploy, run: node ${join(root, 'scripts/record-copies.mjs')} --root ${dir} --old contracts/deployments/sepolia-2026-11-04T0941Z-domain-0.7.json --new contracts/deployments/sepolia.json`);
   });
 
   it('gives two deployments on the same day two names, from their own deployedAt', () => {
