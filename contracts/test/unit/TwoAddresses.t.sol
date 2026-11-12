@@ -280,7 +280,7 @@ contract TwoAddressesTest is Base {
     function test_23_anotherOperator_cannotRedeemTheFunding() public {
         H.Terms memory t = _apart();
         H.Funding memory f = _erc3009(t, PAY_PK);
-        HoldbackRules other = new HoldbackRules(escrow, address(collector3009), MARGIN, sim, address(usdc));
+        HoldbackRules other = new HoldbackRules(escrow, address(collector3009), MARGIN, sim, address(usdc), _beaconMargin());
         HoldbackRules ours = rules;
         rules = other; // Base's signers sign under `rules`' domain
         bytes memory ss = _sellerSig(t, SELLER_PK);
@@ -346,7 +346,7 @@ contract TwoAddressesTest is Base {
     /// The same on `TestUSDC`, the token the Sepolia deployment serves.
     function test_15_erc1271WalletAsPaymentAddress_testUsdc() public {
         usdc = MockERC3009Token(address(new TestUSDC()));
-        rules = new HoldbackRules(escrow, address(collector3009), MARGIN, sim, address(usdc));
+        rules = new HoldbackRules(escrow, address(collector3009), MARGIN, sim, address(usdc), _beaconMargin());
         _walletPays();
     }
 

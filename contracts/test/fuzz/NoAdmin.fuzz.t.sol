@@ -73,7 +73,8 @@ contract NoAdminFuzzTest is Base {
             // T-356 (ADR-0031 §2, SC-1): TOKEN(), the deployment's one token, an immutable set at deploy.
             // T-356 (ADR-0031 §3, SC-2): PERMIT2_COLLECTOR() left with the Permit2 path; TOKEN() takes its index.
             // T-356 (ADR-0031 §7, SC-6): expireOffer( left; deliveryHashOf(bytes32) takes its index.
-            s = new string[](21);
+            // T-380 (ADR-0032): BEACON_MARGIN(), the deployment's beacon margin, an immutable set at deploy.
+            s = new string[](22);
             s[0] = "BEACON()";
             s[1] = "ERC3009_COLLECTOR()";
             s[2] = "ESCROW()";
@@ -95,6 +96,7 @@ contract NoAdminFuzzTest is Base {
             s[18] = "triggerDefault(";
             s[19] = "triggerFallback(";
             s[20] = "typedDataHash(bytes32)";
+            s[21] = "BEACON_MARGIN()";
         } else if (i == 1) {
             s = new string[](11);
             s[0] = "PAYMENT_INFO_TYPEHASH()";
