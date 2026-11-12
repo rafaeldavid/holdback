@@ -48,7 +48,7 @@ All measured on this branch, 2026-11-12, on the maintainer's machine, unless mar
   - Core, SimChain and the operator (`vitest run packages/core/src packages/settlement/sim apps/operator/src/sim-world.test.ts`): 28 files, 1,092 tests pass. New: 13 in core's late-work block, 4 in SimChain's, 2 in the operator's.
   - `pnpm snap`: 39 of 39 fixtures pass on SimChain, the neutrality fixtures among them.
   - `pnpm snap --settlement local error.late-work-settlement-wrong-delivery`: passes on the contract on anvil; the transcript is identical to SimChain's; 2 transactions, 428,856 gas.
-  - Anvil, the two new tests (`vitest run packages/settlement/evm/evm-settlement.test.ts packages/settlement/evm/sync.test.ts -t late`): 2 pass. One settles late work through the `Settlement` interface with the delivery; the other sends it straight to the contract, and the node waits, then joins the posted delivery with no second transaction.
+  - Anvil, the CI settlement suite (`vitest run packages/settlement/evm packages/testkit/src/runner.test.ts`): 216 of 217 passed on the first run; the one failure was this branch's own key deduplication, now reverted, and that test and the new ones pass (4 of 4). The two new tests: One settles late work through the `Settlement` interface with the delivery; the other sends it straight to the contract, and the node waits, then joins the posted delivery with no second transaction.
   - `forge test --match-contract "MutualSettleNamedDeliveryTest|LateCarriedDeliveryTest"`: 14 pass, 7 of them new in `MutualSettleNamedDelivery.t.sol`.
   - `formal/check.sh safety`: passes, 132,339 distinct states, depth 31, 9 s. `formal/check.sh broken/`: 12 of 12 variants still fail as expected. `formal/check.sh live-`, run once: 7 of 7 configs pass, 286,916 to 328,790 distinct states, depth 32, 71 to 215 s each.
   - The full `pnpm test` run locally failed in every anvil suite and in two timing tests while TLC's liveness run shared the machine; `packages/judgment/src/preflight.test.ts` passes alone (17 tests). CI's shards and anvil jobs are the gate.
@@ -56,7 +56,7 @@ All measured on this branch, 2026-11-12, on the maintainer's machine, unless mar
 - Metrics: tokens for this task, over the 200k target [inferred]: the API-route question, the EVM rebuild's wait path and one review round added work.
 
 **Review** (one `reviewer` subagent, given CLAUDE.md, ADR-0001, ADR-0019, ADR-0031, `docs/neutrality.md` and `docs/audit/state-model.md`, and not this session's conclusions): ISSUES, with no Critical or High findings. It found no path by which one party, an operator or an adjudicator gets the key or moves funds alone, and no settlement core takes that the contract refuses. Fixed in one round:
-- M1: the adapter's rebuild now waits for a direct late settlement and joins the delivery when posted; the key is recorded once.
+- M1: the adapter's rebuild now waits for a direct late settlement and joins the delivery when posted.
 - M2: the buyer holds its own envelope before it pays; ADR-0019's amendment and prepare say so, and say the exchange rests on the ciphertext.
 - L1: the read model names no posted delivery after a settlement in Held.
 - L2: the commitment id is compared in any letter case.
@@ -117,6 +117,8 @@ Not checked by the contract, and so not by core on this path: the seller's signa
 - Idempotency: the key covers the whole body, delivery included; the same key with another delivery is `idempotency_conflict` (409).
 - Problem types: no delivery carried, a delivery that does not hash to the signed one, a delivery for another commitment, no buyer envelope: all `invalid_terms` (core's details, `state.ts` `lateDelivery`); on chain `BadKeyProof` maps to `invalid_terms` (`packages/settlement/evm/errors.ts`).
 - Files: `spec/openapi.json` (and `spec/openapi/paths.json`, its source) for the new body; `spec/schemas/messages.schema.json` does not need to change; `packages/sdk/src/operations.ts` (`operationOf` for `settlements`, `submissionsOf` for `settle`) and its tests; `apps/operator/src/server.ts` (`checkShape`, `placeholderSigned`) and its tests; prepare's `check` line that says the route cannot carry a delivery yet (`apps/operator/src/prepare.ts`); `docs/api.md`; `site/llms.txt`.
+
+**A pre-existing trait for triage, not changed here:** when a node behind the chain joins a delivery, the EVM adapter records the buyer's key again, although `custodyBehind` already served it from the same `KeyReleased` log. `keysFor` then lists one envelope twice, and the log carries two `key.released` events for it. The carried-decision join has the same trait, and `sync.test.ts` (red-team round 3, H2) pins it, so deduplicating it is a change of its own (`evm-settlement.ts`, the `key.released` branch of `record`).
 
 **Sentences for `docs/api.md` and the site after the freeze** (not changed here):
 - Settlement rules: "In Held, a settlement may name a delivery that was never posted, the late work, and release its key: send the settlement with that seller-signed delivery. The settlement layer checks that the delivery hashes to the `deliveryHash` both parties signed and holds an envelope for the buyer, and releases that envelope with the payment."
