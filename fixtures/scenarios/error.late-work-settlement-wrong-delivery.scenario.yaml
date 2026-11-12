@@ -1,0 +1,43 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 357
+name: error.late-work-settlement-wrong-delivery
+description: >-
+  T-357, ADR-0031 SC-5b (Rafa, 2026-11-11: "Yes, keep it"). Tidewater misses deliverBy: its delivery of the
+  clean CSV can no longer land (the contract and core refuse it after deliverBy), so nothing is posted and
+  the deal stays Held. The two still want the work.
+  Tidewater hands Atlas the seller-signed delivery off chain, and both sign one settlement that names it,
+  pays Tidewater 1400 tUSD and Atlas 600 tUSD, and releases the key. First the settlement names a delivery of
+  the row-drop CSV while it carries the clean one: the carried delivery is not the one both signed, so its key
+  cannot be released, and settlement refuses it (invalid_terms) and moves nothing. Then the settlement names
+  the clean CSV it carries: it pays the split, returns the fee to Atlas and releases Atlas's envelope from that
+  delivery in the same step. Atlas opens it, and the plaintext hash matches.
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - advance_clock:      { seconds: 172800 }          # past deliverBy (offer + 48 h)
+  - mutual_settle:      { via: op-2, payouts: { tidewater-seller: "1400000000", atlas-buyer: "600000000" }, release_key: true, carry: data/dataset-cleaning/customers.clean.csv, names: data/dataset-cleaning/customers.clean.row-drop.csv }
+  - mutual_settle:      { via: op-2, payouts: { tidewater-seller: "1400000000", atlas-buyer: "600000000" }, release_key: true, carry: data/dataset-cleaning/customers.clean.csv }
+  - verify_key_release: { by: buyer, via: op-2 }
+expect:
+  problem: { type: invalid_terms, step: 5 }
+  terminal: Settled
+  balances:
+    atlas-buyer: "8600000000"         # 10000 - 2000 - fee + 600 + fee back
+    tidewater-seller: "1400000000"
+    bench-a: "25000000000"
+    escrow: "0"

@@ -31,7 +31,9 @@ export type StepBody =
   // A party appeals a first-instance decision, posting the rulebook's appeal bond (or `bond`) and fee.
   | { kind: 'appeal'; by: 'buyer' | 'seller'; via: Via; grounds: string; bond?: string; signer?: string }
   // ADR-0019, D23: both parties sign payouts (actor name to amount) that sum to the price.
-  | { kind: 'mutual_settle'; via: Via; payouts: Record<string, string>; releaseKey: boolean; signer?: string }
+  // `carry` (late work, ADR-0031 SC-5b): the settlement carries a seller-signed delivery of that file that was never
+  // posted, names it and may release its key. `names`: it signs the hash of a delivery of another file instead.
+  | { kind: 'mutual_settle'; via: Via; payouts: Record<string, string>; releaseKey: boolean; signer?: string; carry?: string; names?: string }
   // Outages and permissionless timeouts (neutrality fixtures).
   | { kind: 'offline'; actor: string }
   | { kind: 'operator_refuses'; operator: string }
@@ -257,12 +259,19 @@ function parseStepBody(kind: string, body: unknown, path: string, operators: rea
       };
     }
     case 'mutual_settle': {
-      const o = object(body, p, ['via', 'payouts', 'release_key', 'signer'], ['payouts']);
+      const o = object(body, p, ['via', 'payouts', 'release_key', 'signer', 'carry', 'names'], ['payouts']);
       const payouts = moneyMap(o.payouts, `${p}.payouts`);
       for (const who of Object.keys(payouts)) if (!actors.includes(who)) fail(`${p}.payouts.${who}`, 'not a party, adjudicator or operator of this scenario');
       if (Object.keys(payouts).length === 0) fail(`${p}.payouts`, 'needs at least one payout');
       if (o.release_key !== undefined && typeof o.release_key !== 'boolean') fail(`${p}.release_key`, 'must be true or false');
-      return { kind, via: via(o), payouts, releaseKey: o.release_key === true, ...signer(o) };
+      const file = (k: 'carry' | 'names'): { carry?: string } | { names?: string } => {
+        if (o[k] === undefined) return {};
+        const f = str(o[k], `${p}.${k}`);
+        if (f.startsWith('/') || f.split('/').includes('..')) fail(`${p}.${k}`, 'must be a path relative to fixtures/ without ".."');
+        return { [k]: f };
+      };
+      if (o.names !== undefined && o.carry === undefined) fail(`${p}.names`, 'names needs carry: it names another delivery than the one carried');
+      return { kind, via: via(o), payouts, releaseKey: o.release_key === true, ...signer(o), ...file('carry'), ...file('names') };
     }
     case 'advance_clock': {
       const o = object(body, p, ['seconds'], ['seconds']);

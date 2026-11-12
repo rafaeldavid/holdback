@@ -7,6 +7,8 @@
 // agent can recompute it. Prepare hides
 // nothing (D39): the caller sends every nonce and chooses the disclosure level; the operator derives neither.
 import {
+  deliveryHash,
+  parseDelivery,
   parseCommitment,
   plusSeconds,
   wholeSecond,
@@ -31,6 +33,7 @@ import {
   type CommitmentStateView,
   type CommitmentTerms,
   type DeterministicCheck,
+  type Delivery,
   type EncryptedKey,
   type Hex32,
   type HoldbackDomain,
@@ -675,6 +678,19 @@ async function appeal(ctx: PrepareContext, input: Record<string, unknown>): Prom
   };
 }
 
+/**
+ * The late delivery an agent names for a settlement in Held (SC-5b), checked as core and the contract check it when it
+ * releases a key: a delivery for this commitment with an envelope for the buyer. Undefined when none is given.
+ */
+function lateDeliveryIn(c: AnyCommitment, v: unknown): Delivery | undefined {
+  if (v === undefined) return undefined;
+  const r = parseDelivery(v);
+  if (!r.ok) return bad(`delivery is the seller-signed delivery you hold (delivery.schema.json): ${r.error.detail}`, 'delivery');
+  const d = r.value;
+  if (lc(d.commitmentId) !== lc(c.id)) bad(`delivery is for ${d.commitmentId}, not ${c.id}`, 'delivery.commitmentId');
+  return d;
+}
+
 async function settlement(ctx: PrepareContext, input: Record<string, unknown>): Promise<Prepared> {
   const c = await commitmentIn(ctx, input);
   const nonce = nonceIn(input['nonce'], 'nonce');
@@ -695,12 +711,20 @@ async function settlement(ctx: PrepareContext, input: Record<string, unknown>): 
       { to: c.buyer, amount: split.value.remainder },
     ].filter((p) => p.amount.amount !== '0');
   }
-  const delivered = await ctx.delivery(c.id);
+  const posted = await ctx.delivery(c.id);
+  // SC-5b (T-357): with nothing posted, the agent may name the late delivery it holds, as the seller signed it. Its hash
+  // is rebuilt here from that delivery, never taken from the caller, and the agent recomputes it before signing.
+  const late = posted ? undefined : lateDeliveryIn(c, input['delivery']);
+  const named = posted?.deliveryHash ?? (late ? deliveryHash(late) : null);
+  if (posted && input['delivery'] !== undefined) bad(`a delivery is posted for ${c.id} (${posted.deliveryHash}); the settlement names that one, so leave delivery out`, 'delivery');
   const givenExpiry = timestamp(input['expiresAt'], 'expiresAt');
   const expiresAt = givenExpiry ?? plusSeconds(ctx.now(), 3600);
   const givenRelease = typeof input['releaseKey'] === 'boolean';
-  const releaseKey = givenRelease ? (input['releaseKey'] as boolean) : delivered !== undefined;
-  const body = { type: 'MutualSettlement', commitmentId: c.id, deliveryHash: delivered?.deliveryHash ?? null, payouts, releaseKey, expiresAt } as const;
+  const releaseKey = givenRelease ? (input['releaseKey'] as boolean) : named !== null;
+  if (releaseKey && named === null) bad('releaseKey needs a delivery: nothing is posted, so give the late delivery you hold as delivery, or set releaseKey false', 'releaseKey');
+  // The key proof reads only the buyer's envelope (HoldbackRules :381), so it is needed only when the key is released.
+  if (late && releaseKey && !late.encryptedKeys.some((k) => lc(k.recipient) === lc(c.buyer))) bad(`delivery has no envelope for the buyer ${c.buyer}, so there is no key to release`, 'delivery.encryptedKeys');
+  const body = { type: 'MutualSettlement', commitmentId: c.id, deliveryHash: named, payouts, releaseKey, expiresAt } as const;
   const m = { ...body, nonce };
   const signed = forMessage(ctx.domain, m);
   return {
@@ -716,6 +740,15 @@ async function settlement(ctx: PrepareContext, input: Record<string, unknown>): 
       `the fee ${amountText(c.adjudication.fee)} returns to the buyer`,
       releaseKey ? 'the buyer receives the content key' : 'the content key is not released',
       'both parties sign the identical typed data; either may submit once both signatures are in',
+      ...(late
+        ? [
+            `deliveryHash ${named} is the hash of the late delivery you gave, which was never posted: compute it yourself from the seller-signed delivery (EIP-712 struct hash without its signature) before you sign. Both signatures over this hash are what endorse that delivery; nothing checks the seller's signature on it`,
+            releaseKey
+              ? "the settlement layer releases the buyer's first envelope in that delivery with the payment, and no appeal follows a settlement. The buyer already holds that envelope in the delivery it was handed, so the exchange rests on the ciphertext: as seller, hand over the delivery but keep the ciphertext at its uri until the settlement lands; as buyer, check the ciphertext's sha256 and the hashes before you sign"
+              : 'the key stays with the seller: the settlement names the delivery and pays for it, and the work changes hands outside the protocol',
+            ...(releaseKey ? ['the settlement must travel with that delivery, as the contract call mutualSettle(terms, settlement, delivery, keyProof) takes it; POST /settlements does not carry a delivery yet, so submit this one to the settlement layer directly'] : []),
+          ]
+        : []),
     ],
     defaults: { ...(givenExpiry ? {} : { expiresAt }), ...(givenRelease ? {} : { releaseKey }) },
   };

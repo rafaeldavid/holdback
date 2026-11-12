@@ -381,7 +381,8 @@ export class Deal {
     ].filter((p) => p.amount.amount !== '0');
   }
 
-  async mutual(over: { payouts?: Payout[]; releaseKey?: boolean; deliveryHash?: Hex32 | null; signers?: [SimActor, SimActor] } = {}): Promise<Submission> {
+  /** `carry`: the unposted delivery a settlement in Held names and releases (late work, ADR-0031 SC-5b). */
+  async mutual(over: { payouts?: Payout[]; releaseKey?: boolean; deliveryHash?: Hex32 | null; signers?: [SimActor, SimActor]; carry?: Delivery } = {}): Promise<Submission> {
     const body = {
       type: 'MutualSettlement' as const,
       commitmentId: this.id,
@@ -394,7 +395,7 @@ export class Deal {
     const [b, s] = over.signers ?? [this.cast.buyer, this.cast.seller];
     const buyerSignature = await signMessage(b.key, domain, body);
     const sellerSignature = await signMessage(s.key, domain, body);
-    return { kind: 'mutual_settle', message: { ...body, buyerSignature, sellerSignature } };
+    return { kind: 'mutual_settle', message: { ...body, buyerSignature, sellerSignature }, ...(over.carry ? { delivery: over.carry } : {}) };
   }
 
   trigger(timeout: TimeoutKind): Submission {

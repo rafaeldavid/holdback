@@ -799,7 +799,6 @@ describe('mutual settlement (ADR-0019, D23 payouts)', () => {
   });
 
   it.each<[string, EscrowEvent[], EscrowEvent, ProblemType]>([
-    ['a delivery hash while Held', toHeld, ev.mutual(T.deliver, { deliveryHash: dh }), 'invalid_terms'],
     ['releasing a key that does not exist yet', toHeld, ev.mutual(T.deliver, { releaseKey: true }), 'invalid_terms'],
     ['a stale delivery hash', toDelivered, ev.mutual(T.decide, { deliveryHash: ZERO32 }), 'invalid_terms'],
     ['a null delivery hash after delivery', toDelivered, ev.mutual(T.decide), 'invalid_terms'],
@@ -820,6 +819,56 @@ describe('mutual settlement (ADR-0019, D23 payouts)', () => {
   ])('refuses %s', (_name, path, event, type) => {
     const r = stepF(run(path), event);
     expect(r.ok ? `ok: ${r.value.kind}` : r.error.type).toBe(type);
+  });
+});
+
+// T-357, ADR-0031 SC-5b, ADR-0019 as amended 2026-11-12: in Held, a settlement both parties signed may name a delivery
+// nobody posted and release its key, under exactly the checks of HoldbackRules.mutualSettle (:370-382). The late
+// delivery travels with the settlement, as the contract's `dv` and key proof do.
+describe('late-work settlement in Held (SC-5b)', () => {
+  const late = '2026-11-01T11:00:00Z'; // after deliverBy: no delivery can land any more
+  const lateDelivery = delivery({ submittedAt: late, ciphertext: { uri: 'file:///store/late', sha256: `sha256:${'e'.repeat(64)}`, bytes: 120, cipher: 'aes-256-gcm' } });
+  const LATE_DH = deliveryHash(lateDelivery);
+  const carried = (at: string, over: Partial<MutualSettlement>, d: Delivery | undefined): EscrowEvent => {
+    const e = ev.mutual(at, over) as Extract<EscrowEvent, { type: 'mutual_settle' }>;
+    return d ? { ...e, delivery: d } : e;
+  };
+  const settledView = (s: EscrowState) => (s.kind === 'Settled' ? { from: s.from, keyReleased: s.keyReleased, deliveryHash: postedDeliveryHash(s) } : s.kind);
+
+  it.each<[string, EscrowEvent, { from: string; keyReleased: boolean; deliveryHash: undefined }]>([
+    ['late work after deliverBy, key released from the delivery it names', carried(late, { deliveryHash: LATE_DH, releaseKey: true }, lateDelivery), { from: 'Held', keyReleased: true, deliveryHash: undefined }],
+    ['the same before deliverBy: the contract sets no deadline on a settlement', carried(T.deliver, { deliveryHash: LATE_DH, releaseKey: true }, lateDelivery), { from: 'Held', keyReleased: true, deliveryHash: undefined }],
+    ['a delivery named and its key kept: the contract checks nothing more (:370, :379)', carried(late, { deliveryHash: LATE_DH, releaseKey: false }, undefined), { from: 'Held', keyReleased: false, deliveryHash: undefined }],
+    ['a carried delivery with only the buyer envelope: the key proof reads only that one (:381)', carried(late, { deliveryHash: deliveryHash(delivery({ encryptedKeys: [{ recipient: buyer, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' }] })), releaseKey: true }, delivery({ encryptedKeys: [{ recipient: buyer, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' }] })), { from: 'Held', keyReleased: true, deliveryHash: undefined }],
+  ])('settles: %s', (_name, event, expected) => {
+    const r = step(run(toHeld), event);
+    if (!r.ok) throw new Error(`${r.error.type}: ${r.error.detail}`);
+    expect(settledView(r.value)).toEqual(expected);
+  });
+
+  // Each refusal is one the contract makes too, named by its revert.
+  it.each<[string, EscrowEvent, ProblemType, RegExp]>([
+    ['releasing a key with no delivery named (InvalidMessage, :370)', carried(late, { releaseKey: true }, lateDelivery), 'invalid_terms', /releaseKey needs a delivery/],
+    ['releasing a key with no delivery carried (BadKeyProof, :380)', carried(late, { deliveryHash: LATE_DH, releaseKey: true }, undefined), 'invalid_terms', /carries no delivery/],
+    ['a carried delivery that is not the one both signed (BadKeyProof, :380)', carried(late, { deliveryHash: LATE_DH, releaseKey: true }, delivery()), 'invalid_terms', /does not hash to/],
+    ['a delivery for another commitment (BadKeyProof, :380: the contract hashes with this id)', carried(late, { deliveryHash: deliveryHash(delivery({ commitmentId: ZERO32 })), releaseKey: true }, delivery({ commitmentId: ZERO32 })), 'invalid_terms', /another commitment/],
+    ['a carried delivery with no envelope for the buyer (BadKeyProof, :381)', carried(late, { deliveryHash: deliveryHash(delivery({ encryptedKeys: [{ recipient: primary, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' }] })), releaseKey: true }, delivery({ encryptedKeys: [{ recipient: primary, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' }] })), 'invalid_terms', /no envelope for the buyer/],
+    ['an expired settlement message (MessageExpired, :369)', carried(late, { deliveryHash: LATE_DH, releaseKey: true, expiresAt: late }, lateDelivery), 'deadline_passed', /expired/],
+    ['payouts that do not sum to the price (InvalidMessage, _payOut :408)', carried(late, { deliveryHash: LATE_DH, releaseKey: true, payouts: split('1400000001', '600000000') }, lateDelivery), 'invalid_terms', /must equal the price/],
+  ])('refuses %s', (_name, event, type, detail) => {
+    const r = step(run(toHeld), event);
+    expect(r.ok ? `ok: ${r.value.kind}` : r.error.type).toBe(type);
+    if (!r.ok) expect(r.error.detail).toMatch(detail);
+  });
+
+  it('reads the carried delivery only in Held: after a delivery the settlement names the posted one (:374)', () => {
+    const r = step(run(toDelivered), carried(T.decide, { deliveryHash: LATE_DH, releaseKey: true }, lateDelivery));
+    expect(r.ok ? `ok: ${r.value.kind}` : r.error.detail).toMatch(/does not name the current delivery/);
+  });
+
+  it('a reclaim that lands first ends the deal: the late settlement is refused (settle once)', () => {
+    const r = step(run([...toHeld, ev.at('reclaim', T.deliverBy)]), carried(late, { deliveryHash: LATE_DH, releaseKey: true }, lateDelivery));
+    expect(r.ok ? `ok: ${r.value.kind}` : r.error.type).toBe('invalid_state');
   });
 });
 

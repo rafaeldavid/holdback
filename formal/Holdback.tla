@@ -313,14 +313,17 @@ ReleaseKeyLate(c) ==
   /\ Act("release_key", {}, c)
   /\ UNCHANGED <<esc, via, ap, appellant, clk, escClk, apClk, moves, up, money, cppv, bondv>>
 
-\* mutual_settle (ADR-0019, D23): both parties sign any split of the price; the fee returns to the buyer;
-\* releaseKey only after a delivery. A seller share is a CPP capture (authorization unexpired); an all-buyer
-\* split is a void only, which works after the expiry while anything is still held.
+\* mutual_settle (ADR-0019, D23): both parties sign any split of the price; the fee returns to the buyer.
+\* releaseKey in every Settleable state: after a delivery it names the posted one; in Held (late work,
+\* ADR-0031 SC-5b, ADR-0019 as amended 2026-11-12, T-357) it names and carries a delivery nobody posted,
+\* and the key released is the buyer's envelope in it. The model has no delivery identity: both parties'
+\* signatures are what bind the key to that delivery, and the key still moves only with the payment.
+\* A seller share is a CPP capture (authorization unexpired); an all-buyer split is a void only, which works
+\* after the expiry while anything is still held.
 MutualSettle(c, s, releaseKey) ==
   /\ Can("buyer") /\ Can("seller") /\ \E r \in Relays : TRUE
   /\ esc[c] \in Settleable
   /\ IF s > 0 THEN ~cppExp[c] ELSE ~cppRec[c]
-  /\ releaseKey => esc[c] # "Held"
   /\ esc' = [esc EXCEPT ![c] = "Settled"]
   /\ via' = [via EXCEPT ![c] = "mutual"]
   /\ escrow' = [escrow EXCEPT ![c] = @ - (Price + Fee)]

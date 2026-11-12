@@ -54,7 +54,12 @@ export type Submission =
   | { kind: 'early_accept'; message: EarlyAccept }
   | { kind: 'decide'; message: Decision }
   | { kind: 'appeal'; appeal: Appeal }
-  | { kind: 'mutual_settle'; message: MutualSettlement }
+  /**
+   * `delivery`: in Held, the unposted delivery the settlement names and whose key it releases (late work, ADR-0031
+   * SC-5b, T-357). Its hash must be the settlement's deliveryHash; it is read only with releaseKey, as the contract's
+   * `dv` and key proof are. After a delivery the posted one is used and this is ignored.
+   */
+  | { kind: 'mutual_settle'; message: MutualSettlement; delivery?: Delivery }
   | { kind: 'trigger'; commitmentId: Hex32; timeout: TimeoutKind };
 
 type Unsigned<T> = T extends { signature: Signature } ? Omit<T, 'signature'> & { signature?: Signature } : T;
@@ -73,7 +78,7 @@ export type DryRunSubmission =
   | { kind: 'deliver'; delivery: Unsigned<Delivery> }
   | { kind: 'early_accept'; message: Unsigned<EarlyAccept> }
   | { kind: 'appeal'; appeal: Unsigned<Appeal> }
-  | { kind: 'mutual_settle'; message: Omit<MutualSettlement, 'buyerSignature' | 'sellerSignature'> & { buyerSignature?: Signature; sellerSignature?: Signature } };
+  | { kind: 'mutual_settle'; message: Omit<MutualSettlement, 'buyerSignature' | 'sellerSignature'> & { buyerSignature?: Signature; sellerSignature?: Signature }; delivery?: Delivery };
 
 export interface SubmitOptions {
   /** Same key and same body replays the first successful result; same key and another body is idempotency_conflict. */
