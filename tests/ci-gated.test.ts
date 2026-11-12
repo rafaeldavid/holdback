@@ -27,9 +27,6 @@ const EXEMPT: Record<string, string> = {
   'examples/e2e-scenarios-scripted.test.ts': "the round driver's anvil half: minutes long and load-sensitive; runs locally",
   'examples/e2e-scenarios-silent.test.ts': "the round driver's anvil half: minutes long and load-sensitive; runs locally",
   'examples/e2e-settle.test.ts': "the round driver's anvil half: minutes long and load-sensitive; runs locally",
-  // T-365: the anvil half takes about 85 s and runs locally, with Foundry, in `pnpm test`. Naming it in the anvil
-  // job's world leg is a CI change (kind 11), which Rafa approves; until then its offline tests run in the shards.
-  'examples/send-timeout.test.ts': "send-timeout's anvil half: runs locally until CI's anvil job names it (kind 11, Rafa)",
   // Gated on the platform, not on a tool: the cases run in the test shards, on Linux as a user who is not root.
   'packages/core/src/store/store.test.ts': 'gated on mkfifo and on not being root: both hold on the CI runners',
   // A wall-clock run at 10 MB, off unless HOLDBACK_PERF=1: tests do not assert on wall-clock time (docs/team.md).
