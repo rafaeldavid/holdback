@@ -31,8 +31,8 @@ contract HookToken is MockERC3009Token {
     }
 }
 
-/// A mutual-settlement payee (needs no signature) that replays a prepared call into the rules contract or CPP while
-/// its payout is being transferred.
+/// The hook token's callee (needs no signature): it replays a prepared call into the rules contract or CPP while a
+/// payout it watches is being transferred (since SC-3, the seller's).
 contract Reenterer {
     address public target;
     bytes public payload;

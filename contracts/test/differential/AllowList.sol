@@ -27,9 +27,12 @@ import {Field, Obs} from "./Observation.sol";
 ///         capture and emitting `Paid`; the new side refuses the same one checked call with exactly
 ///         `InvalidMessage()` and emits nothing. The sides then hold different deals by design: diverged. The handler
 ///         names a third party in one settlement in 32 (`RulesHandler._mutual`), so the refusal stays exercised.
-///      2. The same settlement refused on both sides, the old side for its own reason (the escrow refusing the all-fee
-///         capture after the hold's expiry, a wrong key, an overshoot), the new side first for its payee: only the
-///         refusal reason (Calls) and the events the old side's reverted call recorded (Events) differ.
+///      2. The same settlement refused on both sides, the old side inside its third-party payout (the escrow refusing
+///         that all-fee capture, as after the hold's authorization expiry), the new side first for its payee: only the
+///         refusal reason (Calls) and the events the old side's reverted call recorded (Events) differ. Every check
+///         before the payouts (stage, expiry, signatures, key proof) refuses alike on both sides, and an overshoot
+///         reverts `InvalidMessage` on both. No coverage seed exercises this entry; the fuzz gate met it before the
+///         handler recorded the payee (seed 17 of the first run, measured 2026-11-12).
 ///      A settlement between the parties alone emits no `Paid` on either side, so every such step must be equal.
 library AllowList {
     struct Verdict {
@@ -51,8 +54,8 @@ library AllowList {
         if (!_onlyRefused(n.calls, abi.encodeWithSelector(HoldbackRules.InvalidMessage.selector))) return v;
         // Entry 1: the old side paid the third address (its `Paid` event); the new side refused.
         if (_landed(o.calls) && _paid(o.events)) return Verdict("SC-3: third-party payout refused", true);
-        // Entry 2: both refused, the old side for its own reason (the escrow's refusal of the all-fee capture after the
-        // hold's expiry, a wrong key, an overshoot); only the refusal reason and the old side's recorded events differ.
+        // Entry 2: both refused, the old side inside its third-party payout (the escrow refusing that capture); only the
+        // refusal reason and the old side's recorded events differ.
         if ((f == Field.Calls || f == Field.Events) && _refused(o.calls)) {
             return Verdict("SC-3: refused for its payee first", false);
         }

@@ -63,7 +63,8 @@ contract SideBySideTest is Test {
     uint8[WEIGHTS] internal _weight; // indices into _sel, each repeated by its weight
 
     function setUp() public {
-        // offer 3, agreeAndFund 5, deliver 4, decide 5, warp 2, decideFallback 2, every other action 1: 28 in all.
+        // offer 3, agreeAndFund 5, deliver 4, decide 5, warp 2, decideFallback 2, the four removed actions 0, every
+        // other action 1: 28 in all.
         // T-346 (SC-7): the bond actions and `appealPath` left with the vault and the appeal rows. T-356: since SC-6 the
         // old side is a parent with no party appeal and no `expireOffer` either, so the four removed actions
         // (`fileAppeal`, `expireOffer`, `expireAppeal`, `decideAppeal`) are refused alike on both sides and compare

@@ -78,8 +78,9 @@ contract MutualSettleTest is Base {
         m.sellerSignature = _sign(SELLER_PK, h);
     }
 
-    /// Any split of the price between the parties, a payee named twice included. Since SC-3 (ADR-0031 §4) the payees
-    /// are the buyer and the seller only; `PartiesOnlyPayout.t.sol` shows a third address refused.
+    /// Any split of the price between the parties. Since SC-3 (ADR-0031 §4) the payees are the buyer and the seller
+    /// only; `PartiesOnlyPayout.t.sol` shows a third address refused. The buyer is named twice here to show the contract
+    /// adds the shares up; the API's parser takes each payee once (`packages/core/src/parse.ts`), so an agent sends one.
     function test_paysAnySplit_feeBackToBuyer_releasesKey() public {
         (H.Terms memory t, bytes32 id) = _funded();
         (H.Delivery memory d, H.KeyProof memory k) = _deliver(t, id);
