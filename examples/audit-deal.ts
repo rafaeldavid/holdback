@@ -71,7 +71,7 @@ import type { Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { Agent } from './agent.ts';
 import { loadKeys, makeKeys, openDeals, printable, type Approved, type BuyerSigner, type Delivery, type Difference, type Money, type Offer, type Paid, type Report } from './buyer-signer.ts';
-import { dealRecord, type Row } from './deal-record.ts';
+import type { Row } from './deal-record.ts';
 import { config as adapterConfig, fill, loadConfig, startSellerAdapter, type RunningAdapter, type Stage } from './seller-adapter.ts';
 import { startStubSellerApi, type StubSellerApi } from './seller-adapter-stub.ts';
 import { jcs, knownPins, operatorFeeOf, Refusal } from './verify.ts';
@@ -385,6 +385,9 @@ export async function runAuditDeal(o: AuditDealOptions): Promise<AuditDealResult
       ...(panel ? { rubric: expected.rubric } : {}),
       deadlines: offer.deadlines,
       adjudicators,
+      // Item 25 of the plan's follow-ups: the signed fields the offer view shows, approved as shown, as the pilot's cases do.
+      settlement: offer.settlement, disclosure: offer.disclosure, clubId: offer.clubId, rulebookHash: offer.rulebookHash, policyId: offer.policyId, policyHash: offer.policyHash, registryHash: offer.registryHash, maxSubmissions: offer.maxSubmissions,
+      sellerPayoutAddress: offer.sellerPayoutAddress,
     };
     step('The buyer approves the quote', `price ${money(approved.price)}, adjudication fee ${money(offer.fees.adjudication)}, operator fee ${money(offer.fees.operator)}, total ${money(offer.fees.total)}; delivery by ${plain(String(offer.deadlines.deliverBy))} (${span(deliverWithinSec)}); ${approved.checks.length} checks: ${approved.checks.map((c: J) => plain(String(c.id))).join(', ')}; ${panel ? `a rubric of ${expected.rubric.criteria.length} criteria` : 'no rubric'}.`);
 
@@ -875,6 +878,7 @@ export async function rehearse(o: RehearsalOptions): Promise<RehearsalResult> {
       seller, price: { token: pin.token.id, amount: ownTerms?.price.amount ?? offer.price.amount }, fees: offer.fees,
       deliverable: expected.deliverable, checks: expected.checks, ...(hasRubric ? { rubric: expected.rubric } : {}), deadlines: offer.deadlines, adjudicators, differences,
       settlement: offer.settlement, disclosure: offer.disclosure, clubId: offer.clubId, rulebookHash: offer.rulebookHash, policyId: offer.policyId, policyHash: offer.policyHash, registryHash: offer.registryHash, maxSubmissions: offer.maxSubmissions,
+      sellerPayoutAddress: offer.sellerPayoutAddress,
     };
     step('The buyer approves', `${ownTerms ? 'the terms file it shares with the seller' : 'the built-in template filled with its scope, at the price it was shown'}, the ${differences.length} ${differences.length === 1 ? 'difference' : 'differences'} and the eight signed fields above.`);
 
@@ -890,9 +894,8 @@ export async function rehearse(o: RehearsalOptions): Promise<RehearsalResult> {
     const finish = async (end: EndState): Promise<RehearsalResult> => {
       const sellerReceived = { token: pin.token.id, amount: (BigInt((await balance(seller)).amount) - BigInt(sellerBefore.amount)).toString() };
       const buyerHolds = await balance(signer.address);
-      // The buyer's own record, read from every operator. Its x25519 key opens its released envelope; it never reaches the record.
-      const keyFile = JSON.parse(readFileSync(join(signer.store, `${signer.address}.json`), 'utf8')) as { encryptionSecretKey: string };
-      const record = await dealRecord(id, { operators: o.operators, party: 'buyer', encryptionSecretKey: keyFile.encryptionSecretKey });
+      // The buyer's own record, read from every operator by its signer, whose x25519 key opens its released envelope; the key never reaches the record.
+      const record = await signer.record(o.operators);
       const path = join(o.dir, 'deal-record.json');
       writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`);
       const count = (ok: boolean | null) => record.checks.filter((c) => c.ok === ok).length;

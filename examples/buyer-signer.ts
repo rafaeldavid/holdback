@@ -39,7 +39,8 @@ import nacl from 'tweetnacl';
 import { recoverTypedDataAddress, type Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { Agent } from './agent.ts';
-import { commitmentIdOf, jcs, knownPins, operatorFeeOf, Refusal, typedOf, type Pin } from './verify.ts';
+import { dealRecord, type DealRecord } from './deal-record.ts';
+import { commitmentIdOf, isAddressText, jcs, knownPins, moneyAddressWarnings, operatorFeeOf, Refusal, typedOf, type Pin } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -82,6 +83,19 @@ export type Offer = {
   policyId: string;
   policyHash: Hex;
   registryHash: Hex;
+  /**
+   * Where the money comes from and goes (ADR-0033): the buyer's payment address, which funds the hold and receives
+   * every refund, and the seller's payout address, which receives the price. Each may equal its party's signing address.
+   */
+  buyerPaymentAddress: string;
+  sellerPayoutAddress: string;
+  /** The rest of what the buyer signs (T-332's follow-up): the schema version, the remedy on a reject, the terms' nonce and when the seller made them. */
+  schemaVersion: string;
+  remedy: { onReject: string };
+  nonce: Hex;
+  createdAt: string;
+  /** The one token of the deal: the price's, the fee's and the settlement's, checked against the pinned settlement layer and discovery. */
+  token: { id: string; symbol: string; decimals: number };
   /** With `defaults` given to readOffer: what this offer changes from the seller's published defaults (T-330). */
   differences?: Difference[];
 };
@@ -95,6 +109,8 @@ type Signed = 'settlement' | 'disclosure' | 'clubId' | 'rulebookHash' | 'policyI
 export type Approved = Pick<Offer, 'price' | 'deliverable' | 'checks' | 'deadlines' | 'adjudicators'> & Partial<Pick<Offer, Signed>> & {
   fees: { adjudication: Money; operator: Money; total?: Money };
   seller?: string;
+  /** The seller's payout address the buyer approved. Without it, the one shown must stay (ADR-0033 §6). */
+  sellerPayoutAddress?: string;
   rubric?: J;
   commitmentId?: Hex;
   differences?: Difference[];
@@ -162,6 +178,17 @@ export type Options = {
   quoteCredentialEnv?: string | undefined;
   /** What the buyer expects of the seven signed fields (T-332). Not saved: give it again to loadKeys or openDeals. */
   expect?: Expect | undefined;
+  /** Where the signer's one-line notices and advisory warnings go (ADR-0033 §7). Default: standard error. */
+  log?: ((line: string) => void) | undefined;
+};
+/** What makeKeys takes beyond Options: saved in the key file, so every later run of this deal uses it. */
+export type KeyOptions = Options & {
+  /**
+   * The buyer's payment address (ADR-0033): it funds the hold and the operator fee, and receives every refund. Left
+   * out: this deal's signing address, and the signer says so in one line. Take it from your own configuration only,
+   * never from a seller, an operator or a message (ADR-0033 §6).
+   */
+  paymentAddress?: string | undefined;
 };
 /**
  * What watch tells the buyer's agent.
@@ -209,6 +236,8 @@ type Saved = {
   privateKey: Hex;
   encryptionSecretKey: string;
   createdAt: string;
+  /** The buyer's payment address, lowercase, when it is not the signing address (ADR-0033). */
+  paymentAddress?: string;
   /** The Idempotency-Key of the quote request, so a retry after a crash replays the seller's answer. */
   quoteKey?: string;
   commitmentId?: Hex;
@@ -362,6 +391,8 @@ const OFFER_FIELDS: Array<[string, (o: Offer) => J]> = [
   ['windows', (o) => o.windows], ['maxSubmissions', (o) => o.maxSubmissions], ['adjudicators', (o) => o.adjudicators],
   ['settlement.mode', (o) => o.settlement?.mode], ['disclosure.level', (o) => o.disclosure?.level], ['clubId', (o) => o.clubId], ['rulebookHash', (o) => o.rulebookHash],
   ['policyId', (o) => o.policyId], ['policyHash', (o) => o.policyHash], ['registryHash', (o) => o.registryHash],
+  ['buyerPaymentAddress', (o) => o.buyerPaymentAddress], ['sellerPayoutAddress', (o) => o.sellerPayoutAddress],
+  ['schemaVersion', (o) => o.schemaVersion], ['token', (o) => o.token], ['remedy.onReject', (o) => o.remedy?.onReject], ['nonce', (o) => o.nonce], ['createdAt', (o) => o.createdAt],
   ['differences', (o) => o.differences ?? null],
 ];
 /** The seven of T-332 and maxSubmissions, as OFFER_FIELDS names them. An Approved holds each under the name's first part. */
@@ -402,8 +433,16 @@ export class BuyerSigner {
   readonly #quoteCredentialEnv: string | undefined;
   readonly #expect: Expect;
   readonly #saved: Saved;
+  readonly #log: (line: string) => void;
   #connected: Promise<{ agent: Agent; pin: Pin }> | undefined;
 
+  /**
+   * The buyer's payment address (ADR-0033): it funds the hold and the operator fee and receives every refund. The
+   * signing address unless makeKeys was given another.
+   */
+  get paymentAddress(): string {
+    return this.#saved.paymentAddress ?? this.address;
+  }
   /** The deal this key serves, once quote or checkOffer bound it. */
   get commitmentId(): Hex | undefined {
     return this.#saved.commitmentId;
@@ -425,9 +464,11 @@ export class BuyerSigner {
     this.#operators = options.operators ?? defaultOperators();
     this.#quoteCredentialEnv = options.quoteCredentialEnv;
     this.#expect = expectOf(options.expect);
+    this.#log = options.log ?? ((line) => console.error(line));
     this.address = privateKeyToAccount(s.privateKey).address.toLowerCase();
     this.encryptionPublicKey = Buffer.from(nacl.box.keyPair.fromSecretKey(new Uint8Array(Buffer.from(s.encryptionSecretKey, 'base64url'))).publicKey).toString('base64url');
     if (s.version !== 1 || s.address !== this.address) throw new Error(`the key file for ${s.address} in ${store} is not one this file wrote`);
+    if (s.paymentAddress !== undefined && !/^0x[0-9a-f]{40}$/.test(s.paymentAddress)) throw new Error(`the key file for ${s.address} in ${store} names a payment address that is not one`);
   }
 
   /**
@@ -504,6 +545,9 @@ export class BuyerSigner {
     const credential = name === undefined ? undefined : process.env[name];
     // The variable's name in the error, never its value.
     if (name !== undefined && !credential) throw new Error(`quoteCredentialEnv names ${name}, which is not set: set it to the seller's quote credential`);
+    // ADR-0033 §7: the one line that says where the money comes from when no payment address is set.
+    if (this.#saved.paymentAddress === undefined) this.#log(`Payment address: not set. The signing address ${this.address} funds the hold, and refunds return to it.`);
+    else this.#log(`Payment address: ${this.paymentAddress} funds the hold and the operator fee, and refunds return to it. The signing address ${this.address} receives none of the deal's money.`);
     this.#saved.quoteKey ??= crypto.randomUUID();
     this.#saved.scope = scope;
     if (options === undefined) delete this.#saved.options;
@@ -512,7 +556,7 @@ export class BuyerSigner {
     const res = await fetch(quoteUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'idempotency-key': this.#saved.quoteKey, ...(credential ? { authorization: `Bearer ${credential}` } : {}) },
-      body: JSON.stringify({ buyer: this.address, buyerEncryptionPublicKey: this.encryptionPublicKey, scope, ...(options === undefined ? {} : { options }) }),
+      body: JSON.stringify({ buyer: this.address, buyerEncryptionPublicKey: this.encryptionPublicKey, ...(this.#saved.paymentAddress === undefined ? {} : { buyerPaymentAddress: this.#saved.paymentAddress }), scope, ...(options === undefined ? {} : { options }) }),
       signal: AbortSignal.timeout(120_000),
     });
     const q = (await res.json().catch(() => null)) as J;
@@ -529,19 +573,22 @@ export class BuyerSigner {
   }
 
   /**
-   * Test service only: asks the faucet for `amount` base units of the test token (the deal's total) and a mandate
-   * in the demo club, which a fresh key needs before it can agree. The faucet serves an address once an hour.
+   * Test service only: asks the faucet for `amount` base units of the test token (the deal's total) for the payment
+   * address, and a mandate in the demo club for the signing key, which a fresh key needs before it can agree. With
+   * the two addresses apart that is two grants: the total to the payment address, and the mandate with the faucet's
+   * smallest grant, 1 base unit, to the signing key. The faucet serves an address once an hour.
    */
   async testFunds(amount: string): Promise<Money> {
     if (!DEC.test(amount) || amount === '0') throw new Error('amount is base units as a decimal string, above 0');
     const { agent } = await this.#connect();
-    const grant = await agent.call('POST', '/v1/faucet', { address: this.address, amount });
+    const grant = await agent.call('POST', '/v1/faucet', { address: this.paymentAddress, amount });
+    if (this.paymentAddress !== this.address) await agent.call('POST', '/v1/faucet', { address: this.address, amount: '1' });
     return { token: grant.granted.token, amount: grant.granted.amount };
   }
 
   /** The terms of `id` as both operators serve them, with the ID recomputed and the seller's signature recovered. */
   async #served(id: Hex): Promise<{ terms: J; offer: Offer }> {
-    const { agent } = await this.#connect();
+    const { agent, pin } = await this.#connect();
     const { id: servedId, signatures, ...terms } = await agent.trusted(`/v1/commitments/${id}/terms`);
     // The level first: at private and judgment an operator serves no plain deliverable or acceptance (ADR-0024), so
     // the ID below would not recompute. Name the level, not a mismatch that reads like tampering (T-332).
@@ -550,7 +597,11 @@ export class BuyerSigner {
     const signer = await recoverTypedDataAddress({ ...typedOf('CommitmentTerms', terms, agent.domain), signature: signatures?.seller }).catch(() => '');
     if (signer.toLowerCase() !== String(terms.seller).toLowerCase()) refuse("the seller's signature does not recover to the seller in the terms");
     const price: Money = terms.price, adjudication: Money = terms.adjudication.fee;
-    if (!isMoney(price) || !isMoney(adjudication) || adjudication.token !== price.token) refuse('the price and the adjudication fee are not amounts of one token');
+    if (!isMoney(price) || !isMoney(adjudication) || adjudication.token !== price.token || terms.settlement?.token !== price.token) refuse('the price, the adjudication fee and the settlement are not in one token');
+    // One token (plan section 2c): the pinned settlement layer's, which every operator's discovery must name too.
+    const listed = await agent.trusted('/.well-known/holdback.json', (x) => (typeof x.demo?.token?.id === 'string' ? x.demo.token.id.toLowerCase() : null));
+    if (listed !== null && listed !== pin.token.id.toLowerCase()) refuse(`the operators' discovery names the token ${shown(listed)}, and the pinned settlement layer holds ${pin.token.id} (${pin.token.symbol})`);
+    if (price.token.toLowerCase() !== pin.token.id.toLowerCase()) refuse(`the offer is in ${shown(price.token)}, and this settlement layer holds ${pin.token.id} (${pin.token.symbol}): the operators refuse any other`);
     // The operator fee: computed here from the schedule both operators publish, never read from the seller.
     const schedule = await agent.operatorFeeSchedule();
     const operator = schedule ? operatorFeeOf(price, schedule) : 0n;
@@ -569,6 +620,9 @@ export class BuyerSigner {
       adjudicators: { primary: a.adjudicator, fallback: a.fallbackAdjudicator, appeal: a.appealAdjudicator },
       settlement: { mode: terms.settlement?.mode }, disclosure: { level: terms.disclosure?.level }, clubId: terms.clubId, rulebookHash: terms.rulebookHash,
       policyId: a.policyId, policyHash: a.policyHash, registryHash: a.registryHash,
+      buyerPaymentAddress: String(terms.buyerPaymentAddress).toLowerCase(), sellerPayoutAddress: String(terms.sellerPayoutAddress).toLowerCase(),
+      schemaVersion: terms.schemaVersion, remedy: { onReject: terms.remedy?.onReject }, nonce: String(terms.nonce).toLowerCase() as Hex, createdAt: terms.createdAt,
+      token: { ...pin.token },
     };
     await this.#expected(agent, offer);
     return { terms, offer };
@@ -634,6 +688,9 @@ export class BuyerSigner {
       defaults = fillWith(defaultsOf(given), this.#saved.scope) as Defaults;
     }
     const { offer } = await this.#served(id);
+    const { pin } = await this.#connect();
+    // ADR-0033 §7: advisory lines for an odd money address. They refuse nothing; checkOffer refuses a payment address that is not this buyer's.
+    for (const w of [...moneyAddressWarnings('payout', offer.sellerPayoutAddress, pin, offer.adjudicators), ...moneyAddressWarnings('payment', offer.buyerPaymentAddress, pin, offer.adjudicators)]) this.#log(w);
     const showing: Offer = defaults ? { ...offer, differences: differencesOf(defaults, offer) } : offer;
     this.#saved.shown = { commitmentId: id, offer: showing, defaults };
     save(this.store, this.#saved);
@@ -661,6 +718,9 @@ export class BuyerSigner {
     const want: Array<[string, J, J]> = [
       ['buyer', terms.buyer, this.address],
       ['buyerEncryptionPublicKey', terms.buyerEncryptionPublicKey, this.encryptionPublicKey],
+      // ADR-0033 §6: the payment address is this buyer's own, from its key file and nowhere else.
+      ['buyerPaymentAddress', offer.buyerPaymentAddress, this.paymentAddress],
+      ...(approved.sellerPayoutAddress ? [['sellerPayoutAddress', offer.sellerPayoutAddress, approved.sellerPayoutAddress] as [string, J, J]] : []),
       ['price', offer.price, approved.price],
       ['fees.adjudication', offer.fees.adjudication, approved.fees?.adjudication],
       ['fees.operator', offer.fees.operator, approved.fees?.operator],
@@ -847,7 +907,7 @@ export class BuyerSigner {
   /**
    * Watches the deal to its outcome (watch, with the same options: it reports, and reclaims after a missed deadline).
    * On a release it opens this key's envelope, decrypts the work and checks its SHA-256 against the delivery the
-   * operators record. On a refund no work is released, and the hold or the price is back on this key. Returns the
+   * operators record. On a refund no work is released, and the hold or the price is back at the payment address. Returns the
    * work as text, with the receipt and one link per on-chain step. Text only: it stops on work that is not UTF-8.
    * Like watch, it goes on with one operator offline.
    */
@@ -881,6 +941,17 @@ export class BuyerSigner {
       receipt: { commitmentId: id, outcome: done.outcome, paid: paid.total, funded: paid.receipt, events: events.map((e) => ({ seq: e.seq, type: e.type, hash: e.hash })), finalAt: done.finalAt },
     };
   }
+
+  /**
+   * The buyer's deal record (deal-record.ts) for the deal this key serves, read from every configured operator. The
+   * signer's x25519 key opens the buyer's released envelope to check the work's hash; the key never reaches the record.
+   * `operators`: read these instead of the configured ones.
+   */
+  async record(operators: string[] = this.#operators): Promise<DealRecord> {
+    const id = this.#saved.commitmentId;
+    if (!id) throw new Error('this key serves no deal yet: quote or checkOffer binds one');
+    return dealRecord(id, { operators, party: 'buyer', encryptionSecretKey: this.#saved.encryptionSecretKey });
+  }
 }
 
 /**
@@ -898,14 +969,19 @@ export async function openDeals(store: string, options: Options = {}): Promise<B
 
 /**
  * Fresh keys for one deal: a signing key and an x25519 key, saved as `<store>/<address>.json` with file mode 0600.
- * `store` is a directory on the buyer's machine. The file stays until you delete it: after a refund the price is on
- * this key, so keep the file while the key holds anything.
+ * `store` is a directory on the buyer's machine. The file stays until you delete it. With `paymentAddress` set, that
+ * address funds the deal and receives every refund, and this key holds nothing (ADR-0033). Without it, after a refund
+ * the price is on this key, so keep the file while the key holds anything.
  */
-export async function makeKeys(store: string, options: Options = {}): Promise<BuyerSigner> {
+export async function makeKeys(store: string, options: KeyOptions = {}): Promise<BuyerSigner> {
+  const { paymentAddress, ...rest } = options;
+  if (paymentAddress !== undefined && !isAddressText(paymentAddress)) throw new Error('paymentAddress must be an address: 0x and 40 hex characters, with a valid checksum if in mixed case');
   const privateKey = generatePrivateKey();
-  const saved: Saved = { version: 1, address: privateKeyToAccount(privateKey).address.toLowerCase(), privateKey, encryptionSecretKey: Buffer.from(nacl.randomBytes(32)).toString('base64url'), createdAt: new Date().toISOString() };
+  const address = privateKeyToAccount(privateKey).address.toLowerCase();
+  const paying = paymentAddress?.toLowerCase();
+  const saved: Saved = { version: 1, address, privateKey, encryptionSecretKey: Buffer.from(nacl.randomBytes(32)).toString('base64url'), createdAt: new Date().toISOString(), ...(paying && paying !== address ? { paymentAddress: paying } : {}) };
   save(store, saved);
-  return new BuyerSigner(store, saved, options);
+  return new BuyerSigner(store, saved, rest);
 }
 
 /** Reopens the keys of one deal after a restart, by its commitment ID or by the buyer address makeKeys returned. */

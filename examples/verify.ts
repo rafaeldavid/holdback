@@ -5,7 +5,7 @@
 // refuses. The agent then signs its own typed data and submits its own body. Standard libraries only (viem), and
 // tweetnacl with Web Crypto to open the buyer's own envelope before an early accept (openOwnEnvelope).
 import nacl from 'tweetnacl';
-import { encodeAbiParameters, hashStruct, hashTypedData, keccak256, parseAbiParameters, recoverTypedDataAddress, toBytes, type Hex } from 'viem';
+import { encodeAbiParameters, getAddress, hashStruct, hashTypedData, keccak256, parseAbiParameters, recoverTypedDataAddress, toBytes, type Hex } from 'viem';
 import { SEPOLIA, type DeploymentFile } from './deployments.ts';
 
 export type Domain = { name: 'Holdback'; version: string; chainId: number; verifyingContract: Hex };
@@ -58,6 +58,25 @@ export function knownPins(): Pin[] {
     ...(SEPOLIA ? [pinOf(SEPOLIA, 'https://sepolia.etherscan.io')] : []),
     ...(env ? [pinOf(JSON.parse(env) as DeploymentFile)] : []),
   ];
+}
+
+/** Multicall3, at one address on every chain that has it: it makes any call it is asked to (ADR-0033 §7). */
+const MULTICALL3 = '0xca11bde05977b3631167028862be2a173976ca11';
+/**
+ * ADR-0033 §7's advisory warnings for one money address: the zero address, a contract of the pinned deployment,
+ * Multicall3, or one of the deal's adjudicators. Warnings only: no tool refuses any of them (D31).
+ */
+export function moneyAddressWarnings(role: 'payment' | 'payout', address: string, pin: Pin, adjudicators?: { primary: string; fallback: string; appeal: string }): string[] {
+  const a = address.toLowerCase();
+  const out: string[] = [];
+  const effect = role === 'payout' ? 'payments to the seller would be stranded there' : 'no signature can fund this deal';
+  if (a === `0x${'0'.repeat(40)}`) out.push(`Warning: the ${role} address is the zero address: ${role === 'payout' ? 'payments to the seller would be lost or would revert, depending on the token' : effect}.`);
+  const c = pin.chain;
+  const deployment: Array<[string, string]> = c ? [['rules contract', c.rules], ['escrow', c.escrow], ['collector', c.collector], ['token', c.tokenDomain.verifyingContract]] : [];
+  for (const [name, at] of deployment) if (at.toLowerCase() === a) out.push(`Warning: the ${role} address is this deployment's ${name}: ${effect}.`);
+  if (a === MULTICALL3) out.push(`Warning: the ${role} address is Multicall3: ${role === 'payout' ? "anyone could take the seller's payment" : effect}.`);
+  for (const [r, at] of Object.entries(adjudicators ?? {})) if (String(at).toLowerCase() === a) out.push(`Warning: the ${role} address is the deal's ${r} adjudicator: the adjudicator that decides would receive the price on one of its two outcomes.`);
+  return out;
 }
 
 const ERC3009 = ['from:address', 'to:address', 'value:uint256', 'validAfter:uint256', 'validBefore:uint256', 'nonce:bytes32'].map((s) => ({ name: s.split(':')[0]!, type: s.split(':')[1]! }));
@@ -214,7 +233,8 @@ export type Intent =
    * chain: on a chain (ADR-0025) the funding and the fee are the token's ERC-3009 authorizations, rebuilt from this pin,
    * and their nonces are fixed by the terms (fundingNonceOf, operatorFeeNonceOf): pass those as fundingNonce and the fee nonce.
    */
-  | { kind: 'agree-and-fund'; terms: J; me: string; encryptionPublicKey: string; maxTotal: bigint; agreeNonce: Hex; fundingNonce: Hex; expectedPrice?: { token: string; amount: string }; expectedCommitmentId?: Hex; operatorFee?: { schedule: J; nonce: Hex } | undefined; chain?: ChainPin }
+  /** paymentAddress (ADR-0033): your own address that funds the hold and receives every refund. Default: `me`. */
+  | { kind: 'agree-and-fund'; terms: J; me: string; paymentAddress?: string; encryptionPublicKey: string; maxTotal: bigint; agreeNonce: Hex; fundingNonce: Hex; expectedPrice?: { token: string; amount: string }; expectedCommitmentId?: Hex; operatorFee?: { schedule: J; nonce: Hex } | undefined; chain?: ChainPin }
   | { kind: 'delivery'; terms: J; ciphertext: { uri: string; sha256: string; bytes: number }; plaintextSha256: string; encryptedKeys: J[] }
   /**
    * Run openOwnEnvelope on the seller's signed delivery first: an early accept pays for the envelope the seller filed.
@@ -227,31 +247,64 @@ export type Intent =
 /** A slot's typed data is the message under the pinned Holdback domain, unless `typed` gives another (ERC-3009 on a chain). */
 type Plan = { path: string; body: J; slots: Array<{ slot: string; primaryType: string; signer: string; message: J; typed?: J }> };
 
+const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+/**
+ * An address as a person may type it: 0x and 40 hex characters, all lowercase, all uppercase, or mixed case with a
+ * valid EIP-55 checksum. A mixed-case address whose checksum fails is a typo, and money sent there is lost.
+ */
+export const isAddressText = (a: unknown): a is string => {
+  if (typeof a !== 'string' || !ADDRESS.test(a)) return false;
+  const hex = a.slice(2);
+  return hex === hex.toLowerCase() || hex === hex.toUpperCase() || getAddress(a) === a;
+};
+/**
+ * A money address from the party's own request (ADR-0033 §6): the address given, lowercased, or the party's signing
+ * address when none is given. Never from an operator's answer.
+ */
+const moneyAddress = (given: J, signer: string, field: string): string => {
+  if (given === undefined || given === null) return signer.toLowerCase();
+  return isAddressText(given) ? given.toLowerCase() : refuse(`${field} must be an address: 0x and 40 hex characters, with a valid checksum if in mixed case`);
+};
+
+/**
+ * The public terms an offer request gives, field for field what POST /v1/prepare/offer builds (apps/operator/src/terms.ts),
+ * from the agent's own request, the club and adjudicator it read from every operator, settlement-layer time in whole
+ * seconds and its own nonce. `request.buyer.paymentAddress` and `request.sellerPayoutAddress` name the money
+ * addresses (ADR-0033); each left out is its party's signing address. Pure: verifyPrepared rebuilds a prepared offer
+ * with it, and Agent.offerDirect signs and submits it with no prepare call at all.
+ */
+export function publicOfferTerms(r: J, registration: { policy: J; policyHash: Hex; registry: { hash: Hex }; fee: { min: J } }, rulebookHash: Hex, createdAt: string, nonce: Hex): J {
+  const reg = registration;
+  if (jcsHash(reg.policy) !== reg.policyHash) refuse("the adjudicator's policyHash does not match its policy");
+  const plus = (ts: string, s: number) => iso(Date.parse(ts) + s * 1000);
+  const timing = { ...DEFAULT_TIMING, ...r.timing };
+  const deliverBy = plus(createdAt, timing['deliverWithinSec']!), judgeBy = plus(deliverBy, timing['judgeWithinSec']!);
+  return {
+    schemaVersion: '0.8', clubId: r.clubId, rulebookHash, buyer: r.buyer.address.toLowerCase(), seller: r.seller.toLowerCase(),
+    buyerPaymentAddress: moneyAddress(r.buyer.paymentAddress, r.buyer.address, 'buyer.paymentAddress'), sellerPayoutAddress: moneyAddress(r.sellerPayoutAddress, r.seller, 'sellerPayoutAddress'), deliverable: r.deliverable,
+    acceptance: { deterministicChecks: r.checks ?? [], rubric: r.template === 'checks-only' ? { criteria: [], passThreshold: 0 } : r.rubric }, price: r.price,
+    adjudication: { adjudicator: r.adjudicators.primary, fallbackAdjudicator: r.adjudicators.fallback, appealAdjudicator: r.adjudicators.appeal, policyId: reg.policy.id, fee: r.fee ?? reg.fee.min, registryHash: reg.registry.hash, policyHash: reg.policyHash },
+    timing: { offerExpiresAt: plus(createdAt, timing['offerExpiresInSec']!), fundBy: plus(createdAt, timing['fundWithinSec']!), deliverBy, judgeBy, fallbackBy: plus(judgeBy, timing['fallbackWithinSec']!), appealWindowSec: timing['appealWindowSec'], appealDecideSec: timing['appealDecideSec'], maxSubmissions: 1 },
+    settlement: { mode: 'guaranteed_on_decision', token: r.price.token }, remedy: { onReject: 'full_refund' }, disclosure: { level: 'public' },
+    buyerEncryptionPublicKey: r.buyer.encryptionPublicKey, nonce, createdAt,
+  };
+}
+
 /** Builds the body the agent expects, taking from the operator's proposal only times bounded around `now`. */
 function expected(intent: Intent, op: J, now: number): Plan {
-  const plus = (ts: string, s: number) => iso(Date.parse(ts) + s * 1000);
   const near = nearTo(now);
   if (intent.kind === 'offer') {
-    const r = intent.request, reg = intent.registration;
-    if (jcsHash(reg.policy) !== reg.policyHash) refuse("the adjudicator's policyHash does not match its policy");
-    const timing = { ...DEFAULT_TIMING, ...r.timing }, createdAt = near(op.createdAt, 600, 60, 'createdAt');
-    const deliverBy = plus(createdAt, timing['deliverWithinSec']!), judgeBy = plus(deliverBy, timing['judgeWithinSec']!);
-    const terms = {
-      schemaVersion: '0.8', clubId: r.clubId, rulebookHash: intent.rulebookHash, buyer: r.buyer.address.toLowerCase(), seller: r.seller.toLowerCase(),
-      // ADR-0033 §7: with no separate address named, each money address is its party's signing address (R6c-3 adds the inputs).
-      buyerPaymentAddress: r.buyer.address.toLowerCase(), sellerPayoutAddress: r.seller.toLowerCase(), deliverable: r.deliverable,
-      acceptance: { deterministicChecks: r.checks ?? [], rubric: r.template === 'checks-only' ? { criteria: [], passThreshold: 0 } : r.rubric }, price: r.price,
-      adjudication: { adjudicator: r.adjudicators.primary, fallbackAdjudicator: r.adjudicators.fallback, appealAdjudicator: r.adjudicators.appeal, policyId: reg.policy.id, fee: r.fee ?? reg.fee.min, registryHash: reg.registry.hash, policyHash: reg.policyHash },
-      timing: { offerExpiresAt: plus(createdAt, timing['offerExpiresInSec']!), fundBy: plus(createdAt, timing['fundWithinSec']!), deliverBy, judgeBy, fallbackBy: plus(judgeBy, timing['fallbackWithinSec']!), appealWindowSec: timing['appealWindowSec'], appealDecideSec: timing['appealDecideSec'], maxSubmissions: 1 },
-      settlement: { mode: 'guaranteed_on_decision', token: r.price.token }, remedy: { onReject: 'full_refund' }, disclosure: { level: 'public' },
-      buyerEncryptionPublicKey: r.buyer.encryptionPublicKey, nonce: own(r.nonce, op.nonce, 'nonce'), createdAt,
-    };
+    const r = intent.request;
+    const terms = publicOfferTerms(r, intent.registration, intent.rulebookHash, near(op.createdAt, 600, 60, 'createdAt'), own(r.nonce, op.nonce, 'nonce') as Hex);
     return { path: '/v1/commitments', body: { ...terms, id: commitmentIdOf(terms), signatures: { seller: null } }, slots: [{ slot: 'signatures.seller', primaryType: 'CommitmentTerms', signer: terms.seller, message: terms }] };
   }
   const t = intent.terms, id = commitmentIdOf(t);
   if (intent.kind === 'agree-and-fund') {
     if (t.buyer.toLowerCase() !== intent.me.toLowerCase()) refuse('the terms name another buyer');
     if (t.buyerEncryptionPublicKey !== intent.encryptionPublicKey) refuse('the terms seal the work to a key you do not hold');
+    // ADR-0033 §6: the payment address funds the hold and receives every refund, so it must be the buyer's own.
+    const paying = (intent.paymentAddress ?? intent.me).toLowerCase();
+    if (String(t.buyerPaymentAddress).toLowerCase() !== paying) refuse(`the terms name ${t.buyerPaymentAddress} as the payment address, not your ${paying}`);
     const want = intent.expectedPrice;
     // Money is a decimal string of base units (no floats, no leading zeros): compared as strings, never parsed loosely.
     if (want && (typeof want.token !== 'string' || typeof want.amount !== 'string' || !/^(0|[1-9][0-9]*)$/.test(want.amount))) refuse('expectedPrice must be {"token", "amount"} with amount in base units as a decimal string, e.g. "25000000"');
@@ -430,8 +483,10 @@ export type PrivateOfferInput = {
   rulebookHash: Hex;
   /** The seller's per-deal address. */
   seller: string;
-  /** The buyer's per-deal address and x25519 key, as its Delegation certifies them. */
-  buyer: { address: string; encryptionPublicKey: string };
+  /** The buyer's per-deal address and x25519 key, as its Delegation certifies them, and its payment address (ADR-0033; default: the per-deal address). */
+  buyer: { address: string; encryptionPublicKey: string; paymentAddress?: string };
+  /** The seller's payout address (ADR-0033). Default: the seller's per-deal address. */
+  sellerPayoutAddress?: string;
   adjudicators: { primary: string; fallback: string; appeal: string };
   /** The primary's registration, as two operators serve it (Agent.registration). */
   registration: { policy: J; policyHash: Hex; registry: { hash: Hex }; fee: { min: J } };
@@ -474,7 +529,7 @@ export function privateOfferTerms(x: PrivateOfferInput): J {
   const deliverBy = plus(createdAt, timing['deliverWithinSec']!), judgeBy = plus(deliverBy, timing['judgeWithinSec']!);
   return {
     schemaVersion: '0.8', clubId: x.clubId, rulebookHash: x.rulebookHash, buyer: x.buyer.address.toLowerCase(), seller: x.seller.toLowerCase(),
-    buyerPaymentAddress: x.buyer.address.toLowerCase(), sellerPayoutAddress: x.seller.toLowerCase(),
+    buyerPaymentAddress: moneyAddress(x.buyer.paymentAddress, x.buyer.address, 'buyer.paymentAddress'), sellerPayoutAddress: moneyAddress(x.sellerPayoutAddress, x.seller, 'sellerPayoutAddress'),
     deliverable: { ...x.deliverable, salt: x.salts.deliverable, sellerEncryptionPublicKey: x.sellerEncryptionPublicKey },
     acceptance: { ...x.acceptance, salt: x.salts.acceptance },
     price: x.price,
