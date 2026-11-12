@@ -86,8 +86,7 @@ var init_deployments = __esmMin((() => {
 				address: "0x2d9ad608DE707aC470111B73c693020D9c9342cC",
 				tx: "0xe3229fd3d0e51007472de48ff6dad226706c4465442125a3737239210946d06e",
 				block: 12061237,
-				args: [],
-				tokenStoreImplementation: "0x93362F3D46981c13A0f7fFeF44Aad335cd228c34"
+				args: []
 			},
 			ERC3009PaymentCollector: {
 				address: "0xA7c26BA572DCe83AB4466379fC8AEE84345888E7",

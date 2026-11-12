@@ -95,6 +95,10 @@ export async function buyBundle(p = pins()) {
     cwd: root,
     input: fileURLToPath(here('buy-entry.mjs')),
     external: [/^viem(\/.*)?$/, 'tweetnacl'],
+    // The deployment record's tokenStoreImplementation is a public contract address that no bundled command reads
+    // (pinOf takes the top-level fields), and the secret scanner reads its name as a key's (generic-api-key). The
+    // bundle leaves it out, so the scanner flags nothing it would have to be told to ignore.
+    plugins: [{ name: 'drop-token-store-implementation', transform: (code, id) => (id.endsWith('/examples/deployments.ts') ? { code: code.replace(/^[ \t]*tokenStoreImplementation: '0x[0-9a-fA-F]{40}',\n/gm, ''), map: null } : null) }],
     platform: 'node',
     tsconfig: fileURLToPath(here('../examples/tsconfig.json')),
     logLevel: 'warn',
@@ -102,6 +106,7 @@ export async function buyBundle(p = pins()) {
   try {
     const { output } = await bundle.generate({ format: 'esm', minify: false, banner: buyBanner(p), codeSplitting: false });
     if (output.length !== 1 || output[0].type !== 'chunk') throw new Error(`bundling site/buy-entry.mjs gave ${output.length} files, not one`);
+    if (/tokenStoreImplementation/.test(output[0].code)) throw new Error('site/buy.mjs still carries tokenStoreImplementation: the transform that leaves it out no longer matches examples/deployments.ts');
     return output[0].code;
   } finally {
     await bundle.close();
