@@ -226,8 +226,6 @@ const ICONS = {
   card: '<rect x="2.5" y="5.5" width="19" height="13" rx="2"/><path d="M2.5 10h19M6 15h4"/>',
   eye: '<path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>',
 };
-/** Crow's mark, the crow in flight (site/crow-mark.svg, traced from the image Rafa supplied on 2026-11-12): one path. */
-const MARK = /\sd="([^"]+)"/.exec(readFileSync(here('crow-mark.svg'), 'utf8'))[1];
 
 // Try Crow: one quiet footer line with a copy icon. The copy icon copies a prompt that says what the one command
 // does, carries it, and names llms.txt for the full explanation, so a paste asks the visitor's AI assistant for one
@@ -262,8 +260,8 @@ const JOINFORM = `<form class="signup" id="join-form" novalidate aria-label="Req
 <button id="join-send" type="submit">Request early access</button>
 <p class="msg" id="join-msg" role="status"></p>
 </form>`;
-const SCRIPT = `<script>
-(function () {
+/** The home page's script, served as home.js: the headline, the code streams, the copy icon, early access. */
+export const HOME_JS = `(function () {
   // The headline shows its three lines in turn ("Sell to any agent.", "Buy from any agent.", "Go direct."), every
   // 3.5 s, and holds while hovered. It stays on the first for a visitor who asks for reduced motion; screen readers
   // read all of it from the .sr line. Only the line on show takes room, so each stays centred. At a swap the line is set
@@ -432,50 +430,10 @@ const SCRIPT = `<script>
       .then(function () { send.disabled = false; });
   });
 })();
-</script>`;
+`;
 
-/**
- * index.html from llms.txt: the tagline gives the mark and the subtitle, and the paragraph after it gives the
- * headline (its first sentence, for screen readers) and the lede (the rest). Agents find the docs through the
- * <link rel="alternate"> in the head and the footer link, and the Try line's prompt carries the one command and
- * names llms.txt. Every link is relative, so the page works on any host that serves the site.
- */
-export function page(md, command = tryCommand()) {
-  const tagline = /^> (.+)$/m.exec(strip(md))[1];
-  const cut = tagline.indexOf('. ') + 1, title = tagline.slice(0, cut - 1), subtitle = tagline.slice(cut).trim();
-  // the first paragraph after the tagline: the headline's sentence, then the lede
-  const src = strip(md), after = src.slice(src.indexOf(tagline) + tagline.length).trim();
-  const intro = after.slice(0, after.indexOf('\n\n')).trim();
-  const stop = intro.indexOf('. ') + 1, headline = intro.slice(0, stop), lede = intro.slice(stop).trim();
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(title)}</title>
-<link rel="icon" type="image/svg+xml" href="${BASE}crow-mark.svg">
-<link rel="icon" type="image/png" href="${BASE}favicon.png">
-<link rel="apple-touch-icon" href="${BASE}favicon.png">
-<meta name="description" content="${esc(DESCRIPTION)}">
-<link rel="canonical" href="${SITE_URL}">
-<meta name="theme-color" content="#ffffff">
-<meta property="og:type" content="website">
-<meta property="og:site_name" content="${esc(title)}">
-<meta property="og:title" content="${esc(title)} · ${esc(subtitle)}">
-<meta property="og:description" content="${esc(DESCRIPTION)}">
-<meta property="og:url" content="${SITE_URL}">
-<meta property="og:image" content="${SITE_URL}og.png">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="A pencil study of a hooded crow by Archibald Thorburn, 1919">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="${esc(title)} · ${esc(subtitle)}">
-<meta name="twitter:description" content="${esc(DESCRIPTION)}">
-<meta name="twitter:image" content="${SITE_URL}og.png">
-<meta name="twitter:image:alt" content="A pencil study of a hooded crow by Archibald Thorburn, 1919">
-<link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="${BASE}llms.txt">
-<style>
-/* The enterprise look (Rafa, 2026-11-12), as on the demo page: system type, white and grey, one ink accent for the
+/** The home page's styles, served as home.css: the look Rafa approved on 2026-11-12, unchanged. */
+export const HOME_CSS = `/* The enterprise look (Rafa, 2026-11-12), as on the demo page: system type, white and grey, one ink accent for the
    primary action, Crow's mark in flight in a slim header. The hero leads; the value props sit quietly below it. */
 :root { color-scheme: light dark; --page: #ffffff; --band: #f5f5f7; --ink: #1d1d1f; --ink-2: #6e6e73; --ink-3: #86868b; --line: #d2d2d7; --hair: rgba(0, 0, 0, .08);
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
@@ -501,7 +459,7 @@ html { overflow-x: clip; }
 .bar { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--page) 92%, transparent); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid var(--hair); }
 .bar-inner { max-width: 1040px; margin: 0 auto; padding: 10px 20px; display: flex; align-items: center; gap: 22px; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 17px; text-decoration: none; }
-.brand svg { width: 30px; height: 30px; }
+.brand .logo { width: 30px; height: 30px; background: currentColor; -webkit-mask: url(${BASE}crow-mark.svg) center / contain no-repeat; mask: url(${BASE}crow-mark.svg) center / contain no-repeat; }
 .spacer { flex: 1; }
 .nav { font-size: 14px; color: var(--ink-2); text-decoration: none; }
 .nav:hover { color: var(--ink); }
@@ -548,11 +506,54 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid 
 @media (max-width: 1100px) { .stream { width: 50vw; opacity: .14; } }
 @media (max-width: 820px) { .props { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 600px) { h1 { font-size: 44px; } .lede { font-size: 19px; } .hero { padding: 64px 0 48px; } .nav { display: none; } .props { grid-template-columns: 1fr; } }
-</style>
+`;
+
+/**
+ * index.html from llms.txt: the tagline gives the mark and the subtitle, and the paragraph after it gives the
+ * headline (its first sentence, for screen readers) and the lede (the rest). Agents find the docs through the
+ * <link rel="alternate"> in the head and the footer link, and the Try line's prompt carries the one command and
+ * names llms.txt. Every link is relative, so the page works on any host that serves the site.
+ */
+export function page(md, command = tryCommand()) {
+  const tagline = /^> (.+)$/m.exec(strip(md))[1];
+  const cut = tagline.indexOf('. ') + 1, title = tagline.slice(0, cut - 1), subtitle = tagline.slice(cut).trim();
+  // the first paragraph after the tagline: the headline's sentence, then the lede
+  const src = strip(md), after = src.slice(src.indexOf(tagline) + tagline.length).trim();
+  const intro = after.slice(0, after.indexOf('\n\n')).trim();
+  const stop = intro.indexOf('. ') + 1, headline = intro.slice(0, stop), lede = intro.slice(stop).trim();
+  return `<!doctype html>
+<!-- For AI agents: Crow's guide for agents is ${SITE_URL}llms.txt (plain text). Buyers then read ${BASE}buy.txt, sellers ${BASE}sell.txt. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="${BASE}llms.txt">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)}</title>
+<link rel="icon" type="image/svg+xml" href="${BASE}crow-mark.svg">
+<link rel="icon" type="image/png" href="${BASE}favicon.png">
+<link rel="apple-touch-icon" href="${BASE}favicon.png">
+<meta name="description" content="${esc(DESCRIPTION)}">
+<link rel="canonical" href="${SITE_URL}">
+<meta name="theme-color" content="#ffffff">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="${esc(title)}">
+<meta property="og:title" content="${esc(title)} · ${esc(subtitle)}">
+<meta property="og:description" content="${esc(DESCRIPTION)}">
+<meta property="og:url" content="${SITE_URL}">
+<meta property="og:image" content="${SITE_URL}og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A pencil study of a hooded crow by Archibald Thorburn, 1919">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${esc(title)} · ${esc(subtitle)}">
+<meta name="twitter:description" content="${esc(DESCRIPTION)}">
+<meta name="twitter:image" content="${SITE_URL}og.png">
+<meta name="twitter:image:alt" content="A pencil study of a hooded crow by Archibald Thorburn, 1919">
+<link rel="stylesheet" href="${BASE}home.css">
 </head>
 <body>
 <header class="bar"><div class="bar-inner">
-<a class="brand" href="${BASE}"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="${MARK}"/></svg>Crow</a>
+<a class="brand" href="${BASE}"><span class="logo" aria-hidden="true"></span>Crow</a>
 <span class="spacer"></span>
 <a class="nav" href="${BASE}demo/">Demo</a>
 <a class="nav" href="${BASE}llms.txt">Agent docs</a>
@@ -574,7 +575,7 @@ ${JOINFORM}
 ${PROPS}
 </main>
 ${footer(command)}
-${SCRIPT}
+<script src="${BASE}home.js" defer></script>
 </body>
 </html>
 `;
@@ -704,7 +705,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     writeFileSync(here('try.mjs'), bundle);
     writeFileSync(here('buy.mjs'), buy);
     writeFileSync(here('index.html'), page(md));
-    console.log(`wrote site/try.mjs (sha256 ${trySha256()}), site/buy.mjs (sha256 ${buySha256()}) and site/index.html`);
+    writeFileSync(here('home.css'), HOME_CSS);
+    writeFileSync(here('home.js'), HOME_JS);
+    console.log(`wrote site/try.mjs (sha256 ${trySha256()}), site/buy.mjs (sha256 ${buySha256()}), site/index.html, site/home.css and site/home.js`);
   } else {
     // Publish exactly the committed bundle, and only while it is current: the sha256 below is of that file.
     if (readFileSync(here('try.mjs'), 'utf8') !== bundle) throw new Error('site/try.mjs is stale against examples/: run node site/build.mjs, commit, then publish');
@@ -714,6 +717,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     mkdirSync(join(out, 'ref'), { recursive: true });
     for (const [path, text] of guides) writeFileSync(join(out, path), text);
     writeFileSync(join(out, 'index.html'), page(txt));
+    writeFileSync(join(out, 'home.css'), HOME_CSS);
+    writeFileSync(join(out, 'home.js'), HOME_JS);
     writeFileSync(join(out, 'try.mjs'), readFileSync(here('try.mjs')));
     writeFileSync(join(out, 'buy.mjs'), readFileSync(here('buy.mjs')));
     // T-066: the commit this site was built from, so Crow Control can tell what is merged but not live. null when the

@@ -33,7 +33,7 @@
 //    (site/guides.mjs). With HOLDBACK_AGENT_ANTHROPIC_API_KEY set it counts with Anthropic's count_tokens for the
 //    pinned model; without it, bytes divided by four. It says which.
 import { existsSync, readFileSync } from 'node:fs';
-import { ASSETS, BASE, BUY_COMMANDS, BUY_MJS_URL, BUY_URL, buyBundle, buyInstall, buySha256, filled, page, pins, problemPages, publishedGuides, SELL_URL, SITE_URL, strip, TEST_SELLER_URL, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
+import { ASSETS, BASE, BUY_COMMANDS, HOME_CSS, HOME_JS, BUY_MJS_URL, BUY_URL, buyBundle, buyInstall, buySha256, filled, page, pins, problemPages, publishedGuides, SELL_URL, SITE_URL, strip, TEST_SELLER_URL, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
 import { apiRoutes, citedSections, duplicateSentences, hasSection, FIRST_DEAL_BUDGET, guideFiles, guideSource, measurePaths, namedCalls, namedReferences, referenceFiles, routeKnown } from './guides.mjs';
 
 const here = (p) => new URL(p, import.meta.url);
@@ -56,6 +56,14 @@ const jsonBlock = (src, after) => {
 
 // 1. One source.
 expect(html === page(md), 'site/index.html is stale: run node site/build.mjs');
+expect(read('home.css') === HOME_CSS && read('home.js') === HOME_JS, 'site/home.css or site/home.js is stale: run node site/build.mjs');
+// The home page's cost to an agent (Rafa, 2026-11-12, after the first direct-brief run): the document carries no
+// styles, script or inline mark, so it stays small, and the pointer to the agents' guide comes first, plainly.
+const HOME_MAX_BYTES = 8000, POINTER_WITHIN = 600;
+const head600 = Buffer.from(html).subarray(0, POINTER_WITHIN).toString('utf8');
+expect(Buffer.byteLength(html) <= HOME_MAX_BYTES, `site/index.html is ${Buffer.byteLength(html)} bytes: an agent reading the home page pays for every byte; keep it at or under ${HOME_MAX_BYTES} (styles in home.css, scripts in home.js)`);
+expect(head600.includes(`<link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="${BASE}llms.txt">`) && /<!-- For AI agents: [^>]*llms\.txt[^>]*-->/.test(head600), `the first ${POINTER_WITHIN} bytes of index.html must carry the plain sentence for agents and the <link rel="alternate"> to llms.txt`);
+expect(!/<style|<script>/.test(html), 'index.html carries inline styles or an inline script: they belong in home.css and home.js');
 
 // 2. Placeholders.
 const configure = md.slice(md.indexOf('## Configure'), md.indexOf('## ', md.indexOf('## Configure') + 3));
@@ -71,7 +79,7 @@ expect(mdLinks.some((u) => u.host === 'github.com' && u.pathname === '/rafaeldav
 // The home page (the enterprise look, Rafa 2026-11-12, as on the demo page): a slim header with Crow's mark and the
 // links to the demo, the agent docs and early access; the hero (the tagline, the headline's three lines, the lede,
 // early access, the demo link); the six value props, each with an icon; then the footer and the agent docs link.
-expect(!/\{\{/.test(html) && /<header class="bar"><div class="bar-inner">\s*<a class="brand" href="\/"><svg viewBox="0 0 24 24" aria-hidden="true"><path [^>]*d="M[^"]+"\/><\/svg>Crow<\/a>[\s\S]*?<a class="nav" href="\/demo\/">[^<]+<\/a>\s*<a class="nav" href="\/llms\.txt">[^<]+<\/a>\s*<a class="quiet" href="#join-form">[^<]+<\/a>\s*<\/div><\/header>\s*<main class="page">\s*<section class="hero">\s*<div id="stream-b" class="stream" aria-hidden="true"><\/div>\s*<div id="stream-s" class="stream" aria-hidden="true"><\/div>\s*<p class="tag">[^<]+<\/p>\s*<h1>\s*<span class="sr">[^<]+<\/span>\s*<span class="line" aria-hidden="true"><span class="verb">(<span class="v[^"]*">[^<]+<\/span>){3}<\/span><\/span>\s*<\/h1>\s*<p class="lede">[^<]+<\/p>\s*<form class="signup" id="join-form"[\s\S]*?<\/form>\s*<a class="demo-link" href="\/demo\/">[^<]+<\/a>\s*<\/section>\s*<section class="props"[^>]*>(\s*<div class="prop"><svg class="icon"[\s\S]*?<\/svg><h2>[\s\S]*?<\/h2><p>[^<]+<\/p><\/div>){6}\s*<\/section>\s*<\/main>\s*<footer class="foot">\s*<p>[^<]+<\/p>\s*<p>[\s\S]*?<a href="\/llms\.txt">[^<]+<\/a><\/p>[\s\S]*<\/footer>/.test(html), 'index.html must be the header with the mark and its links, the hero with the code streams, the three headlines and early access, six value props each with an icon, and the footer with the agent docs link');
+expect(!/\{\{/.test(html) && /<header class="bar"><div class="bar-inner">\s*<a class="brand" href="\/"><span class="logo" aria-hidden="true"><\/span>Crow<\/a>[\s\S]*?<a class="nav" href="\/demo\/">[^<]+<\/a>\s*<a class="nav" href="\/llms\.txt">[^<]+<\/a>\s*<a class="quiet" href="#join-form">[^<]+<\/a>\s*<\/div><\/header>\s*<main class="page">\s*<section class="hero">\s*<div id="stream-b" class="stream" aria-hidden="true"><\/div>\s*<div id="stream-s" class="stream" aria-hidden="true"><\/div>\s*<p class="tag">[^<]+<\/p>\s*<h1>\s*<span class="sr">[^<]+<\/span>\s*<span class="line" aria-hidden="true"><span class="verb">(<span class="v[^"]*">[^<]+<\/span>){3}<\/span><\/span>\s*<\/h1>\s*<p class="lede">[^<]+<\/p>\s*<form class="signup" id="join-form"[\s\S]*?<\/form>\s*<a class="demo-link" href="\/demo\/">[^<]+<\/a>\s*<\/section>\s*<section class="props"[^>]*>(\s*<div class="prop"><svg class="icon"[\s\S]*?<\/svg><h2>[\s\S]*?<\/h2><p>[^<]+<\/p><\/div>){6}\s*<\/section>\s*<\/main>\s*<footer class="foot">\s*<p>[^<]+<\/p>\s*<p>[\s\S]*?<a href="\/llms\.txt">[^<]+<\/a><\/p>[\s\S]*<\/footer>/.test(html), 'index.html must be the header with the mark and its links, the hero with the code streams, the three headlines and early access, six value props each with an icon, and the footer with the agent docs link');
 expect(!/%%|CONFIRM/.test(html) && !/^%% /m.test(strip(md)), 'an editor note reached index.html');
 expect(!/127\.0\.0\.1|localhost/.test(md + html), 'a local address is in the site');
 for (const [p, text] of guides) if (!['llms.txt', 'sell.txt'].includes(p)) expect(!/127\.0\.0\.1|localhost/.test(text), `${p} has a local address`);
@@ -87,6 +95,7 @@ if (existsSync(here('../reports/site-out/llms.txt'))) {
   expect(/^OP1=https:\/\/[^\s/]+$/m.test(outTxt) && /^OP2=https:\/\/[^\s/]+$/m.test(outTxt), 'reports/site-out/llms.txt does not set OP1 and OP2 to https origins');
   expect(outTxt === filled(md, { op1: /^OP1=(.+)$/m.exec(outTxt)?.[1], op2: /^OP2=(.+)$/m.exec(outTxt)?.[1] }), 'reports/site-out is stale against site/llms.txt');
   expect(existsSync(here('../reports/site-out/try.mjs')) && read('../reports/site-out/try.mjs') === read('try.mjs'), 'reports/site-out/try.mjs is missing or differs from site/try.mjs: build with --out again');
+  expect(['home.css', 'home.js'].every((f) => existsSync(here(`../reports/site-out/${f}`)) && read(`../reports/site-out/${f}`) === read(f)), 'reports/site-out/home.css or home.js is missing or stale: build with --out again');
 }
 let refused = false;
 try {
@@ -179,7 +188,7 @@ const visible = html.replace(span?.[0] ?? '', '');
 expect(!visible.includes('mkdir -p crow-try') && !visible.includes(trySha256()), 'index.html shows the try command outside the hidden prompt: the page shows only the Try line');
 // The clipboard fallback shows the prompt for a hand copy. pre-line collapses the two spaces in
 // `echo "<sha256>  try.mjs" | shasum -a 256 -c`, and shasum then refuses the line; pre-wrap keeps them.
-expect(/\.copied \{[^}]*white-space: pre-wrap;/.test(html), "the .copied fallback must use white-space: pre-wrap, or a hand copy breaks the command's hash check");
+expect(/\.copied \{[^}]*white-space: pre-wrap;/.test(HOME_CSS), "the .copied fallback must use white-space: pre-wrap, or a hand copy breaks the command's hash check");
 expect(!/before you ask|fetch https:\/\/crow\.direct\/try\.mjs/.test(tryIt), '"Try it" asks the agent to fetch try.mjs before the command: each fetch is one more approval');
 expect(tryIt.includes('runs it only if its SHA-256 matches the one in the command') && tryIt.includes('`examples/try.ts`, `agent.ts` and `verify.ts` in https://github.com/rafaeldavid/holdback'), '"Try it" lost a trust anchor: the SHA-256 pin or the source on GitHub');
 
@@ -232,7 +241,7 @@ const roles = sectionOf(md, 'Read one page for your role');
 expect(roles.includes(BUY_URL) && roles.includes(SELL_URL), `llms.txt has a "Read one page for your role" section that links ${BUY_URL} and ${SELL_URL}`);
 
 // 11. The guides together (T-393).
-const published = new Set(['index.html', 'try.mjs', 'buy.mjs', 'version.json', ...ASSETS]);
+const published = new Set(['index.html', 'home.css', 'home.js', 'try.mjs', 'buy.mjs', 'version.json', ...ASSETS]);
 const scripts = JSON.parse(read('../package.json')).scripts;
 const refs = referenceFiles();
 const listed = [...sectionOf(md, 'Reference').matchAll(/^- `([a-z0-9-]+\.txt)`/gm)].map((m) => `ref/${m[1]}`).sort();

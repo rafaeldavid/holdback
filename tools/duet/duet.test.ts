@@ -185,6 +185,16 @@ describe('the direct brief: intent, limits and setup only; the agents find Crow 
       expect(mine.some((e) => e.url === `https://crow.direct/${role === 'buyer' ? 'buy' : 'sell'}.txt` && e.status === 200)).toBe(true);
     }
     expect(http.some((e) => e.role === 'buyer' && /\/sellers\/[a-z0-9-]+$/.test(e.url) && e.status === 200)).toBe(true);
+    // The guides are reached only through crow.direct: the local copy's own address is refused, and the refusal names
+    // no local guide address, so no agent is sent to read a guide a second time.
+    const local = events.find((e) => e.kind === 'world').docs.guide as string;
+    const refusal = events.find((e) => e.kind === 'tool' && e.role === 'seller' && e.name === 'fetch_url' && e.input?.url === local);
+    expect(refusal?.isError).toBe(true);
+    expect(String(refusal?.result)).toMatch(/not on your company's allowlist/);
+    const mayFetch = String(refusal?.result).slice(String(refusal?.result).indexOf('You may fetch:'));
+    expect(mayFetch).toContain('https://crow.direct');
+    expect(mayFetch).not.toContain(new URL(local).origin + '/llms.txt');
+    expect(mayFetch).not.toContain(new URL(local).origin + '/ref/');
     // The guides measured are the same pages, found from the front door.
     expect(Object.keys(s.guides.bytes).sort()).toEqual(['buy.txt', 'llms.txt', 'sell.txt']);
     const page = readFileSync(r.page, 'utf8');
