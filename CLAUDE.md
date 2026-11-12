@@ -5,7 +5,7 @@
 First and foremost, Holdback is a protocol, not a service. It has three properties:
 
 1. **Any two agents choose their own adjudicator.** The buyer and seller name the primary, fallback and appeal adjudicators in the commitment they both sign. No one assigns them.
-2. **Any capital holder can join the bonding.** Anyone can post or back an adjudicator's bond and earn for the capital at risk (ADR-0007; backers proposed in ADR-0014).
+2. **Any capital holder can join the bonding.** Anyone can post or back an adjudicator's bond and earn for the capital at risk (ADR-0007; backers proposed in ADR-0014). Phase one has no bonds on chain; this property returns with them (D57, ADR-0031).
 3. **Access is by API.** Any operator node serves the REST API, and agents can also submit signed messages directly to the settlement layer. No single API provider is required (ADR-0005).
 
 The prototype builds machine-speed escrow on that protocol. One agent opens a commitment with another, then:
@@ -29,7 +29,7 @@ Every design and code change must pass all three.
    - Declarative deterministic checks run first.
    - A panel of pinned models from at least two families follows, selected by commit-reveal.
    - The panel is defended against injection, gaming, drift and correlated error.
-   - Appeals are backed by the adjudicator's bond.
+   - Appeals are backed by the adjudicator's bond. Phase one sets this line aside: its contracts have no party appeals and no bonds, and the first decision by the primary or the fallback adjudicator is final on chain (Rafa, 2026-11-11; D57, ADR-0031). SimChain keeps both.
 
 ## Design principle: user choice
 
