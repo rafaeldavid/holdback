@@ -18,7 +18,7 @@ class HeldChain implements EvmChain {
   readonly expiryMargin = 86_400n;
   readonly tokenDomain = { name: 'Crow Test USDC', version: '1' };
   readonly abis = LIVE_ABIS;
-  readonly deployment = { token: address('a'), escrow: address('e'), erc3009Collector: address('c'), permit2Collector: address('d'), multicall: address('f'), rules: address('b'), beacon: address('8'), fromBlock: 0n };
+  readonly deployment = { token: address('a'), escrow: address('e'), erc3009Collector: address('c'), multicall: address('f'), rules: address('b'), beacon: address('8'), fromBlock: 0n };
   readonly publicClient = {
     readContract: async ({ functionName }: { functionName: string }) => {
       if (functionName === 'DOMAIN_SEPARATOR') return `0x${'11'.repeat(32)}`;

@@ -68,7 +68,7 @@ async function directFund(r: Run, deal: Deal): Promise<TxRecord> {
     seller,
     { seedCommitment: acc.seedCommitment, bondReserved: BigInt(acc.bondReserved.amount), nonce: acc.nonce, expiresAt: secs(acc.expiresAt), signature: acc.signature },
     { nonce: agree.nonce, expiresAt: secs(agree.expiresAt), signature: agreeSignature },
-    { method: 0, signature: funding },
+    { signature: funding },
   ]);
   deal.hold = hold;
   deal.sent.push({ step: 'agreeAndFund (direct)', tx });

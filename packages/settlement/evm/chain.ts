@@ -10,8 +10,8 @@ import type { Submission } from '../src/interface.js';
 export interface Deployment {
   token: Address;
   escrow: Address;
+  /** The one funding collector: phase one funds by ERC-3009 only (ADR-0031 §3). */
   erc3009Collector: Address;
-  permit2Collector: Address;
   multicall: Address;
   rules: Address;
   /** The beacon behind the rules contract: SimBeacon on anvil, DrandQuicknetBeacon on a shared chain. */

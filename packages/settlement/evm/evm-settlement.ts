@@ -1213,7 +1213,7 @@ export class EvmSettlement implements Settlement {
     }
     const buyerScope = this.scopeFor(terms.buyer, terms.clubId, terms, book.club);
     const balance = await this.tokenBalance(terms.buyer, true);
-    const args = [t, book.sellerSignature, acceptanceView(book.acceptance), agreeView(book.agree), { method: 0, signature: m.signature }];
+    const args = [t, book.sellerSignature, acceptanceView(book.acceptance), agreeView(book.agree), { signature: m.signature }];
     const mirror = (at: Timestamp): EscrowEvent[] => [{ type: 'fund', at, message: m, buyerScope, balance: this.amount(balance), gasBuffer: this.amount(0n) }];
     const ctx: CallContext = mined ? { mined } : {};
     if (!fee) {
@@ -2122,7 +2122,7 @@ export class EvmSettlement implements Settlement {
           ? relayed!.funding
           : {
               type: 'FundingAuthorization',
-              scheme: Number(f['method']) === 1 ? 'permit2' : 'erc3009',
+              scheme: 'erc3009', // the phase-one contracts fund by ERC-3009 only (ADR-0031 §3)
               commitmentId: id,
               from: terms.buyer,
               value: typed.typedData.message['value']!,

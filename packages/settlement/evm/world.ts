@@ -1,11 +1,11 @@
 // The local EVM world for kind 'local': an anvil process on 127.0.0.1 (chain id 31337), the Holdback contracts
 // deployed from `contracts/out` (run `forge build` first), and a snapshot each fresh settlement reverts to.
-// Deployment: LocalUSDC (anvil-only test token with ERC-3009), CPP AuthCaptureEscrow v1.1.0 and both collectors,
+// Deployment: LocalUSDC (anvil-only test token with ERC-3009), CPP AuthCaptureEscrow v1.1.0 and its ERC-3009 collector,
 // LocalMulticall3 (aggregate3, for the operator-fee bundle), then SimBeacon and HoldbackRules (phase one: no bond
 // vault, ADR-0031 §8). The rules contract's beacon is a constructor immutable and the sim beacon's seed is fixed at
 // its deploy, so each fresh settlement reverts to the snapshot taken before those two and redeploys them with its
 // genesis simSeed. The deployer's nonce is the same every time, so the rules address never changes.
-// Permit2 is not deployed: the Permit2 collector points at an address with no code, so only ERC-3009 funding runs.
+// Phase one funds by ERC-3009 only (ADR-0031 §3): neither Permit2 nor its collector is deployed.
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:net';
@@ -248,7 +248,6 @@ async function deploy(
   const token = artifact(root, ...tokenArtifact);
   const escrowA = artifact(root, 'AuthCaptureEscrow.sol', 'AuthCaptureEscrow');
   const c3009 = artifact(root, 'ERC3009PaymentCollector.sol', 'ERC3009PaymentCollector');
-  const cPermit2 = artifact(root, 'Permit2PaymentCollector.sol', 'Permit2PaymentCollector');
   const multicallA = artifact(root, 'LocalMulticall3.sol', 'LocalMulticall3');
   const rulesA = artifact(root, 'HoldbackRules.sol', 'HoldbackRules');
   const beaconA = artifact(root, 'SimBeacon.sol', 'SimBeacon');
@@ -257,18 +256,17 @@ async function deploy(
   const escrow = await one(escrowA);
   const multicall = await one(multicallA);
   const erc3009Collector = await one(c3009, [escrow, multicall]);
-  const permit2Collector = await one(cPermit2, [escrow, '0x000000000022D473030F116dDEE9F6B43aC78BA3', multicall]);
   // The sim beacon: value(round) = keccak256(simSeed ‖ round), round(t) = t (drand's formula with genesis 1 s and
   // period 1 s, equal to SimChain's floor(ms / 1000)) (ADR-0018). Fixed at deploy; no setter.
   const deployRules = async (simSeed: Hex): Promise<RulesDeployment> => {
     const beacon = await one(beaconA, [simSeed]);
     // The settlement token is a constructor immutable: a deployment serves one token (ADR-0031 §2, SC-1).
-    const rules = await one(rulesA, [escrow, erc3009Collector, permit2Collector, EXPIRY_MARGIN, beacon, tokenAddr]);
+    const rules = await one(rulesA, [escrow, erc3009Collector, EXPIRY_MARGIN, beacon, tokenAddr]);
     const fromBlock = (await client.getBlockNumber()) + 1n;
     return { rules, beacon, fromBlock };
   };
   return {
-    base: { token: tokenAddr, escrow, erc3009Collector, permit2Collector, multicall },
+    base: { token: tokenAddr, escrow, erc3009Collector, multicall },
     abis: { rules: rulesA.abi, token: token.abi, escrow: escrowA.abi, multicall: multicallA.abi, collector: c3009.abi },
     deployRules,
   };
