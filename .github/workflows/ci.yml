@@ -142,7 +142,7 @@ jobs:
               apps/demo-cloud/src/live.test.ts apps/demo-cloud/src/lanes.test.ts
               apps/demo-cloud/src/one-world.anvil.test.ts apps/demo-cloud/src/registration.anvil.test.ts
               apps/demo-cloud/src/timeouts.anvil.test.ts apps/adjudicator/src/drand-contract.redteam.test.ts
-              examples/e2e-adjudicator.test.ts
+              examples/e2e-adjudicator.test.ts examples/send-timeout.test.ts
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

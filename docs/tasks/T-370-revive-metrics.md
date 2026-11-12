@@ -3,9 +3,9 @@
 - **Lane:** infra
 - **Phase:** 2
 - **Depends on:** T-066 (its slices 1 and 3), T-328 (`tools/one-click/outsider.mjs`, which landed beside the harness)
-- **Paths this task may touch:** the files PR 217 adds (`tools/one-click/run.mjs`, `metrics.mjs`, `README.md`, and the new `scripted.mjs`; `tests/metrics/one-click.test.ts` and its fixtures), the files PR 216 changes (`apps/demo-cloud/scripts/deploy.mjs`, `apps/demo-cloud/src/judges.ts`, `world.ts`, `world.test.ts`, `docs/api.md`, `site/build.mjs`), and this file. Anything else goes to Handoff and to the coordinator.
+- **Paths this task may touch:** for the follow-up (coordinator, 2026-11-12): `apps/demo-cloud/scripts/deploy.mjs`, `scripts/deploy-lib.mjs` and `apps/demo-cloud/src/deploy-preflight.test.ts`. Before it: the files PR 217 adds (`tools/one-click/run.mjs`, `metrics.mjs`, `README.md`, and the new `scripted.mjs`; `tests/metrics/one-click.test.ts` and its fixtures), the files PR 216 changes (`apps/demo-cloud/scripts/deploy.mjs`, `apps/demo-cloud/src/judges.ts`, `world.ts`, `world.test.ts`, `docs/api.md`, `site/build.mjs`), and this file. Anything else goes to Handoff and to the coordinator.
 - **Human gate:** no for the merges. Yes for what follows them: a live harness run (it spends model tokens and approves tools as Rafa) and the operator and site deploys that make PR 216's fields live.
-- **Status:** done (PR 217 merged 2026-11-12 as `e1e8df2`, PR 216 merged 2026-11-12 at 06:47 UTC as `5fedd21`)
+- **Status:** done (PR 217 merged 2026-11-12 as `e1e8df2`, PR 216 merged 2026-11-12 at 06:47 UTC as `5fedd21`); a follow-up makes the operator deploy wait for the deployed commit
 - **Agent/session:** T-370 implementer, a Claude Code side session of the coordinator, 2026-11-12. Change kind 4 (tooling). Worktrees `.worktrees/t-370-one-click` and `.worktrees/t-370-discovery`.
 
 ## Intent
@@ -62,6 +62,12 @@ Non-goals: a live harness run, a deploy, a change to `site/llms.txt` or `site/se
   - `pnpm vitest run apps/demo-cloud tests/contract`: 103 passed, 9 skipped. `world.test.ts` adds a test that checks both worlds' discovery against the Discovery schema, and a UTC day-rollover test for `byModel`.
   - `pnpm -s validate:spec`: 35 of 35 examples valid; `spec/openapi.json` fresh. `pnpm typecheck` and `pnpm lint` pass. `node site/build.mjs && node site/check.mjs` passes and leaves no diff.
 - **PR 216, review** (one `reviewer` pass at 3de5c45): ISSUES, 1 Medium and 4 Low, none blocking. It measured the disclosure check (every new field is a public address, count or 40-hex commit), the contract test, wrangler's `--var` merging with the config's vars, and a merge that keeps main's rewrites. Fixed after it: the PR body and this file (Medium 1), the hand-written `info.version` in `docs/api.md` (Low 2, now a pointer to `spec/openapi/paths.json`), a `commitOf` unit test in `tests/site-deploy.test.ts` (Low 3), and a fresh merge of main (Low 4). Low 5 (a one-Worker cutover shows op1's commit on both nodes) stays documented (Decision 8).
+- **The first deploy with the field showed a stale commit** (2026-11-12). Rafa deployed the operators at 06:53 UTC from `00be274` and at 06:55 UTC from `8d20405`. Cloudflare reported holdback-op1 version `d8545ef2` at 100% from 06:55:44 (coordinator, measured).
+  - `wrangler versions view d8545ef2…` lists `BUILD_COMMIT` = `8d20405…`, so `--var` took on the redeploy (measured).
+  - Both nodes answered `demo.build.commit` = `00be274…` from 06:56 to 06:59 UTC (coordinator, measured), and `8d20405…` at 07:00:57 (measured).
+  - **Cause:** the World Durable Object kept serving the previous instance, with its code and its environment, for about five minutes after the new version reached 100% (measured from the times above). Nothing stores the value. `World.open()` (`apps/demo-cloud/src/worker.ts`) captures the environment once per instance, and `demo()` reads the commit from it on each request (measured from code). The live adjudicators' stale screen version had the same cause (inferred).
+  - **Consequence:** the deploy's smoke deal started once `/v1/status` answered 200, which it does while the old instance serves. A smoke deal could pass against the previous code, and the record line would name a commit that was not yet serving (inferred).
+  - **Fix** (the follow-up PR): `waitForCommit` in `scripts/deploy-lib.mjs` reads both nodes' discovery every 5 s until each names the deployed commit. A failed read counts as not yet. `deploy.mjs` runs it before the smoke deal and fails into the existing rollback after 600 s. The record line says the smoke deal ran against that commit, and how many seconds discovery took to name it. `apps/demo-cloud/src/deploy-preflight.test.ts` covers a match, a late match through a failed read, the timeout and a missing commit; 15 of 15 pass, and `pnpm typecheck` and `pnpm lint` pass (measured).
 
 ## Decisions
 
@@ -74,6 +80,7 @@ Non-goals: a live harness run, a deploy, a change to `site/llms.txt` or `site/se
 7. **PR 216 widens `spec/openapi/paths.json`, not `spec/schemas/`.** The 2026-11-06 review's High finding showed the closed `Discovery.demo` would refuse the new fields. The three properties and `info.version` 0.2 to 0.3 follow commit 320bd75's precedent for the faucet fields; `spec/schemas/`, the contract the ADR rule covers, is untouched. This is outside the paths the brief listed, and the coordinator is told.
 8. **`demo.build.commit` names holdback-op1's deploy.** The World Durable Object runs in holdback-op1, so both nodes show its commit (finding 2). The deploy script rolls both Workers back when a step fails, so the two run the same commit after a normal deploy; a one-Worker cutover is the case the field cannot show, and its description says so.
 9. **The deploy takes the commit from main's pre-flight.** `pnpm demo-cloud:deploy` already refuses a changed tree (`scripts/deploy-lib.mjs`), so the PR's own clean-tree check in `deploy.mjs` was dropped and only `--var BUILD_COMMIT:<commit>` was added.
+10. **The commit wait has its own 600 s budget, not the status check's 300 s.** The measured switch took between 195 s and 313 s after the version reached 100%, so 300 s could roll back a good deploy. Sharing the status check's budget would leave less than that.
 
 ## Handoff
 
