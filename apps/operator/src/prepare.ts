@@ -524,7 +524,7 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
     type: 'FundingAuthorization',
     scheme: 'erc3009',
     commitmentId: c.id,
-    from: c.buyer,
+    from: c.buyerPaymentAddress, // ADR-0033 §3: the payment address signs the funding and the operator fee
     value: total,
     token: c.price.token,
     validAfter: funded ? funded.validAfter : c.createdAt,
@@ -545,7 +545,7 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
           scheme: 'erc3009',
           purpose: 'operator_fee',
           commitmentId: c.id,
-          from: c.buyer,
+          from: c.buyerPaymentAddress,
           to: schedule.to,
           value: due.amount,
           token: due.token,
@@ -556,7 +556,7 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
         } as const)
       : undefined;
   // Sent always is fine: a node that charges nothing ignores it. A node that charges needs it (fees.operator in discovery).
-  const feeSigned = feeBody && evm ? evm.operatorFee({ commitmentId: c.id, from: c.buyer, to: feeBody.to, value: feeBody.value, validAfter: feeBody.validAfter, validBefore: feeBody.validBefore }) : undefined;
+  const feeSigned = feeBody && evm ? evm.operatorFee({ commitmentId: c.id, from: c.buyerPaymentAddress, to: feeBody.to, value: feeBody.value, validAfter: feeBody.validAfter, validBefore: feeBody.validBefore }) : undefined;
   const feeNonce = feeBody ? (feeSigned ? fixedNonceIn(input['operatorFeeNonce'], feeSigned.nonce, 'operatorFeeNonce') : nonceIn(input['operatorFeeNonce'], 'operatorFeeNonce')) : undefined;
   const fee = feeBody ? { ...feeBody, nonce: feeNonce! } : undefined;
   const fixed = {
@@ -571,8 +571,8 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
     commitmentId: c.id,
     sign: [
       { slot: 'signature', signer: c.buyer, ...forMessage(ctx.domain, agree) },
-      { slot: 'fund.signature', signer: c.buyer, ...(funded ? { typedData: funded.typedData, digest: funded.digest } : forMessage(ctx.domain, funding)) },
-      ...(fee ? [{ slot: 'operatorFee.signature', signer: c.buyer, ...(feeSigned ? { typedData: feeSigned.typedData, digest: feeSigned.digest } : forMessage(ctx.domain, fee)) }] : []),
+      { slot: 'fund.signature', signer: c.buyerPaymentAddress, ...(funded ? { typedData: funded.typedData, digest: funded.digest } : forMessage(ctx.domain, funding)) },
+      ...(fee ? [{ slot: 'operatorFee.signature', signer: c.buyerPaymentAddress, ...(feeSigned ? { typedData: feeSigned.typedData, digest: feeSigned.digest } : forMessage(ctx.domain, fee)) }] : []),
     ],
     submit: {
       method: 'POST',
@@ -721,11 +721,14 @@ async function settlement(ctx: PrepareContext, input: Record<string, unknown>): 
     if (!Number.isSafeInteger(bps) || (bps as number) < 0 || (bps as number) > 10_000) bad('give payouts, or toSellerBps (0 to 10000): the seller gets that share of the price, the buyer the rest', 'toSellerBps');
     const split = splitBps(c.price, BigInt(bps as number));
     if (!split.ok) return bad('cannot split the price');
-    payouts = [
-      // ADR-0033: the money goes to the seller's payout address and back to the buyer's payment address.
-      { to: c.sellerPayoutAddress, amount: split.value.share },
-      { to: c.buyerPaymentAddress, amount: split.value.remainder },
-    ].filter((p) => p.amount.amount !== '0');
+    // ADR-0033: the money goes to the seller's payout address and back to the buyer's payment address; with the two
+    // equal, one payout of the whole price (the parser refuses a recipient named twice).
+    payouts = lc(c.sellerPayoutAddress) === lc(c.buyerPaymentAddress)
+      ? [{ to: c.sellerPayoutAddress, amount: c.price }]
+      : [
+          { to: c.sellerPayoutAddress, amount: split.value.share },
+          { to: c.buyerPaymentAddress, amount: split.value.remainder },
+        ].filter((p) => p.amount.amount !== '0');
   }
   // ADR-0031 §4 (SC-3), ADR-0033: the phase-one contracts pay a settlement to the buyer's payment address and the
   // seller's payout address only. Said here, before either party signs a settlement the contract would refuse.

@@ -428,7 +428,7 @@ export type SignedMessage =
  * Buyer and seller close a commitment by agreement (ADR-0019, amended by D23). Both sign the identical
  * struct, so it carries two signatures instead of MessageBase's one.
  */
-/** D23: `parties` limits payouts to the buyer and the seller; `any` admits any address both sign for. */
+/** D23: `parties` limits payouts to the buyer's payment address and the seller's payout address (ADR-0033); `any` admits any address both sign for. */
 export type PayoutsTo = 'parties' | 'any';
 
 export interface Payout {

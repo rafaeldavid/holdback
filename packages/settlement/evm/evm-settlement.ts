@@ -1220,6 +1220,8 @@ export class EvmSettlement implements Settlement {
     const terms = book.state.terms;
     const t = termsView(terms);
     const expected = await this.fundingAuthorization(terms);
+    // ADR-0033: the token checks the payer the terms name and ignores `from`, so check it here, as core does.
+    if (lc(m.from) !== lc(terms.buyerPaymentAddress)) refuse('invalid_signature', `funding authorization is not from the buyer's payment address ${terms.buyerPaymentAddress}`);
     if (lc(m.token) !== this.token || BigInt(m.value) !== expected.value || m.nonce !== expected.nonce || m.scheme !== 'erc3009') {
       refuse('invalid_terms', 'on EVM the funding is an ERC-3009 authorization of price + fee to the CPP collector, nonce = the payer-agnostic PaymentInfo hash (ADR-0025)');
     }

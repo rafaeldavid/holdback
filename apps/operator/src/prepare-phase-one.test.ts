@@ -45,3 +45,26 @@ describe('prepare settlement on the phase-one contracts (SC-3)', () => {
     expect(String((r as Error).message ?? '')).not.toMatch(/neither the buyer's payment address nor the seller's payout address/);
   });
 });
+
+// T-358 (ADR-0033 §3, red team L-1 and L-3): the money addresses in the prepared messages.
+describe('prepare with the money addresses apart or equal (ADR-0033)', () => {
+  const pay = '0x00000000000000000000000000000000000000a7';
+  const out = '0x00000000000000000000000000000000000000a8';
+  const timing = { offerExpiresAt: '2026-11-12T01:00:00Z', fundBy: '2026-11-12T02:00:00Z' };
+  const apart = { ...commitment, buyerPaymentAddress: pay, sellerPayoutAddress: out, adjudication: { fee: amt('100000') }, timing, createdAt: '2026-11-12T00:00:00Z' } as unknown as AnyCommitment;
+  const with_ = (c: AnyCommitment): PrepareContext => ({ ...ctx(true), commitment: async (x) => (x === id ? c : undefined) });
+  const nonces = { agreeNonce: `0x${'02'.repeat(32)}`, fundingNonce: `0x${'03'.repeat(32)}` };
+
+  it('agree-and-fund: the signing address signs the agreement, the payment address the funding', async () => {
+    const p = await prepare('agree-and-fund', with_(apart), { commitmentId: id, ...nonces });
+    expect(p.sign.map((s) => [s.slot, s.signer])).toEqual([['signature', buyer], ['fund.signature', pay]]);
+    expect((p.submit.body as { fund: { from: string } }).fund.from).toBe(pay);
+  });
+
+  it('settlement: one payout of the whole price when the payment and payout addresses are one address', async () => {
+    const one = { ...apart, buyerPaymentAddress: pay, sellerPayoutAddress: pay } as unknown as AnyCommitment;
+    const p = await prepare('settlement', with_(one), { commitmentId: id, nonce: `0x${'01'.repeat(32)}`, toSellerBps: 5000, releaseKey: false });
+    expect((p.submit.body as { payouts: Array<{ to: string; amount: TokenAmount }> }).payouts).toEqual([{ to: pay, amount: amt('2000000') }]);
+  });
+});
+

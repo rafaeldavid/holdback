@@ -527,8 +527,8 @@ describe('spec/', () => {
 
   describe('review of PR 23: items 4, 5, 7 and 8', () => {
     const schema = (name: string) => loadSpec().ajv.getSchema(`${V}/${name}.schema.json`);
-    it('describes messages under domain version 0.7', () => {
-      expect(schema('messages').schema.description).toContain('version 0.7');
+    it('describes messages under domain version 0.8', () => {
+      expect(schema('messages').schema.description).toContain('version 0.8');
       expect(schema('messages').schema.description).not.toContain('0.5');
     });
     it.each([
