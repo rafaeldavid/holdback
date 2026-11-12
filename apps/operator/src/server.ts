@@ -1194,6 +1194,8 @@ export class Operator {
       ...(this.o.erc3009 ? { erc3009: this.o.erc3009 } : {}),
       ...(this.o.contracts ? { contracts: this.o.contracts } : {}),
       ...(this.o.token ? { token: this.o.token } : {}),
+      // ADR-0032: the floors of the escalation and fallback windows follow from the deployment's beacon margin.
+      beaconMarginSec: this.o.settlement.beaconMarginSec ?? 0,
     };
   }
 
