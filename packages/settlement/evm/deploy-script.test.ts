@@ -16,6 +16,11 @@ import { anvilAvailable } from './world.js';
 const root = fileURLToPath(new URL('../../..', import.meta.url));
 const SCRIPT = join(root, 'contracts', 'script', 'deploy-sepolia.sh');
 const MULTICALL3 = '0xcA11bde05977b3631167028862bE2a173976CA11';
+/**
+ * What the --verify tests give the script as ETHERSCAN_API_KEY: any string proves that the script hides what it is
+ * given. It is built from words, so no secret scanner reads it as a key (gitleaks flagged a literal one, PR 424).
+ */
+const STAND_IN_KEY = ['rehearsal', 'stand', 'in', 'value'].join('_').toUpperCase();
 const have = (cmd: string) => spawnSync(cmd, ['--version'], { encoding: 'utf8' }).status === 0;
 const ready = anvilAvailable() && have('forge') && have('cast') && have('jq') && existsSync(join(root, 'contracts', 'out', 'HoldbackRules.sol', 'HoldbackRules.json'));
 
@@ -106,6 +111,11 @@ export class Rehearsal {
   /** The script's deploy mode, writing `record`. */
   deploy(record: string, env: Record<string, string> = {}): Promise<Run> {
     return run('bash', [SCRIPT, this.rpc, this.keystore, this.passwordFile], { DEPLOY_RECORD: record, ...env });
+  }
+
+  /** The script with any arguments. */
+  run(args: string[], env: Record<string, string> = {}): Promise<Run> {
+    return run('bash', [SCRIPT, ...args], env);
   }
 
   /** The script's read-only check of `record`. */
@@ -218,6 +228,89 @@ describe.skipIf(!ready)(`the deploy script on a local chain (T-383)${ready ? '' 
     // The rules contract's creation input carries its token, so the creation-code check is the first to refuse.
     expect(c.stderr).toContain('src/HoldbackRules.sol:HoldbackRules: the creation input differs from this build');
   }, 300_000);
+
+  // Explorer verification (T-383 item 4). No explorer serves chain 31337 and no test reaches the network, so the
+  // rehearsal prints the commands; what Sourcify and Etherscan answer on Sepolia is untested here.
+  describe('--verify', () => {
+    const lines = (out: string) => out.split('\n').filter((l) => l.startsWith('deploy-sepolia: would run: '));
+
+    it('checks first, then names each of the five contracts with the record’s constructor arguments, on Sourcify only without a key', async () => {
+      const r = JSON.parse(readFileSync(record, 'utf8'));
+      const v = await chain.run(['--verify', chain.rpc], { DEPLOY_RECORD: record, VERIFY_DRY_RUN: '1', ETHERSCAN_API_KEY: '' });
+      expect(v.stderr).toBe('');
+      expect(v.code).toBe(0);
+      expect(v.stdout).toContain(`${record} matches the chain and the build`);
+      const runs = lines(v.stdout);
+      expect(runs).toHaveLength(5);
+      for (const l of runs) expect(l).toMatch(/ env -u ETHERSCAN_API_KEY -u VERIFIER_URL -u VERIFIER_API_KEY forge verify-contract 0x[0-9a-fA-F]{40} \S+ --root \S+ --chain 31337 --watch( --constructor-args 0x[0-9a-f]+)? --verifier sourcify$/);
+      const rulesArgs = (await run('cast', ['abi-encode', 'constructor(address,address,uint64,address,address,uint64)', ...r.contracts.HoldbackRules.args])).stdout.trim();
+      const collectorArgs = (await run('cast', ['abi-encode', 'constructor(address,address)', ...r.contracts.ERC3009PaymentCollector.args])).stdout.trim();
+      expect(runs.find((l) => l.includes(` ${r.rules} src/HoldbackRules.sol:HoldbackRules `))).toContain(`--constructor-args ${rulesArgs} `);
+      expect(runs.find((l) => l.includes(` ${r.erc3009Collector} `))).toContain(`--constructor-args ${collectorArgs} `);
+      for (const [address, id] of [[r.escrow, 'AuthCaptureEscrow'], [r.beacon, 'DrandQuicknetBeacon'], [r.token.address, 'TestUSDC']]) {
+        const l = runs.find((x) => x.includes(` ${address} `));
+        expect(l).toContain(`:${id} `);
+        expect(l).not.toContain('--constructor-args');
+      }
+      expect(v.stdout).toContain('dry run: nothing was sent to an explorer');
+    }, 300_000);
+
+    it('adds Etherscan when ETHERSCAN_API_KEY is set, and never puts the key on a command line', async () => {
+      const key = STAND_IN_KEY;
+      const v = await chain.run(['--verify', chain.rpc], { DEPLOY_RECORD: record, VERIFY_DRY_RUN: '1', ETHERSCAN_API_KEY: key });
+      expect(v.code).toBe(0);
+      const runs = lines(v.stdout);
+      // All five on Sourcify first, so a failure on Etherscan leaves Sourcify complete (review of PR 424, M3).
+      expect(runs.slice(0, 5).every((l) => l.endsWith('--verifier sourcify'))).toBe(true);
+      expect(runs.slice(5).every((l) => l.endsWith('--verifier etherscan') && l.includes(' env -u VERIFIER_URL -u VERIFIER_API_KEY forge '))).toBe(true);
+      expect(runs).toHaveLength(10);
+      expect(v.stdout + v.stderr).not.toContain(key);
+    }, 300_000);
+
+    // forge prints a failed request's URL, and Etherscan's carries `?apikey=` (review of PR 424, H1). A stand-in for
+    // forge's verify-contract fails that way on Etherscan; the script must print its output with the key replaced.
+    it("replaces the key in forge's own output, and fails with forge's exit code", async () => {
+      const key = STAND_IN_KEY;
+      const shim = join(chain.dir, 'forge-shim.sh');
+      const log = join(chain.dir, 'forge-shim.log');
+      writeFileSync(
+        shim,
+        [
+          '#!/usr/bin/env bash',
+          `echo "$*" >> '${log}'`,
+          'case "$*" in',
+          '  *"--verifier etherscan"*) echo "Error: error sending request for url (https://api-sepolia.etherscan.io/api?apikey=$ETHERSCAN_API_KEY&module=contract)" >&2; exit 7 ;;',
+          '  *) echo "Contract successfully verified" ;;',
+          'esac',
+          '',
+        ].join('\n'),
+        { mode: 0o755 },
+      );
+      const v = await chain.run(['--verify', chain.rpc], { DEPLOY_RECORD: record, VERIFY_FORGE: shim, ETHERSCAN_API_KEY: key });
+      expect(v.code).not.toBe(0);
+      expect(v.stdout + v.stderr).not.toContain(key);
+      expect(v.stdout).toContain('apikey=<ETHERSCAN_API_KEY>&module=contract');
+      expect(v.stderr).toContain('Etherscan verification failed (exit 7)');
+      const calls = readFileSync(log, 'utf8').trim().split('\n');
+      expect(calls.filter((c) => c.endsWith('--verifier sourcify'))).toHaveLength(5);
+      expect(calls.at(-1)).toMatch(/--verifier etherscan$/);
+    }, 300_000);
+
+    it('refuses to send a local rehearsal to an explorer, and verifies nothing when the check fails', async () => {
+      const live = await chain.run(['--verify', chain.rpc], { DEPLOY_RECORD: record });
+      expect(live.code).not.toBe(0);
+      expect(live.stderr).toContain('no explorer serves the local chain');
+      // An argument the record holds, changed: the whole-record comparison refuses, so nothing is verified.
+      const wrong = chain.planted(record, 'verify-wrong-argument', (r) => {
+        const c = (r['contracts'] as Record<string, { args: string[] }>)['ERC3009PaymentCollector']!;
+        c.args = [c.args[0]!, '0x00000000000000000000000000000000000BeEF0'];
+      });
+      const bad = await chain.run(['--verify', chain.rpc], { DEPLOY_RECORD: wrong, VERIFY_DRY_RUN: '1' });
+      expect(bad.code).not.toBe(0);
+      expect(bad.stderr).toContain('differs from what the chain and this build give');
+      expect(lines(bad.stdout)).toHaveLength(0);
+    }, 300_000);
+  });
 
   it('a rehearsal needs DEPLOY_RECORD and never names the Sepolia record', async () => {
     const none = await run('bash', [SCRIPT, '--check', chain.rpc], { DEPLOY_RECORD: '' });
