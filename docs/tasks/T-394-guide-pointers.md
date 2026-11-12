@@ -37,11 +37,19 @@ Labels: measured, inferred, guessed. All runs on this branch, on the lane's tip 
 - Each target exists on the lane with the heading named [measured: the headings of `site/ref/*.txt`, `site/buy.txt`, `site/sell.txt` and `site/llms.txt`].
 - The repointed text:
   - the operator's missing-id answer points to `ref/signing.txt`, "Encodings";
-  - the test buyer's 404 points to `ref/http-seller.txt`, "Offer";
+  - the test buyer's 404 points to `ref/intake.txt`, "Sell to Crow's test buyer";
   - the test seller's page points to `ref/intake.txt` for "Two agents, two people";
   - the operator's `/llms.txt` and the OpenAPI document's `externalDocs` and `/llms.txt` descriptions call the guide the front door that links the two role pages and the reference;
   - the comments point to `ref/http-seller.txt`, `ref/http.txt`, `ref/http-buyer.txt`, `ref/intake.txt` and `ref/checks.txt`.
-- `apps/operator/src/guide-pointers.test.ts`, new: it reads this task's files and checks that every guide pointer names a file under `site/` that exists, and a heading in it that exists. It also asserts the two answers' texts. 22 of 22 tests pass [measured].
+- `apps/operator/src/guide-pointers.test.ts`, new [measured]:
+  - it reads this task's files, joining comments that wrap, and checks that every guide pointer names a file under `site/` that exists and a heading in it that exists, whether the heading comes after the URL or before it ("Heading" in URL);
+  - it fails on a numbered section of the old guide;
+  - it asserts the two answers' texts;
+  - all its tests pass.
+- The review (one `reviewer` subagent) gave ISSUES: one Medium, two Lows, one Info.
+  - M1 is fixed: the OpenAPI description's verify-before-you-sign step sent agents to "the linked guide", now the front door with no checklist. It names `ref/signing.txt`, "Prepare, verify, sign, submit", and the two per-message pages.
+  - Lows 2 and 3 are fixed in the test. The stricter test then caught the test seller's page pointing at "Try it", while the front door's heading is "Try it: one test deal"; the page now says so.
+  - Info 4 is taken: the test buyer's 404 points sellers to `ref/intake.txt`, "Sell to Crow's test buyer", which names the card fields and what the buyer accepts.
 - A second search of the operator, demo-cloud, test-agent, adjudicator and SDK code for `site/llms.txt`, a numbered guide section or "Agent intake" finds only two left, by design [measured]:
   - a comment in `apps/demo-cloud/src/live-fork.test.ts`, a fork test outside this task's paths;
   - `deploy-preflight.test.ts`, which names the file `site/llms.txt` itself, still present.

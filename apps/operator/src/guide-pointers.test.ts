@@ -20,14 +20,26 @@ const FILES = [
   'fixtures/terms/audit-report.yaml',
 ];
 /** A guide file, by URL or by repository path, and the heading named right after it, quoted, if any. */
+/** The same, written the other way round: "Heading" in <URL>, as an answer's text puts it. */
+const HEADING_FIRST = /"([A-Z][^"]+)"\s+(?:of|in)\s+(?:<a href=")?(?:https:\/\/crow\.direct\/|site\/)((?:ref\/)?[a-z-]+\.txt)/g;
+/** The old guide's numbered sections, which no longer exist. */
+const OLD_SECTION = /(?:llms|sell|buy)\.txt,? section \d/;
 const POINTER = /(?:https:\/\/crow\.direct\/|site\/)((?:ref\/)?[a-z-]+\.txt)(?:[^"\n<]{0,6}"([A-Z][^"]+)")?/g;
 const headings = (file: string) => readFileSync(join(root, 'site', file), 'utf8').split('\n').filter((l) => /^#+ /.test(l)).map((l) => l.replace(/^#+ /, ''));
 
 describe('pointers into the agent guide (T-394)', () => {
   const found: Array<{ in: string; file: string; heading?: string }> = [];
   for (const f of FILES) {
-    for (const m of readFileSync(join(root, f), 'utf8').matchAll(POINTER)) found.push({ in: f, file: m[1]!, ...(m[2] ? { heading: m[2] } : {}) });
+    // A comment that wraps a pointer onto the next line is read as one line.
+    const text = readFileSync(join(root, f), 'utf8').replace(/\n\s*(?:\/\/|#|\*)\s*/g, ' ');
+    for (const m of text.matchAll(POINTER)) found.push({ in: f, file: m[1]!, ...(m[2] ? { heading: m[2] } : {}) });
+    // A heading quoted inside a JSON string ends in the escape of its closing quote.
+    for (const m of text.matchAll(HEADING_FIRST)) found.push({ in: f, file: m[2]!, heading: m[1]!.replace(/\\$/, '') });
   }
+
+  it('names no numbered section of the old guide', () => {
+    for (const f of FILES) expect(readFileSync(join(root, f), 'utf8'), f).not.toMatch(OLD_SECTION);
+  });
 
   it('finds the pointers it checks', () => {
     expect(found.map((p) => p.file)).toEqual(expect.arrayContaining(['ref/signing.txt', 'ref/http-seller.txt', 'ref/intake.txt', 'ref/checks.txt', 'llms.txt']));
@@ -43,8 +55,8 @@ describe('pointers into the agent guide (T-394)', () => {
     const server = readFileSync(join(root, 'apps/operator/src/server.ts'), 'utf8');
     expect(server).toContain('see "Encodings" in https://crow.direct/ref/signing.txt');
     const buyer = readFileSync(join(root, 'apps/test-agents/src/buyer.ts'), 'utf8');
-    expect(buyer).toContain('offer on Crow first (https://crow.direct/ref/http-seller.txt, "Offer")');
+    expect(buyer).toContain('offer on Crow first (https://crow.direct/ref/intake.txt, "Sell to Crow\'s test buyer")');
     expect(headings('ref/signing.txt')).toContain('Encodings');
-    expect(headings('ref/http-seller.txt')).toContain('Offer');
+    expect(headings('ref/intake.txt')).toContain("Sell to Crow's test buyer");
   });
 });

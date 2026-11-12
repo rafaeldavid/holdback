@@ -402,7 +402,7 @@ export class TestBuyer {
     try {
       [served, ctx] = await Promise.all([a.trusted(`/v1/commitments/${id}/terms`), this.context()]);
     } catch (e) {
-      if (/not_found/.test(message(e))) return problem(404, `the operators hold no commitment ${id}: offer on Crow first (https://crow.direct/ref/http-seller.txt, "Offer")`);
+      if (/not_found/.test(message(e))) return problem(404, `the operators hold no commitment ${id}: offer on Crow first (https://crow.direct/ref/intake.txt, "Sell to Crow's test buyer")`);
       return problem(503, `the test buyer cannot read the operators now: ${message(e)}`, { retryAfterSec: 30 });
     }
     const { id: _servedId, signatures, ...terms } = served; // eslint-disable-line @typescript-eslint/no-unused-vars
