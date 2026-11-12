@@ -1,0 +1,876 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.28;
+
+import {Vm} from "forge-std/Vm.sol";
+import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
+
+import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
+import {Base} from "./Base.sol";
+
+/// T-345 (contract refinement package R5b), ported to the phase-one contracts by T-375: a deal with price 0 and a fee
+/// above 0, through every outcome phase one keeps.
+///
+/// Rafa decided on 2026-11-11 that the contract keeps a price of 0: other terms, or a future oracle state, can give a
+/// deal meaning without a token value. These tests prove what such a deal does today. Each one asserts:
+/// - what the escrow holds before and after (`capturableAmount`, `refundableAmount`, the token store's balance);
+/// - who receives the fee and how much, and that no other balance moves;
+/// - the deal's stored word against its row in docs/audit/state-model.md, section 9.3 (P01 to P17);
+/// - the full ordered list of events from the rules contract and the escrow, zero amounts included.
+///   `_check` fails on an event the test did not list as well as on a missing one.
+/// The last test shows that price 0 with fee 0 cannot be funded today: the escrow refuses to hold nothing.
+///
+/// What the port changed, from ADR-0031 and ADR-0033:
+/// - Phase one has no bond vault. Every bond assertion and every vault event is gone, and the funding test checks
+///   that the acceptance reserves a bond of 0. The original `test_fund_anUnbondedPrimaryServesAndCollectsTheFee` is
+///   dropped: it showed that a reservation of 0 passes against a vault balance of 0, and no vault remains. The primary
+///   collecting the fee is still covered by `test_release_primaryAccepts_feeToPrimary_zeroToSeller`.
+/// - Phase one has no party appeal. The word is `stage, attempt, t1, seedTag`, so `_word` no longer checks `appeal`,
+///   `flags` or `t2`. Every decision by the primary or the fallback is final, and so is an escalation's.
+/// - Funding is by ERC-3009 only, and the contract records no expiry of an unfunded offer. The zero-fee test drops its
+///   Permit2 attempt and its `expireOffer` call; it shows instead that from `fundBy` the offer cannot be funded at all.
+/// - Funding emits `SettlementAddresses` right after `JobFunded`. These deals keep the fixture's default, a payment
+///   address equal to the buyer and a payout address equal to the seller, so every refund lands in the buyer's balance.
+/// All other original tests are kept, one for one.
+contract ZeroPriceDealTest is Base {
+    struct Ev {
+        address emitter;
+        bytes32[] topics;
+        bytes data;
+    }
+
+    struct Bal {
+        uint256 buyer;
+        uint256 seller;
+        uint256 primary;
+        uint256 fb;
+        uint256 ap;
+        uint256 store;
+    }
+
+    bytes32 internal constant RECORD = keccak256("record"); // the judgment record hash `_decision` signs
+    string internal constant ENVELOPE = "buyer-envelope"; // the buyer's envelope in `_buyerKey`
+
+    // ------------------------------------------------------------ the deal
+
+    function _zeroTerms() internal returns (H.Terms memory t) {
+        t = _terms();
+        t.price = 0; // the fee stays FEE: 500_000 base units
+    }
+
+    function _fundedZero() internal returns (H.Terms memory t, bytes32 id) {
+        t = _zeroTerms();
+        id = _fund(t);
+    }
+
+    function _ph(H.Terms memory t) internal view returns (bytes32) {
+        return escrow.getHash(_pi(t));
+    }
+
+    function _store() internal view returns (address) {
+        return escrow.getTokenStore(address(rules));
+    }
+
+    function _postedHash(bytes32 id) internal view returns (bytes32) {
+        (H.Delivery memory dv,) = _delivery();
+        return hx.delivery(id, dv);
+    }
+
+    function _escalate(H.Terms memory t, bytes32 id) internal returns (uint256 at) {
+        rules.decide(t, _primary(t, id, H.OUTCOME_ESCALATE), _noDelivery(), "");
+        at = block.timestamp;
+    }
+
+    function _mutualMsg(H.Terms memory t, bytes32 id, H.Payout[] memory payouts, bool releaseKey, bytes32 dh)
+        internal
+        view
+        returns (H.Mutual memory m)
+    {
+        m.hasDelivery = dh != bytes32(0);
+        m.deliveryHash = dh;
+        m.payouts = payouts;
+        m.releaseKey = releaseKey;
+        m.nonce = keccak256("mutual");
+        m.expiresAt = type(uint64).max;
+        bytes32 h = hx.mutual(id, t.token, m);
+        m.buyerSignature = _sign(BUYER_PK, h);
+        m.sellerSignature = _sign(SELLER_PK, h);
+    }
+
+    // ------------------------------------------------------------ assertions
+
+    /// The stored word and `deliveryHashOf` against a row of state-model.md section 9.3. `seedTag` is the primary's
+    /// from funding on.
+    function _word(bytes32 id, HoldbackRules.Stage stage, uint8 attempt, uint256 t1) internal view {
+        HoldbackRules.Deal memory d = rules.dealOf(id);
+        assertEq(uint8(d.stage), uint8(stage), "stage");
+        assertEq(d.attempt, attempt, "attempt");
+        assertEq(d.t1, t1, "t1");
+        assertEq(d.seedTag, uint144(uint256(keccak256(abi.encodePacked(SEED)))), "seedTag");
+        assertEq(rules.deliveryHashOf(id), attempt == 1 ? _postedHash(id) : bytes32(0), "dh");
+    }
+
+    /// The escrow's record for this deal, and the token store's balance (one deal per test).
+    function _escrowHolds(H.Terms memory t, uint256 capturable, uint256 refundable) internal view {
+        (bool collected, uint120 c, uint120 r) = escrow.paymentState(_ph(t));
+        assertTrue(collected, "the escrow recorded the hold");
+        assertEq(c, capturable, "escrow capturable");
+        assertEq(r, refundable, "escrow refundable");
+        assertEq(usdc.balanceOf(_store()), capturable, "the token store holds exactly what is capturable");
+    }
+
+    function _bal() internal view returns (Bal memory b) {
+        b.buyer = usdc.balanceOf(buyer);
+        b.seller = usdc.balanceOf(seller);
+        b.primary = usdc.balanceOf(adjudicator);
+        b.fb = usdc.balanceOf(fallbackAdj);
+        b.ap = usdc.balanceOf(appealAdj);
+        b.store = usdc.balanceOf(_store());
+    }
+
+    /// What each party gained since `b0`; the token store paid out exactly their sum, so no other address gained.
+    function _gained(Bal memory b0, uint256 toBuyer, uint256 toSeller, uint256 toPrimary, uint256 toFb, uint256 toAp)
+        internal
+        view
+    {
+        Bal memory b1 = _bal();
+        assertEq(b1.buyer - b0.buyer, toBuyer, "to the buyer");
+        assertEq(b1.seller - b0.seller, toSeller, "to the seller");
+        assertEq(b1.primary - b0.primary, toPrimary, "to the primary");
+        assertEq(b1.fb - b0.fb, toFb, "to the fallback");
+        assertEq(b1.ap - b0.ap, toAp, "to the appeal adjudicator");
+        assertEq(b0.store - b1.store, toBuyer + toSeller + toPrimary + toFb + toAp, "out of the token store");
+    }
+
+    // ------------------------------------------------------------ events
+
+    function _start() internal {
+        vm.recordLogs();
+    }
+
+    /// The logs since `_start` from the rules contract and the escrow, in order, must equal `want`.
+    function _check(Ev[] memory want) internal {
+        Vm.Log[] memory got = vm.getRecordedLogs();
+        uint256 n;
+        for (uint256 i; i < got.length; ++i) {
+            address e = got[i].emitter;
+            if (e != address(rules) && e != address(escrow)) continue;
+            assertLt(n, want.length, "an event the test did not expect");
+            assertEq(e, want[n].emitter, "emitter");
+            assertEq(got[i].topics.length, want[n].topics.length, "topic count");
+            for (uint256 j; j < got[i].topics.length; ++j) {
+                assertEq(got[i].topics[j], want[n].topics[j], "topic");
+            }
+            assertEq(got[i].data, want[n].data, "data");
+            ++n;
+        }
+        assertEq(n, want.length, "an expected event is missing");
+    }
+
+    function _a(address x) internal pure returns (bytes32) {
+        return bytes32(uint256(uint160(x)));
+    }
+
+    function _ev(address e, bytes32 sig, bytes32 a, bytes memory data) internal pure returns (Ev memory v) {
+        v.emitter = e;
+        v.topics = new bytes32[](2);
+        v.topics[0] = sig;
+        v.topics[1] = a;
+        v.data = data;
+    }
+
+    function _ev(address e, bytes32 sig, bytes32 a, bytes32 b, bytes memory data) internal pure returns (Ev memory v) {
+        v.emitter = e;
+        v.topics = new bytes32[](3);
+        v.topics[0] = sig;
+        v.topics[1] = a;
+        v.topics[2] = b;
+        v.data = data;
+    }
+
+    function _ev(address e, bytes32 sig, bytes32 a, bytes32 b, bytes32 c, bytes memory data)
+        internal
+        pure
+        returns (Ev memory v)
+    {
+        v.emitter = e;
+        v.topics = new bytes32[](4);
+        v.topics[0] = sig;
+        v.topics[1] = a;
+        v.topics[2] = b;
+        v.topics[3] = c;
+        v.data = data;
+    }
+
+    // Rules contract events.
+    function _decided(bytes32 id, address who, uint8 role, uint8 outcome, bytes32 seed)
+        internal
+        view
+        returns (Ev memory)
+    {
+        return _ev(address(rules), HoldbackRules.Decided.selector, id, _a(who), abi.encode(role, outcome, RECORD, seed));
+    }
+
+    function _completed(bytes32 id, address who, bytes32 reason) internal view returns (Ev memory) {
+        return _ev(address(rules), HoldbackRules.JobCompleted.selector, id, _a(who), abi.encode(reason));
+    }
+
+    function _rejected(bytes32 id, address who) internal view returns (Ev memory) {
+        return _ev(address(rules), HoldbackRules.JobRejected.selector, id, _a(who), abi.encode(RECORD));
+    }
+
+    function _released(bytes32 id, uint256 amount) internal view returns (Ev memory) {
+        return _ev(address(rules), HoldbackRules.PaymentReleased.selector, id, _a(seller), abi.encode(amount));
+    }
+
+    function _refunded(bytes32 id, uint256 amount) internal view returns (Ev memory) {
+        return _ev(address(rules), HoldbackRules.Refunded.selector, id, _a(buyer), abi.encode(amount));
+    }
+
+    function _feePaid(bytes32 id, address who, uint256 amount) internal view returns (Ev memory) {
+        return _ev(address(rules), HoldbackRules.FeePaid.selector, id, _a(who), abi.encode(amount));
+    }
+
+    function _key(bytes32 id, uint8 path, string memory ciphertext) internal view returns (Ev memory) {
+        return _ev(
+            address(rules), HoldbackRules.KeyReleased.selector, id, _a(buyer), abi.encode(path, KEY_SCHEME, ciphertext)
+        );
+    }
+
+    function _jobExpired(bytes32 id) internal view returns (Ev memory v) {
+        v.emitter = address(rules);
+        v.topics = new bytes32[](2);
+        v.topics[0] = HoldbackRules.JobExpired.selector;
+        v.topics[1] = id;
+    }
+
+    function _defaulted(bytes32 id, HoldbackRules.Stage from) internal view returns (Ev memory v) {
+        v.emitter = address(rules);
+        v.topics = new bytes32[](2);
+        v.topics[0] = HoldbackRules.Defaulted.selector;
+        v.topics[1] = id;
+        v.data = abi.encode(from);
+    }
+
+    function _settled(bytes32 id, bool keyReleased) internal view returns (Ev memory v) {
+        v.emitter = address(rules);
+        v.topics = new bytes32[](2);
+        v.topics[0] = HoldbackRules.MutuallySettled.selector;
+        v.topics[1] = id;
+        v.data = abi.encode(keyReleased);
+    }
+
+    function _fallbackTriggered(bytes32 id, uint64 round) internal view returns (Ev memory v) {
+        v.emitter = address(rules);
+        v.topics = new bytes32[](2);
+        v.topics[0] = HoldbackRules.FallbackTriggered.selector;
+        v.topics[1] = id;
+        v.data = abi.encode(round);
+    }
+
+    function _submitted(bytes32 id) internal view returns (Ev memory) {
+        return _ev(address(rules), HoldbackRules.JobSubmitted.selector, id, _a(seller), abi.encode(_postedHash(id)));
+    }
+
+    // Escrow events.
+    function _captured(H.Terms memory t, uint256 amount, uint256 fee, address to) internal view returns (Ev memory v) {
+        v.emitter = address(escrow);
+        v.topics = new bytes32[](2);
+        v.topics[0] = AuthCaptureEscrow.PaymentCaptured.selector;
+        v.topics[1] = _ph(t);
+        v.data = abi.encode(amount, fee, to);
+    }
+
+    function _voided(H.Terms memory t, uint256 amount) internal view returns (Ev memory v) {
+        v.emitter = address(escrow);
+        v.topics = new bytes32[](2);
+        v.topics[0] = AuthCaptureEscrow.PaymentVoided.selector;
+        v.topics[1] = _ph(t);
+        v.data = abi.encode(amount);
+    }
+
+    /// The escrow deploys the operator's token store on its first send out of it (`E:444-446`), so the first
+    /// capture or void of each test emits this after `PaymentCaptured` or `PaymentVoided`.
+    function _storeCreated() internal view returns (Ev memory v) {
+        v.emitter = address(escrow);
+        v.topics = new bytes32[](2);
+        v.topics[0] = AuthCaptureEscrow.TokenStoreCreated.selector;
+        v.topics[1] = _a(address(rules));
+        v.data = abi.encode(_store());
+    }
+
+    // ------------------------------------------------------------ funding (P02)
+
+    /// The hold is the fee alone, and the primary's acceptance reserves a bond of 0, the only value phase one takes.
+    function test_fund_holdsTheFeeOnly() public {
+        H.Terms memory t = _zeroTerms();
+        bytes32 id = hx.id(t);
+        AuthCaptureEscrow.PaymentInfo memory pi = _pi(t);
+        assertEq(pi.maxAmount, FEE, "the hold H = P + F is the fee");
+        assertEq(_acceptance(t, ADJ_PK).bondReserved, 0, "the acceptance reserves no bond");
+        Bal memory b0 = _bal();
+
+        _start();
+        _fund(t);
+        Ev[] memory w = new Ev[](4);
+        w[0] = _ev(
+            address(rules),
+            HoldbackRules.JobCreated.selector,
+            id,
+            _a(buyer),
+            _a(seller),
+            abi.encode(adjudicator, uint256(pi.authorizationExpiry))
+        );
+        w[1] = _ev(address(rules), HoldbackRules.JobFunded.selector, id, _a(buyer), abi.encode(FEE));
+        w[2] = _ev(
+            address(rules),
+            HoldbackRules.SettlementAddresses.selector,
+            id,
+            _a(t.buyerPaymentAddress),
+            _a(t.sellerPayoutAddress),
+            ""
+        );
+        w[3] = _ev(
+            address(escrow),
+            AuthCaptureEscrow.PaymentAuthorized.selector,
+            _ph(t),
+            abi.encode(pi, FEE, address(collector3009))
+        );
+        _check(w);
+
+        assertEq(b0.buyer - usdc.balanceOf(buyer), FEE, "the buyer paid the fee only");
+        _word(id, HoldbackRules.Stage.Held, 0, 0); // P02
+        _escrowHolds(t, FEE, 0);
+    }
+
+    // ------------------------------------------------------------ the primary decides (P06, P07)
+
+    /// Release: the whole hold is a fee-only capture to the primary; the seller is paid 0 and the event says 0.
+    function test_release_primaryAccepts_feeToPrimary_zeroToSeller() public {
+        (H.Terms memory t, bytes32 id) = _fundedZero();
+        _deliver(t, id);
+        H.Decision memory m = _primary(t, id, H.OUTCOME_ACCEPT);
+        Bal memory b0 = _bal();
+
+        _start();
+        rules.decide(t, m, _noDelivery(), "");
+        Ev[] memory w = new Ev[](7);
+        w[0] = _decided(id, adjudicator, H.ROLE_PRIMARY, H.OUTCOME_ACCEPT, SEED);
+        w[1] = _captured(t, FEE, FEE, adjudicator);
+        w[2] = _storeCreated();
+        w[3] = _completed(id, adjudicator, RECORD);
+        w[4] = _released(id, 0);
+        w[5] = _key(id, rules.KEY_DECISION(), KEY_CT);
+        w[6] = _feePaid(id, adjudicator, FEE);
+        _check(w);
+
+        _gained(b0, 0, 0, FEE, 0, 0);
+        _word(id, HoldbackRules.Stage.Released, 1, block.timestamp); // P06, final
+        _escrowHolds(t, 0, FEE);
+    }
+
+    /// Refund: a fee-only capture to the primary and no void (nothing is left); the buyer is refunded 0.
+    function test_refund_primaryRejects_feeToPrimary_zeroToBuyer() public {
+        (H.Terms memory t, bytes32 id) = _fundedZero();
+        _deliver(t, id);
+        H.Decision memory m = _primary(t, id, H.OUTCOME_REJECT);
+        Bal memory b0 = _bal();
+
+        _start();
+        rules.decide(t, m, _noDelivery(), "");
+        Ev[] memory w = new Ev[](6);
+        w[0] = _decided(id, adjudicator, H.ROLE_PRIMARY, H.OUTCOME_REJECT, SEED);
+        w[1] = _captured(t, FEE, FEE, adjudicator);
+        w[2] = _storeCreated();
+        w[3] = _rejected(id, adjudicator);
+        w[4] = _refunded(id, 0);
+        w[5] = _feePaid(id, adjudicator, FEE);
+        _check(w);
+
+        _gained(b0, 0, 0, FEE, 0, 0);
+        _word(id, HoldbackRules.Stage.Refunded, 1, block.timestamp); // P07, final
+        _escrowHolds(t, 0, FEE);
+    }
+
+    // ------------------------------------------------------------ the fallback decides (P04, P08, P09)
+
+    function _toFallback(H.Terms memory t, bytes32 id) internal {
+        _deliver(t, id);
+        vm.warp(t.timing.judgeBy);
+        _start();
+        rules.triggerFallback(t);
+        Ev[] memory w = new Ev[](1);
+        w[0] = _fallbackTriggered(id, uint64(t.timing.judgeBy));
+        _check(w);
+        _word(id, HoldbackRules.Stage.FallbackJudging, 1, t.timing.judgeBy); // P04
+        _escrowHolds(t, FEE, 0);
+    }
+
+    function _fallbackDecision(H.Terms memory t, bytes32 id, uint8 outcome) internal view returns (H.Decision memory) {
+        H.Decision memory m = _beaconDecision(id, H.ROLE_FALLBACK, outcome, uint64(t.timing.judgeBy));
+        return _signDecision(t, id, m, fallbackAdj, FB_PK);
+    }
+
+    /// The fallback takes the whole hold as its fee; the seller is paid 0.
+    function test_release_fallbackAccepts_feeToFallback_zeroToSeller() public {
+        (H.Terms memory t, bytes32 id) = _fundedZero();
+        _toFallback(t, id);
+        H.Decision memory m = _fallbackDecision(t, id, H.OUTCOME_ACCEPT);
+        Bal memory b0 = _bal();
+
+        _start();
+        rules.decide(t, m, _noDelivery(), "");
+        Ev[] memory w = new Ev[](7);
+        w[0] = _decided(id, fallbackAdj, H.ROLE_FALLBACK, H.OUTCOME_ACCEPT, m.seed);
+        w[1] = _captured(t, FEE, FEE, fallbackAdj);
+        w[2] = _storeCreated();
+        w[3] = _completed(id, fallbackAdj, RECORD);
+        w[4] = _released(id, 0);
+        w[5] = _key(id, rules.KEY_DECISION(), KEY_CT);
+        w[6] = _feePaid(id, fallbackAdj, FEE);
+        _check(w);
+
+        _gained(b0, 0, 0, 0, FEE, 0);
+        _word(id, HoldbackRules.Stage.Released, 1, block.timestamp); // P08, final
+        _escrowHolds(t, 0, FEE);
+    }
+
+    function test_refund_fallbackRejects_feeToFallback_zeroToBuyer() public {
+        (H.Terms memory t, bytes32 id) = _fundedZero();
+        _toFallback(t, id);
+        H.Decision memory m = _fallbackDecision(t, id, H.OUTCOME_REJECT);
+        Bal memory b0 = _bal();
+
+        _start();
+        rules.decide(t, m, _noDelivery(), "");
+        Ev[] memory w = new Ev[](6);
+        w[0] = _decided(id, fallbackAdj, H.ROLE_FALLBACK, H.OUTCOME_REJECT, m.seed);
+        w[1] = _captured(t, FEE, FEE, fallbackAdj);
+        w[2] = _storeCreated();
+        w[3] = _rejected(id, fallbackAdj);
+        w[4] = _refunded(id, 0);
+        w[5] = _feePaid(id, fallbackAdj, FEE);
+        _check(w);
+
+        _gained(b0, 0, 0, 0, FEE, 0);
+        _word(id, HoldbackRules.Stage.Refunded, 1, block.timestamp); // P09, final
+        _escrowHolds(t, 0, FEE);
+    }
+
+    // ------------------------------------------------------------ reclaim (P14)
+
+    /// Nothing delivered by deliverBy: the void returns the fee, the whole hold, to the buyer.
+    function test_reclaim_afterMissedDeliverBy_feeBackToBuyer() public {
+        (H.Terms memory t, bytes32 id) = _fundedZero();
+        vm.warp(t.timing.deliverBy);
+        Bal memory b0 = _bal();
+
+        _start();
+        rules.reclaim(t);
+        Ev[] memory w = new Ev[](4);
+        w[0] = _voided(t, FEE);
+        w[1] = _storeCreated();
+        w[2] = _refunded(id, FEE);
+        w[3] = _jobExpired(id);
+        _check(w);
+
+        _gained(b0, FEE, 0, 0, 0, 0);
+        _word(id, HoldbackRules.Stage.Refunded, 0, 0); // P14
+        _escrowHolds(t, 0, 0);
+    }
+
+    // ------------------------------------------------------------ the default outcome (P12)
+
+    /// The fallback missed fallbackBy: the void returns the fee to the buyer; no adjudicator is paid.
+    function test_default_fallbackMissesFallbackBy_feeBackToBuyer() public {
+        (H.Terms memory t, bytes32 id) = _fundedZero();
+        _toFallback(t, id);
+        vm.warp(t.timing.fallbackBy);
+        Bal memory b0 = _bal();
+
+        _start();
+        rules.triggerDefault(t);
+        Ev[] memory w = new Ev[](4);
+        w[0] = _defaulted(id, HoldbackRules.Stage.FallbackJudging);
+        w[1] = _voided(t, FEE);
+        w[2] = _storeCreated();
+        w[3] = _refunded(id, FEE);
+        _check(w);
+
+        _gained(b0, FEE, 0, 0, 0, 0);
+        _word(id, HoldbackRules.Stage.Refunded, 1, t.timing.judgeBy); // P12
+        _escrowHolds(t, 0, 0);
+    }
+
+    /// An escalated case went undecided: the same refund of the fee.
+    function test_default_escalationUndecided_feeBackToBuyer() public {
+        (H.Terms memory t, bytes32 id) = _fundedZero();
+        _deliver(t, id);
+        uint256 at = _escalateChecked(t, id);
+        vm.warp(at + t.timing.appealDecideSec);
+        Bal memory b0 = _bal();
+
+        _start();
+        rules.triggerDefault(t);
+        Ev[] memory w = new Ev[](4);
+        w[0] = _defaulted(id, HoldbackRules.Stage.Escalated);
+        w[1] = _voided(t, FEE);
+        w[2] = _storeCreated();
+        w[3] = _refunded(id, FEE);
+        _check(w);
+
+        _gained(b0, FEE, 0, 0, 0, 0);
+        _word(id, HoldbackRules.Stage.Refunded, 1, at); // P12
+        _escrowHolds(t, 0, 0);
+    }
+
+    // ------------------------------------------------------------ escalation (P05, P10, P11)
+
+    /// The primary escalates: no money moves and no event follows the decision.
+    function _escalateChecked(H.Terms memory t, bytes32 id) internal returns (uint256 at) {
+        _start();
+        at = _escalate(t, id);
+        Ev[] memory w = new Ev[](1);
+        w[0] = _decided(id, adjudicator, H.ROLE_PRIMARY, H.OUTCOME_ESCALATE, SEED);
+        _check(w);
+        _word(id, HoldbackRules.Stage.Escalated, 1, at); // P05
+        _escrowHolds(t, FEE, 0);
+    }
+
+    function _appealDecision(H.Terms memory t, bytes32 id, uint256 at, uint8 outcome)
+        internal
+        returns (H.Decision memory)
+    {
+        vm.warp(at + 1); // the escalation's round is the first one after it: wait for it
+        H.Decision memory m = _beaconDecision(id, H.ROLE_APPEAL, outcome, uint64(at + 1));
+        return _signDecision(t, id, m, appealAdj, AP_PK);
+    }
+
+    function test_escalation_accepted_feeToAppealAdjudicator_zeroToSeller() public {
+        (H.Terms memory t, bytes32 id) = _fundedZero();
+        _deliver(t, id);
+        uint256 at = _escalateChecked(t, id);
+        H.Decision memory m = _appealDecision(t, id, at, H.OUTCOME_ACCEPT);
+        Bal memory b0 = _bal();
+
+        _start();
+        rules.decide(t, m, _noDelivery(), "");
+        Ev[] memory w = new Ev[](7);
+        w[0] = _decided(id, appealAdj, H.ROLE_APPEAL, H.OUTCOME_ACCEPT, m.seed);
+        w[1] = _captured(t, FEE, FEE, appealAdj);
+        w[2] = _storeCreated();
+        w[3] = _completed(id, appealAdj, RECORD);
+        w[4] = _released(id, 0);
+        w[5] = _key(id, rules.KEY_DECISION(), KEY_CT);
+        w[6] = _feePaid(id, appealAdj, FEE);
+        _check(w);
+
+        _gained(b0, 0, 0, 0, 0, FEE);
+        _word(id, HoldbackRules.Stage.Released, 1, at); // P10: t1 stays the escalation's time
+        _escrowHolds(t, 0, FEE);
+    }
+
+    function test_escalation_rejected_feeToAppealAdjudicator_zeroToBuyer() public {
+        (H.Terms memory t, bytes32 id) = _fundedZero();
+        _deliver(t, id);
+        uint256 at = _escalateChecked(t, id);
+        H.Decision memory m = _appealDecision(t, id, at, H.OUTCOME_REJECT);
+        Bal memory b0 = _bal();
+
+        _start();
+        rules.decide(t, m, _noDelivery(), "");
+        Ev[] memory w = new Ev[](6);
+        w[0] = _decided(id, appealAdj, H.ROLE_APPEAL, H.OUTCOME_REJECT, m.seed);
+        w[1] = _captured(t, FEE, FEE, appealAdj);
+        w[2] = _storeCreated();
+        w[3] = _rejected(id, appealAdj);
+        w[4] = _refunded(id, 0);
+        w[5] = _feePaid(id, appealAdj, FEE);
+        _check(w);
+
+        _gained(b0, 0, 0, 0, 0, FEE);
+        _word(id, HoldbackRules.Stage.Refunded, 1, at); // P11
+        _escrowHolds(t, 0, FEE);
+    }
+
+    // ------------------------------------------------------------ early accept (P13)
+
+    /// No capture (the price is 0); the void returns the fee; the seller is paid 0 and the event says 0.
+    function test_earlyAccept_carryingTheDelivery_feeBackToBuyer_zeroToSeller() public {
+        (H.Terms memory t, bytes32 id) = _fundedZero();
+        (H.Delivery memory dv, H.KeyProof memory k) = _delivery();
+        H.EarlyAccept memory m = _early(t, id, BUYER_PK);
+        bytes memory dsig = _deliverySig(id, dv, SELLER_PK);
+        Bal memory b0 = _bal();
+
+        _start();
+        rules.earlyAccept(t, m, dv, dsig, k);
+        Ev[] memory w = new Ev[](7);
+        w[0] = _submitted(id);
+        w[1] = _voided(t, FEE);
+        w[2] = _storeCreated();
+        w[3] = _completed(id, buyer, bytes32(0));
+        w[4] = _released(id, 0);
+        w[5] = _refunded(id, FEE);
+        w[6] = _key(id, rules.KEY_EARLY_ACCEPT(), ENVELOPE);
+        _check(w);
+
+        _gained(b0, FEE, 0, 0, 0, 0);
+        _word(id, HoldbackRules.Stage.Released, 1, 0); // P13
+        _escrowHolds(t, 0, 0);
+    }
+
+    /// The same after `deliver`: the call carries the posted delivery, so no `JobSubmitted`.
+    function test_earlyAccept_afterDelivery_feeBackToBuyer_zeroToSeller() public {
+        (H.Terms memory t, bytes32 id) = _fundedZero();
+        (H.Delivery memory dv, H.KeyProof memory k) = _deliver(t, id);
+        H.EarlyAccept memory m = _early(t, id, BUYER_PK);
+        bytes memory dsig = _deliverySig(id, dv, SELLER_PK);
+        Bal memory b0 = _bal();
+
+        _start();
+        rules.earlyAccept(t, m, dv, dsig, k);
+        Ev[] memory w = new Ev[](6);
+        w[0] = _voided(t, FEE);
+        w[1] = _storeCreated();
+        w[2] = _completed(id, buyer, bytes32(0));
+        w[3] = _released(id, 0);
+        w[4] = _refunded(id, FEE);
+        w[5] = _key(id, rules.KEY_EARLY_ACCEPT(), ENVELOPE);
+        _check(w);
+
+        _gained(b0, FEE, 0, 0, 0, 0);
+        _word(id, HoldbackRules.Stage.Released, 1, 0); // P13
+        _escrowHolds(t, 0, 0);
+    }
+
+    // ------------------------------------------------------------ the fallback escalates (P05, then P10)
+
+    /// The fallback escalates: no money moves. The appeal adjudicator then takes the fee with an accept.
+    function test_escalation_byTheFallback_thenAccepted_feeToAppealAdjudicator() public {
+        (H.Terms memory t, bytes32 id) = _fundedZero();
+        _toFallback(t, id);
+        H.Decision memory e = _fallbackDecision(t, id, H.OUTCOME_ESCALATE);
+        Bal memory b0 = _bal();
+
+        _start();
+        rules.decide(t, e, _noDelivery(), "");
+        // `_toFallback` warped to judgeBy. A fixed value, because via-IR may re-read block.timestamp after a warp.
+        uint256 at = t.timing.judgeBy;
+        Ev[] memory w = new Ev[](1);
+        w[0] = _decided(id, fallbackAdj, H.ROLE_FALLBACK, H.OUTCOME_ESCALATE, e.seed);
+        _check(w);
+        _gained(b0, 0, 0, 0, 0, 0);
+        _word(id, HoldbackRules.Stage.Escalated, 1, at); // P05
+        _escrowHolds(t, FEE, 0);
+
+        H.Decision memory m = _appealDecision(t, id, at, H.OUTCOME_ACCEPT);
+        _start();
+        rules.decide(t, m, _noDelivery(), "");
+        w = new Ev[](7);
+        w[0] = _decided(id, appealAdj, H.ROLE_APPEAL, H.OUTCOME_ACCEPT, m.seed);
+        w[1] = _captured(t, FEE, FEE, appealAdj);
+        w[2] = _storeCreated();
+        w[3] = _completed(id, appealAdj, RECORD);
+        w[4] = _released(id, 0);
+        w[5] = _key(id, rules.KEY_DECISION(), KEY_CT);
+        w[6] = _feePaid(id, appealAdj, FEE);
+        _check(w);
+
+        _gained(b0, 0, 0, 0, 0, FEE);
+        _word(id, HoldbackRules.Stage.Released, 1, at); // P10
+        _escrowHolds(t, 0, FEE);
+    }
+
+    // ------------------------------------------------------------ the buyer's own reclaim on the escrow (5.2)
+
+    /// From the escrow's expiry the buyer takes the fee back on the escrow directly; the deal's word stays P04.
+    /// `triggerDefault` then closes the deal and skips the void and the `Refunded` event because nothing is held
+    /// (`R:490-495`).
+    function test_default_afterTheBuyersOwnEscrowReclaim_closesWithoutRefundEvent() public {
+        (H.Terms memory t, bytes32 id) = _fundedZero();
+        _toFallback(t, id);
+        AuthCaptureEscrow.PaymentInfo memory pi = _pi(t);
+        vm.warp(pi.authorizationExpiry);
+        Bal memory b0 = _bal();
+
+        _start();
+        vm.prank(buyer);
+        escrow.reclaim(pi);
+        Ev[] memory w = new Ev[](2);
+        w[0] = _ev(address(escrow), AuthCaptureEscrow.PaymentReclaimed.selector, _ph(t), abi.encode(FEE));
+        w[1] = _storeCreated();
+        _check(w);
+        _gained(b0, FEE, 0, 0, 0, 0);
+        _word(id, HoldbackRules.Stage.FallbackJudging, 1, t.timing.judgeBy); // P04
+        _escrowHolds(t, 0, 0);
+
+        _start();
+        rules.triggerDefault(t);
+        w = new Ev[](1);
+        w[0] = _defaulted(id, HoldbackRules.Stage.FallbackJudging);
+        _check(w);
+
+        _gained(b0, FEE, 0, 0, 0, 0); // nothing more moved
+        _word(id, HoldbackRules.Stage.Refunded, 1, t.timing.judgeBy); // P12
+        _escrowHolds(t, 0, 0);
+    }
+
+    // ------------------------------------------------------------ mutual settlement (P15, P16, P17)
+
+    /// During the fallback's turn the fallback's fee share is 0 bps: the whole fee goes back to the buyer.
+    function test_mutual_duringFallback_feeBackToBuyer() public {
+        (H.Terms memory t, bytes32 id) = _fundedZero();
+        _toFallback(t, id);
+        H.Mutual memory m = _mutualMsg(t, id, new H.Payout[](0), false, _postedHash(id));
+        H.KeyProof memory none;
+        Bal memory b0 = _bal();
+
+        _start();
+        rules.mutualSettle(t, m, _noDelivery(), none);
+        Ev[] memory w = new Ev[](4);
+        w[0] = _voided(t, FEE);
+        w[1] = _storeCreated();
+        w[2] = _refunded(id, FEE);
+        w[3] = _settled(id, false);
+        _check(w);
+
+        _gained(b0, FEE, 0, 0, 0, 0);
+        _word(id, HoldbackRules.Stage.Settled, 1, t.timing.judgeBy); // P17
+        _escrowHolds(t, 0, 0);
+    }
+
+    /// The payouts must sum to the price, 0, and each must be above 0: only an empty list settles.
+    function test_mutual_beforeDelivery_emptyPayouts_feeBackToBuyer() public {
+        (H.Terms memory t, bytes32 id) = _fundedZero();
+        H.Mutual memory m = _mutualMsg(t, id, new H.Payout[](0), false, bytes32(0));
+        H.KeyProof memory none;
+        Bal memory b0 = _bal();
+
+        _start();
+        rules.mutualSettle(t, m, _noDelivery(), none);
+        Ev[] memory w = new Ev[](4);
+        w[0] = _voided(t, FEE);
+        w[1] = _storeCreated();
+        w[2] = _refunded(id, FEE);
+        w[3] = _settled(id, false);
+        _check(w);
+
+        _gained(b0, FEE, 0, 0, 0, 0);
+        _word(id, HoldbackRules.Stage.Settled, 0, 0); // P15
+        _escrowHolds(t, 0, 0);
+    }
+
+    function test_mutual_afterDelivery_releasesTheKey_feeBackToBuyer() public {
+        (H.Terms memory t, bytes32 id) = _fundedZero();
+        (H.Delivery memory dv, H.KeyProof memory k) = _deliver(t, id);
+        H.Mutual memory m = _mutualMsg(t, id, new H.Payout[](0), true, hx.delivery(id, dv));
+        Bal memory b0 = _bal();
+
+        _start();
+        rules.mutualSettle(t, m, dv, k);
+        Ev[] memory w = new Ev[](5);
+        w[0] = _voided(t, FEE);
+        w[1] = _storeCreated();
+        w[2] = _refunded(id, FEE);
+        w[3] = _settled(id, true);
+        w[4] = _key(id, rules.KEY_MUTUAL(), ENVELOPE);
+        _check(w);
+
+        _gained(b0, FEE, 0, 0, 0, 0);
+        _word(id, HoldbackRules.Stage.Settled, 1, 0); // P16
+        _escrowHolds(t, 0, 0);
+    }
+
+    /// During an escalation the appeal adjudicator's fee share is 0 bps: the whole fee goes back to the buyer.
+    function test_mutual_duringEscalation_feeBackToBuyer() public {
+        (H.Terms memory t, bytes32 id) = _fundedZero();
+        (H.Delivery memory dv,) = _deliver(t, id);
+        uint256 at = _escalateChecked(t, id);
+        H.Mutual memory m = _mutualMsg(t, id, new H.Payout[](0), false, hx.delivery(id, dv));
+        H.KeyProof memory none;
+        Bal memory b0 = _bal();
+
+        _start();
+        rules.mutualSettle(t, m, _noDelivery(), none);
+        Ev[] memory w = new Ev[](4);
+        w[0] = _voided(t, FEE);
+        w[1] = _storeCreated();
+        w[2] = _refunded(id, FEE);
+        w[3] = _settled(id, false);
+        _check(w);
+
+        _gained(b0, FEE, 0, 0, 0, 0);
+        _word(id, HoldbackRules.Stage.Settled, 1, at); // P17
+        _escrowHolds(t, 0, 0);
+    }
+
+    /// No settlement of a zero-price deal pays anyone but the buyer: a payout above 0 to the seller's payout address
+    /// or the buyer's payment address breaks the sum, a payout to any other address is refused, and so is a payout
+    /// of 0.
+    function test_mutual_refusesAnyPayout() public {
+        (H.Terms memory t, bytes32 id) = _fundedZero();
+        H.KeyProof memory none;
+        H.Payout[] memory one = new H.Payout[](1);
+        one[0] = H.Payout(t.sellerPayoutAddress, 1);
+        H.Mutual memory m = _mutualMsg(t, id, one, false, bytes32(0));
+        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        rules.mutualSettle(t, m, _noDelivery(), none);
+
+        one[0] = H.Payout(t.buyerPaymentAddress, 1);
+        m = _mutualMsg(t, id, one, false, bytes32(0));
+        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        rules.mutualSettle(t, m, _noDelivery(), none);
+
+        one[0] = H.Payout(address(0x9999), 1); // a third party
+        m = _mutualMsg(t, id, one, false, bytes32(0));
+        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        rules.mutualSettle(t, m, _noDelivery(), none);
+
+        one[0] = H.Payout(t.sellerPayoutAddress, 0);
+        m = _mutualMsg(t, id, one, false, bytes32(0));
+        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        rules.mutualSettle(t, m, _noDelivery(), none);
+
+        _word(id, HoldbackRules.Stage.Held, 0, 0); // still P02
+        _escrowHolds(t, FEE, 0);
+    }
+
+    // ------------------------------------------------------------ price 0 and fee 0 (P01)
+
+    /// The hold would be 0, and the escrow refuses to authorize 0 (`E:179`): funding reverts with the escrow's
+    /// `ZeroAmount()`, so nothing is stored and no token moves. From fundBy the offer cannot be funded at all; the
+    /// contract records no expiry (ADR-0031, SC-6), so the deal stays P01.
+    /// Whether price 0 with fee 0 should be supported is Rafa's question; this test shows what happens today.
+    function test_zeroPriceZeroFee_cannotFund_escrowRefusesZeroAmount() public {
+        H.Terms memory t = _zeroTerms();
+        t.fee = 0;
+        bytes32 id = hx.id(t);
+        bytes memory sellerSig = _sellerSig(t, SELLER_PK);
+        H.Acceptance memory acc = _acceptance(t, ADJ_PK);
+        H.Agree memory ag = _agree(t, BUYER_PK);
+        H.Funding memory f = _erc3009(t, BUYER_PK);
+        Bal memory b0 = _bal();
+
+        // No `_check` here: Foundry's log recorder keeps the logs of a reverted call, so the proof is the state below.
+        vm.expectRevert(AuthCaptureEscrow.ZeroAmount.selector);
+        rules.agreeAndFund(t, sellerSig, acc, ag, f);
+
+        HoldbackRules.Deal memory d = rules.dealOf(id);
+        assertEq(uint8(d.stage), uint8(HoldbackRules.Stage.None), "still P01");
+        assertEq(d.attempt, 0);
+        assertEq(d.t1, 0);
+        assertEq(d.seedTag, 0);
+        (bool collected, uint120 c, uint120 r) = escrow.paymentState(_ph(t));
+        assertFalse(collected, "the escrow recorded nothing");
+        assertEq(c, 0);
+        assertEq(r, 0);
+        _gained(b0, 0, 0, 0, 0, 0);
+
+        // From fundBy the deadline check refuses the offer before the escrow sees it.
+        vm.warp(t.timing.fundBy);
+        vm.expectRevert(HoldbackRules.DeadlinePassed.selector);
+        rules.agreeAndFund(t, sellerSig, acc, ag, f);
+        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.None), "still P01");
+    }
+}
