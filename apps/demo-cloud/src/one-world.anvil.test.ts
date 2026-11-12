@@ -129,10 +129,10 @@ describe.skipIf(!ready)(`one world through the drand rulebook (anvil; T-220, D49
   }, 600_000);
 });
 
-// T-378 part 6 (ADR-0032 §3.5): on a rules contract with a beacon margin, the demo fallback is woken when its round is
-// public, so it decides a short fallback window. Here the margin is 7 s over the sim beacon, so the fallback's round is
-// judgeBy + 7. The old schedule (judgeBy, then 2, 6 and 14 s after the trigger) would first see the round 14 s after
-// judgeBy, past this deal's 12 s fallback window, and the deal would take its default outcome.
+// T-378 part 6 (ADR-0032 §3.5): on a rules contract with a beacon margin, the demo fallback takes over at judgeBy and
+// decides once its round is public. Here the margin is 7 s over the sim beacon, so the fallback's round is judgeBy + 7,
+// and the deal's fallback window is 12 s. This shows a fallback decision with a margin through the demo world; the old
+// wake schedule passes it too, so the wake times themselves are pinned by round-wake.test.ts.
 describe.skipIf(!ready)(`the fallback woken when its round is public (anvil, a 7 s beacon margin; T-378, ADR-0032)${ready ? '' : ' (SKIPPED: needs anvil on PATH and forge build output in contracts/out)'}`, () => {
   const MARGIN = 7;
   let anvil: EvmWorld;
@@ -149,7 +149,7 @@ describe.skipIf(!ready)(`the fallback woken when its round is public (anvil, a 7
     await anvil?.stop();
   });
 
-  it('a silent primary: the demo fallback decides a 12 s fallback window on its first wake after the round', async () => {
+  it('a silent primary: the demo fallback takes over at judgeBy and decides a 12 s fallback window after its round', async () => {
     const storage = new MemoryStorage();
     const chain = new LiveChain({ deployment, rpcUrls: [shim.url], relayerKey: RELAYER, pollMs: 200, rebroadcastMs: 10_000, mintBatchMs: 200 });
     const errors: string[] = [];

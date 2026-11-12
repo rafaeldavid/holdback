@@ -21,16 +21,32 @@ const published = (r: number) => (DRAND_QUICKNET.genesis + (r - 1) * DRAND_QUICK
 const roundAt = (t: number) => Math.floor((t - DRAND_QUICKNET.genesis) / DRAND_QUICKNET.period) + 1;
 
 describe('the round wake (ADR-0032 §3.5, T-378 part 6)', () => {
-  it('wakes the fallback when its round is public, 29 to 31 s after judgeBy at the 29 s margin, plus the wake slack', () => {
-    const s = state({ kind: 'Delivered' });
-    const [wake] = workAt(s, ours(fallback), judgeBy - 60_000, 29)!;
-    // ADR-0032 §3.1: the first round published strictly after judgeBy − 1 + margin.
+  it('takes over at judgeBy, before the round, and wakes the fallback to decide when its round is public', () => {
+    // The takeover needs no round and is its own transaction (PR 427 review M1): it is not held back.
+    expect(workAt(state({ kind: 'Delivered' }), ours(fallback), judgeBy - 60_000, 29)).toEqual([judgeBy]);
+    // ADR-0032 §3.1: the first round published strictly after judgeBy − 1 + margin, 29 to 31 s after judgeBy.
     const round = roundAt(judgeBy / 1000 - 1 + 29) + 1;
+    const [wake] = workAt(state({ kind: 'FallbackJudging' }), ours(fallback), judgeBy, 29)!;
     expect(wake).toBe(published(round) + ROUND_WAKE_MS);
     expect(wake! - judgeBy).toBeGreaterThanOrEqual(29_000 + ROUND_WAKE_MS);
     expect(wake! - judgeBy).toBeLessThanOrEqual(31_000 + ROUND_WAKE_MS);
-    // FallbackJudging (taken over already): not before the round either.
-    expect(workAt(state({ kind: 'FallbackJudging' }), ours(fallback), judgeBy, 29)).toEqual([published(round) + ROUND_WAKE_MS]);
+    // After the round is public the fallback acts at once.
+    expect(workAt(state({ kind: 'FallbackJudging' }), ours(fallback), wake! + 5_000, 29)).toEqual([wake! + 5_000]);
+  });
+
+  it('with the primary and the fallback both ours, the primary acts now and the takeover stays at judgeBy', () => {
+    const both = (a: string) => a.toLowerCase() === fallback || a.toLowerCase() === terms.adjudication.adjudicator.toLowerCase();
+    const now = judgeBy - 60_000;
+    expect(workAt(state({ kind: 'Delivered' }), both, now, 29)).toEqual([now, judgeBy]);
+  });
+
+  it('a fallback window shorter than the margin: the decision wake falls after fallbackBy, and the deal is dropped once fallbackBy passes', () => {
+    const fallbackBy = new Date(judgeBy + 20_000).toISOString().replace('.000Z', 'Z');
+    const short = state({ kind: 'FallbackJudging', terms: { ...terms, timing: { ...terms.timing, fallbackBy } } });
+    const [wake] = workAt(short, ours(fallback), judgeBy, 29)!;
+    expect(wake).toBeGreaterThan(Date.parse(fallbackBy));
+    // Past fallbackBy no adjudicator acts; the default outcome is the operators' timeout.
+    expect(workAt(short, ours(fallback), Date.parse(fallbackBy), 29)).toBeNull();
   });
 
   it('wakes the appeal adjudicator when the escalation round is public, not at once', () => {

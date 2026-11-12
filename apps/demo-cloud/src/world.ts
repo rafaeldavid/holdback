@@ -473,7 +473,7 @@ export function roundPublicAt(s: EscrowState, role: 'fallback' | 'appeal', margi
 export function workAt(s: EscrowState, ours: (address: string) => boolean, now: number, marginSec = 0): number[] | null {
   const { adjudicator, fallbackAdjudicator, appealAdjudicator } = s.terms.adjudication;
   // ADR-0032 §3.5 (T-378 part 6): a fallback or appeal panel waits for its beacon round, which a rules contract with a
-  // margin publishes that long after the last choice. Its adjudicator is woken when the round is public, not before.
+  // margin publishes that long after the last choice. Its adjudicator is woken to decide when the round is public.
   const roundReady = (role: 'fallback' | 'appeal', from: number) => Math.max(from, roundPublicAt(s, role, marginSec) ?? from);
   const { offerExpiresAt, deliverBy, judgeBy, fallbackBy } = s.terms.timing;
   const passed = (deadline: Timestamp) => now >= Date.parse(deadline);
@@ -490,7 +490,9 @@ export function workAt(s: EscrowState, ours: (address: string) => boolean, now: 
       if (passed(fallbackBy)) return null;
       const at = s.kind === 'Delivered' && ours(adjudicator) && !passed(judgeBy) ? [now] : [];
       // Kept even while the primary can act now: the takeover must not wait on a slow cadence (T-057 review).
-      if (ours(fallbackAdjudicator)) at.push(roundReady('fallback', s.kind === 'Delivered' ? Date.parse(judgeBy) : now));
+      // The takeover (triggerFallback) needs no round and is its own transaction, so it goes at judgeBy; the decision
+      // that follows in FallbackJudging waits for the round (PR 427 review M1: both after the round would cost a block).
+      if (ours(fallbackAdjudicator)) at.push(s.kind === 'Delivered' ? Date.parse(judgeBy) : roundReady('fallback', now));
       return at;
     }
     case 'Escalated':
@@ -1516,7 +1518,7 @@ export function notesFor(
     'Request log: these nodes keep one line per request for seven days (Request-Id, time, node, method, route template, status, problem type, timing), never a body, a header value, an IP address, or the addresses and IDs in the path. Quote the Request-Id of a failed request when you report it.',
     ...(chain
       ? [
-          "Fallback and appeal adjudicators decide on Sepolia: their panels are seeded from a drand quicknet round that settlement fixes (the first round published more than the rules contract's beacon margin after judgeBy for the fallback, and after an escalation for the appeal adjudicator; 29 s on Sepolia, ADR-0032), and the rules contract verifies the round's BLS signature. The demo's adjudicators wake when that round is public. If no drand relay answers before a deadline, nothing stands in: the deal takes its default outcome, or a party appeal expires and the first decision stands.",
+          "Fallback and appeal adjudicators decide on Sepolia: their panels are seeded from a drand quicknet round that settlement fixes (the first round published at or after judgeBy plus the rules contract's beacon margin for the fallback, and the first published more than the margin after an escalation for the appeal adjudicator; 29 s on Sepolia, ADR-0032), and the rules contract verifies the round's BLS signature. The demo's adjudicators wake when that round is public. If no drand relay answers before a deadline, nothing stands in: the deal takes its default outcome, or a party appeal expires and the first decision stands.",
           "The operators' view is kept across deploys. It starts over only when the settlement contracts are redeployed; what happened on Sepolia stays there. Keep your own copy of the terms you signed.",
         ]
       : ['State is journaled and replayed after a restart, but this is a demo: it may be reset at any time.']),

@@ -161,8 +161,11 @@ Labels: measured, inferred, guessed. All runs are on this task's branches, 2026-
 
 **Part 6, the margin's timing and notices (this PR; placed by the coordinator on 2026-11-12):**
 
-- `apps/demo-cloud/src/round-wake.test.ts`: 3 of 3 tests pass [measured].
-  - With drand quicknet at the 29 s margin, the fallback is woken when its round is public plus 1.5 s: 30.5 to 32.5 s after `judgeBy`. This holds in `Delivered` and in `FallbackJudging`.
+- `apps/demo-cloud/src/round-wake.test.ts`: 5 of 5 tests pass [measured].
+  - The takeover (`triggerFallback`) still goes at `judgeBy`: it needs no round and is its own transaction.
+  - With drand quicknet at the 29 s margin, the fallback is woken to decide when its round is public plus 1.5 s: 30.5 to 32.5 s after `judgeBy`, in `FallbackJudging`.
+  - With both the primary and the fallback ours, the primary still acts now.
+  - A fallback window shorter than the margin wakes after `fallbackBy`, and the deal is dropped then.
   - The appeal adjudicator is woken when the escalation's round is public, not at once.
   - At a margin of 0 nothing moves.
 - `one-world.anvil.test.ts`, a new block: on anvil at a 7 s margin, a silent primary's deal is decided by the demo fallback within a 12 s fallback window, after its round (`judgeBy + 7 s`) and before `fallbackBy` [measured].
@@ -176,6 +179,11 @@ Labels: measured, inferred, guessed. All runs are on this task's branches, 2026-
   - the offer is still prepared.
   - The fallback floor is a worst case (margin + beacon period + 12 s slot). ADR-0032 measured 43 s on mainnet, which this states as 44 s.
 - The touched suites, the anvil files included, pass: 652 tests in 51 files, 3 skipped [measured].
+- The reviewer gave ISSUES: one Medium, three Lows, two Infos; nothing Critical or High.
+  - M1 is fixed: the first build held the takeover back until the round too. That made the fallback's decision two blocks after the round, and the worst case 56 s on Sepolia, against the 44 s notice.
+  - L2 (the round rule's wording for the fallback) and L3 (the anvil test's comment) are fixed; L4's tests are added.
+  - The reviewer brute-forced the floors: 37 s and 49 s for the escalation, 44 s on Sepolia and 43 s on mainnet for the fallback. Ours says 44 s for both: conservative by 1 s on mainnet.
+  - Info 5: the 12 s slot over-warns on anvil with a margin, advisory only. Info 6: a margin of 0 gives no notice, and no deployed contract has a drand beacon without a margin.
 
 ## Decisions
 
