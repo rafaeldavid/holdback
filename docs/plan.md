@@ -124,7 +124,7 @@ Focus (Rafa, 2026-11-06; D53, narrowed the same day by D54 after his walkthrough
 - T-344 A task in the maintainers' private repository, with no file here.
 - [x] T-345 (done: PR 340, 2026-11-11) A zero-price deal through every outcome, as contract tests.
 - [ ] T-346 (merged to `contracts-audit-ready`: PRs 343, 352 and 357, 2026-11-11; waits for the freeze) The phase-one contracts have no party appeals and no bonds. Its task file is on that branch.
-- [x] T-347 (done: PR 346, 2026-11-11; reaches the live adjudicators with the next operator deploy) An unreadable delivery never stalls the adjudicator's other deals.
+- [x] T-347 (done: PR 346, 2026-11-11; live from the operator deploy of 2026-11-12 05:01 UTC) An unreadable delivery never stalls the adjudicator's other deals.
 - [x] T-348 (done: PR 345, 2026-11-11; D59, ADR-0032) The decision record for the beacon rounds of escalation and fallback.
 - [ ] T-349 (merged to `contracts-audit-ready` through PR 361, 2026-11-11, into T-346's branch, which PR 352 merged; waits for the freeze) The EVM settlement path has no party appeals and no bonds. Its task file is on that branch.
 - [x] T-350 (done: PRs 353 and 362, 2026-11-11 and 2026-11-12; D60, D62, ADR-0033) The decision record for the seller's payout address and the buyer's payment address.

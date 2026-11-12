@@ -124,9 +124,15 @@ Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wra
 
 After the deploy, a smoke deal ended Released in 44 s, and the test seller sold once each way (T-222 Evidence) [measured]. To roll back: holdback-op1 `5d369b0e`, holdback-op2 `1f169857` and crow-site `cb0adcb5` (`npx wrangler@4 rollback <version> --name <worker>`); `npx wrangler@4 delete --name crow-test-agents` removes the seller.
 
+### T-347: the operators catch up with `main` (deployed 2026-11-12)
+
+Rafa ran this deploy on 2026-11-12. With it, T-347's fix is live: an unreadable delivery no longer stalls the adjudicator's other deals (PR 346).
+
+**Deploy 2026-11-12 05:01 UTC, commit `2d03383` on branch `main`: pass.** holdback-op1 `b531c0bc-c1b9-407a-b2d3-8f9cadd7bc4b` (rollback target `c93d6786-0171-4299-8d93-5b227b3aedfa`), holdback-op2 `aacbd652-ca95-4815-9223-93121806ca95` (rollback target `24387d5f-e083-413a-8893-ace4204bec3c`). Smoke deal `0xbce2f1a4a1b2be922fe291baf4665def274f42adabf86733a55a20b240b48a18` Released in 51 s.
+
 ### T-329 and T-330: the refused report and terms set per quote in the agent docs (site deployed 2026-11-11)
 
-**Site deploy 2026-11-11 20:18 UTC, commit `5a90dc5` on branch `main`: deployed by Rafa.** crow-site `106cdd47` (rollback target `feff0e7f-fd7b-4d80-88cc-34405ea80092`). The coordinator's log records the version, the commit and the rollback target; no check result is recorded here. The `site/` commits since the previous deploy (`ac2d2b6`) are T-329's `llms.txt` lines on fixing a refused report and T-330's two sections on terms set per quote [inferred: `git log ac2d2b6..5a90dc5 -- site/`]. The operators and the test agents were not deployed with it; their records below still describe what is live.
+**Site deploy 2026-11-11 20:18 UTC, commit `5a90dc5` on branch `main`: deployed by Rafa.** crow-site `106cdd47` (rollback target `feff0e7f-fd7b-4d80-88cc-34405ea80092`). The coordinator's log records the version, the commit and the rollback target; no check result is recorded here. The `site/` commits since the previous deploy (`ac2d2b6`) are T-329's `llms.txt` lines on fixing a refused report and T-330's two sections on terms set per quote [inferred: `git log ac2d2b6..5a90dc5 -- site/`]. The operators and the test agents were not deployed with it.
 
 ### T-323 to T-327: the report converter, the buyer signer's outcome and the adjudicator's reference files (deployed 2026-11-11)
 

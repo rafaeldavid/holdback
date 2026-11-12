@@ -104,7 +104,7 @@ All runs on 2026-11-11, on branch `t-347-unreadable-delivery`, from `origin/main
 - `neutrality.store-withholds-delivery` shows the deal closing by the default outcome.
 
 **Not done.**
-- The fix reaches the live adjudicators only with an operator deploy, which waits for Rafa.
+- The fix reaches the live adjudicators only with an operator deploy, which waits for Rafa. Done: Rafa deployed the operators on 2026-11-12 at 05:01 UTC from `2d03383` (`docs/operations.md`), so the fix is live.
 - `docs/neutrality.md` does not list `neutrality.store-withholds-delivery`; that file is outside this task's paths.
 
 **Findings that waited.** The rows are in `reports/scratch/t-347-triage.md` (main checkout):

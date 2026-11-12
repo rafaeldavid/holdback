@@ -80,7 +80,7 @@ Sources are task files on `main` at `2d03383`, with the Handoff's line. "Freeze"
 | 37 | `ZeroPrice.t.sol` changes per cut | T-345:76-81 | Not a docs item: the lane's cut packages |
 | 38 | `neutrality.md` does not list `neutrality.store-withholds-delivery` | T-347:108 | Done here: in the adjudicator row, with T-327's `neutrality.store-withholds-reference`; "Nine exist" becomes "Eleven exist" [measured: 11 `neutrality.*` scenario files] |
 | 39 | The plan's scenario index lacks 8 fixtures on disk | found here | Done here: the two store fixtures and six from T-317, T-320 and T-327; the count reads 38 (37 exist, 1 todo) [measured] |
-| 40 | T-347's fix reaches the live adjudicators with an operator deploy | T-347:107 | Not a docs item: an operator deploy, Rafa's |
+| 40 | T-347's fix reaches the live adjudicators with an operator deploy | T-347:107 | Done: Rafa deployed the operators on 2026-11-12 at 05:01 UTC; the record line, the plan row and T-347's Handoff say so here (the coordinator's request) |
 | 41 | ADR-0033 §11, 1: `state-model.md` 8.1 register row for `buyer` and `seller` splits | T-350:77 | Freeze: T-358 (the two address fields) |
 | 42 | ADR-0033 §11, 2: `threat-model.md` §2 actors: the buyer's row splits; the primary's "cannot" cell | T-350:77 | Freeze: T-358 |
 | 43 | ADR-0033 §11, 3: assumption TA-4 widens to four addresses | T-350:77 | Freeze: T-358 |
@@ -102,7 +102,7 @@ Sources are task files on `main` at `2d03383`, with the Handoff's line. "Freeze"
 | 59 | The live test seller's card does not list `pricing.defaults` | T-330:91 | Not a docs item: a test-agents change and deploy |
 | 60 | Rows for T-329 to T-362 in `docs/plan.md` | the brief | Done here |
 
-Count, of 60 rows: 18 done here (1 to 8, 14, 27, 38, 39, 48, 50, 51, 56, 57, 60), 6 already fixed (9, 10, 12, 29, 31, 34), 2 in pull request 2 (23, 24), 16 wait for the freeze (11, 16, 18, 20, 21, 22, 25, 35, 36, 41 to 47), and 18 are not docs items or not due yet (13, 15, 17, 19, 26, 28, 30, 32, 33, 37, 40, 49, 52 to 55, 58, 59).
+Count, of 60 rows: 19 done here (1 to 8, 14, 27, 38, 39, 40, 48, 50, 51, 56, 57, 60), 6 already fixed (9, 10, 12, 29, 31, 34), 2 in pull request 2 (23, 24), 16 wait for the freeze (11, 16, 18, 20, 21, 22, 25, 35, 36, 41 to 47), and 17 are not docs items or not due yet (13, 15, 17, 19, 26, 28, 30, 32, 33, 37, 49, 52 to 55, 58, 59).
 
 ## Evidence
 
@@ -126,7 +126,7 @@ Label: measured unless marked.
 
 ## Handoff
 
-**Done.** Rows 1 to 8, 14, 27, 38, 39, 48, 50, 51, 56, 57 and 60 of the table, in pull request 1.
+**Done.** Rows 1 to 8, 14, 27, 38, 39, 40, 48, 50, 51, 56, 57 and 60 of the table, in pull request 1.
 
 **For the coordinator.** The 16 rows marked "Freeze" go to the lane's docs package; each names its source line and its package. Rows 23 and 24 are pull request 2, which Rafa merges.
 
