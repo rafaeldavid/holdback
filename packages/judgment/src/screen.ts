@@ -42,8 +42,8 @@ const PROSE_WORDS = 5;
 // or the instructions and tells the reader what to decide.
 type Phrase = { id: string; re: RegExp; weak?: true };
 const PHRASES: Phrase[] = [
-  { id: 'override', re: /\b(?:ignore|disregard|forget|override|bypass)\b[^\n]{0,40}?\b(?:instructions?|rubric|prompt|guidelines|criteria)\b|\b(?:ignore|disregard|forget)\b[^\n]{0,40}?\b(?:above|previous|prior)\b/ },
-  { id: 'override', re: /\b(?:ignore|disregard|forget|override|bypass)\b[^\n]{0,40}?\b(?:rules|above|previous|prior)\b/g, weak: true },
+  { id: 'override', re: /\b(?:ignore|disregard|forget|override|bypass)\b[^\n]{0,40}?\b(?:instructions?|rubric|prompt|guidelines|criteria)\b|\b(?:ignore|disregard|forget)\b[^\n]{0,40}?\b(?:rules|above|previous|prior)\b/ },
+  { id: 'override', re: /\b(?:override|bypass)\b[^\n]{0,40}?\b(?:rules|above|previous|prior)\b/g, weak: true },
   { id: 'role-reset', re: /\byou are now\b/ },
   { id: 'new-instructions', re: /\bnew instructions?\b/ },
   { id: 'prompt-probe', re: /\b(?:your|reveal|repeat|print|show|leak|disclose|output|dump)\b[^\n]{0,20}?\b(?:system|developer|hidden) prompt\b/ },
@@ -62,8 +62,12 @@ const PHRASES: Phrase[] = [
   { id: 'verdict-claim', re: /\b(?:correct|only|right) (?:overall )?verdict\b|\boverall verdict is\b|\b(?:top|full|maximum|perfect) (?:marks|scores?)\b|\bverdicts?\b[^\n]{0,40}?\b(?:pass(?:es|ed)?|accept(?:ed)?|approved?)\b/ },
   { id: 'verdict-claim', re: /\bpre ?approved\b|\bcriteria (?:are |were )?(?:all |fully )?(?:met|satisfied)\b/g, weak: true },
 ];
-/** What a weak pattern must sit near to flag: the judges, their rubric, their verdict or a verdict field. */
-const TARGET = /\b(?:verdicts?|rubrics?|judges?|judging|panel(?:ists?)?|evaluators?|graders?|adjudicators?|injection ?suspected|overall (?:pass|fail|abstain))\b|"overall"/;
+/**
+ * What a weak pattern must sit near to flag: the judges (and the AI addressees the strong patterns name),
+ * their rubric, their verdict or a verdict field, a score on every criterion, or an order on the work itself.
+ */
+const TARGET =
+  /\b(?:verdicts?|rubrics?|judges?|judging|panel(?:ists?)?|evaluators?|graders?|adjudicators?|assistants?|ai|llms?|injection ?suspected|overall (?:pass|fail|abstain))\b|"overall"|\b(?:every|each|all) (?:criterion|criteria)\b|\b(?:highest|top|max(?:imum)?|full|perfect) (?:scores?|marks|anchors?)\b|\b(?:accept|approve|pass|reject)\b (?:on |for )?(?:this|the) (?:report|delivery|deliverable|submission|work)\b/;
 const TARGET_WINDOW = 80;
 
 // UTS #39 confusables, the Cyrillic and Greek letters that look Latin (subset).
@@ -140,6 +144,20 @@ function nearTarget(view: string, re: RegExp): boolean {
   return false;
 }
 
+/** Weak patterns that match anywhere in the text, with or without a target (for decoded runs). */
+function weakIds(text: string): string[] {
+  if (!text) return [];
+  const vs = variants(text);
+  const ids: string[] = [];
+  for (const { id, re, weak } of PHRASES) {
+    if (weak && !ids.includes(id) && vs.some((v) => v.search(re) >= 0)) ids.push(id);
+  }
+  return ids;
+}
+
+/** True when a judging target appears in some view of the text. */
+const hasTarget = (text: string) => !!text && variants(text).some((v) => TARGET.test(v));
+
 function phraseIds(text: string): string[] {
   if (!text) return [];
   const vs = variants(text);
@@ -160,7 +178,9 @@ function printableText(bytes: Uint8Array): string | undefined {
     if (PRINTABLE(b)) printable++;
     if ((b >= 0x41 && b <= 0x5a) || (b >= 0x61 && b <= 0x7a)) letters++;
   }
-  return printable / bytes.length >= 0.95 && letters >= 6 ? Buffer.from(bytes).toString('latin1') : undefined;
+  // Hex digits are text too (base64 of hex), though they may hold fewer than six letters.
+  const hexText = bytes.length >= 24 && bytes.every((b) => (b >= 0x30 && b <= 0x39) || (b >= 0x41 && b <= 0x46) || (b >= 0x61 && b <= 0x66));
+  return (printable / bytes.length >= 0.95 && letters >= 6) || hexText ? Buffer.from(bytes).toString('latin1') : undefined;
 }
 
 // Run patterns are single character classes with a bounded length. V8 overflows its stack on
@@ -224,7 +244,8 @@ const PROSE_WORD = /^["'(\[]?(?=[A-Za-z0-9'-]{0,40}[A-Za-z])[A-Za-z0-9'-]{1,40}[
  */
 function isProse(text: string): boolean {
   let run = 0;
-  for (const token of text.split(/\s+/)) {
+  // Hyphens, underscores and camel case separate words as spaces do: "please-be-generous", "PleaseBeGenerous".
+  for (const token of text.replace(/([a-z])([A-Z])/g, '$1 $2').split(/[\s_-]+/)) {
     run = PROSE_WORD.test(token) ? run + 1 : 0;
     if (run >= PROSE_WORDS) return true;
   }
@@ -317,7 +338,16 @@ function scanViewUnguarded(text: string, where: string, out: Signals, depth: num
         return;
       }
       const inner = out.child();
-      scanView(decoded, `decoded ${name} at line ${line} of ${where}`, inner, depth + 1);
+      const at = `decoded ${name} at line ${line} of ${where}`;
+      scanView(decoded, at, inner, depth + 1);
+      // Encoded text has no reason to name the judges or their verdict. A weak phrase in it flags when a
+      // judging target sits in the decoded text or in the text around the run. Checked only when the
+      // decoded text has no signal of its own, so the record does not repeat a finding.
+      if (inner.list.length === 0 && hasTarget(decoded)) inner.add('instruction_phrase', `in ${at}: names the judges, the rubric or the verdict`);
+      const weak = inner.list.length === 0 ? weakIds(decoded) : [];
+      if (weak.length && hasTarget(t.slice(Math.max(0, m.index - TARGET_WINDOW), m.index + m[0].length + TARGET_WINDOW))) {
+        inner.add('instruction_phrase', `in ${at}, next to a judging word in ${where}: ${weak.join(', ')}`);
+      }
       // Morse has no honest use in a delivery, so a decodable Morse run flags whatever it spells.
       if (inner.list.length === 0 && name !== 'Morse' && !isProse(decoded)) continue;
       out.add('encoded_run', `decodable ${name} run of ${m[0].length} characters at line ${line} of ${where}`);
