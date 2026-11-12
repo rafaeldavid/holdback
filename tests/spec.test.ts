@@ -478,6 +478,7 @@ describe('spec/', () => {
       ['commitment.offered', 'termsHash'],
       ['commitment.agreed', 'termsHash'],
       ['judgment.decided', 'recordHash'],
+      // Not in phase one: the spec keeps the appeal event for SimChain's full protocol (ADR-0031).
       ['appeal.decided', 'recordHash'],
     ])('%s always carries %s, with the body optional', (type, field) => {
       const validate = schema('event');
@@ -575,6 +576,7 @@ describe('spec/', () => {
       ['adjudicator without a pool', 'adjudicator', 'adjudicator', (a) => delete a.pool],
       ['pool terms with an extra field', 'adjudicator', 'adjudicator', (a) => (a.pool.terms.extra = 1)],
       ['pool terms without noticePeriodSec', 'adjudicator', 'adjudicator', (a) => delete a.pool.terms.noticePeriodSec],
+      // Not in phase one: the spec keeps the bond event for SimChain's full protocol (ADR-0031).
       ['a bond.slashed event without per-tranche amounts', 'event', 'event.bond-slashed', (e) => delete e.payload.senior],
       ['a bond.slashed event with an unknown reason', 'event', 'event.bond-slashed', (e) => (e.payload.reason = 'whim')],
       ['an unknown event type', 'event', 'event', (e) => (e.type = 'bond.borrowed')],

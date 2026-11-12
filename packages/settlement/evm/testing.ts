@@ -68,7 +68,7 @@ export function evmRulebook(token: string): Rulebook {
     allowedTokens: [token],
     panelPolicyMin: { panelSize: 3, appealPanelSize: 5, minFamilies: 2 },
     appealFee: amt('0'),
-    mutualSettlement: { allowed: true, adjudicatorFeeShareAfterDeliveryBps: 0, payoutsTo: 'any' },
+    mutualSettlement: { allowed: true, adjudicatorFeeShareAfterDeliveryBps: 0, payoutsTo: 'parties' },
     disclosureMin: 'public',
     identityModes: ['long-term'],
     firstLossShareMinBps: 1000,

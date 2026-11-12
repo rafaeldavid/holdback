@@ -23,7 +23,7 @@ export const STUB_RULEBOOK: Rulebook = {
   allowedTokens: [TOKEN],
   panelPolicyMin: { panelSize: 3, appealPanelSize: 5, minFamilies: 2 },
   appealFee: tusd('25000000'),
-  mutualSettlement: { allowed: true, adjudicatorFeeShareAfterDeliveryBps: 0, payoutsTo: 'any' },
+  mutualSettlement: { allowed: true, adjudicatorFeeShareAfterDeliveryBps: 0, payoutsTo: 'parties' },
   disclosureMin: 'public',
   identityModes: ['long-term'],
   firstLossShareMinBps: 1000,

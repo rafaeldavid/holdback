@@ -51,7 +51,7 @@ T-358, ADR-0033. The same four addresses as two-addresses-released. Tidewater de
 
 ## Invariants
 
-- conservation ✓ · no negative balances ✓ · settled once ✓ · escrow empty after settlement ✓ · key released atomically with payment n/a · event hash chain links ✓ · replay matches the settlement state ✓
+- conservation ✓ · no negative balances ✓ · settled once ✓ · escrow empty after settlement ✓ · key released atomically with payment ✓ · event hash chain links ✓ · replay matches the settlement state ✓
 
 ## Outcome
 

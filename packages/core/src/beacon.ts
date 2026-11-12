@@ -1,6 +1,6 @@
 // Beacon round arithmetic (ADR-0018). One formula for every beacon, drand's: no round before genesis,
-// round 1 at genesis, then one round per period. The rules contract's beacons (contracts/src/SimBeacon.sol and
-// DrandQuicknetBeacon.sol) use the same formula, so SimChain, the EVM adapter and the contract agree on every round.
+// round 1 at genesis, then one round per period. The rules contract's beacons (contracts/script/SimBeacon.sol and
+// contracts/src/DrandQuicknetBeacon.sol) use the same formula, so SimChain, the EVM adapter and the contract agree on every round.
 import type { Hex32, RandomnessSource } from './types.js';
 
 export interface BeaconClock {

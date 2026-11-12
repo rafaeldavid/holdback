@@ -151,6 +151,8 @@ export interface LedgerView {
   releasedByDecision: boolean;
   /** The releasing decision carried the buyer's sealed key. */
   keyForBuyer: boolean;
+  /** Settled by a mutual settlement both parties signed with `releaseKey` (ADR-0019; late work, ADR-0031 SC-5b). */
+  settledWithKey: boolean;
   replayOk: boolean;
   /**
    * With more than one commitment: the escrow left in the commitments that reached a terminal state. Absent,
@@ -170,17 +172,20 @@ export function checkInvariants(v: LedgerView): Invariant[] {
   for (const e of v.events) if (e.type.startsWith('settlement.') || e.type === 'commitment.settled') perCommitment.set(e.commitmentId ?? '', (perCommitment.get(e.commitmentId ?? '') ?? 0) + 1);
   const settled = v.escrowOfSettled ? v.escrowOfSettled.settled : v.finalState !== null && SETTLED_STATES.includes(v.finalState);
   const leftInEscrow = v.escrowOfSettled ? v.escrowOfSettled.amount : (v.balances[ESCROW] ?? 0n);
-  const released = v.events.find((e) => e.type === 'settlement.released');
+  // The paying event: a decision's release, or a mutual settlement that releases the key (T-357 review, L4).
+  const released = v.events.find((e) => e.type === (v.releasedByDecision ? 'settlement.released' : 'commitment.settled'));
   // Envelopes for adjudicators are released too (ADR-0020), so look for a key release in the paying step.
   const key = released && v.events.find((e) => e.type === 'key.released' && e.step === released.step);
+  // A releasing decision must also carry the buyer's sealed key; a settlement's key is the held or carried envelope.
+  const keyCarried = !v.releasedByDecision || v.keyForBuyer;
   const chain = v.events.every((e, i) => e.seq === i && e.prevHash === (i === 0 ? GENESIS : v.events[i - 1]!.hash));
   return [
     { name: 'conservation', ok: total === v.faucetTotal },
     { name: 'no negative balances', ok: values.every((x) => x >= 0n) },
     { name: 'settled once', ok: [...perCommitment.values()].every((n) => n <= 1) },
     settled ? { name: 'escrow empty after settlement', ok: leftInEscrow === 0n } : { name: 'escrow empty after settlement', ok: true, note: 'n/a' },
-    v.releasedByDecision
-      ? { name: 'key released atomically with payment', ok: !!released && !!key && released.step === key.step && v.keyForBuyer }
+    v.releasedByDecision || v.settledWithKey
+      ? { name: 'key released atomically with payment', ok: !!released && !!key && released.step === key.step && keyCarried }
       : { name: 'key released atomically with payment', ok: true, note: 'n/a' },
     { name: 'event hash chain links', ok: chain },
     { name: 'replay matches the settlement state', ok: v.replayOk },
@@ -205,6 +210,7 @@ const TIMEOUTS: Record<TimeoutStep, TimeoutKind> = {
   trigger_default: 'default',
   apply_default_outcome: 'apply_default',
   expire: 'expire_offer',
+  // SimChain only: the phase-one contracts have no appeal window, and the EVM adapter refuses this trigger.
   expire_appeal: 'appeal_expiry',
 };
 
@@ -1046,7 +1052,11 @@ export class StubSettlement {
     this.balanceRows.push({ after: this.label('early_accept'), balances: await this.snapshotBalances() });
   }
 
-  /** A party appeals a first-instance decision with the rulebook's bond (or the step's) and the appeal fee. */
+  /**
+   * A party appeals a first-instance decision with the rulebook's bond (or the step's) and the appeal fee. SimChain
+   * only: the phase-one contracts have no party appeal, the EVM adapter refuses it, and the fixtures with this step
+   * are on LOCAL_EXCLUSIONS (ADR-0031 §8).
+   */
   private async appeal(by: 'buyer' | 'seller', grounds: string, bondOverride: string | undefined, via: string): Promise<void> {
     const who = this.scenario.parties[by];
     const call = `appeal (${by})`;
@@ -1057,6 +1067,7 @@ export class StubSettlement {
     const required = (BigInt(c.terms.price.amount) * rate + 9_999n) / 10_000n;
     const body = {
       commitmentId: c.id,
+      // The Appeal message, SimChain only (see above).
       appellant: by,
       appellantAddress: this.address(who),
       grounds,
@@ -1064,6 +1075,7 @@ export class StubSettlement {
       filedAt: wholeSecond(Date.parse(this.ctx.clock.now())),
     };
     const signed = await this.sign(who, { ...body, type: 'Appeal' as const });
+    // SimChain only: on the phase-one contracts the EVM adapter refuses this submission.
     if (!(await this.submit(who, call, via, { kind: 'appeal', appeal: { ...body, signature: signed.signature } }))) return;
     this.receipt(via, 'appeal');
     this.row(who, call, via, 'ok', undefined);
@@ -1209,6 +1221,7 @@ export class StubSettlement {
       finalState: st?.kind ?? null,
       releasedByDecision: st?.kind === 'Released' && st.via.kind !== 'early_accept',
       keyForBuyer: !!this.decision?.keyForBuyer,
+      settledWithKey: st?.kind === 'Settled' && st.keyReleased,
       replayOk: replay.ok,
     });
   }

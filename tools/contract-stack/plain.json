@@ -2,7 +2,6 @@
   "_about": "Plain-language text for the contract-stack page (scripts/contract-stack.mjs). The facts come from the repository: states, addresses, line counts and gas. This file only words them for a reader new to the project. A finding's text has one variant per state (open, fixed, accepted); when the variant for its current state is missing, the page shows the review's own words and what the sources say about the state (for example 'Fixed in T-212 item 1'). A title names the problem, and the page prefixes 'Fixed:' when it is fixed, so write titles that read either way.",
   "contracts": {
     "HoldbackRules": "The referee. It checks every signed message and deadline, and is the only thing that tells the vault to pay, refund or hold.",
-    "HoldbackBonds": "The adjudicators' security deposits. Each deal locks part of a deposit until its appeal window closes, and an overturned decision is paid from it.",
     "HoldbackTypes": "The shapes of the signed messages, hashed exactly as Crow's off-chain code signs them.",
     "DrandQuicknetBeacon": "The public dice roll. It checks drand's signature on a random value, which picks the fallback's and the appeal's AI judges.",
     "IHoldbackBeacon": "The interface every beacon implements, so the rules contract can use the real one on Sepolia and a test one locally.",

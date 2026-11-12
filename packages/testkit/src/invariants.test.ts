@@ -13,7 +13,18 @@ const good = (): LedgerView => ({
   finalState: 'Released',
   releasedByDecision: true,
   keyForBuyer: true,
+  settledWithKey: false,
   replayOk: true,
+});
+
+/** A consistent ledger after a mutual settlement that releases the key (ADR-0019). */
+const settled = (): LedgerView => ({
+  ...good(),
+  events: [ev(0, 'commitment.offered', 1), ev(1, 'hold.funded', 2), ev(2, 'commitment.settled', 3), ev(3, 'key.released', 3)],
+  finalState: 'Settled',
+  releasedByDecision: false,
+  keyForBuyer: false,
+  settledWithKey: true,
 });
 const broken = (v: LedgerView) => checkInvariants(v).filter((i) => !i.ok).map((i) => i.name);
 
@@ -48,6 +59,25 @@ describe('ledger invariants', () => {
     expect(broken({ ...good(), events: good().events.slice(0, 4) })).toEqual(['key released atomically with payment']);
   });
 
+  it('holds for a mutual settlement that releases the key in its paying step (T-357 review, L4)', () => {
+    expect(broken(settled())).toEqual([]);
+    const inv = checkInvariants(settled()).find((i) => i.name === 'key released atomically with payment')!;
+    expect(inv.note).toBeUndefined();
+  });
+
+  it('catches a mutual settlement whose key is released apart from it, or not at all', () => {
+    const v = settled();
+    v.events[3] = { ...v.events[3]!, step: 4 };
+    expect(broken(v)).toEqual(['key released atomically with payment']);
+    expect(broken({ ...settled(), events: settled().events.slice(0, 3) })).toEqual(['key released atomically with payment']);
+  });
+
+  it('marks the key invariant n/a for a mutual settlement that keeps the key held', () => {
+    const v: LedgerView = { ...settled(), settledWithKey: false, events: settled().events.slice(0, 3) };
+    expect(broken(v)).toEqual([]);
+    expect(checkInvariants(v).find((i) => i.name === 'key released atomically with payment')!.note).toBe('n/a');
+  });
+
   it('catches a broken hash chain', () => {
     const v = good();
     v.events[2] = { ...v.events[2]!, prevHash: H(99) };
@@ -62,7 +92,7 @@ describe('ledger invariants', () => {
   });
 
   it('marks settlement-only invariants n/a before settlement', () => {
-    const v: LedgerView = { ...good(), finalState: 'Held', releasedByDecision: false, keyForBuyer: false, balances: { buyer: 7950n, escrow: 2050n, seller: 0n, adj: 25000n }, events: good().events.slice(0, 2) };
+    const v: LedgerView = { ...good(), finalState: 'Held', releasedByDecision: false, keyForBuyer: false, settledWithKey: false, balances: { buyer: 7950n, escrow: 2050n, seller: 0n, adj: 25000n }, events: good().events.slice(0, 2) };
     const inv = checkInvariants(v);
     expect(inv.filter((i) => !i.ok)).toEqual([]);
     expect(inv.filter((i) => i.note === 'n/a').map((i) => i.name)).toEqual(['escrow empty after settlement', 'key released atomically with payment']);

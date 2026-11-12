@@ -51,18 +51,23 @@ export function stackVersion() {
   return { commit, short: commit.slice(0, 7), date };
 }
 
-/** The record's address fields, with the names the page shows. */
+/**
+ * The record's address fields, with the names the page shows. A phase-one record (ADR-0031) has the first six; the
+ * last three appear only in records deployed before it, which the page still reads, and are left out when absent.
+ */
 const ADDRESSES = [
   ['rules', 'HoldbackRules'],
-  ['bonds', 'HoldbackBonds'],
   ['beacon', 'DrandQuicknetBeacon'],
   ['escrow', 'AuthCaptureEscrow'],
   ['erc3009Collector', 'ERC3009PaymentCollector'],
-  ['permit2Collector', 'Permit2PaymentCollector'],
   ['token', 'tUSDC'],
   ['multicall', 'Multicall3'],
+  // Not in phase one: the adjudicators' bond vault and Permit2 funding, named only by an earlier deployment record.
+  ['bonds', 'HoldbackBonds'],
+  ['permit2Collector', 'Permit2PaymentCollector'],
   ['permit2', 'Permit2'],
 ];
+export const PHASE_ONE_ADDRESS_KEYS = ADDRESSES.slice(0, 6).map(([key]) => key);
 
 export function plain() {
   return JSON.parse(read('tools/contract-stack/plain.json'));
