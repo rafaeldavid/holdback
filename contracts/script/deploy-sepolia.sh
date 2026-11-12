@@ -19,8 +19,8 @@ SEPOLIA=11155111
 # foundry.toml pins chain_id 31337 for the local chain; every forge and cast call below signs for Sepolia instead.
 export FOUNDRY_CHAIN_ID=$SEPOLIA
 
-PERMIT2=0x000000000022D473030F116dDEE9F6B43aC78BA3
-PERMIT2_CODEHASH=0x96d9f5c3f0fb0423426b7f970186235b7347027f4e5c19c40c412b7d97fc3751
+# Phase one funds by ERC-3009 only (ADR-0031 §3): no Permit2 and no Permit2 collector. Multicall3 stays: the ERC-3009
+# collector uses it for wallets that are not deployed yet (ERC-6492).
 MULTICALL3=0xcA11bde05977b3631167028862bE2a173976CA11
 MULTICALL3_CODEHASH=0xd5c15df687b16f2ff992fc8d767b4216323184a2bbc6ee2f9c398c318e770891
 EXPIRY_MARGIN=86400 # T-206 review §7: one day, the value the local EVM world and the tests use
@@ -136,8 +136,6 @@ git -C "$ROOT" diff --quiet "$COMMIT" -- "${BUILD_INPUTS[@]}" || fail "contracts
 DIRTY="$(git -C "$ROOT" status --porcelain --untracked-files=all -- "${BUILD_INPUTS[@]}")"
 [ -z "$DIRTY" ] || fail "contracts/src, lib, the build config or TestUSDC have uncommitted changes"
 
-PERMIT2_GOT="$(codehash "$PERMIT2")"
-[ "$PERMIT2_GOT" = "$PERMIT2_CODEHASH" ] || fail "unexpected code at Permit2"
 MULTICALL3_GOT="$(codehash "$MULTICALL3")"
 [ "$MULTICALL3_GOT" = "$MULTICALL3_CODEHASH" ] || fail "unexpected code at Multicall3"
 
@@ -158,7 +156,6 @@ create() {
 
 ESCROW_ID=lib/commerce-payments/src/AuthCaptureEscrow.sol:AuthCaptureEscrow
 C3009_ID=lib/commerce-payments/src/collectors/ERC3009PaymentCollector.sol:ERC3009PaymentCollector
-CP2_ID=lib/commerce-payments/src/collectors/Permit2PaymentCollector.sol:Permit2PaymentCollector
 BEACON_ID=src/DrandQuicknetBeacon.sol:DrandQuicknetBeacon
 RULES_ID=src/HoldbackRules.sol:HoldbackRules
 TOKEN_ID=script/TestUSDC.sol:TestUSDC
@@ -168,8 +165,6 @@ if [ "$MODE" = deploy ]; then
   read -r ESCROW ESCROW_TX <<<"$OUT_LINE"
   OUT_LINE="$(create "$C3009_ID" "$ESCROW" "$MULTICALL3")"
   read -r C3009 C3009_TX <<<"$OUT_LINE"
-  OUT_LINE="$(create "$CP2_ID" "$ESCROW" "$PERMIT2" "$MULTICALL3")"
-  read -r CP2 CP2_TX <<<"$OUT_LINE"
   OUT_LINE="$(create "$BEACON_ID")"
   read -r BEACON BEACON_TX <<<"$OUT_LINE"
   # The demo's open-mint test token. A deployment serves one token, fixed in the rules contract's constructor
@@ -177,15 +172,13 @@ if [ "$MODE" = deploy ]; then
   [ -f "$ROOT/script/TestUSDC.sol" ] || fail "script/TestUSDC.sol is missing: the rules contract needs its token at deploy"
   OUT_LINE="$(create "$TOKEN_ID")"
   read -r TOKEN TOKEN_TX <<<"$OUT_LINE"
-  OUT_LINE="$(create "$RULES_ID" "$ESCROW" "$C3009" "$CP2" "$EXPIRY_MARGIN" "$BEACON" "$TOKEN")"
+  OUT_LINE="$(create "$RULES_ID" "$ESCROW" "$C3009" "$EXPIRY_MARGIN" "$BEACON" "$TOKEN")"
   read -r RULES RULES_TX <<<"$OUT_LINE"
 else
   ESCROW="$(field .contracts.AuthCaptureEscrow.address)"
   ESCROW_TX="$(field .contracts.AuthCaptureEscrow.tx)"
   C3009="$(field .contracts.ERC3009PaymentCollector.address)"
   C3009_TX="$(field .contracts.ERC3009PaymentCollector.tx)"
-  CP2="$(field .contracts.Permit2PaymentCollector.address)"
-  CP2_TX="$(field .contracts.Permit2PaymentCollector.tx)"
   BEACON="$(field .contracts.DrandQuicknetBeacon.address)"
   BEACON_TX="$(field .contracts.DrandQuicknetBeacon.tx)"
   RULES="$(field .contracts.HoldbackRules.address)"
@@ -197,29 +190,23 @@ fi
 # Each transaction succeeded, came from the deployer, and carried this build's creation code and arguments.
 ESCROW_BLOCK="$(mined "$ESCROW_TX" "$ESCROW")"
 C3009_BLOCK="$(mined "$C3009_TX" "$C3009")"
-CP2_BLOCK="$(mined "$CP2_TX" "$CP2")"
 BEACON_BLOCK="$(mined "$BEACON_TX" "$BEACON")"
 RULES_BLOCK="$(mined "$RULES_TX" "$RULES")"
 creation_matches "$ESCROW_ID" "$ESCROW_TX"
 creation_matches "$C3009_ID" "$C3009_TX" 'constructor(address,address)' "$ESCROW" "$MULTICALL3"
-creation_matches "$CP2_ID" "$CP2_TX" 'constructor(address,address,address)' "$ESCROW" "$PERMIT2" "$MULTICALL3"
 creation_matches "$BEACON_ID" "$BEACON_TX"
-creation_matches "$RULES_ID" "$RULES_TX" 'constructor(address,address,address,uint64,address,address)' \
-  "$ESCROW" "$C3009" "$CP2" "$EXPIRY_MARGIN" "$BEACON" "$TOKEN"
+creation_matches "$RULES_ID" "$RULES_TX" 'constructor(address,address,uint64,address,address)' \
+  "$ESCROW" "$C3009" "$EXPIRY_MARGIN" "$BEACON" "$TOKEN"
 
 # The deployment is wired as the review assumed. Phase one has no bond vault (ADR-0031 §8).
 TOKEN_STORE_IMPL="$(call "$ESCROW" 'tokenStoreImplementation()(address)')"
 expect "rules ESCROW" "$ESCROW" call "$RULES" 'ESCROW()(address)'
 expect "rules ERC3009_COLLECTOR" "$C3009" call "$RULES" 'ERC3009_COLLECTOR()(address)'
-expect "rules PERMIT2_COLLECTOR" "$CP2" call "$RULES" 'PERMIT2_COLLECTOR()(address)'
 expect "rules BEACON" "$BEACON" call "$RULES" 'BEACON()(address)'
 expect "rules EXPIRY_MARGIN" "$EXPIRY_MARGIN" call "$RULES" 'EXPIRY_MARGIN()(uint64)'
 expect "rules TOKEN" "$TOKEN" call "$RULES" 'TOKEN()(address)'
 expect "ERC-3009 collector escrow" "$ESCROW" call "$C3009" 'authCaptureEscrow()(address)'
 expect "ERC-3009 collector multicall3" "$MULTICALL3" call "$C3009" 'multicall3()(address)'
-expect "Permit2 collector escrow" "$ESCROW" call "$CP2" 'authCaptureEscrow()(address)'
-expect "Permit2 collector permit2" "$PERMIT2" call "$CP2" 'permit2()(address)'
-expect "Permit2 collector multicall3" "$MULTICALL3" call "$CP2" 'multicall3()(address)'
 
 # The beacon's runtime is deterministic (its one immutable is a constant), so an agent can check
 # rules.BEACON().codehash against this value before signing (backlog: which beacon a rules contract uses).
@@ -268,11 +255,9 @@ RECORD="$(jq -n \
   --arg escrow "$ESCROW" --arg escrowTx "$ESCROW_TX" --argjson escrowBlock "$ESCROW_BLOCK" \
   --arg tokenStoreImplementation "$TOKEN_STORE_IMPL" \
   --arg c3009 "$C3009" --arg c3009Tx "$C3009_TX" --argjson c3009Block "$C3009_BLOCK" \
-  --arg cp2 "$CP2" --arg cp2Tx "$CP2_TX" --argjson cp2Block "$CP2_BLOCK" \
   --arg beacon "$BEACON" --arg beaconTx "$BEACON_TX" --argjson beaconBlock "$BEACON_BLOCK" \
   --arg rules "$RULES" --arg rulesTx "$RULES_TX" --argjson rulesBlock "$RULES_BLOCK" \
   --arg value1000 "$VALUE_1000" --arg beaconCodeHash "$BEACON_CODEHASH" \
-  --arg permit2 "$PERMIT2" --arg permit2CodeHash "$PERMIT2_CODEHASH" \
   --arg multicall "$MULTICALL3" --arg multicallCodeHash "$MULTICALL3_CODEHASH" \
   --argjson expiryMarginSec "$EXPIRY_MARGIN" \
   --argjson token "$TOKEN_JSON" --arg tokenAddress "$TOKEN" \
@@ -284,8 +269,6 @@ RECORD="$(jq -n \
     fromBlock: $fromBlock,
     escrow: $escrow,
     erc3009Collector: $c3009,
-    permit2Collector: $cp2,
-    permit2: $permit2,
     multicall: $multicall,
     rules: $rules,
     beacon: $beacon,
@@ -293,7 +276,6 @@ RECORD="$(jq -n \
     token: $token,
     checks: {
       creationCodeMatchesBuild: true,
-      permit2CodeHash: $permit2CodeHash,
       multicallCodeHash: $multicallCodeHash,
       beaconCodeHash: $beaconCodeHash,
       beaconRound1000Value: $value1000,
@@ -304,10 +286,9 @@ RECORD="$(jq -n \
       AuthCaptureEscrow: {address: $escrow, tx: $escrowTx, block: $escrowBlock, args: [],
         tokenStoreImplementation: $tokenStoreImplementation},
       ERC3009PaymentCollector: {address: $c3009, tx: $c3009Tx, block: $c3009Block, args: [$escrow, $multicall]},
-      Permit2PaymentCollector: {address: $cp2, tx: $cp2Tx, block: $cp2Block, args: [$escrow, $permit2, $multicall]},
       DrandQuicknetBeacon: {address: $beacon, tx: $beaconTx, block: $beaconBlock, args: []},
       HoldbackRules: {address: $rules, tx: $rulesTx, block: $rulesBlock,
-        args: [$escrow, $c3009, $cp2, ($expiryMarginSec | tostring), $beacon, $tokenAddress]}
+        args: [$escrow, $c3009, ($expiryMarginSec | tostring), $beacon, $tokenAddress]}
     }
   }')"
 
