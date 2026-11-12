@@ -1,6 +1,6 @@
 # T-374: the lane takes main, then AL-1, the code alignment
 
-- **Status:** in progress
+- **Status:** review
 - **Kind:** 4 (API and operator code), with one reviewer, on `contracts-audit-ready` (the plan's 7c.2 sets that rule for AL-1)
 - **Branch:** `t-374-lane-sync` (part 1), then `t-374-al1-*` (part 2); pull requests into `contracts-audit-ready`, never `main`
 - **Budget:** 300,000 tokens, a target and not a stop
@@ -68,6 +68,62 @@ The merge brings `origin/main` at `ec498d9` into the lane at `a37a48d` (after PR
 
 **Review:** one reviewer pass on the conflict resolutions and the port: PASS, no Critical or High. Fixed from it: a sender key of the right shape but out of the curve's range could have reached the output through viem's error; `senderKey` now refuses it without the value (Low). Left: see Handoff.
 
+### Part 2: AL-1, the code alignment (pull request `t-374-al1`)
+
+**The alignment test's known list: 118 files before AL-1, 87 after** [measured, `tests/cut-feature-alignment.known.json`]. No file AL-1 owns is left on it. Two files left it through `EXCLUDED` and three uses through `ALLOWED`, each with its reason in the test.
+
+**What changed:**
+
+| Area | Change |
+| --- | --- |
+| The Sepolia round (`examples/e2e-*`) | Scenarios 3c, 6 and 7 (party appeals) and their helpers moved into `examples/e2e-scenarios-appeal.ts`, which runs on SimChain only: on a chain each stops at `simChainOnly`. The pair is excluded from the scan by name. Scenarios 1, 2, 4, 8 and 11 call `closeOnSimChain`, which sends nothing on a chain. On a chain, 3d checks that both operators report the offer `Expired` by their clock, that `dealOf` reads `None` and that no transaction touched the deal. `STAGES` has the contract's 8 stages; `trigger` no longer takes `expireOffer` |
+| `apps/adjudicator/src/drand-fork.test.ts` | The party appeal became an escalation: the fallback escalates from the round at `judgeBy`, and the appeal adjudicator decides from `beaconRoundFor(escalated, 'appeal')`. A tampered proof is still refused before any transaction |
+| `apps/demo-cloud/src/predeploy-fork.test.ts` | **Deleted.** It rehearsed T-220's in-place rulebook switch, and the cutover opens a new world instead. `live-fork.test.ts` already opens a world on fresh storage against the record and runs `try.ts`, the walkthrough and an outside adjudicator (T-221) to Released. The anvil suites cover the direct delivery (T-218) and the reopen after a broadcast (T-219); `drand-fork.test.ts` covers the drand decision (T-217) |
+| The adapter (`packages/settlement/evm`) | A join records a key envelope it already holds only once (item 83; `sync.test.ts` pins one buyer key per deal). The bond-reserve refusal answers `acceptance_mismatch`, as core's phase-one rule does (item 65). `PHASE_ONE_NO_APPEAL` is written once in core; the adapter and `apps/operator/src/prepare.ts` re-export it (item 64). New test: an estimate right after a send from the same key names a block at or after that send (item 68) |
+| The testkit | `payoutsTo: 'parties'` in `stub-terms.ts` and `packages/settlement/evm/testing.ts` (the cutover's gap 8). The atomic-key invariant covers settlements that release the key. `settlement-carry.test.ts`: SimChain ignores a carried delivery in a settlement when the deal is `Delivered` (item 84, L5). The runner prints "not in phase one" (item 54) |
+| `packages/core/src/beacon.ts` | The comment names `contracts/script/SimBeacon.sol` (item 34) |
+| `tools/`, `scripts/`, `tests/` | The contract-stack page describes the phase-one contracts, and a new test checks its function table against `HoldbackRules`' external functions. `tools/sim` and the metrics scripts keep their appeal and bond handling, marked: they run on SimChain or read logs recorded from the 0.7 world |
+| `apps/demo` | No live settlement path exists: `--live` swaps in live judges only [measured, `cli.ts`]. The closing notes and the page say the phase-one contracts have no party appeal and no bonds |
+
+**The escalation gas check (the cutover's gap 3): yes, same code** [inferred from code]. The round's escalation scenarios 5a and 5b send no escalation themselves. The demo world's primary decides through the API, and the operator relays it through `EvmSettlement.send` (`evm-settlement.ts:1395`), then `LiveChain.simulate` (`live.ts:363-368`, the pinned `estimateGas`), then `sendNow` (`live.ts:557`), which reuses that estimate. So the scenario can run at the cutover's step 4. On anvil the world's estimate shim answers 1,000,000 gas for this call, because anvil 1.0.0 cannot estimate a call below its calldata floor. Only Sepolia measures the real figure.
+
+**Checks** [measured, in the AL-1 worktree]: see the pull request for the final run. During the work: `examples/e2e-round.test.ts` 7 of 7 on anvil against the lane's contracts, with `results: 1 fail, 2 (pass|fail), 3a pass, 3d pass, 6 waits, 10a pass`. Scenario 1 fails only "a live panel judged", which needs live judges. The round's other anvil files: 23 of 23. `packages/settlement/evm`: all pass, `sync.test.ts` 49 of 49.
+
 ## Handoff
 
-(filled in at the end)
+**State:** part 1 merged into the lane as `027e3db` (PR 398, 2026-11-12 09:16 UTC), by the coordinator after the `.gitleaksignore` entries Rafa approved. Part 2 is in its own pull request into `contracts-audit-ready`.
+
+**Left on the known list, by owner** (87 files) [measured]:
+
+- **R6c-2:** `packages/sdk/` (the client and `operations.ts`: the appeal operation, `expire-offer`, `appeal-expiry`), `apps/operator/`, `apps/demo-cloud/`, `apps/adjudicator/` (except the fork suite), and `tests/contract/openapi.contract.test.ts`, which tests the operator's appeal and offer-expiry routes on a SimChain world.
+- **R6c-3:** `examples/verify.ts` and its test (`appealBondOf`, the appeal intent, `prepare/appeal`): the pinned client still builds and checks an appeal. On the lane it should refuse that intent with the phase-one reason, or keep it marked SimChain only. Also `examples/deal-record.ts` and its test (`appeal.decided`, `appeal.expired` in the record's event list).
+- **CU-1:** `examples/deployments.ts` (`permit2Collector`, `HoldbackBonds`): the pinned record of the 0.7 deployment, which the copies command replaces.
+- **R6, R8 and R5:** `spec/`, `packages/core`, `packages/settlement/evm`, `packages/settlement/src/interface.ts`, `fixtures/`.
+- **R4b:** `formal/`.
+- **AL-2:** `docs/`, `docs/audit/` (now including `test-quality.md`, which names `MutationGaps.t.sol`, still on main only), `site/`, `README.md`, `SECURITY.md`.
+
+**For R6c-2.** AL-1 left these follow-ups in R6c-2's files:
+- item 63: the adjudicator's bond reasons on a chain with no bonds;
+- item 67: the 10 adjudicator mutants;
+- item 84's other half: a prepare test that refuses a second `delivery`;
+- T-356's route-level test for the zero-hold refusal.
+AL-1 changed one block in `apps/operator/src/prepare.ts`: `PHASE_ONE_NO_APPEAL` is now imported from `@holdback/core` and re-exported.
+- `site/llms.txt` still names domain 0.7 and schema 0.10 in its prose (line 117 and others), while its types block and domain pin say 0.8 (part 1). That prose is AL-2's.
+- `docs/cutover-phase-one.md` and `docs/operations.md` still name `predeploy-fork.test.ts` for the cutover's fork step. That step now runs `live-fork.test.ts` and `drand-fork.test.ts` (AL-2 or the cutover's second pass).
+- The local tools run the full protocol by default; the coordinator took that to Rafa as a decision.
+
+**AL-1's review** (one reviewer pass): no Critical or High. Fixed from it:
+- Medium: `live-fork.test.ts` sent an appeal window of 60 s, which phase one refuses. It now sends 0.
+- Low: the appeal file's exclusion reason now names scenario 5b's refusal check.
+- Low: the `tools/sim` expiry comments no longer call the operators' clock expiry SimChain only.
+
+Left as Lows:
+- `drand-fork.test.ts` no longer checks the fallback's own beacon round. Reaching `Escalated` implies the contract accepted it.
+- The testkit's atomic-key check for a settlement does not check that the `key.released` event names the buyer (`stub-settlement.ts:175-188`).
+- `apps/demo-cloud/src/one-world.anvil.test.ts:8` (R6c-2's) still names `predeploy-fork.test.ts` in a comment.
+
+The reviewer suggested a second review from another model family on the key-release dedupe. That runs only if Rafa asks (`docs/team.md`, Change recipes).
+
+**Not built:** a round scenario with a payment address apart from the signing address. It needs R6c-2's prepare inputs for a separate address; add it to the round then.
+
+**How to resume:** `pnpm exec vitest run tests/cut-feature-alignment.test.ts --silent=false` prints what is left, per file and owner. After a fix, `-u` rewrites the known list. Only removals are progress.
