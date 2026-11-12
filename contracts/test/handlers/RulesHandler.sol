@@ -118,6 +118,10 @@ contract RulesHandler is Base {
     mapping(bytes32 => bytes32) public postedHash; // the hash of the delivery the handler posted, once it landed
     uint256 public deliveryHashLost; // a delivery landed but the chain does not store its hash (ADR-0029)
     uint256 public deliverRefused; // an authorised `deliver` on a Held deal before deliverBy was refused
+    // T-375 (triage item 43): the liveness counter for decisions. A change that breaks the decision path and leaves
+    // the stored delivery hash alone passed every invariant before it (T-336's Handoff).
+    uint256 public decisions; // decisions that landed after a delivery (posted, or carried by the decision itself)
+    uint256 public decideRefused; // a decision's outcome disagreed with `_timelyDecision` (refused, or landed untimely)
     string public lastViolation;
 
     // ------------------------------------------------------------ the trace (T-341)
@@ -160,6 +164,9 @@ contract RulesHandler is Base {
         payAddr = vm.addr(PAY_PK);
         payoutAddr = makeAddr("payout address");
         usdc.mint(payAddr, 1_000_000_000);
+        // T-375: enough for one boundary deal whose hold is the largest uint120 (`_boundary`).
+        usdc.mint(buyer, type(uint120).max);
+        usdc.mint(payAddr, type(uint120).max);
         _afterSetUp();
     }
 
@@ -304,7 +311,7 @@ contract RulesHandler is Base {
 
     function _violations() internal view returns (uint256) {
         return reopened + unauthorisedSuccess + unexpectedMovement + strangerSuccess + timeoutMismatch
-            + keyWithoutPayment + deliveryHashLost + deliverRefused + signerMoved;
+            + keyWithoutPayment + deliveryHashLost + deliverRefused + signerMoved + decideRefused;
     }
 
     /// Re-reverts a refused call so the metrics count it, unless the refusal itself was a violation. In trace mode
@@ -458,8 +465,13 @@ contract RulesHandler is Base {
         uint256 mode = (seed >> 8) % 8;
         if (mode == 0 || mode > 3) return;
         uint256 target = deadline + mode - 2;
-        if (target > block.timestamp) vm.warp(target);
+        if (target > block.timestamp && target < CLOCK_CAP) vm.warp(target);
     }
+
+    /// T-375: the clock stays below 2^40 s (about the year 36,812). The word stores times in 40 bits (`t1`), and the
+    /// bound on them is a fix of package R8, not yet on the lane; the boundary offers' far deadlines (`_boundary`)
+    /// would otherwise carry the clock past it. R8 removes this cap when it adds that bound.
+    uint256 internal constant CLOCK_CAP = 1 << 40;
 
     function _off(uint256 seed, uint256 shift, uint256 lo, uint256 hi) internal pure returns (uint64) {
         return uint64(_bound((seed >> shift) & 0xffffffff, lo, hi));
@@ -508,6 +520,10 @@ contract RulesHandler is Base {
         t.timing.appealWindowSec =
             uint256(keccak256(abi.encode("appeal window", seed))) % 32 == 0 ? _off(seed, 112, 1, 2 days) : 0;
         t.timing.appealDecideSec = _off(seed, 144, 1, 2 days);
+        // T-375 (triage item 46): one offer in 16 sits on a bound the contract checks (`_boundary`), so a change of
+        // behaviour at that bound shows in the side-by-side harness. The draw is independent, under its own hash label.
+        uint256 b = uint256(keccak256(abi.encode("boundary", seed)));
+        if (b % 16 == 0) _boundary(t, b >> 8);
         // T-358 (ADR-0033): in the invariant campaign one deal in four has its payment and payout addresses apart from
         // its signing addresses. The side-by-side harness keeps them equal: its old side pays the signing addresses.
         if (!traceMode && _paysMoneyAddresses() && uint256(keccak256(abi.encode("apart", seed))) % 4 == 0) {
@@ -518,6 +534,29 @@ contract RulesHandler is Base {
         _ids.push(id);
         _deliverBy[id] = t.timing.deliverBy;
         _rolePk[id] = r;
+    }
+
+    /// T-375 (triage item 46): moves offer `t` onto one bound the rules contract checks today, or one past it:
+    /// 0, 1: the hold (price + fee) at the largest `uint120`, the escrow's `maxAmount` type, and one above it
+    ///       (`Unrepresentable`). The buyer and the payment address hold enough to fund the first such deal;
+    /// 2, 3: the escrow's expiry (`fallbackBy + appealDecideSec + EXPIRY_MARGIN`) at the largest `uint48`, its
+    ///       `authorizationExpiry` type, and one above it (`Unrepresentable`), through the escalation window;
+    /// 4, 5: every deadline one second after the one before, the smallest gap SC-5 allows, and an escalation window
+    ///       of one second, the smallest SC-5 allows (4), or of two seconds, the smallest the sim beacon can decide
+    ///       (5). With one second the escalation's round (`t1 + 1`) is public only at the deadline, so that deal
+    ///       always defaults: known finding F-2 (`docs/audit/state-model.md` section 6.3).
+    /// R8 adds the bounds it introduces to this list (the refinement plan, section 7d).
+    function _boundary(H.Terms memory t, uint256 r) internal view {
+        uint256 k = r % 6;
+        if (k <= 1) {
+            t.price = uint256(type(uint120).max) - t.fee + k;
+        } else if (k <= 3) {
+            t.timing.appealDecideSec = uint64(uint256(type(uint48).max) - t.timing.fallbackBy - MARGIN + k - 2);
+        } else {
+            uint64 now_ = uint64(block.timestamp);
+            (t.timing.offerExpiresAt, t.timing.fundBy, t.timing.deliverBy) = (now_ + 1, now_ + 2, now_ + 3);
+            (t.timing.judgeBy, t.timing.fallbackBy, t.timing.appealDecideSec) = (now_ + 4, now_ + 5, uint64(k - 3));
+        }
     }
 
     function agreeAndFund(uint256 dealSeed, uint256 callerSeed, uint256 signerSeed) external {
@@ -625,10 +664,12 @@ contract RulesHandler is Base {
             sk = _signer(signerSeed >> 8, SELLER_PK);
             dsig = _deliverySig(id, dv, sk);
         }
+        bool timely = k == good && _timelyDecision(t, d, m, role, sk == SELLER_PK, _expectedDelivery(id, d.stage, dv));
         _recordLogs();
         _closingAs(R_DECIDED, _turn(d.stage));
         bool ok = _relayDecide(_caller(callerSeed), t, m, dv, dsig);
         if (ok) _authorised("decide", k == good && sk == SELLER_PK && m.deliveryHash == rules.deliveryHashOf(id));
+        _decisionLiveness("decide", ok, timely);
         _keyOnlyWithPayment();
         _track(id, d.stage);
         _end(ok, v0);
@@ -689,9 +730,13 @@ contract RulesHandler is Base {
         H.Decision memory m = _beaconDecision(id, H.ROLE_FALLBACK, uint8(outcomeSeed % 3), t.timing.judgeBy);
         uint256 pk = _rolePk[id][H.ROLE_FALLBACK];
         m = _signDecision(t, id, m, vm.addr(pk), pk);
+        HoldbackRules.Deal memory d = _dealOf(id);
+        bool timely = d.stage == HoldbackRules.Stage.FallbackJudging
+            && _timelyDecision(t, d, m, H.ROLE_FALLBACK, true, postedHash[id]);
         _recordLogs();
         _closingAs(R_DECIDED, D_FALLBACK);
         bool ok = _relayDecide(_caller(callerSeed), t, m, _noDelivery(), "");
+        _decisionLiveness("decideFallback", ok, timely);
         _keyOnlyWithPayment();
         _track(id, before);
         _end(ok, v0);
@@ -736,6 +781,64 @@ contract RulesHandler is Base {
                 lastViolation = "released the buyer's key on a deal that is not Released or Settled";
             }
         }
+    }
+
+    /// T-375: the delivery a decision must name, from the handler's own record: the one it carries in Held, else the
+    /// one the handler posted (`postedHash`). Not the chain's stored hash, so a mutant that loses it cannot hide here.
+    function _expectedDelivery(bytes32 id, HoldbackRules.Stage s, H.Delivery memory carried)
+        internal
+        view
+        returns (bytes32)
+    {
+        return s == HoldbackRules.Stage.Held ? hx.delivery(id, carried) : postedHash[id];
+    }
+
+    /// T-375 (triage item 43): whether the phase-one rules must take decision `m` on deal word `d` now, given that its
+    /// signer's key is the role's (the caller checks that). The conditions are read from the terms, the clock, the
+    /// message and the handler's record of the posted delivery. The stage and `t1` come from the stored word `d`;
+    /// the state oracle checks those against the state model's rows and their time bounds:
+    /// - the stage is open and the message names the role whose turn it is (`_turn`), attempt 1, and the delivery
+    ///   the handler carries or posted; it has not expired;
+    /// - in Held, the carried delivery is the seller's and lands before deliverBy;
+    /// - the outcome is one the role may give (the appeal adjudicator cannot escalate);
+    /// - the role's deadline is still open: judgeBy for the primary, fallbackBy for the fallback, the escalation's
+    ///   time plus appealDecideSec for the appeal adjudicator;
+    /// - the beacon round is public: the sim beacon publishes round r at time r, so the escalation's round
+    ///   (`t1 + 1`) from `t1 + 1`; the fallback's round (`judgeBy`) is public in FallbackJudging, which starts at
+    ///   judgeBy at the earliest.
+    /// No deadline of a funded deal reaches the escrow's expiry (`fallbackBy + appealDecideSec + MARGIN`), so the
+    /// capture or void that follows cannot fail for time.
+    function _timelyDecision(
+        H.Terms memory t,
+        HoldbackRules.Deal memory d,
+        H.Decision memory m,
+        uint8 role,
+        bool sellerSigned,
+        bytes32 expected
+    ) internal view returns (bool) {
+        HoldbackRules.Stage s = d.stage;
+        if (!_isOpen(s) || m.role != role || m.attempt != 1 || m.deliveryHash != expected) return false;
+        if (block.timestamp >= m.expiresAt) return false;
+        if (s == HoldbackRules.Stage.Held && (!sellerSigned || block.timestamp >= t.timing.deliverBy)) return false;
+        if (role == H.ROLE_APPEAL) {
+            return m.outcome <= H.OUTCOME_REJECT && block.timestamp >= uint256(d.t1) + 1
+                && block.timestamp < uint256(d.t1) + t.timing.appealDecideSec;
+        }
+        return m.outcome <= H.OUTCOME_ESCALATE
+            && block.timestamp < (role == H.ROLE_FALLBACK ? t.timing.fallbackBy : t.timing.judgeBy);
+    }
+
+    /// T-375: counts a decision that landed. The predicate must match the rules exactly for the messages this handler
+    /// builds, so both directions are violations: a timely decision refused, and a decision that landed although the
+    /// predicate calls it untimely. The second keeps the predicate honest: a predicate that drifted to `false` on
+    /// every path would otherwise silence the gate.
+    function _decisionLiveness(string memory name, bool ok, bool timely) internal {
+        if (ok) decisions++;
+        if (ok == timely) return;
+        decideRefused++;
+        lastViolation = string.concat(
+            name, ok ? ": a decision landed that is not authorised and timely" : ": an authorised, timely decision was refused"
+        );
     }
 
     function earlyAccept(uint256 dealSeed, uint256 callerSeed, uint256 signerSeed) external {
@@ -1062,7 +1165,7 @@ contract RulesHandler is Base {
             ];
             target = deadlines[(seed >> 16) % 9] + ((seed >> 24) % 3) - 1;
         }
-        if (target <= block.timestamp) revert Refused();
+        if (target <= block.timestamp || target >= CLOCK_CAP) revert Refused();
         vm.warp(target);
     }
 }
