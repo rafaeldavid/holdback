@@ -92,14 +92,32 @@ Filled in per pull request. Labels: measured, inferred.
 - **State oracle** [measured]: `invariant_legalDealStates` and the rest of `RulesInvariants.t.sol` pass; no row changes with SC-1.
 - **Size** [measured, artifact runtime lengths]: `HoldbackRules` 19,609 bytes at the parent, 19,798 with SC-1: **189 bytes added, none freed**. The immutable, its getter and the comparison cost more than the calldata read they replace.
 - **Alignment** [measured]: 122 known files before and after. SC-1's one identifier, "any ERC-20", is in docs that change at the redeploy, so this change fixes no listed file.
-- **Off chain** [measured]: `abis.json` regenerated (`abis.test.ts` passes); the anvil world and `deploy-sepolia.sh` deploy the token before the rules contract and pass it in; the script checks `TOKEN()`. The adapter already refuses a funding token other than the deployment's (`evm-settlement.ts:1202`) and core already requires one token per deal (`state.ts:214-215`), so the mirror needed no new refusal.
+- **Off chain** [measured]: `abis.json` regenerated (`abis.test.ts` passes); the anvil world and `deploy-sepolia.sh` deploy the token before the rules contract and pass it in; the script checks `TOKEN()`. Core already requires one token per deal (`state.ts:214-215`). After review, the EVM adapter also refuses an offer whose terms name a token the deployment does not serve, at the offer and before anyone else signs (`evm-settlement.test.ts`, "an offer in a token the deployment does not serve"); before, a club that allowed two tokens let the parties sign terms the contract never funds.
+- **Anvil, settlement leg** [measured, local]: 215 of 215 in 13 files, none skipped (before the adapter refusal was added).
+- **CI's first run** failed one test [measured, run 43127978234]: `test_oldIsTheDeployedCommit64be1f1` could not read `out/old/SimBeacon.sol`. `forge test` compiles only what the selected tests import, and nothing imported that copy once the harness deployed `script/SimBeacon.sol`. `PinnedSource.t.sol` now imports every copy it pins.
+- **Review** (one reviewer, one red team, neither given this file's conclusions): ISSUES, no Critical, High or Medium.
+  - Low (reviewer): off chain, other-token terms were refused only at funding. Fixed: the adapter refuses them at the offer, with a test.
+  - Low (reviewer): the Handoff said "Pending". Fixed.
+  - Low (red team): `live.ts` checks the domain and `EXPIRY_MARGIN` at start-up but not `TOKEN()` against the deployment file. Not fixable before the redeploy: the deployed contract has no `TOKEN()`. In the Handoff for the cutover.
+  - Info, fixed: Decision 1 now says the hashes keep `t.token`; `SingleToken.t.sol`'s docstring no longer claims `InvalidMessage` names the token; the second-deployment test shows the positive half; the allow-list's entries 2 and 3 no longer cover the Surface field.
+  - Info, no change: the constructor takes any address as the token, like every other immutable (the deploy script checks `TOKEN()`); `expireOffer` still records `Expired` for any terms (SC-6 removes it); the deploy script's `if [ -n "$TOKEN" ]` branch is now always taken (removing it re-indents 20 lines for nothing).
 
 ## Decisions
 
-1. **SC-1 keeps `token` in the calldata view and compares it with the immutable** (ADR-0031 §2's first way; the ADR prefers the second and leaves the choice to this task). Dropping the field would change the `Terms` tuple, and so the selector of every entry point, in the same change that only meant to fix the token: every caller, the adapter's encoding and the side-by-side harness's shared ABI would move with it. The check sits in `agreeAndFund` only. Every later step finds the deal by the commitment ID, which hashes `t.token`, so a step on terms in another token finds no deal (`SingleToken.t.sol`). The cost is one comparison, which an auditor reads in one line.
+1. **SC-1 keeps `token` in the calldata view and compares it with the immutable** (ADR-0031 §2's first way; the ADR prefers the second and leaves the choice to this task). Dropping the field would change the `Terms` tuple, and so the selector of every entry point, in the same change that only meant to fix the token: every caller, the adapter's encoding and the side-by-side harness's shared ABI would move with it. The check sits in `agreeAndFund` only. Every later step finds the deal by the commitment ID, which hashes `t.token`, so a step on terms in another token finds no deal (`SingleToken.t.sol`). The cost is one comparison, which an auditor reads in one line. So, unlike the literal reading of ADR-0031 §2's "What leaves" line, the hashes keep `tokenIdHash(t.token)` (`H.commitmentId`, `H.acceptanceHash`, `mutualSettle`'s `mutualHash`): the ID binds the token, and the funding check makes it the immutable for every funded deal. Only `_paymentInfo` reads the immutable.
 2. **The harness's old side is the change's parent,** vendored byte for byte in `contracts/test/differential/parent/` and replaced by each pull request. `old/` stays at the deployed commit `64be1f1`, because `PhaseOneNoBonds.t.sol` proves its "failed before" cases against it. The planted mutant is rebuilt from the parent. The SC-7 allow-list entries leave: they compared the deployed commit, which is no longer the old side.
 3. **The handler offers the second token once in 64 offers** (it was one in two), so SC-1's refusal is exercised on every run without diverging most seeds.
 
 ## Handoff
 
-Pending.
+**Done:** SC-1 (rafaeldavid/holdback#366). **Next:** SC-2, then SC-6, SC-3 and SC-5, each branched from `origin/contracts-audit-ready` after the previous one merges.
+
+**How each later change uses the harness:** re-vendor `contracts/test/differential/parent/` from the new parent (`git show <sha>:contracts/src/<file>`, renaming the rules file to `HoldbackRules.<sha>.sol`), rebuild `planted/` from it (its imports and the one deleted line), recompute the pins in `PinnedSource.t.sol` (keccak256 of each file's bytes), and replace the allow-list with that change's entries.
+
+**Sentences for the docs package** (the live site and API docs describe the deployed contracts until the freeze, so none is edited here):
+
+- SC-1: `docs/neutrality.md:41` "Mitigation: the escrow accepts any ERC-20" becomes "anyone can deploy for a token with no freeze"; `docs/architecture.md:48,268` "The deal's token is any ERC-20 the parties name" becomes "one token per deployment, fixed at deploy"; `docs/audit/scope.md` states the deployment assumption (a plain ERC-20 with ERC-3009: no fee on transfer, no rebasing, no hook) and lists `TOKEN` among the immutables the freeze records.
+
+**For the cutover (R12):** `packages/settlement/evm/live.ts` should check `TOKEN()` against the deployment file's token at start-up, next to the domain and `EXPIRY_MARGIN` checks (red team L-1, SC-1). It cannot land before the redeploy: the deployed contract has no `TOKEN()`.
+
+**`appealWindowSec`:** no cut changes a check on it (the coordinator, 2026-11-12; open with Rafa).

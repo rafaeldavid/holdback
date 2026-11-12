@@ -3,7 +3,7 @@
 // which `pnpm verify` would show (it runs forge build first; see scripts/verify.ts).
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { deliveryHash, parseEvent, signMessage, wholeSecond, type Club, type Hex32, type Mandate, type SettlementEvent, type TokenAmount, type UnsignedMessage } from '@holdback/core';
+import { commitmentId, deliveryHash, parseEvent, rulebookHash, signMessage, signTerms, wholeSecond, type Club, type Hex32, type Mandate, type SettlementEvent, type TokenAmount, type UnsignedMessage } from '@holdback/core';
 import { encodeFunctionData, getAddress, hashTypedData, keccak256, stringToBytes, type Hex } from 'viem';
 import { sign } from 'viem/accounts';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -361,6 +361,29 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     expect(r.ok ? '' : r.problem.detail).toMatch(/bondReserved must be 0 \(ADR-0031 §8\)/);
     expect(chain.escrowState(d.id)?.kind).toBe('Offered');
     expect(chain.transactions()).toHaveLength(0);
+  }, 60_000);
+
+  // ADR-0031 §2 (SC-1): a deployment serves one token. A club that allows a second token would let the parties sign
+  // terms the contract never funds; the adapter refuses them at the offer, before anyone else signs.
+  it('an offer in a token the deployment does not serve is refused before anyone signs: invalid_terms, naming SC-1', async () => {
+    const cast = evmCast();
+    const served = world.deployment.token.toLowerCase();
+    const other = '0x00000000000000000000000000000000000e0c00';
+    const base = await evmGenesis({ cast, token: served, chainId: world.chainId, rules: world.deployment.rules, start: '2026-01-01T00:00:00Z', buyer: 100_000_000_000n });
+    const rulebook = { ...base.club.rulebook, allowedTokens: [served, other] };
+    const club: Club = { ...base.club, rulebook, rulebookHash: rulebookHash(rulebook) };
+    const chain = await EvmSettlement.create(world, { ...base.genesis, clubs: [club] }, Object.values(cast).map((a) => a.address));
+    const d = new EvmDeal(chain, cast, club, 'other-token');
+    const amt = (a: TokenAmount) => ({ token: other, amount: a.amount }) as TokenAmount;
+    const t = { ...d.terms, price: amt(d.terms.price), adjudication: { ...d.terms.adjudication, fee: amt(d.terms.adjudication.fee) }, settlement: { ...d.terms.settlement, token: other } };
+    const id = commitmentId(t);
+    const r = await chain.submit({ kind: 'offer', commitment: { ...t, id, signatures: { seller: await signTerms(cast.seller.key, chain.domain, t) } } }, { via: 'op-1', sender: cast.operator.key });
+    expect(r.ok ? 'ok' : r.problem.type).toBe('invalid_terms');
+    expect(r.ok ? '' : r.problem.detail).toMatch(/serve one token, .* \(ADR-0031 §2\)/);
+    expect(chain.escrowState(id)).toBeNull();
+    expect(chain.transactions()).toHaveLength(0);
+    // The same club's offer in the served token goes through.
+    await must(chain, cast, d.offer());
   }, 60_000);
 
   // Gas per deal (D4), one test per path so a slow path names itself. Each runs a warm-up deal and then the path.

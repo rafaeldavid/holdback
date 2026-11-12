@@ -919,6 +919,15 @@ export class EvmSettlement implements Settlement {
         const t = termsOf(c);
         if (!(await verifyTerms(this.domain, t, c.signatures.seller, t.seller))) refuse('invalid_signature', 'the seller did not sign these terms');
         if (this.books.has(c.id)) refuse('invalid_state', `commitment ${c.id} was already offered`);
+        // ADR-0031 §2 (SC-1): a deployment serves one token, and agreeAndFund refuses terms in any other. Refused here,
+        // before the club's and the mandates' checks and before the buyer and the adjudicator sign terms the contract
+        // would never fund. Core requires the price, fee and settlement tokens to be one (state.ts), and the contract
+        // checks the one token the commitment ID hashes, so each of the three must be the deployment's.
+        for (const token of [t.price.token, t.adjudication.fee.token, t.settlement.token]) {
+          if (lc(token) !== this.token) {
+            refuse('invalid_terms', `the terms are in ${token}; this deployment's contracts serve one token, ${this.token} (ADR-0031 §2). Offer the terms in that token, or use a deployment for the other one`);
+          }
+        }
         const club = this.genesis.clubs.find((k) => k.id === t.clubId && k.rulebookHash === t.rulebookHash);
         // T-218: a deal funded on chain before anyone posted its offer here. The world joins the chain's state: the
         // offer is checked as of its terms' createdAt (the contract checked the signatures and deadlines at funding,

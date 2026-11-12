@@ -54,7 +54,9 @@ library AllowList {
         if (f == Field.Surface && _surfaceApartFromToken(o.surface, n.surface, served)) {
             return Verdict("SC-1: TOKEN() added", false);
         }
-        if (o.action != RulesHandler.agreeAndFund.selector || funded == served || !_refusedForToken(n)) return v;
+        // The surface goes through entry 1 only, so entries 2 and 3 cannot hide a surface difference.
+        if (f == Field.Surface || o.action != RulesHandler.agreeAndFund.selector || funded == served) return v;
+        if (!_refusedForToken(n)) return v;
         // Entry 2: the old side funded the other-token terms; the new side refused them.
         if (_landed(o.calls)) return Verdict("SC-1: other token refused", true);
         // Entry 3: both sides refused the same terms, the old side for another reason (a wrong key, a deadline), so

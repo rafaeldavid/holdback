@@ -48,7 +48,8 @@ contract SingleTokenTest is Base {
     }
 
     /// The refusal comes before the signature checks: terms in another token with a wrong seller signature still
-    /// answer `InvalidMessage`, not `BadSignature`, so a relayer learns the token is the reason.
+    /// answer `InvalidMessage`, not `BadSignature`. (`InvalidMessage` also covers a non-zero `bondReserved` and an
+    /// unknown funding method, so the error alone does not name the token; the EVM adapter's refusal does.)
     function test_otherToken_refusedBeforeSignatures() public {
         H.Terms memory t = _terms();
         t.token = address(other);
@@ -84,6 +85,14 @@ contract SingleTokenTest is Base {
         H.Funding memory f = _erc3009(t, BUYER_PK);
         vm.expectRevert(HoldbackRules.BadSignature.selector);
         second.agreeAndFund(t, ss, acc, ag, f);
+
+        // Signed under its own domain, the same terms fund on the second deployment, in its token.
+        rules = second;
+        bytes32 id = _fund(t);
+        assertEq(uint8(second.dealOf(id).stage), uint8(HoldbackRules.Stage.Held));
+        (, uint120 capturable,) = escrow.paymentState(escrow.getHash(_pi(t)));
+        assertEq(capturable, PRICE + FEE);
+        assertEq(other.balanceOf(escrow.getTokenStore(address(second))), PRICE + FEE);
     }
 
     /// A step on terms whose token differs from a funded deal's is a step on another commitment ID, which was never

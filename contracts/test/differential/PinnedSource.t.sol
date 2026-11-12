@@ -2,6 +2,16 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+// `forge test` compiles only what the selected tests import (measured 2026-11-12: a clean `--match-path` run of this
+// file alone compiled 44 files and found none of the copies). These imports keep every pinned copy compiled, and
+// its artifact readable below, whichever tests run. Since T-356 nothing else imports `old/SimBeacon.sol`. The
+// sources under test are imported too: which copy gets a short artifact path depends on what is compiled with it.
+import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {SimBeacon} from "../../script/SimBeacon.sol";
+import {HoldbackRules as OldRules} from "./old/HoldbackRules.64be1f1.sol";
+import {SimBeacon as OldSimBeacon} from "./old/SimBeacon.sol";
+import {HoldbackRules as ParentRules} from "./parent/HoldbackRules.4f6cea0.sol";
+import {HoldbackRules as PlantedRules} from "./planted/HoldbackRules.planted.sol";
 
 /// @title The pinned old side is the deployed commit (T-341)
 /// @notice `old/` holds the contract source the Sepolia world runs: `contracts/src/` at commit `64be1f1`, the five
