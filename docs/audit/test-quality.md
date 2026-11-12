@@ -4,12 +4,12 @@ How Crow measures whether the contract tests reach every line of `contracts/src/
 
 ## Summary
 
-Both tools work on `main` at `5a90dc5`. Numbers are measured unless a label says otherwise.
+Both tools work on `main` at `5a90dc5`, the deployed domain-0.7 contracts. Those contracts keep party appeals, bonds and a second funding method, which are not in phase one. This page is a dated record of that run; package R10 measures the phase-one contracts on the lane before the freeze. Numbers are measured unless a label says otherwise.
 
 - **Coverage builds** with `forge coverage --ir-minimum`, after the plain `forge coverage` fails. Four of the five source files have every line and branch covered. `HoldbackRules.sol` has 310 of 314 lines (98.7%) and 79 of 92 branches (85.9%). The gaps are revert branches of signature and deadline checks that no test reaches, plus one block that cannot run while the mutual-settlement fee share is 0 bps.
 - **Mutation:** the run stopped at 82 of 179 mutants on 2026-11-12 to free the machine for the contract lane (T-356). Of the 82, 71 are killed and 11 survive. Every survivor has an outcome: a new test that kills it, or a written reason with the file and line that make it equivalent.
   - Two are equivalent: M004 and M057.
-  - Seven get new tests: M005 and M006 in `contracts/test/unit/AgreeAndFundExpiry.t.sol` (holdback PR 358, merged); M008, M020, M047, M074 and M139 in `contracts/test/unit/MutationGaps.t.sol`.
+  - Seven get new tests: M005 and M006 in `contracts/test/unit/AgreeAndFundExpiry.t.sol` (holdback PR 358, merged); M008, M020, M047, M074 and M139 in `contracts/test/unit/MutationGaps.t.sol`, which is on `main` only. It does not compile against the phase-one contracts, which fund by ERC-3009 only (T-374). Porting its kills to the lane is package R7's or R10's.
   - Two are real gaps on `main` in code the lane's appeals-and-bonds cut deleted: M030 and M031 (M057 is gone from the lane too).
 - **Real gaps, Low to Medium, all in the tests, none in the code's behaviour:** checks the code performs and no test exercises. The Medium ones are three expiry checks on signed messages (M005, M006, M139) and the posted-delivery binding of the early accept (M074). Coverage adds a fourth expiry check, the mutual settlement's, whose mutant (M083) has not run yet.
 - **Cost:** one mutant takes 126 s on average (115 s to 198 s) on the fast build. The full list takes about 6.3 h plus about 1.5 h for the survivors' full-build pass [inferred from the per-mutant times]. The quick subset of 27 mutants takes about 1 h [inferred]. Neither fits a pull request's CI; both belong to the pre-freeze gate, and the quick subset fits a nightly job.
@@ -90,7 +90,7 @@ Measured with `node contracts/scripts/coverage.mjs`: 211 s wall time, and 342 te
 | File | Lines | Branches |
 | --- | --- | --- |
 | `DrandQuicknetBeacon.sol` | 59/59 (100%) | 8/8 (100%) |
-| `HoldbackBonds.sol` | 44/44 (100%) | 7/7 (100%) |
+| `HoldbackBonds.sol` (on `main`; not in phase one) | 44/44 (100%) | 7/7 (100%) |
 | `HoldbackRules.sol` | 310/314 (98.7%) | 79/92 (85.9%) |
 | `HoldbackTypes.sol` | 58/58 (100%) | none reported |
 | `SimBeacon.sol` | 8/8 (100%) | 2/2 (100%) |
@@ -127,9 +127,9 @@ Every survivor, by the kind of line it sits on:
 | deadline | M139 | `HoldbackRules.sol:399` | the early accept's expiry unchecked | **Real gap, Medium:** an expired early accept would still pay the seller. Test `test_earlyAccept_refusesAnExpiredMessage` |
 | signature | M074 | `HoldbackRules.sol:403` | after `deliver`, the early accept need not name the posted delivery | **Real gap, Medium:** the buyer's key could travel with a delivery body the seller never posted (ADR-0029). Test `test_earlyAccept_afterDelivery_refusesAnotherDeliveryThanThePostedOne` |
 | signature | M047 | `HoldbackRules.sol:313` | a first decision may carry an appeal ground | **Real gap, Low:** a signed field the contract stores nowhere. Test `test_firstDecision_refusesAnAppealGround` |
-| money | M008 | `HoldbackRules.sol:205` | funding method 2 accepted | **Low:** method 2 would take the Permit2 collector (`HoldbackRules.sol:218`), which still needs the buyer's Permit2 signature, so no money moves without the buyer. Test `test_agreeAndFund_refusesAnUnknownFundingMethod` |
+| money | M008 | `HoldbackRules.sol:205` | funding method 2 accepted | **Low:** method 2 would take the Permit2 collector (`HoldbackRules.sol:218`), which still needs the buyer's Permit2 signature, so no money moves without the buyer. Test `test_agreeAndFund_refusesAnUnknownFundingMethod`. Not in phase one: the lane funds by ERC-3009 only, and the mutant's text is gone there |
 | money | M020 | `HoldbackRules.sol:170` | a hold of exactly 2^120 - 1 refused as unrepresentable | **Low:** a boundary D31 says must be allowed. Test `test_agreeAndFund_aHoldAtTheLargestRepresentableAmountIsRepresentable` |
-| money | M057 | `HoldbackRules.sol:336` | the escalation decision releases no bonds | **Equivalent, Info:** escalating already releases the bonds and sets the flags to 0 (`HoldbackRules.sol:317-318`), so this call is always `_releaseBonds(t, 0)`. Gone from the lane |
+| money | M057 | `HoldbackRules.sol:336` | the escalation decision releases no bonds | **Equivalent, Info:** escalating already releases the bonds and sets the flags to 0 (`HoldbackRules.sol:317-318`), so this call is always `_releaseBonds(t, 0)`. Gone from the lane (not in phase one) |
 | deadline | M030 | `HoldbackRules.sol:268` | the appeal's decision deadline leaves out the appeal window | **Real gap on `main`, Low:** no test decides an appeal late in its window. **Gone from the lane:** the appeals-and-bonds cut deleted party appeals (D57) |
 | other (seed) | M031 | `HoldbackRules.sol:269` | the appeal's beacon round counted from the decision, not the filing | **Real gap on `main`, Low:** tests file the appeal in the decision's block, so both times are equal [inferred]. **Gone from the lane** (D57) |
 
@@ -138,7 +138,7 @@ No stage line has a survivor. The new tests are not yet run: they wait for the m
 ### What the run does not yet cover
 
 - **M082 to M138 and the bonds, types, drand and sim-beacon mutants** (97 mutants) are not run yet.
-- **On the lane,** 99 of the 139 `HoldbackRules.sol` mutants still apply as written. The bonds and sim-beacon mutants (20) report stale, because the cut deleted those files [measured by applying each mutant's text to the lane's source]. The lane's own new checks, such as `acc.bondReserved != 0` (`HoldbackRules.sol:184` on the lane), need mutants added to `mutants.json` before the freeze.
+- **On the lane,** 99 of the 139 `HoldbackRules.sol` mutants still apply as written. The bonds and sim-beacon mutants (20) report stale, because the cut deleted those files [measured by applying each mutant's text to the lane's source]. The lane's own new checks, such as `acc.bondReserved != 0` in `agreeAndFund`, need mutants added to `mutants.json` before the freeze. T-380 added M139 and M140 for the beacon margin. That reuses M139, which `main` uses for the early accept's expiry, so the lane's list holds two mutants with one ID [measured on the lane, 2026-11-12]; R10 renumbers before the run.
 
 ## Cost, and where it runs
 

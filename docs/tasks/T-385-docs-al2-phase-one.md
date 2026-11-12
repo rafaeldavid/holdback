@@ -43,10 +43,11 @@ All measured on 2026-11-12 unless a line says otherwise.
 - **The agent docs, holdback PR 435, merged as `32e94c2`:** `site/llms.txt`, `site/sell.txt` and the vignettes of `site/build.mjs`.
   - `node site/build.mjs && node site/check.mjs` passes.
   - The cutover's copies command (`scripts/record-copies.mjs`), run on a copy of the branch with a made-up new record, finds no line in my paths that names an old deployment value. The two `HoldbackBonds` lines it failed on are gone.
-- **The audit docs, holdback PR 436, merged as `<436_MERGE>`:** the seven files of `docs/audit/`. It also places the R11 review's point that the H-2 limit holds in phase one for key-bearing calls (T-388), and T-384's interface file and test names.
+- **The audit docs, holdback PR 436, merged as `e6a74b6`:** the seven files of `docs/audit/`. It also places the R11 review's point that the H-2 limit holds in phase one for key-bearing calls (T-388), and T-384's interface file and test names.
 - **The rest, holdback PR 437:** `docs/`, `README.md`, `SECURITY.md`, `contracts/README.md`, `formal/README.md`'s wording, ADR-0018, ADR-0031 and decision D67 (checked against PR 433).
 - **Tests:** `vitest run tests` passes 447 of 447 on each branch, and `pnpm lint` passes.
-- **The alignment known list:** 61 files at the lane's tip `73bbafa`, 23 of them in my paths. After the three pull requests it holds 39, and one of them is in my paths: `site/try.mjs` (Handoff). [Computed from each branch's measured count: 61 − 3 − 7 − 12.]
+- **The alignment known list:** 61 files at the lane's tip `73bbafa`, 23 of them in my paths. With PR 437 on the lane's tip `e6a74b6` it holds 39, and one of them is in my paths: `site/try.mjs` (Handoff). The diff against the lane is removals only [measured: `vitest run tests/cut-feature-alignment.test.ts -u`].
+- **The operators' fee at 0** (T-389, PR 438): `site/llms.txt`, `docs/api.md` and `docs/operations.md` state the fee as the configuration has it. These nodes publish `fees.operator` at 0 and pay the gas, prepare asks for two signatures, and a 25 tUSDC deal costs 26 tUSDC. The rules for a fee above 0 stay, for an operator that sets one [checked against `apps/demo-cloud/wrangler.op1.jsonc` and T-389's notes].
 
 ## Handoff
 

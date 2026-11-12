@@ -1,12 +1,5 @@
 {
   "files": {
-    "docs/audit/events.md": "docs/audit [R12]",
-    "docs/audit/invariants.md": "docs/audit [R12]",
-    "docs/audit/known-issues.md": "docs/audit [R12]",
-    "docs/audit/scope.md": "docs/audit [R12]",
-    "docs/audit/state-model.md": "docs/audit [R12]",
-    "docs/audit/test-quality.md": "docs/audit [R12]",
-    "docs/audit/threat-model.md": "docs/audit [R12]",
     "examples/deployments.ts": "examples/ pinned client [R6c-3 for G; open for the rest]",
     "fixtures/clubs/data-services-v1.yaml": "fixtures/ [R6c-1, R6 part 1]",
     "fixtures/scenarios/neutrality.adjudicator-never-accepts.scenario.yaml": "fixtures/ [R6c-1, R6 part 1]",
