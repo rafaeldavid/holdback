@@ -101,6 +101,18 @@ Filled in per pull request. Labels: measured, inferred.
   - Low (red team): `live.ts` checks the domain and `EXPIRY_MARGIN` at start-up but not `TOKEN()` against the deployment file. Not fixable before the redeploy: the deployed contract has no `TOKEN()`. In the Handoff for the cutover.
   - Info, fixed: Decision 1 now says the hashes keep `t.token`; `SingleToken.t.sol`'s docstring no longer claims `InvalidMessage` names the token; the second-deployment test shows the positive half; the allow-list's entries 2 and 3 no longer cover the Surface field.
   - Info, no change: the constructor takes any address as the token, like every other immutable (the deploy script checks `TOKEN()`); `expireOffer` still records `Expired` for any terms (SC-6 removes it); the deploy script's `if [ -n "$TOKEN" ]` branch is now always taken (removing it re-indents 20 lines for nothing).
+- **Merged** into `contracts-audit-ready` at `0786180` after CI run 43131170355 passed all 12 jobs [measured].
+
+### SC-2
+
+- **The refused input reverts** [measured]: `Erc3009Only.t.sol`, 3 tests. A Permit2 PermitTransferFrom signature for the deal's hold, with the buyer's Permit2 allowance in place (the input that funded before SC-2), reverts at `agreeAndFund`; nothing is stored and no token moves. `PERMIT2_COLLECTOR()` is gone from the ABI. Every hold is authorized through the ERC-3009 collector (the escrow's `PaymentAuthorized` names it).
+- **Removed tests, each of the removed feature** [measured]: `AgreeAndFund.t.sol` `test_permit2_funds` (Permit2 funding); `Withstood.t.sol` `test_defense_funding_method_swap_refused` (the `method` field it swapped is gone); `Erc1271Replay.t.sol` `test_defense_permit2FundingSignature_doesNotReplayAcrossWalletsWithOneOwner` (Permit2 replay; the ERC-3009 replay test beside it stays).
+- **`forge test`** [measured]: parent (SC-1) 360 in 52 suites; SC-2 360 of 360 in 53 suites (3 removed, 3 added).
+- **Side-by-side, parent `0786180` as the old side** [measured, 48 coverage seeds]: exactly one difference, `PERMIT2_COLLECTOR()` gone, on every step's Surface. No seed diverged; 685 checked calls landed; every phase-one row and stage reached. `Funding.method` left too, so the pinned side encodes the parent's `agreeAndFund` with `method` 0 and the same ERC-3009 signature (`Sides.sol`, `_agreeAndFundCall`). The handler never funded through Permit2, on either side, so the Permit2 refusal is proven by the unit test, not by the harness.
+- **State oracle** [measured]: passes; no row changes.
+- **Size** [measured]: `HoldbackRules` runtime 19,798 → 19,619 bytes: **179 bytes freed**.
+- **Alignment** [measured]: 122 → 115 known files. The seven that left are the files this change stopped naming Permit2 in: `apps/demo-cloud/src/lanes.test.ts`, `apps/demo-cloud/test/anvil.ts`, `examples/e2e-scenarios-direct.test.ts`, `examples/e2e-world.ts`, `packages/settlement/evm/attack-t230.test.ts`, `chain.ts`, `wall.test.ts`.
+- **Off chain** [measured]: `abis.json` regenerated; the adapter encodes `Funding` as `{ signature }` and reads every funding as `erc3009`; `Deployment` loses `permit2Collector`, and `DeploymentFile` keeps it optional and unread, for records of the deployed contracts; the anvil world deploys no Permit2 collector; `deploy-sepolia.sh` deploys and checks no Permit2 collector and no Permit2. Anvil settlement leg 216 of 216 in 13 files, none skipped. `FundingAuthorization.scheme` keeps `permit2` in the schema.
 
 ## Decisions
 
@@ -110,13 +122,14 @@ Filled in per pull request. Labels: measured, inferred.
 
 ## Handoff
 
-**Done:** SC-1 (rafaeldavid/holdback#366). **Next:** SC-2, then SC-6, SC-3 and SC-5, each branched from `origin/contracts-audit-ready` after the previous one merges.
+**Done:** SC-1 (rafaeldavid/holdback#366), SC-2 (this pull request). **Next:** SC-6, then SC-3 and SC-5, each branched from `origin/contracts-audit-ready` after the previous one merges.
 
 **How each later change uses the harness:** re-vendor `contracts/test/differential/parent/` from the new parent (`git show <sha>:contracts/src/<file>`, renaming the rules file to `HoldbackRules.<sha>.sol`), rebuild `planted/` from it (its imports and the one deleted line), recompute the pins in `PinnedSource.t.sol` (keccak256 of each file's bytes), and replace the allow-list with that change's entries.
 
 **Sentences for the docs package** (the live site and API docs describe the deployed contracts until the freeze, so none is edited here):
 
 - SC-1: `docs/neutrality.md:41` "Mitigation: the escrow accepts any ERC-20" becomes "anyone can deploy for a token with no freeze"; `docs/architecture.md:48,268` "The deal's token is any ERC-20 the parties name" becomes "one token per deployment, fixed at deploy"; `docs/audit/scope.md` states the deployment assumption (a plain ERC-20 with ERC-3009: no fee on transfer, no rebasing, no hook) and lists `TOKEN` among the immutables the freeze records.
+- SC-2: `SECURITY.md:28` drops Permit2 from the contracts reused unchanged; `docs/api.md:342` "Funding authorization (ERC-3009 or Permit2 style)" becomes "ERC-3009"; `docs/architecture.md:48,268` "others through Permit2" goes; `docs/operations.md` (the deploy record) lists one collector; `contracts/README.md:21` drops the `lib/permit2` build step; `site/try.mjs` drops its pinned `permit2Collector`. `docs/audit/scope.md` drops the Permit2 collector from the contracts in scope.
 
 **For the cutover (R12):** `packages/settlement/evm/live.ts` should check `TOKEN()` against the deployment file's token at start-up, next to the domain and `EXPIRY_MARGIN` checks (red team L-1, SC-1). It cannot land before the redeploy: the deployed contract has no `TOKEN()`.
 
