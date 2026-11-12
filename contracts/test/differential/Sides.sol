@@ -13,7 +13,7 @@ import {RulesHandler} from "../handlers/RulesHandler.sol";
 
 // The pinned copies carry a suffix in their file names, so a lookup by "HoldbackRules.sol:HoldbackRules"
 // (`deployCodeTo`, `vm.getCode`) still finds only src/. Nothing imports them by name, so their bytes are unchanged.
-import {HoldbackRules as ParentRules} from "./parent/HoldbackRules.02ddb24.sol";
+import {HoldbackRules as ParentRules} from "./parent/HoldbackRules.a37a48d.sol";
 import {IHoldbackBeacon as ParentBeacon} from "./parent/IHoldbackBeacon.sol";
 import {HoldbackRules as PlantedRules} from "./planted/HoldbackRules.planted.sol";
 
@@ -22,10 +22,9 @@ import {HoldbackRules as PlantedRules} from "./planted/HoldbackRules.planted.sol
 ///         - `NewSide`: the source under test, `contracts/src/`, deployed by `Base.setUp` unchanged;
 ///         - `OldSide`: the pinned copy of `contracts/src/` at the change's parent commit (`parent/`). Since T-356
 ///           each change on `contracts-audit-ready` is compared with its parent, not with the deployed commit
-///           (the refinement plan, R6c's harness row). The parent here is `02ddb24`, the lane after SC-5, re-seated
-///           for T-358's signed type (ADR-0033 §1): its `HoldbackTypes.sol` gains the two addresses in the struct,
-///           the type string and the commitment ID, and its domain version is "0.8"; none of ADR-0033 §2's behaviour
-///           is applied. So both sides take one ABI and sign one domain, and the run shows only the behaviour;
+///           (the refinement plan, R6c's harness row). The parent here is `a37a48d`, the lane after T-358, copied
+///           unchanged (T-375). Both sides pay the terms' money addresses (ADR-0033), so deals with those addresses
+///           apart from the signing addresses run on both sides too;
 ///         - `PlantedSide`: the pinned copy with one planted behaviour change (`planted/`), for the tests that
 ///           prove the harness and the liveness invariant fail on a real change.
 ///         The handler drives every side through the new source's ABI (`HoldbackRules`, `HoldbackTypes`), so the
@@ -47,11 +46,6 @@ contract NewSide is RulesHandler {
 /// The old side's world, the pinned parent contracts deployed exactly as `Base.setUp` deploys the new ones.
 abstract contract PinnedSide is RulesHandler {
     function _rulesWith(SimBeacon beacon) internal virtual returns (HoldbackRules);
-
-    /// The parent pays the signing addresses (it predates ADR-0033 §2), so no deal draws its money addresses apart.
-    function _paysMoneyAddresses() internal pure override returns (bool) {
-        return false;
-    }
 
     function setUp() public override {
         vm.chainId(31337);

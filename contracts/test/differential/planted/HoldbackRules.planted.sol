@@ -8,7 +8,7 @@ import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 import {IHoldbackBeacon} from "../parent/IHoldbackBeacon.sol";
 import {HoldbackTypes as H, Money} from "../parent/HoldbackTypes.sol";
 
-// T-341, PLANTED BEHAVIOUR CHANGE. A test fixture, never deployed: the pinned copy `../parent/HoldbackRules.02ddb24.sol`
+// T-341, PLANTED BEHAVIOUR CHANGE. A test fixture, never deployed: the pinned copy `../parent/HoldbackRules.a37a48d.sol`
 // with two edits, these imports and one deleted line in `_acceptDelivery` (`deliveryHashOf[id] = dh;`). It is the
 // "stores no delivery hash" mutant of known issue G-5. `SideBySide.t.sol` and `StateOracle.t.sol` prove that the
 // side-by-side harness and the delivery liveness invariant both fail on it. T-356 re-based it on each change's parent.
@@ -59,7 +59,7 @@ contract HoldbackRules is EIP712 {
     /// @notice CPP's ERC-3009 collector, the one way a phase-one deal funds (ADR-0031 §3, SC-2).
     address public immutable ERC3009_COLLECTOR;
     /// @notice Added after the last moment a capture can happen (fallbackBy + appealDecideSec) to get CPP's
-    ///         authorizationExpiry, after which only the buyer's own reclaim on CPP remains (ADR-0003).
+    ///         authorizationExpiry, after which only the payment address's own reclaim on CPP remains (ADR-0003).
     uint64 public immutable EXPIRY_MARGIN;
     /// @notice The beacon that fixes fallback and escalation panel seeds (ADR-0018): the drand quicknet verifier
     ///         on shared chains, the sim beacon on anvil. Fixed at deploy; it also owns the round arithmetic.
@@ -103,6 +103,11 @@ contract HoldbackRules is EIP712 {
     event FallbackTriggered(bytes32 indexed id, uint64 beaconRound);
     event Defaulted(bytes32 indexed id, Stage from);
     event MutuallySettled(bytes32 indexed id, bool keyReleased);
+    /// @notice Where this deal's money comes from and goes (ADR-0033): the escrow's payer and receiver. Every other
+    ///         event names the parties (`buyer`, `seller`), which sign; these two addresses hold the money.
+    event SettlementAddresses(
+        bytes32 indexed id, address indexed buyerPaymentAddress, address indexed sellerPayoutAddress
+    );
 
     // Errors
 
@@ -156,8 +161,8 @@ contract HoldbackRules is EIP712 {
         }
         pi = AuthCaptureEscrow.PaymentInfo({
             operator: address(this),
-            payer: t.buyer,
-            receiver: t.seller,
+            payer: t.buyerPaymentAddress, // funds the hold; every void returns there (ADR-0033)
+            receiver: t.sellerPayoutAddress, // every capture's amount net of the fee goes there (ADR-0033)
             token: TOKEN, // equal to t.token for every funded deal: agreeAndFund refuses any other
             maxAmount: uint120(hold),
             preApprovalExpiry: uint48(t.timing.fundBy),
@@ -173,7 +178,8 @@ contract HoldbackRules is EIP712 {
     // Agree and fund (transaction 1)
 
     /// @notice Verifies the seller's signature over the terms, the primary's acceptance and the buyer's Agree, then
-    ///         moves price + fee from the buyer into CPP's hold with the buyer's collector signature.
+    ///         moves price + fee from the buyer's payment address into CPP's hold with that address's ERC-3009
+    ///         signature for the collector (ADR-0033 §3).
     function agreeAndFund(
         H.Terms calldata t,
         bytes calldata sellerSignature,
@@ -191,11 +197,13 @@ contract HoldbackRules is EIP712 {
         if (acc.bondReserved != 0 || t.token != TOKEN) revert InvalidMessage();
         // Terms settlement cannot process (ADR-0031 §6, SC-5), refused as packages/core refuses them: the five deadlines
         // strictly in order, compared as timing.ts compares them (an equal pair would give a step a window of zero);
-        // one delivery attempt, the only one this contract takes; and an escalation window of at least one second.
+        // one delivery attempt, the only one this contract takes; an escalation window of at least one second; and an
+        // appeal window of 0, because phase one has no party appeal (ADR-0033 §2b; core's APPEAL_WINDOW_PROBLEM).
         H.Timing calldata tm = t.timing;
         if (
             tm.offerExpiresAt >= tm.fundBy || tm.fundBy >= tm.deliverBy || tm.deliverBy >= tm.judgeBy
                 || tm.judgeBy >= tm.fallbackBy || tm.maxSubmissions != 1 || tm.appealDecideSec == 0
+                || tm.appealWindowSec != 0
         ) {
             revert InvalidMessage();
         }
@@ -208,6 +216,7 @@ contract HoldbackRules is EIP712 {
         d.seedTag = uint144(uint256(acc.seedCommitment));
         emit JobCreated(id, t.buyer, t.seller, t.adjudicator, pi.authorizationExpiry);
         emit JobFunded(id, t.buyer, pi.maxAmount);
+        emit SettlementAddresses(id, t.buyerPaymentAddress, t.sellerPayoutAddress);
         ESCROW.authorize(pi, pi.maxAmount, ERC3009_COLLECTOR, f.signature);
     }
 
@@ -316,8 +325,9 @@ contract HoldbackRules is EIP712 {
         _settleDecision(id, t, t.appealAdjudicator, m);
     }
 
-    /// @dev guaranteed_on_decision: the money moves at the decision. Accept: price to the seller and the fee to the
-    ///      decider. Reject: a fee-only capture to the decider, then void returns the price to the buyer (ADR-0003).
+    /// @dev guaranteed_on_decision: the money moves at the decision. Accept: price to the seller's payout address and
+    ///      the fee to the decider. Reject: a fee-only capture to the decider, then void returns the price to the buyer's
+    ///      payment address (ADR-0003, ADR-0033).
     function _settleDecision(bytes32 id, H.Terms calldata t, address adjudicator, H.Decision calldata m) internal {
         AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(id, t);
         if (m.outcome == H.OUTCOME_ACCEPT) {
@@ -405,17 +415,19 @@ contract HoldbackRules is EIP712 {
         if (m.releaseKey) _releaseKey(id, t.buyer, KEY_MUTUAL, k.scheme, k.ciphertext);
     }
 
-    /// @dev Phase one pays a settlement to the buyer and the seller only (ADR-0031 §4, SC-3): a payout to any other
-    ///      address reverts. So a settlement makes at most one capture, to the seller, and one void, to the buyer.
+    /// @dev Phase one pays a settlement to the parties' money addresses only (ADR-0031 §4, ADR-0033 §2): a payout names
+    ///      the seller's payout address or the buyer's payment address, and any other address reverts, a signing address
+    ///      that differs from them included. So a settlement makes at most one capture, to the payout address, and one
+    ///      void, to the payment address. With the two equal, every payout counts as the seller's share.
     function _payOut(bytes32 id, H.Terms calldata t, H.Payout[] calldata payouts) internal {
         AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(id, t);
         uint256 total;
         uint256 toSeller;
         for (uint256 i; i < payouts.length; ++i) {
             H.Payout calldata p = payouts[i];
-            if (p.amount == 0 || (p.to != t.seller && p.to != t.buyer)) revert InvalidMessage();
+            if (p.amount == 0 || (p.to != t.sellerPayoutAddress && p.to != t.buyerPaymentAddress)) revert InvalidMessage();
             total += p.amount;
-            if (p.to == t.seller) toSeller += p.amount;
+            if (p.to == t.sellerPayoutAddress) toSeller += p.amount;
         }
         if (total != t.price) revert InvalidMessage();
         if (toSeller > 0) {
@@ -423,7 +435,7 @@ contract HoldbackRules is EIP712 {
             emit PaymentReleased(id, t.seller, toSeller);
         }
         // Everything still held (the buyer's payouts and the whole fee, MUTUAL_FEE_SHARE_BPS being 0) goes back to
-        // the buyer.
+        // the buyer's payment address.
         uint256 rest = pi.maxAmount - toSeller;
         if (rest > 0) {
             _void(pi);
@@ -480,7 +492,7 @@ contract HoldbackRules is EIP712 {
     function _refundAll(bytes32 id, H.Terms calldata t, Deal storage d) internal {
         d.stage = Stage.Refunded;
         AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(id, t);
-        // From authorizationExpiry the buyer may have reclaimed on CPP already (ADR-0003's backstop). The deal still
+        // From authorizationExpiry the buyer's payment address may have reclaimed on CPP already (ADR-0003's backstop). The deal still
         // closes here; there is just nothing left to void.
         if (block.timestamp >= pi.authorizationExpiry) {
             (, uint120 held,) = ESCROW.paymentState(ESCROW.getHash(pi));

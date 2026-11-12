@@ -43,7 +43,7 @@ forge test
 | Suite | Files | What it checks |
 | --- | --- | --- |
 | `test/unit/` | One test file per entry point or review fix, and `Base.sol` | Each entry point and each review fix. `Vectors.t.sol` pins the EIP-712 hashes against `packages/core`. `GasPerDeal.t.sol` holds gas budgets |
-| `test/fuzz/` | `NoAdmin`, `Postings`, `Rounding` | No admin path, postings that balance, and named rounding. `foundry.toml` sets no fuzz run count, so Foundry's default applies |
+| `test/fuzz/` | `NoAdmin`, `Postings` | No admin path and postings that balance. `foundry.toml` sets no fuzz run count, so Foundry's default applies |
 | `test/invariant/` | `RulesInvariants.t.sol`, `HandlerSmoke.t.sol` and `StateOracle.t.sol` (with `StateOracle.sol`), with `test/handlers/RulesHandler.sol` | The invariants listed in [`docs/audit/invariants.md`](../docs/audit/invariants.md). Their run count and depth are set inline in `RulesInvariants.t.sol`, not in `foundry.toml` |
 | `test/crosscheck/` | One file per case | Cases from the public-audit cross-check (`docs/reviews/2026-11-03-public-audit-crosscheck.md`), and the drand verifier's reviews |
 | `test/differential/` | `SideBySide.t.sol` and `PinnedSource.t.sol`, with the pinned old side in `old/` and a planted mutant in `planted/` | The side-by-side harness (T-341): the deployed source and today's source run the same calls, and any difference not in `AllowList.sol` fails |
