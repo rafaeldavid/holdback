@@ -6,9 +6,11 @@ import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
-/// T-206 H-2: a decision carries the buyer's key only with an accept, and never on a deal that stands Refunded
-/// (ADR-0012: "on rejection or reclaim, the key is never released to the buyer"; formal model KeyOnlyWithPayment).
-contract AppealKeyTest is Base {
+/// T-206 H-2: a decision carries the buyer's key only with an accept (ADR-0012: "on rejection or reclaim, the key is
+/// never released to the buyer"; formal model KeyOnlyWithPayment). A decision on a closed deal reverts `WrongStage`
+/// before any key check (PhaseOneNoBonds.t.sol). T-384 renamed the file from AppealKey.t.sol: phase one's appeal
+/// adjudicator hears escalations only.
+contract EscalationKeyTest is Base {
     function _appealDecision(H.Terms memory t, bytes32 id, uint64 round, uint8 outcome, bool withKey)
         internal
         view

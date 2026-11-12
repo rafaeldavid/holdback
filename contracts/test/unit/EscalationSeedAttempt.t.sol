@@ -12,7 +12,7 @@ import {Base} from "./Base.sol";
 /// adjudicator could pick among 256 valid seeds for one beacon round. Fixed in PR #120: `decide` compares the attempt
 /// for every role. The attacks are regressions now; the fallback control kept its name. The party-appeal attack left
 /// with `fileAppeal` (T-346, ADR-0031 §8): the two that remain run after an escalation.
-contract AppealSeedAttemptTest is Base {
+contract EscalationSeedAttemptTest is Base {
     function _appealWithAttempt(bytes32 id, uint8 outcome, uint64 round, uint8 attempt)
         internal
         view

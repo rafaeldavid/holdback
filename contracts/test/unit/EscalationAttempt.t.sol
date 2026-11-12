@@ -10,7 +10,7 @@ import {Base} from "./Base.sol";
 /// panelSeed(id, role, attempt, beaconValue), so a free attempt would let the decider pick one of 256 seeds
 /// (ADR-0018: no field the decider controls may change the seed). Rounds are read from the deal, because
 /// block.timestamp is not re-read after a warp under via_ir.
-contract AppealAttemptTest is Base {
+contract EscalationAttemptTest is Base {
     function _escalated() internal returns (H.Terms memory t, bytes32 id, uint64 round) {
         (t, id) = _funded();
         _deliver(t, id);
