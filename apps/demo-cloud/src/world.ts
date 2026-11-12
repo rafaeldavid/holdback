@@ -39,10 +39,10 @@
 // After the adjudicators, each pass sends the deals' due timeouts at the relayer's gas (T-231): the reclaim, the
 // default and an accepted offer's expiry, so a deal ends when its parties are gone. A cap per pass
 // and a daily budget bound what that spends, and the alarm wakes at the next one due.
-import { canonicalKeccak, DRAND_QUICKNET_CHAIN_HASH, holdbackDomain, problem, registrationBodyHash, trimTrailingSlashes, wholeSecond, type AdjudicatorPolicy, type AdjudicatorRegistration, type AdjudicatorRole, type Address, type EscrowState, type HoldbackDomain, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Problem, type RegisteredAdjudicator, type SettlementEvent, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
+import { beaconClockOf, beaconRoundFor, canonicalKeccak, DRAND_QUICKNET_CHAIN_HASH, holdbackDomain, problem, registrationBodyHash, trimTrailingSlashes, wholeSecond, type AdjudicatorPolicy, type AdjudicatorRegistration, type AdjudicatorRole, type Address, type EscrowState, type HoldbackDomain, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Problem, type RegisteredAdjudicator, type SettlementEvent, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import { StoreError, type CiphertextStore } from '@holdback/core/store';
-import { declinesOf, drandQuicknet, testAdjudicator, type RandomnessSource, type RunReport, type TestAdjudicator } from '@holdback/adjudicator';
+import { declinesOf, drandQuicknet, testAdjudicator, type RandomnessSource, type RunReport, type KeptPolicies, type TestAdjudicator } from '@holdback/adjudicator';
 import {
   fetchHandler,
   nameToken,
@@ -100,6 +100,8 @@ export interface PublicWorldOptions {
    * HOLDBACK_OPENAI_COMPATIBLE_BASE_URL in `env` (Worker secrets); without them the panel is scripted.
    */
   liveCallsPerDay?: number;
+  /** ADR-0036: the kept-policies data the world's adjudicators run under. Tests only; default the build's own file. */
+  kept?: KeptPolicies;
   /** Stands in for the live models (tests): the world runs as if the keys were set. */
   judgeProvider?: JudgeProvider;
   /** Where telemetry's summary lines and warnings go. Default: the console, which Workers Logs keeps. */
@@ -444,6 +446,113 @@ function waitingNotice(s: EscrowState | null, w: WaitingTurn): string | null {
   return `The ${w.role} adjudicator cannot ${what} yet: ${w.detail}. It tries again on each pass.`;
 }
 
+/** How long after its round is published an adjudicator is woken: the round reaches the relays, then the next block. */
+export const ROUND_WAKE_MS = 1_500;
+
+/**
+ * ADR-0032 §3.5: when the beacon round that seeds the `role`'s panel on this deal is public, plus ROUND_WAKE_MS, in ms;
+ * null when no round applies. With a margin of 0 (SimChain, a local chain) the round is public at the deadline itself,
+ * so nothing moves.
+ */
+export function roundPublicAt(s: EscrowState, role: 'fallback' | 'appeal', marginSec: number): number | null {
+  if (!(marginSec > 0)) return null;
+  const clock = beaconClockOf(s.beaconSource);
+  const round = beaconRoundFor(s, role, marginSec);
+  if (!clock || round === null) return null;
+  return (clock.genesis + (round - 1) * clock.period) * 1000 + ROUND_WAKE_MS;
+}
+
+/**
+ * ADR-0036's "open": the roles that may still decide this deal, from the primary's signed acceptance until no adjudicator
+ * can decide it again; empty for an offer and once the deal is closed. One function, so the notice and the guard agree.
+ */
+export function rolesAhead(s: EscrowState, now?: Timestamp): AdjudicatorRole[] {
+  switch (s.kind) {
+    case 'AcceptedByAdjudicator':
+    case 'Agreed':
+    case 'Held':
+    case 'Delivered':
+      return ['primary', 'fallback', 'appeal'];
+    case 'FallbackJudging':
+      return ['fallback', 'appeal'];
+    case 'Escalated':
+      return ['appeal'];
+    case 'Released':
+    case 'Refunded':
+      // An open appeal, or one a party may still file before appealBy (T-377 red team M2).
+      if (s.via.kind !== 'first_instance') return [];
+      if (s.via.appeal.kind === 'open') return ['appeal'];
+      return s.via.appeal.kind === 'none' && (now === undefined || Date.parse(now) < Date.parse(s.via.appeal.appealBy)) ? ['appeal'] : [];
+    default:
+      return [];
+  }
+}
+
+const ROLE_NAME: Record<AdjudicatorRole, string> = { primary: 'primary', fallback: 'fallback', appeal: 'appeal' };
+
+/**
+ * ADR-0036 section 5: what the state read says when one of this world's adjudicators cannot judge an open deal on its
+ * terms (a version or registry this build does not carry, or withdrew): which adjudicator and role, why, what follows
+ * and when, and that the parties can settle first. Computed at read time from the terms, with the adjudicator's own
+ * answer (`cannotJudge`), so it shows before the seller delivers and survives a restart. null: every adjudicator this
+ * world runs can judge the deal.
+ */
+export async function cannotJudgeNotice(
+  s: EscrowState,
+  ours: (address: Address) => { name: string; cannotJudge: (terms: EscrowState['terms'], role: AdjudicatorRole) => Promise<Problem | null> } | undefined,
+  pays: string,
+  now?: Timestamp,
+): Promise<string | null> {
+  const ahead = rolesAhead(s, now);
+  if (!ahead.length) return null;
+  const a = s.terms.adjudication;
+  const t = s.terms.timing;
+  const who: Record<AdjudicatorRole, Address> = { primary: a.adjudicator, fallback: a.fallbackAdjudicator, appeal: a.appealAdjudicator };
+  const answer = async (role: AdjudicatorRole): Promise<{ name: string; problem: Problem | null } | undefined> => {
+    const x = ours(who[role]);
+    return x ? { name: x.name, problem: await x.cannotJudge(s.terms, role) } : undefined;
+  };
+  const answers = new Map<AdjudicatorRole, Awaited<ReturnType<typeof answer>>>();
+  for (const role of ahead) answers.set(role, await answer(role));
+  const blocked = ahead.filter((r) => answers.get(r)?.problem);
+  if (!blocked.length) return null;
+  const settle = 'The parties can settle by mutual agreement before then.';
+  const label = (role: AdjudicatorRole) => `The ${ROLE_NAME[role]} adjudicator ${answers.get(role)!.name} (${who[role]})`;
+  const next = (role: AdjudicatorRole): string => {
+    const n = answers.get(role);
+    if (!n) return `whether the ${ROLE_NAME[role]} adjudicator ${who[role]} can judge it is unknown: this operator does not run it`;
+    return n.problem ? `the ${ROLE_NAME[role]} adjudicator ${n.name} cannot judge it either (${n.problem.detail})` : `the ${ROLE_NAME[role]} adjudicator ${n.name} can judge it`;
+  };
+  const out: string[] = [];
+  for (const role of blocked) {
+    const why = answers.get(role)!.problem!.detail;
+    if (role === 'primary') {
+      const fb = next('fallback');
+      out.push(`${label('primary')} cannot judge this deal: ${why}. What follows: ${fb}; it can take over from judgeBy ${t.judgeBy} and decide until fallbackBy ${t.fallbackBy}. If no adjudicator decides by fallbackBy, anyone can then apply the default outcome: ${pays}. ${settle}`);
+    } else if (role === 'fallback') {
+      // The primary's answer is known only when this operator runs it (T-377 red team M5).
+      const p = ahead.includes('primary') ? answers.get('primary') : undefined;
+      const primary = !ahead.includes('primary')
+        ? 'No other adjudicator decides the first instance'
+        : !p
+          ? `Whether the primary adjudicator ${who.primary} can judge it is unknown: this operator does not run it. If it does not decide by judgeBy, no fallback will decide`
+          : p.problem
+            ? 'The primary cannot judge it either, so no adjudicator will decide the first instance'
+            : 'The primary can judge it; if it does not decide by judgeBy, no fallback will decide';
+      out.push(`${label('fallback')} cannot judge this deal: ${why}. What follows: ${primary}, and from fallbackBy ${t.fallbackBy} anyone can apply the default outcome: ${pays}. ${settle}`);
+    } else if (s.kind === 'Escalated') {
+      out.push(`${label('appeal')} cannot judge this deal's escalation: ${why}. What follows: from appealDecideBy ${s.escalation.appealDecideBy} anyone can apply the default outcome: ${pays}. ${settle}`);
+    } else if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance') {
+      const a = s.via.appeal;
+      if (a.kind === 'open') out.push(`${label('appeal')} cannot judge this deal's appeal: ${why}. What follows: the appeal expires at ${a.appealDecideBy}, and the first decision stands.`);
+      else if (a.kind === 'none') out.push(`${label('appeal')} cannot judge an appeal of this deal: ${why}. What follows: a party may still appeal until appealBy ${a.appealBy}, but the appeal would go unheard and expire at ${a.appealDecideBy}, and the first decision would stand.`);
+    } else {
+      out.push(`${label('appeal')} cannot judge this deal: ${why}. What follows: if a first decision escalates, anyone can apply the default outcome once the escalation's appealDecideBy passes: ${pays}; a party appeal would expire, and the first decision would stand. ${settle}`);
+    }
+  }
+  return out.join(' ');
+}
+
 /**
  * When this world's adjudicators act on a commitment: `now` for a step they can take now, judgeBy for a fallback
  * takeover, nothing while it is a party's turn; null once no adjudicator can act on it again, so `look` drops it. The
@@ -454,8 +563,11 @@ function waitingNotice(s: EscrowState | null, w: WaitingTurn): string | null {
  * one sooner. A decided deal on a chain is final at once, whether core writes its appeal as `none` with appealBy at the
  * decision or as `expired`: either way no adjudicator acts on it again.
  */
-function workAt(s: EscrowState, ours: (address: string) => boolean, now: number): number[] | null {
+export function workAt(s: EscrowState, ours: (address: string) => boolean, now: number, marginSec = 0): number[] | null {
   const { adjudicator, fallbackAdjudicator, appealAdjudicator } = s.terms.adjudication;
+  // ADR-0032 §3.5 (T-378 part 6): a fallback or appeal panel waits for its beacon round, which a rules contract with a
+  // margin publishes that long after the last choice. Its adjudicator is woken to decide when the round is public.
+  const roundReady = (role: 'fallback' | 'appeal', from: number) => Math.max(from, roundPublicAt(s, role, marginSec) ?? from);
   const { offerExpiresAt, deliverBy, judgeBy, fallbackBy } = s.terms.timing;
   const passed = (deadline: Timestamp) => now >= Date.parse(deadline);
   switch (s.kind) {
@@ -471,11 +583,13 @@ function workAt(s: EscrowState, ours: (address: string) => boolean, now: number)
       if (passed(fallbackBy)) return null;
       const at = s.kind === 'Delivered' && ours(adjudicator) && !passed(judgeBy) ? [now] : [];
       // Kept even while the primary can act now: the takeover must not wait on a slow cadence (T-057 review).
-      if (ours(fallbackAdjudicator)) at.push(s.kind === 'Delivered' ? Date.parse(judgeBy) : now);
+      // The takeover (triggerFallback) needs no round and is its own transaction, so it goes at judgeBy; the decision
+      // that follows in FallbackJudging waits for the round (PR 427 review M1: both after the round would cost a block).
+      if (ours(fallbackAdjudicator)) at.push(s.kind === 'Delivered' ? Date.parse(judgeBy) : roundReady('fallback', now));
       return at;
     }
     case 'Escalated':
-      return passed(s.escalation.appealDecideBy) ? null : ours(appealAdjudicator) ? [now] : [];
+      return passed(s.escalation.appealDecideBy) ? null : ours(appealAdjudicator) ? [roundReady('appeal', now)] : [];
     case 'Released':
     case 'Refunded': {
       if (s.via.kind !== 'first_instance') return null;
@@ -729,7 +843,16 @@ export class PublicWorld {
       };
     };
     const panelText = () => (panel.live ? livePanel(panel.budget.perDay) : SCRIPTED_PANEL);
-    const notices = (about: NoticeSubject): string[] => {
+    const oursFor = (address: Address) => {
+      const x = Object.entries(adjudicators).find(([, t]) => t.address === lc(address)) as [AdjudicatorRole, TestAdjudicator] | undefined;
+      return x ? { name: nameOf(ADJUDICATORS.find((d) => d.role === x[0])!, panel.live), cannotJudge: (terms: EscrowState['terms'], role: AdjudicatorRole) => x[1].service.cannotJudge(terms, role).catch(() => null) } : undefined;
+    };
+    // What the default outcome pays on this settlement layer (ADR-0036 section 2).
+    const compensationBps = club.rulebook.defaultOutcome.judged.sellerCompensationRateBps;
+    const defaultPays = o.live
+      ? 'the buyer gets the price and the fee back, no key is released, and the seller keeps its work'
+      : `the buyer gets the price and the fee back, and the seller is paid ${compensationBps / 100}% of the price from the bonds of the adjudicators that missed their turns`;
+    const notices = async (about: NoticeSubject): Promise<string[]> => {
       if (about.kind === 'prepare' && about.prepareKind === 'offer') {
         const i = (about.input ?? {}) as { template?: unknown; hashOnly?: unknown; disclosure?: unknown };
         if (i.hashOnly === true || i.disclosure === 'private' || i.disclosure === 'judgment') return [SEALED];
@@ -748,7 +871,10 @@ export class PublicWorld {
         // T-211 and T-221: a demo fallback or appeal adjudicator declined its turn on this deal's terms (an appeal
         // adjudicator it does not trust, another registry, a bound policy or a panel it cannot run).
         const turn = turnsDeclined.get(about.commitmentId);
-        const said = turn ? declinedTurnNotice(chain.escrowState(about.commitmentId), turn) : null;
+        // ADR-0036 section 5: computed now from the terms, for every role still ahead, the primary's included.
+        const cannot = state ? await cannotJudgeNotice(state, oursFor, defaultPays, chain.now()) : null;
+        if (cannot) return [cannot];
+        const said = turn ? declinedTurnNotice(state, turn) : null;
         if (said) return [said];
         // T-372: an adjudicator that cannot act yet for a reason off the terms (a store that did not return the bytes).
         const wait = waiting.get(about.commitmentId);
@@ -810,6 +936,7 @@ export class PublicWorld {
         name: nameOf(a, panel.live),
         registry: panel.registry,
         registryUri: panel.registryUri,
+        keptRegistries: panel.kept,
         provider: panel.provider,
         label: a.label,
         signingKey: a.keys.privateKey,
@@ -840,6 +967,7 @@ export class PublicWorld {
         // an appeal adjudicator a party controls could overturn an honest decision and take the price from the bond. As
         // fallback they also decline a turn under any other appeal adjudicator (T-221, ADR-0030 §6).
         trustedAdjudicators: adjKeys.map((k) => k.keys.address),
+        ...(o.kept ? { kept: o.kept } : {}),
       });
       await registerOwn(registrations, domain, a.keys.privateKey, { ...adj.registration(), pool: { terms: { ...POOL_TERMS } }, poolTermsHash: canonicalKeccak(POOL_TERMS), status: 'active' }, { label: a.label, start: meta.start, now: wholeSecond(now()) });
       adjudicators[a.role] = adj;
@@ -948,7 +1076,7 @@ export class PublicWorld {
     this.wake = null;
     for (const id of this.commitments) {
       const s = this.chain.escrowState(id);
-      const at = s ? workAt(s, (a) => ours.has(lc(a)), now) : null;
+      const at = s ? workAt(s, (a) => ours.has(lc(a)), now, this.chain.beaconMarginSec ?? 0) : null;
       if (at === null) {
         this.commitments.delete(id);
         continue;
@@ -1497,7 +1625,7 @@ export function notesFor(
     'Request log: these nodes keep one line per request for seven days (Request-Id, time, node, method, route template, status, problem type, timing), never a body, a header value, an IP address, or the addresses and IDs in the path. Quote the Request-Id of a failed request when you report it.',
     ...(chain
       ? [
-          "Fallback and appeal adjudicators decide on Sepolia: their panels are seeded from a drand quicknet round that settlement fixes (the round at judgeBy for the fallback, the first round after an escalation or appeal for the appeal adjudicator), and the rules contract verifies the round's BLS signature. If no drand relay answers before a deadline, nothing stands in: the deal takes its default outcome, or a party appeal expires and the first decision stands.",
+          "Fallback and appeal adjudicators decide on Sepolia: their panels are seeded from a drand quicknet round that settlement fixes (the first round published at or after judgeBy plus the rules contract's beacon margin for the fallback, and the first published more than the margin after an escalation for the appeal adjudicator; 29 s on Sepolia, ADR-0032), and the rules contract verifies the round's BLS signature. The demo's adjudicators wake when that round is public. If no drand relay answers before a deadline, nothing stands in: the deal takes its default outcome, or a party appeal expires and the first decision stands.",
           "The operators' view is kept across deploys. It starts over only when the settlement contracts are redeployed; what happened on Sepolia stays there. Keep your own copy of the terms you signed.",
         ]
       : ['State is journaled and replayed after a restart, but this is a demo: it may be reset at any time.']),

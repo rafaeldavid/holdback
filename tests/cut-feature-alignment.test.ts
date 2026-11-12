@@ -192,6 +192,19 @@ export const ALLOWED: ReadonlyArray<{ path: string; name: string; reason: string
     name: 'appellant',
     reason: 'a comment on what an appeal panel is not told; the plan (7b) finds the judgment pipeline takes nothing from the contracts, and its appeal panel still decides escalations',
   },
+  // T-377 (ADR-0036, from main at T-385's sync): the judgment pipeline names the appeal panel's prompt template hash
+  // `appealHash`, beside `firstHash`. It is not the contract's appeal message hash, and the appeal panel still decides
+  // escalations in phase one.
+  ...['packages/judgment/src/kept.ts', 'packages/judgment/src/prompt.ts', 'packages/testkit/src/judgment.ts', 'packages/testkit/src/recorded.ts', 'packages/testkit/src/replay.ts'].map((path) => ({
+    path,
+    name: 'appealHash',
+    reason: "the appeal panel's prompt template hash in a kept template pair (ADR-0036), not the contract's appeal message hash",
+  })),
+  {
+    path: 'apps/adjudicator/src/bound-policy.test.ts',
+    name: 'appeal.decided',
+    reason: 'a variable named `appeal` (the appeal adjudicator\'s pass on an escalation) and its `decided` list, not the event kind',
+  },
   // ADR-0031 §7 removes the contract's record of an unfunded offer's expiry, not the operators' own: the phase-one adapter
   // still steps `expire_offer` by its clock and logs `offer.expired` with no transaction (evm-settlement.ts, case
   // 'expire_offer'). The testkit's trigger name and the fixtures' `- expire:` step drive that record (T-374).

@@ -9,10 +9,10 @@ import type { AdjudicatorPolicy, AdjudicatorRegistration, AdjudicatorRole, Addre
 import { fakeProvider, type FakeScript, type JudgeProvider, type LoadedRegistry } from '@holdback/judgment';
 import { keccak256, stringToBytes, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { defaultPolicy } from './policy.js';
+import { defaultPolicy, type KeptPolicies } from './policy.js';
 import type { RandomnessSource } from './randomness.js';
 import { loadRegistryFile } from './registry-file.js';
-import { Adjudicator, type RunReport } from './service.js';
+import { Adjudicator, type KeptRegistry, type RunReport } from './service.js';
 import { SettlementAdapter, type ContentStore, type SettlementReads } from './simchain-adapter.js';
 
 export const FAKE_JUDGE_MARK = '[fake judge, no model ran]';
@@ -87,6 +87,10 @@ export interface TestAdjudicatorOptions {
   registry?: LoadedRegistry;
   /** Where `registry` is published. Default file:///config/judges.yaml. */
   registryUri?: string;
+  /** The kept-policies data it runs under (AdjudicatorConfig.kept). Default: the build's own file. */
+  kept?: KeptPolicies;
+  /** ADR-0036: the other registries this build carries, each with the provider that reaches its models. */
+  keptRegistries?: ReadonlyArray<KeptRegistry>;
   /**
    * Replaces the marked fake judges (a live panel). Already routed by provider and wrapped in the judge
    * timeout; the caller labels anything scripted it routes to.
@@ -147,6 +151,8 @@ export function testAdjudicator(o: TestAdjudicatorOptions): TestAdjudicator {
     policy: defaultPolicy(`${o.label}/p1`),
     registry,
     registryUri: o.registryUri ?? 'file:///config/judges.yaml',
+    ...(o.keptRegistries ? { keptRegistries: o.keptRegistries } : {}),
+    ...(o.kept ? { kept: o.kept } : {}),
     fee: { min: o.fee },
     domain: o.domain,
     provider: o.provider ?? markedFake(markerFake(o.judges ?? {})),

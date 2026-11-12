@@ -5,7 +5,7 @@
 - **Depends on:** T-363 (the cutover checklist, on `contracts-audit-ready`), whose gap 2 this closes
 - **Paths this task may touch:** `examples/send-timeout.ts`, `examples/send-timeout.test.ts`, one script line in the root `package.json`, one `EXEMPT` entry in `tests/ci-gated.test.ts`, this task file
 - **Human gate:** no for the code. A live run on Sepolia is Rafa's.
-- **Status:** done (PR 385)
+- **Status:** done (PR 385, merged 2026-11-12 at 06:41 UTC as `c5865ca`)
 - **Agent/session:** T-365 implementer session, 2026-11-12
 
 ## Intent

@@ -5,7 +5,7 @@
 - **Depends on:** T-319, T-330, T-332, T-359
 - **Paths this task may touch:** `examples/seller-adapter.test.ts` (two lines, see Handoff), `examples/buy-with-signer.ts` and its tests (`examples/buy-with-signer.test.ts`, the command's test in `examples/buyer-signer.test.ts`, the command's test in `examples/audit-deal.test.ts`), `examples/buyer-signer.ts` (one getter), `examples/audit-deal.ts` (the approval names its commitment ID), `apps/operator/src/sim-world.ts` and its test (the sim's faucet), the buyer step in `site/llms.txt`, the section "A seller's client can carry the buyer's side" in `site/sell.txt`, this file
 - **Human gate:** no (the site deploy that publishes the doc lines is Rafa's)
-- **Status:** review
+- **Status:** done (PR 384, merged 2026-11-12 at 06:26 UTC as `863a971`)
 - **Agent/session:** T-368 implementer session, change kind 4 (tooling)
 
 ## Intent

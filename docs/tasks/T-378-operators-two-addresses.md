@@ -5,7 +5,7 @@
 - **Depends on:** T-358 (R6c-1, the two addresses in the signed terms, holdback PR 387, `a37a48d`); T-374 part 1 (the lane takes main, holdback PR 398)
 - **Paths this task may touch:** `packages/sdk/`, `apps/operator/`, `apps/demo-cloud/` except its fork tests, `apps/adjudicator/` except `drand-fork.test.ts`, `apps/test-agents/`, `spec/openapi.json` and its source `spec/openapi/paths.json`, this file. Named exceptions: the profile option in `packages/settlement/sim/` and `packages/core/` (item 4), and one line in ADR-0033 (item 5)
 - **Human gate:** no. The operator deploy that carries this work is Rafa's, after the Sepolia redeploy
-- **Status:** done (parts 1 to 5, holdback PRs 403, 408, 412, 416 and the alignment PR). Part 6 follows as its own pull request, placed by the coordinator on 2026-11-12 (Handoff)
+- **Status:** done (parts 1 to 5, holdback PRs 403, 408, 412, 416 and 421). Part 6 follows as its own pull request, placed by the coordinator on 2026-11-12 (Handoff)
 - **Agent/session:** Opus 5.5, high effort; change kind 4 (API and operator code); one reviewer per pull request
 
 ## Intent
@@ -143,7 +143,7 @@ Labels: measured, inferred, guessed. All runs are on this task's branches, 2026-
   - Info 8 is as intended.
 - CI found two races in tests on this branch: the demo world's rebuild test took its digest before closing the world, and the posted-delivery settlement test (PR 412) did not silence the primary. Both are fixed; each passed three runs in a row [measured].
 
-**Part 5, my files leave the alignment list (the alignment PR):**
+**Part 5, my files leave the alignment list (holdback PR 421):**
 
 - `tests/cut-feature-alignment.known.json` [measured]: 83 files on the lane's tip `5091dd7`, 61 with this PR. The 22 files that leave are T-378's in `apps/operator`, `apps/demo-cloud`, `apps/adjudicator`, `packages/sdk` and `tests/contract/openapi.contract.test.ts`; the list stood at 87 before other sessions' changes.
   - Each use of an appeal or bond feature in them is the full protocol's, which SimChain keeps, and carries a "SimChain only" mark.
@@ -158,6 +158,32 @@ Labels: measured, inferred, guessed. All runs are on this task's branches, 2026-
   - Lows 1 to 4 are fixed: the marks on phase one's own refusals say "not in phase one", the bond reads say they read zero on a chain, and the doc-block mark moved above its block;
   - Info 5 is the Paths note in the Handoff;
   - Info 6: the margin rows are killed only by the anvil red-team suite, as stated above.
+
+**Part 6, the margin's timing and notices (this PR; placed by the coordinator on 2026-11-12):**
+
+- `apps/demo-cloud/src/round-wake.test.ts`: 5 of 5 tests pass [measured].
+  - The takeover (`triggerFallback`) still goes at `judgeBy`: it needs no round and is its own transaction.
+  - With drand quicknet at the 29 s margin, the fallback is woken to decide when its round is public plus 1.5 s: 30.5 to 32.5 s after `judgeBy`, in `FallbackJudging`.
+  - With both the primary and the fallback ours, the primary still acts now.
+  - A fallback window shorter than the margin wakes after `fallbackBy`, and the deal is dropped then.
+  - The appeal adjudicator is woken when the escalation's round is public, not at once.
+  - At a margin of 0 nothing moves.
+- `one-world.anvil.test.ts`, a new block: on anvil at a 7 s margin, a silent primary's deal is decided by the demo fallback within a 12 s fallback window, after its round (`judgeBy + 7 s`) and before `fallbackBy` [measured].
+  - The same test also passes with the old wake code [measured]. So it shows a decision with a margin through the demo world; it does not show that the new wake is what makes it fit. The unit test pins the wake times.
+  - A window exactly at the floor cannot be tested on anvil: the 1.5 s slack and the next block use up a window of 9 s or less.
+  - An escalation decided end to end on anvil with a margin is not built; the unit test covers its wake.
+- `one-token.test.ts`: the two notices follow the deployment's margin [measured]:
+  - the escalation floor is 37 s at 29 s and 49 s at 41 s (ADR-0032's table);
+  - the fallback floor is 44 s at 29 s;
+  - there is no notice at a margin of 0;
+  - the offer is still prepared.
+  - The fallback floor is a worst case (margin + beacon period + 12 s slot). ADR-0032 measured 43 s on mainnet, which this states as 44 s.
+- The touched suites, the anvil files included, pass: 652 tests in 51 files, 3 skipped [measured].
+- The reviewer gave ISSUES: one Medium, three Lows, two Infos; nothing Critical or High.
+  - M1 is fixed: the first build held the takeover back until the round too. That made the fallback's decision two blocks after the round, and the worst case 56 s on Sepolia, against the 44 s notice.
+  - L2 (the round rule's wording for the fallback) and L3 (the anvil test's comment) are fixed; L4's tests are added.
+  - The reviewer brute-forced the floors: 37 s and 49 s for the escalation, 44 s on Sepolia and 43 s on mainnet for the fallback. Ours says 44 s for both: conservative by 1 s on mainnet.
+  - Info 5: the 12 s slot over-warns on anvil with a margin, advisory only. Info 6: a margin of 0 gives no notice, and no deployed contract has a drand beacon without a margin.
 
 ## Decisions
 
@@ -189,10 +215,8 @@ Labels: measured, inferred, guessed. All runs are on this task's branches, 2026-
   - L2: a default takes two triggers on SimChain (`default`, then `apply-default`), and its bond payout emits `bond.slashed` events of 0. On chain, `triggerDefault` does both in one call and emits no bond event.
   - L3: SimChain does not check that the operator fee's nonce is `operatorFeeNonce(id)`, or that a funding authorization names the escrow's collector and the payment-info nonce, as the EVM adapter does. A signed message built by hand, not through prepare, passes locally and reverts on chain.
   - Info 7: the operator and the adjudicator read `profile` from the settlement object by duck typing. A `profile` field on the settlement interface (`packages/settlement/src/interface.ts`) would make it explicit.
-- **Part 6, placed by the coordinator on 2026-11-12, after T-380's rounds PR:**
-  - the demo world's alarm for the fallback and for the escalation follows the round's publish time, with the margin read from the deployment;
-  - the 37 s notice computes its figure from the deployment's margin;
-  - a notice for the fallback window's floor (43 or 44 s).
+- **The SimChain world's new name** (the cutover checklist, row 7): T-383 sets `WORLD_NAMES.sim` to `holdback-public-demo-sim-2026-11-12` in its PR 425, at this task's request (2026-11-12).
+- **The notices assume a 12 s slot** (`CHAIN_BLOCK_SEC`), the slot of Ethereum mainnet and Sepolia. A deployment on an L2 needs its own block time there.
 
 - **The 37 s notice assumes the 29 s beacon margin of ADR-0032,** which R8 (T-380) builds into the contract (PR 412 review, Low 2). Until that deployment, Sepolia's floor is 13 s, and the notice says it applies on a rules contract with that margin. A notice computed from the deployment's own margin can follow once the margin reaches the operator (T-380 adds `beaconMarginSec` to the settlement interface).
 

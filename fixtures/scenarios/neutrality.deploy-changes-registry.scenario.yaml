@@ -1,0 +1,41 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 47
+name: neutrality.deploy-changes-registry
+description: >-
+  ADR-0036, for the judge registry. The adjudicators run a build whose default registry is config/judges-live.yaml
+  when the deal is accepted; after the delivery the operators deploy a build whose default is config/judges.yaml.
+  Bench A seats its panel from the registry the terms bound, and $2,000 releases to Tidewater. It closes the planned
+  neutrality.maintainers-change-registry. The verdicts are recorded from fake judges; no model ran.
+fails: bench-a
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - restart_adjudicators: { registry: config/judges-live.yaml }
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.csv }
+  - restart_adjudicators: { registry: config/judges.yaml }
+  - advance_clock:      { seconds: 5 }
+  - judge:              { adjudicator: bench-a }
+  - settle:             { trigger: anyone }
+  - verify_key_release: { by: buyer, via: op-1 }
+expect:
+  terminal: Released
+  balances:
+    atlas-buyer: "7950000000"
+    tidewater-seller: "2000000000"
+    bench-a: "25050000000"
+    escrow: "0"

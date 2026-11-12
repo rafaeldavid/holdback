@@ -1,6 +1,6 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "rootDir": "src", "outDir": "dist", "types": ["node"] },
-  "include": ["src"],
+  "include": ["src", "src/*.json"],
   "references": [{ "path": "../../packages/core" }, { "path": "../../packages/judgment" }, { "path": "../../packages/settlement" }]
 }

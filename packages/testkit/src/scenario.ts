@@ -38,6 +38,9 @@ export type StepBody =
   // Outages and permissionless timeouts (neutrality fixtures).
   | { kind: 'offline'; actor: string }
   | { kind: 'operator_refuses'; operator: string }
+  // ADR-0036: a deploy. The three adjudicators restart on a build whose default screen version or registry differs; the
+  // build keeps every version and registry it carried, so a deal judges under what it bound.
+  | { kind: 'restart_adjudicators'; screenVersion?: string; registry?: string }
   | { kind: 'trigger_fallback'; via: Via }
   | { kind: 'trigger_default'; via: Via }
   | { kind: 'apply_default_outcome'; via: Via }
@@ -156,6 +159,7 @@ const STEP_KINDS = [
   'verify_key_release',
   'offline',
   'operator_refuses',
+  'restart_adjudicators',
   'trigger_fallback',
   'trigger_default',
   'apply_default_outcome',
@@ -174,7 +178,7 @@ const UNSUPPORTED: Record<string, string> = {
 };
 
 /** Steps that do not act on a commitment, so `commitment:` makes no sense on them. */
-const NO_COMMITMENT = ['advance_clock', 'offline', 'operator_refuses'];
+const NO_COMMITMENT = ['advance_clock', 'offline', 'operator_refuses', 'restart_adjudicators'];
 
 function parseStep(raw: unknown, path: string, operators: readonly string[], actors: readonly string[]): Step {
   if (!isObj(raw) || Object.keys(raw).length !== 1) fail(path, 'each step is a mapping with exactly one key, e.g. "- offer: { by: seller }"');
@@ -306,6 +310,13 @@ function parseStepBody(kind: string, body: unknown, path: string, operators: rea
       const op = name(o.operator, `${p}.operator`);
       if (!operators.includes(op)) fail(`${p}.operator`, `operator "${op}" is not in operators [${operators.join(', ')}]`);
       return { kind, operator: op };
+    }
+    case 'restart_adjudicators': {
+      const o = object(body, p, ['screen', 'registry']);
+      if (!('screen' in o) && !('registry' in o)) fail(p, 'name the new default: screen, registry or both');
+      const registry = 'registry' in o ? str(o.registry, `${p}.registry`) : undefined;
+      if (registry !== undefined && !/^config\/[a-z0-9-]+\.yaml$/.test(registry)) fail(`${p}.registry`, `must be a registry file under config/, e.g. config/judges-live.yaml; got ${JSON.stringify(registry)}`);
+      return { kind, ...('screen' in o ? { screenVersion: name(o.screen, `${p}.screen`) } : {}), ...(registry ? { registry } : {}) };
     }
     case 'trigger_fallback':
     case 'trigger_default':
