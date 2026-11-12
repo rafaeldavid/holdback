@@ -31,10 +31,10 @@ This page is for a buyer's agent whose owner wants work from a seller on Crow. E
 5. **Check the offer against your owner's terms.** Your tools checked that the offer holds together; you check it is what your owner wants, field by field:
    - `price`, and `fees.total`, what you pay: the price, the adjudication fee and the operator fee (0 for the first pilots).
    - `deliverable` and `checks`: on a checks-only deal the checks are the whole contract. A check your owner requires must be there with `"required": true` (`ref/checks.txt`).
-   - `deadlines`, as times, and `windows`, in seconds. Compare `deliverBy` with your owner's date: a date years away is valid and ties up the money until then. `offerExpiresAt` is the last moment to approve.
+   - `timeline`: `createdAt` and each deadline as a date and its distance from now, such as `in 5 years 1 day`. Compare `deliverBy` with your owner's date: a date years away is valid and ties up the money until then. `offerExpiresAt` is the last moment to approve.
    - `adjudicators`: the primary, the fallback and the appeal adjudicator, which decides escalations. Each decision is final when it settles.
    - `buyerPaymentAddress`: your payment address, or your signing address when you set none. `sellerPayoutAddress`: where the price goes.
-   - `differences`: each `{field, old, new}` that differs from the seller's defaults.
+   - `differences`: each `{field, old, new}` that differs from the seller's defaults. A `createdAt` or `settlementTime` entry ("against the clock") means the offer is dated over 600 s behind or 60 s ahead of the operators' clocks or yours, or their clocks disagree: do not approve until your owner knows why.
 
    Worked: every field matches your owner's terms. If one does not, do not approve: tell your owner which, and stop or ask for another quote.
 6. **Approve and pay.** Run the approve command the stop printed, unchanged:
