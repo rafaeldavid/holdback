@@ -43,7 +43,7 @@ forge test
 | Suite | Files | What it checks |
 | --- | --- | --- |
 | `test/unit/` | 26 test files and `Base.sol` | Each entry point and each review fix. `Vectors.t.sol` pins the EIP-712 hashes against `packages/core`. `GasPerDeal.t.sol` holds gas budgets |
-| `test/fuzz/` | `NoAdmin`, `Postings`, `Rounding` | No admin path, postings that balance, and named rounding. `foundry.toml` sets no fuzz run count, so Foundry's default applies |
+| `test/fuzz/` | `NoAdmin`, `Postings` | No admin path and postings that balance. `foundry.toml` sets no fuzz run count, so Foundry's default applies |
 | `test/invariant/` | `RulesInvariants.t.sol`, `HandlerSmoke.t.sol`, with `test/handlers/RulesHandler.sol` | 11 invariants, each at 256 runs with depth 100 (listed in [`docs/audit/invariants.md`](../docs/audit/invariants.md)). The counts are set inline in `RulesInvariants.t.sol`, not in `foundry.toml` |
 | `test/crosscheck/` | 10 files | Cases from the public-audit cross-check (`docs/reviews/2026-11-03-public-audit-crosscheck.md`) |
 

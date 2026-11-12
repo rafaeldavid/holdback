@@ -73,6 +73,17 @@ All runs are local `forge test` on 2026-11-12, from `contracts/`, with forge 1.0
 - **Runtime size of `HoldbackRules`:** 19,914 bytes, unchanged (no source change).
 - **After the review fixes** (same command): 50 passed, 0 failed, in 294 s; `invariant_timelyDecisionsLand`, which now fails in both directions, passed 256 runs of 100 calls; `testFuzz_sideBySide` passed 257 runs; 21 smoke tests, 4 of them new.
 
+### PR 1b (holdback PR 399): the zero-price tests restored
+
+The coordinator relayed on 2026-11-12 that an earlier sync of `main` into the lane had dropped T-345's `contracts/test/unit/ZeroPrice.t.sol`; the lane never carried it. PR 1 had merged by the time the port was ready, so it is its own tests-only pull request. A subagent ported it to the phase-one contracts: 20 tests, 20 passed [measured by it]. It dropped one test (the unbonded primary, no vault since SC-7) and the Permit2 and `expireOffer` steps of another (SC-2, SC-6).
+
+### PR 2: the three money functions with no caller
+
+- **Compiled code unchanged** [measured, one `forge build`]: `HoldbackRules`' runtime is 19,914 bytes on both sides. Without the metadata hash at its end, the new code equals, byte for byte, the code compiled from `parent/HoldbackRules.a37a48d.sol`, the lane's source at `a37a48d`: 19,861 bytes each. (A first comparison against a saved artifact differed by 2 bytes; that artifact came from the planted build of PR 1's proof, so the parent's artifact in the same build is the baseline used.)
+- **The harness's old side is re-seated** to `a37a48d`: `parent/` holds its three files unchanged (same git blob ids), the planted copy is rebuilt from it, `PinnedSource.t.sol` pins the new hashes, and the allow list is empty. The parent pays the money addresses, so the harness now draws deals with those addresses apart as the invariant campaign does.
+- **Gates** (`--match-path 'test/{invariant,differential,fuzz}/*.t.sol'`): 61 passed, 1 failed, in 412 s. `testFuzz_sideBySide` passed 257 runs with the empty allow list; the 11 invariants passed 256 runs of 100 calls each; `test_planted_failsTheHarness` passed. The one failure was the harness's own reach floor: `test_sideBySide_reachesEveryRow` counted 571 landed calls over its 48 seeds against a floor of 576. It passed the run before, without deals drawn apart. The floor went from 12 to 10 a seed, with the reason beside it; every row and stage is still reached.
+- **Removed with the functions:** `test/fuzz/Rounding.fuzz.t.sol` (7 fuzz tests, all of them on the three functions), their 7 lines in `.gas-snapshot`, and the `Rounding` entry in `contracts/README.md`. `Postings.fuzz.t.sol` now asserts the fee share of 0 directly.
+
 ## Review
 
 ### PR 1

@@ -130,7 +130,7 @@ contract SideBySideTest is Test {
     }
 
     /// The gate is not vacuous. Over COVERAGE_SEEDS fixed seeds the sequences reach every stage and every phase-one
-    /// row of the state oracle (P01 to P17), land at least 12 checked calls a sequence on
+    /// row of the state oracle (P01 to P17), land at least 10 checked calls a sequence on
     /// average, and at most a quarter of them diverge by an allowed change. Gas metering is off here: this test
     /// measures reach, and the gate itself (`testFuzz_sideBySide`) meters every action.
     function test_sideBySide_reachesEveryRow() public {
@@ -150,8 +150,10 @@ contract SideBySideTest is Test {
         }
         // Held to Settled: seven stages (`Expired` left with SC-6, T-356).
         assertEq(stages >> 1, uint256(0x7f), "some stage was never reached");
-        // 772 landed over the 48 seeds on 2026-11-11 (measured); the floor leaves room for changes to the mix.
-        assertGe(landed, 12 * COVERAGE_SEEDS, "too few checked calls landed");
+        // 772 landed over the 48 seeds on 2026-11-11 (measured); the floor leaves room for changes to the mix. T-375: 571
+        // on 2026-11-12 (measured), once the harness drew one deal in four with its money addresses apart; the same
+        // seeds landed at least 576 the run before, without them. The floor went from 12 to 10.
+        assertGe(landed, 10 * COVERAGE_SEEDS, "too few checked calls landed");
         assertLe(diverged * 4, COVERAGE_SEEDS, "more than a quarter of the seeds diverged by allowed changes");
         console.log("checked calls landed over the coverage seeds", landed);
     }

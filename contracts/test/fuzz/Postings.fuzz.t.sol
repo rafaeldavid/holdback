@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
-import {HoldbackTypes as H, Money} from "../../src/HoldbackTypes.sol";
+import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "../unit/Base.sol";
 
 /// @title PostingsFuzzTest
@@ -115,7 +115,9 @@ contract PostingsFuzzTest is Base {
         Snap memory s0 = _snap();
         rules.mutualSettle(t, m, _noDelivery(), none);
         Snap memory s1 = _snap();
-        (uint256 share, uint256 rest) = Money.split(t.fee, rules.MUTUAL_FEE_SHARE_BPS());
+        // The rulebook is not on chain, so the fee share is the default of 0: the whole fee goes back to the buyer.
+        assertEq(rules.MUTUAL_FEE_SHARE_BPS(), 0, "the mutual fee share left 0");
+        (uint256 share, uint256 rest) = (0, t.fee);
         assertEq(s1.seller - s0.seller, a);
         assertEq(s1.third, s0.third, "a third address is never paid");
         assertEq(s1.buyer - s0.buyer, b + c + rest);

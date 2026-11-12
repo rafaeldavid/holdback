@@ -524,9 +524,9 @@ contract RulesHandler is Base {
         // behaviour at that bound shows in the side-by-side harness. The draw is independent, under its own hash label.
         uint256 b = uint256(keccak256(abi.encode("boundary", seed)));
         if (b % 16 == 0) _boundary(t, b >> 8);
-        // T-358 (ADR-0033): in the invariant campaign one deal in four has its payment and payout addresses apart from
-        // its signing addresses. The side-by-side harness keeps them equal: its old side pays the signing addresses.
-        if (!traceMode && _paysMoneyAddresses() && uint256(keccak256(abi.encode("apart", seed))) % 4 == 0) {
+        // T-358 (ADR-0033): one deal in four has its payment and payout addresses apart from its signing addresses. Since
+        // T-375 the side-by-side harness draws them too: its old side, the lane after T-358, pays the money addresses.
+        if (_paysMoneyAddresses() && uint256(keccak256(abi.encode("apart", seed))) % 4 == 0) {
             (t.buyerPaymentAddress, t.sellerPayoutAddress) = (payAddr, payoutAddr);
         }
         bytes32 id = hx.id(t);
