@@ -122,7 +122,17 @@ export interface OfferInput {
   /** The rulebook registered under terms.rulebookHash, or null when none is. */
   rulebook: Rulebook | null;
   nonceUsed: boolean;
+  /** The protocol the settlement layer enforces (`full` unless it says otherwise). */
+  profile?: SettlementProfile;
 }
+
+/**
+ * ADR-0031 §6 (SC-5; Rafa, 2026-11-11): on the phase-one contracts a deal holds at least one base unit, as price or as
+ * fee. The escrow refuses to hold nothing (`AuthCaptureEscrow` reverts `ZeroAmount`; pinned by
+ * `contracts/test/unit/ZeroPrice.t.sol`, `test_zeroPriceZeroFee_cannotFund_escrowRefusesZeroAmount`).
+ */
+export const ZERO_HOLD_PROBLEM =
+  'price and adjudication fee are both 0, and the phase-one contracts cannot fund a deal that holds nothing: the escrow refuses to hold 0 (AuthCaptureEscrow ZeroAmount; ADR-0031 §6). A zero price is allowed with a fee above 0; give the deal a price or a fee of at least one base unit';
 
 export type EscrowEvent =
   | { type: 'adjudicator_accept'; at: Timestamp; message: AdjudicatorAcceptance; unencumberedBond: TokenAmount }
@@ -208,6 +218,13 @@ export function offer(input: OfferInput): R<Extract<EscrowState, { kind: 'Offere
 
   const timing = validateTiming(terms.timing, rulebook);
   if (!timing.ok) return timing;
+  // ADR-0031 §6 (SC-5): what the phase-one contracts refuse at funding, refused here before anyone signs. The strict
+  // deadline order is validateTiming's, which the contract copies.
+  if (input.profile === 'phase_one') {
+    if (terms.timing.maxSubmissions !== 1) return fail('invalid_terms', `timing.maxSubmissions ${terms.timing.maxSubmissions}: the phase-one contracts take one delivery (1 only)`);
+    if (terms.timing.appealDecideSec < 1) return fail('invalid_terms', 'timing.appealDecideSec must be at least 1: with 0 no escalation could be decided');
+    if (BigInt(terms.price.amount) === 0n && BigInt(terms.adjudication.fee.amount) === 0n) return fail('invalid_terms', ZERO_HOLD_PROBLEM);
+  }
   if (!rulebook.allowedSettlementModes.includes(terms.settlement.mode)) return fail('invalid_terms', `the rulebook does not allow ${terms.settlement.mode}`);
   if (terms.timing.maxSubmissions > rulebook.maxSubmissions) return fail('invalid_terms', 'maxSubmissions exceeds the rulebook maximum');
   for (const token of [terms.price.token, terms.adjudication.fee.token, terms.settlement.token]) {

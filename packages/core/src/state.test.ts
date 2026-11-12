@@ -308,6 +308,28 @@ describe('offer', () => {
   ])('refuses %s', (_name, over, type) => {
     expect(offer(offerInput(over))).toMatchObject({ ok: false, error: { type } });
   });
+
+  // T-356 (SC-5, ADR-0031 §6): on the phase-one profile the offer is refused for what the contracts refuse at funding.
+  const zero = (amount: string) => ({ token: 'tUSD', amount }) as TokenAmount;
+  const phaseOne = (patch: Partial<CommitmentTerms>, rb: Rulebook = rulebook): OfferInput => offerInput({ ...withRulebook(rb, patch), profile: 'phase_one' });
+  it.each<[string, OfferInput, RegExp]>([
+    ['price and fee both 0, the deal holding nothing', phaseOne({ price: zero('0'), adjudication: { ...exampleCommitment.adjudication, fee: zero('0') } }), /both 0.*ZeroAmount/],
+    ['an escalation window of 0', phaseOne({ timing: { ...exampleCommitment.timing, appealDecideSec: 0 } }, { ...rulebook, minWindowsSec: { ...rulebook.minWindowsSec, appealDecide: 0 } }), /appealDecideSec must be at least 1/],
+    ['maxSubmissions other than 1', phaseOne({ timing: { ...exampleCommitment.timing, maxSubmissions: 2 } }, { ...rulebook, maxSubmissions: 3 }), /take one delivery/],
+  ])('phase one refuses %s', (_name, input, detail) => {
+    const r = offer(input);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.type).toBe('invalid_terms');
+      expect(r.error.detail).toMatch(detail);
+    }
+  });
+
+  it('phase one takes a zero price with a fee above 0, and the full protocol takes a deal that holds nothing', () => {
+    expect(offer(phaseOne({ price: zero('0') })).ok).toBe(true);
+    const nothing = { price: zero('0'), adjudication: { ...exampleCommitment.adjudication, fee: zero('0') } };
+    expect(offer(offerInput(withRulebook(rulebook, nothing))).ok).toBe(true);
+  });
 });
 
 type Legal = [name: string, path: EscrowEvent[], event: EscrowEvent, to: EscrowState['kind'], appeal?: string];

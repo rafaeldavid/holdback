@@ -45,6 +45,7 @@ import {
   type Timestamp,
   type TokenAmount,
   type UnsignedMessage,
+  ZERO_HOLD_PROBLEM,
 } from '@holdback/core';
 import type { ApiProblem } from './problems.js';
 import { freeBond, hasBond, type Bond } from './registrations.js';
@@ -366,6 +367,9 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
     createdAt,
   };
   const terms: CommitmentTerms = representable(() => completeTerms(draft, { ...resolved, nonce }));
+  // ADR-0031 §6 (SC-5, Rafa 2026-11-11): a phase-one deal holds at least one base unit, as price or as fee; the escrow
+  // refuses to hold nothing. Said here, before the seller signs terms no one could fund.
+  if (ctx.phaseOne && BigInt(terms.price.amount) === 0n && BigInt(terms.adjudication.fee.amount) === 0n) bad(ZERO_HOLD_PROBLEM, 'price');
   const id = commitmentId(terms);
   // T-221 review: a default this node fills in must be able to run the terms (the outside primary's registry, policy
   // and fee, and the trust rule), or the parties would rely on an adjudicator that will decline its turn.

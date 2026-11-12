@@ -940,7 +940,8 @@ export class EvmSettlement implements Settlement {
         const found = joining ? await commitmentTxs(this, c.id) : null;
         const sellerScope: Scope = joining ? { roles: ['seller'], maxPerCommitment: t.price, maxDaily: t.price, expiresAt: '9999-12-31T23:59:59Z' } : this.scopeFor(t.seller, t.clubId, t, club);
         const nonce = `${lc(t.seller)}:terms:${t.nonce}`;
-        const r = offer({ commitment: c, at: joining ? t.createdAt : at, sellerScope, rulebook: club?.rulebook ?? null, nonceUsed: this.nonces.has(nonce) });
+        // ADR-0031 §6 (SC-5): core checks the offer against what the phase-one contracts refuse at funding.
+        const r = offer({ commitment: c, at: joining ? t.createdAt : at, sellerScope, rulebook: club?.rulebook ?? null, nonceUsed: this.nonces.has(nonce), profile: 'phase_one' });
         if (!r.ok) return refuse(r.error.type, r.error.detail);
         // The contract can represent these terms only if the token is an address (ADR-0025).
         termsView(t);
