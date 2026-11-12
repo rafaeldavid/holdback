@@ -162,7 +162,7 @@ describe('public mode', () => {
   it('states the faucet cap in the agent docs as the code has it (T-314)', () => {
     const cap = `${(DEMO_FAUCET_MAX_GRANT / 1_000_000n).toLocaleString('en-US')} tUSDC`;
     expect(cap).toBe('1,000,000 tUSDC');
-    for (const file of ['site/llms.txt', 'docs/api.md']) {
+    for (const file of ['site/ref/http.txt', 'docs/api.md']) {
       const text = readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
       const faucet = text.split('\n').filter((line) => /faucet/i.test(line) && line.includes('maxGrant'));
       expect(faucet.some((line) => line.includes(cap)), `${file} states the faucet cap of ${cap} beside maxGrant`).toBe(true);
@@ -273,7 +273,7 @@ describe('public mode', () => {
     // The docs: each names the field and the demo's number beside it, and neither says a node stores 10 MiB.
     const bytes = `${cap.toLocaleString('en-US')} bytes`;
     expect(bytes).toBe('1,048,576 bytes');
-    for (const file of ['site/llms.txt', 'docs/api.md', 'spec/openapi/paths.json']) {
+    for (const file of ['site/ref/http-seller.txt', 'docs/api.md', 'spec/openapi/paths.json']) {
       const text = readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
       expect(text.split('\n').some((line) => line.includes('maxCiphertextBytes') && line.includes(bytes)), `${file} states ${bytes} beside limits.maxCiphertextBytes`).toBe(true);
       expect(text.split('\n').filter((line) => /ciphertext/i.test(line) && /at most 10 MiB|ciphertext 10 MiB/.test(line)), `${file} no longer says a node stores 10 MiB`).toEqual([]);
@@ -463,7 +463,7 @@ describe('adjudicator registrations in the world store (T-221 slice 2, ADR-0030)
     const { urls } = await serve({}, new MemoryStorage(), undefined, { passes: false });
     const d = await discovery(urls);
     expect(Object.keys(d.defaultAdjudicators).sort()).toEqual(['appeal', 'fallback', 'primary']);
-    const guide = readFileSync(new URL('../../../site/llms.txt', import.meta.url), 'utf8');
+    const guide = readFileSync(new URL('../../../site/ref/adjudicators.txt', import.meta.url), 'utf8');
     const start = guide.indexOf('## Run your own adjudicator');
     const section = guide.slice(start, guide.indexOf('\n## ', start + 3));
     for (const field of ['`defaultAdjudicators`', '`observed.defaultFor`']) expect(section).toContain(field);

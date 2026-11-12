@@ -3,7 +3,7 @@
 - **Lane:** docs (the site's agent guides), on the branch `contracts-audit-ready`
 - **Phase:** 2
 - **Depends on:** T-385 (the phase-one rewrite of `site/llms.txt` and `site/sell.txt`, PRs 432, 436 and 437); T-391 (the two-agent run, PR 442, which measured the problem)
-- **Paths this task may touch:** `site/llms.txt`, `site/buy.txt`, `site/sell.txt`, `site/ref/*.txt`, `site/guides.mjs`, `site/build.mjs`, `site/check.mjs`, `site/index.html` and `site/try.mjs` as the build writes them, `tests/site-guides.test.ts`, this file; and, by the coordinator's leave, one line of `tools/duet/duet.test.ts` (line 89)
+- **Paths this task may touch:** `site/llms.txt`, `site/buy.txt`, `site/sell.txt`, `site/ref/*.txt`, `site/guides.mjs`, `site/build.mjs`, `site/check.mjs`, `site/index.html` and `site/try.mjs` as the build writes them, `tests/site-guides.test.ts`, this file; `site/walkthrough.mjs`; and, by the coordinator's leave, one line of `tools/duet/duet.test.ts` (line 89) and the file each test reads in `apps/demo-cloud/src/world.test.ts` (lines 165, 276, 466) and `tests/audit-report-template.test.ts` (lines 2, 313, 314, 326, 329)
 - **Human gate:** no. The site deploys from `main` only, after the lane merges there.
 - **Status:** done
 - **Agent/session:** T-393 kind 1 session, started by the coordinator
@@ -168,7 +168,27 @@ What the reviewer could not run: anything on Sepolia ("Try it", `sell.txt` step 
 **Follow-ups:**
 - T-390 part 2: an offer dated outside the operators' time band stops the unattended path, and every approval stop shows the deadlines as dates. `buy.txt` steps 4 and 5 should say so once it merges. That is a small follow-up the coordinator sends with the commit.
 - The bundle of the buyer's tools (Decisions).
-- `examples/pay-from-wallet.ts` names `site/llms.txt, "Pay from your own wallet"` in its comment. That text is now in `ref/http-buyer.txt`.
+- Text outside this task that still names a moved section (the repo-wide sweep at the merge). Agent-facing first:
+  - `apps/operator/src/server.ts:322`, an answer's text, says `see "Encodings" in https://crow.direct/llms.txt`. It now lives in `ref/signing.txt`.
+  - `apps/test-agents/src/buyer.ts:405`, a problem detail, names `site/llms.txt, section 5`. That section is now `ref/http-seller.txt`, "Offer".
+  - `apps/test-agents/src/seller.ts:231`, the test seller's page, names "Two agents, two people". That section is now in `ref/intake.txt`.
+  - `apps/operator/src/openapi/index.ts:78`, the operator's own `/llms.txt`, calls the guide "everything one deal needs, every encoding included". It is now the front door.
+  - `spec/openapi/paths.json:10`, the `externalDocs` description, says the same.
+  - Comments only:
+    - `examples/buyer-signer.ts:21,30,32`
+    - `examples/pay-from-wallet.ts:6`
+    - `examples/try.ts:4`
+    - `apps/test-agents/src/buyer.ts:7,565`
+    - `apps/test-agents/src/sell-once.ts:2`
+    - `apps/test-agents/src/seller.ts:6,169,184`
+    - `apps/demo-cloud/src/world.ts:174`
+    - `fixtures/terms/audit-report.yaml:16`
+  - Still fine:
+    - `site/deploy.mjs`;
+    - `tools/one-click/outsider.mjs`, whose allowlist covers `crow.direct/ref/`;
+    - `scripts/record-copies.mjs`;
+    - `apps/site`, which serves the whole out folder;
+    - the recorded fixtures in `tests/metrics/`.
 - The provider's count with a key: the first run with `HOLDBACK_AGENT_ANTHROPIC_API_KEY` set shows whether the hex-heavy front door keeps the buyer's path under 5,000 tokens. If it does not, cut `buy.txt` first.
 
 **How to resume:** `node site/build.mjs && node site/check.mjs` prints each path's size. `site/guides.mjs` holds the budget and the helpers, and `tests/site-guides.test.ts` tests them. My scratch work is in `reports/scratch/t393/` on the maintainer's machine (not tracked).
