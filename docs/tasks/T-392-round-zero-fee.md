@@ -6,7 +6,7 @@
 - **Depends on:** T-389 (PR 438, `1db0003`: the operators' fee at 0 for the first pilots)
 - **Paths this task may touch:** the round's files and tests under `examples/` (`e2e-scenario-kit.ts`, `e2e-world.ts`, the scenario files and their tests), this file. Never: T-379's files, `apps/`
 - **Human gate:** no
-- **Status:** review
+- **Status:** done (PR 443)
 - **Agent/session:** the T-374 session, 2026-11-12, branch `t-392-round-zero-fee`
 
 ## Intent
@@ -64,5 +64,12 @@ This task makes three changes:
 **Done.** The round passes at the fee Crow's operators deploy, and one anvil run keeps a charging operator's case alive.
 
 **For T-383 (the cutover sheet):** the "expected failure" for scenario 12's fee check is gone. At the deployed fee of 0 the live round expects no fee transfer.
+
+**Review** (one reviewer pass): PASS, no Critical or High. Fixed from it:
+- **Medium:** CI's test shards no longer ran any charging fee. A SimChain case in `e2e-round.test.ts` now runs scenarios 2 and 12 at `NONZERO_FEE`, and every deal is held with a fee above 0 [measured: 3 deals; 2 pass, 12 pass].
+- **Medium:** scenario 8's proof that a direct submission pays no operator fee was trivially true at 0. The direct scenarios' anvil world runs at `NONZERO_FEE` again.
+- **Low:** `deployedFee()` refuses a config that names no `OPERATOR_FEE_BPS` or `OPERATOR_FEE_MIN`, rather than letting the round run free unchecked.
+
+After the fixes: `e2e-round.test.ts` and `e2e-scenarios-direct.test.ts`, anvil included, pass 17 of 17 [measured].
 
 **If the deployed fee changes:** the round follows `wrangler.op1.jsonc` on its next run. The non-zero case keeps its own values in `NONZERO_FEE`.

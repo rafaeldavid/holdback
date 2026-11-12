@@ -107,6 +107,30 @@ describe('e2e-round.ts', () => {
     });
   });
 
+  // T-392: CI's test shards run the SimChain cases. The deployed fee is 0, so one SimChain world charges a fee, to keep
+  // the fee's slot, the payment address's third signature and the totals that include it under test in CI.
+  describe('against a demo world on SimChain whose operators charge a fee', () => {
+    let demo: Served;
+    beforeAll(async () => {
+      demo = await simWorld(NONZERO_FEE);
+    });
+    afterAll(() => demo.close());
+
+    it('runs scenarios 2 and 12 with a non-zero operator fee in every total', async () => {
+      const seed = generatePrivateKey();
+      const out = mkdtempSync(join(tmpdir(), 'e2e-round-sim-fee-'));
+      const r = await driver(['run', '2', '12'], { E2E_SEPOLIA_SEED: seed, HOLDBACK_OPERATORS: demo.urls.join(','), E2E_OUT: out });
+      expect(r.out).toMatch(/^results: 2 pass, 12 pass$/m);
+      // Three deals, each held with a fee above 0: "operator fee 0.01 tUSD", never "operator fee 0 tUSD".
+      const held = r.out.split('\n').filter((l) => /Held: .* operator fee /.test(l));
+      expect(held).toHaveLength(3);
+      for (const l of held) expect(l).not.toMatch(/operator fee 0 /);
+      const { folder, byId } = results(out);
+      for (const id of ['2', '12']) expect(byId[id].checks.filter((c: J) => !c.ok)).toEqual([]);
+      expectNoSecrets(seed, r.out, folder);
+    }, 300_000);
+  });
+
   describe('against the demo world on SimChain', () => {
     let demo: Served;
     beforeAll(async () => {

@@ -31,6 +31,8 @@ export function deployedFee(file = join(root, 'apps/demo-cloud/wrangler.op1.json
   // JSONC with whole-line comments only; a `//` inside a string (a URL) stays.
   const text = readFileSync(file, 'utf8').split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
   const vars = (JSON.parse(text) as { vars?: Record<string, string> }).vars ?? {};
+  // A config that states no fee would make the round run free without checking it: refuse it by name.
+  if (vars['OPERATOR_FEE_BPS'] === undefined || vars['OPERATOR_FEE_MIN'] === undefined) throw new Error(`${file} names no OPERATOR_FEE_BPS and OPERATOR_FEE_MIN: the round takes the deployed operator fee from there (T-392)`);
   return Object.fromEntries(['OPERATOR_FEE_BPS', 'OPERATOR_FEE_MIN', 'OPERATOR_FEE_MAX', 'OPERATOR_FEE_GAS'].filter((k) => vars[k] !== undefined).map((k) => [k, vars[k]!])) as FeeEnv;
 }
 
