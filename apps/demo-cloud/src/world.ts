@@ -39,7 +39,7 @@
 // After the adjudicators, each pass sends the deals' due timeouts at the relayer's gas (T-231): the reclaim, the
 // default and an accepted offer's expiry, so a deal ends when its parties are gone. A cap per pass
 // and a daily budget bound what that spends, and the alarm wakes at the next one due.
-import { canonicalKeccak, DRAND_QUICKNET_CHAIN_HASH, holdbackDomain, problem, registrationBodyHash, trimTrailingSlashes, wholeSecond, type AdjudicatorPolicy, type AdjudicatorRegistration, type AdjudicatorRole, type Address, type EscrowState, type HoldbackDomain, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Problem, type RegisteredAdjudicator, type SettlementEvent, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
+import { beaconClockOf, beaconRoundFor, canonicalKeccak, DRAND_QUICKNET_CHAIN_HASH, holdbackDomain, problem, registrationBodyHash, trimTrailingSlashes, wholeSecond, type AdjudicatorPolicy, type AdjudicatorRegistration, type AdjudicatorRole, type Address, type EscrowState, type HoldbackDomain, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Problem, type RegisteredAdjudicator, type SettlementEvent, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import { StoreError, type CiphertextStore } from '@holdback/core/store';
 import { declinesOf, drandQuicknet, testAdjudicator, type RandomnessSource, type RunReport, type TestAdjudicator } from '@holdback/adjudicator';
@@ -444,6 +444,22 @@ function waitingNotice(s: EscrowState | null, w: WaitingTurn): string | null {
   return `The ${w.role} adjudicator cannot ${what} yet: ${w.detail}. It tries again on each pass.`;
 }
 
+/** How long after its round is published an adjudicator is woken: the round reaches the relays, then the next block. */
+export const ROUND_WAKE_MS = 1_500;
+
+/**
+ * ADR-0032 §3.5: when the beacon round that seeds the `role`'s panel on this deal is public, plus ROUND_WAKE_MS, in ms;
+ * null when no round applies. With a margin of 0 (SimChain, a local chain) the round is public at the deadline itself,
+ * so nothing moves.
+ */
+export function roundPublicAt(s: EscrowState, role: 'fallback' | 'appeal', marginSec: number): number | null {
+  if (!(marginSec > 0)) return null;
+  const clock = beaconClockOf(s.beaconSource);
+  const round = beaconRoundFor(s, role, marginSec);
+  if (!clock || round === null) return null;
+  return (clock.genesis + (round - 1) * clock.period) * 1000 + ROUND_WAKE_MS;
+}
+
 /**
  * When this world's adjudicators act on a commitment: `now` for a step they can take now, judgeBy for a fallback
  * takeover, nothing while it is a party's turn; null once no adjudicator can act on it again, so `look` drops it. The
@@ -454,8 +470,11 @@ function waitingNotice(s: EscrowState | null, w: WaitingTurn): string | null {
  * one sooner. A decided deal on a chain is final at once, whether core writes its appeal as `none` with appealBy at the
  * decision or as `expired`: either way no adjudicator acts on it again.
  */
-function workAt(s: EscrowState, ours: (address: string) => boolean, now: number): number[] | null {
+export function workAt(s: EscrowState, ours: (address: string) => boolean, now: number, marginSec = 0): number[] | null {
   const { adjudicator, fallbackAdjudicator, appealAdjudicator } = s.terms.adjudication;
+  // ADR-0032 §3.5 (T-378 part 6): a fallback or appeal panel waits for its beacon round, which a rules contract with a
+  // margin publishes that long after the last choice. Its adjudicator is woken to decide when the round is public.
+  const roundReady = (role: 'fallback' | 'appeal', from: number) => Math.max(from, roundPublicAt(s, role, marginSec) ?? from);
   const { offerExpiresAt, deliverBy, judgeBy, fallbackBy } = s.terms.timing;
   const passed = (deadline: Timestamp) => now >= Date.parse(deadline);
   switch (s.kind) {
@@ -471,11 +490,13 @@ function workAt(s: EscrowState, ours: (address: string) => boolean, now: number)
       if (passed(fallbackBy)) return null;
       const at = s.kind === 'Delivered' && ours(adjudicator) && !passed(judgeBy) ? [now] : [];
       // Kept even while the primary can act now: the takeover must not wait on a slow cadence (T-057 review).
-      if (ours(fallbackAdjudicator)) at.push(s.kind === 'Delivered' ? Date.parse(judgeBy) : now);
+      // The takeover (triggerFallback) needs no round and is its own transaction, so it goes at judgeBy; the decision
+      // that follows in FallbackJudging waits for the round (PR 427 review M1: both after the round would cost a block).
+      if (ours(fallbackAdjudicator)) at.push(s.kind === 'Delivered' ? Date.parse(judgeBy) : roundReady('fallback', now));
       return at;
     }
     case 'Escalated':
-      return passed(s.escalation.appealDecideBy) ? null : ours(appealAdjudicator) ? [now] : [];
+      return passed(s.escalation.appealDecideBy) ? null : ours(appealAdjudicator) ? [roundReady('appeal', now)] : [];
     case 'Released':
     case 'Refunded': {
       if (s.via.kind !== 'first_instance') return null;
@@ -948,7 +969,7 @@ export class PublicWorld {
     this.wake = null;
     for (const id of this.commitments) {
       const s = this.chain.escrowState(id);
-      const at = s ? workAt(s, (a) => ours.has(lc(a)), now) : null;
+      const at = s ? workAt(s, (a) => ours.has(lc(a)), now, this.chain.beaconMarginSec ?? 0) : null;
       if (at === null) {
         this.commitments.delete(id);
         continue;
@@ -1497,7 +1518,7 @@ export function notesFor(
     'Request log: these nodes keep one line per request for seven days (Request-Id, time, node, method, route template, status, problem type, timing), never a body, a header value, an IP address, or the addresses and IDs in the path. Quote the Request-Id of a failed request when you report it.',
     ...(chain
       ? [
-          "Fallback and appeal adjudicators decide on Sepolia: their panels are seeded from a drand quicknet round that settlement fixes (the round at judgeBy for the fallback, the first round after an escalation or appeal for the appeal adjudicator), and the rules contract verifies the round's BLS signature. If no drand relay answers before a deadline, nothing stands in: the deal takes its default outcome, or a party appeal expires and the first decision stands.",
+          "Fallback and appeal adjudicators decide on Sepolia: their panels are seeded from a drand quicknet round that settlement fixes (the first round published at or after judgeBy plus the rules contract's beacon margin for the fallback, and the first published more than the margin after an escalation for the appeal adjudicator; 29 s on Sepolia, ADR-0032), and the rules contract verifies the round's BLS signature. The demo's adjudicators wake when that round is public. If no drand relay answers before a deadline, nothing stands in: the deal takes its default outcome, or a party appeal expires and the first decision stands.",
           "The operators' view is kept across deploys. It starts over only when the settlement contracts are redeployed; what happened on Sepolia stays there. Keep your own copy of the terms you signed.",
         ]
       : ['State is journaled and replayed after a restart, but this is a demo: it may be reset at any time.']),

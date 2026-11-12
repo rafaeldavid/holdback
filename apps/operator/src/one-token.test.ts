@@ -9,7 +9,7 @@ import { requestOf } from '@holdback/sdk';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { testAccount } from './accounts.js';
 import { holdOf, world, type World } from './_world.js';
-import { escalationWindowNotices, prepare, type PrepareContext } from './prepare.js';
+import { beaconWindowNotices, escalationFloorSec, fallbackFloorSec, prepare, type PrepareContext } from './prepare.js';
 import { startSimWorld, type SimWorld } from './sim-world.js';
 import { tokenRefusal, type AcceptedToken } from './token.js';
 
@@ -135,7 +135,7 @@ describe('one token at the offer prepare route, on the sim world', () => {
 
 });
 
-describe('the escalation window below the chain can decide (ADR-0032, 37 s): a notice, never a refusal', () => {
+describe('the escalation and fallback windows below what the deployment can decide (ADR-0032): notices, never refusals (T-378 part 6)', () => {
   const examples = join(import.meta.dirname, '..', '..', '..', 'spec', 'examples');
   const load = (f: string): unknown => JSON.parse(readFileSync(join(examples, f), 'utf8'));
   const c = parseCommitment(load('commitment.example.json'));
@@ -144,12 +144,26 @@ describe('the escalation window below the chain can decide (ADR-0032, 37 s): a n
   const ex = c.value as unknown as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
   // A club that lets the parties choose a short escalation window, on the drand beacon a Sepolia rules contract reads.
   const drand = { ...k.value, rulebook: { ...k.value.rulebook, minWindowsSec: { ...k.value.rulebook.minWindowsSec, appealDecide: 1 }, randomness: { source: 'drand-quicknet' } } } as typeof k.value;
-  const at = (club: typeof drand, appealDecideSec: number) => escalationWindowNotices(club, { timing: { ...ex['timing'], appealDecideSec } });
+  // A fallback window of 120 s (the repository's), so only the escalation's notice shows unless a test shortens it.
+  const timing = (appealDecideSec: number, fallbackSec = 120) => ({ ...ex['timing'], appealDecideSec, fallbackBy: new Date(Date.parse(ex['timing'].judgeBy) + fallbackSec * 1000).toISOString().replace('.000Z', 'Z') });
+  const at = (club: typeof drand, appealDecideSec: number, margin: number, fallbackSec?: number) => beaconWindowNotices(club, { timing: timing(appealDecideSec, fallbackSec) }, margin);
 
-  it('warns below 37 s on a drand-quicknet club and not at 37 s or on the sim beacon', () => {
-    expect(at(drand, 36)).toEqual([expect.stringMatching(/^timing\.appealDecideSec is 36 s, below the 37 s .* You may still choose it$/)]);
-    expect(at(drand, 37)).toEqual([]);
-    expect(at({ ...drand, rulebook: { ...drand.rulebook, randomness: { source: 'sim' } } } as typeof drand, 5)).toEqual([]);
+  it('the floors follow ADR-0032: 37 s and 44 s at the 29 s margin on drand quicknet', () => {
+    expect([escalationFloorSec(29, 3), fallbackFloorSec(29, 3)]).toEqual([37, 44]);
+    // A larger margin moves both: three slots instead of two at a 41 s margin (ADR-0032 §4's table: 49 s).
+    expect(escalationFloorSec(41, 3)).toBe(49);
+  });
+
+  it('warns below the floors the margin of the deployment gives, not at them, and not at a margin of 0', () => {
+    expect(at(drand, 36, 29)).toEqual([expect.stringMatching(/^timing\.appealDecideSec is 36 s, below the 37 s .*its beacon margin is 29 s.* You may still choose it$/)]);
+    expect(at(drand, 37, 29)).toEqual([]);
+    expect(at(drand, 37, 29, 43)).toEqual([expect.stringMatching(/^the fallback window \(fallbackBy − judgeBy\) is 43 s, below the 44 s .* You may still choose it$/)]);
+    expect(at(drand, 37, 29, 44)).toEqual([]);
+    // SimChain and a local chain report a margin of 0: no floor to warn about, whatever the windows.
+    expect(at(drand, 5, 0, 5)).toEqual([]);
+    // The margin, not the beacon, decides: a sim-beacon club on a contract with a margin is warned for that margin.
+    const sim = { ...drand, rulebook: { ...drand.rulebook, randomness: { source: 'sim' } } } as typeof drand;
+    expect(at(sim, 5, 7)).toEqual([expect.stringMatching(/below the 13 s/)]);
   });
 
   it('the offer prepare route still prepares the terms and carries the notice', async () => {
@@ -163,6 +177,7 @@ describe('the escalation window below the chain can decide (ADR-0032, 37 s): a n
       delivery: async () => undefined,
       attempt: async () => 0,
       state: async () => null,
+      beaconMarginSec: 29,
     } as unknown as PrepareContext;
     const body = {
       disclosure: 'public', template: 'checks-only', seller: ex['seller'], clubId: drand.id, nonce: `0x${'01'.repeat(32)}`, createdAt: '2026-11-12T00:00:00Z',
