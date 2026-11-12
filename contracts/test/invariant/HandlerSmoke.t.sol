@@ -32,6 +32,13 @@ contract HandlerSmokeTest is Test {
         return h.word(h.dealId(0)).stage;
     }
 
+    /// T-375 (RF-4): the closing reason and the decider the word of deal 0 stores.
+    function _closedAs(HoldbackRules.Reason reason, HoldbackRules.Decider decider) internal view {
+        HoldbackRules.Deal memory d = h.word(h.dealId(0));
+        assertEq(uint8(d.reason), uint8(reason), "stored closing reason");
+        assertEq(uint8(d.decider), uint8(decider), "stored decider");
+    }
+
     function _warpTo(uint256 t) internal {
         vm.warp(t);
     }
@@ -49,6 +56,7 @@ contract HandlerSmokeTest is Test {
         h.deliver(PICK, 5, 0);
         h.decide(PICK, 6, 0, H.OUTCOME_ACCEPT);
         assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Released));
+        _closedAs(HoldbackRules.Reason.Decided, HoldbackRules.Decider.Primary);
         assertEq(h.closings(h.dealId(0)), 1);
         assertEq(h.closedBy(h.dealId(0)), h.R_DECIDED());
         assertEq(h.closedDecider(h.dealId(0)), h.D_PRIMARY());
@@ -71,6 +79,7 @@ contract HandlerSmokeTest is Test {
         _funded();
         h.decide(PICK, 0, 0, H.OUTCOME_REJECT);
         assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Refunded));
+        _closedAs(HoldbackRules.Reason.Decided, HoldbackRules.Decider.Primary);
         assertEq(h.closedBy(h.dealId(0)), h.R_DECIDED());
     }
 
@@ -79,9 +88,11 @@ contract HandlerSmokeTest is Test {
         h.deliver(PICK, 0, 0);
         h.decide(PICK, 0, 0, H.OUTCOME_ESCALATE);
         assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Escalated));
+        _closedAs(HoldbackRules.Reason.Open, HoldbackRules.Decider.None);
         _warpTo(block.timestamp + 1); // T-209: wait for the first round after the escalation
         h.decide(PICK, 0, 0, H.OUTCOME_ACCEPT);
         assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Released));
+        _closedAs(HoldbackRules.Reason.Decided, HoldbackRules.Decider.Appeal);
     }
 
     function test_fallback_thenDefault() public {
@@ -93,6 +104,7 @@ contract HandlerSmokeTest is Test {
         _warpTo(t.timing.fallbackBy);
         h.triggerDefault(PICK, 5);
         assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Refunded));
+        _closedAs(HoldbackRules.Reason.Defaulted, HoldbackRules.Decider.None);
     }
 
     function test_fallbackDecides() public {
@@ -102,12 +114,14 @@ contract HandlerSmokeTest is Test {
         h.triggerFallback(PICK, 6);
         h.decide(PICK, 0, 0, H.OUTCOME_ACCEPT);
         assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Released));
+        _closedAs(HoldbackRules.Reason.Decided, HoldbackRules.Decider.Fallback);
     }
 
     function test_earlyAccept() public {
         _funded();
         h.earlyAccept(PICK, 3, 0);
         assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Released));
+        _closedAs(HoldbackRules.Reason.AcceptedEarly, HoldbackRules.Decider.None);
     }
 
     function test_mutualSettle() public {
@@ -116,6 +130,7 @@ contract HandlerSmokeTest is Test {
         uint256 split = 10 | (uint256(20) << 48) | (uint256(3) << 130);
         h.mutualSettle(PICK, 0, 0, split);
         assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Settled));
+        _closedAs(HoldbackRules.Reason.Settled, HoldbackRules.Decider.None);
     }
 
     function test_reclaim() public {
@@ -123,6 +138,7 @@ contract HandlerSmokeTest is Test {
         _warpTo(h.termsOf(0).timing.deliverBy);
         h.reclaim(PICK, 6);
         assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Refunded));
+        _closedAs(HoldbackRules.Reason.Reclaimed, HoldbackRules.Decider.None);
     }
 
     /// SC-6 (T-356): the phase-one contract has no `expireOffer`. The handler's action, kept for the side-by-side

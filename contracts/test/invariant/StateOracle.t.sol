@@ -227,7 +227,14 @@ contract StateOracleTest is Test {
         t = h.termsOf(0);
         t.timing.judgeBy = judgeBy;
         t.timing.fallbackBy = fallbackBy;
-        s.d = HoldbackRules.Deal({stage: HoldbackRules.Stage.Escalated, attempt: 1, t1: t1, seedTag: h.seedTag()});
+        s.d = HoldbackRules.Deal({
+            stage: HoldbackRules.Stage.Escalated,
+            attempt: 1,
+            t1: t1,
+            seedTag: h.seedTag(),
+            reason: HoldbackRules.Reason.Open,
+            decider: HoldbackRules.Decider.None
+        });
         s.deliveryHash = keccak256("a delivery");
         s.seedTag = h.seedTag();
         s.capturable = uint120(t.price + t.fee);

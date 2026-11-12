@@ -84,6 +84,13 @@ The coordinator relayed on 2026-11-12 that an earlier sync of `main` into the la
 - **Gates** (`--match-path 'test/{invariant,differential,fuzz}/*.t.sol'`): 61 passed, 1 failed, in 412 s. `testFuzz_sideBySide` passed 257 runs with the empty allow list; the 11 invariants passed 256 runs of 100 calls each; `test_planted_failsTheHarness` passed. The one failure was the harness's own reach floor: `test_sideBySide_reachesEveryRow` counted 571 landed calls over its 48 seeds against a floor of 576. It passed the run before, without deals drawn apart. The floor went from 12 to 11 a seed (528 of 571), after the review; every row and stage is still reached. Why deals drawn apart land fewer calls is not measured.
 - **Removed with the functions:** `test/fuzz/Rounding.fuzz.t.sol` (7 fuzz tests, all of them on the three functions), their 7 lines in `.gas-snapshot`, and the `Rounding` entry in `contracts/README.md`. `Postings.fuzz.t.sol` now asserts the fee share of 0 directly.
 
+### PR 3: RF-4, the closing reason and the decider in the word
+
+- **What changed in `contracts/src`:** two enums, `Reason` and `Decider`, and two fields at the end of `Deal`. Each closing write sets them in the same statement as the stage: the primary's or fallback's accept or reject (`Decided`, `Primary` or `Fallback`), the escalation's decision (`Decided`, `Appeal`), `earlyAccept` (`AcceptedEarly`), `mutualSettle` (`Settled`), `reclaim` (`Reclaimed`) and `triggerDefault` (`Defaulted`), the last two through `_refundAll`'s new argument. An escalation leaves the reason `Open`. No event, check or token call moved.
+- **Full suite** [measured, local `forge test`]: 57 suites, 417 tests passed, 0 failed, in 290 s. `testFuzz_sideBySide` passed 257 runs with the one RF-4 allow-list entry; `test_sideBySide_reachesEveryRow` landed 571 calls (the same as PR 2); the 11 invariants passed 256 runs of 100 calls, the state oracle now checking the stored reason and decider against the handler's record on every deal after every call.
+- **Runtime size of `HoldbackRules`** [measured, artifact]: 19,914 bytes before, 20,504 bytes after, **590 bytes added**. The limit is 24,576 bytes, so 4,072 bytes remain.
+- **`abis.json`** regenerated with `node scripts/evm-abis.mjs`: `dealOf`'s tuple gains `reason` and `decider` (`uint8`, the two enums). No other entry changed.
+
 ## Review
 
 ### PR 1

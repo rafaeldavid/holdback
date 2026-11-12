@@ -47,6 +47,17 @@ contract NewSide is RulesHandler {
 abstract contract PinnedSide is RulesHandler {
     function _rulesWith(SimBeacon beacon) internal virtual returns (HoldbackRules);
 
+    /// T-375 (RF-4): the parent's word has no closing reason or decider, so its `dealOf` returns four fields where the
+    /// new ABI decodes six. This reads the four and leaves the two new fields at Open and None; the handler reads
+    /// only the stage, the attempt and t1 on this side. The next change's parent has the six fields: remove this then.
+    function _dealOf(bytes32 id) internal view override returns (HoldbackRules.Deal memory d) {
+        (bool ok, bytes memory ret) = address(rules).staticcall(abi.encodeCall(HoldbackRules.dealOf, (id)));
+        require(ok && ret.length == 128, "the parent's dealOf is not the four-field word");
+        uint8 stage;
+        (stage, d.attempt, d.t1, d.seedTag) = abi.decode(ret, (uint8, uint8, uint40, uint144));
+        d.stage = HoldbackRules.Stage(stage);
+    }
+
     function setUp() public override {
         vm.chainId(31337);
         vm.warp(1_790_000_000);
