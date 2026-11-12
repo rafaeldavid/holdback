@@ -207,3 +207,95 @@ describe('the deploy waits until discovery names the deployed commit (T-370)', (
     expect(w.reads).toEqual([]);
   });
 });
+
+// ADR-0036 section 4 (T-377): the deal guard's decision, with plain facts. No network, no git.
+// @ts-expect-error -- a plain ESM script without type declarations
+import { guardDecision as guardDecisionUntyped } from '../../../scripts/deploy-lib.mjs';
+import { defaultPolicy, KEPT_POLICIES, type KeptPolicies } from '@holdback/adjudicator';
+import { policyHash, type AdjudicatorPolicy } from '@holdback/core';
+
+type Deal = { id: string; state: string; nextDeadline?: string; policyHash: string; registryHash: string };
+type Guarded = { refused: string | null; warnings: string[]; orphans: Deal[]; withdrawnOrphans: Deal[]; checked?: number };
+const guardDecision = guardDecisionUntyped as (facts: {
+  live: { kept: KeptPolicies | null; registrations: Array<{ policy: AdjudicatorPolicy; registryHash: string }> };
+  next: KeptPolicies;
+  deals: Deal[] | null;
+  readError?: string;
+  hashOf: (p: AdjudicatorPolicy) => string;
+  override?: string | null;
+}) => Guarded;
+
+describe('the deal guard (ADR-0036 section 4)', () => {
+  const REG = KEPT_POLICIES.registries[0]!.hash;
+  const OTHER_REG = KEPT_POLICIES.registries[1]!.hash;
+  const primary = defaultPolicy('demo-primary/p1');
+  const registrations = [{ policy: primary, registryHash: REG }];
+  const on = (screenVersion: string): string => policyHash({ ...primary, screenVersion });
+  const deal = (id: string, screenVersion: string, registryHash = REG): Deal => ({ id, state: 'Held', nextDeadline: 'deliverBy 2026-11-20T10:00:00Z', policyHash: on(screenVersion), registryHash });
+  const without = (k: KeptPolicies, version: string): KeptPolicies => ({ ...k, screens: k.screens.filter((s) => s.version !== version) });
+  const withdraw = (k: KeptPolicies, version: string): KeptPolicies => ({ ...k, screens: k.screens.map((s) => (s.version === version ? { ...s, status: 'withdrawn' as const, decision: 'D-test', reason: 'a hard rule' } : s)) });
+  const live = { kept: KEPT_POLICIES, registrations };
+  const facts = { live, next: KEPT_POLICIES, deals: [deal('0x01', 'screen-0'), deal('0x02', 'screen-1')], hashOf: policyHash as (p: AdjudicatorPolicy) => string };
+
+  it('passes a deploy that carries every version an open deal binds', () => {
+    expect(guardDecision(facts)).toEqual({ refused: null, warnings: [], orphans: [], withdrawnOrphans: [], checked: 2 });
+  });
+
+  it('refuses a deploy that drops a version an open deal binds, and names the deal, its state and its next deadline', () => {
+    const r = guardDecision({ ...facts, next: without(KEPT_POLICIES, 'screen-0') });
+    expect(r.refused).toMatch(/^Refused: after this deploy the adjudicators could not judge 1 open deal the live build can judge:\n {2}0x01 Held, next deadline deliverBy 2026-11-20T10:00:00Z: the new build does not carry screen-0\n/);
+    expect(r.orphans.map((o) => o.id)).toEqual(['0x01']);
+  });
+
+  it('refuses a deploy that drops a registry an open deal binds', () => {
+    const next = { ...KEPT_POLICIES, registries: KEPT_POLICIES.registries.filter((x) => x.hash !== OTHER_REG) };
+    const r = guardDecision({ ...facts, next, deals: [deal('0x03', 'screen-1', OTHER_REG)] });
+    expect(r.refused).toMatch(/0x03 Held.*does not carry registry 0x6dc7342b/);
+  });
+
+  it('refuses a new default the live build does not carry: a new default ships in two deploys', () => {
+    const next = { ...KEPT_POLICIES, default: { ...KEPT_POLICIES.default, screenVersion: 'screen-2' }, screens: [...KEPT_POLICIES.screens, { version: 'screen-2', status: 'kept' as const }] };
+    expect(guardDecision({ ...facts, next }).refused).toMatch(/^Refused: the new default names screen-2, which the live build does not carry, so a rollback could not judge a deal accepted under it\. Ship it in two deploys/);
+    // The second deploy, once the live build carries it, passes.
+    expect(guardDecision({ ...facts, live: { ...live, kept: next }, next }).refused).toBeNull();
+  });
+
+  it('warns and goes on when the open deals cannot be read', () => {
+    const r = guardDecision({ ...facts, next: without(KEPT_POLICIES, 'screen-0'), deals: null, readError: 'GET /v1/adjudicators answered 503' });
+    expect(r.refused).toBeNull();
+    expect(r.warnings).toEqual([expect.stringMatching(/^WARNING: the open deals could not be read \(GET \/v1\/adjudicators answered 503\)/)]);
+  });
+
+  it('honours the override for its named withdrawal only', () => {
+    const next = withdraw(KEPT_POLICIES, 'screen-0');
+    // Without the override the withdrawal still orphans the deal.
+    expect(guardDecision({ ...facts, next }).refused).toMatch(/0x01 Held/);
+    const ok = guardDecision({ ...facts, next, override: 'screen-0' });
+    expect(ok.refused).toBeNull();
+    expect(ok.withdrawnOrphans.map((o) => o.id)).toEqual(['0x01']);
+    // A deal orphaned for another reason still refuses under the override.
+    const both = { ...next, registries: next.registries.filter((x) => x.hash !== OTHER_REG) };
+    expect(guardDecision({ ...facts, next: both, deals: [deal('0x01', 'screen-0'), deal('0x04', 'screen-1', OTHER_REG)], override: 'screen-0' }).refused).toMatch(/0x04 Held.*registry 0x6dc7342b/);
+    // An override naming a version the file does not mark withdrawn is refused outright.
+    expect(guardDecision({ ...facts, override: 'screen-1' }).refused).toMatch(/^Refused: HOLDBACK_DEPLOY_WITHDRAWN names "screen-1", which kept-policies\.json does not mark withdrawn/);
+  });
+
+  it('a deal the live build cannot judge either is not the deploy\'s to orphan', () => {
+    const r = guardDecision({ ...facts, live: { ...live, kept: without(KEPT_POLICIES, 'screen-0') }, next: without(KEPT_POLICIES, 'screen-0') });
+    expect(r.refused).toBeNull();
+  });
+
+  it('a policy neither build registered is reported, not checked', () => {
+    const r = guardDecision({ ...facts, deals: [{ ...deal('0x05', 'screen-1'), policyHash: `0x${'ee'.repeat(32)}` }] });
+    expect(r.refused).toBeNull();
+    expect(r.warnings).toEqual([expect.stringMatching(/^WARNING: deal 0x05 \(Held\) binds policy 0xeeee.*which neither build registered; not checked\./)]);
+  });
+
+  it('the first deploy carrying both screens: a live build from before kept-policies.json carries exactly its registered defaults', () => {
+    const first = { live: { kept: null, registrations }, next: KEPT_POLICIES, hashOf: policyHash as (p: AdjudicatorPolicy) => string };
+    // Every open deal binds screen-1 on the live build today; the new build carries it: the guard passes.
+    expect(guardDecision({ ...first, deals: [deal('0x06', 'screen-1')] })).toEqual({ refused: null, warnings: [], orphans: [], withdrawnOrphans: [], checked: 1 });
+    // A deal still bound to screen-0 cannot be judged by the live build; the new build can, so nothing is orphaned.
+    expect(guardDecision({ ...first, deals: [deal('0x07', 'screen-0')] }).refused).toBeNull();
+  });
+});

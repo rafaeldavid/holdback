@@ -176,3 +176,214 @@ export async function waitForCommit({ nodes, commit, deadline, fetchImpl = fetch
   }
   return { failure: null, seconds: seconds() };
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The deploy guard (ADR-0036 section 4, T-377). Before any upload, `pnpm demo-cloud:deploy` refuses a deploy after
+// which an open deal the live build can judge could no longer be judged. It reads the live build's kept-policies file
+// at the commit discovery names, the open deals from the public reads, and asks of each deal what the adjudicator's
+// binding asks: is each of the bound policy's four values, and the bound registry, carried and not withdrawn? It
+// restricts only the operator: it refuses nothing a party sends, and a party cannot block a deploy through it, since
+// it refuses only what the new build dropped.
+
+/** The escrow states from the primary's acceptance until the first decision; Released and Refunded count while an appeal is open. */
+export const OPEN_STATES = ['AcceptedByAdjudicator', 'Agreed', 'Held', 'Delivered', 'Disputed', 'FallbackJudging', 'Escalated'];
+export const APPEALABLE_STATES = ['Released', 'Refunded'];
+
+const VERSION_FIELDS = ['screenVersion', 'promptTemplateHash', 'appealPromptTemplateHash', 'aggregationVersion'];
+
+/**
+ * What a build carries, from its kept-policies file: the values marked kept, and the withdrawn ones by label.
+ * A build whose commit predates the file carries exactly its registered defaults: `fallback` lists them.
+ */
+export function carriedBy(kept, fallback = []) {
+  if (!kept) {
+    return {
+      screens: new Set(fallback.map((p) => p.policy.screenVersion)),
+      pairs: new Set(fallback.map((p) => `${p.policy.promptTemplateHash}/${p.policy.appealPromptTemplateHash}`)),
+      aggregations: new Set(fallback.map((p) => p.policy.aggregationVersion)),
+      registries: new Set(fallback.map((p) => p.registryHash)),
+      withdrawn: new Map(),
+    };
+  }
+  const keptOnly = (xs, key) => new Set(xs.filter((x) => x.status === 'kept').map(key));
+  const withdrawn = new Map();
+  for (const s of kept.screens) if (s.status === 'withdrawn') withdrawn.set(s.version, s.decision);
+  for (const p of kept.templatePairs) if (p.status === 'withdrawn') withdrawn.set(`${p.promptTemplateHash}/${p.appealPromptTemplateHash}`, p.decision);
+  for (const a of kept.aggregations) if (a.status === 'withdrawn') withdrawn.set(a.version, a.decision);
+  for (const r of kept.registries) if (r.status === 'withdrawn') withdrawn.set(r.hash, r.decision);
+  return {
+    screens: keptOnly(kept.screens, (s) => s.version),
+    pairs: keptOnly(kept.templatePairs, (p) => `${p.promptTemplateHash}/${p.appealPromptTemplateHash}`),
+    aggregations: keptOnly(kept.aggregations, (a) => a.version),
+    registries: keptOnly(kept.registries, (r) => r.hash),
+    withdrawn,
+  };
+}
+
+/** The values of a policy and a registry that `carried` lacks, by label; empty when it can judge. */
+export function missingFrom(carried, versions, registryHash) {
+  const pair = `${versions.promptTemplateHash}/${versions.appealPromptTemplateHash}`;
+  const out = [];
+  if (!carried.screens.has(versions.screenVersion)) out.push(versions.screenVersion);
+  if (!carried.pairs.has(pair)) out.push(`template pair ${versions.promptTemplateHash.slice(0, 10)}`);
+  if (!carried.aggregations.has(versions.aggregationVersion)) out.push(versions.aggregationVersion);
+  if (!carried.registries.has(registryHash)) out.push(`registry ${registryHash.slice(0, 10)}`);
+  return out;
+}
+
+/**
+ * Every policy hash a deal at these adjudicators could bind, mapped to its four values: each registered policy with
+ * its version fields set to each combination either file lists. A deal binding a hash outside the index names a policy
+ * neither build registered (an outside primary's), which the guard cannot read and reports as unchecked.
+ */
+export function policyIndex({ registrations, files, hashOf }) {
+  const screens = new Set(), pairs = new Set(), aggregations = new Set();
+  for (const f of files.filter(Boolean)) {
+    for (const s of f.screens) screens.add(s.version);
+    for (const p of f.templatePairs) pairs.add(`${p.promptTemplateHash}/${p.appealPromptTemplateHash}`);
+    for (const a of f.aggregations) aggregations.add(a.version);
+  }
+  for (const r of registrations) {
+    screens.add(r.policy.screenVersion);
+    pairs.add(`${r.policy.promptTemplateHash}/${r.policy.appealPromptTemplateHash}`);
+    aggregations.add(r.policy.aggregationVersion);
+  }
+  const index = new Map();
+  for (const r of registrations)
+    for (const screenVersion of screens)
+      for (const pair of pairs)
+        for (const aggregationVersion of aggregations) {
+          const [promptTemplateHash, appealPromptTemplateHash] = pair.split('/');
+          const versions = { screenVersion, promptTemplateHash, appealPromptTemplateHash, aggregationVersion };
+          index.set(hashOf({ ...r.policy, ...versions }), versions);
+        }
+  return index;
+}
+
+/**
+ * The guard's decision, a pure function.
+ * @param {{ live: { kept: object | null, registrations: Array<{ policy: object, registryHash: string }> },
+ *   next: object, deals: Array<{ id: string, state: string, nextDeadline?: string, policyHash: string, registryHash: string }> | null,
+ *   readError?: string, hashOf: (policy: object) => string, override?: string | null }} facts `next` is the kept file of
+ *   the build about to deploy; `deals` is null when the open deals could not be read; `override` names one value the
+ *   next file marks withdrawn (HOLDBACK_DEPLOY_WITHDRAWN).
+ * @returns {{ refused: string | null, warnings: string[], orphans: object[], withdrawnOrphans: object[] }}
+ */
+export function guardDecision({ live, next, deals, readError, hashOf, override = null }) {
+  const warnings = [];
+  const liveCarries = carriedBy(live.kept, live.registrations);
+  const nextCarries = carriedBy(next);
+  const refuse = (why) => ({ refused: `Refused: ${why}`, warnings, orphans: [], withdrawnOrphans: [] });
+  // The override names one recorded withdrawal and nothing else.
+  if (override !== null && !nextCarries.withdrawn.has(override)) {
+    return refuse(`HOLDBACK_DEPLOY_WITHDRAWN names ${JSON.stringify(override)}, which kept-policies.json does not mark withdrawn with a decision; record the withdrawal first (ADR-0036 section 2), or unset it.`);
+  }
+  // A new default ships in two deploys: carried first, default second. So a rollback always lands on a build that can
+  // judge every deal accepted under the new default.
+  const lacking = missingFrom(liveCarries, next.default, [...liveCarries.registries][0] ?? '').filter((m) => !m.startsWith('registry '));
+  if (lacking.length) {
+    return refuse(`the new default names ${lacking.join(', ')}, which the live build does not carry, so a rollback could not judge a deal accepted under it. Ship it in two deploys: first a build that carries it, then one that makes it the default (ADR-0036 section 4).`);
+  }
+  if (deals === null) {
+    warnings.push(`WARNING: the open deals could not be read (${readError ?? 'no reason given'}); the guard checked the kept-policies files only. Check the deals by hand if this deploy is not the fix for that outage (docs/operations.md, The deploy guard).`);
+    return { refused: null, warnings, orphans: [], withdrawnOrphans: [] };
+  }
+  const index = policyIndex({ registrations: live.registrations, files: [live.kept, next], hashOf });
+  const orphans = [], withdrawnOrphans = [];
+  for (const d of deals) {
+    const versions = index.get(d.policyHash);
+    if (!versions) {
+      warnings.push(`WARNING: deal ${d.id} (${d.state}) binds policy ${d.policyHash}, which neither build registered; not checked.`);
+      continue;
+    }
+    if (missingFrom(liveCarries, versions, d.registryHash).length) continue; // the live build cannot judge it either
+    const missing = missingFrom(nextCarries, versions, d.registryHash);
+    if (!missing.length) continue;
+    const pair = `${versions.promptTemplateHash}/${versions.appealPromptTemplateHash}`;
+    const marked = [versions.screenVersion, pair, versions.aggregationVersion, d.registryHash].filter((k) => nextCarries.withdrawn.has(k));
+    const row = { ...d, missing };
+    // Under the override, a deal orphaned only by that withdrawal goes through; every other orphan still refuses.
+    const onlyOverride = override !== null && marked.length === missing.length && marked.every((k) => k === override);
+    (onlyOverride ? withdrawnOrphans : orphans).push(row);
+  }
+  if (orphans.length) {
+    const lines = orphans.map((o) => `  ${o.id} ${o.state}, next deadline ${o.nextDeadline ?? 'unknown'}: the new build does not carry ${o.missing.join(', ')}`);
+    return { refused: `Refused: after this deploy the adjudicators could not judge ${orphans.length} open deal${orphans.length === 1 ? '' : 's'} the live build can judge:\n${lines.join('\n')}\nKeep the version in kept-policies.json and the code, or record its withdrawal and set HOLDBACK_DEPLOY_WITHDRAWN to it (ADR-0036 sections 2 and 4).`, warnings, orphans, withdrawnOrphans };
+  }
+  return { refused: null, warnings, orphans, withdrawnOrphans, checked: deals.length };
+}
+
+/** The four version values of a policy. */
+export const versionsOf = (policy) => Object.fromEntries(VERSION_FIELDS.map((k) => [k, policy[k]]));
+
+/**
+ * Reads the open deals at this operator's adjudicators through the public reads (T-367's Handoff): the adjudicator
+ * listing, each one's open deals, and each deal's terms for its policy and registry hashes. Any failed read throws.
+ * @returns {Promise<{ registrations: Array<{ address: string, policy: object, registryHash: string }>, deals: object[] }>}
+ */
+export async function readOpenDeals(node, fetchImpl = fetch) {
+  const get = async (path) => {
+    const r = await fetchImpl(`${node}${path}`, { signal: AbortSignal.timeout(30_000) });
+    if (!r.ok) throw new Error(`GET ${path} answered ${r.status}`);
+    return r.json();
+  };
+  const pages = async (path) => {
+    const items = [];
+    for (let cursor = null, n = 0; n < 100; n++) {
+      const page = await get(`${path}${cursor ? `${path.includes('?') ? '&' : '?'}cursor=${encodeURIComponent(cursor)}` : ''}`);
+      items.push(...(page.items ?? []));
+      if (!page.nextCursor) return items;
+      cursor = page.nextCursor;
+    }
+    throw new Error(`${path} has more than 100 pages`);
+  };
+  const listing = await pages('/v1/adjudicators');
+  const discovery = await get('/');
+  const ours = new Set(Object.values(discovery?.demo?.adjudicators ?? []).map((a) => String(a.address).toLowerCase()));
+  const registrations = listing
+    .filter((a) => ours.size === 0 || ours.has(String(a.address).toLowerCase()))
+    .map((a) => ({ address: String(a.address).toLowerCase(), policy: a.policy, registryHash: a.registry?.hash }));
+  const seen = new Map();
+  for (const a of registrations) {
+    const states = [...OPEN_STATES, ...APPEALABLE_STATES].map((s) => `escrowState=${s}`).join('&');
+    for (const v of await pages(`/v1/commitments?party=${a.address}&role=adjudicator&${states}`)) {
+      if (APPEALABLE_STATES.includes(v.escrowState) && v.appealState !== 'open') continue;
+      seen.set(v.commitmentId, v);
+    }
+  }
+  const deals = [];
+  for (const v of seen.values()) {
+    const terms = await get(`/v1/commitments/${v.commitmentId}/terms`);
+    const adjudication = terms.adjudication ?? terms.terms?.adjudication ?? {};
+    const next = Object.entries(v.deadlines ?? {}).map(([k, t]) => [k, t]).filter(([, t]) => Date.parse(t) > Date.now()).sort((x, y) => Date.parse(x[1]) - Date.parse(y[1]))[0];
+    deals.push({ id: v.commitmentId, state: v.escrowState, nextDeadline: next ? `${next[0]} ${next[1]}` : undefined, policyHash: adjudication.policyHash, registryHash: adjudication.registryHash });
+  }
+  return { registrations, deals };
+}
+
+/**
+ * The live side of the guard: the commit discovery names, the live build's kept-policies file at that commit (null when
+ * the commit predates the file), and the open deals; then the decision. Prints what it found. A failed read of the
+ * discovery or the deals warns and goes on: the deploy may be the fix for the outage, and the static check has passed.
+ * @param {{ node: string, root: string, hashOf: (policy: object) => string, override?: string | null, run?: typeof sh, fetchImpl?: typeof fetch }} o
+ */
+export async function dealGuard({ node, root, hashOf, override = null, run = sh, fetchImpl = fetch }) {
+  const { readFileSync } = await import('node:fs');
+  const next = JSON.parse(readFileSync(`${root}apps/adjudicator/src/kept-policies.json`, 'utf8'));
+  let live = { kept: null, registrations: [] }, deals = null, readError;
+  try {
+    const d = await fetchImpl(`${node}/`, { signal: AbortSignal.timeout(30_000) }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`GET / answered ${r.status}`))));
+    const commit = d?.demo?.build?.commit;
+    if (typeof commit === 'string' && /^[0-9a-f]{40}$/.test(commit)) {
+      const shown = await run('git', ['show', `${commit}:apps/adjudicator/src/kept-policies.json`], { show: false });
+      if (shown.code === 0) live.kept = JSON.parse(shown.stdout);
+      else if (!/does not exist|exists on disk, but not in/.test(shown.out)) throw new Error(`git cannot read commit ${commit.slice(0, 7)} (fetch it first)`);
+    }
+    const read = await readOpenDeals(node, fetchImpl);
+    live.registrations = read.registrations;
+    deals = read.deals;
+  } catch (e) {
+    readError = String(e?.message ?? e).slice(0, 200);
+  }
+  return guardDecision({ live, next, deals, readError, hashOf, override });
+}
