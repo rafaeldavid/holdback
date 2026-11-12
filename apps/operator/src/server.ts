@@ -319,7 +319,7 @@ const STORE_CHECK_MS = 2_000;
 
 const MISSING_ID =
   'id is required: the commitment ID is the EIP-712 struct hash (hashStruct, primary type CommitmentTerms) of the terms, without id and signatures. ' +
-  'POST /v1/prepare/offer returns it as commitmentId and in submit.body.id; to compute it yourself, see "Encodings" in https://crow.direct/llms.txt';
+  'POST /v1/prepare/offer returns it as commitmentId and in submit.body.id; to compute it yourself, see "Encodings" in https://crow.direct/ref/signing.txt';
 
 /** `?validateOnly=` is `true`, `false` or absent; anything else is refused rather than run live. */
 function validateOnly(q: URLSearchParams): boolean {

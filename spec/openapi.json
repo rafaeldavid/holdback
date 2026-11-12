@@ -11,7 +11,7 @@
     "x-holdback-schema-version": "0.11"
   },
   "externalDocs": {
-    "description": "The agent guide: one deal over HTTP, every encoding, and what to verify before you sign each message",
+    "description": "The agent guide's front door: it links the buyer's page, the seller's page and the reference files, which hold one deal over HTTP, every encoding and what to verify before you sign each message",
     "url": "https://crow.direct/llms.txt"
   },
   "servers": [
@@ -110,7 +110,7 @@
           "discovery"
         ],
         "summary": "Read the llms.txt pointer",
-        "description": "A short plain-text guide for language-model agents: links to the agent guide (https://crow.direct/llms.txt), the API reference, this document and discovery, and the notes this node states about itself.",
+        "description": "A short plain-text guide for language-model agents: links to the agent guide's front door (https://crow.direct/llms.txt), the API reference, this document and discovery, and the notes this node states about itself.",
         "responses": {
           "200": {
             "description": "Plain text",
