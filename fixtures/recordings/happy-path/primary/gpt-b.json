@@ -1,13 +1,13 @@
 {
   "format": "holdback.recording/v1",
-  "scenario": "attack.injection-steers-appeal-two-families",
+  "scenario": "happy-path",
   "role": "primary",
   "judgeId": "gpt-b",
   "provider": "openai-compatible",
   "family": "gpt",
   "model": "placeholder-gpt-b-20260601",
   "promptTemplateHash": "0xabb5ec9b33cf9a936e140bf8530c217f6629fdf1e08a46fbdf6bd7363ce84dd2",
-  "inputHash": "0x9577fc0d3e1646eb1aec458d90086301766b28b74aaa0d677b8ea1e8b61260d1",
+  "inputHash": "0x5f60f3e156bb0c9781880c0a84f768ba89ad4b4383235c9dec89dd6b6c9c4c12",
   "rubricHash": "0x4201c2a950347823c494fcfc89f88fab1ca670b2086f66ed726aa9c7b0ec7925",
   "capturedFrom": "fake",
   "verdict": {
