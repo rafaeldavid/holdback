@@ -91,6 +91,7 @@ All local runs on 2026-11-12, on branch `t-355-audit-deal-rehearsal` cut from `o
 ### Checks
 
 - `pnpm typecheck` exits 0; `eslint` on the two changed files prints nothing (measured).
+- `pnpm exec vitest run examples/`: 24 files, 308 tests passed, 13 skipped, 1 failed, in 173 s (measured), while other runs shared the machine. The failure was `seller-adapter.test.ts`, "stops on a zero-address adjudicator…"; that file does not import `audit-deal.ts`, and alone it passes 39 of 39 in 28 s (measured). So the failure was load, not this change (inferred).
 - `pnpm exec vitest run examples/audit-deal.test.ts`: 25 tests passed in 48 s, 11 of them new (measured). A 12th new test then takes an unused key from an existing key store, as the live command's `--keys` does: Released, and a second case with the same key stops at "this key already serves … one key, one deal" (measured).
 
 ## Decisions
