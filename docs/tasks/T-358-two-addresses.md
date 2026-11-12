@@ -59,9 +59,9 @@ Labels: measured, inferred, guessed. All runs on the branch in this worktree, 20
 - **`pnpm snap`** [measured]: 42 fixtures, all pass after `--update`. In the 39 existing snapshots only commitment IDs, hashes, the club's rulebook hash and panel seats changed (256 lines in, 256 out); no state, amount, balance or deadline line changed. Three new snapshots: `two-addresses-released`, `-refunded`, `-settled`.
 - **`pnpm snap --settlement=local`** [measured]: 35 passed, 0 failed, 7 excluded (the SimChain-only list, unchanged); the three new scenarios give a transcript identical to SimChain's on the contract (gas 501,780, 484,371 and 522,913 over 3 transactions each).
 - **Recordings** [measured]: `node scripts/reseat-recordings.mjs` moved seats in 17 recorded scenarios and changed no verdict. Two authored verdicts changed seat within their role: `neutrality.appeal-adjudicator-offline-after-escalation` (gpt-a takes qwen-a's abstain) and `todo.provider-outage` (gpt-b takes gpt-a's abstain).
-- **The alignment test** [measured]: the known list has 115 files before and after; `-u` rewrote nothing.
+- **The alignment test** [measured]: the known list goes from 115 to 117 files. Two SimChain tests now wait for the full protocol's `appeal.expired` that a window of 0 sends at once after a decision (`examples/deal-record.test.ts`, `tools/sim/world.test.ts`; decision 10), so they name a cut identifier. No other file changed in the list.
 - **`pnpm typecheck`** [measured]: no error.
-- **`pnpm test`** [measured]: see the final run below.
+- **`pnpm test`** [measured]: 169 files, 3,326 passed, 6 skipped, 2 failed: the alignment list (fixed, above) and `examples/e2e-round.test.ts` scenario 3d (existing before this change, Handoff; not in CI's anvil suites).
 
 ## Review
 
