@@ -73,14 +73,14 @@ export function measure(events: readonly Event[]): Summary {
   const tokens = Object.fromEntries(sides.map((r) => [r, of('model.turn', r).reduce((a, t) => ({ input: a.input + t.tokensIn, output: a.output + t.tokensOut, cacheRead: a.cacheRead + (t.cacheRead ?? 0), cacheWrite: a.cacheWrite + (t.cacheWrite ?? 0) }), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })])) as Record<Side, { input: number; output: number; cacheRead: number; cacheWrite: number }>;
   // What the guides cost: each turn's input carries every guide page read in an earlier turn (estimated at four
   // characters a token), up to that turn's whole input.
-  const isGuide = (u: unknown) => /\/(llms|sell)\.txt(\?|$)/.test(String(u ?? ''));
+  const isGuide = (u: unknown) => /\/(llms|buy|sell)\.txt(\?|$)|\/ref\/[a-z0-9-]+\.txt(\?|$)/.test(String(u ?? ''));
   const guideTokens = Object.fromEntries(sides.map((r) => {
     const reads = of('tool', r).filter((t) => t.name === 'fetch_url' && !t.isError && isGuide(t.input?.url));
     const carried = of('model.turn', r).reduce((sum, t) => sum + Math.min(t.tokensIn, reads.filter((x) => x.turn < t.turn).reduce((a, x) => a + Math.ceil(Number(x.bytes ?? 0) / 4), 0)), 0);
     return [r, carried];
   })) as Record<Side, number>;
   const sizes: Record<string, number> = {};
-  for (const h of of('http')) if (isGuide(h.url) && h.status === 200) { const k = /llms\.txt/.test(String(h.url)) ? 'llms.txt' : 'sell.txt'; sizes[k] = Math.max(sizes[k] ?? 0, Number(h.bytes ?? 0)); }
+  for (const h of of('http')) if (isGuide(h.url) && h.status === 200) { const k = /\/(ref\/[a-z0-9-]+\.txt|[a-z]+\.txt)(\?|$)/.exec(String(h.url))?.[1] ?? 'other'; sizes[k] = Math.max(sizes[k] ?? 0, Number(h.bytes ?? 0)); }
   const costMicroUsd = Object.fromEntries(sides.map((r) => [r, start?.[r]?.vendor === 'scripted' ? null : priceOf(String(start?.[r]?.model ?? ''), tokens[r])])) as Record<Side, number | null>;
   const calls = Object.fromEntries(sides.map((r) => {
     const api = of('api', r);

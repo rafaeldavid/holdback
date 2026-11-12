@@ -5,7 +5,7 @@
 - **Depends on:** T-021 (tools/sim), T-328 (the outsider test), T-066 (tools/one-click), T-355 (audit-deal), the client tools on `contracts-audit-ready`
 - **Paths this task may touch:** `tools/duet/`, the root `package.json` (one script), `vitest.config.ts` (one include line and one cost entry), this file, one row in `docs/testing.md`
 - **Human gate:** no for the build. The live run is Rafa's: it sends prompts to two model vendors with his keys.
-- **Status:** review
+- **Status:** done
 - **Agent/session:** T-391 session, change kind 4
 
 ## Intent
@@ -107,6 +107,18 @@ Each item is labelled measured, inferred or guessed.
 - **What the scripted runs do not show** (stated plainly): whether a model can do the deal from the docs. Only Rafa's live run shows that.
 - Snapshot diffs: none; no scenario fixture changes.
 
+- **Follow-up** (measured, 2026-11-12, branch `t-391-duet-follow-up`):
+  - T-393's patch applied after checking it against the code. It serves every published guide, allowlists `/buy.txt` and `/ref/` on the docs' origin, points the scripted buyer at `buy.txt`, and counts the new files as guides.
+  - The items the patch left: the buyer's brief names `buy.txt`, the page and the tickets know the new guides, and the README and `limits.json` carry the new sizes, with the token limit still "the guides read once plus an allowance for the work".
+  - T-393's one-line stopgap in `duet.test.ts` is replaced by an assertion on the guides each agent read.
+  - All four scenarios rerun on the short guides; each ends as stated.
+  - T-390's two fixes are on the lane: PR 440, a Settled deal as a final outcome, and PR 446, a postdated offer stopping the one-run buy (609cdd7). Read against the owner's policy (inferred):
+    - The signer now flags a `createdAt` outside its clock band, or operators' clocks apart, as a difference, and shows a `timeline` of dates at the stop.
+    - The policy keeps its own matching checks: a createdAt band, and every operator's clock plus this machine's.
+    - The late-offer case is still refused on its delivery date, three years ahead, not on its `createdAt`.
+    - None of the four scenarios ends Settled.
+  - After merging both (measured): `npx vitest run tools/duet tests` passes 484 of 484 tests in 22 files; `npx tsc -p tools/duet` and `npx eslint tools/duet` exit 0. All four scenarios end as stated; only late-offer writes a ticket, by design.
+
 ## Decisions
 
 - **Name: `tools/duet`, `pnpm duet`.** Two voices in one piece; short, and nothing else in the repository uses it.
@@ -158,7 +170,24 @@ The loop's provider interface (`turn()`) is the seam: a "human" provider would w
 - So `--expect-terms` funds in one run only when every check equals the buyer's own file.
 - One limit remains: at a stop compared with the seller's defaults, a seller whose defaults already carry the hollow check shows no difference. The buyer is protected only by its own terms file, or by an agent that reads each check. That is as designed (D28: the signer shows, it does not judge), and worth a sentence in the docs.
 
-**Guides and tokens** (measured, 2026-11-12): the local guides are `llms.txt` 85,343 bytes and `sell.txt` 39,091 bytes, about 31,109 tokens at four bytes a token. An agent's billed tokens carry them on every turn after it reads them. In the scripted paid run, 124,025 of the buyer's 138,989 tokens and 223,245 of the seller's 244,489 carried the guides. Every run's ticket says so until the docs offer a shorter path for one purchase.
+**Guides and tokens** (measured, 2026-11-12). Before T-393, the local guides were `llms.txt` 85,343 bytes and `sell.txt` 39,091 bytes, about 31,109 tokens at four bytes a token. In the scripted paid run, 124,025 of the buyer's 138,989 tokens and 223,245 of the seller's 244,489 carried them.
+
+With the short guides (T-393, PR 444; applied in the follow-up from T-393's patch), the guides are:
+- `llms.txt`, the front page: 6,294 bytes;
+- `buy.txt`: 11,916 bytes;
+- `sell.txt`: 9,729 bytes;
+- about 6,985 tokens in all.
+
+A buyer reads the front page and `buy.txt`; a seller reads the front page and `sell.txt`. Guide and work tokens per agent on the short pages:
+
+| Scenario | Buyer: guides / work | Seller: guides / work |
+| --- | --- | --- |
+| paid | 27,426 / 14,259 | 44,275 / 24,009 |
+| refund | 27,426 / 12,802 | 60,375 / 48,453 |
+| bad-offer | 22,855 / 9,070 | 52,325 / 31,233 |
+| late-offer | 27,426 / 12,827 | 52,325 / 31,355 |
+
+No scripted run writes a token ticket now. The refund test still proves that one is written when a limit is set below the count.
 
 **Open, Low** (from the review and the red teams):
 - `freePort()` closes then reuses a port, which can race under heavy parallel load.

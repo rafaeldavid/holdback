@@ -65,7 +65,7 @@ export function overLimits(s: Summary, events: readonly Event[], l: Limits): Ove
   const costly = (role?: Side) =>
     ev.filter((e) => e.kind === 'model.turn' && (!role || e.role === role)).sort((a, b) => b.tokensIn + b.tokensOut - (a.tokensIn + a.tokensOut)).slice(0, 3)
       .map((t) => `The ${t.role}'s turn ${t.turn} used ${n(t.tokensIn + t.tokensOut)} tokens${t.calls?.length ? `, calling ${t.calls.map((c: J) => c.name === 'run_command' ? `run_command ${c.input?.command}` : c.name === 'fetch_url' ? `fetch_url ${String(c.input?.url ?? '')}` : c.name).join(', ')}` : ''}.`);
-  const docsReads = (role?: Side) => ev.filter((e) => e.kind === 'tool' && e.name === 'fetch_url' && (!role || e.role === role) && /llms\.txt|sell\.txt/.test(String(e.input?.url ?? ''))).length;
+  const docsReads = (role?: Side) => ev.filter((e) => e.kind === 'tool' && e.name === 'fetch_url' && (!role || e.role === role) && /\/(llms|buy|sell)\.txt|\/ref\/[a-z0-9-]+\.txt/.test(String(e.input?.url ?? ''))).length;
   const split = (role: Side) => `Of the ${role}'s ${n(s.tokens[role].input + s.tokens[role].output)} tokens, ${n(s.tokens[role].guides)} carried Crow's guides (about ${n(s.guides.tokens)} tokens, paid again on every step after they were read) and ${n(s.tokens[role].work)} went to the work.`;
   const tokenCause = (role?: Side) => {
     const guides = role ? s.tokens[role].guides : s.tokens.buyer.guides + s.tokens.seller.guides;
