@@ -5,7 +5,7 @@
 - **Depends on:** ADR-0033 (Proposed, with D60 and D62; on `main` at `387c934`), ADR-0031 (D57, D58), T-356 (package R5, merged to `contracts-audit-ready` at `02ddb24`), T-341 (the side-by-side harness), T-354 (the alignment test)
 - **Paths this task may touch:** `contracts/src/HoldbackTypes.sol`, `contracts/src/HoldbackRules.sol` and `contracts/test/`; `spec/schemas/`, `spec/examples/`, `spec/openapi.json`, `spec/openapi/paths.json`, `spec/README.md`; `packages/core`; `packages/settlement/sim` and `packages/settlement/evm` (with `abis.json`); `packages/testkit` where the fields must be carried; `fixtures/` and their recordings; `apps/operator` only for the appeal-window refusal and to carry the two fields with their defaults; any other package only where the two required fields or the schema version break its build or tests; `tests/cut-feature-alignment.known.json`; this task file. Never `site/`, `docs/api.md`, `docs/audit/`, the vendored escrow, the separate-payment-address funding flow, the faucet, or the client tools (R6c-2 and R6c-3)
 - **Human gate:** no for the branch. The freeze, the merge to `main` and the redeploy are Rafa's
-- **Status:** review (rafaeldavid/holdback#387)
+- **Status:** done: merged to `contracts-audit-ready` as `a37a48d` (rafaeldavid/holdback#387); waits for the freeze
 - **Agent/session:** implementer session, change kind 7 (smart contracts): `forge test`, one reviewer and one red team on Fable at max effort, a target of 300k tokens
 
 ## Intent

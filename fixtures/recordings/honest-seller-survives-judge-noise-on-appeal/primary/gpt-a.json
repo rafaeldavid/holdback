@@ -7,7 +7,7 @@
   "family": "gpt",
   "model": "placeholder-gpt-a-20260601",
   "promptTemplateHash": "0xabb5ec9b33cf9a936e140bf8530c217f6629fdf1e08a46fbdf6bd7363ce84dd2",
-  "inputHash": "0xde19c5e47ed3f43719aa17cb76eb98222b9891c94d8d85bc4948b5bb4127eddb",
+  "inputHash": "0xee13f028fb366efecb6416f5c8752fecea083e4e02cc282a67526ceab1ed26cf",
   "rubricHash": "0x4201c2a950347823c494fcfc89f88fab1ca670b2086f66ed726aa9c7b0ec7925",
   "capturedFrom": "fake",
   "verdict": {

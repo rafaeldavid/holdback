@@ -42,7 +42,7 @@
 import { canonicalKeccak, DRAND_QUICKNET_CHAIN_HASH, holdbackDomain, problem, registrationBodyHash, trimTrailingSlashes, wholeSecond, type AdjudicatorPolicy, type AdjudicatorRegistration, type AdjudicatorRole, type Address, type EscrowState, type HoldbackDomain, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Problem, type RegisteredAdjudicator, type SettlementEvent, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import { StoreError, type CiphertextStore } from '@holdback/core/store';
-import { declinesOf, drandQuicknet, testAdjudicator, type RandomnessSource, type TestAdjudicator } from '@holdback/adjudicator';
+import { declinesOf, drandQuicknet, testAdjudicator, type RandomnessSource, type RunReport, type TestAdjudicator } from '@holdback/adjudicator';
 import {
   fetchHandler,
   nameToken,
@@ -401,6 +401,43 @@ function declinedTurnNotice(s: EscrowState | null, t: DeclinedTurn): string | nu
 }
 
 /**
+ * T-372: why one of this world's adjudicators cannot act on a deal yet, for a reason off the terms (its store did not
+ * return the bytes, or did not answer in time). Kept while each pass refuses the same way, and only for the state it met.
+ */
+interface WaitingTurn {
+  role: AdjudicatorRole;
+  /** The adjudicator that refused, lowercase. */
+  by: string;
+  detail: string;
+  kind: EscrowState['kind'];
+}
+
+/** The longest refusal detail the state read and the log carry, in characters: room for the deadline and what follows it. */
+const WAITING_DETAIL_MAX = 600;
+
+/**
+ * A refusal's detail as the state read and the log may carry it: the URI the seller signed for its ciphertext is the
+ * seller's own text, so it is named, not quoted (T-372 red team M2); the hash beside it says which bytes.
+ */
+function waitingDetail(s: EscrowState, detail: string): string {
+  const uri = 'delivery' in s ? s.delivery.ciphertext.uri.slice(0, 200) : '';
+  return (uri ? detail.split(uri).join('(the URI the seller signed)') : detail).slice(0, WAITING_DETAIL_MAX);
+}
+
+/** The role `address` refused in: the primary's while it accepts or judges, else its fallback or appeal turn. */
+function waitingRoleOf(s: EscrowState, address: string): AdjudicatorRole | null {
+  if ((s.kind === 'Offered' || s.kind === 'Delivered') && lc(s.terms.adjudication.adjudicator) === lc(address)) return 'primary';
+  return pendingTurnOf(s, address);
+}
+
+/** What the state read says while the refusal still holds: the deal is still in the state the refusal met. */
+function waitingNotice(s: EscrowState | null, w: WaitingTurn): string | null {
+  if (!s || s.kind !== w.kind) return null;
+  const what = s.kind === 'Offered' ? 'accept this offer' : 'judge this deal';
+  return `The ${w.role} adjudicator cannot ${what} yet: ${w.detail}. It tries again on each pass.`;
+}
+
+/**
  * When this world's adjudicators act on a commitment: `now` for a step they can take now, judgeBy for a fallback
  * takeover, nothing while it is a party's turn; null once no adjudicator can act on it again, so `look` drops it. The
  * primary accepts an offer before offerExpiresAt and decides a delivery before judgeBy; the fallback takes over at
@@ -452,6 +489,8 @@ export class PublicWorld {
   private lastActive = -Infinity;
   /** Adjudicator passes in a row that changed nothing. */
   private idlePasses = 0;
+  /** T-372: each adjudicator's lists that did not answer in its last pass, as `address|step`, so each is logged once. */
+  private readonly listsDown = new Set<string>();
   /** Every commitment an adjudicator may still act on, from the event log read up to `seq`. */
   private readonly commitments = new Set<Hex32>();
   private seq = 0;
@@ -475,6 +514,8 @@ export class PublicWorld {
     private readonly declined: Map<Hex32, string>,
     /** Fallback and appeal turns this world's adjudicators declined on the deal's terms, with the reason, for the same notices; in memory too. */
     private readonly turnsDeclined: Map<Hex32, DeclinedTurn>,
+    /** T-372: deals this world's adjudicators cannot act on yet for a reason off the terms, for the same notices; in memory too. */
+    private readonly waiting: Map<Hex32, WaitingTurn>,
     persisted: number,
     /** Each node's public address (OPERATOR_URLS), when configured. */
     private readonly publicUrls: readonly string[] = [],
@@ -632,16 +673,25 @@ export class PublicWorld {
     const adjudicators = {} as Record<AdjudicatorRole, TestAdjudicator>;
     const declined = new Map<Hex32, string>();
     const turnsDeclined = new Map<Hex32, DeclinedTurn>();
+    const waiting = new Map<Hex32, WaitingTurn>();
     const operators: Operator[] = [];
     const publicUrls = String(o.env?.OPERATOR_URLS ?? '').split(',').map((u) => trimTrailingSlashes(u.trim())).filter((u) => /^https:\/\//.test(u));
-    // D39: the one discovery document carries what GET / used to list.
-    const demo = async (): Promise<DemoFacts> => {
+    // D39: the one discovery document carries what GET / used to list. T-066 adds the facts Crow Control reads by
+    // script: the deployed commit, the relayer's lanes, the faucet's daily mints and the judges' tokens by model.
+    const demo = async (): Promise<WorldDemoFacts> => {
       const today = await panel.budget.used();
       return {
         clubId: club.id,
         token: { id: token, decimals: 6 },
         adjudicators: ADJUDICATORS.map((a) => ({ role: a.role, address: adjudicators[a.role].address, name: nameOf(a, panel.live) })),
-        faucet: { path: '/v1/faucet', grant: tokenAmount(faucetAmount), maxGrant: tokenAmount(faucetMaxAmount), perAddressEverySec: faucetWindowSec, perClientPerWindow: faucetPerClient },
+        faucet: {
+          path: '/v1/faucet',
+          grant: tokenAmount(faucetAmount),
+          maxGrant: tokenAmount(faucetMaxAmount),
+          perAddressEverySec: faucetWindowSec,
+          perClientPerWindow: faucetPerClient,
+          ...(o.live ? { mintsPerDay: FAUCET_MINTS_PER_DAY } : {}),
+        },
         operators: publicUrls.length ? publicUrls : operators.map((op) => op.baseUrl).filter(Boolean),
         minWindowSec: m,
         // Who judges rubric deals: the registry every adjudicator here binds, and today's live budget (UTC).
@@ -650,9 +700,11 @@ export class PublicWorld {
           registry: { uri: panel.registryUri, hash: panel.registry.hash },
           models: panel.registry.active.map((e) => e.model),
           ...(panel.live
-            ? { liveCallsPerDay: panel.budget.perDay, liveCallsToday: today.calls, tokensToday: { input: today.inputTokens, output: today.outputTokens }, day: today.day }
+            ? { liveCallsPerDay: panel.budget.perDay, liveCallsToday: today.calls, tokensToday: { input: today.inputTokens, output: today.outputTokens, byModel: today.byModel ?? {} }, day: today.day }
             : { missing: panel.missing }),
         },
+        build: { commit: buildCommit(o.env) },
+        ...(o.live ? { relayer: relayerFacts(o.live.chain) } : {}),
       };
     };
     const panelText = () => (panel.live ? livePanel(panel.budget.perDay) : SCRIPTED_PANEL);
@@ -669,12 +721,18 @@ export class PublicWorld {
       }
       if (about.kind === 'state') {
         const why = declined.get(about.commitmentId);
-        if (why) return [`The primary adjudicator declined this offer: ${why}. It stays Offered until offerExpiresAt, and nobody can fund it.`];
+        // T-372: only while the offer is still Offered; a decline the primary reverses is cleared by the pass that accepts.
+        const state = chain.escrowState(about.commitmentId);
+        if (why && (!state || state.kind === 'Offered')) return [`The primary adjudicator declined this offer: ${why}. It stays Offered until offerExpiresAt, and nobody can fund it.`];
         // T-211 and T-221: a demo fallback or appeal adjudicator declined its turn on this deal's terms (an appeal
         // adjudicator it does not trust, another registry, a bound policy or a panel it cannot run).
         const turn = turnsDeclined.get(about.commitmentId);
         const said = turn ? declinedTurnNotice(chain.escrowState(about.commitmentId), turn) : null;
         if (said) return [said];
+        // T-372: an adjudicator that cannot act yet for a reason off the terms (a store that did not return the bytes).
+        const wait = waiting.get(about.commitmentId);
+        const waits = wait ? waitingNotice(state, wait) : null;
+        if (waits) return [waits];
         // T-218: a deal the chain moved past this node's book (a direct delivery not yet posted, a forwarded call).
         const behind = live?.evm.lag(about.commitmentId);
         if (behind) return [behind];
@@ -751,7 +809,7 @@ export class PublicWorld {
     telemetry.rows('ar', registrations.count());
     if (registrations.policiesKept() > 0) telemetry.rows('ph', registrations.policiesKept());
     const keys = [principal, key('demo-club-operator'), ...adjKeys.map((a) => a.keys), key('demo-operator-1'), key('demo-operator-2')];
-    const world = new PublicWorld(o, telemetry, secret, chain, keys, operators, adjudicators, panel, declined, turnsDeclined, journalLength, publicUrls, live);
+    const world = new PublicWorld(o, telemetry, secret, chain, keys, operators, adjudicators, panel, declined, turnsDeclined, waiting, journalLength, publicUrls, live);
     // A wake, from a plain read too, makes the world active only when its adjudicators have a step to take or a chain
     // world's setup is left: a deal left mid-way resumes, an idle world arms no alarm. A takeover later on is
     // scheduled whether or not it is active.
@@ -1015,6 +1073,9 @@ export class PublicWorld {
         }
         const r = await a.runOnce();
         for (const d of r.declined) this.declined.set(d.commitmentId, d.reason);
+        // T-372: a decline the primary reverses leaves the state read.
+        for (const id of r.accepted) this.declined.delete(id);
+        this.noteWaiting(a.address, r);
         // A fallback or appeal turn declined on the deal's own terms stays declined; the state read says why (T-221).
         for (const x of r.refused) {
           const s = DECLINED_ON_TERMS.has(x.problem.type) ? this.chain.escrowState(x.commitmentId) : null;
@@ -1041,6 +1102,35 @@ export class PublicWorld {
    * Sends the deals' due timeouts at the relayer's gas (T-231), checked at a block no earlier than the chain sync's last.
    * True when it sent one. A failure is reported and the pass goes on; the next pass tries again after its back-off.
    */
+  /**
+   * T-372: keeps, for the state read and the log, why `address` could not act on a deal in this pass for a reason off
+   * the terms (`adjudicator_unavailable`), and drops what it no longer refuses. The detail is the adjudicator's own
+   * text, which names no store error (T-347 red team L5), cut to WAITING_DETAIL_MAX characters. Each new or changed
+   * reason is logged once, not on every pass.
+   */
+  private noteWaiting(address: string, r: RunReport): void {
+    const by = lc(address);
+    const now = new Map(r.refused.filter((x) => x.problem.type === 'adjudicator_unavailable').map((x) => [x.commitmentId, x.problem.detail]));
+    // A list that did not answer leaves what this adjudicator said before standing: it did not look again (red team L6).
+    if (r.unavailable.length === 0) for (const [id, w] of this.waiting) if (w.by === by && !now.has(id)) this.waiting.delete(id);
+    for (const [id, raw] of now) {
+      const s = this.chain.escrowState(id);
+      const role = s ? waitingRoleOf(s, by) : null;
+      if (!s || !role) continue;
+      // A refusal now supersedes an earlier decline of the same offer: the state read says the primary is retrying.
+      this.declined.delete(id);
+      const detail = waitingDetail(s, raw);
+      const before = this.waiting.get(id);
+      if (!before || before.detail !== detail || before.by !== by) this.o.onError?.(new Error(`the ${role} adjudicator cannot act on ${id} yet: ${detail}`));
+      this.waiting.set(id, { role, by, detail, kind: s.kind });
+    }
+    // Each list that did not answer is logged once until it answers again.
+    const lists = new Set(r.unavailable.map((u) => `${by}|${u.step}`));
+    for (const u of r.unavailable) if (!this.listsDown.has(`${by}|${u.step}`)) this.o.onError?.(new Error(`adjudicator ${by}: ${u.problem.detail.slice(0, WAITING_DETAIL_MAX)}`));
+    for (const k of this.listsDown) if (k.startsWith(`${by}|`) && !lists.has(k)) this.listsDown.delete(k);
+    for (const k of lists) this.listsDown.add(k);
+  }
+
   private async closeDue(): Promise<boolean> {
     const l = this.live!;
     try {
@@ -1267,6 +1357,32 @@ function feedbackFrom(o: PublicWorldOptions, requestLog: NonNullable<FeedbackOpt
 }
 
 const DECIMAL = /^(0|[1-9][0-9]{0,77})$/;
+
+/**
+ * Discovery's `demo` object as this world serves it: DemoFacts plus the facts Crow Control reads by script (T-066).
+ * spec/openapi/paths.json lists them under `Discovery.demo`.
+ */
+export type WorldDemoFacts = DemoFacts & {
+  faucet: DemoFacts['faucet'] & { mintsPerDay?: number };
+  /**
+   * The commit holdback-op1 was deployed from (BUILD_COMMIT, set by scripts/deploy.mjs), or null when unknown. The
+   * World Durable Object runs in holdback-op1, so both nodes show that Worker's commit.
+   */
+  build: { commit: string | null };
+  /** A chain world's relayer: the funding lane and the deal lanes that pay its gas (ADR-0028). */
+  relayer?: { fundingLane: string; dealLanes: string[] };
+};
+
+/** The deployed commit from the BUILD_COMMIT variable: 40 lowercase hex characters, or null. */
+export function buildCommit(env: Readonly<Record<string, string | undefined>>): string | null {
+  const c = String(env['BUILD_COMMIT'] ?? '').trim().toLowerCase();
+  return /^[0-9a-f]{40}$/.test(c) ? c : null;
+}
+
+/** The relayer's public addresses, from the chain's lane accounts: the first is the funding lane, the rest deal lanes. */
+export function relayerFacts(chain: { funding: string; lanes: readonly { address: string }[] }): { fundingLane: string; dealLanes: string[] } {
+  return { fundingLane: lc(chain.funding), dealLanes: chain.lanes.slice(1).map((a) => lc(a.address)) };
+}
 
 /**
  * ADR-0023: the demo's operator fee from Worker variables. OPERATOR_FEE_BPS (integer basis points, 0 to

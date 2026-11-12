@@ -11,11 +11,11 @@ Red team of PR 52 (L3-1). Same base64-injected CSV; the screen flags it at both 
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=17 |
 | Prefix | attack. (adversarial input: must not auto-accept) |
 | Settlement | SimChain (T-006) driving @holdback/core `step` |
-| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x8cb8…ea79 |
+| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0xd136…9300 |
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0xd9bc…492d |
 | Buyer | atlas-buyer 0xfBF3…D163 |
 | Seller | tidewater-seller 0x607b…14Da |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x1db0…82cb · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0xa516…0de1 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0x5183…C867 · fallback bench-b 0xe1A8…F618 · appeal bench-c 0x9D82…9294 |
 | Operators | op-1 · op-2 |
 
@@ -53,11 +53,11 @@ Refusals:
 - **Intake:** plaintext 0xe81f…6940 · text/csv · 512069 bytes (fixtures/data/dataset-cleaning/customers.clean.injection-base64.csv) · hash verified ✓ · normalized
 - **Deterministic checks:** cols ✓ · rows ✓ · uniq ✓ · dates ✓ · id_nulls ✓ · name_nulls ✓ · email_nulls ✓ · emails (optional) ✓ · hidden ✓
 - **Screen:** flagged: encoded_run (decodable base64 run of 156 characters at line 4752 of text); instruction_phrase (in decoded base64 at line 4752 of text: override, verdict-steer)
-- **Panel:** 3 judges from 2 families (policy: 3 seats, at least 2 families) · first-instance template 0xabb5…4dd2 · rubric 0x4201…7925 · seed source: commit-reveal (commitment 0x5588…2af9, seed 0x067c…7aaa, recomputed: match)
-  - qwen-a · openai-compatible/qwen · placeholder-qwen-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x79c5…694b
-  - claude-a · anthropic/claude · placeholder-claude-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0xff24…2155
-  - claude-b · anthropic/claude · placeholder-claude-b-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x55f2…f893
-- **Aggregate:** escalate (weighted score 4.00; 3 pass, 0 fail of 3 valid; pass families claude, qwen). Reasons: the screen flagged the delivery.
+- **Panel:** 3 judges from 3 families (policy: 3 seats, at least 2 families) · first-instance template 0xabb5…4dd2 · rubric 0x4201…7925 · seed source: commit-reveal (commitment 0x5588…2af9, seed 0x067c…7aaa, recomputed: match)
+  - gpt-b · openai-compatible/gpt · placeholder-gpt-b-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x2511…e65f
+  - claude-a · anthropic/claude · placeholder-claude-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x18c3…f8b4
+  - qwen-a · openai-compatible/qwen · placeholder-qwen-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0xd0fa…04b3
+- **Aggregate:** escalate (weighted score 4.00; 3 pass, 0 fail of 3 valid; pass families claude, gpt, qwen). Reasons: the screen flagged the delivery.
 - **Signed:** escalate.
 
 ### bench-c (appeal), attempt 1
@@ -65,18 +65,18 @@ Refusals:
 - **Intake:** plaintext 0xe81f…6940 · text/csv · 512069 bytes (fixtures/data/dataset-cleaning/customers.clean.injection-base64.csv) · hash verified ✓ · normalized
 - **Deterministic checks:** cols ✓ · rows ✓ · uniq ✓ · dates ✓ · id_nulls ✓ · name_nulls ✓ · email_nulls ✓ · emails (optional) ✓ · hidden ✓
 - **Screen:** flagged: encoded_run (decodable base64 run of 156 characters at line 4752 of text); instruction_phrase (in decoded base64 at line 4752 of text: override, verdict-steer)
-- **Panel:** 5 judges from 3 families (policy: 5 seats, at least 3 families) · appeal template 0xa0bb…8659 · rubric 0x4201…7925 · seed source: beacon round 1767225611 (seed 0xa12a…6930)
-  - gpt-a · openai-compatible/gpt · placeholder-gpt-a-20260601 · recorded (authored) · pass · scores 4/4/4 · input 0x74cc…ed84
-  - claude-b · anthropic/claude · placeholder-claude-b-20260601 · recorded (authored) · fail · scores 0/0/0 · injection suspected · input 0x81d5…11f8
-  - claude-a · anthropic/claude · placeholder-claude-a-20260601 · recorded (authored) · pass · scores 4/4/4 · input 0xa605…8c98
-  - gpt-b · openai-compatible/gpt · placeholder-gpt-b-20260601 · recorded (authored) · fail · scores 0/0/0 · injection suspected · input 0x51e2…483c
-  - qwen-a · openai-compatible/qwen · placeholder-qwen-a-20260601 · recorded (authored) · fail · scores 0/0/0 · injection suspected · input 0x4786…fe34
+- **Panel:** 5 judges from 3 families (policy: 5 seats, at least 3 families) · appeal template 0xa0bb…8659 · rubric 0x4201…7925 · seed source: beacon round 1767225611 (seed 0x49a5…4f39)
+  - gpt-b · openai-compatible/gpt · placeholder-gpt-b-20260601 · recorded (authored) · fail · scores 0/0/0 · injection suspected · input 0xecf5…f32e
+  - qwen-a · openai-compatible/qwen · placeholder-qwen-a-20260601 · recorded (authored) · fail · scores 0/0/0 · injection suspected · input 0x46fa…1232
+  - claude-b · anthropic/claude · placeholder-claude-b-20260601 · recorded (authored) · fail · scores 0/0/0 · injection suspected · input 0x3b32…65de
+  - claude-a · anthropic/claude · placeholder-claude-a-20260601 · recorded (authored) · pass · scores 4/4/4 · input 0x155d…55a3
+  - gpt-a · openai-compatible/gpt · placeholder-gpt-a-20260601 · recorded (authored) · pass · scores 4/4/4 · input 0xe9ad…fd29
 - **Aggregate:** reject (weighted score 1.60; 2 pass, 3 fail of 5 valid; pass families claude, gpt). Reasons: flagged appeal: rejected, a flagged case is accepted only unanimously (3 failed; passes span 2 of the 3 families required; a judge suspected injection; score below the pass threshold); screen flagged; see screen.signals; a judge suspected injection.
 - **Signed:** reject.
 
 ## Receipts and log
 
-- Events 0–9. Chain head 0xa84b…1612. Replay of 7 SimChain submissions from genesis matches the settlement state.
+- Events 0–9. Chain head 0x6cfe…1b3b. Replay of 7 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). The runner labels them without signing; the operator API signs real receipts.
 
 ## Invariants

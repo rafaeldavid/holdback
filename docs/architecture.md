@@ -1,6 +1,6 @@
 # Architecture v0.1
 
-Reflects ADR-0001 to ADR-0026 and the reviews in `docs/reviews/`. Decisions D1 to D54 and ADRs up to ADR-0030 are in `docs/decisions-today.md` and `docs/decisions/`; this page has not been revised for each decision after D40.
+Reflects the ADRs and the reviews it cites. `docs/decisions-today.md` and `docs/decisions/` record every decision and ADR; this page has not been revised for each decision after D40.
 
 ## Shape of the system
 
@@ -92,7 +92,7 @@ stateDiagram-v2
   Escalated --> Released: appeal adjudicator accepts
   Escalated --> Refunded: appeal adjudicator rejects
   Escalated --> Defaulted: appealDecideBy passed (anyone)
-  Defaulted --> Refunded: default outcome (seller compensated from bonds)
+  Defaulted --> Refunded: default outcome (SimChain: seller compensated from bonds; the contract: no compensation until Phase 4)
   Held --> Settled: buyer and seller co-sign a settlement
   Delivered --> Settled: buyer and seller co-sign a settlement
   FallbackJudging --> Settled: buyer and seller co-sign a settlement
@@ -127,7 +127,7 @@ Rules the types must enforce. Illegal states are unrepresentable (ADR-0009): a d
 | Fund | Anyone holding the buyer's funding authorization | A valid adjudicator acceptance; balance ≥ price + fee + gas buffer; before fundBy |
 | Deliver | Seller signature | Before deliverBy; attempt ≤ maxSubmissions; ciphertext and hashes present |
 | Reclaim | Anyone | After deliverBy with no delivery |
-| Accept early | Buyer signature | State Delivered |
+| Accept early | Buyer signature | State Delivered. The rules contract also takes it in Held when the same call carries the seller-signed delivery (`HoldbackRules.sol:398-403`) |
 | Decide | The adjudicator whose turn it is | Before its deadline; seed valid for the role (primary: preimage of the acceptance's `seedCommitment`; fallback and appeal: the beacon seed for the round fixed by `judgeBy`, the escalation or the appeal filing, ADR-0018); policy and registry hashes equal the commitment's; judgment record hash included |
 | Fallback / default | Anyone | After judgeBy / fallbackBy; for an escalated case, after appealDecideBy |
 | Appeal | Party signature + bond + appeal fee | Within appealWindow after a first-instance decision. Grounds: wrong outcome, missing or wrong key, policy or panel violation, mislabeled model |

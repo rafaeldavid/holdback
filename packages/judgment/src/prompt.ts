@@ -120,21 +120,45 @@ function render(template: string, vars: Record<string, string>): string {
 /** Party-written text with hidden characters removed and NFKC applied. */
 const clean = (s: string) => normalizeText(s).text;
 
-/** Header plus lines at an even stride across the whole deliverable, within the budget. */
-function sample(lines: string[], max: number): string[] {
-  const out = [lines[0]!];
-  let used = lines[0]!.length + 1;
+/** The first `room` characters of a line, never ending inside a surrogate pair. */
+function cutLine(line: string, room: number): string {
+  if (line.length <= room) return line;
+  let end = Math.max(0, room);
+  const c = line.charCodeAt(end - 1);
+  if (c >= 0xd800 && c <= 0xdbff) end--;
+  return line.slice(0, end);
+}
+
+/** A line shown cut short: the characters shown and the line's length. */
+type Cut = { shown: number; of: number };
+
+/**
+ * Header plus lines at an even stride across the whole deliverable, within the budget: each line costs
+ * its length plus a line break, and the total never exceeds `max`. A line longer than the room left,
+ * the header included, is cut to that room and ends the sample.
+ */
+function sample(lines: string[], max: number): { lines: string[]; first?: Cut; last?: Cut } {
+  const head = cutLine(lines[0]!, max - 1);
+  const out = [head];
+  const first = head.length < lines[0]!.length ? { shown: head.length, of: lines[0]!.length } : undefined;
+  let used = head.length + 1;
   const rest = lines.length - 1;
-  if (rest <= 0) return out;
+  if (rest <= 0 || first) return { lines: out, ...(first ? { first } : {}) };
   const avg = Math.max(1, Math.ceil((lines.slice(1).reduce((n, l) => n + l.length + 1, 0)) / rest));
   const take = Math.max(1, Math.min(rest, Math.floor((max - used) / avg)));
   for (let k = 0; k < take; k++) {
     const line = lines[1 + Math.floor((k * rest) / take)]!;
-    if (used + line.length + 1 > max && out.length > 1) break;
+    const room = max - used - 1;
+    if (room <= 0) break;
+    if (line.length > room) {
+      const shown = cutLine(line, room);
+      out.push(shown);
+      return { lines: out, last: { shown: shown.length, of: line.length } };
+    }
     out.push(line);
     used += line.length + 1;
   }
-  return out;
+  return { lines: out };
 }
 
 export function buildPrompt(input: PromptInput): Result<RenderedPrompt, string> {
@@ -162,8 +186,14 @@ export function buildPrompt(input: PromptInput): Result<RenderedPrompt, string> 
   } else if (truncated) {
     sampling = 'stride';
     const total = lines.length;
-    lines = sample(lines, max);
-    note = `The data section holds the first line and ${lines.length - 1} of ${total - 1} further lines, sampled at even intervals.`;
+    const s = sample(lines, max);
+    lines = s.lines;
+    if (total === 1) note = `The data section holds the first ${s.first!.shown} of ${s.first!.of} characters of the deliverable, which is one line; the rest is not shown.`;
+    else {
+      note = `The data section holds the first line and ${lines.length - 1} of ${total - 1} further lines, sampled at even intervals.`;
+      if (s.first) note += ` The first line is cut to its first ${s.first.shown} of ${s.first.of} characters, and no further line fits.`;
+      if (s.last) note += ` The last line shown is cut to its first ${s.last.shown} of ${s.last.of} characters.`;
+    }
   }
   const data = lines.map((line) => datamark + line).join('\n');
 

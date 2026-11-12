@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 // @ts-expect-error -- a plain ESM script without type declarations
-import { preflight } from '../../../scripts/deploy-lib.mjs';
+import { preflight, waitForCommit } from '../../../scripts/deploy-lib.mjs';
 
 type Facts = { command: string; branch: string; status: { code: number | null; out: string }; fetch: { code: number | null; out: string }; ancestor: { code: number | null; out: string } };
 const refusal = preflight as (facts: Facts) => string | null;
@@ -159,5 +159,51 @@ describe('pnpm demo-cloud:deploy, before the build', () => {
     expect(r.status).toBe(2);
     expect(r.stderr).toMatch(/^Refused: pnpm demo-cloud:deploy takes no arguments \(got --force\)/);
     expect(r.stdout).toBe('');
+  });
+});
+
+describe('the deploy waits until discovery names the deployed commit (T-370)', () => {
+  const NEW = '8d20405af9407d37ed790a2b533d3e52728f4b0b';
+  const OLD = '00be274000000000000000000000000000000000';
+  const NODES = ['https://op1.test', 'https://op2.test'];
+  type Wait = (o: { nodes: string[]; commit: string; deadline: number; fetchImpl: unknown; sleep: (ms: number) => Promise<void>; now: () => number; everyMs?: number }) => Promise<{ failure: string | null; seconds: number }>;
+  const wait = waitForCommit as Wait;
+  /** A fake clock and a fetch that answers each node from a script of commits, one per read; the last repeats. */
+  function world(answers: Record<string, Array<string | null | 'error'>>) {
+    let t = 0;
+    const reads: string[] = [];
+    const fetchImpl = async (url: string) => {
+      const node = url.replace(/\/$/, '');
+      reads.push(node);
+      const list = answers[node] ?? [];
+      const a = list.length > 1 ? list.shift() : list[0];
+      if (a === 'error') throw new Error('network');
+      return new Response(JSON.stringify({ demo: { build: { commit: a ?? null } } }), { status: 200 });
+    };
+    return { reads, opts: { fetchImpl, now: () => t, sleep: async (ms: number) => void (t += ms), deadline: 600_000, nodes: NODES, commit: NEW, everyMs: 5000 } };
+  }
+
+  it('goes on at once when both nodes already name the commit', async () => {
+    const w = world({ 'https://op1.test': [NEW], 'https://op2.test': [NEW] });
+    expect(await wait(w.opts)).toEqual({ failure: null, seconds: 0 });
+    expect(w.reads).toEqual(NODES);
+  });
+
+  it('waits through the previous commit, a failed read and a missing field until both name it', async () => {
+    const w = world({ 'https://op1.test': [OLD, 'error', null, OLD, NEW], 'https://op2.test': [NEW] });
+    expect(await wait(w.opts)).toEqual({ failure: null, seconds: 20 });
+    expect(w.reads).toEqual([...Array(5).fill('https://op1.test'), 'https://op2.test']);
+  });
+
+  it('fails with the commit it saw once the deadline passes, so the deploy rolls back', async () => {
+    const w = world({ 'https://op1.test': [NEW], 'https://op2.test': [OLD] });
+    const r = await wait(w.opts);
+    expect(r.failure).toBe('https://op2.test still names commit 00be274 in discovery, not 8d20405, after 605 s');
+  });
+
+  it('refuses to wait without a commit to look for', async () => {
+    const w = world({});
+    expect((await wait({ ...w.opts, commit: '' })).failure).toMatch(/no commit to look for/);
+    expect(w.reads).toEqual([]);
   });
 });

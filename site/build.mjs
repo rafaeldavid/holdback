@@ -1,6 +1,7 @@
 // site/llms.txt is the one source. This renders it into site/index.html (placeholders kept), or, for
 // publishing, writes both files with the operator URLs filled in. It also bundles examples/try.ts into
-// site/try.mjs, the one-command test deal, whose sha256 llms.txt carries.
+// site/try.mjs, the one-command test deal, whose sha256 llms.txt carries. site/sell.txt, the seller's page (T-359), is
+// the one source of the seller sections; a publish build writes it beside llms.txt, editor notes left out.
 //
 //   node site/build.mjs                                   regenerate site/try.mjs and site/index.html
 //   node site/build.mjs --op1 URL --op2 URL --out DIR
@@ -9,6 +10,7 @@
 //                                                         note remains or while site/try.mjs is stale
 //
 // Lines starting with "%% " in llms.txt are editor notes: they never reach a published file.
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -601,6 +603,15 @@ ${body}
   return pages;
 }
 
+/** The seller's page as published (T-359): editor notes gone. It has no placeholders: one left is refused. */
+export const SELL_URL = `${SITE_URL}sell.txt`;
+export function sellerPage(txt) {
+  if (/^%% CONFIRM/m.test(txt)) throw new Error('sell.txt still has "%% CONFIRM" notes: check each, fix the text, delete the note, then build again');
+  const out = strip(txt);
+  if (/\{\{[^}]*\}\}/.test(out)) throw new Error('sell.txt has a {{placeholder}}: the seller page is published as written');
+  return out;
+}
+
 /** The published files: placeholders filled, editor notes gone. */
 export function filled(md, { op1, op2, command = tryCommand() }) {
   if (/^%% CONFIRM/m.test(md)) throw new Error('llms.txt still has "%% CONFIRM" notes: check each against the deployed API, fix the text, delete the note, then build again');
@@ -609,6 +620,19 @@ export function filled(md, { op1, op2, command = tryCommand() }) {
   const out = strip(md).replace('{{OP1}}', op1).replace('{{OP2}}', op2).replace('{{TRY_COMMAND}}', () => command);
   if (/\{\{[A-Z0-9_]+\}\}/.test(out)) throw new Error('a placeholder is left unfilled');
   return out;
+}
+
+/** The checkout's commit, or null when its tracked files differ from it or git cannot answer (T-066). */
+export function buildCommit(git = (args) => spawnSync('git', ['-C', fileURLToPath(here('..')), ...args], { encoding: 'utf8' })) {
+  return commitOf(git(['rev-parse', 'HEAD']), git(['status', '--porcelain', '--untracked-files=no', '--ignore-submodules=dirty']));
+}
+
+/** Pure: a 40-hex HEAD from a clean tree, or null; a git call that failed counts as unknown, never as clean. */
+export function commitOf(head, status) {
+  const ok = (r) => r && r.status === 0 && !r.error && typeof r.stdout === 'string';
+  if (!ok(head) || !ok(status) || status.stdout.trim() !== '') return null;
+  const c = head.stdout.trim();
+  return /^[0-9a-f]{40}$/.test(c) ? c : null;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
@@ -630,8 +654,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const txt = filled(md, { op1: arg('op1'), op2: arg('op2') });
     mkdirSync(out, { recursive: true });
     writeFileSync(join(out, 'llms.txt'), txt);
+    writeFileSync(join(out, 'sell.txt'), sellerPage(readFileSync(here('sell.txt'), 'utf8')));
     writeFileSync(join(out, 'index.html'), page(txt));
     writeFileSync(join(out, 'try.mjs'), readFileSync(here('try.mjs')));
+    // T-066: the commit this site was built from, so Crow Control can tell what is merged but not live. null when the
+    // tree has uncommitted changes or git cannot answer.
+    writeFileSync(join(out, 'version.json'), `${JSON.stringify({ commit: buildCommit() }, null, 2)}\n`);
     for (const f of ['crow.png', 'crow-2x.webp', 'favicon.png', 'og.png']) writeFileSync(join(out, f), readFileSync(here(f)));
     // The visual walkthrough of a real two-agent deal, served at /visualdemo.
     mkdirSync(join(out, 'visualdemo'), { recursive: true });
@@ -639,6 +667,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const problems = await problemPages();
     mkdirSync(join(out, 'problems'), { recursive: true });
     for (const [path, html] of problems) writeFileSync(join(out, path), html);
-    console.log(`wrote ${join(out, 'llms.txt')}, ${join(out, 'index.html')}, ${join(out, 'try.mjs')} (sha256 ${trySha256()}) and ${problems.size} problem pages: publish them under ${SITE_URL}`);
+    console.log(`wrote ${join(out, 'llms.txt')}, ${join(out, 'sell.txt')}, ${join(out, 'index.html')}, ${join(out, 'try.mjs')} (sha256 ${trySha256()}) and ${problems.size} problem pages: publish them under ${SITE_URL}`);
   }
 }

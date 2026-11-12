@@ -148,3 +148,31 @@ export function recordLine({ title, startedAt, commit, branch, failure, workers,
   });
   return `**${title} ${when}, commit \`${commit.slice(0, 7) || 'unknown'}\`${on}: ${failure ? `FAIL, ${failure}` : 'pass'}.** ${versions.join(', ')}.${note}`;
 }
+
+/**
+ * Waits until every node's discovery (`GET <node>/`) names `commit` as `demo.build.commit`, so a check that follows
+ * runs against the code just deployed. The World Durable Object kept serving the previous instance for about five
+ * minutes after a new version reached 100% (T-370, measured 2026-11-12), and /v1/status answers 200 all the while.
+ * A read that fails, times out or is not JSON counts as not yet.
+ * @param {{ nodes: string[], commit: string, deadline: number, fetchImpl?: typeof fetch, sleep?: (ms: number) => Promise<void>,
+ *   now?: () => number, everyMs?: number }} o
+ * @returns {Promise<{ failure: string | null, seconds: number }>} `failure` is null once every node names the commit;
+ *   `seconds` is how long the wait took.
+ */
+export async function waitForCommit({ nodes, commit, deadline, fetchImpl = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = Date.now, everyMs = 5000 }) {
+  const start = now();
+  const seconds = () => Math.round((now() - start) / 1000);
+  if (!/^[0-9a-f]{40}$/.test(String(commit))) return { failure: `the deploy has no commit to look for in discovery (got ${JSON.stringify(String(commit).slice(0, 60))})`, seconds: 0 };
+  for (const node of nodes) {
+    let seen = null;
+    for (;;) {
+      seen = await fetchImpl(`${node}/`, { signal: AbortSignal.timeout(30_000) })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => (typeof d?.demo?.build?.commit === 'string' ? d.demo.build.commit : null), () => null);
+      if (seen === commit) break;
+      if (now() > deadline) return { failure: `${node} still names commit ${seen ? seen.slice(0, 7) : 'none'} in discovery, not ${commit.slice(0, 7)}, after ${seconds()} s`, seconds: seconds() };
+      await sleep(everyMs);
+    }
+  }
+  return { failure: null, seconds: seconds() };
+}
