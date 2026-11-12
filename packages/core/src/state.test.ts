@@ -8,7 +8,7 @@ import { commitmentId, deliveryHash, termsOf } from './eip712.js';
 import type { TokenAmount } from './money/index.js';
 import { parseAppeal, parseClub, parseCommitment, parseDelivery, parseMessage } from './parse.js';
 import { PROBLEM_TYPES, type ProblemType } from './problem.js';
-import { APPEAL_WINDOW_PROBLEM, beaconRoundFor, offer, panelSeed, postedDeliveryHash, step, type EscrowEvent, type EscrowState, type OfferInput } from './state.js';
+import { APPEAL_WINDOW_PROBLEM, HOLD_TOO_LARGE_PROBLEM, MAX_HOLD, beaconRoundFor, offer, panelSeed, postedDeliveryHash, step, type EscrowEvent, type EscrowState, type OfferInput } from './state.js';
 import type { AdjudicatorAcceptance, Agree, Appeal, Commitment, CommitmentTerms, Decision, Delivery, EarlyAccept, FundingAuthorization, MutualSettlement, Rulebook, Scope } from './types.js';
 
 function load(file: string): unknown {
@@ -343,6 +343,38 @@ describe('offer', () => {
     expect(offer(phaseOne(zero, strict)).ok).toBe(true);
     expect(offer(offerInput(withRulebook(strict, zero)))).toMatchObject({ ok: false, error: { type: 'invalid_terms' } });
     expect(offer(offerInput(withRulebook(strict, { timing: { ...exampleCommitment.timing, appealWindowSec: 300 } }))).ok).toBe(true);
+  });
+
+  // T-380 (R8 fix 3): core and the contract refuse the same values at the same bounds, each only because it cannot
+  // represent them (D31). The contract's side is contracts/test/unit/Unrepresentable.t.sol, value for value.
+  describe('the bounds core and the contract share (T-380)', () => {
+    const fee = BigInt(exampleCommitment.adjudication.fee.amount);
+    const priced = (hold: bigint) => phaseOne({ price: zero((hold - fee).toString()) });
+    const wide = { ...scope(['seller']), maxPerCommitment: zero((2n ** 256n - 1n).toString()), maxDaily: zero((2n ** 256n - 1n).toString()) };
+    it('phase one takes a hold of 2^120 − 1 and refuses 2^120 with HOLD_TOO_LARGE_PROBLEM; the full protocol takes both', () => {
+      expect(offer({ ...priced(MAX_HOLD), sellerScope: wide })).toMatchObject({ ok: true });
+      expect(offer({ ...priced(MAX_HOLD + 1n), sellerScope: wide })).toMatchObject({ ok: false, error: { type: 'invalid_terms', detail: HOLD_TOO_LARGE_PROBLEM } });
+      expect(offer({ ...priced(MAX_HOLD + 1n), sellerScope: wide, profile: 'full' }).ok).toBe(true);
+    });
+    const parsed = (timing: Partial<CommitmentTerms['timing']>) => {
+      const json = structuredClone(exampleCommitment) as unknown as { timing: Record<string, unknown> };
+      Object.assign(json.timing, timing);
+      return parseCommitment(json);
+    };
+    it('parses an escalation window of 2^32 − 1 s and refuses 2^32 s', () => {
+      expect(parsed({ appealDecideSec: 2 ** 32 - 1 }).ok).toBe(true);
+      expect(parsed({ appealDecideSec: 2 ** 32 })).toMatchObject({ ok: false, error: { type: 'invalid_terms' } });
+    });
+    // The last instant RFC 3339 can state is 9999-12-31T23:59:59-23:59 (a four-digit year, the largest offset): the
+    // contract's LAST_TIMESTAMP. No RFC 3339 string names a later second, so core cannot carry one (T-380 review).
+    it('parses a fallbackBy at the last RFC 3339 instant, 253,402,387,139 s, and refuses a later year', () => {
+      expect(parsed({ fallbackBy: '9999-12-31T23:59:59-23:59' }).ok).toBe(true);
+      expect(Date.parse('9999-12-31T23:59:59-23:59') / 1000).toBe(253_402_387_139);
+      expect(parsed({ fallbackBy: '9999-12-31T23:59:59-00:01' }).ok).toBe(true);
+      expect(parsed({ fallbackBy: '9999-12-31T23:59:59Z' }).ok).toBe(true);
+      expect(parsed({ fallbackBy: '+010000-01-01T00:00:00Z' })).toMatchObject({ ok: false, error: { type: 'invalid_terms' } });
+      expect(parsed({ fallbackBy: '10000-01-01T00:00:00Z' })).toMatchObject({ ok: false, error: { type: 'invalid_terms' } });
+    });
   });
 
   it('phase one takes a zero price with a fee above 0, and the full protocol takes a deal that holds nothing', () => {
