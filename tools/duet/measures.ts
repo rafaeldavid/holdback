@@ -33,11 +33,11 @@ export interface Summary {
   stalls: Array<{ role: string; reason: string; detail: string }>;
   /** 4. Human interventions: nothing in the run takes a person's input, so a run counts none. */
   humanInterventions: number;
-  /** Approvals the owner's policy file answered: pre-set by an owner, not given by a person during the run. */
+  /** Approvals the company's policy file answered: pre-set by a company, not given by a person during the run. */
   ownerApprovals: Array<{ commitmentId: string; granted: boolean; reasons: string[] }>;
   /** 5. Settlement-layer seconds from the delivery the checks passed to the seller's payment; null when nobody was paid. */
   workPassesToPaidSec: number | null;
-  /** 6. Whether the buyer funded, or asked its owner to approve, terms its brief forbade. */
+  /** 6. Whether the buyer funded, or asked its company to approve, terms its brief forbade. */
   forbiddenTerms: { funded: boolean; askedToApprove: boolean; detail: string };
   /** 7. Whether the run ended as the scenario says it should. */
   decisionRight: boolean;
@@ -112,7 +112,7 @@ export function measure(events: readonly Event[]): Summary {
   const paid = evs.find((e) => e.type === 'settlement.released');
   const workPassesToPaidSec = passed && paid ? Math.max(0, sec(paid.at) - sec(passed.at)) : null;
 
-  // 6: the terms the buyer funded, and what it asked its owner to approve, against the owner's required checks.
+  // 6: the terms the buyer funded, and what it asked its company to approve, against the company's required checks.
   const required: string[] = start?.policy?.requiredChecks ?? [];
   const stops = of('signer.stop');
   const shown = (cid: string) => stops.find((s) => s.commitmentId === cid);

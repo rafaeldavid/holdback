@@ -28,7 +28,7 @@ export interface RunOptions {
   scenario: ScenarioName;
   buyer: Side;
   seller: Side;
-  /** Where the run's folder goes: the record, the summary, the page, and the agents' and owners' folders. */
+  /** Where the run's folder goes: the record, the summary, the page, and the agents' and companies' folders. */
   out: string;
   caps: Caps;
   /** Operators of a running world; left out, a local phase-one world starts in this process. */
@@ -105,14 +105,14 @@ export async function runDuet(o: RunOptions): Promise<RunResult> {
   const dir = o.out;
   const paths = {
     buyerWork: join(dir, 'buyer', 'work'),
-    buyerOwner: join(dir, 'buyer', 'owner'),
+    buyerCompany: join(dir, 'buyer', 'company'),
     sellerWork: join(dir, 'seller', 'work'),
-    sellerOwner: join(dir, 'seller', 'owner'),
+    sellerCompany: join(dir, 'seller', 'company'),
   };
   for (const p of Object.values(paths)) mkdirSync(p, { recursive: true, mode: 0o700 });
   mkdirSync(join(paths.sellerWork, 'public'), { recursive: true });
   const real = Object.fromEntries(Object.entries(paths).map(([k, v]) => [k, realpathSync(v)])) as typeof paths;
-  const keyStore = join(real.buyerOwner, 'keys');
+  const keyStore = join(real.buyerCompany, 'keys');
 
   const secrets = new Secrets();
   for (const v of o.secrets ?? []) secrets.add(v);
@@ -140,8 +140,8 @@ export async function runDuet(o: RunOptions): Promise<RunResult> {
 
     const timeouts = o.commandTimeoutMs ?? { short: 180_000, long: 1_200_000 };
     const stops = { buyer: new AbortController(), seller: new AbortController() };
-    const buyerTools = new Toolbox({ signal: stops.buyer.signal, role: 'buyer', work: real.buyerWork, owner: real.buyerOwner, repo: REPO, operators: world.operators, allow: buyerAllow, secrets, rec, keyStore, policy: s.policy, timeoutMs: timeouts });
-    const sellerTools = new Toolbox({ signal: stops.seller.signal, role: 'seller', work: real.sellerWork, owner: real.sellerOwner, repo: REPO, operators: world.operators, allow: sellerAllow, secrets, rec, sellerKey, adapterPort, jobApi: world.jobApi.url, timeoutMs: timeouts });
+    const buyerTools = new Toolbox({ signal: stops.buyer.signal, role: 'buyer', work: real.buyerWork, owner: real.buyerCompany, repo: REPO, operators: world.operators, allow: buyerAllow, secrets, rec, keyStore, policy: s.policy, timeoutMs: timeouts });
+    const sellerTools = new Toolbox({ signal: stops.seller.signal, role: 'seller', work: real.sellerWork, owner: real.sellerCompany, repo: REPO, operators: world.operators, allow: sellerAllow, secrets, rec, sellerKey, adapterPort, jobApi: world.jobApi.url, timeoutMs: timeouts });
     const facts = () => ({ docs: world.docs, sellerPage, jobApi: world.jobApi.api, adapterPort, keyStore, token: world.token, local: world.local });
     const briefs = { buyer: buyerBrief(s, facts()), seller: sellerBrief(s, facts()) };
     const scriptFacts = () => ({ docs: world.docs, sellerPage, jobApi: { ...world.jobApi.api, url: world.jobApi.url }, adapterPort, keyStore, operator: world.operators[0]! });
@@ -170,7 +170,7 @@ export async function runDuet(o: RunOptions): Promise<RunResult> {
 
     // The chain's own account of each deal either side opened: state and events from every operator. The seller's
     // journal is in the seller agent's folder, so its IDs are only candidates: a deal counts only when its terms name
-    // this run's buyer (a key in the owner's key store) or this run's seller (the address its adapter logged at start).
+    // this run's buyer (a key in the company's key store) or this run's seller (the address its adapter logged at start).
     const ids = new Set<string>();
     const hex = (v: unknown) => (typeof v === 'string' && /^0x[0-9a-fA-F]{64}$/.test(v) ? v.toLowerCase() : undefined);
     const journal = join(real.sellerWork, 'seller-adapter.journal.json');

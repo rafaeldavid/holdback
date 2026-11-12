@@ -55,7 +55,7 @@ export function sellerScript(s: ScenarioName, f: ScriptFacts): ScriptStep[] {
     steps.push(
       () => ({ calls: [call('run_command', { command: 'adapter-log', args: [] })] }),
       until((c) => c.results().some((r) => /ALERT 0x[0-9a-f]{64} delivery\.refused/.test(r))),
-      () => ({ text: 'Our selling tool held the report back: it fails one of the agreed checks. My owner told me to send every report as it is, so I collect it and send it by hand.', calls: [call('fetch_url', { url: f.jobApi.result.replace('{jobId}', 'job-1') })] }),
+      () => ({ text: 'Our selling tool held the report back: it fails one of the agreed checks. My company told me to send every report as it is, so I collect it and send it by hand.', calls: [call('fetch_url', { url: f.jobApi.result.replace('{jobId}', 'job-1') })] }),
       (c) => {
         const r = c.results().at(-1) ?? '';
         const body = r.slice(r.indexOf('\n\n') + 2);
@@ -103,13 +103,13 @@ export function buyerScript(s: ScenarioName, f: ScriptFacts): ScriptStep[] {
       const offer = /(\{"approval":"needed"[^\n]*\})/.exec(r)?.[1];
       const checks: Array<{ id: string; required: boolean }> = offer ? JSON.parse(offer).checks ?? [] : [];
       const missing = ['coverage', 'scope'].filter((k) => !checks.some((x) => x.id === k && x.required));
-      if (missing.length) return { text: 'The offer leaves out a check my owner requires: that every file is reviewed. I turn it down. Nothing is signed or paid.', calls: [call('finish', { outcome: 'Turned the offer down', report: 'The offer left out a check my owner requires. Nothing was signed or paid.' })] };
-      // The late offer: this scripted buyer looks only at the checks, so it asks to approve, and the owner's policy answers.
-      return { text: 'The offer is within budget and has the checks my owner requires. I ask for approval to pay.', calls: [call('run_command', { command: 'buy-with-signer', args: ['approve', f.keyStore, id, BUDGET] })] };
+      if (missing.length) return { text: 'The offer leaves out a check my company requires: that every file is reviewed. I turn it down. Nothing is signed or paid.', calls: [call('finish', { outcome: 'Turned the offer down', report: 'The offer left out a check my company requires. Nothing was signed or paid.' })] };
+      // The late offer: this scripted buyer looks only at the checks, so it asks to approve, and the company's policy answers.
+      return { text: 'The offer is within budget and has the checks my company requires. I ask for approval to pay.', calls: [call('run_command', { command: 'buy-with-signer', args: ['approve', f.keyStore, id, BUDGET] })] };
     },
     (c) => {
       const r = c.results().at(-1) ?? '';
-      if (/pre-set policy does not approve/.test(r)) return { text: 'My owner\'s standing rule turned the offer down. Nothing was signed or paid.', calls: [call('finish', { outcome: 'My owner\'s rule turned the offer down', report: 'The seller wanted three years to deliver; my owner allows three days. Nothing was signed or paid.' })] };
+      if (/pre-set policy does not approve/.test(r)) return { text: 'My company\'s standing rule turned the offer down. Nothing was signed or paid.', calls: [call('finish', { outcome: 'My company\'s rule turned the offer down', report: 'The seller wanted three years to deliver; my company allows three days. Nothing was signed or paid.' })] };
       const paid = /"outcome":"released"/i.test(r);
       return { calls: [call('finish', paid ? { outcome: 'Paid; report received', report: 'The work passed the agreed checks. I paid and opened the report.' } : { outcome: 'Money back; no report', report: 'The work failed an agreed check. The price came back to us and the report stayed locked.' })] };
     },

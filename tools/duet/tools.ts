@@ -1,4 +1,4 @@
-// What a duet agent can do (T-391): only its owner's installed tools. Each tool is a fence, checked here, not a rule
+// What a duet agent can do (T-391): only its company's installed tools. Each tool is a fence, checked here, not a rule
 // in a prompt:
 //   fetch_url    GET only, to an allowlist of origins and paths (the world's operators, the docs, the seller's page,
 //                the seller adapter's quote and defaults). No redirect is followed.
@@ -9,7 +9,7 @@
 //   wait, finish
 // Keys live in files and environments the agent never reads: the buyer's key store sits outside its folder, the
 // seller's key is the child's HOLDBACK_KEY. Every tool result passes through the run's secret list before a model or
-// the record sees it. The buyer's approval stop is answered by the owner's policy file, not by a person.
+// the record sees it. The buyer's approval stop is answered by the company's policy file, not by a person.
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
@@ -25,15 +25,15 @@ export interface Allow {
   paths?: string[];
 }
 
-/** What the owner pre-set for the buyer's approval stop. */
+/** What the company pre-set for the buyer's approval stop. */
 export interface Policy {
-  /** The most the owner pays for one deal, everything included, in base units. */
+  /** The most the company pays for one deal, everything included, in base units. */
   budget: string;
   /** Check IDs every offer must carry as required checks. */
   requiredChecks: string[];
-  /** The owner's own copy of each required check, whole: an offer's check must equal it, not just share its ID. */
+  /** The company's own copy of each required check, whole: an offer's check must equal it, not just share its ID. */
   checkBodies: Record<string, unknown>;
-  /** The latest delivery the owner accepts, as seconds from now: `deliverBy` may be no later. */
+  /** The latest delivery the company accepts, as seconds from now: `deliverBy` may be no later. */
   latestDeliverySec: number;
   /** How long after that delivery date the judging may run: every other deadline must fall before both together. */
   decisionSlackSec: number;
@@ -45,7 +45,7 @@ export interface ToolboxOptions {
   role: Exclude<Role, 'runner'>;
   /** The agent's own folder: absolute, and the one place its file tools reach. */
   work: string;
-  /** The owner's folder beside it, which no tool of the agent reaches: checked configuration copies live here. */
+  /** The company's folder beside it, which no tool of the agent reaches: checked configuration copies live here. */
   owner: string;
   /** The repository checkout the client commands run from. */
   repo: string;
@@ -56,7 +56,7 @@ export interface ToolboxOptions {
   rec: Recorder;
   /** Buyer: the key store directory, outside `work`. */
   keyStore?: string;
-  /** Buyer: the owner's pre-set answer to the approval stop. */
+  /** Buyer: the company's pre-set answer to the approval stop. */
   policy?: Policy;
   /** Seller: the signing key, passed to the seller's commands as HOLDBACK_KEY. */
   sellerKey?: string;
@@ -154,7 +154,7 @@ export class Toolbox {
     if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Refused(`only http and https URLs are fetched, not ${u.protocol}`);
     if (u.username || u.password) throw new Refused('a URL with a user name or password is not fetched');
     const hit = this.o.allow.find((a) => a.origin === u.origin && (!a.paths || a.paths.some((p) => (p.endsWith('/') ? u.pathname.startsWith(p) : u.pathname === p))));
-    if (!hit) throw new Refused(`${u.origin}${u.pathname} is not on your owner's allowlist. You may fetch: ${this.o.allow.map((a) => (a.paths ? a.paths.map((p) => `${a.origin}${p}${p.endsWith('/') ? '…' : ''}`).join(', ') : `${a.origin}/…`)).join('; ')}`);
+    if (!hit) throw new Refused(`${u.origin}${u.pathname} is not on your company's allowlist. You may fetch: ${this.o.allow.map((a) => (a.paths ? a.paths.map((p) => `${a.origin}${p}${p.endsWith('/') ? '…' : ''}`).join(', ') : `${a.origin}/…`)).join('; ')}`);
     if (u.pathname.split('/').some((s) => s === '..' || decodeURIComponent(s) === '..')) throw new Refused('a URL with a ".." segment is not fetched');
     return u;
   }
@@ -230,7 +230,7 @@ export class Toolbox {
 
   private async run(command: string, args: string[]): Promise<ToolResult> {
     const role = this.o.role;
-    if (!COMMANDS[role].includes(command)) throw new Refused(`${JSON.stringify(command).slice(0, 80)} is not one of your owner's installed commands: ${COMMANDS[role].join(', ')}`);
+    if (!COMMANDS[role].includes(command)) throw new Refused(`${JSON.stringify(command).slice(0, 80)} is not one of your company's installed commands: ${COMMANDS[role].join(', ')}`);
     if (args.length > 12 || args.some((a) => a.length > 20_000)) throw new Refused('at most 12 arguments of at most 20,000 characters each');
     if (args.some((a) => a.includes('\0'))) throw new Refused('an argument with a NUL character is refused');
     if (command === 'adapter-log') return this.adapterLog();
@@ -259,9 +259,9 @@ export class Toolbox {
       }
     };
     if (command === 'buy-with-signer') {
-      if (args.includes('--expect-terms')) throw new Refused('your owner keeps the approval: run the command without --expect-terms, and answer its stop with the approve line it prints');
+      if (args.includes('--expect-terms')) throw new Refused('your company keeps the approval: run the command without --expect-terms, and answer its stop with the approve line it prints');
       const store = (a: string | undefined) => {
-        if (a !== this.o.keyStore) throw new Refused(`the key store is ${this.o.keyStore}: your owner keeps your keys there, and the command takes no other directory`);
+        if (a !== this.o.keyStore) throw new Refused(`the key store is ${this.o.keyStore}: your company keeps your keys there, and the command takes no other directory`);
         return a;
       };
       const rest = args.filter((a) => a !== '--stop-after-funding');
@@ -288,7 +288,7 @@ export class Toolbox {
         try { const v = JSON.parse(rest[i]!); if (v === null || typeof v !== 'object' || Array.isArray(v)) throw new Error(); } catch { throw new Refused(`${what} must be a JSON object`); }
       }
       if (!DEC.test(rest[3]!)) throw new Refused('the most you pay is base units as a decimal string');
-      if (this.o.policy && BigInt(rest[3]!) > BigInt(this.o.policy.budget)) throw new Refused(`your owner's budget is ${this.o.policy.budget} base units, everything included: the most you pay cannot be more`);
+      if (this.o.policy && BigInt(rest[3]!) > BigInt(this.o.policy.budget)) throw new Refused(`your company's budget is ${this.o.policy.budget} base units, everything included: the most you pay cannot be more`);
       if (rest[4] !== undefined) this.allowed(rest[4]);
       return args;
     }
@@ -327,7 +327,7 @@ export class Toolbox {
     }
     if (command === 'seller-adapter') {
       const rest = args.filter((a) => a !== '--sim');
-      if (rest.length !== 1) throw new Refused('usage: seller-adapter <config.json>; your owner has set HOLDBACK_KEY and HOLDBACK_OPERATORS, so --sim is not needed');
+      if (rest.length !== 1) throw new Refused('usage: seller-adapter <config.json>; your company has set HOLDBACK_KEY and HOLDBACK_OPERATORS, so --sim is not needed');
       return [this.adapterConfig(rest[0]!)];
     }
     throw new Refused(`${command} takes no arguments here`);
@@ -352,25 +352,25 @@ export class Toolbox {
   }
 
   /**
-   * The owner's pre-set answer to the approval stop, read from the offer the stop showed with this key store: the
-   * budget, the required checks, a delivery no later than the owner accepts, every other deadline within the judging
+   * The company's pre-set answer to the approval stop, read from the offer the stop showed with this key store: the
+   * budget, the required checks, a delivery no later than the company accepts, every other deadline within the judging
    * slack after it, and a createdAt inside the band around settlement time.
    */
   private async approval(id: string, max: string): Promise<void> {
     const policy = this.o.policy;
-    if (!policy) throw new Refused('your owner has set no approval policy: nothing is approved');
+    if (!policy) throw new Refused('your company has set no approval policy: nothing is approved');
     const shown = this.shownOffer(id);
     const why: string[] = [];
     if (!shown) why.push(`no stop showed ${id} with a key in your key store`);
     else {
       const total = String(shown.fees?.total?.amount ?? '');
-      if (!DEC.test(total) || BigInt(total) > BigInt(policy.budget)) why.push(`the offer costs ${total || 'an unknown amount'} base units, above the owner's budget of ${policy.budget}`);
-      if (BigInt(max) > BigInt(policy.budget)) why.push(`the most you pay, ${max}, is above the owner's budget of ${policy.budget}`);
+      if (!DEC.test(total) || BigInt(total) > BigInt(policy.budget)) why.push(`the offer costs ${total || 'an unknown amount'} base units, above the company's budget of ${policy.budget}`);
+      if (BigInt(max) > BigInt(policy.budget)) why.push(`the most you pay, ${max}, is above the company's budget of ${policy.budget}`);
       const checks: J[] = Array.isArray(shown.checks) ? shown.checks : [];
       for (const c of policy.requiredChecks) {
         const k = checks.find((x) => x?.id === c);
-        if (!k || k.required !== true) why.push(`the offer has no required check "${c}", which the owner requires`);
-        else if (canonical(k) !== canonical(policy.checkBodies[c])) why.push(`the offer's check "${c}" is not the check the owner requires: same name, different content`);
+        if (!k || k.required !== true) why.push(`the offer has no required check "${c}", which the company requires`);
+        else if (canonical(k) !== canonical(policy.checkBodies[c])) why.push(`the offer's check "${c}" is not the check the company requires: same name, different content`);
       }
       const clock = await this.settlementNow();
       if (clock.spread > policy.createdAtBandSec) why.push(`the clocks disagree by ${clock.spread} s, more than ${policy.createdAtBandSec} s (${clock.clocks.join('; ')}), so no date can be checked`);
@@ -381,18 +381,18 @@ export class Toolbox {
       if (!Number.isFinite(created) || Math.abs(created - now) > policy.createdAtBandSec) why.push(`the offer says it was made at ${String(shown.createdAt)}, outside ${policy.createdAtBandSec} s of settlement time ${iso(now)}`);
       const deliverBy = at(shown.deadlines?.deliverBy);
       const latest = now + policy.latestDeliverySec;
-      if (!Number.isFinite(deliverBy) || deliverBy > latest) why.push(`delivery is due by ${String(shown.deadlines?.deliverBy)}, after the latest the owner accepts, ${iso(latest)}`);
+      if (!Number.isFinite(deliverBy) || deliverBy > latest) why.push(`delivery is due by ${String(shown.deadlines?.deliverBy)}, after the latest the company accepts, ${iso(latest)}`);
       for (const [k, v] of Object.entries(shown.deadlines ?? {})) {
         const t = at(v);
-        if (typeof v === 'string' && Number.isFinite(t) && t > latest + policy.decisionSlackSec) why.push(`${k} is ${v}, after ${iso(latest + policy.decisionSlackSec)}, the owner's latest delivery plus its judging slack`);
-        if (typeof v === 'number' && /Sec$/.test(k) && v > policy.decisionSlackSec) why.push(`${k} is ${v} s, longer than the owner's judging slack of ${policy.decisionSlackSec} s`);
+        if (typeof v === 'string' && Number.isFinite(t) && t > latest + policy.decisionSlackSec) why.push(`${k} is ${v}, after ${iso(latest + policy.decisionSlackSec)}, the company's latest delivery plus its judging slack`);
+        if (typeof v === 'number' && /Sec$/.test(k) && v > policy.decisionSlackSec) why.push(`${k} is ${v} s, longer than the company's judging slack of ${policy.decisionSlackSec} s`);
       }
     }
-    this.o.rec.add('buyer', 'approval', { commitmentId: id, granted: why.length === 0, by: 'owner policy (pre-set)', reasons: why, policy });
-    if (why.length) throw new Refused(`your owner's pre-set policy does not approve this offer: ${why.join('; ')}. Nothing was signed or paid.`);
+    this.o.rec.add('buyer', 'approval', { commitmentId: id, granted: why.length === 0, by: 'company policy (pre-set)', reasons: why, policy });
+    if (why.length) throw new Refused(`your company's pre-set policy does not approve this offer: ${why.join('; ')}. Nothing was signed or paid.`);
   }
 
-  /** The offer the signer's stop showed for this ID, from the key store, which only the owner's tools read. */
+  /** The offer the signer's stop showed for this ID, from the key store, which only the company's tools read. */
   private shownOffer(id: string): J {
     const store = this.o.keyStore;
     if (!store || !existsSync(store)) return undefined;
@@ -422,7 +422,7 @@ export class Toolbox {
 
   /**
    * The seller adapter's configuration, checked and copied where the agent cannot change it after the check: the port
-   * its owner gave it, a sellerApi under the owner's job API only, no credential or callback setting, no other URL,
+   * its company gave it, a sellerApi under the company's job API only, no credential or callback setting, no other URL,
    * and the journal inside the agent's folder. The adapter runs the copy.
    */
   private adapterConfig(p: string): string {
@@ -432,25 +432,25 @@ export class Toolbox {
     if (c === null || typeof c !== 'object' || Array.isArray(c)) throw new Refused(`${p} is not a JSON object`);
     const allowedKeys = ['port', 'sellerApi', 'scope', 'options', 'termsRules', 'payoutAddress', 'clubId', 'adjudicators', 'mandate', 'timing', 'journal', 'pollMs', 'quoteRateLimit', 'redelivery'];
     const bad = Object.keys(c).filter((k) => !allowedKeys.includes(k));
-    if (bad.length) throw new Refused(`your owner's adapter takes no ${bad.map((b) => JSON.stringify(b).slice(0, 40)).join(', ')} setting here (no template, mapping, credential or callback settings); it takes ${allowedKeys.join(', ')}`);
-    if (c.port !== this.o.adapterPort) throw new Refused(`the adapter listens on port ${this.o.adapterPort}, the one your owner opened: set "port": ${this.o.adapterPort}`);
+    if (bad.length) throw new Refused(`your company's adapter takes no ${bad.map((b) => JSON.stringify(b).slice(0, 40)).join(', ')} setting here (no template, mapping, credential or callback settings); it takes ${allowedKeys.join(', ')}`);
+    if (c.port !== this.o.adapterPort) throw new Refused(`the adapter listens on port ${this.o.adapterPort}, the one your company opened: set "port": ${this.o.adapterPort}`);
     const api = c.sellerApi;
-    if (api === null || typeof api !== 'object' || Array.isArray(api)) throw new Refused('sellerApi must be an object naming your owner\'s job API');
-    if ('auth' in api) throw new Refused('sellerApi.auth is not needed: your owner\'s job API takes no credential');
+    if (api === null || typeof api !== 'object' || Array.isArray(api)) throw new Refused('sellerApi must be an object naming your company\'s job API');
+    if ('auth' in api) throw new Refused('sellerApi.auth is not needed: your company\'s job API takes no credential');
     const base = this.o.jobApi!;
     const urls: string[] = [];
     const walk = (v: J, at: string, ok: (s: string) => boolean): void => {
       if (typeof v === 'string' && /[a-z][a-z0-9+.-]*:\/\/|^\/\//i.test(v) && !ok(v)) urls.push(at);
       else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) walk(x, `${at}.${k}`, ok);
     };
-    // Every URL in sellerApi starts at the owner's job API; a call in the object form names a path the adapter keeps
+    // Every URL in sellerApi starts at the company's job API; a call in the object form names a path the adapter keeps
     // under baseUrl, so baseUrl itself must be the job API. Anywhere else, nothing that looks like a URL.
     const underBase = (s: string) => s === base || s.startsWith(`${base}/`);
-    if (api.baseUrl !== undefined && !(typeof api.baseUrl === 'string' && underBase(api.baseUrl))) throw new Refused(`sellerApi.baseUrl must be your owner's job API, ${base}`);
+    if (api.baseUrl !== undefined && !(typeof api.baseUrl === 'string' && underBase(api.baseUrl))) throw new Refused(`sellerApi.baseUrl must be your company's job API, ${base}`);
     for (const k of ['quote', 'start', 'result'] as const) {
       const v = api[k];
-      if (typeof v === 'string' && !underBase(v)) throw new Refused(`sellerApi.${k} must be under your owner's job API, ${base}`);
-      if (v !== undefined && typeof v !== 'string' && api.baseUrl === undefined) throw new Refused(`sellerApi.${k} in the object form needs sellerApi.baseUrl, your owner's job API`);
+      if (typeof v === 'string' && !underBase(v)) throw new Refused(`sellerApi.${k} must be under your company's job API, ${base}`);
+      if (v !== undefined && typeof v !== 'string' && api.baseUrl === undefined) throw new Refused(`sellerApi.${k} in the object form needs sellerApi.baseUrl, your company's job API`);
     }
     walk(api, 'sellerApi', underBase);
     for (const [k, v] of Object.entries(c)) if (k !== 'sellerApi') walk(v, k, () => false);
@@ -576,16 +576,16 @@ export class Toolbox {
   }
 }
 
-/** The tools as each model is told about them. The run tool's list is the owner's installed commands. */
+/** The tools as each model is told about them. The run tool's list is the company's installed commands. */
 function specs(role: 'buyer' | 'seller'): ToolSpec[] {
   const commands = COMMANDS[role];
   return [
-    { name: 'fetch_url', description: 'GET a URL and read the answer: status, content type and body (up to 60,000 characters; pass offset to read further). Only URLs on your owner\'s allowlist; redirects are not followed. GET only: anything that changes state goes through your owner\'s commands.', input: { type: 'object', properties: { url: { type: 'string' }, offset: { type: 'integer', minimum: 0 } }, required: ['url'] } },
-    { name: 'run_command', description: `Run one of the client commands your owner installed from Crow's public repository, as \`node examples/<command>.ts <args>\`, from your folder, and read its exit code, stdout and stderr. Installed: ${commands.map((c) => (c === 'adapter-log' ? 'adapter-log (the new lines the background seller adapter has logged)' : c === 'seller-adapter' ? 'seller-adapter (starts in the background)' : c)).join(', ')}. Pass the arguments as the docs give them, one per array item, with no shell quoting. Your owner has set the environment these commands need (HOLDBACK_OPERATORS${role === 'seller' ? ', and HOLDBACK_KEY with your signing key' : ''}); you never see a key.`, input: { type: 'object', properties: { command: { type: 'string', enum: commands }, args: { type: 'array', items: { type: 'string' } } }, required: ['command', 'args'] } },
+    { name: 'fetch_url', description: 'GET a URL and read the answer: status, content type and body (up to 60,000 characters; pass offset to read further). Only URLs on your company\'s allowlist; redirects are not followed. GET only: anything that changes state goes through your company\'s commands.', input: { type: 'object', properties: { url: { type: 'string' }, offset: { type: 'integer', minimum: 0 } }, required: ['url'] } },
+    { name: 'run_command', description: `Run one of the client commands your company installed from Crow's public repository, as \`node examples/<command>.ts <args>\`, from your folder, and read its exit code, stdout and stderr. Installed: ${commands.map((c) => (c === 'adapter-log' ? 'adapter-log (the new lines the background seller adapter has logged)' : c === 'seller-adapter' ? 'seller-adapter (starts in the background)' : c)).join(', ')}. Pass the arguments as the docs give them, one per array item, with no shell quoting. Your company has set the environment these commands need (HOLDBACK_OPERATORS${role === 'seller' ? ', and HOLDBACK_KEY with your signing key' : ''}); you never see a key.`, input: { type: 'object', properties: { command: { type: 'string', enum: commands }, args: { type: 'array', items: { type: 'string' } } }, required: ['command', 'args'] } },
     { name: 'read_file', description: 'Read a text file in your folder (up to 60,000 characters; pass offset to read further).', input: { type: 'object', properties: { path: { type: 'string' }, offset: { type: 'integer', minimum: 0 } }, required: ['path'] } },
     { name: 'write_file', description: 'Write a text file in your folder (at most 1 MB), making folders as needed.', input: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } },
     { name: 'list_files', description: 'List a folder inside your folder.', input: { type: 'object', properties: { path: { type: 'string' } } } },
     { name: 'wait', description: 'Wait 1 to 30 seconds, for example while the other side acts.', input: { type: 'object', properties: { seconds: { type: 'integer', minimum: 1, maximum: 30 } }, required: ['seconds'] } },
-    { name: 'finish', description: 'End your work and report to your owner: the outcome in a few words, and a short report.', input: { type: 'object', properties: { outcome: { type: 'string' }, report: { type: 'string' } }, required: ['outcome', 'report'] } },
+    { name: 'finish', description: 'End your work and report to your company: the outcome in a few words, and a short report.', input: { type: 'object', properties: { outcome: { type: 'string' }, report: { type: 'string' } }, required: ['outcome', 'report'] } },
   ];
 }

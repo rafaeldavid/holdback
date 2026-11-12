@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { measure } from './measures.ts';
-import { PITCH } from './replay.ts';
+import { EARLY_ACCESS, forPublishing, HERO, PITCH, replayPage } from './replay.ts';
 import { startWorld } from './world.ts';
 import { runAgent } from './loop.ts';
 import { anthropic, liveProvider, openaiCompatible, scripted, type Turn } from './providers.ts';
@@ -51,7 +51,7 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       if (name === 'late-offer') {
         expect(s.ownerApprovals).toHaveLength(1);
         expect(s.ownerApprovals[0]!.granted).toBe(false);
-        expect(s.ownerApprovals[0]!.reasons.join(' ')).toMatch(/delivery is due by .* after the latest the owner accepts/);
+        expect(s.ownerApprovals[0]!.reasons.join(' ')).toMatch(/delivery is due by .* after the latest the company accepts/);
       }
 
       // The record: model turns with vendor, model and tokens; tool calls with sizes; API calls with status; chain events.
@@ -64,31 +64,55 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
 
       // The page: one file, from the record, with no script loaded from anywhere and no key in it.
       const page = readFileSync(r.page, 'utf8');
-      expect(page).toContain('<div class="large">Crow</div>');
+      // The demo page: Crow and its descriptor in the header, the headline, the early-access button, the self-playing
+      // demo with its one label, and everything else in the Learn more view.
+      const q = (t: string) => t.replace(/'/g, '&#39;');
+      expect(page).toContain(`<a class="app" href="#">Crow<small>${q(PITCH.descriptor)}</small></a>`);
+      expect(page).toContain(`<h1 class="headline">${q(HERO.headline)}</h1>`);
+      expect(page).toContain(`href="${EARLY_ACCESS}"`);
+      expect(page).toContain(`<span class="demo-label">${HERO.demoLabel}</span>`);
+      expect(page.indexOf('id="demo-run"')).toBeLessThan(page.indexOf('id="learn-more"'));
+      expect(page.indexOf('id="learn-more"')).toBeLessThan(page.indexOf('beat-label">Problem'));
+      expect(page.slice(page.indexOf('id="demo-view"'), page.indexOf('id="learn-more"'))).not.toMatch(/Exact call|test money|scripted stand-in/);
       // The opening comes from PITCH, so a change of its words breaks no test here.
-      expect(page).toContain(`<p class="subtitle">${PITCH.descriptor.replace(/'/g, '&#39;')}</p>`);
       // The agents' names, each introduced once with its side; the record keeps the roles buyer and seller.
-      expect(page).toContain('Enterprise Procurement Agent</span><span class="value">Acting for the buyer.');
-      expect(page).toContain('Enterprise Sales Agent</span><span class="value">Acting for the seller.');
+      expect(page).toContain('<dt>Enterprise Procurement Agent</dt><dd>Acting for the buyer.');
+      expect(page).toContain('<dt>Enterprise Sales Agent</dt><dd>Acting for the seller.');
       expect(page).not.toMatch(/buying agent|selling agent/i);
       expect(events.some((e) => e.role === 'buyer') && events.some((e) => e.role === 'seller')).toBe(true);
       for (const b of PITCH.beats) expect(page).toContain(`<span class="beat-label">${b.label}</span>`);
       // The proof beat tells what this run did: Rafa's sentence when the work passed, what happened instead otherwise.
       const ending = name === 'paid' ? 'paid' : name === 'refund' ? 'refunded' : 'declined';
       expect(page).toContain(PITCH.proof(ending, 'a software security audit').replace(/'/g, '&#39;'));
-      expect(page.indexOf('beat-label">Proof')).toBeLessThan(page.indexOf('How the payment is held'));
-      expect(page).toContain('A test run on a local test setup, with test money.');
+      expect(page.indexOf('beat-label">Proof')).toBeLessThan(page.indexOf('<h3 class="block-title">How the payment is held</h3>'));
+      // One accent: the filled button is the primary action; no chat bubble uses it.
+      expect(page).not.toMatch(/#007aff|#0a84ff/i);
+      expect(page).toContain('This demo is a test run on a local test setup, with test money.');
       expect(page).toContain('This run used a local test setup, so it has no public payment records to link.');
       expect(page).not.toMatch(/href="http:\/\/(127\.0\.0\.1|localhost)/);
       expect(page).toContain('href="https://crow.direct/llms.txt"');
       expect(page).toMatch(/For engineers<\/summary>[\s\S]*the local simulator, phase-one rules/);
       if (name === 'refund') expect(page).toContain('would have held this one back');
+      // The page for crow.direct/demo: the home page's own sign-up, no local folder, no long hex a scanner reads as a key.
+      const published = replayPage(events, s, { publish: true });
+      expect(published).toContain('href="/#join-form"');
+      expect(published).not.toContain(EARLY_ACCESS);
+      expect(published).not.toMatch(/\/(Users|home|private|var)\/|0x[0-9a-fA-F]{40}/);
+      expect(r.leaks(published)).toBe(false);
+      expect(banned(readerText(published))).toEqual([]);
+      expect(readerText(published)).not.toMatch(/\bowners?\b/i);
+      // The home page's brand, as a theme: its type, its paper and the crow above the headline; light only.
+      const branded = replayPage(events, s, { publish: true, theme: 'home' });
+      expect(branded).toContain('family=EB+Garamond');
+      expect(branded).toContain('--page:#faf7f0');
+      expect(branded).toContain('<img class="bird" src="/crow.png"');
+      expect(banned(readerText(branded))).toEqual([]);
       // The reader's text, outside the engineers' section and the "Exact call" disclosures, uses no protocol words.
       expect(banned(readerText(page))).toEqual([]);
       // Limits: one ticket when a measure is over, with the measure and its number; none otherwise.
       if (name === 'late-offer') {
-        // Asking to approve forbidden terms is over its limit of 0, even though the owner's rule refused: a ticket.
-        expect(readFileSync(r.ticket!, 'utf8')).toContain("agreeing to terms the owner's brief forbade: 1, limit 0");
+        // Asking to approve forbidden terms is over its limit of 0, even though the company's rule refused: a ticket.
+        expect(readFileSync(r.ticket!, 'utf8')).toContain("agreeing to terms the company's brief forbade: 1, limit 0");
       } else if (name === 'refund') {
         expect(r.ticket).toBe(join(r.dir, 'ticket.md'));
         const t = readFileSync(r.ticket!, 'utf8');
@@ -110,10 +134,10 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       expect(events.find((e) => e.kind === 'world').docsChanges[0]).toMatch(/^llms\.txt: OP1 and OP2 name this world's operators/);
       expect(page).not.toMatch(/<script[^>]+src=/i);
       for (const text of [readFileSync(r.record, 'utf8'), page, readFileSync(join(r.dir, 'summary.json'), 'utf8')]) expect(r.leaks(text)).toBe(false);
-      // The buyer's keys exist, in the owner's folder only.
-      const keyFiles = execFileSync('ls', [join(r.dir, 'buyer', 'owner', 'keys')], { encoding: 'utf8' }).split('\n').filter((f) => /^0x[0-9a-f]{40}\.json$/.test(f));
+      // The buyer's keys exist, in the company's folder only.
+      const keyFiles = execFileSync('ls', [join(r.dir, 'buyer', 'company', 'keys')], { encoding: 'utf8' }).split('\n').filter((f) => /^0x[0-9a-f]{40}\.json$/.test(f));
       expect(keyFiles.length).toBe(1);
-      const key = JSON.parse(readFileSync(join(r.dir, 'buyer', 'owner', 'keys', keyFiles[0]!), 'utf8')).privateKey as string;
+      const key = JSON.parse(readFileSync(join(r.dir, 'buyer', 'company', 'keys', keyFiles[0]!), 'utf8')).privateKey as string;
       expect(readFileSync(r.record, 'utf8')).not.toContain(key.slice(2));
       expect(page).not.toContain(key.slice(2));
     }, 200_000);
@@ -176,20 +200,20 @@ describe("the agents' tools hold their limits", () => {
     expect((await tools.call('read_file', { path: 'a/b.txt' })).content).toBe('hi');
   });
 
-  it("checks the buyer's arguments: its one key store, the allowlist, its owner's budget, no --expect-terms", async () => {
+  it("checks the buyer's arguments: its one key store, the allowlist, its company's budget, no --expect-terms", async () => {
     const { tools, owner } = box({ role: 'buyer' });
     const store = join(owner, 'keys');
     const cases: Array<[string[], RegExp]> = [
       [['http://127.0.0.1:2/allowed', '/tmp/elsewhere', '{}', '100'], /key store/],
       [['https://evil.example/quote', store, '{}', '100'], /allowlist/],
       [['http://127.0.0.1:2/allowed', store, '{}', '101'], /budget/],
-      [['http://127.0.0.1:2/allowed', store, '{}', '100', '--expect-terms', 'terms.json'], /owner keeps the approval/],
+      [['http://127.0.0.1:2/allowed', store, '{}', '100', '--expect-terms', 'terms.json'], /company keeps the approval/],
       [['approve', store, `0x${'11'.repeat(32)}`, '100'], /no stop showed/],
     ];
     for (const [args, why] of cases) expect((await tools.call('run_command', { command: 'buy-with-signer', args })).content).toMatch(why);
   });
 
-  it("answers the approval stop with the owner's policy: an offer without a required check is refused and recorded", async () => {
+  it("answers the approval stop with the company's policy: an offer without a required check is refused and recorded", async () => {
     const { tools, owner, rec } = box({ role: 'buyer' });
     const id = `0x${'22'.repeat(32)}`;
     const now = Math.floor(Date.now() / 1000);
@@ -199,13 +223,13 @@ describe("the agents' tools hold their limits", () => {
     const cases: Array<[Record<string, unknown>, RegExp]> = [
       [{ ...fine, checks: [{ id: 'scope', required: true }] }, /the offer has no required check "coverage"/],
       [{ ...fine, checks: [{ id: 'coverage', required: false }] }, /no required check "coverage"/],
-      [{ ...fine, checks: [{ id: 'coverage', required: true, type: 'json_schema', schema: { type: 'object' } }] }, /check "coverage" is not the check the owner requires: same name, different content/],
+      [{ ...fine, checks: [{ id: 'coverage', required: true, type: 'json_schema', schema: { type: 'object' } }] }, /check "coverage" is not the check the company requires: same name, different content/],
       [{ ...fine, deadlines: { ...fine.deadlines, appealDecideSec: 99_999_999 } }, /appealDecideSec is 99999999 s/],
-      [{ ...fine, fees: { total: { amount: '101' } } }, /above the owner's budget of 100/],
+      [{ ...fine, fees: { total: { amount: '101' } } }, /above the company's budget of 100/],
       [{ ...fine, createdAt: iso(now + 86_400 * 365 * 3) }, /outside 300 s of settlement time/],
       [{ ...fine, createdAt: iso(now - 3600) }, /outside 300 s of settlement time/],
-      [{ ...fine, deadlines: { ...fine.deadlines, deliverBy: iso(now + 7200) } }, /delivery is due by .* after the latest the owner accepts/],
-      [{ ...fine, deadlines: { ...fine.deadlines, judgeBy: iso(now + 86_400) } }, /judgeBy is .* the owner's latest delivery plus its judging slack/],
+      [{ ...fine, deadlines: { ...fine.deadlines, deliverBy: iso(now + 7200) } }, /delivery is due by .* after the latest the company accepts/],
+      [{ ...fine, deadlines: { ...fine.deadlines, judgeBy: iso(now + 86_400) } }, /judgeBy is .* the company's latest delivery plus its judging slack/],
     ];
     for (const [offer, why] of cases) {
       write(offer);
@@ -236,7 +260,7 @@ describe("the agents' tools hold their limits", () => {
     const { tools, work } = box();
     const api = { quote: 'http://127.0.0.1:3/quote', start: 'http://127.0.0.1:3/jobs', result: 'http://127.0.0.1:3/jobs/{jobId}/result' };
     const bad: Array<[Record<string, unknown>, RegExp]> = [
-      [{ port: 4567, sellerApi: { ...api, quote: 'https://evil.example/quote' } }, /under your owner's job API/],
+      [{ port: 4567, sellerApi: { ...api, quote: 'https://evil.example/quote' } }, /under your company's job API/],
       [{ port: 4567, sellerApi: { ...api, auth: { env: 'HOLDBACK_KEY', header: 'X' } } }, /auth/],
       [{ port: 4567, sellerApi: api, alerts: { callback: 'https://evil.example/' } }, /no "alerts" setting/],
       [{ port: 4567, sellerApi: api, quoteAuth: { kind: 'bearer', env: 'HOLDBACK_KEY' } }, /no "quoteAuth"/],
@@ -297,7 +321,7 @@ describe('the loop and the providers', () => {
     const provider = scripted(Array.from({ length: 10 }, () => () => ({ calls: [{ name: 'fetch_url', input: { url: 'https://evil.example/' } }] })));
     const end = await runAgent({ role: 'seller', provider, brief: 'brief', tools, caps: { turns: 50, tokens: 1e9 }, rec, signal: new AbortController().signal });
     expect(end.status).toBe('stalled');
-    expect(end.trying).toContain('not on your owner');
+    expect(end.trying).toContain('not on your company');
     expect(rec.events.filter((e) => e.kind === 'stall')[0]).toMatchObject({ reason: 'the same failing call again' });
   });
 
@@ -380,4 +404,11 @@ describe('the measures and the guards', () => {
     expect(r.stdout + r.stderr).toBe('');
     expect(r.status).toBe(0);
   }, 120_000);
+});
+
+describe('the published page', () => {
+  it('cuts local paths to the run\'s own part and long hex strings to their ends', () => {
+    const html = `<pre>approve /Users/someone/x/reports/scratch/duet/run/buyer/company/keys 0x${'ab'.repeat(32)} and /private/var/tmp/file.txt 0x${'cd'.repeat(20)}</pre>`;
+    expect(forPublishing(html)).toBe('<pre>approve …/buyer/company/keys 0xababab…abab and …/file.txt 0xcdcdcd…cdcd</pre>');
+  });
 });

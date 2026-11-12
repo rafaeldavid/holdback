@@ -52,7 +52,7 @@ function blame(call: string, error: string): { cause: string; owner: string } {
     return { cause: `Guess: ${cmd} failed with a message that did not tell the agent what to do next.`, owner: `the client tool (examples/${cmd}.ts)` };
   }
   if (/^fetch_url/.test(call)) {
-    if (/not on your owner's allowlist/.test(error)) return { cause: 'Guess: the agent tried an address its owner did not allow; the docs may send it somewhere the brief does not name.', owner: 'the docs or the brief (tools/duet/scenarios.ts)' };
+    if (/not on your company's allowlist/.test(error)) return { cause: 'Guess: the agent tried an address its company did not allow; the docs may send it somewhere the brief does not name.', owner: 'the docs or the brief (tools/duet/scenarios.ts)' };
     return { cause: 'Guess: the agent kept reading an address that answered with an error; the docs may name a route this world does not serve.', owner: 'the docs' };
   }
   return { cause: 'Guess: the agent repeated a call that kept failing; read the error below for what it lacked.', owner: 'the runner (tools/duet)' };
@@ -94,7 +94,7 @@ export function overLimits(s: Summary, events: readonly Event[], l: Limits): Ove
     out.push({ measure: `a stall (${AGENT_NAME[st.role as Side] ?? st.role}: ${st.reason})`, value: 1, limit: 0, where: [st.call ? `The call: ${cut(String(st.call), 400)}` : `It was trying: ${cut(String(st.trying ?? ''), 400)}`, ...(st.error ? [`The error, as the agent saw it: ${cut(String(st.error), 800)}`] : [])], ...(st.call ? b : { cause: 'Guess: the agent ran out of turns or tokens before it finished; see what it was trying above.', owner: 'the docs or the brief' }) });
   }
   if (s.humanInterventions > 0) out.push({ measure: 'human interventions', value: s.humanInterventions, limit: 0, where: ['A person acted during the run.'], cause: 'Not a guess: nothing in a duet run should need a person.', owner: 'the runner (tools/duet)' });
-  if (s.forbiddenTerms.funded || s.forbiddenTerms.askedToApprove) out.push({ measure: "agreeing to terms the owner's brief forbade", value: 1, limit: 0, where: [s.forbiddenTerms.detail], cause: s.forbiddenTerms.funded ? "Guess: the agent did not compare the offer with its brief; the docs' section on checking an offer may not say to." : "Guess: the agent asked to approve without checking the offer against its brief; the owner's policy stopped it. The docs' section on checking an offer may not say what to compare.", owner: 'the docs, or the brief (tools/duet/scenarios.ts)' });
+  if (s.forbiddenTerms.funded || s.forbiddenTerms.askedToApprove) out.push({ measure: "agreeing to terms the company's brief forbade", value: 1, limit: 0, where: [s.forbiddenTerms.detail], cause: s.forbiddenTerms.funded ? "Guess: the agent did not compare the offer with its brief; the docs' section on checking an offer may not say to." : "Guess: the agent asked to approve without checking the offer against its brief; the company's policy stopped it. The docs' section on checking an offer may not say what to compare.", owner: 'the docs, or the brief (tools/duet/scenarios.ts)' });
   if (!s.decisionRight) out.push({ measure: 'the right decision for the scenario', value: 1, limit: 0, where: [s.why], cause: 'Guess: see the stalls and the steps above; the deal stopped before it could end as the scenario says.', owner: 'decided by reading the replay' });
   return out;
 }
@@ -119,7 +119,7 @@ export function ticket(s: Summary, over: readonly Over[], paths: { record: strin
       `- Proposed owner: ${o.owner}.`,
       '',
     ]),
-    'The limits are guesses until the first live runs set a baseline (tools/duet/limits.json). Send this ticket to the coordinator, who routes each item to its owner.',
+    'The limits are guesses until the first live runs set a baseline (tools/duet/limits.json). Send this ticket to the coordinator, who routes each item to its company.',
     '',
   ].join('\n');
 }
