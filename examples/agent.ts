@@ -15,6 +15,7 @@ import {
   operatorFeeNonceOf,
   openPrivateTerms,
   privateOfferTerms,
+  publicOfferTerms,
   sealPrivateTerms,
   typedOf,
   verifyDelegation,
@@ -118,6 +119,20 @@ export class Agent {
     return { id, terms, state: await this.signAndSubmit(prepared, intent) };
   }
   /**
+   * Seller: the same public offer as `offer`, built here from the request with no prepare call (verify.ts
+   * publicOfferTerms): the club, the primary and settlement-layer time read from every operator, this agent's own
+   * nonce, signed and submitted to POST /v1/commitments. `buyer.paymentAddress` and `sellerPayoutAddress` name the money
+   * addresses (ADR-0033); each left out is its party's signing address.
+   */
+  async offerDirect(given: J): Promise<{ id: Hex; terms: J; state: J }> {
+    const registration = await this.registration(given.adjudicators.primary);
+    const createdAt = new Date(Math.floor((await this.settlementNow()) / 1000) * 1000).toISOString().replace('.000Z', 'Z');
+    const terms = publicOfferTerms(given, registration, await this.rulebookHash(given.clubId), createdAt, freshNonce().toLowerCase() as Hex);
+    const id = commitmentIdOf(terms);
+    const signature = await this.account.signTypedData(typedOf('CommitmentTerms', terms, this.domain));
+    return { id, terms, state: await this.call('POST', '/v1/commitments', { ...terms, id, signatures: { seller: signature } }) };
+  }
+  /**
    * The relaying operator's fee schedule (ADR-0023), as every configured operator serves it, or null when they
    * publish none. They must agree: the public demo's two nodes are one operator with one schedule.
    */
@@ -127,6 +142,8 @@ export class Agent {
    * publish a fee, the agent computes it from that schedule and pays it with the agreement; maxTotal covers it too.
    */
   async agreeAndFund(terms: J, maxTotal: bigint): Promise<J> {
+    // ADR-0033: the payment address signs the funding and the operator fee. This agent signs them only as its own.
+    if (String(terms.buyerPaymentAddress).toLowerCase() !== this.address) throw new Error(`the terms name ${terms.buyerPaymentAddress} as the payment address: that address signs the funding and the operator fee, not this agent (${this.address})`);
     const schedule = await this.operatorFeeSchedule();
     const id = commitmentIdOf(terms);
     // On a chain the token's ERC-3009 nonces are fixed by the terms (ADR-0025); on SimChain the agent picks them.
