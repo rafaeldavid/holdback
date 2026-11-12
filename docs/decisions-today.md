@@ -1094,3 +1094,18 @@ The full text is kept privately (`docs/private-materials.md`).
 - **The numbers** are ADR-0032's [measured: 7,200 slots a day times the stake share raised to the run's length; the 7.31% is the largest single custodian on one dashboard, read 2026-11-11].
 - **What does not change:** the rule, the gate lines and the residuals of ADR-0032. Gate line BR-6 still measures the runs on mainnet before a deploy there, and the margin can be raised then, before the deploy fixes it.
 - **Litmus tests.** Unchanged from D59.
+
+## D65. A deal is judged under the policy it bound, on every later build (ADR-0036)
+
+**Proposed 2026-11-12 by T-373,** after T-367 (PR 386) found that an operator deploy that changes the screen leaves a deal accepted before it without a judge. ADR-0036 is Proposed; Rafa may overrule any line. Nothing is built.
+
+- **The finding holds** [measured: a scratch test at `e1e8df2`, run and not committed]. After such a deploy the primary, the fallback and the appeal adjudicator each refuse the deal with `policy_mismatch`, no judge is called, and the deal ends Refunded through its default outcome. A change of either template, of the aggregation version or of the judge registry does the same. A rollback does it in reverse.
+- **What a build keeps.** Every screen version, template pair, aggregation version and registry a released build ever registered, selected by the deal's bound policy. It accepts only its current default as primary. Retiring a version is a reviewed change that shows no open deal binds it.
+- **A version with a known weakness.** The adjudicator still judges an open deal under its bound policy (D28). It withdraws a version only when running it would break a hard rule or endanger the adjudicator itself; it then declines in public at once and never substitutes another version.
+- **Who carries which version.** The primary carries every policy it signed an acceptance for; a fallback or appeal adjudicator carries what it said it would take. Crow's three ship in one build.
+- **The deploy guard.** `pnpm demo-cloud:deploy` refuses a deploy after which an open deal the live build can judge could not be judged, with one override for a recorded withdrawal. A new version ships in two deploys: carried first, the default later, so a rollback is always safe.
+- **A deal the build cannot judge.** The public state read names the adjudicator, the reason, what follows and when, from the first pass and for the primary too.
+- **The proof.** The fixture `neutrality.deploy-changes-policy`, and `neutrality.deploy-changes-registry`.
+- **Litmus tests.** Neutrality: it closes a gap; a deploy no longer removes an open deal's judges, and the maintainers' row in `docs/neutrality.md` becomes true for the judging code. The hold: unchanged. Defended judgment: models stay pinned by the bound registry, nothing is re-rolled, and a decision's `policyHash` is the policy that ran.
+- **What it changes when built:** `packages/judgment`, `apps/adjudicator`, `packages/testkit`, `apps/demo-cloud` and `scripts/deploy-lib.mjs`. No contract, schema, signed type or API route.
+- **Until then:** a deploy that changes a version or a registry goes out only when no open deal binds the outgoing policy. PR 386's deploy is the first.
