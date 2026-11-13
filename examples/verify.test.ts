@@ -334,7 +334,7 @@ describe('neutrality.operator-lies-in-prepare', () => {
   });
 
   it('"two operators agree" needs two distinct origins: one node listed twice is one source', async () => {
-    const twice = new Agent([honest[0]!, `${honest[0]}/`, honest[0]!.replace('127.0.0.1', '127.0.0.1')], keys.get(seller)!.privateKey, keys.get(seller)!.enc);
+    const twice = new Agent([honest[0]!, `${honest[0]}/`, honest[0]!.replace('http://', 'HTTP://')], keys.get(seller)!.privateKey, keys.get(seller)!.enc);
     expect(() => twice.sources()).toThrow(/distinct origins/);
     await expect(twice.registration(slate().primary)).rejects.toThrow(/distinct origins/);
     expect(seller.sources()).toHaveLength(2);

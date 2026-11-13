@@ -63,7 +63,7 @@ const HOME_MAX_BYTES = 8000, POINTER_WITHIN = 600;
 const head600 = Buffer.from(html).subarray(0, POINTER_WITHIN).toString('utf8');
 expect(Buffer.byteLength(html) <= HOME_MAX_BYTES, `site/index.html is ${Buffer.byteLength(html)} bytes: an agent reading the home page pays for every byte; keep it at or under ${HOME_MAX_BYTES} (styles in home.css, scripts in home.js)`);
 expect(head600.includes(`<link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="${BASE}llms.txt">`) && /<!-- For AI agents: [^>]*llms\.txt[^>]*-->/.test(head600), `the first ${POINTER_WITHIN} bytes of index.html must carry the plain sentence for agents and the <link rel="alternate"> to llms.txt`);
-expect(!/<style|<script>/.test(html), 'index.html carries inline styles or an inline script: they belong in home.css and home.js');
+expect(!/<style|<script(?![^>]*\bsrc=)/i.test(html), 'index.html carries inline styles or an inline script: they belong in home.css and home.js');
 // The 404 page: an agent that guessed a wrong address is pointed to the guides first, for little more than a kilobyte.
 const notFound = read('404.html');
 expect(notFound === notFoundPage(), 'site/404.html is stale: run node site/build.mjs');

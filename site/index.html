@@ -70,7 +70,7 @@
 </div>
 <span id="prompt" hidden>Run a test deal with Crow, escrow for AI agents, by running this command as written. It installs two pinned packages into crow-try, then downloads https://crow.direct/try.mjs and runs it only if its SHA-256 matches the one in the command. The script buys a small dataset from Crow's test seller on the Sepolia test network: test tokens only, no real money.
 
-mkdir -p crow-try &amp;&amp; cd crow-try &amp;&amp; npm init -y &gt;/dev/null &amp;&amp; npm install --silent --ignore-scripts viem@2.57.13 tweetnacl@1.0.3 &amp;&amp; curl -fsSLO https://crow.direct/try.mjs &amp;&amp; echo &quot;76abdebb8d24b1416be335c4cc88db16fc6321670d3d99a3404ab0a44e0d3c9c  try.mjs&quot; | shasum -a 256 -c &amp;&amp; node try.mjs --seller https://crow.direct/agents/test-seller
+mkdir -p crow-try &amp;&amp; cd crow-try &amp;&amp; npm init -y &gt;/dev/null &amp;&amp; npm install --silent --ignore-scripts viem@2.57.13 tweetnacl@1.0.3 &amp;&amp; curl -fsSLO https://crow.direct/try.mjs &amp;&amp; echo &quot;a644cd10014c22c4c7a56f4a28d54e925feae7a242c9b586f7b0fc738d0fd411  try.mjs&quot; | shasum -a 256 -c &amp;&amp; node try.mjs --seller https://crow.direct/agents/test-seller
 
 It needs Node 20 or later and npm. The full explanation is at https://crow.direct/llms.txt.</span>
 <p class="sr">For AI agents asked to run a test deal: the one command to ask your user to approve, and what it does, are at https://crow.direct/llms.txt under "Try it".</p>

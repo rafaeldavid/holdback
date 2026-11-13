@@ -23,7 +23,7 @@ const made: string[] = [];
 const tmp = (name: string) => { const d = realpathSync(mkdtempSync(join(tmpdir(), `duet-${name}-`))); made.push(d); return d; };
 afterAll(() => { for (const d of made) rmSync(d, { recursive: true, force: true }); });
 /** What a reader sees: the page without its style, script, engineers' section and "Exact call" disclosures, or its tags. */
-const readerText = (html: string) => html.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>|<title>[\s\S]*?<\/title>/g, '').replace(/<details class="engineers"[\s\S]*?<\/details>/g, '').replace(/<details>[\s\S]*?<\/details>/g, '').replace(/<[^>]+>/g, ' ').replace(/&#39;/g, "'").replace(/&#34;/g, '"').replace(/&#38;/g, '&');
+const readerText = (html: string) => html.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>|<title>[\s\S]*?<\/title>/gi, '').replace(/<details class="engineers"[\s\S]*?<\/details>/g, '').replace(/<details>[\s\S]*?<\/details>/g, '').replace(/<[^>]+>/g, ' ').replace(/&#39;/g, "'").replace(/&#34;/g, '"').replace(/&#38;/g, '&');
 const BANNED: Array<[string, RegExp]> = [['commitment', /\bcommitments?\b/i], ['escrowState', /escrowstate/i], ['adjudicator', /adjudicat/i], ['EIP-712', /eip-?712/i], ['Released', /\bReleased\b/], ['Refunded', /\bRefunded\b/], ['hold as a noun', /\b(the|a|an|its|this|that|your) hold\b/i], ['settlement layer', /settlement layer/i], ['escrow', /\bescrow\b/i]];
 const banned = (text: string) => BANNED.filter(([, re]) => re.test(text)).map(([w]) => `${w}: …${text.slice(Math.max(0, text.search(BANNED.find(([x]) => x === w)![1]) - 60), text.search(BANNED.find(([x]) => x === w)![1]) + 60)}…`);
 const lines = (file: string) => readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));

@@ -44,7 +44,7 @@ var SEPOLIA;
 var init_deployments = __esmMin((() => {
 	SEPOLIA = {
 		chainId: 11155111,
-		commit: "64be1f176ab45cca94a2cd398981c2a6664bc98a",
+		commit: "938c3fc6b2797c61a3a53a7b00679fbee1cc2906",
 		compiler: {
 			solc: "0.8.28",
 			viaIR: true,
@@ -53,82 +53,64 @@ var init_deployments = __esmMin((() => {
 			evmVersion: "prague"
 		},
 		deployer: "0x1A4435488eaF1A37d2327d44Fe67e97d83203B64",
-		fromBlock: 12061237,
-		escrow: "0x2d9ad608DE707aC470111B73c693020D9c9342cC",
-		erc3009Collector: "0xA7c26BA572DCe83AB4466379fC8AEE84345888E7",
-		permit2Collector: "0x8d68172322D04c9aE1C42Da4DC859699E06E6C48",
-		permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+		fromBlock: 12123907,
+		deployedAt: "2026-11-13T05:32:12Z",
+		escrow: "0x8ef2b0Bc9304Fd4D506b5410B35Cc1e2D2BB4357",
+		erc3009Collector: "0x959CA9929ea2c47c6390199Ab07639F307c0e3ef",
 		multicall: "0xcA11bde05977b3631167028862bE2a173976CA11",
-		rules: "0xF38287e5C5C1F20c6D03be500EDBF8A244f27cFA",
-		bonds: "0x83F3a2615A2BE9a7DadcA924ed9952ec85749aD1",
-		beacon: "0xBe80ad8Ba4E49bc985ef43caD71740351EE4Cc10",
+		rules: "0x3BE45128565ABBc35DbD4660716b703Ff489f1b4",
+		beacon: "0x1Eca7edB6531231C73fA0eb875816cEBd70c0645",
 		expiryMarginSec: 86400,
+		beaconMarginSec: 29,
 		token: {
-			address: "0x5029787d7E141F2D51788035cc23903652d196B6",
+			address: "0x0b3d947f594B59Fc1Fb7D02E62C6795F8118cA6D",
 			name: "Crow Test USDC",
 			version: "1",
 			symbol: "tUSDC",
 			decimals: 6,
-			domainSeparator: "0x6a0916d68ac92d43cb06305c2c91406949ec695185c34fd06cb0e37f04d731c5",
-			tx: "0xdad17f3fb7e7a99c28ddc9ba4a2353347b00cfef0646a61f73a99a9d6f22ce9c",
-			block: 12061243
+			domainSeparator: "0x7d333ead9877f0a32ed08ff9704f6a4a7f9a2e1430104d0d2a77242e973b17f3",
+			tx: "0x1cb8f915be2a31decf83145546d7eeabc57255e26dce61f541339e333cd592b5",
+			block: 12123911
 		},
 		checks: {
 			creationCodeMatchesBuild: true,
-			permit2CodeHash: "0x96d9f5c3f0fb0423426b7f970186235b7347027f4e5c19c40c412b7d97fc3751",
 			multicallCodeHash: "0xd5c15df687b16f2ff992fc8d767b4216323184a2bbc6ee2f9c398c318e770891",
-			beaconCodeHash: "0x7ff87f8365d5c7ae3ed184771df2a51e5818c2270e61e97241a3acb93d71d3cc",
+			beaconCodeHash: "0xdaf0a431b7ae64f9503671f25293c0ed210a3997590be6e2d82d63a12a005388",
 			beaconRound1000Value: "0xfe290beca10872ef2fb164d2aa4442de4566183ec51c56ff3cd603d930e54fdd",
 			beaconRefusesOutsideG1: true,
 			beaconRefusesAnotherRound: true
 		},
 		contracts: {
 			AuthCaptureEscrow: {
-				address: "0x2d9ad608DE707aC470111B73c693020D9c9342cC",
-				tx: "0xe3229fd3d0e51007472de48ff6dad226706c4465442125a3737239210946d06e",
-				block: 12061237,
+				address: "0x8ef2b0Bc9304Fd4D506b5410B35Cc1e2D2BB4357",
+				tx: "0x64877f781bd84ba308f78e990e96486b5c78325e6a0d098cfe5bf402a3b41d09",
+				block: 12123907,
 				args: []
 			},
 			ERC3009PaymentCollector: {
-				address: "0xA7c26BA572DCe83AB4466379fC8AEE84345888E7",
-				tx: "0x58b2175f4534fa14a896dfc545b819cc12c41968246039d4a328668dd6c8d7e4",
-				block: 12061238,
-				args: ["0x2d9ad608DE707aC470111B73c693020D9c9342cC", "0xcA11bde05977b3631167028862bE2a173976CA11"]
-			},
-			Permit2PaymentCollector: {
-				address: "0x8d68172322D04c9aE1C42Da4DC859699E06E6C48",
-				tx: "0xe5412ebab850a18db8cd513375935bde50281341f6d5092a50b2869af0ae78d4",
-				block: 12061239,
-				args: [
-					"0x2d9ad608DE707aC470111B73c693020D9c9342cC",
-					"0x000000000022D473030F116dDEE9F6B43aC78BA3",
-					"0xcA11bde05977b3631167028862bE2a173976CA11"
-				]
+				address: "0x959CA9929ea2c47c6390199Ab07639F307c0e3ef",
+				tx: "0x9597e575869577d55e30aaddbd486e9c0da6c95737528c1a2a08bc6cdc2b93f5",
+				block: 12123908,
+				args: ["0x8ef2b0Bc9304Fd4D506b5410B35Cc1e2D2BB4357", "0xcA11bde05977b3631167028862bE2a173976CA11"]
 			},
 			DrandQuicknetBeacon: {
-				address: "0xBe80ad8Ba4E49bc985ef43caD71740351EE4Cc10",
-				tx: "0x95cc19a85daac20bab87819917cac4f7fcdf880dca8c31d5b771c137d62555c9",
-				block: 12061240,
+				address: "0x1Eca7edB6531231C73fA0eb875816cEBd70c0645",
+				tx: "0x8edd7d0aa0ca7db7c1e096d001f8c3c978a6aee6ee28a12c9b1cad7463c98aee",
+				block: 12123909,
 				args: []
 			},
 			HoldbackRules: {
-				address: "0xF38287e5C5C1F20c6D03be500EDBF8A244f27cFA",
-				tx: "0xacebb2ffe8418c50acdddcb223d6211a0cca647e67a3757f1afbe9e7c8927929",
-				block: 12061242,
+				address: "0x3BE45128565ABBc35DbD4660716b703Ff489f1b4",
+				tx: "0xa1b199ce9198515d17e9fa76e504148ad3f67055f67aa53d63058fc476628f87",
+				block: 12123913,
 				args: [
-					"0x2d9ad608DE707aC470111B73c693020D9c9342cC",
-					"0xA7c26BA572DCe83AB4466379fC8AEE84345888E7",
-					"0x8d68172322D04c9aE1C42Da4DC859699E06E6C48",
+					"0x8ef2b0Bc9304Fd4D506b5410B35Cc1e2D2BB4357",
+					"0x959CA9929ea2c47c6390199Ab07639F307c0e3ef",
 					"86400",
-					"0xBe80ad8Ba4E49bc985ef43caD71740351EE4Cc10"
+					"0x1Eca7edB6531231C73fA0eb875816cEBd70c0645",
+					"0x0b3d947f594B59Fc1Fb7D02E62C6795F8118cA6D",
+					"29"
 				]
-			},
-			HoldbackBonds: {
-				address: "0x83F3a2615A2BE9a7DadcA924ed9952ec85749aD1",
-				tx: "0xacebb2ffe8418c50acdddcb223d6211a0cca647e67a3757f1afbe9e7c8927929",
-				block: 12061242,
-				args: [],
-				createdBy: "HoldbackRules constructor"
 			}
 		}
 	};

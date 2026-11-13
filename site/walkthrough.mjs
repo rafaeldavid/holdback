@@ -7,7 +7,8 @@
 //   OP1=https://… OP2=https://… node site/walkthrough.mjs
 //
 // The page pins Sepolia (D41), so the operators must settle there: the deployed demo, or a world on a Sepolia fork
-// (apps/demo-cloud/src/live.test.ts runs it so). Fresh keys, funded by POST /v1/faucet. Exits 0 with a one-line
+// (apps/demo-cloud/src/live-fork.test.ts runs it so). The phase-one contracts: no appeal window, a decision final when it
+// settles, two money addresses in the terms, and an operator fee of 0 on Crow's nodes for the first pilots. Fresh keys, funded by POST /v1/faucet. Exits 0 with a one-line
 // summary per step, or 1 at the first difference.
 import { readFileSync } from 'node:fs';
 import { createHash, randomBytes, randomUUID, webcrypto } from 'node:crypto';
@@ -171,9 +172,9 @@ try {
   const deliverable = { kind: 'dataset', description: 'customers.csv, one row per customer', format: 'text/csv' };
   const price = { token, amount: '25000000' };
   const offerNonce = nonce();
-  // The docs' timing: 60-second windows, the demo club's minimum.
+  // The docs' timing: 60-second decision windows, the demo club's minimum, and no appeal window (phase one).
   const w = 60;
-  const timing = { judgeWithinSec: w, fallbackWithinSec: w, appealWindowSec: w, appealDecideSec: w };
+  const timing = { judgeWithinSec: w, fallbackWithinSec: w, appealWindowSec: 0, appealDecideSec: w };
   same(JSON.parse(/^ {2}"timing": (\{.*\})$/m.exec(docs)?.[1] ?? 'null'), timing, 'the timing in the offer example');
   const offerReq = {
     nonce: offerNonce, disclosure: 'public', template: 'checks-only', clubId, seller: seller.address, buyer: { address: buyer.address, encryptionPublicKey: buyer.encPub },
@@ -184,10 +185,11 @@ try {
   let now = await settlementNow();
   const m = offer.sign[0].typedData.message, createdAt = Number(m.createdAt), reg = regs[0];
   const termsMsg = {
-    schemaVersion: '0.7', clubId, rulebookHash: club.rulebookHash, buyer: buyer.address, seller: seller.address,
+    // schemaVersion "0.8"; each money address left out of the request is that party's signing address (ref/http-seller.txt).
+    schemaVersion: '0.8', clubId, rulebookHash: club.rulebookHash, buyer: buyer.address, seller: seller.address, buyerPaymentAddress: buyer.address, sellerPayoutAddress: seller.address,
     deliverableHash: jcsHash(deliverable), acceptanceHash: jcsHash({ deterministicChecks: checks, rubric: { criteria: [], passThreshold: 0 } }), price,
     adjudication: { adjudicator: adjAddresses[0], fallbackAdjudicator: adjAddresses[1], appealAdjudicator: adjAddresses[2], policyId: reg.policy.id, fee: reg.fee.min, registryHash: reg.registry.hash, policyHash: reg.policyHash },
-    timing: { offerExpiresAt: createdAt + 900, fundBy: createdAt + 1800, deliverBy: createdAt + 86400, judgeBy: createdAt + 86400 + w, fallbackBy: createdAt + 86400 + 2 * w, appealWindowSec: w, appealDecideSec: w, maxSubmissions: 1, disputeBy: 0, disputeJudgeSec: 0, disputeFallbackSec: 0 },
+    timing: { offerExpiresAt: createdAt + 900, fundBy: createdAt + 1800, deliverBy: createdAt + 86400, judgeBy: createdAt + 86400 + w, fallbackBy: createdAt + 86400 + 2 * w, appealWindowSec: 0, appealDecideSec: w, maxSubmissions: 1, disputeBy: 0, disputeJudgeSec: 0, disputeFallbackSec: 0 },
     settlement: { mode: 'guaranteed_on_decision', token }, remedy: { onReject: 'full_refund' }, disclosure: { level: 'public' },
     buyerEncryptionPublicKey: buyer.encPub, nonce: offerNonce, createdAt,
   };
@@ -209,6 +211,8 @@ try {
     data: ints('CommitmentTerms', { ...t, deliverableHash: jcsHash(t.deliverable), acceptanceHash: jcsHash(t.acceptance), createdAt: secs(t.createdAt), timing: { ...Object.fromEntries(['offerExpiresAt', 'fundBy', 'deliverBy', 'judgeBy', 'fallbackBy'].map((k) => [k, secs(t.timing[k])])), appealWindowSec: t.timing.appealWindowSec, appealDecideSec: t.timing.appealDecideSec, maxSubmissions: t.timing.maxSubmissions, disputeBy: 0, disputeJudgeSec: 0, disputeFallbackSec: 0 } }),
   });
   if (recomputed !== id) fail('the commitment ID recomputed from /terms differs');
+  // The two money addresses: the buyer's payment address is its own, and the payout address is where it agreed to pay.
+  if (t.buyerPaymentAddress?.toLowerCase() !== buyer.address || t.sellerPayoutAddress?.toLowerCase() !== seller.address) fail(`the terms' money addresses ${JSON.stringify({ pay: t.buyerPaymentAddress, payout: t.sellerPayoutAddress })} are not the parties' own`);
   // The operator fee, as section 6 computes it, from both operators' discovery.
   const fees = await Promise.all([OP1, OP2].map(async (op) => (await call('GET', `${op}/.well-known/holdback.json`)).fees?.operator));
   same(fees[0], fees[1], 'fees.operator on the two operators');
@@ -222,24 +226,27 @@ try {
   const expiry = secs(t.timing.fallbackBy) + t.timing.appealDecideSec + DEPLOYMENT.expiryMarginSec;
   const ZERO = `0x${'0'.repeat(40)}`;
   const PAYMENT_INFO = keccak256(toBytes('PaymentInfo(address operator,address payer,address receiver,address token,uint120 maxAmount,uint48 preApprovalExpiry,uint48 authorizationExpiry,uint48 refundExpiry,uint16 minFeeBps,uint16 maxFeeBps,address feeReceiver,uint256 salt)'));
-  const inner = keccak256(encodeAbiParameters(parseAbiParameters('bytes32, address, address, address, address, uint120, uint48, uint48, uint48, uint16, uint16, address, uint256'), [PAYMENT_INFO, DEPLOYMENT.rules, ZERO, t.seller, token, BigInt(total), secs(t.timing.fundBy), expiry, expiry, 0, 10_000, ZERO, BigInt(id)]));
+  const inner = keccak256(encodeAbiParameters(parseAbiParameters('bytes32, address, address, address, address, uint120, uint48, uint48, uint48, uint16, uint16, address, uint256'), [PAYMENT_INFO, DEPLOYMENT.rules, ZERO, t.sellerPayoutAddress, token, BigInt(total), secs(t.timing.fundBy), expiry, expiry, 0, 10_000, ZERO, BigInt(id)]));
   const fundingNonce = keccak256(encodeAbiParameters(parseAbiParameters('uint256, address, bytes32'), [BigInt(DEPLOYMENT.tokenDomain.chainId), DEPLOYMENT.escrow, inner]));
   const operatorFeeNonce = keccak256(encodeAbiParameters(parseAbiParameters('bytes32, string'), [id, 'operator_fee']));
   const agreeNonce = nonce();
-  const agree = await call('POST', `${api}/v1/prepare/agree-and-fund`, { commitmentId: id, agreeNonce, fundingNonce, operatorFeeNonce });
+  // While the fee is 0, prepare uses no operatorFeeNonce and asks for no fee signature (ref/http-buyer.txt).
+  const charged = fee > 0n;
+  const agree = await call('POST', `${api}/v1/prepare/agree-and-fund`, { commitmentId: id, agreeNonce, fundingNonce, ...(charged ? { operatorFeeNonce } : {}) });
   const fundBy = secs(t.timing.fundBy);
   // submit.body carries the same values, with RFC 3339 times and validAfter the epoch.
   const epoch = '1970-01-01T00:00:00Z';
   same(agree.submit.body.fund, { type: 'FundingAuthorization', scheme: 'erc3009', commitmentId: id, from: buyer.address, value: total, token, validAfter: epoch, validBefore: t.timing.fundBy, nonce: fundingNonce, expiresAt: t.timing.fundBy, signature: null }, 'submit.body.fund');
-  same(agree.submit.body.operatorFee, { type: 'TransferAuthorization', scheme: 'erc3009', purpose: 'operator_fee', commitmentId: id, from: buyer.address, to: s.to, value: fee.toString(), token, validAfter: epoch, validBefore: t.timing.fundBy, nonce: operatorFeeNonce, expiresAt: t.timing.fundBy, signature: null }, 'submit.body.operatorFee');
+  if (charged) same(agree.submit.body.operatorFee, { type: 'TransferAuthorization', scheme: 'erc3009', purpose: 'operator_fee', commitmentId: id, from: buyer.address, to: s.to, value: fee.toString(), token, validAfter: epoch, validBefore: t.timing.fundBy, nonce: operatorFeeNonce, expiresAt: t.timing.fundBy, signature: null }, 'submit.body.operatorFee');
+  else if ('operatorFee' in agree.submit.body) fail('submit.body carries an operatorFee while fees.operator gives 0');
   now = await settlementNow();
   const held = await signAndSubmit(agree, buyer, [
     { slot: 'signature', primaryType: 'Agree', message: { commitmentId: id, buyer: buyer.address, nonce: agreeNonce, expiresAt: secs(t.timing.offerExpiresAt) } },
     { slot: 'fund.signature', primaryType: 'ReceiveWithAuthorization', erc3009: true, message: { from: buyer.address, to: DEPLOYMENT.collector, value: total, validAfter: 0, validBefore: fundBy, nonce: fundingNonce } },
-    { slot: 'operatorFee.signature', primaryType: 'TransferWithAuthorization', erc3009: true, message: { from: buyer.address, to: s.to, value: fee.toString(), validAfter: 0, validBefore: fundBy, nonce: operatorFeeNonce } },
+    ...(charged ? [{ slot: 'operatorFee.signature', primaryType: 'TransferWithAuthorization', erc3009: true, message: { from: buyer.address, to: s.to, value: fee.toString(), validAfter: 0, validBefore: fundBy, nonce: operatorFeeNonce } }] : []),
   ], now);
   if (held.escrowState !== 'Held' || held.hold?.amount?.amount !== total) fail(`agree answered ${JSON.stringify({ s: held.escrowState, h: held.hold })}`);
-  log(`6 agree and fund: /terms agree on both operators, ID recomputed, Agree, ReceiveWithAuthorization and TransferWithAuthorization rebuilt with the nonces from Encodings, fee ${fee}, Held ${total}`);
+  log(`6 agree and fund: /terms agree on both operators, ID recomputed, money addresses the parties' own, Agree and ReceiveWithAuthorization${charged ? ' and TransferWithAuthorization' : ''} rebuilt with the nonces from Encodings, operator fee ${fee}, Held ${total}`);
 
   // 7. Deliver
   const recipients = [...adjAddresses.map((a, i) => ({ address: a, encryptionPublicKey: regs[i].encryptionPublicKey })), { address: buyer.address, encryptionPublicKey: t.buyerEncryptionPublicKey }];
@@ -270,7 +277,8 @@ try {
   // 8. Result
   for (let i = 0; i < 150 && !['Released', 'Refunded'].includes((state = await call('GET', `${api}/v1/commitments/${id}`)).escrowState); i++) await wait(200);
   if (state.escrowState !== 'Released') fail(`expected Released, got ${state.escrowState}`);
-  if (state.finalAt !== null || typeof state.deadlines?.appealBy !== 'string') fail(`finalAt ${state.finalAt}, appealBy ${state.deadlines?.appealBy}`);
+  // Phase one: the decision is final when it settles: finalAt is the decision's time, and appealState reads none.
+  if (typeof state.finalAt !== 'string' || state.appealState !== 'none') fail(`finalAt ${state.finalAt}, appealState ${state.appealState}`);
   const judgment = await call('GET', `${api}/v1/commitments/${id}/judgment`);
   if (judgment.aggregate?.decision !== 'accept' || judgment.deterministic?.length !== 2 || judgment.panel?.ran !== false) fail(`judgment ${JSON.stringify({ a: judgment.aggregate, p: judgment.panel?.ran })}`);
   const key = await call('GET', `${api}/v1/commitments/${id}/key?recipient=${buyer.address}`);
@@ -289,12 +297,7 @@ try {
   // Section 8: the events that came from the chain name their transaction.
   const txs = events.filter((e) => ['hold.funded', 'delivery.submitted', 'settlement.released'].includes(e.type)).map((e) => e.payload?.tx);
   if (txs.length !== 3 || !txs.every((x) => /^0x[0-9a-f]{64}$/.test(x ?? ''))) fail(`the funding, delivery and release events carry no payload.tx: ${JSON.stringify(txs)}`);
-  log(`8 result: Released, finalAt null until ${state.deadlines.appealBy}, judgment accept with panel.ran false, buyer opened the work, three transactions named`);
-  // The commitment turns final on its own once the appeal window closes.
-  const until = Date.parse(state.deadlines.appealBy) + 60_000;
-  while ((state = await call('GET', `${api}/v1/commitments/${id}`)).finalAt === null && Date.now() < until) await wait(5000);
-  if (state.finalAt === null) fail(`not final a minute after appealBy ${state.deadlines.appealBy}`);
-  log(`8 final: finalAt ${state.finalAt}, escrowState ${state.escrowState}`);
+  log(`8 result: Released and final at ${state.finalAt} (appealState none), judgment accept with panel.ran false, buyer opened the work, three transactions named`);
   console.log(`walkthrough PASS (${OP1} and ${OP2})`);
 } catch (e) {
   console.error(`walkthrough FAIL: ${e.message}`);
