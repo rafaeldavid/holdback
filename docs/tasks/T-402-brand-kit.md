@@ -63,6 +63,7 @@ Measured on 2026-11-13 at the branch's head, unless marked otherwise.
   - Rafa tried a lime-leaf green button (a scratch build, not committed) and kept amber.
   - Contrast [measured]: ink 13.4:1 on the page, ink-2 6.1:1, page text on the amber button 4.8:1.
   - Open, for Rafa: the panels are the beige still on the page; the demo's buyer bubble (`--demo-bubble`) is a cool grey from the white look.
+- **Maple flare, Rafa's last round on 2026-11-13.** The oat still read as a knowledge tool, not an infra launch. Rafa picked trial B of two token-only trials (scratch builds): a near-white page (`#fdfcf9`), panels `#f6f3ec`, and `--accent` maple flare `#d63d00` with light text, 4.5:1 [measured]. An earlier flare with crow-black text on a lighter orange looked off and was dropped. The Learn more cards ("How the payment is held", "Built to last") now put the number or icon on the title's row (CSS only); two other layouts are previewed in `reports/scratch/t402/variations.html`.
 - **The dialog** keeps its geometry and behaviour after both [measured, `reports/scratch/t402/final/dialog.json`].
 - **The comparison page:** `reports/scratch/t402/diff.html` shows each page today and with the kit side by side; the screenshots are in `before/` and `final/` beside it.
 
