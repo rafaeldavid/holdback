@@ -4,7 +4,7 @@ How Crow measures whether the contract tests reach every line of `contracts/src/
 
 ## Summary: the pre-freeze run (R10)
 
-The R10 run measured the lane at `c629d06cf1edbec91bb89de891210dd26035a93d`: `contracts/src/` as at that commit, the tests as at that commit plus this task's gap tests. The freeze commit `0180a39` has the same runtime code (below), so every figure here holds for it. Numbers are measured unless a label says otherwise.
+The R10 run measured the lane at `c629d06cf1edbec91bb89de891210dd26035a93d`: `contracts/src/` as at that commit, the tests as at that commit plus this task's gap tests. The freeze commit `0180a39` has the same runtime code (below), so every figure here holds for it. Its `contracts/src` equals that of the tag `contracts-phase-one-1` and of the deployment record's `commit` [measured: `git diff --stat` between each pair prints nothing, 2026-11-13]. Numbers are measured unless a label says otherwise.
 
 - **Gate VG-7, mutation: passes.** 155 mutants: 151 killed, 4 survive, none timed out and no tool error.
   - The 4 survivors are equivalent or change only a revert reason; none is a finding.
@@ -18,7 +18,7 @@ The R10 run measured the lane at `c629d06cf1edbec91bb89de891210dd26035a93d`: `co
 
 ## Summary: the first run, on main
 
-Both tools work on `main` at `5a90dc5`, the deployed domain-0.7 contracts. Those contracts keep party appeals, bonds and a second funding method, which are not in phase one. This section is a dated record of that run; the R10 run above measures the phase-one contracts. The coordinator ended `main`'s run at 89 of 179 mutants on 2026-11-12, because `main`'s contracts are replaced at the freeze; the figures below are the first 82, as recorded then. Numbers are measured unless a label says otherwise.
+Both tools work on `main` at `5a90dc5`, the domain-0.7 contracts deployed from 2026-11-04 to 2026-11-13. Those contracts keep party appeals, bonds and a second funding method, which are not in phase one. This section is a dated record of that run; the R10 run above measures the phase-one contracts. The coordinator ended `main`'s run at 89 of 179 mutants on 2026-11-12, because `main`'s contracts are replaced at the freeze; the figures below are the first 82, as recorded then. Numbers are measured unless a label says otherwise.
 
 - **Coverage builds** with `forge coverage --ir-minimum`, after the plain `forge coverage` fails. Four of the five source files have every line and branch covered. `HoldbackRules.sol` has 310 of 314 lines (98.7%) and 79 of 92 branches (85.9%). The gaps are revert branches of signature and deadline checks that no test reaches, plus one block that cannot run while the mutual-settlement fee share is 0 bps.
 - **Mutation:** the run stopped at 82 of 179 mutants on 2026-11-12 to free the machine for the contract lane (T-356). Of the 82, 71 are killed and 11 survive. Every survivor has an outcome: a new test that kills it, or a written reason with the file and line that make it equivalent.
@@ -312,9 +312,9 @@ Every survivor, by the kind of line it sits on:
 
 No stage line has a survivor. The new tests are not yet run: they wait for the machine (Handoff).
 
-### What the run does not yet cover
+### What the run did not cover
 
-- **M082 to M138 and the bonds, types, drand and sim-beacon mutants** (97 mutants) are not run yet.
+- **M082 to M138 and the bonds, types, drand and sim-beacon mutants** (97 mutants) have no recorded result on `main`: the coordinator ended `main`'s run on 2026-11-12, at 89 of 179 mutants, because the freeze replaced those contracts. The R10 run measured the phase-one list instead, 155 mutants with 151 killed (the summary at the top of this page).
 - **On the lane,** 99 of the 139 `HoldbackRules.sol` mutants still apply as written. The bonds and sim-beacon mutants (20) report stale, because the cut deleted those files [measured by applying each mutant's text to the lane's source]. The lane's own new checks, such as `acc.bondReserved != 0` in `agreeAndFund`, need mutants added to `mutants.json` before the freeze. T-380 added M139 and M140 for the beacon margin. That reuses M139, which `main` uses for the early accept's expiry, so the lane's list held two mutants with one ID [measured on the lane, 2026-11-12]; R10 renumbered T-380's to M141 and added mutants for the lane's new lines (the R10 section above).
 
 ## Cost, and where it runs

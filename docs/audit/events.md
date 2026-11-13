@@ -2,9 +2,9 @@
 
 This page lists every event the phase-one rules contract emits; the beacon emits none. For each event it gives the fields, the functions that emit it, who reads it, what a reader lacks and what it reveals in public. Rafa's rule is that events are never removed, with one exception: a feature he cut takes its events with it (ADR-0031 §10). Each gap below is a requirement for the settlement spec (T-245), not a change made here.
 
-Not in phase one (SimChain keeps the full protocol's event types): the vault's `BondDeposited`, `BondWithdrawn`, `BondEncumbered`, `BondReleased`, `AppealBondHeld`, `AppealBondPaid` and `BondSlashed`; the appeal events `AppealFiled` and `AppealClosed`; and `Paid`, the event for a third-party payout. One event is new: `SettlementAddresses` (ADR-0033). The contracts deployed on Sepolia today still emit the old set until the redeploy.
+Not in phase one (SimChain keeps the full protocol's event types): the vault's `BondDeposited`, `BondWithdrawn`, `BondEncumbered`, `BondReleased`, `AppealBondHeld`, `AppealBondPaid` and `BondSlashed`; the appeal events `AppealFiled` and `AppealClosed`; and `Paid`, the event for a third-party payout. One event is new: `SettlementAddresses` (ADR-0033). Since 2026-11-13 the phase-one contracts are the ones deployed on Sepolia (`contracts/deployments/sepolia.json`); the 2026-11-04 contracts (domain 0.7) still emit the old set for the deals opened on them.
 
-Labels: **measured** (read from the named file at the lane's tip, or produced by the named command), **documented** (stated in the doc cited), **inferred** (concluded from reading), **unknown** (not in this repository). Contract code is cited by function name in `HoldbackRules.sol` at the frozen commit (the tag `contracts-phase-one-1`; [`scope.md`](scope.md)). The event list comes from `grep -n "event \|emit "` over `contracts/src/` [measured on the lane, 2026-11-12; to measure again at the freeze].
+Labels: **measured** (read from the named file at the frozen commit, or produced by the named command), **documented** (stated in the doc cited), **inferred** (concluded from reading), **unknown** (not in this repository). The frozen commit is the annotated tag `contracts-phase-one-1`, whose `contracts/src` equals the deployment record's `commit` ([`scope.md`](scope.md)). Contract code is cited by function name in `HoldbackRules.sol` at that commit. The event list comes from `git grep -n "event " contracts-phase-one-1 -- contracts/src`: the 15 events in the table below, all declared in `IHoldbackRules.sol`, and none in the beacon [measured at the tag, 2026-11-13].
 
 ## Who reads the events
 
@@ -51,7 +51,7 @@ CPP's `AuthCaptureEscrow` emits its own events in the same transactions (`Paymen
 
 ## Gaps, as requirements for the settlement spec (T-245)
 
-Each is a reader's gap, not a fault in the contracts [inferred unless marked]. A fix adds a field or a new event; it never removes or renames one. The deployed model's gaps E-1, E-2 and E-8 described the vault's events; they are not in phase one.
+Each is a reader's gap, not a fault in the contracts [inferred unless marked]. A fix adds a field or a new event; it never removes or renames one. The 0.7 contracts' gaps E-1, E-2 and E-8 described the vault's events; they are not in phase one.
 
 | ID | Gap | Who is short | Requirement |
 | --- | --- | --- | --- |

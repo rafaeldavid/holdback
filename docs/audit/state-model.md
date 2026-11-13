@@ -2,11 +2,11 @@
 
 ## Summary
 
-This page lists every state a deal can be in on chain under the phase-one contracts: the rules contract and the Commerce Payments escrow, at the frozen commit (the tag `contracts-phase-one-1`; [`scope.md`](scope.md)). Phase one has no party appeals and no bonds (D57). SimChain keeps the full protocol, appeals and bonds included; this page does not describe it. The model of the contracts the live demo settled on until 2026-11-13 (EIP-712 domain 0.7, with party appeals and the bond vault) is `main`'s version of this page at commit `e29d387`. This page changes no code.
+This page lists every state a deal can be in on chain under the phase-one contracts: the rules contract and the Commerce Payments escrow, at the frozen commit (the tag `contracts-phase-one-1`; [`scope.md`](scope.md)). Phase one has no party appeals and no bonds (D57). SimChain keeps the full protocol, appeals and bonds included; this page does not describe it. The model of the contracts the live demo settled on until 2026-11-13 (EIP-712 domain 0.7, with party appeals and the bond vault) is `main`'s version of this page at commit `e29d387`; this page calls it the 0.7 model. This page changes no code.
 
 - **Each legal word is one row of section 9.3** (P01 to P17), and each row names the function that writes it [measured: read in `HoldbackRules.sol`].
 - **Every other combination is illegal** (section 4), each with the code that makes it unreachable [inferred from reading every write to the word]. `invariant_legalDealStates` checks every deal against section 9.3's rows after every step of the fuzzing campaign [documented: its NatSpec in `contracts/test/invariant/RulesInvariants.t.sol`]. One state is reachable that the word does not show: a funded deal whose escrow the buyer's payment address has already emptied (section 5.2).
-- **On 2026-11-11 an independent red-team check of the deployed contracts' model found no break.** The phase-one rows have had no such read of this page. `contracts/test/attack/PhaseOneRedTeam.t.sol` (T-346) tests three of its questions in code: whether a funded deal can get stuck, whether funds or the key can move outside the terms, and whether a state outside section 9.3 is reachable.
+- **On 2026-11-11 an independent red-team check of the 0.7 model found no break.** The phase-one rows have had no such read of this page. `contracts/test/attack/PhaseOneRedTeam.t.sol` (T-346) tests three of its questions in code: whether a funded deal can get stuck, whether funds or the key can move outside the terms, and whether a state outside section 9.3 is reachable.
 - **Three findings,** all Low or Info (section 11): F-1 is closed, F-2 is a stated limit and F-3 is a record. None moves money outside the signed terms.
 - **What phase one is.** One token per deployment, fixed at deploy (`TOKEN`). The buyer's payment address funds the hold with one ERC-3009 signature. The seller delivers once. The primary decides, or the fallback when the primary is late; either may escalate to the appeal adjudicator. The buyer may accept early, both parties may settle, and anyone may trigger a timeout. The first decision is final. A settlement pays the seller's payout address and the buyer's payment address only. Nothing on chain records an unfunded offer's expiry. Appendix A lists what is not in phase one.
 
@@ -87,7 +87,7 @@ One call outside the rules contract changes what a deal holds without changing i
 
 ## 4. Illegal combinations
 
-Each class is a set of combinations the storage can hold and no entry point writes. "Why unreachable" names the code that makes it so [inferred from reading every write to `_deals` and `deliveryHashOf`: `agreeAndFund`, `deliver`, `decide` (in Held), `_firstInstance`, `_escalationDecision`, `earlyAccept`, `mutualSettle`, `triggerFallback`, `_refundAll` and `_acceptDelivery`]. The class IDs are those of the deployed model. Its classes I05 to I12 and I15, which covered the flags, the appeal state and the bonds, are not in phase one.
+Each class is a set of combinations the storage can hold and no entry point writes. "Why unreachable" names the code that makes it so [inferred from reading every write to `_deals` and `deliveryHashOf`: `agreeAndFund`, `deliver`, `decide` (in Held), `_firstInstance`, `_escalationDecision`, `earlyAccept`, `mutualSettle`, `triggerFallback`, `_refundAll` and `_acceptDelivery`]. The class IDs are those of the 0.7 model. Its classes I05 to I12 and I15, which covered the flags, the appeal state and the bonds, are not in phase one.
 
 | Class | Combination | Why unreachable | If it were reached |
 | --- | --- | --- | --- |
@@ -128,7 +128,7 @@ The contract refuses terms whose deadlines are not strictly in order (`agreeAndF
 
 The escrow's token store for the rules contract holds at least the sum of `capturableAmount` over all deals. The escrow checks the exact amount on the way in (`E:424`). A deployment serves one token, so the sum is in that token.
 
-This holds between transactions [inferred; `invariant_escrowMatchesState` checks it]. Inside one transaction it has one gap: the escrow records the hold before it collects the tokens (`E:250-255`). A call nested in that gap sees the invariant broken; the red-team check of the deployed model found no use for it.
+This holds between transactions [inferred; `invariant_escrowMatchesState` checks it]. Inside one transaction it has one gap: the escrow records the hold before it collects the tokens (`E:250-255`). A call nested in that gap sees the invariant broken; the red-team check of the 0.7 model found no use for it.
 
 The exits in section 3 that move tokens rest on the token letting the transfer through. If a transfer to the buyer's payment address reverts, `reclaim` and `triggerDefault` revert and the deal stays open; nothing else is held. Token-issuer risk is out of scope ([`scope.md`](scope.md)); [`threat-model.md`](threat-model.md) states it as an assumption.
 
@@ -298,9 +298,9 @@ The nonces of the messages that carry one are assumptions too: the stage stops a
 
 ## 9. The phase-one machine
 
-Phase one is an escrow with a neutral decider: hold, deliver, decide (the primary, then the fallback, with escalation), early accept, a two-party settlement, and timeouts. The lane's contract builds it, and each row names the function that writes it at the frozen commit (the tag `contracts-phase-one-1`; [`scope.md`](scope.md)).
+Phase one is an escrow with a neutral decider: hold, deliver, decide (the primary, then the fallback, with escalation), early accept, a two-party settlement, and timeouts. The phase-one contract builds it, and each row names the function that writes it at the frozen commit (the tag `contracts-phase-one-1`; [`scope.md`](scope.md)).
 
-### 9.1 What phase one changed from the deployed contracts
+### 9.1 What phase one changed from the 0.7 contracts
 
 - **No party appeals and no bond vault** (SC-7, D57; not in phase one, SimChain keeps both). The word has no appeal state, flags or second time. An accept or a reject by the primary or the fallback is final when written (`_firstInstance`); an escalate hands the deal to the appeal adjudicator, whose accept or reject is final too. The appeal adjudicator stays, for escalations only (`_escalationDecision`).
 - **No record of an unfunded offer's expiry** (SC-6). The stage list ends at Settled (`enum Stage`), and the operators record `Expired` by their own clock, with no transaction.
@@ -432,7 +432,7 @@ Each cut, its decision, and what it changed in the contract. Appendix A lists wh
 | 11 | Has no contract signer that changes its answer | Calls ERC-1271 signers in every check |
 | 12 | Makes the offer, the acceptance and the agreement three steps | Checks all three in one call (`agreeAndFund`) |
 
-The deployed model's other differences (the Offered states and `Expired`, the two-step default with compensation, the appeal fee, the escrow's expiry, bond coverage, early accept in Held, a settlement in Held that releases a key, third-party payouts, the strict deadline order and the record of how a deal closed) are resolved in the phase-one profile or are not in phase one.
+The 0.7 model's other differences (the Offered states and `Expired`, the two-step default with compensation, the appeal fee, the escrow's expiry, bond coverage, early accept in Held, a settlement in Held that releases a key, third-party payouts, the strict deadline order and the record of how a deal closed) are resolved in the phase-one profile or are not in phase one.
 
 Other documents:
 
@@ -488,9 +488,9 @@ Each cut is deliberate. Nothing in this table is in phase one; SimChain keeps al
 
 | Not in phase one | What left the model |
 | --- | --- |
-| Party appeals (SC-7). Not in phase one | The deployed rows L11 to L30; the appeal filing, its expiry and the party-appeal branch of `decide`; the `appeal` field and `t2`; the deadlines `appealBy` and `appealDecideBy`; the overturn outcomes; the `Appeal` message; the events `AppealFiled` and `AppealClosed` |
+| Party appeals (SC-7). Not in phase one | The 0.7 model's rows L11 to L30; the appeal filing, its expiry and the party-appeal branch of `decide`; the `appeal` field and `t2`; the deadlines `appealBy` and `appealDecideBy`; the overturn outcomes; the `Appeal` message; the events `AppealFiled` and `AppealClosed` |
 | Bonds (SC-7). Not in phase one | `HoldbackBonds.sol` and its seven events; the `flags` field; every vault column; the vault's aggregate invariants; the illegal classes of flags and appeal bonds |
-| The record of an unfunded offer's expiry (SC-6). Not in phase one | The deployed row L02; `expireOffer`; `Stage.Expired` |
+| The record of an unfunded offer's expiry (SC-6). Not in phase one | The 0.7 model's row L02; `expireOffer`; `Stage.Expired` |
 | Any-token support and Permit2 funding (SC-1, SC-2). Not in phase one | The token as a term the parties choose; a second funding method |
 | Settlement payouts to third parties (SC-3). Not in phase one | Payouts to any address other than the two money addresses; the event for such a payout |
 
@@ -499,6 +499,6 @@ What a cut costs: a wrong final decision has no remedy on chain in phase one. Th
 ## Where this page did not look
 
 - **Run for this pass (T-385, 2026-11-12):** `forge test --match-path 'test/unit/*'` in `contracts/` at `ba941e0`: every unit test passed [measured]. No TLC run and no invariant campaign ran for this pass. Every "unreachable" is from reading each write to the word.
-- **Not checked by a red team on the phase-one rows:** this page's sections 3 to 12. The deployed model's sections 1 to 6 had that read on 2026-11-11.
+- **Not checked by a red team on the phase-one rows:** this page's sections 3 to 12. The 0.7 model's sections 1 to 6 had that read on 2026-11-11.
 - **Not read in full:** the ERC-3009 collector, `TokenStore.sol`, Solady's signature library beyond the plan's note that a zero signer fails, and the test handler.
 - **Assumed:** a token that moves exactly the amount asked and lets every transfer through; block time between 1 and 2^40 − 1; no delivery or seed that hashes to zero.
