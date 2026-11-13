@@ -311,7 +311,7 @@ A stranger can still open a deal between this check and step 6; step 6.4 looks f
    ```
 
    The chain is `"11155111"`; the rules address and the token equal the record's, letter case aside; the version is `packages/core/src/eip712.ts`'s; the build is `git -C $W rev-parse HEAD`. Then `/v1/clubs/demo-club` shows a new `rulebookHash` and payouts to the two parties only, and `/v1/adjudicators` shows new demo adjudicators, each with `observed.bond` `none`.
-3. **The smoke deal's gas,** from its receipts: for each transaction link the smoke deal printed, `cast receipt <tx> gasUsed --rpc-url $R`. Record the three; they price the operators' gas quote if a fee is switched on again.
+3. **The smoke deal's gas,** from its receipts: for each transaction link the smoke deal printed, `cast receipt <tx> gasUsed --rpc-url $R`. Record the three; they price the operators' gas quote if a fee is switched on again. Write them into the new dated entry of `docs/operations.md`'s Deploy record as one line, `Gas on Sepolia: fund <n>, deliver <n>, decide <n>, total <n>`, in gas with thousands commas: the contract stack page reads the first such line there (`sepoliaGas()` in `scripts/contract-stack.mjs`).
 4. **A deal the race let through:** compare the old rules contract's latest events on the explorer with step 5's list. Record any new deal as left behind.
 5. **Expect one error line** in the tail: the old world's last alarm is refused with "this world settles on the rules contract …". Read any other error before going on.
 

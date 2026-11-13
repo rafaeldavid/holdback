@@ -1,6 +1,6 @@
 // Builds the contract-stack page (reports/contract-stack.html) from the repository's sources of truth: the Sepolia
-// deployment records, contracts/src, the contract review's findings with T-212's items, and the gas the local-chain
-// differential and the Sepolia smoke deal recorded. Node and git only: no network, forge or secrets, so the founder
+// deployment records, contracts/src, the contract review's findings with T-212's items and the audit's known-issues
+// list, and the gas the local-chain differential and the Sepolia smoke deal recorded. Node and git only: no network, forge or secrets, so the founder
 // console's job can import build() as it imports the design map's. The page lives at
 // https://control.escrow.stream/contracts; the console rebuilds it only when stackVersion() changes, so it follows the
 // contracts, not the clock. The page uses no storage, cookies or fetch, so it works in a sandboxed, opaque origin: one
@@ -25,13 +25,17 @@ const num = (s) => Number(String(s).replace(/,/g, ''));
 
 const REVIEW = 'docs/reviews/2026-11-03-contract-review.md';
 const HARDENING = 'docs/tasks/T-212-contract-hardening.md';
+// The audit's list of findings: a finding's state there (fixed, or not in phase one) wins over the review's and T-212's.
+const KNOWN = 'docs/audit/known-issues.md';
+// The deploy record: each redeploy's smoke deal writes its gas there, newest first (the redeploy runbook).
+const OPERATIONS = 'docs/operations.md';
 const DIFFERENTIAL = 'reports/differential-local.md';
 
 /** What the deploy script builds from (contracts/script/deploy-sepolia.sh, BUILD_INPUTS): a change here changes deployed code. */
 export const BUILD_INPUTS = ['contracts/src/', 'contracts/lib', 'contracts/foundry.toml', 'contracts/remappings.txt', 'contracts/script/TestUSDC.sol'];
 
 /** Every path the page reads: a commit that touches none of them cannot change the page. */
-export const INPUTS = [...BUILD_INPUTS, 'contracts/deployments/', REVIEW, HARDENING, DIFFERENTIAL, 'tools/contract-stack/', 'scripts/contract-stack.mjs'];
+export const INPUTS = [...BUILD_INPUTS, 'contracts/deployments/', REVIEW, HARDENING, KNOWN, OPERATIONS, DIFFERENTIAL, 'tools/contract-stack/', 'scripts/contract-stack.mjs'];
 
 /** True in a checkout without the history (actions/checkout's default depth of one commit). */
 export function shallow() {
@@ -150,9 +154,32 @@ function hardeningItems() {
   return items;
 }
 
+// The review's findings about the bond vault and party appeals, which the phase-one contracts cut (ADR-0031 §8, SC-7):
+// their fixes were real on the 2026-11-04 contracts, but the code they fixed is gone, so the page shows them as cut.
+// known-issues lists L-2, L-3 and L-5 in its section 9; these four it names only as history or as "I-8 rest".
+export const CUT_WITH_BONDS = ['M-1', 'M-3', 'L-7', 'I-8'];
+
+// docs/audit/known-issues.md by finding ID: 'fixed' when its row in the findings tables says "fixed", 'cut' when the
+// row sits in section 9, "Not in phase one". Rows that name several IDs ("I-1, I-4, …") or a part ("I-8 rest") are
+// left to the review and T-212; a "<ID> limit" row that is open becomes its own finding (limits()).
+export function knownIssues() {
+  const out = {};
+  let cutSection = false;
+  for (const line of read(KNOWN).split('\n')) {
+    if (/^## /.test(line)) cutSection = /not in phase one/i.test(line);
+    const m = line.match(/^\| ([HMLI]-\d+) \|(.*)\|$/);
+    if (!m) continue;
+    const cells = m[2].split('|').map((c) => c.trim());
+    if (cutSection) out[m[1]] = 'cut';
+    else if (/^fixed\b/i.test(cells[3] ?? '')) out[m[1]] = 'fixed';
+  }
+  return out;
+}
+
 export function findings() {
   const words = plain().findings;
   const items = hardeningItems();
+  const known = { ...knownIssues(), ...Object.fromEntries(CUT_WITH_BONDS.map((id) => [id, 'cut'])) };
   // A re-rated finding keeps its history in the cell ("low, medium since D43"): the rating after "since" applies now.
   const current = (cell) => (cell.match(/(high|medium|low|info) since\b/i)?.[1] ?? cell.split(/[\s,]/)[0]).toLowerCase();
   const rows = [...read(REVIEW).matchAll(/^\| ([HMLI]-\d+) \| ([^|]+) \| ([^|]+) \| ([^|]*) \| ([^|]*) \| ([^|]*) \|$/gm)].map((m) => ({
@@ -170,12 +197,30 @@ export function findings() {
   }
   return rows.map((r) => {
     const item = items[r.id];
-    const state = /^fixed\b/i.test(r.status) || item?.done ? 'fixed' : /^accepted\b/i.test(r.status) ? 'accepted' : 'open';
+    const state = known[r.id] ?? (/^fixed\b/i.test(r.status) || item?.done ? 'fixed' : /^accepted\b/i.test(r.status) ? 'accepted' : 'open');
     const w = words[r.id] ?? {};
     // Without wording for its current state, say only what the sources say, so the text never contradicts the state.
-    const fallback = state === 'fixed' && item?.done && !/^fixed\b/i.test(r.status) ? `${r.reviewTitle}. Fixed in T-212 item ${item.item}.` : `${r.reviewTitle}. Review status: ${r.status}.`;
+    const fallback = state === 'cut' ? `${r.reviewTitle}. Not in phase one (${KNOWN}, section 9).`
+      : state === 'fixed' && known[r.id] ? `${r.reviewTitle}. Fixed in the phase-one contracts (${KNOWN}).`
+      : state === 'fixed' && item?.done && !/^fixed\b/i.test(r.status) ? `${r.reviewTitle}. Fixed in T-212 item ${item.item}.` : `${r.reviewTitle}. Review status: ${r.status}.`;
     return { ...r, item: item?.item ?? null, state, title: w.title ?? r.reviewTitle, text: w[state] ?? fallback };
-  });
+  }).concat(limits(words));
+}
+
+// known-issues rows named "<ID> limit" whose status starts "open": a residual of a fixed finding that stays open in
+// phase one (the H-2 limit: a call carrying the buyer's key publishes it even when the call reverts).
+function limits(words) {
+  const out = [];
+  for (const line of read(KNOWN).split('\n')) {
+    const m = line.match(/^\| ([HMLI]-\d+ limit) \|(.*)\|$/);
+    if (!m) continue;
+    const cells = m[2].split('|').map((c) => c.trim());
+    if (!/^open\b/i.test(cells[3] ?? '')) continue;
+    const severity = (cells[2] ?? 'info').split(/[\s,]/)[0].toLowerCase();
+    const w = words[m[1]] ?? {};
+    out.push({ id: m[1], severity, severityNote: severity, reviewTitle: cells[0], litmus: '', label: '', status: cells[3], item: null, state: 'open', title: w.title ?? cells[0], text: w.open ?? `${cells[0]}. Status in ${KNOWN}: open in phase one.` });
+  }
+  return out;
 }
 
 /** The review's informational items that the summary table folds into one row ("I-1 to I-13"). */
@@ -196,10 +241,14 @@ export function gas() {
   return { paths, fixtures: rows.length, recordedAt: recorded ? { commit: recorded[0], date: recorded[1] } : null, source: DIFFERENTIAL };
 }
 
-// The Sepolia smoke deal's gas, as T-212 records it from the transaction receipts; the last such line is the newest.
+// The Sepolia smoke deal's gas, from the transaction receipts: the deploy record's first line (it runs newest first),
+// else T-212's last (the deployment of 2026-11-04, which recorded it there).
+const GAS_LINE = /Gas on Sepolia: fund ([\d,]+), deliver ([\d,]+), decide ([\d,]+), total ([\d,]+)/g;
 export function sepoliaGas() {
-  const m = [...read(HARDENING).matchAll(/Gas on Sepolia: fund ([\d,]+), deliver ([\d,]+), decide ([\d,]+), total ([\d,]+)/g)].at(-1);
-  return m ? { fund: num(m[1]), deliver: num(m[2]), decide: num(m[3]), total: num(m[4]), source: HARDENING } : null;
+  const ops = read(OPERATIONS);
+  const fromOps = [...ops.slice(Math.max(0, ops.indexOf('\n## Deploy record'))).matchAll(GAS_LINE)][0];
+  const m = fromOps ?? [...read(HARDENING).matchAll(GAS_LINE)].at(-1);
+  return m ? { fund: num(m[1]), deliver: num(m[2]), decide: num(m[3]), total: num(m[4]), source: fromOps ? OPERATIONS : HARDENING } : null;
 }
 
 export function review() {

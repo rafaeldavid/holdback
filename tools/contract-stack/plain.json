@@ -1,9 +1,9 @@
 {
-  "_about": "Plain-language text for the contract-stack page (scripts/contract-stack.mjs). The facts come from the repository: states, addresses, line counts and gas. This file only words them for a reader new to the project. A finding's text has one variant per state (open, fixed, accepted); when the variant for its current state is missing, the page shows the review's own words and what the sources say about the state (for example 'Fixed in T-212 item 1'). A title names the problem, and the page prefixes 'Fixed:' when it is fixed, so write titles that read either way.",
+  "_about": "Plain-language text for the contract-stack page (scripts/contract-stack.mjs). The facts come from the repository: states, addresses, line counts and gas. This file only words them for a reader new to the project. A finding's text has one variant per state (open, fixed, accepted, and cut for a finding not in phase one); when the variant for its current state is missing, the page shows the review's own words and what the sources say about the state (for example 'Fixed in T-212 item 1'). A title names the problem, and the page prefixes 'Fixed:' when it is fixed, so write titles that read either way.",
   "contracts": {
     "HoldbackRules": "The referee. It checks every signed message and deadline, and is the only thing that tells the vault to pay, refund or hold.",
     "HoldbackTypes": "The shapes of the signed messages, hashed exactly as Crow's off-chain code signs them.",
-    "DrandQuicknetBeacon": "The public dice roll. It checks drand's signature on a random value, which picks the fallback's and the appeal's AI judges.",
+    "DrandQuicknetBeacon": "The public dice roll. It checks drand's signature on a random value, which picks the AI judges of the fallback and of an escalated case.",
     "IHoldbackBeacon": "The interface every beacon implements, so the rules contract can use the real one on Sepolia and a test one locally.",
     "SimBeacon": "A test beacon for the local chain only. It is never deployed to a public network."
   },
@@ -14,11 +14,12 @@
     },
     "H-2": {
       "title": "A refunded buyer could also get the work",
-      "fixed": "A decision could release the decryption key on a deal that ended in a refund, so the buyer kept both the money and the work. The key now travels only with a payment to the seller."
+      "fixed": "A decision could release the decryption key on a deal that ended in a refund, so the buyer kept both the money and the work. The contract now releases the key, by its KeyReleased event, only with a payment to the seller. The limit that stays open is listed below."
     },
     "M-1": {
       "title": "A buyer's direct reclaim could freeze bonds",
-      "fixed": "If the buyer took the money straight back from the vault, the adjudicators' deposits for that deal stayed locked. The contract now frees them."
+      "fixed": "If the buyer took the money straight back from the vault, the adjudicators' deposits for that deal stayed locked. The contract now frees them.",
+      "cut": "Not in phase one: the phase-one contracts hold no adjudicator deposits, so a buyer's direct reclaim has none to freeze. The fix was real on the 2026-11-04 contracts."
     },
     "M-2": {
       "title": "A late delivery could block a refund",
@@ -26,7 +27,8 @@
     },
     "M-3": {
       "title": "A fake deal could lock a backup judge's deposit",
-      "fixed": "Anyone could name a backup or appeal adjudicator in a sham deal and tie up its bond. The contract now locks a backup's bond only when the backup actually takes the case."
+      "fixed": "Anyone could name a backup or appeal adjudicator in a sham deal and tie up its bond. The contract now locks a backup's bond only when the backup actually takes the case.",
+      "cut": "Not in phase one: no adjudicator posts a deposit on the phase-one contracts, so a sham deal has none to lock. The fix was real on the 2026-11-04 contracts."
     },
     "L-1": {
       "title": "A decision could be paired with another delivery",
@@ -35,50 +37,81 @@
     },
     "L-2": {
       "title": "The deposit vault trusts the amount it is told",
-      "open": "With a token that charges a fee on each transfer, the vault would record more than it received. The fix checks the balance actually received, as the escrow vault already does."
+      "open": "With a token that charges a fee on each transfer, the vault would record more than it received. The fix checks the balance actually received, as the escrow vault already does.",
+      "cut": "Not in phase one: the deposit vault is gone from the phase-one contracts, and a deployment's one token must not charge a fee on transfer."
     },
     "L-3": {
       "title": "A party can appeal with no deposit",
       "open": "Now that winning an appeal pays out, a free appeal is a free shot at the price. The contract needs a minimum appeal deposit, set in the deal's terms, before any real money.",
-      "accepted": "A party can appeal with no deposit. Crow accepts this until the appeal rules move on chain."
+      "accepted": "A party can appeal with no deposit. Crow accepts this until the appeal rules move on chain.",
+      "cut": "Not in phase one: the phase-one contracts take no party appeal, so there is no appeal deposit to set."
     },
     "L-4": {
       "title": "The primary judge's seed check is shorter than it could be",
-      "open": "The contract checks the primary judge's commitment to its random seed on 144 bits and does not tie it to the deal. The fix ties it to the deal."
+      "open": "The contract checks the primary judge's commitment to its random seed on 144 bits and does not tie it to the deal. The fix ties it to the deal.",
+      "fixed": "The contract checked the primary judge's commitment to its random seed on 144 bits and did not tie it to the deal. The phase-one contracts tie it to the deal."
     },
     "L-5": {
       "title": "The appeal judge stakes no deposit of its own",
-      "open": "An appeal judge with nothing at stake can move the price out of the first judge's deposit. Until it carries its own bond, the first judge protects itself by accepting only appeal judges it trusts."
+      "open": "An appeal judge with nothing at stake can move the price out of the first judge's deposit. Until it carries its own bond, the first judge protects itself by accepting only appeal judges it trusts.",
+      "cut": "Not in phase one: no judge holds a deposit, so the appeal judge's decision on an escalated case moves only the held payment, as the terms say."
     },
     "L-6": {
       "title": "The vault's expiry ignores the judging deadline",
-      "open": "If the judging deadline falls after the vault's expiry, the vault could not pay an on-time decision. The fix derives the expiry from every deadline, or refuses such terms at funding."
+      "open": "If the judging deadline falls after the vault's expiry, the vault could not pay an on-time decision. The fix derives the expiry from every deadline, or refuses such terms at funding.",
+      "fixed": "If the judging deadline fell after the vault's expiry, the vault could not pay an on-time decision. The phase-one contracts refuse terms whose deadlines are out of order, so every deadline falls before the vault's expiry."
     },
     "L-7": {
       "title": "The winner could block the loser's appeal",
       "open": "Either party could file the deal's only appeal, so the party a decision favoured could take the slot with a free appeal.",
-      "fixed": "Only the party the decision went against may appeal now, so the winner cannot take the deal's one appeal slot and block the loser."
+      "fixed": "Only the party the decision went against may appeal now, so the winner cannot take the deal's one appeal slot and block the loser.",
+      "cut": "Not in phase one: the phase-one contracts take no party appeal, so no one can take an appeal slot. The fix was real on the 2026-11-04 contracts."
     },
     "L-8": {
       "title": "A deadline already past can reveal the fallback's dice roll",
-      "open": "If the judging deadline has already passed when a deal is funded, the fallback's random value is public before anyone signs. The fix refuses such a deal at funding."
+      "open": "If the judging deadline has already passed when a deal is funded, the fallback's random value is public before anyone signs. The fix refuses such a deal at funding.",
+      "fixed": "If the judging deadline had already passed when a deal was funded, the fallback's random value was public before anyone signed. The phase-one contracts refuse such a deal at funding."
     },
     "I-2": {
       "title": "A fee branch that never pays",
-      "open": "The mutual-settlement fee share is a constant zero, so one branch of code never runs. The fix removes that dead code."
+      "open": "The mutual-settlement fee share is a constant zero, so one branch of code never runs. The fix removes that dead code.",
+      "fixed": "The mutual-settlement fee share was a constant zero, so one branch of code never ran. The phase-one contracts no longer have that branch."
     },
     "I-8": {
       "title": "Winning an appeal paid nothing",
       "open": "When an appeal overturns a decision, the contract pays nobody from the judge's deposit, so the wronged party wins the record but not the money.",
-      "fixed": "When an appeal overturned a decision, the contract paid nobody from the judge's deposit. Now the first judge's deposit pays the wronged party the full price."
+      "fixed": "When an appeal overturned a decision, the contract paid nobody from the judge's deposit. Now the first judge's deposit pays the wronged party the full price.",
+      "cut": "Not in phase one: the phase-one contracts take no party appeal and hold no deposits, so there is no overturn to pay. The fix was real on the 2026-11-04 contracts."
+    },
+    "H-2 limit": {
+      "title": "A refused call can still publish the buyer's key",
+      "open": "A call that carries the buyer's key shows it in the transaction's data even when the contract refuses the call, so a buyer whose deal then refunds can read the work. Both reviews of the phase-one contracts rate it Medium. Operators relay such a call only where a refused call is not published, and not once a refund is due."
     }
   },
   "gas": [
-    { "fixture": "happy-path", "label": "A normal deal: fund, deliver, accept" },
-    { "fixture": "bad-work-row-drop", "label": "The work fails its checks: refund" },
-    { "fixture": "neutrality.seller-withholds-delivery", "label": "Nothing delivered: the buyer takes the money back" },
-    { "fixture": "neutrality.operator-offline", "label": "One of Crow's servers is offline" },
-    { "fixture": "panel-disagreement-escalates", "label": "The AI judges disagree: the appeal judge decides" },
-    { "fixture": "neutrality.adjudicator-offline", "label": "The judge goes silent: the fallback decides" }
+    {
+      "fixture": "happy-path",
+      "label": "A normal deal: fund, deliver, accept"
+    },
+    {
+      "fixture": "bad-work-row-drop",
+      "label": "The work fails its checks: refund"
+    },
+    {
+      "fixture": "neutrality.seller-withholds-delivery",
+      "label": "Nothing delivered: the buyer takes the money back"
+    },
+    {
+      "fixture": "neutrality.operator-offline",
+      "label": "One of Crow's servers is offline"
+    },
+    {
+      "fixture": "panel-disagreement-escalates",
+      "label": "The AI judges disagree: the appeal judge decides"
+    },
+    {
+      "fixture": "neutrality.adjudicator-offline",
+      "label": "The judge goes silent: the fallback decides"
+    }
   ]
 }

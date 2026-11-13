@@ -226,7 +226,7 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
     <article class="card">
       <div class="card-top"><h3>Beacon</h3><span class="tag">Crow · 3 small contracts</span></div>
       <p class="analogy">A public dice roll nobody can load.</p>
-      <p>When a fallback or appeal adjudicator takes a case, the beacon supplies a random number that picks which AI models judge it, so no one can steer the panel. The number comes from drand, a public randomness network, and the contract checks drand's signature itself.</p>
+      <p>When the fallback adjudicator takes a case, or the appeal adjudicator decides an escalated one, the beacon supplies a random number that picks which AI models judge it, so no one can steer the panel. The number comes from drand, a public randomness network, and the contract checks drand's signature itself.</p>
       <details><summary>Technical details</summary><div class="detail">
         <p><code>IHoldbackBeacon</code> is the interface. <code>DrandQuicknetBeacon</code> verifies a drand quicknet round on chain (a BLS signature check through Ethereum's EIP-2537 precompiles: about 136,500 gas on a local chain and about 213,000 on Sepolia, review I-13). <code>SimBeacon</code> stands in on local test chains. The primary adjudicator uses commit-reveal instead (ADR-0018, T-209).</p>
       </div></details>
@@ -253,9 +253,9 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
     <article class="card">
       <div class="card-top"><h3>Multicall3</h3><span class="tag">Reused · standard</span></div>
       <p class="analogy">Two steps in one.</p>
-      <p>Lets the buyer pay Crow's small operator fee and fund the deal in a single transaction. The fee never enters the vault, so a buyer who skips Crow's API pays no operator fee.</p>
+      <p>Lets the buyer pay an operator's fee and fund the deal in a single transaction. The fee never enters the vault, so a buyer who skips the operators' API pays no operator fee. For the first pilots Crow's operators charge no fee and pay the gas themselves.</p>
       <details><summary>Technical details</summary><div class="detail">
-        <p>The canonical, unmodified contract at the same address on every chain. Operator fee: 1 basis point, at least 0.01 tUSD (D33, ADR-0023).</p>
+        <p>The canonical, unmodified contract at the same address on every chain. Each operator sets its own fee (D33, ADR-0023) and publishes it in discovery as <code>fees.operator</code>; Crow's operators publish 0 for the first pilots (T-389).</p>
       </div></details>
     </article>
 
@@ -291,7 +291,7 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
       <tr><td><b>Buyer</b></td><td>Fund, accept early, agree a split, take money back after the deadlines</td><td>Take money back after a valid acceptance</td></tr>
       <tr><td><b>Seller</b></td><td>Deliver, agree a split</td><td>Get paid without a decision or the buyer's acceptance, or settle a decision against a delivery it did not judge</td></tr>
       <tr><td><b>Adjudicator</b></td><td>Accept, reject or escalate, in its role and time window</td><td>Pay itself more than the agreed fee, or send money anywhere else</td></tr>
-      <tr><td><b>Crow's API</b></td><td>Pass messages along, charge its own small fee outside the vault</td><td>Write a message for anyone, or touch the held money</td></tr>
+      <tr><td><b>Crow's API</b></td><td>Pass messages along, charge its own published fee outside the vault (none for the first pilots)</td><td>Write a message for anyone, or touch the held money</td></tr>
       <tr><td><b>Anyone</b></td><td>Trigger a deadline that has passed</td><td>Choose where the money goes</td></tr>
       <tr><td><b>Crow's maintainers</b></td><td>Publish a new version</td><td>Change, pause or upgrade a version already deployed</td></tr>
     </tbody>
@@ -329,10 +329,10 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
 <section>
   <div class="sechead"><span class="eyebrow">Road to real money</span><h2>Where this stands</h2></div>
   <div class="road">
-    <div class="stage"><span class="pill done" style="align-self:start">Done</span><b>Built, reviewed, on testnet</b><ul><li>Rules, beacon</li><li>Fuzz, invariants, formal model</li><li>Contract review (T-206)</li><li>Sepolia deployment</li></ul></div>
-    <div class="stage"><span class="pill now" style="align-self:start">Now</span><b>Public demo on Sepolia</b><ul><li>The demo settles on the contracts below</li><li>First full end-to-end test round</li><li>Same fixes off chain (T-210, T-211)</li></ul></div>
+    <div class="stage"><span class="pill done" style="align-self:start">Done</span><b>Built, reviewed, on testnet</b><ul><li>Rules, beacon</li><li>Fuzz, invariants, formal model</li><li>Contract reviews (T-206, and T-388 for phase one)</li><li>Phase-one deployment on Sepolia</li></ul></div>
+    <div class="stage"><span class="pill now" style="align-self:start">Now</span><b>Pilots on Sepolia</b><ul><li>The demo settles on the contracts below</li><li>The pilots' cases rehearsed</li><li>The frozen code, tag <code>contracts-phase-one-1</code>, ready for an audit</li></ul></div>
     <div class="stage"><span class="pill later" style="align-self:start">Next</span><b>Privacy and money</b><ul><li>Private deal terms (T-207)</li><li>Funding paths (ADR-0026)</li><li>Bonds and party appeals, after phase one</li></ul></div>
-    <div class="stage"><span class="pill later" style="align-self:start">Gate</span><b>Real money</b><ul><li>Smaller fixes (T-212)</li><li>External audit</li><li>Rafa's written approval</li><li>Ethereum mainnet</li></ul></div>
+    <div class="stage"><span class="pill later" style="align-self:start">Gate</span><b>Real money</b><ul><li>External audit, and its fixes (<code>contracts-phase-one-2</code>)</li><li>Rafa's written approval</li><li>Ethereum mainnet</li></ul></div>
   </div>
 </section>
 
@@ -380,7 +380,8 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
   $('asof').textContent = `Crow · Smart contracts · as of ${version}`;
 
   // Header pills: the facts a reader should see first.
-  const serious = findings.filter((f) => f.severity === 'high' || f.severity === 'medium');
+  // A finding the phase-one contracts cut is neither fixed nor open: it is left out of the count.
+  const serious = findings.filter((f) => (f.severity === 'high' || f.severity === 'medium') && f.state !== 'cut');
   const seriousFixed = serious.filter((f) => f.state === 'fixed').length;
   $('pills').innerHTML = [
     pill('done', 'No admin keys'),
@@ -393,9 +394,9 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
   ].join('');
 
   // Safety status: the review, every finding with its state, and the deployment.
-  const order = { fixed: 0, open: 1, accepted: 2 };
+  const order = { fixed: 0, open: 1, accepted: 2, cut: 3 };
   const sorted = [...findings].sort((a, b) => order[a.state] - order[b.state] || RANK[a.severity] - RANK[b.severity] || a.id.localeCompare(b.id));
-  const stateText = { fixed: ['done', 'Fixed'], open: ['later', 'Before mainnet'], accepted: ['later', 'Accepted'] };
+  const stateText = { fixed: ['done', 'Fixed'], open: ['later', 'Before mainnet'], accepted: ['later', 'Accepted'], cut: ['later', 'Not in phase one'] };
   // Each finding leads with its severity, then what it is and its state (docs/writing.md, "Findings").
   const findingRows = sorted.map((f) => {
     const [cls, word] = stateText[f.state];
@@ -409,11 +410,12 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
     : row('Public testnet deployment', `The live demo settles on the contracts deployed from ${code(short(live.commit))}, recorded on ${esc(live.recordedOn ?? 'an unknown date')}. Addresses are below.`, pill('done', 'Done'));
   $('safety').innerHTML = [
     row('Independent contract review', `Three separate passes (T-206): a line-by-line checklist, an adversarial attacker, and a cross-check against public audits of the code Crow reuses. The review rates ${serious.length} findings High or Medium today; ${seriousFixed} of them are fixed, each with tests that fail without the fix.`, pill('done', 'Done')),
+    row('Reviews of the phase-one contracts', 'Before the freeze, two models from different AI companies each read the phase-one contracts (T-388). Neither found a Critical or High issue in the contracts that holds; their findings are recorded in the audit pages (docs/audit/known-issues.md).', pill('done', 'Done')),
     S.review.crossFamily ? row("A review by another AI company's model", "DeepSeek's model reviewed the contracts in focused parts, then each fix since. Its findings are triaged in the review.", pill('done', 'Done')) : '',
     ...findingRows,
     deployed,
   ].join('');
-  $('findings-note').innerHTML = `Findings come from the contract review (${code(S.review.file)}, ${esc(S.review.date)}) and the hardening task (${code('docs/tasks/T-212-contract-hardening.md')}). A finding counts as fixed when the review says so or T-212 marks its item done. The review's ${esc(S.infoCount)} informational items (I-1 to I-${esc(S.infoCount)}) are listed there; this page shows only those with a hardening item.`;
+  $('findings-note').innerHTML = `Findings come from the contract review (${code(S.review.file)}, ${esc(S.review.date)}), the hardening task (${code('docs/tasks/T-212-contract-hardening.md')}) and the audit's known issues (${code('docs/audit/known-issues.md')}). A finding counts as fixed when known-issues says so, or else when the review says so or T-212 marks its item done; a finding in known-issues' section 9 is not in phase one. The review's ${esc(S.infoCount)} informational items (I-1 to I-${esc(S.infoCount)}) are listed there; this page shows only those with a hardening item.`;
 
   // Crow's source files, read from contracts/src.
   const where = (c) => (c.deployed ? 'Sepolia' : c.kind === 'library' ? 'Inside HoldbackRules' : c.kind === 'interface' ? 'Interface only' : 'Local tests only');
@@ -453,7 +455,7 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
     $('earlier').remove();
   }
 
-  // Gas: the local-chain differential, and the Sepolia smoke deal when T-212 records one.
+  // Gas: the local-chain differential, and the newest Sepolia smoke deal the deploy record or T-212 records.
   const paths = S.gas.paths.filter((p) => p.gas);
   const max = Math.max(...paths.map((p) => p.gas));
   $('gas').innerHTML = paths.map((p) =>
@@ -466,9 +468,10 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
     const onSepolia = sep ? ` On Sepolia the demo's last recorded deal used ${fmt(sep.total)} gas, about <b>$${usd(sep.total)}</b> at the same prices.` : '';
     $('gas-intro').innerHTML = `Ethereum charges “gas” for each transaction. On a local chain a normal deal takes ${normal.transactions} transactions and ${fmt(normal.gas)} gas: roughly <b>$${usd(normal.gas)}</b> at 1 gwei and $3,000 per ETH (illustrative; real prices move).${onSepolia}`;
   }
-  $('gas-notes').innerHTML = `Measured on a local chain by ${code('pnpm snap --settlement local')}, which runs ${S.gas.fixtures} scenarios on the contracts (${code(S.gas.source)}${rec ? `, recorded at ${code(rec.commit)} on ${esc(rec.date)}` : ''}).`
+  const older = rec && live.recordedOn && rec.date < live.recordedOn ? ` That run predates the live deployment, so it measured the contracts of its date; ${code('pnpm snap --settlement local')} measures the current ones.` : '';
+  $('gas-notes').innerHTML = `Measured on a local chain by ${code('pnpm snap --settlement local')}, which runs ${S.gas.fixtures} scenarios on the contracts (${code(S.gas.source)}${rec ? `, recorded at ${code(rec.commit)} on ${esc(rec.date)}` : ''}).${older}`
     + (sep ? ` On Sepolia, the demo's last recorded test deal used ${fmt(sep.total)} gas in three transactions: fund ${fmt(sep.fund)}, deliver ${fmt(sep.deliver)}, decide ${fmt(sep.decide)} (measured from the receipts; ${code(sep.source)}).` : '');
 
-  $('footer').innerHTML = `<span>Generated by ${code('scripts/contract-stack.mjs')} as of ${code(S.version?.short ?? 'unknown')} (${esc(S.version?.date ?? '')}), the latest commit that changed the page's inputs. Sources: ${code('contracts/src')}, ${code(live.file)}${earlier.map((e) => `, ${code(e.file)}`).join('')}, the review ${code(S.review.file)}, ${code('docs/tasks/T-212-contract-hardening.md')}, ${code(S.gas.source)}, and ${code('tools/contract-stack/plain.json')} for the plain wording. Dollar figures are illustrative.</span><span>Deployed on the Sepolia testnet only. Test tokens only; nothing on mainnet.</span>`;
+  $('footer').innerHTML = `<span>Generated by ${code('scripts/contract-stack.mjs')} as of ${code(S.version?.short ?? 'unknown')} (${esc(S.version?.date ?? '')}), the latest commit that changed the page's inputs. Sources: ${code('contracts/src')}, ${code(live.file)}${earlier.map((e) => `, ${code(e.file)}`).join('')}, the review ${code(S.review.file)}, ${code('docs/tasks/T-212-contract-hardening.md')}, ${code('docs/audit/known-issues.md')}, ${code(S.gas.source)}${S.sepoliaGas ? `, ${code(S.sepoliaGas.source)}` : ''}, and ${code('tools/contract-stack/plain.json')} for the plain wording. Dollar figures are illustrative.</span><span>Deployed on the Sepolia testnet only. Test tokens only; nothing on mainnet.</span>`;
 })();
 </script>

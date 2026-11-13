@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error -- plain ESM helper without type declarations
-import { build, collect, INPUTS, PHASE_ONE_ADDRESS_KEYS, plain, shallow, stackVersion } from '../scripts/contract-stack.mjs';
+import { build, collect, CUT_WITH_BONDS, INPUTS, PHASE_ONE_ADDRESS_KEYS, plain, shallow, stackVersion } from '../scripts/contract-stack.mjs';
 import { execFileSync } from 'node:child_process';
 
 const root = new URL('../', import.meta.url);
@@ -83,13 +83,19 @@ describe('contract-stack page', () => {
       const f = data.findings.find((x: { id: string }) => x.id === id);
       expect(f, id).toBeDefined();
       expect(['high', 'medium', 'low', 'info']).toContain(f.severity);
-      expect(['fixed', 'open', 'accepted']).toContain(f.state);
+      expect(['fixed', 'open', 'accepted', 'cut']).toContain(f.state);
       expect(f.text.length).toBeGreaterThan(10);
     }
   });
 
+  it('takes a finding\'s state from docs/audit/known-issues.md when it lists one: fixed, or not in phase one (T-398)', () => {
+    for (const id of ['L-4', 'L-6', 'L-8', 'I-2']) expect(data.findings.find((f: { id: string }) => f.id === id)?.state, id).toBe('fixed');
+    for (const id of ['L-2', 'L-3', 'L-5']) expect(data.findings.find((f: { id: string }) => f.id === id)?.state, id).toBe('cut');
+  });
+
   it('counts a T-212 item marked done as fixed, so the page follows the hardening task', () => {
-    for (const id of ['L-1', 'L-7', 'I-8']) expect(data.findings.find((f: { id: string }) => f.id === id)?.state, id).toBe('fixed');
+    // L-7 and I-8 fixed bond and appeal code that the phase-one contracts cut, so they show as cut, never as open.
+    for (const id of ['L-1', 'L-7', 'I-8']) expect(data.findings.find((f: { id: string }) => f.id === id)?.state, id).toBe(CUT_WITH_BONDS.includes(id) ? 'cut' : 'fixed');
   });
 
   it('has plain wording for every finding state it shows, or falls back to the review', () => {
@@ -101,7 +107,7 @@ describe('contract-stack page', () => {
     }
   });
 
-  it('finds every gas path it names in reports/differential-local.md, and the Sepolia deal T-212 records', () => {
+  it('finds every gas path it names in reports/differential-local.md, and the newest Sepolia smoke deal the deploy record or T-212 records', () => {
     for (const p of data.gas.paths) {
       expect(p.gas, p.fixture).toBeGreaterThan(0);
       expect(p.transactions, p.fixture).toBeGreaterThan(0);

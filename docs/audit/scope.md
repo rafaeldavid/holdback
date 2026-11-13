@@ -68,7 +68,7 @@ Relied on, not in scope: Commerce Payments' `AuthCaptureEscrow` and `ERC3009Paym
 | --- | --- |
 | Frozen commit | the tag `contracts-phase-one-1`; the record's `commit` |
 | `HoldbackRules` runtime size | the length of `deployedBytecode` in `contracts/out/HoldbackRules.sol/HoldbackRules.json`, against the EIP-170 limit of 24,576 bytes |
-| The runtime hashes | SHA-256 of the code on chain with the immutables zeroed and the metadata tail cut ([`test-quality.md`](test-quality.md), "Runtime code"); the `onchain_hash` lines of [`cutover-phase-one.md`](../cutover-phase-one.md), step 3.2, compute them from the record |
+| The runtime hashes | SHA-256 of the code on chain with the immutables zeroed and the metadata tail cut ([`test-quality.md`](test-quality.md), "Runtime code"); the `onchain_hash` lines of the redeploy runbook, [`redeploy-contracts.md`](../redeploy-contracts.md), step 3, compute them from the record |
 | `ESCROW`, `ERC3009_COLLECTOR`, `BEACON`, `TOKEN` | the record's `escrow`, `erc3009Collector`, `beacon` and `token.address`; each creation transaction is under `contracts` |
 | `EXPIRY_MARGIN`, `BEACON_MARGIN` | the record's `expiryMarginSec` and `beaconMarginSec` |
 | Compiler settings | the record's `compiler`, from `contracts/foundry.toml` |
