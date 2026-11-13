@@ -11,7 +11,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { measure } from './measures.ts';
 import { buyerBriefDirect, scenario, sellerBriefDirect } from './scenarios.ts';
 import { limitsFor, overLimits } from './tickets.ts';
-import { CROW_MARK, EARLY_ACCESS, forPublishing, HERO, PITCH, replayPage } from './replay.ts';
+import { CROW_MARK, EARLY_ACCESS, forPublishing, HERO, JOIN, PITCH, replayPage } from './replay.ts';
 import { startWorld } from './world.ts';
 import { runAgent } from './loop.ts';
 import { anthropic, liveProvider, openaiCompatible, scripted, VendorError, type Provider, type Turn } from './providers.ts';
@@ -88,7 +88,21 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       // Light only, in either system mode.
       expect(page).not.toMatch(/prefers-color-scheme:\s*dark/);
       // On desktop the words and the demo share the first screen; the "after" line sits in the words' column.
-      expect(page.slice(page.indexOf('<div class="hero">'), page.indexOf('<section class="demo"'))).toContain('class="after"');
+      // No "What was checked, what each side paid…" line under the demo's words (Rafa, 2026-11-13).
+      expect(page).not.toContain('What was checked, what each side paid');
+      // Request early access opens a drawer with the sign-up form, posting to the home page's sign-up service.
+      expect(page.match(/data-join rel=/g)?.length).toBe(3);
+      expect(page).toContain('<dialog class="drawer" id="join"');
+      expect(page).toContain(`fetch('${JOIN}'`);
+      expect(readFileSync(new URL('../../site/build.mjs', import.meta.url), 'utf8')).toContain(`export const JOIN_URL = '${JOIN}';`);
+      // Learn more reads without the demo: its headings name the demo deal.
+      expect(page).toContain('<h3 class="block-title">The demo deal</h3>');
+      expect(page).not.toMatch(/This sample purchase|Who made this sample/);
+      // Money is said in test dollars, never as "tokens", which a reader could take for AI model tokens.
+      expect(readerText(page)).not.toMatch(/test tokens/);
+      if (name === 'paid') expect(readerText(page)).toMatch(/700\.00 test dollars/);
+      // Where a reader checks a payment record, the token keeps its real name (in the engineers' section).
+      expect(page).toMatch(/the test token <code>[A-Za-z0-9]+<\/code> \(six decimals\)/);
       expect(page).toContain(`<h1 class="headline">${q(HERO.headline)}</h1>`);
       expect(page).toContain(`href="${EARLY_ACCESS}"`);
       expect(page).toContain(`<span class="demo-label">${HERO.demoLabel}</span>`);
