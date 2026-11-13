@@ -30,12 +30,15 @@ export interface Step {
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n).trimEnd()} …` : s);
-/** Base units of a 6-decimal test token, as test tokens with two decimals. */
-const tokens = (amount: unknown) => {
+/**
+ * Base units of the 6-decimal test token, a test dollar, as test dollars with two decimals. Said as dollars, never as
+ * "tokens", so no reader takes the money for AI model tokens (Rafa, 2026-11-13).
+ */
+const money = (amount: unknown) => {
   const a = typeof amount === 'string' && /^\d+$/.test(amount) ? BigInt(amount) : typeof amount === 'bigint' ? amount : null;
   if (a === null) return '';
   const whole = a / 1_000_000n, cents = (a % 1_000_000n) / 10_000n;
-  return `${whole.toLocaleString('en-US')}.${cents.toString().padStart(2, '0')} test tokens`;
+  return `${whole.toLocaleString('en-US')}.${cents.toString().padStart(2, '0')} test dollars`;
 };
 const base = (m: J): bigint | null => (typeof m?.amount === 'string' && /^\d+$/.test(m.amount) ? BigInt(m.amount) : null);
 const pathOf = (u: string) => { try { return new URL(u).pathname; } catch { return u; } };
@@ -104,7 +107,7 @@ export function steps(events: readonly Event[]): Step[] {
     } else if (e.kind === 'approval') {
       const reasons: string[] = e.reasons ?? [];
       lanes.buyer.push(e.granted
-        ? { lane: 'buyer', t: e.t, kind: 'note', title: "The company's standing rule approved the payment", detail: `Within the budget of ${tokens(e.policy?.budget)}, with the checks the company requires, and the report due within ${Math.round(Number(e.policy?.latestDeliverySec ?? 0) / 86_400)} days.` }
+        ? { lane: 'buyer', t: e.t, kind: 'note', title: "The company's standing rule approved the payment", detail: `Within the budget of ${money(e.policy?.budget)}, with the checks the company requires, and the report due within ${Math.round(Number(e.policy?.latestDeliverySec ?? 0) / 86_400)} days.` }
         : { lane: 'buyer', t: e.t, kind: 'note', title: "The company's standing rule refused to pay", detail: cut(reasons[0] ?? '', 300), ...(reasons.length > 1 ? { exact: reasons.join('\n') } : {}) });
     } else if (side && e.kind === 'stall') lanes[side].push({ lane: side, t: e.t, kind: 'note', title: 'The agent got stuck', detail: /cap/.test(String(e.reason)) ? `It used up its allowance: ${String(e.reason).replace(/^the /, '')}.` : 'It tried the same thing again and it failed the same way.', exact: cut(String(e.error ?? e.trying ?? ''), 900) });
     else if (side && e.kind === 'agent.end' && e.status !== 'finished') lanes[side].push({ lane: side, t: e.t, kind: 'end', title: e.status === 'ended' ? 'Stopped: the run was over' : e.status === 'error' ? 'Stopped: its model provider refused a request' : 'Stopped before it finished', ...(e.trying ? { exact: cut(String(e.trying), 600) } : {}) });
@@ -121,12 +124,12 @@ export function steps(events: readonly Event[]): Step[] {
         'commitment.offered': () => step('chain', 'The seller sent a signed offer'),
         'adjudicator.accepted': () => step('chain', 'The independent reviewer agreed to check the work'),
         'commitment.agreed': () => step('chain', 'The buyer signed the agreement'),
-        'hold.funded': () => step('money', `The buyer's payment is held: ${tokens(held)}`, `${price !== null ? `${tokens(price)} for the work` : 'The price'}${fee !== null ? `, ${tokens(fee)} for the reviewer` : ''}. Neither side can take it alone.`),
+        'hold.funded': () => step('money', `The buyer's payment is held: ${money(held)}`, `${price !== null ? `${money(price)} for the work` : 'The price'}${fee !== null ? `, ${money(fee)} for the reviewer` : ''}. Neither side can take it alone.`),
         'delivery.submitted': () => step('chain', 'The seller delivered the report, locked'),
         'key.released': () => step('chain', role(e.recipient) === 'buyer' ? 'The report unlocks for the buyer' : 'The reviewer can now open the report to check it'),
         'judgment.decided': () => step('chain', e.outcome === 'accept' ? 'The work passed the agreed checks' : e.outcome === 'reject' ? 'The work failed a required check' : 'The reviewer decided'),
-        'settlement.released': () => step('money', 'The seller is paid', `${price !== null ? tokens(price) : 'The price'} to the seller. The report unlocks for the buyer in the same step.`),
-        'settlement.refunded': () => step('money', 'The buyer is refunded', `${price !== null ? tokens(price) : 'The price'} back to the buyer. The report stays locked.`),
+        'settlement.released': () => step('money', 'The seller is paid', `${price !== null ? money(price) : 'The price'} to the seller. The report unlocks for the buyer in the same step.`),
+        'settlement.refunded': () => step('money', 'The buyer is refunded', `${price !== null ? money(price) : 'The price'} back to the buyer. The report stays locked.`),
       };
       crow.push((map[e.type] ?? (() => step('chain', 'The order record changed')))());
     }
@@ -245,7 +248,7 @@ export const HERO = {
   headline: "It's time to go direct.",
   intro: 'Your agents can find almost any vendor, and almost any buyer. With Crow, two agents close the deal on their own: they agree the checks up front, the payment is set aside before the work starts, and the seller is paid the moment the work passes. Watch one deal below.',
   demoLabel: 'Sample Crow Test Demo',
-  learnIntro: 'Two companies\' agents agree the checks, the payment is set aside, and the seller is paid the moment the work passes. Here is how it works, and what happened in this sample.',
+  learnIntro: 'Two companies\' agents agree the checks, the payment is set aside, and the seller is paid the moment the work passes. Here is how it works, and the details of the demo deal: one sample purchase between two agents.',
   closing: 'Live in early access on test money.',
 };
 /**
@@ -258,6 +261,8 @@ const FAVICON = `data:image/svg+xml,${encodeURIComponent(markSvg('#1d1d1f').repl
 
 /** Where "Request early access" goes: the sign-up form on Crow's site. */
 export const EARLY_ACCESS = 'https://crow.direct/#join-form';
+/** The sign-up service the drawer posts to: the home page's own (site/build.mjs, JOIN_URL). */
+export const JOIN = 'https://join.crow.direct/early-access';
 
 export interface PageExtras {
   /** Measures over their limits, and the ticket written for them. */
@@ -288,7 +293,7 @@ function page(events: readonly Event[], s: Summary, extras: PageExtras): string 
   const EARLY = extras.publish ? '/#join-form' : EARLY_ACCESS;
   // The mark links home, as on the home page: the site's root when published, crow.direct in a standalone replay.
   const HOME = extras.publish ? '/' : 'https://crow.direct/';
-  const AFTER = `${s.notStarted ? `<p class="after">This run did not start: the ${esc(AGENT_NAME[s.notStarted.role === 'seller' ? 'seller' : 'buyer'])}'s AI provider refused its first request, so nothing was ordered or paid.</p>` : ''}<p class="after">What was checked, what each side paid, and the full record: <a class="textlink" href="#learn-more">Learn more ›</a></p>`;
+  const AFTER = s.notStarted ? `<p class="after">This run did not start: the ${esc(AGENT_NAME[s.notStarted.role === 'seller' ? 'seller' : 'buyer'])}'s AI provider refused its first request, so nothing was ordered or paid.</p>` : '';
   const start = events.find((e) => e.kind === 'run.start') as J;
   const world = events.find((e) => e.kind === 'world') as J;
   const states = events.filter((e) => e.kind === 'chain.state') as J[];
@@ -348,7 +353,7 @@ function page(events: readonly Event[], s: Summary, extras: PageExtras): string 
     ['What each company told its agent', s.brief === 'direct' ? `Only what it wanted, its limits and its own setup, and that it pays or sells through crow.direct. Each agent found Crow's guides from the home page on its own.${local ? " In this test, crow.direct was answered from this machine's copy of the site." : ''}` : "Where Crow's guides are and how to use them, with what it wanted, its limits and its own setup."],
     ['From the work passing to the seller being paid', s.workPassesToPaidSec === null ? (s.workPassesToPaidNote ?? 'Nobody was paid in this run.') : `${s.workPassesToPaidSec} s, counted on the order record in whole seconds.`],
     ['People involved during the run', `${s.humanInterventions}. ${approvals.length ? `The buyer set one standing rule in advance; it answered ${approvals.length} approval ${approvals.length === 1 ? 'request' : 'requests'}.` : 'Nobody acted during the run.'}`],
-    ['Tokens used', `${n(s.tokens.deal)} in all: ${n(s.tokens.split.fresh)} fresh input, ${n(s.tokens.split.cacheRead)} read again from the providers' cache (billed at a fraction of the price), ${n(s.tokens.split.cacheWrite)} written to it, and ${n(s.tokens.split.output)} written by the agents.${s.costPerDealMicroUsd !== null ? ` At list prices, about ${usd(s.costPerDealMicroUsd)} for the deal.` : ''} The ${AGENT_NAME.buyer} used ${n(tok('buyer'))}: ${n(s.tokens.buyer.guides)} to read Crow's guides and keep them in mind, ${n(s.tokens.buyer.work)} for the purchase itself. The ${AGENT_NAME.seller} used ${n(tok('seller'))}: ${n(s.tokens.seller.guides)} for the guides, ${n(s.tokens.seller.work)} for the sale. The most either carried at once: ${n(s.peakContext.buyer)} tokens (buyer), ${n(s.peakContext.seller)} (seller).${scripted ? ' Scripted stand-ins count text length divided by four.' : ''}`],
+    ['AI model tokens used', `${n(s.tokens.deal)} in all: ${n(s.tokens.split.fresh)} fresh input, ${n(s.tokens.split.cacheRead)} read again from the providers' cache (billed at a fraction of the price), ${n(s.tokens.split.cacheWrite)} written to it, and ${n(s.tokens.split.output)} written by the agents.${s.costPerDealMicroUsd !== null ? ` At list prices, about ${usd(s.costPerDealMicroUsd)} for the deal.` : ''} The ${AGENT_NAME.buyer} used ${n(tok('buyer'))}: ${n(s.tokens.buyer.guides)} to read Crow's guides and keep them in mind, ${n(s.tokens.buyer.work)} for the purchase itself. The ${AGENT_NAME.seller} used ${n(tok('seller'))}: ${n(s.tokens.seller.guides)} for the guides, ${n(s.tokens.seller.work)} for the sale. The most either carried at once: ${n(s.peakContext.buyer)} tokens (buyer), ${n(s.peakContext.seller)} (seller).${scripted ? ' Scripted stand-ins count text length divided by four.' : ''}`],
     ['Steps the agents took', `${n(s.calls.buyer.turns + s.calls.seller.turns)} steps and ${n(s.calls.buyer.toolCalls + s.calls.seller.toolCalls)} actions; ${n(s.calls.buyer.refused + s.calls.seller.refused)} were stopped by the agents' own tools.`],
     ['Times an agent got stuck', s.stalls.length ? `${s.stalls.length}. ${s.stalls.map((x) => `The ${AGENT_NAME[x.role as 'buyer' | 'seller'] ?? x.role}: ${x.reason}.`).join(' ')}` : '0. Neither agent repeated a failing step or ran out of allowance.'],
     ['Agreed to terms the buyer ruled out', forbidden ? (s.forbiddenTerms.funded ? `Yes. The ${AGENT_NAME.buyer} paid for terms the buyer ruled out.` : `Yes. The ${AGENT_NAME.buyer} asked to approve terms the buyer ruled out; the buyer's standing rule refused.`) : `No. The ${AGENT_NAME.buyer} approved only terms the buyer allows.`],
@@ -409,6 +414,24 @@ main{max-width:1040px;margin:0 auto;padding:56px 20px 72px}
 .demo-frame{height:min(64vh,600px);overflow-y:auto;padding:20px 16px 28px;scroll-behavior:smooth}
 .after{text-align:center;font-size:15px;color:var(--ink2);margin:20px 0 0}
 #demo-view[hidden]{display:none}
+.drawer{position:fixed;inset:0 0 0 auto;margin:0;width:min(420px,100%);max-width:100%;height:100%;max-height:100%;border:0;border-left:1px solid var(--hair);padding:0;background:var(--page);color:var(--ink);box-shadow:-12px 0 40px rgba(0,0,0,.12)}
+.drawer::backdrop{background:rgba(0,0,0,.28)}
+.drawer[open]{animation:drawer-in .28s var(--arrive)}
+@keyframes drawer-in{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
+.drawer-form{display:flex;flex-direction:column;gap:12px;padding:20px 24px 28px}
+.drawer-head{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.drawer-head h2{font-family:var(--display);font-size:24px;letter-spacing:-.01em;margin:0}
+.drawer-lede{margin:0 0 8px;color:var(--ink2);font-size:15px;line-height:1.5}
+.drawer-label{font-size:13px;font-weight:600;color:var(--ink2)}
+.drawer input[type=email]{font:inherit;font-size:16px;color:var(--ink);background:var(--page);border:1px solid var(--line);border-radius:12px;padding:0 14px;min-height:48px}
+.drawer input:focus-visible{outline:2px solid var(--ink);outline-offset:1px}
+.drawer .button{min-height:48px;margin-top:4px}
+.drawer .button:disabled{opacity:.6;cursor:default}
+.drawer-msg{margin:0;font-size:15px;color:var(--ink2)}.drawer-msg:empty{display:none}
+.hp{position:absolute;left:-10000px;width:1px;height:1px;opacity:0}
+@media (max-width:600px){.drawer{inset:auto 0 0 0;width:100%;height:auto;max-height:90vh;border-left:0;border-top:1px solid var(--hair);border-radius:18px 18px 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.12)}.drawer[open]{animation-name:sheet-in}}
+@keyframes sheet-in{from{transform:translateY(24px);opacity:0}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.drawer[open]{animation:none}}
 @media (min-width:980px){#demo-view{max-width:1200px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:56px;align-items:center;min-height:calc(100vh - 56px);padding-top:24px;padding-bottom:24px}#demo-view .hero{text-align:left;margin:0}#demo-view .headline{font-size:52px}#demo-view .intro{margin-left:0;font-size:19px}#demo-view .cta{justify-content:flex-start}#demo-view .after{text-align:left}#demo-view .demo{margin:0;max-width:none}#demo-view .demo-frame{height:clamp(300px,calc(100vh - 176px),640px)}}
 .avatar{width:22px;height:22px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
 .avatar.seller{background:var(--ink);color:var(--page);border-color:var(--ink)}
@@ -447,6 +470,7 @@ ol.run{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap
 .honest{font-size:13px;color:var(--ink3);margin:14px 0 0}
 .block{margin-top:72px}
 .block-title{font-family:var(--display);font-size:32px;line-height:1.15;font-weight:700;letter-spacing:-.02em;margin:0 0 24px}
+.block-lead{font-size:17px;line-height:1.5;color:var(--ink2);margin:-12px 0 24px;max-width:680px}
 .beats{border-top:1px solid var(--line)}
 .beat{display:grid;grid-template-columns:180px 1fr;gap:24px;padding:20px 0;border-bottom:1px solid var(--line)}
 .beat-label{font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink2);padding-top:3px}
@@ -509,13 +533,13 @@ footer{font-size:12px;color:var(--ink3);margin:40px 0 0;max-width:720px}
 </style>
 </head>
 <body>
-<div class="toolbar"><div class="toolbar-inner"><a class="app" href="${esc(HOME)}">${markSvg('currentColor', 'mark')}<span>${esc(PITCH.title)}</span></a><div class="spacer"></div><a class="navlink" href="#learn-more">Learn more</a><a class="button quiet" href="${esc(EARLY)}" rel="noopener">Request early access</a></div></div>
+<div class="toolbar"><div class="toolbar-inner"><a class="app" href="${esc(HOME)}">${markSvg('currentColor', 'mark')}<span>${esc(PITCH.title)}</span></a><div class="spacer"></div><a class="navlink" href="#learn-more">Learn more</a><a class="button quiet" href="${esc(EARLY)}" data-join rel="noopener">Request early access</a></div></div>
 
 <main id="demo-view">
 <div class="hero">
 <h1 class="headline">${esc(HERO.headline)}</h1>
 <p class="intro">${esc(HERO.intro)}</p>
-<div class="cta"><a class="button" href="${esc(EARLY)}" rel="noopener">Request early access</a><a class="textlink" href="#learn-more">Learn more ›</a></div>
+<div class="cta"><a class="button" href="${esc(EARLY)}" data-join rel="noopener">Request early access</a><a class="textlink" href="#learn-more">Learn more ›</a></div>
 ${AFTER}
 </div>
 
@@ -565,9 +589,10 @@ ${PITCH.beats.map((b) => `<div class="beat"><span class="beat-label">${esc(b.lab
 </section>
 
 <section class="block">
-<h3 class="block-title">This sample purchase</h3>
+<h3 class="block-title">The demo deal</h3>
+<p class="block-lead">The demo plays one purchase from start to finish: the ${esc(AGENT_NAME.buyer)} buys ${esc(bought.charAt(0).toLowerCase() + bought.slice(1))} from the ${esc(AGENT_NAME.seller)}.</p>
 <div class="facts">
-${fact(price !== null ? tokens(price) : '—', 'Price')}
+${fact(price !== null ? money(price) : '—', 'Price')}
 ${fact(`${runSeconds} ${runSeconds === 1 ? 'second' : 'seconds'}`, 'From first step to the end')}
 ${fact(String(s.humanInterventions), s.humanInterventions === 1 ? 'Person involved' : 'People involved')}
 ${fact(paidSeller ? 'Seller paid' : refunded ? 'Buyer refunded' : 'No order', 'How it ended')}
@@ -577,24 +602,24 @@ ${spec('What was bought', bought)}
 ${spec('How it ended', outcome)}
 ${spec(AGENT_NAME.buyer, `Acting for the buyer. ${model('buyer')}.`)}
 ${spec(AGENT_NAME.seller, `Acting for the seller. ${model('seller')}.`)}
-${held !== null ? spec('Buyer paid', `${tokens(held)}${fee !== null ? `: the price plus ${tokens(fee)} for the independent reviewer` : ''}`) : spec('Buyer paid', 'Nothing.')}
-${spec('Seller received', paidSeller ? (price !== null ? tokens(price) : 'The price') : 'Nothing')}
+${held !== null ? spec('Buyer paid', `${money(held)}${fee !== null ? `: the price plus ${money(fee)} for the independent reviewer` : ''}`) : spec('Buyer paid', 'Nothing.')}
+${spec('Seller received', paidSeller ? (price !== null ? money(price) : 'The price') : 'Nothing')}
 ${spec('Where it ran', where.charAt(0).toUpperCase() + where.slice(1))}
 ${spec('Time taken', end ? secs(Number(end.t)) : '')}
 </dl>
 </section>
 
 <section class="block">
-<h3 class="block-title">Questions</h3>
+<h3 class="block-title">About the demo deal</h3>
 <div class="faqs">
-${faq('Who made this sample?', `${p(honest)}${p(`The ${AGENT_NAME.buyer} acts for the buyer; the ${AGENT_NAME.seller} acts for the seller.`)}`)}
-${faq('Is this real money?', p(`No. ${testMoney}`))}
-${faq('What was checked?', checkList)}
-${faq('What did each side pay and receive?', `${p(`Buyer: ${held === null ? 'paid nothing.' : paidSeller ? `paid ${tokens(held)} and received the report.` : refunded ? `paid ${tokens(held)} and got ${price !== null ? tokens(price) : 'the price'} back; the reviewer's fee paid for the check. The report stayed locked.` : `paid ${tokens(held)}; the payment is still held.`}`)}${p(`Seller: ${paidSeller ? `received ${price !== null ? tokens(price) : 'the price'}.` : refunded ? 'received nothing, and keeps its report.' : 'received nothing.'}`)}${fee !== null ? p(`Independent reviewer: received ${tokens(fee)} for checking the work.`) : ''}`)}
-${faq('What did each company set in advance?', `${p(`The buyer gave the ${AGENT_NAME.buyer} the job and a budget of ${tokens(policy.budget)}, required the checks that every file is reviewed and every finding stays in scope, and wanted the report within ${days} days.`)}${p(`Instead of a person approving the payment, the buyer set a standing rule: approve only within the budget, with the required checks, the report due within ${days} days, and an offer dated now.${approvals.length ? ` It answered ${approvals.length} ${approvals.length === 1 ? 'request' : 'requests'}: ${approvals.filter((x) => x.granted).length} approved, ${approvals.filter((x) => !x.granted).length} refused.` : ' It was never asked.'}`)}${p(`The seller gave the ${AGENT_NAME.seller} its order system and asked it to sell reports.${start?.sellerRulePlain ? ` One extra instruction: ${cut(String(start.sellerRulePlain), 260)}` : ''}`)}${start?.note ? p(String(start.note)) : ''}${p('What a person had to do during the run: nothing. Every other choice, each agent made itself.')}`)}
-${faq('How did it go, in numbers?', `<ul class="measures">${measures.map(([k, v]) => `<li><strong>${esc(k!)}</strong>${esc(v!)}</li>`).join('')}</ul>${p(overList.length ? `Over the limits set for this test: ${overList.map((o) => `${o.measure} (${n(o.value)} against ${n(o.limit)})`).join('; ')}. A ticket was written for the team.` : 'Every number is within the limits set for this test.')}`)}
+${faq('Who are the two agents in the demo?', `${p(honest)}${p(`The ${AGENT_NAME.buyer} acts for the buyer; the ${AGENT_NAME.seller} acts for the seller.`)}`)}
+${faq('Is the demo real money?', p(`No. ${testMoney}`))}
+${faq('What did the buyer require before paying?', checkList)}
+${faq('What did each side pay and receive in the demo?', `${p(`Buyer: ${held === null ? 'paid nothing.' : paidSeller ? `paid ${money(held)} and received the report.` : refunded ? `paid ${money(held)} and got ${price !== null ? money(price) : 'the price'} back; the reviewer's fee paid for the check. The report stayed locked.` : `paid ${money(held)}; the payment is still held.`}`)}${p(`Seller: ${paidSeller ? `received ${price !== null ? money(price) : 'the price'}.` : refunded ? 'received nothing, and keeps its report.' : 'received nothing.'}`)}${fee !== null ? p(`Independent reviewer: received ${money(fee)} for checking the work.`) : ''}`)}
+${faq('What limits did each company set for its agent?', `${p(`The buyer gave the ${AGENT_NAME.buyer} the job and a budget of ${money(policy.budget)}, required the checks that every file is reviewed and every finding stays in scope, and wanted the report within ${days} days.`)}${p(`Instead of a person approving the payment, the buyer set a standing rule: approve only within the budget, with the required checks, the report due within ${days} days, and an offer dated now.${approvals.length ? ` It answered ${approvals.length} ${approvals.length === 1 ? 'request' : 'requests'}: ${approvals.filter((x) => x.granted).length} approved, ${approvals.filter((x) => !x.granted).length} refused.` : ' It was never asked.'}`)}${p(`The seller gave the ${AGENT_NAME.seller} its order system and asked it to sell reports.${start?.sellerRulePlain ? ` One extra instruction: ${cut(String(start.sellerRulePlain), 260)}` : ''}`)}${start?.note ? p(String(start.note)) : ''}${p('What a person had to do during the run: nothing. Every other choice, each agent made itself.')}`)}
+${faq('How did the demo deal go, in numbers?', `<ul class="measures">${measures.map(([k, v]) => `<li><strong>${esc(k!)}</strong>${esc(v!)}</li>`).join('')}</ul>${p(overList.length ? `Over the limits set for this test: ${overList.map((o) => `${o.measure} (${n(o.value)} against ${n(o.limit)})`).join('; ')}. A ticket was written for the team.` : 'Every number is within the limits set for this test.')}`)}
 </div>
-<details class="record"><summary>The full record, step by step</summary>
+<details class="record"><summary>Every step of the demo deal, with the exact calls</summary>
 <div class="conversation">
 <div class="heads"><span>${avatar('buyer')} ${AGENT_NAME.buyer}</span><span>The held payment</span><span>${AGENT_NAME.seller} ${avatar('seller')}</span></div>
 <ol class="run" id="run">
@@ -629,13 +654,42 @@ ${local ? '<p class="small">This run used a local test setup, so it has no publi
 <section class="closing">
 <h3>${esc(HERO.headline)}</h3>
 <p>${esc(HERO.closing)}</p>
-<a class="button" href="${esc(EARLY)}" rel="noopener">Request early access</a>
+<a class="button" href="${esc(EARLY)}" data-join rel="noopener">Request early access</a>
 </section>
 
 <footer>Made from this run's own record and nothing else. The agents' words appear as they wrote them; anything they quoted is shown as plain text. No key appears here: the agents never held one, and the record replaces any it meets with [secret].</footer>
 </main>
+<dialog class="drawer" id="join" aria-labelledby="join-title">
+<form class="drawer-form" id="join-form" novalidate>
+<div class="drawer-head"><h2 id="join-title">Request early access</h2><button class="icon-button" type="button" id="join-close" aria-label="Close"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></button></div>
+<p class="drawer-lede">Crow is in early access on test money. Leave your work email and we will write when your team can start.</p>
+<label class="drawer-label" for="join-email">Work email</label>
+<input id="join-email" name="email" type="email" autocomplete="email" required placeholder="you@company.com">
+<input class="hp" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">
+<button class="button" id="join-send" type="submit">Request early access</button>
+<p class="drawer-msg" id="join-msg" role="status"></p>
+</form>
+</dialog>
 <script>
 (function(){
+  // Request early access opens the drawer; the form posts to the same sign-up service as the home page's.
+  var dlg=document.getElementById('join'),jf=document.getElementById('join-form'),jm=document.getElementById('join-msg'),js=document.getElementById('join-send'),opener=null;
+  if(dlg&&typeof dlg.showModal==='function'){
+    document.querySelectorAll('[data-join]').forEach(function(a){a.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();opener=a;jm.textContent='';dlg.showModal();document.getElementById('join-email').focus()})});
+    document.getElementById('join-close').onclick=function(){dlg.close()};
+    dlg.addEventListener('click',function(e){if(e.target===dlg)dlg.close()});
+    dlg.addEventListener('close',function(){if(opener)opener.focus()});
+    jf.addEventListener('submit',function(e){
+      e.preventDefault();var email=jf.email.value.trim();
+      if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$/.test(email)){jm.textContent='Please enter a full email address, like you@company.com.';return}
+      js.disabled=true;jm.textContent='Sending\u2026';
+      fetch('${JOIN}',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:email,company:jf.company.value,page:location.pathname+'#early-access'})})
+        .then(function(r){return r.json().then(function(b){return{ok:r.ok,b:b}})})
+        .then(function(x){jm.textContent=x.ok?'Thank you. We\u2019ll be in touch at '+email+'.':(x.b&&x.b.error)||'That didn\u2019t go through. Please try again.';if(x.ok)jf.email.value=''})
+        .catch(function(){jm.textContent='That didn\u2019t go through here. You can also sign up at crow.direct.'})
+        .then(function(){js.disabled=false});
+    });
+  }
   // Two views in one file: the demo, and Learn more at #learn-more. Without a script both show, one after the other.
   var demo=document.getElementById('demo-view'),learn=document.getElementById('learn-more');
   function route(hash){var more=hash==='#learn-more';demo.hidden=more;learn.hidden=!more;window.scrollTo(0,0);if(more)pause();else if(!started)start();else if(at<items.length)play()}
