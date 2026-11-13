@@ -32,11 +32,11 @@ Each component has a fixed anatomy. A page places a part where it wants it; it n
 - Do not: put a second button or a search box in it.
 
 **2. Footer** (`footer`)
-- For: the foot of every page; it sits at the window's foot when the page is short.
-- Anatomy: tagline, pill, links.
-- Variants: none. A page may add one control after the links (the home page's copy-the-prompt button).
-- States: links darken on hover and show the focus ring.
-- Do not: add a second row of links or a newsletter form.
+- For: the foot of every page, laid out as an enterprise software site's; it sits at the window's foot when the page is short.
+- Anatomy: brand block (mark, name, tagline), up to three link groups each under a small heading, then a bottom bar with the legal line and one pill.
+- Variants: none. A link may be marked current; a group may end with one control (the home page's copy-the-prompt button).
+- States: links darken on hover and show the focus ring; the current link is ink and strong. On a phone the groups sit in two columns and every link is 44 px tall.
+- Do not: link to a page that does not exist, or add a fourth group.
 
 **3. Button** (`button`)
 - For: the one action a view asks for.

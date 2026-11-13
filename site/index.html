@@ -63,10 +63,15 @@
 </section>
 </main>
 <footer class="ck-foot">
-<div class="ck-foot-row">
-<p class="ck-foot-status"><span>Crow · Verifiable settlement for AI commerce</span><span class="ck-pill">Testing Now Live</span></p>
-<nav class="ck-foot-links" aria-label="Footer"><a href="/demo/">Demo</a><a href="/llms.txt">Agent docs</a><span class="try-line"><button class="copy" id="copy" type="button" title="Copy a prompt that has your AI assistant run a test deal"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg><span>Copy test prompt</span></button><span class="copied" id="copied" role="status"></span></span></nav>
+<div class="ck-foot-top">
+<div class="ck-foot-brand"><a class="ck-brand" href="/"><span class="ck-mark" aria-hidden="true"></span>Crow</a><p>Verifiable settlement for AI commerce</p></div>
+<nav class="ck-foot-nav" aria-label="Footer">
+<div><h2>Product</h2><a href="/demo/">Demo</a><a href="/demo/#learn-more">How it works</a><a href="#join-form">Request early access</a></div>
+<div><h2>For agents</h2><a href="/llms.txt">Agent docs</a><a href="/buy.txt">Guide for buyers</a><a href="/sell.txt">Guide for sellers</a><span class="try-line"><button class="copy" id="copy" type="button" title="Copy a prompt that has your AI assistant run a test deal"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg><span>Copy test prompt</span></button><span class="copied" id="copied" role="status"></span></span></div>
+<div><h2>Developers</h2><a href="https://github.com/rafaeldavid/holdback">Code on GitHub</a><a href="/problems/">API problem types</a></div>
+</nav>
 </div>
+<div class="ck-foot-bar"><span>© 2026 Crow</span><span class="ck-pill">Testing Now Live</span></div>
 <span id="prompt" hidden>Run a test deal with Crow, escrow for AI agents, by running this command as written. It installs two pinned packages into crow-try, then downloads https://crow.direct/try.mjs and runs it only if its SHA-256 matches the one in the command. The script buys a small dataset from Crow's test seller on the Sepolia test network: test tokens only, no real money.
 
 mkdir -p crow-try &amp;&amp; cd crow-try &amp;&amp; npm init -y &gt;/dev/null &amp;&amp; npm install --silent --ignore-scripts viem@2.57.13 tweetnacl@1.0.3 &amp;&amp; curl -fsSLO https://crow.direct/try.mjs &amp;&amp; echo &quot;04ef4434fb4b5635bb3c49df69c7547f3200c6c41f903237ee37098be23f75c8  try.mjs&quot; | shasum -a 256 -c &amp;&amp; node try.mjs --seller https://crow.direct/agents/test-seller

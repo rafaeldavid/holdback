@@ -2,12 +2,13 @@
 /* Crow's twelve components (site/brand/README.md). Every value comes from tokens.css; a page places a part and never
    reshapes it. Class names start with ck- so this file can sit inside another page's styles. A page sets
    box-sizing: border-box on every element, as the site's pages do (README.md, "How a page reads the kit"). */
+/* the mark and the name, shared by the header bar and the footer */
+.ck-brand { display: flex; align-items: center; gap: 10px; font-weight: var(--weight-strong); font-size: var(--size-body); color: var(--ink); text-decoration: none; }
+.ck-mark { width: 30px; height: 30px; background: currentColor; -webkit-mask: url(/crow-mark.svg) center / contain no-repeat; mask: url(/crow-mark.svg) center / contain no-repeat; }
 .ck-icon { width: 22px; height: 22px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 /* part: bar */
 .ck-bar { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--page) 92%, transparent); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid var(--hair); }
 .ck-bar-in { max-width: var(--width); margin: 0 auto; padding: 10px var(--gutter); display: flex; align-items: center; gap: 22px; }
-.ck-brand { display: flex; align-items: center; gap: 10px; font-weight: var(--weight-strong); font-size: var(--size-body); color: var(--ink); text-decoration: none; }
-.ck-mark { width: 30px; height: 30px; background: currentColor; -webkit-mask: url(/crow-mark.svg) center / contain no-repeat; mask: url(/crow-mark.svg) center / contain no-repeat; }
 .ck-gap { flex: 1; }
 .ck-nav { font-size: 14px; color: var(--ink-2); text-decoration: none; }
 .ck-nav:hover { color: var(--ink); }
@@ -72,14 +73,24 @@ a.ck-row-title:focus-visible { outline: 2px solid var(--ink); outline-offset: 2p
 /* part: footer */
 body:has(> .ck-foot) { min-height: 100vh; display: flex; flex-direction: column; }
 body > .ck-foot { margin-top: auto; }
-.ck-foot { box-sizing: border-box; width: 100%; max-width: var(--width); margin-left: auto; margin-right: auto; padding: 20px var(--gutter) 32px; border-top: 1px solid var(--hair);
-  font: var(--size-note)/1.5 var(--font); color: var(--ink-3); text-align: left; }
-.ck-foot-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 24px; }
-.ck-foot-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0; }
-.ck-foot-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 22px; }
-.ck-foot a { color: var(--ink-2); text-decoration: none; }
-.ck-foot a:hover { color: var(--ink); }
+.ck-foot { box-sizing: border-box; width: 100%; max-width: var(--width); margin-left: auto; margin-right: auto; padding: var(--space-7) var(--gutter) var(--space-6);
+  font: var(--size-small)/1.5 var(--font); color: var(--ink-2); text-align: left; }
+.ck-foot-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: var(--space-6); padding-top: var(--space-6); border-top: 1px solid var(--hair); }
+.ck-foot-brand p { margin: var(--space-2) 0 0; max-width: 260px; }
+.ck-foot-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-5); }
+.ck-foot-nav > div { display: flex; flex-direction: column; align-items: flex-start; }
+.ck-foot-nav h2 { margin: 0 0 var(--space-2); font-size: var(--size-note); font-weight: var(--weight-strong); color: var(--ink); }
+.ck-foot-nav > div > a { display: flex; align-items: center; min-height: 32px; color: var(--ink-2); text-decoration: none; }
+.ck-foot-nav > div > a:hover { color: var(--ink); }
+.ck-foot-nav > div > a[aria-current] { color: var(--ink); font-weight: var(--weight-strong); }
+.ck-foot-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3) var(--space-5); margin-top: var(--space-6); padding-top: var(--space-4); border-top: 1px solid var(--hair); font-size: var(--size-note); color: var(--ink-3); }
 .ck-foot a:focus-visible, .ck-foot button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+@media (max-width: 600px) {
+  .ck-foot { padding-top: var(--space-6); }
+  .ck-foot-top { grid-template-columns: 1fr; gap: var(--space-5); }
+  .ck-foot-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-5) var(--space-4); }
+  .ck-foot-nav > div > a { min-height: 44px; }
+}
 /* part: dialog */
 .ck-dialog { position: fixed; inset: 0; margin: auto; width: min(440px, calc(100% - 32px)); max-width: 100%; height: fit-content; max-height: calc(100vh - 48px); padding: 0;
   border: 1px solid var(--hair); border-radius: var(--radius-card); background: var(--page); color: var(--ink); box-shadow: var(--lift); font-family: var(--font); }

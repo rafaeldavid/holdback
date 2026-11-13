@@ -302,7 +302,7 @@ function page(events: readonly Event[], s: Summary, extras: PageExtras): string 
   const EARLY = extras.publish ? '/#join-form' : EARLY_ACCESS;
   // The mark links home, as on the home page: the site's root when published, crow.direct in a standalone replay.
   const HOME = extras.publish ? '/' : 'https://crow.direct/';
-  const FOOT = footerHtml({ base: HOME });
+  const FOOT = footerHtml({ base: HOME, current: 'demo', learn: '#learn-more', join: EARLY, joinAttrs: 'data-join' });
   const AFTER = s.notStarted ? `<p class="after">This run did not start: the ${esc(AGENT_NAME[s.notStarted.role === 'seller' ? 'seller' : 'buyer'])}'s AI provider refused its first request, so nothing was ordered or paid.</p>` : '';
   const start = events.find((e) => e.kind === 'run.start') as J;
   const world = events.find((e) => e.kind === 'world') as J;
