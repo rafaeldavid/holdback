@@ -81,7 +81,14 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       // The demo page: Crow and its descriptor in the header, the headline, the early-access button, the self-playing
       // demo with its one label, and everything else in the Learn more view.
       const q = (t: string) => t.replace(/'/g, '&#39;');
-      expect(page).toContain(`<span>Crow<small>${q(PITCH.descriptor)}</small></span></a>`);
+      // The header as on the home page: the mark and the word Crow, no subtitle, linking home (Rafa, 2026-11-13).
+      expect(page).toContain('<a class="app" href="https://crow.direct/"><svg class="mark"');
+      expect(page).toContain('<span>Crow</span></a>');
+      expect(page).not.toContain(`<small>${q(PITCH.descriptor)}</small>`);
+      // Light only, in either system mode.
+      expect(page).not.toMatch(/prefers-color-scheme:\s*dark/);
+      // On desktop the words and the demo share the first screen; the "after" line sits in the words' column.
+      expect(page.slice(page.indexOf('<div class="hero">'), page.indexOf('<section class="demo"'))).toContain('class="after"');
       expect(page).toContain(`<h1 class="headline">${q(HERO.headline)}</h1>`);
       expect(page).toContain(`href="${EARLY_ACCESS}"`);
       expect(page).toContain(`<span class="demo-label">${HERO.demoLabel}</span>`);

@@ -286,6 +286,9 @@ export function replayPage(events: readonly Event[], s: Summary, extras: PageExt
 
 function page(events: readonly Event[], s: Summary, extras: PageExtras): string {
   const EARLY = extras.publish ? '/#join-form' : EARLY_ACCESS;
+  // The mark links home, as on the home page: the site's root when published, crow.direct in a standalone replay.
+  const HOME = extras.publish ? '/' : 'https://crow.direct/';
+  const AFTER = `${s.notStarted ? `<p class="after">This run did not start: the ${esc(AGENT_NAME[s.notStarted.role === 'seller' ? 'seller' : 'buyer'])}'s AI provider refused its first request, so nothing was ordered or paid.</p>` : ''}<p class="after">What was checked, what each side paid, and the full record: <a class="textlink" href="#learn-more">Learn more ›</a></p>`;
   const start = events.find((e) => e.kind === 'run.start') as J;
   const world = events.find((e) => e.kind === 'world') as J;
   const states = events.filter((e) => e.kind === 'chain.state') as J[];
@@ -378,15 +381,13 @@ function page(events: readonly Event[], s: Summary, extras: PageExtras): string 
 --page:#ffffff;--band:#f5f5f7;--surface:#ffffff;--ink:#1d1d1f;--ink2:#6e6e73;--ink3:#86868b;--line:#d2d2d7;--hair:rgba(0,0,0,.08);
 --bubble-a:#f0f0f2;--bubble-a-ink:#1d1d1f;--bubble-b:#ffffff;--bubble-b-ink:#1d1d1f;--bubble-b-line:#d2d2d7;
 --primary:#1d1d1f;--primary-ink:#ffffff;--green:#1f7a35;--wash-green:#eaf5ec;--red:#c4161c;
---r-sm:6px;--r-md:8px;--r-lg:10px;--r-win:12px;--r-card:18px;--arrive:cubic-bezier(.25,.8,.25,1);color-scheme:light dark}
-@media (prefers-color-scheme:dark){:root{--page:#000000;--band:#111113;--surface:#1c1c1e;--ink:#f5f5f7;--ink2:#a1a1a6;--ink3:#86868b;--line:#3a3a3c;--hair:rgba(255,255,255,.1);
---bubble-a:#2c2c2e;--bubble-a-ink:#f5f5f7;--bubble-b:#1c1c1e;--bubble-b-ink:#f5f5f7;--bubble-b-line:#48484a;--primary:#f5f5f7;--primary-ink:#1d1d1f;--green:#30d158;--wash-green:#122617;--red:#ff453a}}
+--r-sm:6px;--r-md:8px;--r-lg:10px;--r-win:12px;--r-card:18px;--arrive:cubic-bezier(.25,.8,.25,1);color-scheme:light}
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--page);color:var(--ink);font:16px/1.5 var(--font);-webkit-font-smoothing:antialiased}
 a{color:inherit}
 .toolbar{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--page) 92%,transparent);backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid var(--hair)}
 .toolbar-inner{max-width:1040px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:20px}
-.app{display:flex;align-items:center;gap:10px;font-weight:600;font-size:16px;color:var(--ink);text-decoration:none;line-height:1.2}.app .mark{width:28px;height:28px;flex:none}.app small{display:block;font-weight:400;font-size:12px;color:var(--ink2)}
+.app{display:flex;align-items:center;gap:10px;font-weight:600;font-size:17px;color:var(--ink);text-decoration:none;line-height:1.2}.app .mark{width:30px;height:30px;flex:none}
 .spacer{flex:1}
 .navlink{font-size:14px;color:var(--ink2);text-decoration:none}.navlink:hover{color:var(--ink)}
 .button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 22px;border-radius:999px;background:var(--primary);color:var(--primary-ink);font:inherit;font-size:16px;font-weight:600;text-decoration:none;border:1px solid var(--primary);cursor:pointer}
@@ -407,6 +408,8 @@ main{max-width:1040px;margin:0 auto;padding:56px 20px 72px}
 .icon-button[hidden]{display:none}
 .demo-frame{height:min(64vh,600px);overflow-y:auto;padding:20px 16px 28px;scroll-behavior:smooth}
 .after{text-align:center;font-size:15px;color:var(--ink2);margin:20px 0 0}
+#demo-view[hidden]{display:none}
+@media (min-width:980px){#demo-view{max-width:1200px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:56px;align-items:center;min-height:calc(100vh - 56px);padding-top:24px;padding-bottom:24px}#demo-view .hero{text-align:left;margin:0}#demo-view .headline{font-size:52px}#demo-view .intro{margin-left:0;font-size:19px}#demo-view .cta{justify-content:flex-start}#demo-view .after{text-align:left}#demo-view .demo{margin:0;max-width:none}#demo-view .demo-frame{height:clamp(300px,calc(100vh - 176px),640px)}}
 .avatar{width:22px;height:22px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
 .avatar.seller{background:var(--ink);color:var(--page);border-color:var(--ink)}
 ol.run{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
@@ -506,13 +509,14 @@ footer{font-size:12px;color:var(--ink3);margin:40px 0 0;max-width:720px}
 </style>
 </head>
 <body>
-<div class="toolbar"><div class="toolbar-inner"><a class="app" href="#" aria-label="${esc(PITCH.title)}">${markSvg('currentColor', 'mark')}<span>${esc(PITCH.title)}<small>${esc(PITCH.descriptor)}</small></span></a><div class="spacer"></div><a class="navlink" href="#learn-more">Learn more</a><a class="button quiet" href="${esc(EARLY)}" rel="noopener">Request early access</a></div></div>
+<div class="toolbar"><div class="toolbar-inner"><a class="app" href="${esc(HOME)}">${markSvg('currentColor', 'mark')}<span>${esc(PITCH.title)}</span></a><div class="spacer"></div><a class="navlink" href="#learn-more">Learn more</a><a class="button quiet" href="${esc(EARLY)}" rel="noopener">Request early access</a></div></div>
 
 <main id="demo-view">
 <div class="hero">
 <h1 class="headline">${esc(HERO.headline)}</h1>
 <p class="intro">${esc(HERO.intro)}</p>
 <div class="cta"><a class="button" href="${esc(EARLY)}" rel="noopener">Request early access</a><a class="textlink" href="#learn-more">Learn more ›</a></div>
+${AFTER}
 </div>
 
 <section class="demo" aria-label="${esc(HERO.demoLabel)}">
@@ -521,8 +525,6 @@ footer{font-size:12px;color:var(--ink3);margin:40px 0 0;max-width:720px}
 ${demoList.map(demoItem).join('\n')}
 </ol></div>
 </section>
-${s.notStarted ? `<p class="after">This run did not start: the ${esc(AGENT_NAME[s.notStarted.role === 'seller' ? 'seller' : 'buyer'])}'s AI provider refused its first request, so nothing was ordered or paid.</p>` : ''}
-<p class="after">What was checked, what each side paid, and the full record: <a class="textlink" href="#learn-more">Learn more ›</a></p>
 </main>
 
 <main id="learn-more">
