@@ -1,8 +1,18 @@
-# Architecture v0.1
+# Architecture
 
-Reflects the ADRs and the reviews it cites. `docs/decisions-today.md` and `docs/decisions/` record every decision and ADR; this page has not been revised for each decision after D40.
+How Crow's system is built on `main`, after the phase-one cutover of 2026-11-13. Every chain deployment runs the phase-one contracts: no party appeals, no bonds, one token, and two money addresses per deal (ADR-0031, ADR-0032 and ADR-0033). SimChain keeps the full protocol, party appeals and bonds included, as its reference. The full protocol's extra parts are in one section near the end, "SimChain's full protocol: appeals and bonds"; elsewhere, text marked "SimChain only" describes them.
 
-Every chain deployment runs the phase-one contracts: no party appeals, no bonds, one token, and two money addresses per deal (ADR-0031, ADR-0032 and ADR-0033). SimChain keeps the full protocol, party appeals and bonds included, as its reference; a SimChain world may also run the phase-one rules (`pnpm sim` does). Text marked "SimChain only" describes the full protocol.
+`docs/decisions-today.md` and `docs/decisions/` record every decision and ADR; where this page and an ADR disagree, the newer ADR holds. The judgment pipeline and its defenses are in [`judgment-and-defenses.md`](judgment-and-defenses.md); the HTTP API is in [`api.md`](api.md).
+
+## What runs where
+
+| Settlement layer | Protocol | Where it runs |
+| --- | --- | --- |
+| The phase-one contracts (`contracts/src/`) on a chain | Phase one: the first decision by the primary or the fallback adjudicator is final; the appeal adjudicator decides escalations only; no bond | Ethereum Sepolia for the public demo, since 2026-11-13 (addresses and the deployed commit: `contracts/deployments/sepolia.json`); a local chain in tests (`pnpm snap --settlement=local`) |
+| SimChain, phase-one profile | The same rules as the contracts, in process | `pnpm sim`, and a new SimChain world of the public demo unless it is created with the full protocol (`simProfile` in `apps/demo-cloud/src/world.ts`) |
+| SimChain, full protocol | Phase one plus party appeals, bonds and their postings | `pnpm demo`, `pnpm snap` on SimChain, and the SimChain-only fixtures in `LOCAL_EXCLUSIONS` (`packages/testkit/src/runner.ts`) |
+
+The settlement profile is a parameter of core's state machine (`SettlementProfile` in `packages/core/src/state.ts`), so one implementation serves both protocols.
 
 ## Shape of the system
 
@@ -37,11 +47,11 @@ flowchart LR
   RAMP -- deal token to the buyer's address --> BA
 ```
 
-**Settlement layer.** Escrow plus rules, with no owner. In Phase 1 it is **SimChain**: an in-process, deterministic implementation of the same rules. From Phase 2 it is an EVM contract on a local chain and then a testnet (ADR-0003, ADR-0004); the public demo settles on Ethereum Sepolia since 2026-11-03 (D41, ADR-0028). One `Settlement` interface covers both, and the scenario fixtures run against each (differential testing), except the SimChain-only fixtures in `LOCAL_EXCLUSIONS` (`packages/testkit/src/runner.ts`), which use party appeals or bonds.
+**Settlement layer.** Escrow plus rules, with no owner. **SimChain** is an in-process, deterministic implementation of the rules; it was the only settlement layer in Phase 1. Since Phase 2 the rules also run as EVM contracts on a local chain and on a testnet (ADR-0003, ADR-0004). The public demo has settled on Ethereum Sepolia since 2026-11-03 (D41, ADR-0028), on the phase-one contracts since 2026-11-13. One `Settlement` interface covers both, and the scenario fixtures run against each (differential testing), except the SimChain-only fixtures in `LOCAL_EXCLUSIONS` (`packages/testkit/src/runner.ts`), which use party appeals or bonds.
 
 **Operator node.** Exposes the REST API, verifies and relays signed messages, sponsors gas, indexes events and serves receipts. Anyone can run one. An operator adds speed and convenience, never authority.
 
-**Rules contract.** From Phase 2, the contract that acts as the escrow's operator in the Commerce Payments Protocol sense: the only party that can capture or void the buyer's funds. It has no admin keys and acts only on an adjudicator decision, a buyer's early acceptance or a timeout anyone can trigger. It also releases keys and supplies idempotency (ADR-0003). It holds no bonds: phase one has none (ADR-0031 §8). In Phase 1, SimChain plays this role. Do not confuse it with an operator node, which has no authority.
+**Rules contract.** `HoldbackRules`, the contract that acts as the escrow's operator in the Commerce Payments Protocol sense: the only party that can capture or void the buyer's funds. It has no admin keys and acts only on an adjudicator decision, a buyer's early acceptance, a settlement both parties signed or a timeout anyone can trigger. It also releases keys and supplies idempotency (ADR-0003). It holds no bonds: phase one has none (ADR-0031 §8). In Phase 1, SimChain plays this role. Do not confuse it with an operator node, which has no authority.
 
 **Adjudicator.** Runs the judgment pipeline and signs decisions; on SimChain under the full protocol it also posts a bond. Each commitment names a primary, a fallback and an appeal adjudicator; in phase one the appeal adjudicator decides escalations only.
 
@@ -103,21 +113,7 @@ stateDiagram-v2
 
 `Settled` is terminal and not appealable. A co-signed `MutualSettlement` pays any split of the price between the buyer's payment address and the seller's payout address, and chooses whether the buyer receives the content key. The fee returns to the buyer's payment address (ADR-0019, D15, ADR-0033). In `Held` it may name a delivery that was never posted and release its key, which settles late work (ADR-0031 §6b). Settle-once holds: if a settlement and a decision race, the first one applied wins.
 
-In `guaranteed_on_decision` a decision moves the money in the same step, so there is no separate settle step. `settle_after_window` (Phase 4) adds a `Decided` escrow state that settles when the appeal state closes.
-
-**Appeal state** (SimChain only, not in phase one: only after a first-instance decision by the primary or fallback; a decision reached through escalation is not appealable)
-
-```mermaid
-stateDiagram-v2
-  [*] --> none: first-instance decision
-  none --> open: party appeals before appealBy (bond and appeal fee)
-  none --> expired: appealBy passed
-  open --> upheld: appeal adjudicator upholds (the appealing party's bond to the adjudicator's bond)
-  open --> overturned: appeal adjudicator overturns (adjudicator bond pays the wronged party)
-  open --> expired: appealDecideBy passed (first decision stands, the appealing party's bond and fee returned)
-```
-
-An overturn moves bond money, not escrow money: the escrow is already `Released` or `Refunded`.
+In `guaranteed_on_decision` a decision moves the money in the same step, so there is no separate settle step. `settle_after_window` (Phase 4) adds a `Decided` escrow state that settles when the appeal state closes. The appeal state's own machine, which only SimChain's full protocol runs, is in "SimChain's full protocol: appeals and bonds" below.
 
 Rules the types must enforce. Illegal states are unrepresentable (ADR-0009): a discriminated union per state, carrying only the fields valid in that state.
 
@@ -168,7 +164,7 @@ The primary's panel seed comes from its own commit-reveal. The fallback and appe
 | Appeal after escalation | the first round after the escalation's time plus the beacon margin |
 | Appeal after a party appeal (SimChain only) | the first round after the appeal was applied |
 
-SimChain runs a deterministic beacon, `keccak256(simSeed ‖ round)`, one round per simulated second. Phase 2 uses drand quicknet, verified on chain. The rules contract's `BEACON_MARGIN`, fixed at deploy, delays each round past the last moment a choice can be made (ADR-0032): 29 s on Sepolia and Ethereum mainnet, 0 on SimChain and the local chain. If a round cannot be proven by the deadline, the decision is refused, and the fallback or default applies.
+SimChain runs a deterministic beacon, `keccak256(simSeed ‖ round)`, one round per simulated second. A chain deployment uses drand quicknet, verified on chain by `DrandQuicknetBeacon`. The rules contract's `BEACON_MARGIN()`, fixed at deploy, delays each round past the last moment a choice can be made (ADR-0032). Its value on Sepolia is the record's `beaconMarginSec` (D63 set it for Sepolia and Ethereum mainnet); it is 0 on SimChain and the local chain. If a round cannot be proven by the deadline, the decision is refused, and the fallback or default applies.
 
 ## Privacy and disclosure (ADR-0020)
 
@@ -214,11 +210,9 @@ On a phase-one world the first decision is final at once, with no indemnity: the
 
 Protocol finality is not legal finality. Courts can still compel real-world parties (residual 5), and chargebacks on a card on-ramp sit with the ramp (ADR-0002).
 
-## Hold and settlement postings (SimChain)
+## Hold and settlement postings
 
-The prototype uses accounts per address and per escrow, in base units of the test token. Each adjudicator's bond is a pool with two tranches, `bond:{a}:junior` (its own stake, first loss) and `bond:{a}:senior` (backers, pro rata), plus one `reserved` counter (ADR-0014 §2a, D10). Below, `bond:{a}` means the pool: debits take junior first, then senior; the appeal-upheld credit goes to junior. Senior is empty in Phase 1.
-
-A chain makes the same postings except the bond and appeal rows, which are SimChain only and not in phase one. In every row, `buyer` is the buyer's payment address and `seller` the seller's payout address (ADR-0033).
+SimChain keeps accounts per address and per escrow, in base units of the test token; a chain makes the same postings through the escrow. In every row, `buyer` is the buyer's payment address and `seller` the seller's payout address (ADR-0033). The bond and appeal postings of the full protocol are in "SimChain's full protocol: appeals and bonds" below.
 
 | Operation | Postings |
 | --- | --- |
@@ -229,46 +223,64 @@ A chain makes the same postings except the bond and appeal rows, which are SimCh
 | Early acceptance | `escrow:{id} → seller` (price); `escrow:{id} → buyer` (fee; no adjudicator judged) |
 | Reclaim (no delivery) | `escrow:{id} → buyer` (price + fee) |
 | Mutual settlement | one posting per payout: `escrow:{id} → payouts[i].to` (`payouts[i].amount`; the payouts sum to the price, D23; on a chain each `to` is `buyer` or `seller`); `escrow:{id} → buyer` (fee); on SimChain every reservation on the commitment released; buyer key emitted only if `releaseKey` |
+| Default outcome | `escrow:{id} → buyer` (price + fee); on SimChain only, under the full protocol, `bond:{a} + bond:{fallback} → seller` (compensation per rulebook) |
+| Default after escalation | `escrow:{id} → buyer` (price + fee); on SimChain only, under the full protocol, `bond:{appeal} → seller` (compensation per rulebook) |
+
+`{a}` is the adjudicator whose decision settles the commitment: the primary, the fallback, or the appeal adjudicator for an escalated case. The fee goes to that adjudicator; an adjudicator that escalates earns no fee. On the Commerce Payments Protocol, the refund path is a fee-only capture followed by `void` (ADR-0003).
+
+Invariants, property-tested on SimChain and fuzzed on the contracts (`contracts/test/invariant/RulesInvariants.t.sol`; `docs/audit/invariants.md`):
+- conservation (the token total is constant except faucet mints);
+- no negative balances;
+- each escrow is settled at most once;
+- every rate is applied with `mulBps` or `splitBps` (ADR-0022): requirements round up; a split rounds the rate side down and pays the remainder to a named party (fee share: remainder to the buyer). No posting creates or destroys a unit.
+
+## SimChain's full protocol: appeals and bonds
+
+Not in phase one: no chain deployment takes a party appeal or holds a bond (D57, ADR-0031 §8). SimChain keeps both as the full protocol's reference, and the SimChain-only fixtures test them. They return to a chain with a later phase.
+
+**Appeal state.** Only after a first-instance decision by the primary or fallback; a decision reached through escalation is not appealable.
+
+```mermaid
+stateDiagram-v2
+  [*] --> none: first-instance decision
+  none --> open: party appeals before appealBy (bond and appeal fee)
+  none --> expired: appealBy passed
+  open --> upheld: appeal adjudicator upholds (the appealing party's bond to the adjudicator's bond)
+  open --> overturned: appeal adjudicator overturns (adjudicator bond pays the wronged party)
+  open --> expired: appealDecideBy passed (first decision stands, the appealing party's bond and fee returned)
+```
+
+An overturn moves bond money, not escrow money: the escrow is already `Released` or `Refunded`.
+
+**Bond pools.** Each adjudicator's bond is a pool with two tranches, `bond:{a}:junior` (its own stake, first loss) and `bond:{a}:senior` (backers, pro rata), plus one `reserved` counter (ADR-0014 §2a, D10). Below, `bond:{a}` means the pool: debits take junior first, then senior; the appeal-upheld credit goes to junior. Backers are proposed (ADR-0014) and not built, so senior is empty.
+
+| Operation | Postings |
+| --- | --- |
 | Appeal bond and fee (SimChain only) | `appellant → appealbond:{id}` (bond); `appellant → appealfee:{id}` (appeal fee, rulebook parameter, held until decided; D21) |
 | Appeal decided, upheld or overturned (SimChain only) | `appealfee:{id} → adjudicator:{appeal}`, plus the upheld or overturn row below |
 | Appeal expired undecided (SimChain only) | `appealbond:{id} → appellant`; `appealfee:{id} → appellant`; the first decision stands |
 | Overturn, guaranteed mode, wrongful accept (SimChain only) | `bond:{a} → buyer` (price); `appealbond:{id} → appellant` |
 | Overturn, guaranteed mode, wrongful reject (SimChain only) | `bond:{a} → seller` (price); `appealbond:{id} → appellant` |
 | Appeal upheld (SimChain only) | `appealbond:{id} → bond:{a}` |
-| Default outcome | `escrow:{id} → buyer` (price + fee); on SimChain only, under the full protocol, `bond:{a} + bond:{fallback} → seller` (compensation per rulebook) |
-| Default after escalation | `escrow:{id} → buyer` (price + fee); on SimChain only, under the full protocol, `bond:{appeal} → seller` (compensation per rulebook) |
 
-`{a}` is the adjudicator whose decision settles the commitment: the primary, the fallback, or the appeal adjudicator for an escalated case. The fee goes to that adjudicator; an adjudicator that escalates earns no fee. On the Commerce Payments Protocol, the refund path is a fee-only capture followed by `void` (ADR-0003).
+The default outcome under the full protocol also compensates the seller from the bonds (the rows "Default outcome" and "Default after escalation" in the postings table above).
 
-Invariants, property-tested:
-- conservation (the token total is constant except faucet mints);
-- no negative balances;
-- each escrow is settled at most once;
+Invariants of the full protocol, property-tested on SimChain:
 - `junior + senior - reserved` ≥ `ceil(price × windowCoverageRatioBps / 10000)` before a new assignment, with a 100% ratio for `guaranteed_on_decision` commitments still open to appeal;
 - losses are taken from junior before senior;
 - encumbered bond is never counted twice (one commitment's overturn and another's default cannot draw on the same units);
-- every rate is applied with `mulBps` or `splitBps` (ADR-0022): requirements round up; a split rounds the rate side down and pays the remainder to a named party (fee share: remainder to the buyer; capital charge: remainder to the adjudicator; backers: dust to junior); payouts from a bond round down and the bond keeps the dust. No posting creates or destroys a unit.
+- bond rates follow the same `mulBps` and `splitBps` rule: the capital charge's remainder goes to the adjudicator, backers' dust to junior, and payouts from a bond round down with the bond keeping the dust.
 
 ## Settlement interface
 
-```ts
-interface Settlement {
-  kind: 'sim' | 'local' | 'testnet';
-  submit(msg: SignedMessage): Promise<SubmitResult>;          // any party may call; validates on the settlement layer
-  fund(auth: SignedFundingAuthorization): Promise<SubmitResult>;
-  trigger(commitmentId: Hex, timeout: TimeoutKind): Promise<SubmitResult>; // permissionless timeouts
-  state(commitmentId: Hex): Promise<CommitmentState>;
-  events(fromSeq: bigint): AsyncIterable<SettlementEvent>;
-  balances(addresses: Address[]): Promise<Record<Address, TokenAmount>>;
-}
-```
+`Settlement` in `packages/settlement/src/interface.ts` is the one interface, with three kinds: `sim`, `local` and `testnet`. Any party may call `submit`, and the settlement layer validates everything; `validate` runs the same guards with no effect; `trigger` sends a permissionless timeout; `state`, `events`, `balances` and `keysFor` are reads. It also carries the rules contract's `beaconMarginSec` (0 on SimChain).
 
-The operator API and the internal SDK call only this interface. Chain details stay in the `local` and `testnet` implementations.
+The operator API and the internal SDK call only this interface. Chain details stay in the `local` and `testnet` implementations (`packages/settlement/evm/`).
 
 ## Identity and signing
 
 - Agents, principals and adjudicators are EVM addresses: externally owned accounts, or smart accounts later.
-- Signed messages are EIP-712 typed data, with domain `{name: "Holdback", version: "0.8", chainId, verifyingContract}`. SimChain uses a fixed placeholder contract address. The domain version tracks the signed encoding: it moves when an existing typed-data struct or the terms encoding changes, so a signature made under one encoding never verifies under another. Additive schema versions leave it (ADR-0023: schema 0.7 kept domain version 0.6). ADR-0029 set 0.7 with schema 0.9; schema 0.11 moves it to 0.8, because the terms now name the buyer's payment address and the seller's payout address (ADR-0033).
+- Signed messages are EIP-712 typed data, with domain `{name: "Holdback", version, chainId, verifyingContract}`; the version is in `packages/core/src/eip712.ts`, and each node's `/v1/status` serves the live one. SimChain uses a fixed placeholder contract address. The domain version tracks the signed encoding: it moves when an existing typed-data struct or the terms encoding changes, so a signature made under one encoding never verifies under another. Additive schema versions leave it (ADR-0023: schema 0.7 kept domain version 0.6). ADR-0029 set 0.7 with schema 0.9; schema 0.11 moves it to 0.8, because the terms now name the buyer's payment address and the seller's payout address (ADR-0033).
 - Funding is gasless for agents. The buyer's payment address signs an ERC-3009 `ReceiveWithAuthorization` for price plus fee to the escrow's collector, and any relayer can submit it. There is no other funding path (ADR-0031 §3).
 - A mandate is the principal's EIP-712 signature over the agent's scope: caps, roles, categories, expiry. It is checked at agree and fund.
 
@@ -277,39 +289,22 @@ The operator API and the internal SDK call only this interface. Chain details st
 - Every settlement event is appended to a hash-chained log: `hash = keccak256(prevHash || canonicalEvent)`.
 - Operators serve receipts signed by the operator key.
 - Decisions carry the adjudicator's signature and the judgment record hash. The full record is published to content-addressed storage.
-- `pnpm replay` rebuilds state from events and checks it against the settlement layer's state.
+- The simulator's checks (`tools/sim/README.md`) replay each commitment's state machine from the event log and compare it with what the settlement layer and every operator serve.
 
 ## Timing rules
 
 - Fixed order, each deadline strictly before the next: `offerExpiresAt < fundBy < deliverBy < judgeBy < fallbackBy`. Core and the contract refuse any other order. `appealDecideSec` times an escalation's decision from the escalation. On SimChain only, under the full protocol, a first decision also opens `appealBy` and `appealDecideBy` after it.
 - Each window has a rulebook minimum, sized for forced-inclusion delay on the target chain.
-- The beacon margin sets the smallest windows a chain can decide in: 37 s for an escalation, and 44 s on Sepolia or 43 s on mainnet for the fallback (ADR-0032).
+- The beacon margin sets the smallest windows a chain can decide in, for an escalation and for the fallback; ADR-0032 derives them from the margin and the chain's slot time.
 - On the Commerce Payments Protocol, `authorizationExpiry` is `fallbackBy + appealDecideSec + EXPIRY_MARGIN`, and `refundExpiry` equals it (ADR-0003).
 - Prepare's defaults are `DEFAULT_TIMING` in `apps/operator/src/terms.ts`, with an appeal window of 0.
-- The largest instant a deadline can take is 9999-12-31T23:59:59-23:59 (253,402,387,139 s), and `appealWindowSec` and `appealDecideSec` are at most 2^32 − 1 s. Core refuses more, and the contract refuses a later `fallbackBy` or a longer escalation window at funding (`Unrepresentable()`).
+- The largest instant a deadline can take is 9999-12-31T23:59:59-23:59, the last RFC 3339 instant, and `appealWindowSec` and `appealDecideSec` fit in 32 bits. Core's parser refuses more (`packages/core/src/parse.ts`), and the contract refuses a later `fallbackBy` or a longer escalation window at funding (`Unrepresentable()`). Core's state machine refuses a hold above `MAX_HOLD` (`packages/core/src/state.ts`, the escrow's uint120) at the offer, and the contract refuses it at funding (`Unrepresentable()`).
+- On a phase-one deployment `appealWindowSec` must be 0 (D62).
 - Agents never see card hold windows. Card and Stripe funding converts to tokens before the hold, so card authorization lifetimes do not bound the escrow.
 
-## Repository layout (proposed for T-001)
+## Repository layout
 
-This is the layout as proposed; the repository map in `README.md` lists the paths as they are today, including `apps/demo-cloud/`, `apps/site/`, `apps/early-access/` and `apps/test-agents/`. The operator API does not use Fastify or any other web framework.
-
-```
-apps/
-  operator/        REST API (Fastify), relayer, indexer
-  adjudicator/     adjudicator service: pipeline + signing
-  demo/            narrated CLI, transcript renderer, static viewer
-packages/
-  core/            types from schemas, state machine, EIP-712 types, money
-  settlement/      Settlement interface; sim/ (SimChain); evm/ (contract client, Phase 2)
-  judgment/        intake, checks, screen, providers, panel, aggregation
-  sdk/             internal SDK for the operator, the demo and tests: operator failover + direct submit (not published; D30)
-  testkit/         snap runner, deterministic clock/RNG, recorded providers, fixture helpers
-contracts/         Foundry project (Phase 2)
-spec/              JSON Schemas (contract) + examples
-fixtures/          scenarios/, calibration/, redteam/, data/
-docs/              specs, ADRs, tasks, research
-.claude/           agents, commands, settings
-```
+The repository map in [`README.md`](../README.md) lists each path and what it holds. The operator API uses no web framework.
 
 ## Glossary
 
@@ -333,8 +328,8 @@ docs/              specs, ADRs, tasks, research
 - **Bond:** adjudicator capital that pays when an appeal overturns its decision, or when it misses its deadline. SimChain only in phase one (ADR-0031 §8).
 - **Coverage ratio:** minimum bond as a share of open exposure. SimChain only in phase one.
 - **Operator node:** a node offering the REST API, relaying and indexing, with no authority. **Escape hatch:** direct submission without any operator node.
-- **Operator fee:** what an operator node publishes (`fees.operator`) and asks for relaying a buyer's funded agreement: max(min, ceil(price × bps / 10000)), capped at max, paid by the buyer's own signed transfer in the same step as the funding, outside the hold, never refunded. Only that node asks for it; direct submission is free (ADR-0023, D33).
-- **Rules contract:** the escrow's operator in the Commerce Payments Protocol sense, the only party that can capture or void, constrained to decisions, early acceptance and timeouts.
+- **Operator fee:** what an operator node publishes (`fees.operator`) and asks for relaying a buyer's funded agreement: max(min, ceil(price × bps / 10000)), capped at max, paid by the buyer's own signed transfer in the same step as the funding, outside the hold, never refunded. Only that node asks for it; direct submission is free (ADR-0023, D33). The public demo's nodes publish a fee of 0 for the first pilots (T-389).
+- **Rules contract:** the escrow's operator in the Commerce Payments Protocol sense, the only party that can capture or void, constrained to decisions, early acceptance, settlements both parties signed and timeouts.
 - **SimChain:** the in-process simulation of the settlement rules.
 - **Rail:** where custody happens. **On-ramp / off-ramp:** fiat conversion before the hold / after release.
 - **Receipt:** an operator-signed record of an accepted message or a settlement event.
