@@ -146,7 +146,7 @@ async function runLocked(scenarios: ReturnType<typeof pick>, seed: string, keys:
   const ops = operators();
   const live = ops.join(',') === LIVE_OPERATORS.join(',');
   const round = await Round.open({ operators: ops, seed, rpcUrl: rpcUrl(), t220: flags.t220, homepage: flags.homepage, ...(live ? { trySeller: 'https://crow.direct/agents/test-seller', tryBundleUrl: 'https://crow.direct/try.mjs' } : {}) });
-  console.log(`’crow round 1 on ${ops.join(' and ')}: test tokens only, nothing here is real money`);
+  console.log(`Crow round 1 on ${ops.join(' and ')}: test tokens only, nothing here is real money`);
   console.log(`domain ${round.pin.domain.name} ${round.pin.domain.version} on chain ${round.pin.domain.chainId}, rules ${round.pin.domain.verifyingContract}${round.chain ? ` (read through ${new URL(round.chain.rpcUrl).host})` : ' (SimChain: no chain to read)'}`);
   console.log(`operators serve schema ${round.status.map((s) => s.schemaVersion).join(' and ')}; demo club ${round.demo.clubId}, windows from ${round.demo.minWindowSec} s; adjudicators ${Object.entries(round.demo.adjudicators).map(([k, v]) => `${k} ${short(v)}`).join(', ')}`);
   for (const role of ['buyer', 'seller'] as const) {
@@ -250,7 +250,7 @@ async function settle(args: string[]): Promise<number> {
   try {
     const ops = operators();
     const round = await Round.open({ operators: ops, seed, rpcUrl: rpcUrl() });
-    console.log(`’crow round 1, settle on ${ops.join(' and ')}: test tokens only, nothing here is real money`);
+    console.log(`Crow round 1, settle on ${ops.join(' and ')}: test tokens only, nothing here is real money`);
     return await settleDeal(round, parsed.id, parsed);
   } finally {
     if (held) releaseLock(held.lock);

@@ -149,3 +149,13 @@ export function citedSections(text) {
 /** Whether `title` is a heading or a bold lead in `text`. */
 export const hasSection = (text, title) => text.split('\n').some((l) => l === `## ${title}` || l === `### ${title}` || l.startsWith(`## ${title}: `) || l.replace(/^\s*(?:[-*]|\d+\.)\s+/, '').startsWith(`**${title}.**`) || l.replace(/^\s*(?:[-*]|\d+\.)\s+/, '').startsWith(`**${title}**`));
 
+
+/**
+ * The bytes above 127 in a guide, as `{line, char}` with the character's code point (T-401): an agent reads the
+ * guides as plain text, and a curly quote, an ellipsis or a multiplication sign is a byte it can copy into a value.
+ */
+export function nonAscii(text) {
+  const out = [];
+  text.split('\n').forEach((l, i) => { for (const ch of l) if (ch.codePointAt(0) > 127) out.push({ line: i + 1, char: `U+${ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}` }); });
+  return out;
+}

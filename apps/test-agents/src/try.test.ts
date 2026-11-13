@@ -65,8 +65,9 @@ function expectWithSeller(r: Run, state: 'Released' | 'Refunded'): void {
   expect(r.code, r.out).toBe(0);
   for (const step of ['keys', 'faucet', 'seller', 'propose', 'offered', 'accepted', 'check', 'fund', 'deliver', 'outcome', 'balances', 'final']) expect(r.out, step).toMatch(new RegExp(`^${step} +\\S`, 'm'));
   expect(r.out).toMatch(/^faucet +1000 tUSD, admitted to demo-club$/m);
-  expect(r.out).toMatch(/^seller +Crow's test seller at http:\/\/127\.0\.0\.1:\d+\/agents\/test-seller: it offers from 0x[0-9a-f]{6}…[0-9a-f]{4}, 26\.01 tUSD in all for this deal$/m);
-  expect(r.out).toMatch(/^offered +0x[0-9a-f]{6}…[0-9a-f]{4} offered by the test seller$/m);
+  expect(r.out).toMatch(/^seller +Crow's test seller at http:\/\/127\.0\.0\.1:\d+\/agents\/test-seller: it offers from 0x[0-9a-f]{6}\.\.\.[0-9a-f]{4}, 26\.01 tUSD in all for this deal$/m);
+  expect(r.out).toMatch(/^offered +0x[0-9a-f]{6}\.\.\.[0-9a-f]{4} offered by the test seller$/m);
+  expect(r.out).not.toMatch(/[^\x00-\x7f]/);
   expect(r.out).toMatch(/^fund +Held: 26 tUSD held \(25 price \+ 1 adjudication fee\), operator fee 0\.01 tUSD$/m);
   expect(r.out).toMatch(/with Crow's test seller as the other party/);
   expect(r.out).toMatch(new RegExp(`\\ndone +commitment 0x[0-9a-f]{64} ${state}\\n$`));

@@ -326,7 +326,7 @@ describe('site/ref/checks.txt, "Writing checks for a report"', () => {
     expect(start).toBeGreaterThan(0);
     const guide = read('site/llms.txt');
     expect(guide).not.toContain('\n## Writing checks for a report\n');
-    expect(guide).toContain('- `checks.txt`');
+    expect(guide).toContain('- [checks.txt](https://crow.direct/ref/checks.txt):');
   });
 
   it('lists exactly the keywords the json_schema interpreter supports', () => {

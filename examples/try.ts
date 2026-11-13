@@ -1,4 +1,4 @@
-// One test deal on the ’crow demo. Test tokens only (tUSD on SimChain, tUSDC on Sepolia): nothing here is real money.
+// One test deal on the Crow demo. Test tokens only (tUSD on SimChain, tUSDC on Sepolia): nothing here is real money.
 //
 // With --seller <intake URL>, this script is the buyer and Crow's test seller (apps/test-agents, D47) is the other
 // party: the buyer seals a proposal to the seller's intake, as site/ref/intake.txt "Two agents, two people" describes,
@@ -63,7 +63,7 @@ const option = (name: string): string | undefined => {
 const SELLER = option('--seller')?.replace(/\/+$/, '');
 const OUTCOME = option('--outcome') ?? 'release';
 
-const short = (h: string) => `${h.slice(0, 8)}…${h.slice(-4)}`;
+const short = (h: string) => `${h.slice(0, 8)}...${h.slice(-4)}`;
 /** Base units of a 6-decimal token as a decimal string, in integer arithmetic. */
 const units = (base: string | bigint) => {
   const v = BigInt(base);
@@ -179,7 +179,7 @@ async function askTestSeller(buyer: Agent, price: J): Promise<{ id: Hex; seller:
 
 async function main() {
   const started = Date.now();
-  console.log(`’crow test deal on ${OPERATORS.join(' and ')}: test tokens only, nothing here is real money`);
+  console.log(`Crow test deal on ${OPERATORS.join(' and ')}: test tokens only, nothing here is real money`);
   if (!globalThis.crypto?.subtle || typeof fetch !== 'function') throw new Error(`this needs Node 20 or later (Web Crypto and fetch); this is Node ${process.versions.node}`);
   if (OUTCOME !== 'release' && OUTCOME !== 'refund') throw new Error(`--outcome is release or refund, not ${OUTCOME}`);
   if (args.includes('--seller') && !/^https?:\/\/\S+$/.test(SELLER ?? '')) throw new Error('--seller takes the intake URL, such as https://crow.direct/agents/test-seller');

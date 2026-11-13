@@ -19,7 +19,7 @@ import { commitmentIdOf, freshNonce, fundingNonceOf, jcs, knownPins, operatorFee
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
-export const short = (h: string) => `${h.slice(0, 8)}…${h.slice(-4)}`;
+export const short = (h: string) => `${h.slice(0, 8)}...${h.slice(-4)}`;
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** JSON with every 0x-hex string lowercased: addresses compare ignoring case. */
 const lowerHex = (v: J): J => JSON.parse(JSON.stringify(v), (_k, x) => (typeof x === 'string' && /^0x[0-9a-fA-F]+$/.test(x) ? x.toLowerCase() : x));

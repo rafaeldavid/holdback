@@ -205,7 +205,7 @@ describe('against the demo world on SimChain', () => {
     // The operators list it as the round buyer's held deal, as the start gate reads it.
     expect(await heldDeals(r)).toEqual([{ id: deal.id, state: 'Held', updatedAt: expect.any(String) }]);
     const done = await settleOpen(r, r.deals, { waitMs: 90_000, gapMs: 500 });
-    expect(done.join('\n'), lines.join('\n')).toMatch(new RegExp(`^${deal.id.slice(0, 8)}…${deal.id.slice(-4)} was Held past deliverBy ${deal.terms.timing.deliverBy}: the driver sent reclaim through the API`, 'm'));
+    expect(done.join('\n'), lines.join('\n')).toMatch(new RegExp(`^${deal.id.slice(0, 8)}\\.\\.\\.${deal.id.slice(-4)} was Held past deliverBy ${deal.terms.timing.deliverBy}: the driver sent reclaim through the API`, 'm'));
     expect(triggers(deal.id)).toEqual([`POST /v1/commitments/${deal.id}/triggers/reclaim`]);
     for (const api of deal.buyer.sources()) expect((await get(deal.buyer, `/v1/commitments/${deal.id}`, api)).escrowState).toBe('Refunded');
     // Nothing holds money now: the gate returns at once and sends nothing.

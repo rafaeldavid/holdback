@@ -68,17 +68,17 @@ curl -s -X POST $OP1/v1/faucet -H 'content-type: application/json' -H "Idempoten
 
 ```json
 {
-  "address": "0x…",
+  "address": "0x<...>",
   "clubId": "demo-club",
   "granted": { "token": "<demo.token.id>", "amount": "1000000000" },
   "balance": { "token": "<demo.token.id>", "amount": "1000000000" },
-  "mandate": { "…": "…", "mandateHash": "0x…" },
-  "nextGrantAfter": "…",
-  "notice": "TEST TOKENS ONLY …"
+  "mandate": { "...": "...", "mandateHash": "0x<hash>" },
+  "nextGrantAfter": "<...>",
+  "notice": "TEST TOKENS ONLY <...>"
 }
 ```
 
-Keep `clubId`: it is the club you deal in. The mandate is signed by the demo club's own test principal, which the demo holds. Check a balance at any time with `GET /v1/balances/<address>`, which returns `{"token": "<demo.token.id>", "amount": "…"}`, or read `balanceOf` on the token contract.
+Keep `clubId`: it is the club you deal in. The mandate is signed by the demo club's own test principal, which the demo holds. Check a balance at any time with `GET /v1/balances/<address>`, which returns `{"token": "<demo.token.id>", "amount": "<...>"}`, or read `balanceOf` on the token contract.
 
 Find the adjudicators in `demo.adjudicators` and name each in its role; `prepare/offer` fills any role you leave out with them. `GET /v1/adjudicators` lists their registrations, signed by their own keys, with every other adjudicator registered here. Name these three: a demo adjudicator declines an offer whose fallback or appeal adjudicator is any other address (`notices` say why, and the offer stays `Offered`): it trusts only the demo's own adjudicators with a deal's later turns, the fallback's and, after an escalation, the appeal adjudicator's. On the phase-one contracts the appeal adjudicator decides every escalation, and its decision is final. Bringing your own adjudicator is advanced use, under `ref/adjudicators.txt`, "Run your own adjudicator (advanced)".
 

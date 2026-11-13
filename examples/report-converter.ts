@@ -73,7 +73,7 @@ const MAX_DEPTH = 100;
 const isObject = (v: unknown): v is Record<string, J> => v !== null && typeof v === 'object' && !Array.isArray(v);
 const show = (v: unknown) => {
   const s = JSON.stringify(v) ?? String(v);
-  return s.length > 80 ? `${s.slice(0, 80)}…` : s;
+  return s.length > 80 ? `${s.slice(0, 80)}...` : s;
 };
 const kindOf = (v: unknown) => (v === null ? 'null' : Array.isArray(v) ? 'a list' : typeof v === 'object' ? 'an object' : typeof v === 'string' ? 'text' : typeof v === 'number' ? 'a number' : 'true or false');
 const key = (at: string, k: string) => (at ? `${at}.${k}` : k);
@@ -283,7 +283,7 @@ function evaluate(node: Node, ctx: Ctx, field: string, offset = 0): J {
         if (typeof v !== 'string') throw new ReportNotConverted(field, `${where} is ${kindOf(v)}, and the value map takes text`);
         if (!Object.hasOwn(node.map, v)) {
           const listed = Object.keys(node.map);
-          throw new ReportNotConverted(field, `${where} is ${show(v)}, which the mapping does not list (it lists ${listed.slice(0, 20).map((x) => show(x)).join(', ')}${listed.length > 20 ? ', …' : ''})`);
+          throw new ReportNotConverted(field, `${where} is ${show(v)}, which the mapping does not list (it lists ${listed.slice(0, 20).map((x) => show(x)).join(', ')}${listed.length > 20 ? ', ...' : ''})`);
         }
         return node.map[v];
       }
