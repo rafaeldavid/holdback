@@ -27,14 +27,15 @@
    2026-11-13). Named by role; site/check.mjs fails the build when a page writes
    its own. */
 :root { color-scheme: light;
-  /* the Hasenheide palette (Rafa, 2026-11-13): oat paper, crow black and grey, Berlin pavement for the rules */
-  --page: #faf7f0; --band: #f3eee3; --ink: #2a2a2c; --ink-2: #5d5d60; --ink-3: #85837e; --line: #d6d0c4; --hair: #e6e0d5;
+  /* the Hasenheide palette (Rafa, 2026-11-13): crow black and grey, Berlin pavement for the rules, on a near-white
+     page with a hint of warmth (Rafa chose it over the oat paper the same day) */
+  --page: #fdfcf9; --band: #f6f3ec; --ink: #2a2a2c; --ink-2: #5d5d60; --ink-3: #85837e; --line: #d6d0c4; --hair: #e6e0d5;
   --paid: #1d6b45; --paid-wash: #e2eee4; --warn: #b0233c; --warn-wash: #f7e1e4;
   /* one seasonal accent at a time, by the date in Berlin (Mar 1, Jun 1, Sep 1, Dec 1); a small pill, a thin rule, a
      labelled chart series or the season's drawing; never body text, a large area or a state */
   --accent-spring: #6f7a14; --accent-summer: #8f6c14; --accent-autumn: #a55a17; --accent-winter: #24466e;
-  /* this season's accent, autumn until 2026-12-01 (README.md, "The accent"), and the text drawn on it */
-  --accent: var(--accent-autumn); --accent-ink: var(--page);
+  /* the accent: maple flare, a launch orange (Rafa, 2026-11-13; README.md, "The accent"), and the text drawn on it */
+  --accent: #d63d00; --accent-ink: var(--page);
   --scrim: rgba(0, 0, 0, .28); --lift: 0 24px 64px rgba(0, 0, 0, .18); --lift-sheet: 0 -12px 40px rgba(0, 0, 0, .12);
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
   --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
@@ -175,12 +176,12 @@ ol.run{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap
 .beat-label{font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-2);padding-top:3px}
 .beat p{margin:0;font-size:18px;line-height:1.5;max-width:640px}
 .steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
-.steps li{background:var(--band);border-radius:var(--r-card);padding:22px 20px}
+.steps li{background:var(--band);border-radius:var(--r-card);padding:22px 20px;display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:12px;align-items:center;align-content:start}
 .step-num{display:inline-flex;width:28px;height:28px;border-radius:999px;align-items:center;justify-content:center;background:var(--ink);color:var(--page);font-size:13px;font-weight:700}
-.steps h4,.feature h4{font-size:17px;font-weight:600;margin:14px 0 6px}
-.steps p,.feature p{margin:0;font-size:15px;color:var(--ink-2)}
+.steps h4,.feature h4{font-size:17px;font-weight:600;margin:0}
+.steps p,.feature p{grid-column:1/-1;margin:8px 0 0;font-size:15px;color:var(--ink-2)}
 .features{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
-.feature{border:1px solid var(--line);border-radius:var(--r-card);padding:24px}
+.feature{border:1px solid var(--line);border-radius:var(--r-card);padding:24px;display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:12px;align-items:center;align-content:start}
 .feature .glyph{width:22px;height:22px;flex:none;color:var(--ink)}
 .facts{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin-bottom:28px}
 .fact{padding:20px 16px 20px 0;display:flex;flex-direction:column;gap:2px}
