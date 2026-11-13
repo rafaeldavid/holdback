@@ -84,14 +84,14 @@ footer{margin-top:56px;padding-top:16px;border-top:1px solid var(--line);font-si
     <p>Holdback is the protocol underneath. It is a protocol, not a service, and it has three properties:</p>
     <ol class="plain">
       <li><b>The two agents choose their own adjudicators.</b> The buyer and seller name the primary, the fallback and the appeal adjudicator in the deal they sign. Nobody assigns them.</li>
-      <li><b>Anyone with capital can back an adjudicator.</b> An adjudicator puts up a bond that pays out if it is wrong or silent, and anyone can post or back that bond for a return.</li>
+      <li><b>Anyone with capital can back an adjudicator.</b> In the full protocol an adjudicator puts up a bond that pays out if it is wrong or silent, and anyone can post or back that bond for a return. Not in phase one: the contracts live on Sepolia hold no bonds, and only SimChain, the in-process simulation, runs them.</li>
       <li><b>Access is by API.</b> Any operator can run a node that serves the API. If every node refuses, an agent sends its signed message straight to the chain.</li>
     </ol>
     <p>Every change must pass three tests:</p>
     <dl class="pairs">
       <div><dt>1. Neutrality</dt><dd>No single party can stop a valid deal from settling or move the money outside its terms: not an operator, an adjudicator, a model provider, nor Crow’s own team. A test fixture proves it for each of them.</dd></div>
       <div><dt>2. The hold</dt><dd>Neither party can take the locked money alone. Every hold expires, every operation can be safely retried, and nothing can be spent twice. Card and bank rails only move money in and out.</dd></div>
-      <div><dt>3. Defended judgment</dt><dd>Fixed checks run first. Then a panel of pinned AI models from at least two model families judges, chosen so nobody can pick them. The panel is defended against prompt injection and gaming, and an appeal is backed by the adjudicator’s bond.</dd></div>
+      <div><dt>3. Defended judgment</dt><dd>Fixed checks run first. Then a panel of pinned AI models from at least two model families judges, chosen so nobody can pick them. The panel is defended against prompt injection and gaming. In phase one the first decision by the primary or the fallback adjudicator is final on chain; bond-backed appeals run on SimChain only.</dd></div>
     </dl>
   </section>
 
@@ -166,7 +166,7 @@ footer{margin-top:56px;padding-top:16px;border-top:1px solid var(--line);font-si
         <tr><td><b>Agents</b> (buyer and seller)</td><td>Sign every step that changes a deal, within a scoped mandate.</td><td>Take the held money alone.</td></tr>
         <tr><td><b>Operator nodes</b></td><td>Serve the API, relay signed messages, pay gas, send due timeouts and keep receipts. Anyone can run one.</td><td>Sign for an agent, or stop a deal: an agent switches nodes or submits to the chain itself.</td></tr>
         <tr><td><b>Rules contract</b> on Sepolia</td><td>Holds the money (through Coinbase’s audited escrow contract), checks signatures and deadlines, releases or refunds.</td><td>Be paused, upgraded or overridden: it has no owner and no admin keys.</td></tr>
-        <tr><td><b>Adjudicators</b></td><td>Run the checks and the model panel, sign the decision, and put up a bond that pays if an appeal overturns them.</td><td>Choose their own judges: a public random beacon (drand) picks the fallback and appeal panels.</td></tr>
+        <tr><td><b>Adjudicators</b></td><td>Run the checks and the model panel and sign the decision. The appeal adjudicator decides escalations. On SimChain only, each also puts up a bond that pays if an appeal overturns it.</td><td>Choose their own judges: a public random beacon (drand) picks the fallback and escalation panels.</td></tr>
       </tbody>
     </table></div>
   </section>
@@ -244,17 +244,17 @@ footer{margin-top:56px;padding-top:16px;border-top:1px solid var(--line);font-si
   /* deal lifecycle */
   var STEPS=[
     ['Offer','Seller','Signs the terms: price, deadlines, checks, and the three adjudicators both agents chose.','The buyer never agrees; the offer expires and nothing was held.'],
-    ['Accept','Primary adjudicator','Signs that it will judge, with its fee and its bond reserved for this deal.','It never accepts; funding is refused and the agents name another.'],
+    ['Accept','Primary adjudicator','Signs that it will judge, with its fee and a commitment to its panel seed (no bond on chain in phase one).','It never accepts; funding is refused and the agents name another.'],
     ['Fund','Buyer, through any operator','Agrees and funds in one signed call; the money is locked on the chain.','An operator refuses; the agent uses another node or submits directly.'],
     ['Deliver','Seller','Sends the work encrypted; only the adjudicators can open it for now.','The seller never delivers; the buyer reclaims the money after the deadline.'],
-    ['Judge','Adjudicator','Runs the fixed checks, then a panel of pinned models from two or more families.','It stays silent; the fallback takes over, and if both fail a default outcome applies, paid from their bonds.'],
-    ['Settle','Rules contract','Pays the seller and releases the key to the buyer in the same step, or refunds the buyer.','The losing party appeals; an overturn is paid from the first adjudicator’s bond.'],
-    ['Close','Anyone','The appeal window ends and the adjudicator’s bond is freed.','Nobody triggers it; the operators send the timeout themselves.']
+    ['Judge','Adjudicator','Runs the fixed checks, then a panel of pinned models from two or more families.','It stays silent; the fallback takes over, and if both fail a default outcome refunds the buyer.'],
+    ['Settle','Rules contract','Pays the seller and releases the key to the buyer in the same step, or refunds the buyer. In phase one this decision is final.','The adjudicator escalates instead; the appeal adjudicator decides, and if it stays silent the buyer is refunded.'],
+    ['Timeouts','Anyone','Sends any timeout that falls due: a reclaim, the fallback, the default outcome.','Nobody triggers it; the operators send the timeout themselves.']
   ];
   $('deal-steps').innerHTML=STEPS.map(function(s,i){return '<tr><td class="n">'+(i+1)+'. '+s[0]+'</td><td>'+s[1]+'</td><td>'+s[2]+'</td><td class="muted">'+s[3]+'</td></tr>'}).join('');
   (function(){
     var NS='http://www.w3.org/2000/svg', g=$('steps'), W=104, H=52, GAP=16, X0=10, Y=40, html='';
-    var outs=['expires','another adjudicator','other node or direct','buyer reclaims','fallback, then default','appeal, bond pays','timeout sent'];
+    var outs=['expires','another adjudicator','other node or direct','buyer reclaims','fallback, then default','escalation decides','timeout sent'];
     STEPS.forEach(function(s,i){
       var x=X0+i*(W+GAP);
       html+='<rect class="box" x="'+x+'" y="'+Y+'" width="'+W+'" height="'+H+'" rx="6"/>';

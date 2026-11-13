@@ -83,9 +83,14 @@ describe('contract-stack page', () => {
       const f = data.findings.find((x: { id: string }) => x.id === id);
       expect(f, id).toBeDefined();
       expect(['high', 'medium', 'low', 'info']).toContain(f.severity);
-      expect(['fixed', 'open', 'accepted']).toContain(f.state);
+      expect(['fixed', 'open', 'accepted', 'cut']).toContain(f.state);
       expect(f.text.length).toBeGreaterThan(10);
     }
+  });
+
+  it('takes a finding\'s state from docs/audit/known-issues.md when it lists one: fixed, or not in phase one (T-398)', () => {
+    for (const id of ['L-4', 'L-6', 'L-8', 'I-2']) expect(data.findings.find((f: { id: string }) => f.id === id)?.state, id).toBe('fixed');
+    for (const id of ['L-2', 'L-3', 'L-5']) expect(data.findings.find((f: { id: string }) => f.id === id)?.state, id).toBe('cut');
   });
 
   it('counts a T-212 item marked done as fixed, so the page follows the hardening task', () => {
@@ -101,7 +106,7 @@ describe('contract-stack page', () => {
     }
   });
 
-  it('finds every gas path it names in reports/differential-local.md, and the Sepolia deal T-212 records', () => {
+  it('finds every gas path it names in reports/differential-local.md, and the newest Sepolia smoke deal the deploy record or T-212 records', () => {
     for (const p of data.gas.paths) {
       expect(p.gas, p.fixture).toBeGreaterThan(0);
       expect(p.transactions, p.fixture).toBeGreaterThan(0);

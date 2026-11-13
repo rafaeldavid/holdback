@@ -1,9 +1,9 @@
 {
-  "_about": "Plain-language text for the contract-stack page (scripts/contract-stack.mjs). The facts come from the repository: states, addresses, line counts and gas. This file only words them for a reader new to the project. A finding's text has one variant per state (open, fixed, accepted); when the variant for its current state is missing, the page shows the review's own words and what the sources say about the state (for example 'Fixed in T-212 item 1'). A title names the problem, and the page prefixes 'Fixed:' when it is fixed, so write titles that read either way.",
+  "_about": "Plain-language text for the contract-stack page (scripts/contract-stack.mjs). The facts come from the repository: states, addresses, line counts and gas. This file only words them for a reader new to the project. A finding's text has one variant per state (open, fixed, accepted, and cut for a finding not in phase one); when the variant for its current state is missing, the page shows the review's own words and what the sources say about the state (for example 'Fixed in T-212 item 1'). A title names the problem, and the page prefixes 'Fixed:' when it is fixed, so write titles that read either way.",
   "contracts": {
     "HoldbackRules": "The referee. It checks every signed message and deadline, and is the only thing that tells the vault to pay, refund or hold.",
     "HoldbackTypes": "The shapes of the signed messages, hashed exactly as Crow's off-chain code signs them.",
-    "DrandQuicknetBeacon": "The public dice roll. It checks drand's signature on a random value, which picks the fallback's and the appeal's AI judges.",
+    "DrandQuicknetBeacon": "The public dice roll. It checks drand's signature on a random value, which picks the AI judges of the fallback and of an escalated case.",
     "IHoldbackBeacon": "The interface every beacon implements, so the rules contract can use the real one on Sepolia and a test one locally.",
     "SimBeacon": "A test beacon for the local chain only. It is never deployed to a public network."
   },
@@ -35,24 +35,29 @@
     },
     "L-2": {
       "title": "The deposit vault trusts the amount it is told",
-      "open": "With a token that charges a fee on each transfer, the vault would record more than it received. The fix checks the balance actually received, as the escrow vault already does."
+      "open": "With a token that charges a fee on each transfer, the vault would record more than it received. The fix checks the balance actually received, as the escrow vault already does.",
+      "cut": "Not in phase one: the deposit vault is gone from the phase-one contracts, and a deployment's one token must not charge a fee on transfer."
     },
     "L-3": {
       "title": "A party can appeal with no deposit",
       "open": "Now that winning an appeal pays out, a free appeal is a free shot at the price. The contract needs a minimum appeal deposit, set in the deal's terms, before any real money.",
-      "accepted": "A party can appeal with no deposit. Crow accepts this until the appeal rules move on chain."
+      "accepted": "A party can appeal with no deposit. Crow accepts this until the appeal rules move on chain.",
+      "cut": "Not in phase one: the phase-one contracts take no party appeal, so there is no appeal deposit to set."
     },
     "L-4": {
       "title": "The primary judge's seed check is shorter than it could be",
-      "open": "The contract checks the primary judge's commitment to its random seed on 144 bits and does not tie it to the deal. The fix ties it to the deal."
+      "open": "The contract checks the primary judge's commitment to its random seed on 144 bits and does not tie it to the deal. The fix ties it to the deal.",
+      "fixed": "The contract checked the primary judge's commitment to its random seed on 144 bits and did not tie it to the deal. The phase-one contracts tie it to the deal."
     },
     "L-5": {
       "title": "The appeal judge stakes no deposit of its own",
-      "open": "An appeal judge with nothing at stake can move the price out of the first judge's deposit. Until it carries its own bond, the first judge protects itself by accepting only appeal judges it trusts."
+      "open": "An appeal judge with nothing at stake can move the price out of the first judge's deposit. Until it carries its own bond, the first judge protects itself by accepting only appeal judges it trusts.",
+      "cut": "Not in phase one: no judge holds a deposit, so the appeal judge's decision on an escalated case moves only the held payment, as the terms say."
     },
     "L-6": {
       "title": "The vault's expiry ignores the judging deadline",
-      "open": "If the judging deadline falls after the vault's expiry, the vault could not pay an on-time decision. The fix derives the expiry from every deadline, or refuses such terms at funding."
+      "open": "If the judging deadline falls after the vault's expiry, the vault could not pay an on-time decision. The fix derives the expiry from every deadline, or refuses such terms at funding.",
+      "fixed": "If the judging deadline fell after the vault's expiry, the vault could not pay an on-time decision. The phase-one contracts refuse terms whose deadlines are out of order, so every deadline falls before the vault's expiry."
     },
     "L-7": {
       "title": "The winner could block the loser's appeal",
@@ -61,11 +66,13 @@
     },
     "L-8": {
       "title": "A deadline already past can reveal the fallback's dice roll",
-      "open": "If the judging deadline has already passed when a deal is funded, the fallback's random value is public before anyone signs. The fix refuses such a deal at funding."
+      "open": "If the judging deadline has already passed when a deal is funded, the fallback's random value is public before anyone signs. The fix refuses such a deal at funding.",
+      "fixed": "If the judging deadline had already passed when a deal was funded, the fallback's random value was public before anyone signed. The phase-one contracts refuse such a deal at funding."
     },
     "I-2": {
       "title": "A fee branch that never pays",
-      "open": "The mutual-settlement fee share is a constant zero, so one branch of code never runs. The fix removes that dead code."
+      "open": "The mutual-settlement fee share is a constant zero, so one branch of code never runs. The fix removes that dead code.",
+      "fixed": "The mutual-settlement fee share was a constant zero, so one branch of code never ran. The phase-one contracts no longer have that branch."
     },
     "I-8": {
       "title": "Winning an appeal paid nothing",
