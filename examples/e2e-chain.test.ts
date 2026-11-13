@@ -295,7 +295,7 @@ describe("the round's own transactions and the reads after them (PR 210 review: 
 
   it('send refuses above the 20 gwei fee cap, before it signs anything', async () => {
     const { chain, asked } = await open({ baseFeeGwei: '30' });
-    await expect(chain.send(generatePrivateKey(), 'token', 'approve', [SEPOLIA!.bonds, 1n])).rejects.toThrow(/refusing to send approve: the network asks [\d.]+ gwei per gas, above the 20 gwei cap/);
+    await expect(chain.send(generatePrivateKey(), 'token', 'approve', [SEPOLIA!.escrow, 1n])).rejects.toThrow(/refusing to send approve: the network asks [\d.]+ gwei per gas, above the 20 gwei cap/);
     expect(asked).not.toContain('eth_sendRawTransaction');
     expect(asked).not.toContain('eth_getTransactionCount');
   });
