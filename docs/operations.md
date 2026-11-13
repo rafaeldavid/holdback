@@ -179,6 +179,8 @@ Roll back the operators together, the test agents only with them, and the site o
 
 **Deals left on the old contracts: none that holds money.** At step 1 and again at step 5 (06:44 to 06:46 UTC) each node held 88 deals, none holding money, and `head.eventSeq` read 886 twice, 30 s apart. Both test agents read `"open": 0`. Two deals listed with no final time: `0x137ccb0d…3049` and `0x71f767f8…1197`. Both have been `Settled` on the old contract since 2026-11-06; each node is behind the chain for them (their deliveries did not pass through it), so its record has no settle time. They are final, not left behind. The old rules contract logged no event in the 60 blocks around the switch, and the deal guard counted 0 open deals.
 
+**The freeze.** Rafa pushed the annotated tag `contracts-phase-one-1` at 07:10 UTC. It points at `27ab44e`, the merge of PR 475 into `main`. Both of the auditor's checks print `0` (the runbook, step 11.3): the tagged `contracts/src` equals the record's `commit` (`938c3fc`), and equals `0180a39`'s. The audit pages name the frozen commit by this tag ([`audit/scope.md`](audit/scope.md)).
+
 **What `main` gained with this cutover** (PR 475, merged at 07:00 UTC as `27ab44e`, whose tree equals `3cb9428`'s):
 - the contract lane, `contracts-audit-ready`, at its frozen commit;
 - the new record, with every copy that `scripts/record-copies.mjs` writes;
