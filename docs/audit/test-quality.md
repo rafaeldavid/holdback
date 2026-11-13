@@ -14,7 +14,7 @@ The R10 run measured the lane at `c629d06cf1edbec91bb89de891210dd26035a93d`: `co
   - `DrandQuicknetBeacon.sol` has 59/59 lines and 8/8 branches; `HoldbackTypes.sol` has 52/52 lines.
   - `HoldbackRules.sol` has 236/237 lines and 68/70 branches. Of the three misses, one was real and is closed by a test; the other two are source-map artefacts of `--ir-minimum` [inferred].
 - **Static analysis: nothing new.** Aderyn 0.6.8 and Slither 0.11.6 at `c629d06` report only classes already dismissed in `docs/reviews/2026-11-11-static-analysis.md` (R10 section).
-- **Runtime code at `c629d06` equals the freeze commit `0180a39`,** built from `src/` with the metadata tail off: `HoldbackRules` is `0x7418f469f50a7da3b398586fe8bd43231f7add8e14b39dc32c8d54f997baf16d` (20,449 bytes) and `DrandQuicknetBeacon` is `0x8c91f83bbb02e5d5e2094567ef379facc245ae3772c1b8789f11f5b869739058` (3,215 bytes) at both.
+- **Runtime code at `c629d06` equals the freeze commit `0180a39`.** By T-384's method (sha256 of the runtime code with its metadata tail cut, the method to quote): `HoldbackRules` is `0x545f80b5…0c47` (20,449 bytes) and `DrandQuicknetBeacon` is `0x3a8c11c6…8c96` (3,216 bytes), reproduced here at `0180a39`. This task's keccak256 of a metadata-free build gives the same equality; the section below says why its figures differ.
 
 ## Summary: the first run, on main
 
@@ -236,7 +236,25 @@ Both tools ran with the commands of `docs/reviews/2026-11-11-static-analysis.md`
 | `HoldbackRules` | `0x7418f469f50a7da3b398586fe8bd43231f7add8e14b39dc32c8d54f997baf16d` | the same | 20,449 |
 | `DrandQuicknetBeacon` | `0x8c91f83bbb02e5d5e2094567ef379facc245ae3772c1b8789f11f5b869739058` | the same | 3,215 |
 
-The hashes differ from the ones T-384 reported (`545f80b5…0c47`, `3a8c11c6…e38c96`), which were also equal at both commits. The two methods differ, which would explain it [inferred]; equality at both commits holds under each.
+**The figures to quote are T-384's, which this run reproduced exactly at `0180a39`** [measured, 2026-11-13]: `HoldbackRules` `0x545f80b56390f540e5a98d715c7a436914af83d3653bf458d14c380ff53b0c47` (20,449 bytes) and `DrandQuicknetBeacon` `0x3a8c11c6bc2940b404c417b538bdd6a40c431717c4d32e62dfa5ab3479e38c96` (3,216 bytes). The keccak256 figures above are a second view of nearly the same bytes; they are not for the cutover sheet or the audit docs.
+
+What each method hashes [measured: `contracts/src/` built at `0180a39` both ways, each variant hashed with sha256 and keccak256]:
+
+| | T-384's method, for the sheet and the audit | This task's method, above |
+| --- | --- | --- |
+| Build | as configured: the build the deploy uses | a second build with `bytecode_hash = "none"`, `cbor_metadata = false` |
+| Code | the artifact's `deployedBytecode` (runtime code) | the same field of the second build |
+| Metadata tail | cut: the last two bytes give the CBOR length (51), and the CBOR plus those two bytes go, 53 bytes | never emitted |
+| Immutables | the compiler's zero placeholders (24 slots in `HoldbackRules`, 2 in the beacon) | the same |
+| Hash | sha256 | keccak256 |
+| `HoldbackRules` | 20,502 bytes less 53 = 20,449 bytes; `0x545f80b5…0c47` | the same 20,449 bytes, byte for byte; keccak256 `0x7418f469…f16d` |
+| `DrandQuicknetBeacon` | 3,269 bytes less 53 = 3,216 bytes; `0x3a8c11c6…8c96` | 3,215 bytes: the same code without its last byte, a `0xfe` (INVALID) that the compiler places before the metadata and leaves out when there is none; keccak256 `0x8c91f83b…9058` |
+
+So the two methods differ in the hash function for both contracts, and by that one trailing byte for the beacon. Each still finds `c629d06` and `0180a39` equal.
+
+**Use T-384's method** for the cutover sheet and the audit docs. It hashes the code the deploy actually builds, needs no second build with other settings, and the cutover sheet and T-383 already quote its figures.
+
+**On chain,** neither figure equals `extcodehash`: the deployed code carries the immutables' values where the artifact has zeros. To check a deployed contract, zero the immutable ranges the artifact lists (`deployedBytecode.immutableReferences`), cut the tail, then take sha256.
 
 ## First results on main
 
