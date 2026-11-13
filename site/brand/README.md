@@ -56,7 +56,7 @@ Each component has a fixed anatomy. A page places a part where it wants it; it n
 - Do not: put two filled buttons side by side.
 
 **4. Pill** (`pill`)
-- For: a short state beside a title: "Testing Now Live", "Paid", "Refused".
+- For: a short state beside a title, such as "Testing Now Live" or "Refused", or money that moved.
 - Anatomy: label.
 - Variants: neutral, paid, warn.
 - States: none; a pill is not a control.
