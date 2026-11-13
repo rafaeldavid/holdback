@@ -90,6 +90,17 @@ formal/check.sh                 # TLA+ model of the state machine (T-204); safet
 node site/build.mjs && node site/check.mjs   # the site and its agent docs (site/llms.txt)
 ```
 
+## Cloudflare tooling
+
+Use `cf`, Cloudflare's own command-line tool, first for reading and one-off operations. Wrangler keeps everything a deploy depends on (Rafa, 2026-11-13). `cf` is a beta, so its commands can change.
+
+- **Run the pinned version:** `pnpm cf <command>`. The version is in `package.json`, script `cf`; change it there only, to a version that has been public for 14 days or more. `cf` needs the Node version its own `engines` field names; on an older Node, use Wrangler.
+- **Find, read, rehearse:** `pnpm cf cli search "<task>"` finds a command, `pnpm cf schema <command>` shows its inputs, and `--dry-run` shows what a change would do. Pass `--dry-run` before anything that changes state.
+- **Wrangler keeps deploys, rollbacks, secrets, live logs and local runs,** through the repo's own scripts (`docs/operations.md`). `cf` cannot roll back, set one secret or tail yet. Do not run `cf dev`, `cf build`, `cf deploy` or `cf migrate` in this repository.
+- **Fall back to Wrangler** when `cf` lacks a command, and say so in your report.
+- **A `cf` command that changes anything on the Cloudflare account waits for Rafa,** like a deploy. A destructive command without `--force` prints "Aborted." and exits 0, so read the output; never pass `--force` without his word.
+- **Credentials** come from the environment (`CLOUDFLARE_API_TOKEN`). `cf auth login` is Rafa's.
+
 ## Start here (for a new session or agent)
 
 1. Read this file, then the newest entry of the daily log: its "Next steps (resume here)" list is the current work. The maintainers keep the log in the private repository under `control/log/` (files are named by date, `YYYY-MM-DD.md`; take the newest). On the maintainer's machine that repository is checked out at `reports/crow-private/` inside the main checkout. A session without it starts from `docs/plan.md` and the open pull requests. Check `gh pr list` for open PRs before starting a task that may already be in flight.
