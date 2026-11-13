@@ -34,11 +34,29 @@ Package R10 of the contract refinement plan (crow-private `roadmap/plans/2026-11
 ## Out of scope
 
 - CI jobs (written as a Handoff note; `.github/` is not this task's).
-- Static analysis (Slither, Aderyn: gate VG-10).
+- Static analysis was out of scope on `main`; R10 added its rerun on the lane (gate VG-10), at the coordinator's request.
 
 ## Evidence
 
-All on `main` at `5a90dc5`, 2026-11-11 and 2026-11-12. The full write-up is `docs/audit/test-quality.md`.
+### R10, the pre-freeze run on the lane, at `c629d06` (2026-11-12 and 2026-11-13)
+
+All measured unless labelled; the full write-up is `docs/audit/test-quality.md` (R10).
+
+- **Mutation:** 155 mutants (92 unchanged from `main`'s list, 22 retargeted, 41 new; 65 retired with reasons).
+  - Verdicts: 151 killed, 4 survive, no timeouts or tool errors.
+  - The run took two shards, 19:04 to 23:33 UTC. Split took 773 s against 1,111 s serial on six mutants, with the same verdicts.
+  - Survivors: M004, M084 and D09 are equivalent, and M132 changes only a revert reason. Each has its reason, with the file and line.
+- **Three test gaps found and closed:**
+  - M128 (the attempt number) and M132 (the key index): two new tests in `MutationGaps.t.sol`.
+  - T05 (the fallback role's hash): `RoleVectors.t.sol`, core's decision digests for the fallback and appeal roles.
+  - Each new test kills its mutant at `c629d06`.
+- **The decision counter** `invariant_timelyDecisionsLand`, run alone, kills 16 of the 50 decision-path mutants; the full suite kills all 50.
+- **Coverage:** 459 tests passed under `--ir-minimum`. `DrandQuicknetBeacon` has 59/59 lines and 8/8 branches; `HoldbackRules` has 236/237 lines and 68/70 branches; `HoldbackTypes` has 52/52 lines. One miss was real and is closed by the M128 test; two are source-map artefacts [inferred].
+- **Static analysis:** Slither 0.11.6 reports 55 results with no High; Aderyn 0.6.8 reports one High class and 7 Low classes. Nothing new against `docs/reviews/2026-11-11-static-analysis.md`.
+- **Runtime code equals the freeze commit:** `HoldbackRules` is `0x7418f469…f16d` and `DrandQuicknetBeacon` is `0x8c91f83b…9058` at both `c629d06` and `0180a39`, built from `src/` with the metadata tail off.
+- **`MutationGaps.t.sol` is ported to the lane:** errors through `IHoldbackRules`, payouts to the money addresses, and no funding-method test. It runs in every baseline above.
+
+### The first run, on `main` at `5a90dc5` (2026-11-11 and 2026-11-12)
 
 - **Baseline `forge test`** (full build, every test): 364 tests passed in 483 s wall, of which 308 s compile and 172 s the side-by-side test [measured].
 - **`forge coverage` as configured fails** [measured]: it turns the optimizer off, and the contracts need the IR pipeline with it.
@@ -70,39 +88,40 @@ All on `main` at `5a90dc5`, 2026-11-11 and 2026-11-12. The full write-up is `doc
 
 ## Handoff
 
-**State.** The tools, the gap tests and the first results are in this PR. The mutation run is paused at 82 of 179 mutants. Its results are kept in `reports/scratch/t-352/mutation-5a90dc5-fast.json`, on this machine only.
+**State.** R10 is done at `c629d06`, and its figures hold for the freeze commit `0180a39`, whose runtime code is the same. The tools, the lane's mutant list, the gap tests and the results are in the lane's pull request for R10.
+- `main`'s run ended at 89 of 179 mutants, by the coordinator's decision, since `main`'s contracts are replaced at the freeze.
+- Nothing has to be fixed in `contracts/src/` before the freeze.
 
-**To finish the run on `main`** (about 3.4 h for 97 mutants, then about 8 min per survivor on the full build) [inferred]:
-
-```bash
-node contracts/scripts/mutate.mjs --ref 5a90dc5 --resume
-```
-
-`--resume` reuses a verdict only when the source, the tests, the build, the seed and the mutant's text match. The paused results were recorded on a working-tree copy of `5a90dc5` before the script hashed tests. A one-off check confirmed the copy's tests equal `5a90dc5`'s and recorded their hash (`reports/scratch/t-352/adopt.mjs`).
-
-**To run both tools on the lane before the freeze** (package R10). The lane pins the same `commerce-payments` submodule as `main` [measured]:
+**To run both tools again on the lane** (after any change to `contracts/src/`):
 
 ```bash
-git fetch origin contracts-audit-ready
+node contracts/scripts/mutate.mjs --list contracts/scripts/mutants-lane.json --check
 ```
 
 ```bash
-node contracts/scripts/coverage.mjs --ref origin/contracts-audit-ready
+node contracts/scripts/coverage.mjs
 ```
 
 ```bash
-node contracts/scripts/mutate.mjs --ref origin/contracts-audit-ready
+node contracts/scripts/mutate.mjs --list contracts/scripts/mutants-lane.json --shard 1/2
 ```
 
-- **Stale mutants on the lane.** The bonds and sim-beacon mutants (20) and 40 of the 139 `HoldbackRules.sol` mutants report stale there, because the cuts deleted their code [measured on the lane at 2026-11-12]. That is the intended behaviour.
-- **Before the freeze, add mutants for the lane's own new lines** to `mutants.json`, for example the refusal of a non-zero `acc.bondReserved` (`HoldbackRules.sol:184` on the lane).
-- **Survivors in code the cuts remove:** M030, M031 and M057.
+```bash
+node contracts/scripts/mutate.mjs --list contracts/scripts/mutants-lane.json --shard 2/2
+```
+
+- **Run `--check` first.** It reports every mutant whose text no longer applies; retarget each in `mutants-lane.json`, or retire it with its reason.
+- **New lines need new mutants.** The list covers the code at `c629d06`.
 - **If the lane renames tests,** `GAS_CAP_TESTS` in `contracts/scripts/scratch.mjs` must follow, or coverage stops on the failing gas caps.
 - **The fast build's `foundry.toml` edit** expects the lines `optimizer = true` and `via_ir = true`; the script stops if they change.
+- **Run nothing else heavy beside the shards:** at a load average of 167 a mutant took twice as long.
 
 **CI (not this task's: `.github/`).** A nightly job could run `node contracts/scripts/mutate.mjs --quick` (about 1 h) and `node contracts/scripts/coverage.mjs` (about 4 min) on the lane. It needs the same three submodule commands as the contracts job and Foundry 1.0.0, and it should upload `reports/scratch/t-352/` as an artifact. Pull-request CI should not run either tool.
 
 **Open.**
-- The full-build pass over the survivors has not run.
-- `MutationGaps.t.sol` has not run locally; CI runs it.
-- After the run completes, the summary and tables in `docs/audit/test-quality.md` need the remaining 97 verdicts.
+- **For `packages/core` (not this task's paths):** pin the two role digests of `RoleVectors.t.sol` in `packages/core/src/eip712.vectors.test.ts` too:
+  - the fallback's `0x36a53f5e00f8667a82cdb7589237528a96cdfcdc1bebccf3bbbd1224ffdd191b`;
+  - the appeal's `0xdf36cfedd8b2ecad09dff2144b173ca11491141f45abc74f76e25a368cb03a27`.
+
+  Each is the example decision with only `role` changed. Then the repo itself shows they come from core; today only the test's comment says so.
+- The runtime hashes differ from T-384's figures for the same commits. Both methods find `c629d06` and `0180a39` equal. The difference is in how each built and hashed the code [inferred], and the coordinator may ask T-384 for its method.
