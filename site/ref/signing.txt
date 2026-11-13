@@ -9,9 +9,9 @@ Every step has the same shape. `POST /v1/prepare/<kind>` with plain inputs retur
 ```json
 {
   "kind": "agree-and-fund",
-  "commitmentId": "0x…",
-  "sign": [ { "slot": "signature", "signer": "0x…", "typedData": { "domain": {}, "types": {}, "primaryType": "Agree", "message": {} }, "digest": "0x…" } ],
-  "submit": { "method": "POST", "path": "/v1/commitments/0x…/agree", "body": { "signature": null } },
+  "commitmentId": "0x<...>",
+  "sign": [ { "slot": "signature", "signer": "0x<...>", "typedData": { "domain": {}, "types": {}, "primaryType": "Agree", "message": {} }, "digest": "0x<...>" } ],
+  "submit": { "method": "POST", "path": "/v1/commitments/0x<id>/agree", "body": { "signature": null } },
   "check": ["what you are about to sign, in words"],
   "defaults": {}
 }
@@ -32,7 +32,7 @@ Prepare hides nothing. You send every nonce; a prepare without one is 400 with `
 
 If anything differs, do not sign.
 
-**What `submit.body` holds.** The message you sign, as JSON under the same field names, with each signature slot `null` until you write yours in. It is not the typed data: times are RFC 3339 strings (Unix seconds only inside typed data), amounts and `value` are decimal strings, and counts (`attempt`, `bytes`, the `…Sec` windows, `maxSubmissions`) are JSON numbers. Per step:
+**What `submit.body` holds.** The message you sign, as JSON under the same field names, with each signature slot `null` until you write yours in. It is not the typed data: times are RFC 3339 strings (Unix seconds only inside typed data), amounts and `value` are decimal strings, and counts (`attempt`, `bytes`, the `<name>Sec` windows, `maxSubmissions`) are JSON numbers. Per step:
 
 - Offer: the terms (`ref/http-seller.txt`, "Offer") plus `id` and `signatures`.
 - Agree and fund: `{"type": "Agree", commitmentId, buyer, nonce, expiresAt, signature, "fund": {"type": "FundingAuthorization", scheme, commitmentId, from, value, token, validAfter, validBefore, nonce, expiresAt, signature}, "operatorFee": {"type": "TransferAuthorization", scheme, purpose, commitmentId, from, to, value, token, validAfter, validBefore, nonce, expiresAt, signature}}`, without `operatorFee` on a node that charges none.
@@ -51,7 +51,7 @@ Everything you compute yourself, in one place. Every message is EIP-712 typed da
 - **Integers and times in typed data.** Every `uint*` field of `typedData.message` is a decimal string: convert it to an integer before hashing. Every time is Unix seconds: `Date.parse(t) / 1000`.
 - **The commitment ID** is `hashStruct("CommitmentTerms", terms)`, the EIP-712 struct hash with no domain, where `deliverableHash` and `acceptanceHash` are keccak256 of the canonical JSON of `deliverable` and `acceptance`, the five deadlines and `createdAt` are Unix seconds, `disputeBy`, `disputeJudgeSec` and `disputeFallbackSec` are 0, and amounts are integers.
 - **The delivery hash** is `hashStruct("Delivery", delivery)` of the delivery without its signature. The `delivery.submitted` event's `payload.deliveryHash` is that value. The event does not carry every field the hash covers (the per-recipient keys, the MIME type, the submission time), so to recompute it you need the seller's signed delivery.
-- **An optional field becomes a flag and a zero.** EIP-712 has no null, so these messages carry a `has…` bool beside a zero placeholder in the typed data (the JSON body you submit carries `null` or leaves the field out):
+- **An optional field becomes a flag and a zero.** EIP-712 has no null, so these messages carry a `has<Name>` bool beside a zero placeholder in the typed data (the JSON body you submit carries `null` or leaves the field out):
   - `MutualSettlement`: before a delivery, `hasDelivery: false` and `deliveryHash` 32 zero bytes (`0x` and 64 zeros); after one, `hasDelivery: true` and the delivery hash.
   - `ReadToken`: without an audience, `hasAudience: false` and `audience` the zero address (`0x` and 40 zeros); with one, `hasAudience: true` and that address.
   - `Delegation.scope`: without categories, `hasCategories: false` and `categories: []`.

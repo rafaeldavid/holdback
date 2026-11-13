@@ -1,8 +1,9 @@
 // The agent guides' helpers (T-393, site/guides.mjs): the budget's count, with and without a provider key, and the
 // checks site/check.mjs runs on the guides. No network: the provider is a fake fetch.
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 // @ts-expect-error plain JavaScript module with no declarations
-import { apiRoutes, citedSections, countTokens, duplicateSentences, estimateTokens, FIRST_DEAL_BUDGET, guideFiles, hasSection, measurePaths, namedCalls, namedReferences, routeKnown } from '../site/guides.mjs';
+import { apiRoutes, citedSections, countTokens, duplicateSentences, estimateTokens, FIRST_DEAL_BUDGET, guideFiles, hasSection, measurePaths, namedCalls, namedReferences, nonAscii, routeKnown } from '../site/guides.mjs';
 
 const answer = (status: number, body: unknown) => async () => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
@@ -53,6 +54,15 @@ describe('the checks on the guides', () => {
     expect(calls.sort()).toEqual(['GET /v1/commitments/<id>/nothing', 'GET /v1/commitments/<id>/terms', 'POST /v1/faucet', 'POST /v1/prepare/offer']);
     expect(calls.map((c: string) => routeKnown(c, routes))).toEqual([false, true, true, true]);
     expect(routeKnown('GET /v1/faucet', routes)).toBe(false);
+  });
+
+  it('finds every character above 127 in a guide, by line and code point', () => {
+    expect(nonAscii('Crow. Plain text...\nprice x bps - 1')).toEqual([]);
+    expect(nonAscii('ok\n\u2019crow \u2026 \u00d7\n\u00e9')).toEqual([{ line: 2, char: 'U+2019' }, { line: 2, char: 'U+2026' }, { line: 2, char: 'U+00D7' }, { line: 3, char: 'U+00E9' }]);
+  });
+
+  it('holds every published guide to ASCII', () => {
+    for (const p of guideFiles()) expect(nonAscii(readFileSync(new URL(`../site/${p}`, import.meta.url), 'utf8')), p).toEqual([]);
   });
 
   it('lists the reference files a guide names', () => {
