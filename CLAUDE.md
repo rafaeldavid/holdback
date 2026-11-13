@@ -51,7 +51,7 @@ Responsibility sits with the buyer and the seller. When a party can protect itse
 
 ## Design principle: rails, not a record-keeper
 
-The protocol and the API are rails: they hold funds, check signatures, enforce deadlines and settle. They need keys, hashes and amounts, not identities or content. Everything else is information each party chooses to disclose, to whom and when: who it is, what it bought, the terms, the judgment. The default is minimal disclosure; a party can reveal more to its counterparty, an adjudicator, a club or a court. Arbitration can be private too: adjudicators may judge with private inference (an inference provider that keeps no data, such as Venice, offered as an option) as long as the judges stay pinned models from at least two families (Rafa, 2026-11-01; D35).
+The protocol and the API are rails: they hold funds, check signatures, enforce deadlines and settle. They need keys, hashes and amounts, not identities or content. Everything else is information each party chooses to disclose, to whom and when: who it is, what it bought, the terms, the judgment. The default is minimal disclosure; a party can reveal more to its counterparty, an adjudicator, a club or a court. Judging can be private too: adjudicators may judge with private inference (an inference provider that keeps no data, such as Venice, offered as an option) as long as the judges stay pinned models from at least two families (Rafa, 2026-11-01; D35).
 
 ## Hard rules
 
