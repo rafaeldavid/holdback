@@ -49,18 +49,13 @@ ${links.map(([href, label]) => `<a class="ck-nav" href="${esc(href)}">${esc(labe
 </div></header>`;
 
 /**
- * 2. Footer: the brand block (mark, name, tagline), short link groups each under a small heading, then a bottom bar
- * with the legal line and one pill. A link may be marked current; `extraHtml` ends a group (the home page's
- * copy-the-prompt button); `afterHtml` follows the bottom bar.
+ * 2. Footer: one row (the mark and the name, then a few links and at most one control), then a slim bar with the
+ * legal line, the tagline and one pill. A link may be marked current; `afterHtml` follows the bar.
  */
-export const footer = ({ home, name = 'Crow', tagline, pill, legal, groups = [], afterHtml = '' }) => `<footer class="ck-foot">
-<div class="ck-foot-top">
-<div class="ck-foot-brand"><a class="ck-brand" href="${esc(home)}"><span class="ck-mark" aria-hidden="true"></span>${esc(name)}</a><p>${esc(tagline)}</p></div>
-<nav class="ck-foot-nav" aria-label="Footer">
-${groups.map((g) => `<div><h2>${esc(g.title)}</h2>${g.links.map((l) => `<a href="${esc(l.href)}"${l.current ? ' aria-current="page"' : ''}${l.attrs ? ` ${l.attrs}` : ''}>${esc(l.label)}</a>`).join('')}${g.extraHtml ?? ''}</div>`).join('\n')}
-</nav>
-</div>
-<div class="ck-foot-bar"><span>${esc(legal)}</span>${pillHtml({ label: pill })}</div>${afterHtml ? `\n${afterHtml}` : ''}
+export const footer = ({ home, name = 'Crow', tagline, pill, legal, links = [], extraHtml = '', afterHtml = '' }) => `<footer class="ck-foot">
+<div class="ck-foot-row"><a class="ck-brand" href="${esc(home)}"><span class="ck-mark" aria-hidden="true"></span>${esc(name)}</a>
+<nav class="ck-foot-nav" aria-label="Footer">${links.map((l) => `<a href="${esc(l.href)}"${l.current ? ' aria-current="page"' : ''}${l.attrs ? ` ${l.attrs}` : ''}>${esc(l.label)}</a>`).join('')}${extraHtml}</nav></div>
+<div class="ck-foot-bar"><span>${esc(legal)} · ${esc(tagline)}</span>${pillHtml({ label: pill })}</div>${afterHtml ? `\n${afterHtml}` : ''}
 </footer>`;
 
 /** 3. Button: a link when it has an href, else a button. Filled or outlined; tall (48 px) or compact (34 px). */

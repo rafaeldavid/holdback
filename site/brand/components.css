@@ -73,24 +73,17 @@ a.ck-row-title:focus-visible { outline: 2px solid var(--ink); outline-offset: 2p
 /* part: footer */
 body:has(> .ck-foot) { min-height: 100vh; display: flex; flex-direction: column; }
 body > .ck-foot { margin-top: auto; }
-.ck-foot { box-sizing: border-box; width: 100%; max-width: var(--width); margin-left: auto; margin-right: auto; padding: var(--space-7) var(--gutter) var(--space-6);
+.ck-foot { box-sizing: border-box; width: 100%; max-width: var(--width); margin-left: auto; margin-right: auto; padding: var(--space-6) var(--gutter) var(--space-5);
   font: var(--size-small)/1.5 var(--font); color: var(--ink-2); text-align: left; }
-.ck-foot-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: var(--space-6); padding-top: var(--space-6); border-top: 1px solid var(--hair); }
-.ck-foot-brand p { margin: var(--space-2) 0 0; max-width: 260px; }
-.ck-foot-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-5); }
-.ck-foot-nav > div { display: flex; flex-direction: column; align-items: flex-start; }
-.ck-foot-nav h2 { margin: 0 0 var(--space-2); font-size: var(--size-note); font-weight: var(--weight-strong); color: var(--ink); }
-.ck-foot-nav > div > a { display: flex; align-items: center; min-height: 32px; color: var(--ink-2); text-decoration: none; }
-.ck-foot-nav > div > a:hover { color: var(--ink); }
-.ck-foot-nav > div > a[aria-current] { color: var(--ink); font-weight: var(--weight-strong); }
-.ck-foot-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3) var(--space-5); margin-top: var(--space-6); padding-top: var(--space-4); border-top: 1px solid var(--hair); font-size: var(--size-note); color: var(--ink-3); }
+.ck-foot-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3) var(--space-5); padding-top: var(--space-5); border-top: 1px solid var(--hair); }
+.ck-foot-row .ck-mark { width: 24px; height: 24px; }
+.ck-foot-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-5); }
+.ck-foot-nav > a { display: inline-flex; align-items: center; min-height: 32px; color: var(--ink-2); text-decoration: none; }
+.ck-foot-nav > a:hover { color: var(--ink); }
+.ck-foot-nav > a[aria-current] { color: var(--ink); font-weight: var(--weight-strong); }
+.ck-foot-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-4); margin-top: var(--space-3); font-size: var(--size-note); color: var(--ink-3); }
 .ck-foot a:focus-visible, .ck-foot button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-@media (max-width: 600px) {
-  .ck-foot { padding-top: var(--space-6); }
-  .ck-foot-top { grid-template-columns: 1fr; gap: var(--space-5); }
-  .ck-foot-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-5) var(--space-4); }
-  .ck-foot-nav > div > a { min-height: 44px; }
-}
+@media (max-width: 600px) { .ck-foot-nav { gap: 0 var(--space-5); } .ck-foot-nav > a { min-height: 44px; } }
 /* part: dialog */
 .ck-dialog { position: fixed; inset: 0; margin: auto; width: min(440px, calc(100% - 32px)); max-width: 100%; height: fit-content; max-height: calc(100vh - 48px); padding: 0;
   border: 1px solid var(--hair); border-radius: var(--radius-card); background: var(--page); color: var(--ink); box-shadow: var(--lift); font-family: var(--font); }

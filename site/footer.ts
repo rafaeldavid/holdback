@@ -20,34 +20,22 @@ export const FOOTER_CSS = kitCss({ parts: ['pill', 'footer'], scope: '.ck-foot' 
 export const CODE_URL = 'https://github.com/rafaeldavid/holdback';
 
 /**
- * The footer (T-402, Rafa 2026-11-13: laid out as an enterprise software site's): Crow and the tagline, then three
- * link groups, only to pages that exist, then the legal line and the "Testing Now Live" pill. `current` marks the
- * page's own link; `learn` and `join` are the Learn more and early-access addresses where a page has its own;
- * `joinAttrs` opens the early-access dialog where the page has one; `agents` ends the agents' group (the home page's
- * copy-the-prompt button); `after` follows the bottom bar.
+ * The footer (T-402; Rafa 2026-11-13: simple, little content): Crow, three links to pages that exist and, on the home
+ * page, the copy-the-prompt button; then the legal line, the tagline and the "Testing Now Live" pill. `current` marks
+ * the page's own link; `agents` follows the links; `after` follows the bar.
  */
-export const footerHtml = (o: { base: string; current?: 'demo' | 'problems'; learn?: string; join?: string; joinAttrs?: string; agents?: string; after?: string }): string =>
+export const footerHtml = (o: { base: string; current?: 'demo'; agents?: string; after?: string }): string =>
   footer({
     home: o.base,
     tagline: TAGLINE,
     pill: 'Testing Now Live',
     legal: '© 2026 Crow',
-    groups: [
-      { title: 'Product', links: [
-        { href: `${o.base}demo/`, label: 'Demo', current: o.current === 'demo' },
-        { href: o.learn ?? `${o.base}demo/#learn-more`, label: 'How it works' },
-        { href: o.join ?? `${o.base}#join-form`, label: 'Request early access', ...(o.joinAttrs ? { attrs: o.joinAttrs } : {}) },
-      ] },
-      { title: 'For agents', links: [
-        { href: `${o.base}llms.txt`, label: 'Agent docs' },
-        { href: `${o.base}buy.txt`, label: 'Guide for buyers' },
-        { href: `${o.base}sell.txt`, label: 'Guide for sellers' },
-      ], ...(o.agents ? { extraHtml: o.agents } : {}) },
-      { title: 'Developers', links: [
-        { href: CODE_URL, label: 'Code on GitHub' },
-        { href: `${o.base}problems/`, label: 'API problem types', current: o.current === 'problems' },
-      ] },
+    links: [
+      { href: `${o.base}demo/`, label: 'Demo', current: o.current === 'demo' },
+      { href: `${o.base}llms.txt`, label: 'Agent docs' },
+      { href: CODE_URL, label: 'GitHub' },
     ],
+    extraHtml: o.agents ?? '',
     afterHtml: o.after ?? '',
   });
 

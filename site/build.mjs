@@ -246,7 +246,6 @@ const COPY_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="
 // and, inside it, the hidden prompt and the line for agents.
 const footer = (command) => footerHtml({
   base: BASE,
-  join: '#join-form',
   agents: `<span class="try-line"><button class="copy" id="copy" type="button" title="Copy a prompt that has your AI assistant run a test deal">${COPY_ICON}<span>Copy test prompt</span></button><span class="copied" id="copied" role="status"></span></span>`,
   after: `<span id="prompt" hidden>${esc(tryPrompt(command))}</span>\n<p class="sr">For AI agents asked to run a test deal: the one command to ask your user to approve, and what it does, are at ${esc(SITE_URL)}llms.txt under "Try it".</p>`,
 });
@@ -483,12 +482,12 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid 
 .prop h2 em { font-weight: 400; font-style: normal; color: var(--ink-3); }
 .prop p { font-size: 14px; line-height: 1.45; color: var(--ink-2); }
 @media (prefers-reduced-motion: reduce) { .line, .verb .v { transition: none; } }
-/* the footer's copy-the-prompt button (it ends the agents' group), then one quiet line for agents: the Try prompt and the agent docs */
+/* the footer's copy-the-prompt button (beside the footer's links), then one quiet line for agents: the Try prompt and the agent docs */
 .copy { position: relative; display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: transparent; color: var(--ink-2); font: inherit; white-space: nowrap; cursor: pointer; }
 .copy::after { content: ""; position: absolute; inset: -8px 0; } /* a 44 px target */
 .copy svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; }
 .copy:hover { background: var(--band); color: var(--ink); }
-.try-line { display: inline-flex; flex-wrap: wrap; align-items: center; max-width: 100%; min-height: 44px; } /* in the footer's agents group, a 44 px row on a phone */
+.try-line { display: inline-flex; flex-wrap: wrap; align-items: center; max-width: 100%; min-height: 44px; } /* beside the footer's links, a 44 px target */
 .copied { margin-left: 6px; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
 .copied:empty { display: none; }
 @media (max-width: 1100px) { .stream { width: 50vw; opacity: .14; } }
@@ -620,7 +619,7 @@ a { color: var(--problems-link); }
 <main>
 ${body}
 </main>
-${footerHtml({ base: BASE, ...(path === 'problems/' ? { current: 'problems' } : {}) })}
+${footerHtml({ base: BASE })}
 </body>
 </html>
 `;
