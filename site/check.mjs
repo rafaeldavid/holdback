@@ -33,7 +33,8 @@
 //    (site/guides.mjs). With HOLDBACK_AGENT_ANTHROPIC_API_KEY set it counts with Anthropic's count_tokens for the
 //    pinned model; without it, bytes divided by four. It says which.
 import { existsSync, readFileSync } from 'node:fs';
-import { ASSETS, BASE, BUY_COMMANDS, HOME_CSS, HOME_JS, notFoundPage, BUY_MJS_URL, BUY_URL, buyBundle, buyInstall, buySha256, filled, page, pins, problemPages, publishedGuides, SELL_URL, SITE_URL, strip, TEST_SELLER_URL, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
+import { OG_IMAGE } from './footer.ts';
+import { ASSETS, BASE, BUY_COMMANDS, HOME_CSS, HOME_JS, notFoundPage, visualdemoPage, BUY_MJS_URL, BUY_URL, buyBundle, buyInstall, buySha256, filled, page, pins, problemPages, publishedGuides, SELL_URL, SITE_URL, strip, TEST_SELLER_URL, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
 import { apiRoutes, citedSections, duplicateSentences, hasSection, FIRST_DEAL_BUDGET, guideFiles, guideSource, measurePaths, namedCalls, namedReferences, referenceFiles, routeKnown } from './guides.mjs';
 
 const here = (p) => new URL(p, import.meta.url);
@@ -85,7 +86,7 @@ expect(mdLinks.some((u) => u.host === 'github.com' && u.pathname === '/rafaeldav
 // The home page (the enterprise look, Rafa 2026-11-12, as on the demo page): a slim header with Crow's mark and the
 // links to the demo, the agent docs and early access; the hero (the tagline, the headline's three lines, the lede,
 // early access, the demo link); the six value props, each with an icon; then the footer and the agent docs link.
-expect(!/\{\{/.test(html) && /<header class="bar"><div class="bar-inner">\s*<a class="brand" href="\/"><span class="logo" aria-hidden="true"><\/span>Crow<\/a>[\s\S]*?<a class="nav" href="\/llms\.txt">[^<]+<\/a>\s*<a class="quiet" href="\/demo\/">[^<]+<\/a>\s*<\/div><\/header>\s*<main class="page">\s*<section class="hero">\s*<div id="stream-b" class="stream" aria-hidden="true"><\/div>\s*<div id="stream-s" class="stream" aria-hidden="true"><\/div>\s*<p class="tag">[^<]+<\/p>\s*<h1>\s*<span class="sr">[^<]+<\/span>\s*<span class="line" aria-hidden="true"><span class="verb">(<span class="v[^"]*">[^<]+<\/span>){3}<\/span><\/span>\s*<\/h1>\s*<p class="lede">[^<]+<\/p>\s*<form class="signup" id="join-form"[\s\S]*?<\/form>\s*<a class="demo-link" href="\/demo\/">[^<]+<\/a>\s*<\/section>\s*<section class="props"[^>]*>(\s*<div class="prop"><svg class="icon"[\s\S]*?<\/svg><h2>[\s\S]*?<\/h2><p>[^<]+<\/p><\/div>){6}\s*<\/section>\s*<\/main>\s*<footer class="foot">\s*<div class="foot-row">\s*<p class="foot-status">[^<]+<\/p>\s*<nav class="foot-links"[^>]*>[\s\S]*?<a href="\/llms\.txt">[^<]+<\/a>[\s\S]*?<button class="copy" id="copy"[\s\S]*<\/footer>/.test(html), 'index.html must be the header with the mark, the agent docs link and the Watch Demo button, the hero with the code streams, the three headlines and early access, six value props each with an icon, and the footer with the agent docs link and the copy-the-prompt button');
+expect(!/\{\{/.test(html) && /<header class="bar"><div class="bar-inner">\s*<a class="brand" href="\/"><span class="logo" aria-hidden="true"><\/span>Crow<\/a>[\s\S]*?<a class="nav" href="\/llms\.txt">[^<]+<\/a>\s*<a class="quiet" href="\/demo\/">[^<]+<\/a>\s*<\/div><\/header>\s*<main class="page">\s*<section class="hero">\s*<div id="stream-b" class="stream" aria-hidden="true"><\/div>\s*<div id="stream-s" class="stream" aria-hidden="true"><\/div>\s*<p class="tag">[^<]+<\/p>\s*<h1>\s*<span class="sr">[^<]+<\/span>\s*<span class="line" aria-hidden="true"><span class="verb">(<span class="v[^"]*">[^<]+<\/span>){3}<\/span><\/span>\s*<\/h1>\s*<p class="lede">[^<]+<\/p>\s*<form class="signup" id="join-form"[\s\S]*?<\/form>\s*<a class="demo-link" href="\/demo\/">[^<]+<\/a>\s*<\/section>\s*<section class="props"[^>]*>(\s*<div class="prop"><svg class="icon"[\s\S]*?<\/svg><h2>[\s\S]*?<\/h2><p>[^<]+<\/p><\/div>){6}\s*<\/section>\s*<\/main>\s*<footer class="foot">\s*<div class="foot-row">\s*<p class="foot-status"><span>Crow · Verifiable settlement for AI commerce<\/span><span class="foot-pill">Testing Now Live<\/span><\/p>\s*<nav class="foot-links"[^>]*>[\s\S]*?<a href="\/llms\.txt">[^<]+<\/a>[\s\S]*?<button class="copy" id="copy"[\s\S]*<\/footer>/.test(html), 'index.html must be the header with the mark, the agent docs link and the Watch Demo button, the hero with the code streams, the three headlines and early access, six value props each with an icon, and the footer with the agent docs link and the copy-the-prompt button');
 expect(!/%%|CONFIRM/.test(html) && !/^%% /m.test(strip(md)), 'an editor note reached index.html');
 expect(!/127\.0\.0\.1|localhost/.test(md + html), 'a local address is in the site');
 for (const [p, text] of guides) if (!['llms.txt', 'sell.txt'].includes(p)) expect(!/127\.0\.0\.1|localhost/.test(text), `${p} has a local address`);
@@ -156,6 +157,17 @@ for (const r of ['/terms', '/recipients', '/events', '/judgment', '/key?recipien
 // 5. Problem pages.
 const { PROBLEMS, PROBLEM_BASE } = await import(here('../apps/operator/src/problems.ts'));
 const problems = await problemPages();
+// T-400: every page the build writes carries a title, a description and a link-preview card, and the site's one
+// footer (site/footer.ts); the share image is 1200 by 630 px; no page follows the system's dark mode (light only).
+const built = new Map([['index.html', html], ['404.html', read('404.html')], ['demo/index.html', read('demo/index.html')], ['visualdemo/index.html', visualdemoPage(read('visualdemo/index.html'))], ...problems]);
+for (const [path, h] of built) {
+  expect(/<title>[^<]+<\/title>/.test(h) && ['name="description"', 'property="og:title"', 'property="og:description"', 'property="og:url"', 'property="og:image"', 'name="twitter:card" content="summary_large_image"'].every((t) => h.includes(t)), `${path} lacks its title, description or link-preview card (site/footer.ts)`);
+  expect(h.includes('<footer class="foot">') && h.includes('Crow · Verifiable settlement for AI commerce') && h.includes('Testing Now Live'), `${path} lacks the site's footer (site/footer.ts)`);
+  expect(!/prefers-color-scheme/.test(h), `${path} follows the system's dark mode: the site is light only`);
+}
+expect(!/prefers-color-scheme/.test(HOME_CSS), 'home.css follows the system dark mode: the site is light only');
+const og = readFileSync(here(OG_IMAGE.path));
+expect(og.subarray(1, 4).toString() === 'PNG' && og.readUInt32BE(16) === OG_IMAGE.width && og.readUInt32BE(20) === OG_IMAGE.height, `site/${OG_IMAGE.path} must be a ${OG_IMAGE.width} by ${OG_IMAGE.height} px PNG`);
 expect(PROBLEM_BASE === `${SITE_URL}problems/`, `problem pages live at ${SITE_URL}problems/, the operator links ${PROBLEM_BASE}`);
 expect(problems.has('problems/index.html'), 'no problems/index.html');
 for (const [type, p] of Object.entries(PROBLEMS)) {

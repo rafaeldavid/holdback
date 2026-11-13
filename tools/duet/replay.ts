@@ -1,11 +1,12 @@
 // The replay page (T-391): one self-contained HTML file, generated from the run's record and nothing else, that a
 // partner can read with no other page or person. It is written as a seasoned buyer would explain a purchase to a peer:
 // what was bought and for how much, the agreed checks, what happened step by step, how it ended, who paid and received
-// what, how long it took, and what a person had to do. Protocol names appear only in the "For engineers" section and
-// behind "Exact call" disclosures. Every string from the record is escaped: an agent's words, or anything it quoted,
-// is shown as text, never as markup. The only network use is a link the reader clicks. A small inline script steps
-// through the run; without it, every step shows.
+// what, how long it took, and what a person had to do. Protocol names appear only behind "Exact call" disclosures;
+// the "For engineers" card links to the run tool's README for the rest. Every string from the record is escaped: an
+// agent's words, or anything it quoted, is shown as text, never as markup. The only network use is a link the reader
+// clicks. A small inline script steps through the run; without it, every step shows.
 import { DRAWER_CSS, drawerScript, JOIN_URL } from '../../site/drawer.ts';
+import { CARDS, cardTags, FOOTER_CSS, footerHtml } from '../../site/footer.ts';
 import { readFileSync } from 'node:fs';
 import type { Summary } from './measures.ts';
 import type { Event } from './record.ts';
@@ -32,14 +33,15 @@ export interface Step {
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n).trimEnd()} …` : s);
 /**
- * Base units of the 6-decimal test token, a test dollar, as test dollars with two decimals. Said as dollars, never as
- * "tokens", so no reader takes the money for AI model tokens (Rafa, 2026-11-13).
+ * Base units of the 6-decimal test token, a test dollar, as test dollars: two decimals, or none when there are no
+ * cents ("700 test dollars", "700.50 test dollars", "1 test dollar"), worked on the integer, never a float. Said as
+ * dollars, never as "tokens", so no reader takes the money for AI model tokens (Rafa, 2026-11-13).
  */
 const money = (amount: unknown) => {
   const a = typeof amount === 'string' && /^\d+$/.test(amount) ? BigInt(amount) : typeof amount === 'bigint' ? amount : null;
   if (a === null) return '';
   const whole = a / 1_000_000n, cents = (a % 1_000_000n) / 10_000n;
-  return `${whole.toLocaleString('en-US')}.${cents.toString().padStart(2, '0')} test dollars`;
+  return `${whole.toLocaleString('en-US')}${cents === 0n ? '' : `.${cents.toString().padStart(2, '0')}`} ${whole === 1n && cents === 0n ? 'test dollar' : 'test dollars'}`;
 };
 const base = (m: J): bigint | null => (typeof m?.amount === 'string' && /^\d+$/.test(m.amount) ? BigInt(m.amount) : null);
 const pathOf = (u: string) => { try { return new URL(u).pathname; } catch { return u; } };
@@ -264,6 +266,8 @@ const FAVICON = `data:image/svg+xml,${encodeURIComponent(markSvg('#1d1d1f').repl
 export const EARLY_ACCESS = 'https://crow.direct/#join-form';
 /** The sign-up service the drawer posts to: the home page's own (site/drawer.ts). */
 export const JOIN = JOIN_URL;
+/** Where the engineers' card goes: the run tool's README, which holds what the old "For engineers" section said. */
+export const ENGINEERS = 'https://github.com/rafaeldavid/holdback/blob/main/tools/duet/README.md#the-demo-page-for-engineers';
 
 export interface PageExtras {
   /** Measures over their limits, and the ticket written for them. */
@@ -294,6 +298,7 @@ function page(events: readonly Event[], s: Summary, extras: PageExtras): string 
   const EARLY = extras.publish ? '/#join-form' : EARLY_ACCESS;
   // The mark links home, as on the home page: the site's root when published, crow.direct in a standalone replay.
   const HOME = extras.publish ? '/' : 'https://crow.direct/';
+  const FOOT = footerHtml({ base: HOME });
   const AFTER = s.notStarted ? `<p class="after">This run did not start: the ${esc(AGENT_NAME[s.notStarted.role === 'seller' ? 'seller' : 'buyer'])}'s AI provider refused its first request, so nothing was ordered or paid.</p>` : '';
   const start = events.find((e) => e.kind === 'run.start') as J;
   const world = events.find((e) => e.kind === 'world') as J;
@@ -378,7 +383,8 @@ function page(events: readonly Event[], s: Summary, extras: PageExtras): string 
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(PITCH.title)} · ${esc(PITCH.descriptor)}</title>
+<title>${esc(CARDS.demo.title)}</title>
+${cardTags({ site: 'https://crow.direct/', ...CARDS.demo })}
 <link rel="icon" href="${FAVICON}">
 <style>
 /* One neutral family and one accent. The accent (ink) is kept for the primary action; the conversation is neutral;
@@ -415,7 +421,7 @@ main{max-width:1040px;margin:0 auto;padding:56px 20px 72px}
 .demo-frame{height:min(64vh,600px);overflow-y:auto;padding:20px 16px 28px;scroll-behavior:smooth}
 .after{text-align:center;font-size:15px;color:var(--ink2);margin:20px 0 0}
 #demo-view[hidden]{display:none}
-${DRAWER_CSS}@media (min-width:980px){#demo-view{max-width:1200px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:56px;align-items:center;min-height:calc(100vh - 56px);padding-top:24px;padding-bottom:24px}#demo-view .hero{text-align:left;margin:0}#demo-view .headline{font-size:52px}#demo-view .intro{margin-left:0;font-size:19px}#demo-view .cta{justify-content:flex-start}#demo-view .after{text-align:left}#demo-view .demo{margin:0;max-width:none}#demo-view .demo-frame{height:clamp(300px,calc(100vh - 176px),640px)}}
+${FOOTER_CSS}${DRAWER_CSS}@media (min-width:980px){#demo-view{max-width:1040px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:56px;align-items:center;padding-top:24px;padding-bottom:24px}#demo-view .hero{text-align:left;margin:0}#demo-view .headline{font-size:52px;text-wrap:balance}#demo-view .demo-heads span{display:none}#demo-view .intro{margin-left:0;font-size:19px}#demo-view .cta{justify-content:flex-start}#demo-view .after{text-align:left}#demo-view .demo{margin:0;max-width:none}#demo-view .demo-frame{height:clamp(300px,calc(100vh - 176px),640px)}}
 .avatar{width:22px;height:22px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
 .avatar.seller{background:var(--ink);color:var(--page);border-color:var(--ink)}
 ol.run{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
@@ -502,14 +508,10 @@ pre{font-family:var(--mono);font-size:11px;white-space:pre-wrap;overflow-wrap:an
 .resource:hover{border-color:var(--ink2)}
 .resource-title{font-weight:600}.resource-note{font-size:14px;color:var(--ink2)}
 .small{font-size:13px;color:var(--ink3);margin:12px 0 0}
-details.engineers{margin-top:40px}
-details.engineers>summary{list-style:none;cursor:pointer;font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink2)}
-details.engineers>summary::-webkit-details-marker{display:none}
-.engineers-body{margin-top:12px;font-size:13px;color:var(--ink2);max-width:760px}.engineers-body p{margin:0 0 8px}.engineers-body code{font-family:var(--mono);font-size:12px}
-.closing{margin-top:72px;background:var(--band);border-radius:var(--r-card);padding:48px 24px;text-align:center}
+.closing{margin-top:72px;background:var(--band);border-radius:var(--r-card);padding:56px 24px 52px;text-align:center}
+.closing .closing-mark{display:block;width:56px;height:56px;margin:0 auto 18px;color:var(--ink)}
 .closing h3{font-family:var(--display);font-size:32px;line-height:1.15;font-weight:700;letter-spacing:-.02em;margin:0}
 .closing p{color:var(--ink2);margin:10px 0 22px}
-footer{font-size:12px;color:var(--ink3);margin:40px 0 0;max-width:720px}
 @media (max-width:820px){.steps{grid-template-columns:repeat(2,1fr)}.facts{grid-template-columns:repeat(2,1fr)}.fact:nth-child(3){border-left:0;padding-left:0}.resources{grid-template-columns:1fr 1fr}dl.specs{grid-template-columns:1fr}}
 @media (max-width:600px){.headline{font-size:40px}.intro,.page-intro{font-size:18px}.page-title{font-size:36px}.demo-heads,.navlink{display:none}.step{max-width:88%}.steps,.features,.resources{grid-template-columns:1fr}.beat{grid-template-columns:1fr;gap:6px}.spec{grid-template-columns:1fr;gap:2px}main{padding-top:36px}}
 @media (prefers-reduced-motion:reduce){.demo-frame{scroll-behavior:auto}.step.reveal{animation:none}.typing .bubble i{animation:none}}
@@ -588,6 +590,7 @@ ${spec(AGENT_NAME.seller, `Acting for the seller. ${model('seller')}.`)}
 ${held !== null ? spec('Buyer paid', `${money(held)}${fee !== null ? `: the price plus ${money(fee)} for the independent reviewer` : ''}`) : spec('Buyer paid', 'Nothing.')}
 ${spec('Seller received', paidSeller ? (price !== null ? money(price) : 'The price') : 'Nothing')}
 ${spec('Where it ran', where.charAt(0).toUpperCase() + where.slice(1))}
+${spec('Test money', `Test dollars: the test token ${String(world?.token ?? 'tUSD')}, with six decimals. A payment record names it that way. It is worth nothing.`)}
 ${spec('Time taken', end ? secs(Number(end.t)) : '')}
 </dl>
 </section>
@@ -620,29 +623,24 @@ ${resource('https://crow.direct/llms.txt', 'The front page for agents', 'Where a
 ${resource('https://crow.direct/buy.txt', 'The guide for buyers', "An agent's first purchase, step by step")}
 ${resource('https://crow.direct/sell.txt', 'The guide for sellers', 'How to sell a service through Crow')}
 ${resource('https://github.com/rafaeldavid/holdback', 'The public code', 'Open source, on GitHub')}
+${resource(ENGINEERS, 'For engineers', 'How this demo is made and rerun, and the terms behind its plain words')}
 ${liveOrder ? resource(liveOrder, "This order's public record", 'As the live service shows it') : ''}
 ${txLinks.map((e) => resource(e.link, 'A payment record on the test network', String(steps([e]).at(0)?.title ?? ''))).join('\n')}
 </div>
 ${local ? '<p class="small">This run used a local test setup, so it has no public payment records to link.</p>' : ''}
+<p class="small">This run: ${esc(s.engine)}; code <code>${esc(String(start?.checkout?.commit ?? 'unknown').slice(0, 12))}</code>${start?.checkout?.dirty ? ' with local changes' : ''}, order <code>${esc(id ?? 'none')}</code>, made from its own record.</p>
 
-<details class="engineers" id="engineers"><summary>For engineers</summary><div class="engineers-body">
-<p>Engine: ${esc(s.engine)}. Order (commitment) ID: <code>${esc(id ?? 'none')}</code>. Final state: <code>${esc(s.outcome.state)}</code>.</p>
-<p>Money: the amounts above, in test dollars, are the test token <code>${esc(String(world?.token ?? 'tUSD'))}</code> (six decimals) on this test setup; a payment record names them that way. It is test money: nothing here is worth anything.</p>
-<p>Agents: buyer <code>${esc(s.models.buyer.model)}</code> (${esc(s.models.buyer.vendor)}), seller <code>${esc(s.models.seller.model)}</code> (${esc(s.models.seller.vendor)}). Each is a tool-use loop over its vendor's API with fenced tools: GET to an allowlist, a fixed list of the repository's client commands (buy-with-signer, seller-adapter, check-delivery, seal, deal-record), and files in its own folder. Keys stay in files and environments the agents cannot read.</p>
-<p>Plain words used above: the held payment is the escrow hold; the independent reviewer is the adjudicator; the agreed checks are the terms' deterministic checks; signed means an EIP-712 signature; the report unlocking is the content key's release with the payment; a payment record is a settlement transaction. "No admin keys": the phase-one settlement contracts have no owner, pause, freeze, blacklist or upgrade proxy (CLAUDE.md, hard rules). The seller's tool is examples/seller-adapter.ts and the buyer's is examples/buy-with-signer.ts; the standing approval rule answers the signer's approval stop.</p>
-<p>Docs served to the agents: ${esc((world?.docsChanges ?? []).join(' ') || 'as published')}${world?.siteAlias ? ` ${esc(String(world.siteAlias))}` : ''} Brief: ${esc(s.brief)}.</p>
-<p>Code: <code>${esc(String(start?.checkout?.commit ?? 'unknown').slice(0, 12))}</code>${start?.checkout?.dirty ? ' with local changes' : ''}. The page comes from record.jsonl beside it; summary.json holds the measures${extras.ticket ? ', and ticket.md the items over the limits' : ''}.</p>
-</div></details>
 </section>
 
 <section class="closing">
+${markSvg('currentColor', 'closing-mark')}
 <h3>${esc(HERO.headline)}</h3>
 <p>${esc(HERO.closing)}</p>
 <a class="button" href="${esc(EARLY)}" data-join rel="noopener">Request early access</a>
 </section>
 
-<footer>Made from this run's own record and nothing else. The agents' words appear as they wrote them; anything they quoted is shown as plain text. No key appears here: the agents never held one, and the record replaces any it meets with [secret].</footer>
 </main>
+${FOOT}
 <script>
 ${drawerScript()}(function(){
   // Two views in one file: the demo, and Learn more at #learn-more. Without a script both show, one after the other.
@@ -661,7 +659,7 @@ ${drawerScript()}(function(){
   toggle.hidden=false;restart.hidden=false;
   function stick(){frame.scrollTop=frame.scrollHeight}
   // The window ends at the bottom of the screen as the page opens, so every new message lands in view with no scrolling.
-  function fit(){var top=frame.getBoundingClientRect().top+window.scrollY;frame.style.height=Math.max(320,Math.min(720,window.innerHeight-top-20))+'px'}
+  function fit(){var top=frame.getBoundingClientRect().top+window.scrollY,foot=document.querySelector('body > .foot'),below=(foot?foot.offsetHeight:0)+24;frame.style.height=Math.max(320,Math.min(720,window.innerHeight-top-below))+'px'}
   fit();window.addEventListener('resize',fit);
   function wait(el){if(el.classList.contains('say'))return Math.min(3400,1000+el.textContent.length*20);if(el.classList.contains('crow'))return 1500;return 800}
   function setIcon(){icon.setAttribute('d',playing?PAUSE:PLAY);toggle.setAttribute('aria-label',playing?'Pause':at>=items.length?'Play again':'Play')}

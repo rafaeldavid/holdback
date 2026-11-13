@@ -1,0 +1,36 @@
+<!doctype html>
+<!--
+  The source of site/og.png, the site's share image (T-400): 1200 by 630 px, in the home page's look, from the repository's
+  own mark (crow-mark.svg) and home.css's colours, with the system font (no font fetched). Not published. To redraw it:
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --hide-scrollbars --force-device-scale-factor=1 \
+    --window-size=1200,630 --screenshot=site/og.png "file://$PWD/site/og.html"
+  Keep OG_IMAGE.alt in site/footer.ts true to what this shows.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Crow share image</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1200px; height: 630px; overflow: hidden; background: #ffffff; color: #1d1d1f;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+.card { position: relative; width: 1200px; height: 630px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.brand { display: flex; align-items: center; gap: 22px; }
+.mark { width: 104px; height: 104px; display: block; }
+.name { font-size: 96px; font-weight: 700; letter-spacing: -.035em; line-height: 1; }
+.tag { margin-top: 34px; font-size: 40px; font-weight: 600; letter-spacing: -.015em; color: #1d1d1f; }
+.line { margin-top: 14px; font-size: 30px; color: #6e6e73; letter-spacing: -.005em; }
+.site { position: absolute; bottom: 44px; left: 0; right: 0; font-size: 22px; color: #86868b; letter-spacing: .02em; }
+.rule { position: absolute; bottom: 92px; left: 50%; width: 64px; height: 1px; margin-left: -32px; background: #d2d2d7; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand"><img class="mark" src="crow-mark.svg" alt=""><span class="name">Crow</span></div>
+  <p class="tag">Verifiable settlement for AI commerce</p>
+  <p class="line">Buy from any agent. Sell to any agent.</p>
+  <span class="rule"></span>
+  <p class="site">crow.direct</p>
+</div>
+</body>
+</html>

@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rolldown } from 'rolldown';
 import { JOIN_URL } from './drawer.ts';
+import { CARDS, cardTags, FOOTER_CSS, footerHtml } from './footer.ts';
 import { guideFiles, guideSource } from './guides.mjs';
 
 export const SITE_URL = 'https://crow.direct/';
@@ -213,8 +214,8 @@ const FEATURES = [
   ['Made for Machines', 'One API. Every response reports its token cost, so agents can budget.', 'code'],
   ['High Speed, Low Cost', 'Settles when checks pass. No invoices, no marketplace cut.', 'bolt'],
   ['Frontier AI Verification', 'Have AI review the work before payment, when you need it.', 'check'],
-  ['Your Existing Rails', 'Fund by card or your current payment provider.', 'card', 'soon'],
-  ['Private Delivery', 'The work is encrypted before it leaves the seller. Only the buyer and the reviewer can open it.', 'eye'],
+  ['Your Existing Rails', 'Fund by card or through your current payment\u00a0provider.', 'card', 'soon'],
+  ['Private Delivery', 'The seller encrypts the work. Only the buyer and the reviewer can open it.', 'eye'],
 ];
 /** The headline's three lines, shown in turn (Rafa, 2026-11-12). */
 const HEADLINES = ['Sell to any agent.', 'Buy from any agent.', 'Go direct.'];
@@ -242,16 +243,13 @@ export const tryPrompt = (command = tryCommand()) =>
     `It needs Node 20 or later and npm. The full explanation is at ${SITE_URL}llms.txt.`,
   ].join('\n');
 const COPY_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg>';
-// The footer (Rafa, 2026-11-12): one quiet row, as enterprise software keeps it while the site has few pages. The
-// status on the left; on the right the demo, the agent docs and the copy-the-prompt button for an AI assistant.
-const footer = (command) => `<footer class="foot">
-<div class="foot-row">
-<p class="foot-status">Crow · Early access on a test network</p>
-<nav class="foot-links" aria-label="Footer"><a href="${BASE}demo/">Demo</a><a href="${BASE}llms.txt">Agent docs</a><span class="try-line"><button class="copy" id="copy" type="button" title="Copy a prompt that has your AI assistant run a test deal">${COPY_ICON}<span>Copy test prompt</span></button><span class="copied" id="copied" role="status"></span></span></nav>
-</div>
-<span id="prompt" hidden>${esc(tryPrompt(command))}</span>
-<p class="sr">For AI agents asked to run a test deal: the one command to ask your user to approve, and what it does, are at ${esc(SITE_URL)}llms.txt under "Try it".</p>
-</footer>`;
+// The footer: the site's one footer (site/footer.ts), with the home page's copy-the-prompt button beside its links
+// and, inside it, the hidden prompt and the line for agents.
+const footer = (command) => footerHtml({
+  base: BASE,
+  links: `<span class="try-line"><button class="copy" id="copy" type="button" title="Copy a prompt that has your AI assistant run a test deal">${COPY_ICON}<span>Copy test prompt</span></button><span class="copied" id="copied" role="status"></span></span>`,
+  after: `<span id="prompt" hidden>${esc(tryPrompt(command))}</span>\n<p class="sr">For AI agents asked to run a test deal: the one command to ask your user to approve, and what it does, are at ${esc(SITE_URL)}llms.txt under "Try it".</p>`,
+});
 // The value props: all six at a glance, a small icon, a name and one line each, quieter than the hero above them.
 const PROPS = `<section class="props" id="props" aria-label="What Crow does">
 ${FEATURES.map(([h, p, icon, note]) => `<div class="prop"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${ICONS[icon]}</svg><h2>${esc(h)}${note ? ` <em>· ${esc(note)}</em>` : ''}</h2><p>${esc(p)}</p></div>`).join('\n')}
@@ -499,11 +497,6 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid 
 .prop p { font-size: 14px; line-height: 1.45; color: var(--ink-2); }
 @media (prefers-reduced-motion: reduce) { .line, .verb .v { transition: none; } }
 /* the footer, read last, then one quiet line for agents: the Try prompt and the agent docs */
-.foot { max-width: 1040px; margin: 24px auto 0; padding: 20px 20px 40px; border-top: 1px solid var(--hair); font-size: 13px; line-height: 1.5; color: var(--ink-3); }
-.foot-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 24px; }
-.foot-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 22px; }
-.foot a { color: var(--ink-2); text-decoration: none; }
-.foot a:hover { color: var(--ink); }
 .copy { position: relative; display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--ink-2); font: inherit; cursor: pointer; }
 .copy::after { content: ""; position: absolute; inset: -8px 0; } /* a 44 px target */
 .copy svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; }
@@ -522,10 +515,10 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid 
 .nf-links a:hover { text-decoration: underline; }
 .nf-links span { font-size: 15px; color: var(--ink-2); }
 /* a short desktop screen (720 px tall) shows the whole page, hero to footer, with no scroll */
-@media (min-width: 821px) and (max-height: 820px) { .hero { padding: 44px 0 36px; } .props { padding-top: 26px; gap: 20px 40px; } .foot { margin-top: 10px; padding: 14px 20px 18px; } }
+@media (min-width: 821px) and (max-height: 820px) { .hero { padding: 44px 0 36px; } .props { padding-top: 26px; gap: 20px 40px; } .foot { padding: 14px 20px 18px; } }
 @media (max-width: 820px) { .props { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 600px) { h1 { font-size: min(44px, 9.6vw); } .stream { display: none; } .lede { font-size: 19px; } .hero { padding: 64px 0 48px; } .nav { display: none; } .props { grid-template-columns: 1fr; } }
-`;
+` + FOOTER_CSS;
 
 /**
  * 404.html: what the site answers for an address it does not have (Cloudflare serves it with status 404). A visitor
@@ -541,7 +534,8 @@ export function notFoundPage() {
 <link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="${BASE}llms.txt">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Page not found · Crow</title>
+<title>${esc(CARDS.notFound.title)}</title>
+${cardTags({ site: SITE_URL, ...CARDS.notFound })}
 <link rel="icon" type="image/svg+xml" href="${BASE}crow-mark.svg">
 <link rel="stylesheet" href="${BASE}home.css">
 </head>
@@ -564,6 +558,7 @@ export function notFoundPage() {
 <li><a href="${BASE}demo/">Demo</a><span>Two agents close a deal</span></li>
 </ul>
 </main>
+${footerHtml({ base: BASE })}
 </body>
 </html>
 `;
@@ -589,27 +584,13 @@ export function page(md, command = tryCommand()) {
 <meta charset="utf-8">
 <link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="${BASE}llms.txt">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(title)}</title>
+<title>${esc(CARDS.home.title)}</title>
 <link rel="icon" type="image/svg+xml" href="${BASE}crow-mark.svg">
 <link rel="icon" type="image/png" href="${BASE}favicon.png">
 <link rel="apple-touch-icon" href="${BASE}favicon.png">
-<meta name="description" content="${esc(DESCRIPTION)}">
 <link rel="canonical" href="${SITE_URL}">
 <meta name="theme-color" content="#ffffff">
-<meta property="og:type" content="website">
-<meta property="og:site_name" content="${esc(title)}">
-<meta property="og:title" content="${esc(title)} · ${esc(subtitle)}">
-<meta property="og:description" content="${esc(DESCRIPTION)}">
-<meta property="og:url" content="${SITE_URL}">
-<meta property="og:image" content="${SITE_URL}og.png">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="A pencil study of a hooded crow by Archibald Thorburn, 1919">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="${esc(title)} · ${esc(subtitle)}">
-<meta name="twitter:description" content="${esc(DESCRIPTION)}">
-<meta name="twitter:image" content="${SITE_URL}og.png">
-<meta name="twitter:image:alt" content="A pencil study of a hooded crow by Archibald Thorburn, 1919">
+${cardTags({ site: SITE_URL, ...CARDS.home })}
 <link rel="stylesheet" href="${BASE}home.css">
 </head>
 <body>
@@ -648,12 +629,13 @@ ${footer(command)}
  */
 export async function problemPages() {
   const { PROBLEMS, PROBLEM_BASE } = await import(here('../apps/operator/src/problems.ts'));
-  const shell = (title, body) => `<!doctype html>
+  const shell = (title, body, path) => `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>
+${cardTags({ site: SITE_URL, path, title, description: CARDS.problems.description })}
 <link rel="icon" type="image/png" href="${BASE}favicon.png">
 <link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="${BASE}llms.txt">
 <style>
@@ -663,12 +645,13 @@ main { max-width: 680px; margin: 0 auto; padding: 8vh 24px 64px; }
 code { font: 15px ui-monospace, "SF Mono", Menlo, monospace; }
 a { color: var(--sepia); }
 .status { color: var(--pencil); }
-</style>
+${FOOTER_CSS}</style>
 </head>
 <body>
 <main>
 ${body}
 </main>
+${footerHtml({ base: BASE })}
 </body>
 </html>
 `;
@@ -680,25 +663,27 @@ ${body}
       shell(
         `${type}: ${p.title}`,
         [
-          `<p class="status">’crow API problem type · HTTP ${p.status}</p>`,
+          `<p class="status">Crow API problem type · HTTP ${p.status}</p>`,
           `<h1><code>${esc(type)}</code></h1>`,
           `<p><strong>${inline(p.title)}.</strong></p>`,
           `<p>What to do: ${inline(p.next)}</p>`,
           `<p>Every problem is RFC 9457 <code>application/problem+json</code>: <code>type</code>, <code>title</code>, <code>status</code>, <code>detail</code>, <code>instance</code> (<code>urn:holdback:request:&lt;Request-Id&gt;</code>), and typed members where an agent branches: <code>state</code> and <code>needs</code> (invalid_state), <code>field</code> (invalid_terms), <code>fee</code> (payment_required), <code>retryAfterSec</code> (rate_limited). Branch on those, never on <code>detail</code>. The <code>Link: &lt;${esc(PROBLEM_BASE)}${esc(type)}&gt;; rel="type"</code> header points here.</p>`,
           `<p><a href="${BASE}problems/">All problem types</a> · <a href="${BASE}llms.txt">The agent guide</a></p>`,
         ].join('\n'),
+        `problems/${type}`,
       ),
     );
   }
   pages.set(
     'problems/index.html',
     shell(
-      '’crow API problem types',
+      CARDS.problems.title,
       [
         '<h1>Problem types</h1>',
         `<p>Each <code>type</code> an operator answers, with its HTTP status. See <a href="${BASE}llms.txt">the agent guide</a>, Conventions.</p>`,
         `<ul>${entries.map(([type, p]) => `<li><a href="${BASE}problems/${type}"><code>${esc(type)}</code></a> (${p.status}): ${inline(p.title)}</li>`).join('')}</ul>`,
       ].join('\n'),
+      'problems/',
     ),
   );
   return pages;
@@ -716,6 +701,20 @@ export function guidePage(txt, name = 'sell.txt', install = () => buyInstall()) 
 }
 /** The seller's page as published (the two-agent run's local docs server calls this). */
 export const sellerPage = (txt) => guidePage(txt, 'sell.txt');
+
+/**
+ * The visual walkthrough (site/visualdemo/index.html, a standalone page kept as it was made) as a publish build writes
+ * it: its title in words, the site's card, and the site's footer, all from site/footer.ts.
+ */
+export function visualdemoPage(html) {
+  const out = html
+    .replace(/<title>[^<]*<\/title>/, `<title>${esc(CARDS.visualdemo.title)}</title>`)
+    .replace(/<meta name="description"[^>]*>/, cardTags({ site: SITE_URL, ...CARDS.visualdemo }))
+    .replace('</head>', `<style>${FOOTER_CSS}</style>\n</head>`)
+    .replace('</body>', `${footerHtml({ base: BASE })}\n</body>`);
+  if (!out.includes('og:image') || !out.includes('class="foot"')) throw new Error('site/visualdemo/index.html changed shape: its title, description, head or body was not found');
+  return out;
+}
 
 /**
  * Every agent guide as a publish build writes it, by published path: llms.txt filled with the two operators and
@@ -789,7 +788,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     for (const f of ASSETS) writeFileSync(join(out, f), readFileSync(here(f)));
     // The visual walkthrough of a real two-agent deal, served at /visualdemo.
     mkdirSync(join(out, 'visualdemo'), { recursive: true });
-    writeFileSync(join(out, 'visualdemo', 'index.html'), readFileSync(here('visualdemo/index.html')));
+    writeFileSync(join(out, 'visualdemo', 'index.html'), visualdemoPage(readFileSync(here('visualdemo/index.html'), 'utf8')));
     // The two-agent demo (T-391), served at /demo: one run's replay, written by \`pnpm duet publish <run folder>\`.
     mkdirSync(join(out, 'demo'), { recursive: true });
     writeFileSync(join(out, 'demo', 'index.html'), readFileSync(here('demo/index.html')));
