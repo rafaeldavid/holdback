@@ -1,9 +1,13 @@
 /* Crow's tokens (site/brand/README.md): the only place a colour or a font stack is written. Light only (Rafa,
-   2026-11-13). The values are the live home page's, named by role; site/check.mjs fails the build when a page writes
+   2026-11-13). Named by role; site/check.mjs fails the build when a page writes
    its own. */
 :root { color-scheme: light;
-  --page: #ffffff; --band: #f5f5f7; --ink: #1d1d1f; --ink-2: #6e6e73; --ink-3: #86868b; --line: #d2d2d7; --hair: rgba(0, 0, 0, .08);
-  --paid: #1f7a35; --paid-wash: #eaf5ec; --warn: #c4161c; --warn-wash: color-mix(in srgb, var(--warn) 8%, var(--page));
+  /* the Hasenheide palette (Rafa, 2026-11-13): oat paper, crow black and grey, Berlin pavement for the rules */
+  --page: #f3eee3; --band: #faf7f0; --ink: #2a2a2c; --ink-2: #5d5d60; --ink-3: #85837e; --line: #d6d0c4; --hair: #e6e0d5;
+  --paid: #1d6b45; --paid-wash: #e2eee4; --warn: #b0233c; --warn-wash: #f7e1e4;
+  /* one seasonal accent at a time, by the date in Berlin (Mar 1, Jun 1, Sep 1, Dec 1); a small pill, a thin rule, a
+     labelled chart series or the season's drawing only; never body text, a large area or a state */
+  --accent-spring: #6f7a14; --accent-summer: #8f6c14; --accent-autumn: #a55a17; --accent-winter: #24466e;
   --scrim: rgba(0, 0, 0, .28); --lift: 0 24px 64px rgba(0, 0, 0, .18); --lift-sheet: 0 -12px 40px rgba(0, 0, 0, .12);
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
   --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
