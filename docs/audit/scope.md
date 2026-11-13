@@ -2,7 +2,7 @@
 
 ## Summary
 
-Crow (protocol name Holdback) is escrow and verification for AI agents. It runs on Ethereum Sepolia (chain ID 11155111) with test tokens only. An audit covers the Solidity files in `contracts/src/` at the frozen commit `<FREEZE_COMMIT>`, and how they drive Coinbase's Commerce Payments Protocol (CPP) escrow. Off-chain code holds no funds, but the components listed below shape the trust model.
+Crow (protocol name Holdback) is escrow and verification for AI agents. It runs on Ethereum Sepolia (chain ID 11155111) with test tokens only. An audit covers the Solidity files in `contracts/src/` at the frozen commit, tagged `contracts-phase-one-1` and named by the `commit` field of [`contracts/deployments/sepolia.json`](../../contracts/deployments/sepolia.json), and how they drive Coinbase's Commerce Payments Protocol (CPP) escrow. Off-chain code holds no funds, but the components listed below shape the trust model.
 
 Labels on this page:
 - **measured:** read from the named file in this checkout, or produced by the named command;
@@ -10,7 +10,7 @@ Labels on this page:
 - **inferred:** concluded from reading, not checked by a run;
 - **guessed:** a judgement not checked.
 
-Run for this page on 2026-11-12, on the lane `contracts-audit-ready` at `ba941e0`, and the file list again at `c629d06` after T-384: `git ls-tree --name-only HEAD contracts/src/` and `forge test --match-path 'test/unit/*'` (every unit test passed) [measured]. Not run: `deploy-sepolia.sh --check`, which needs the redeployed contracts. The freeze pass names each command again with the frozen commit.
+Run for this page on 2026-11-12, on the lane `contracts-audit-ready` at `ba941e0`, and the file list again at `c629d06` after T-384: `git ls-tree --name-only HEAD contracts/src/` and `forge test --match-path 'test/unit/*'` (every unit test passed) [measured]. The deployment is confirmed by `deploy-sepolia.sh --check` (below), which reads the record and the chain; it passed at the cutover of 2026-11-13, from the cutover branch and from `main` [measured; the dated record is in [`operations.md`](../operations.md), the phase-one cutover]. So this page names no deployed address: each is a field of the record.
 
 ## The phase-one scope
 
@@ -50,30 +50,31 @@ Unchanged: no owner, pause, freeze, blacklist or upgrade proxy, and no real mone
 
 ## In scope
 
-The files of `contracts/src/` at the lane's tip [measured: `git ls-tree --name-only HEAD contracts/src/`]. Addresses are filled at the redeploy, from `contracts/deployments/sepolia.json`.
+The files of `contracts/src/` at the frozen commit [measured: `git ls-tree --name-only HEAD contracts/src/`]. Each deployed contract's address is its field in `contracts/deployments/sepolia.json`.
 
-| Contract | Purpose | Sepolia address |
+| Contract | Purpose | Field in `sepolia.json` |
 | --- | --- | --- |
-| [`HoldbackRules.sol`](../../contracts/src/HoldbackRules.sol) | The rules contract. It is the operator of CPP's `AuthCaptureEscrow`. It moves a buyer's held funds only on an adjudicator's signed decision, the buyer's signed early accept, a settlement both parties signed, or a timeout anyone may trigger. Its state-changing entry points: `agreeAndFund`, `deliver`, `decide`, `earlyAccept`, `mutualSettle`, `reclaim`, `triggerFallback`, `triggerDefault` | `<filled at the redeploy>` |
+| [`HoldbackRules.sol`](../../contracts/src/HoldbackRules.sol) | The rules contract. It is the operator of CPP's `AuthCaptureEscrow`. It moves a buyer's held funds only on an adjudicator's signed decision, the buyer's signed early accept, a settlement both parties signed, or a timeout anyone may trigger. Its state-changing entry points: `agreeAndFund`, `deliver`, `decide`, `earlyAccept`, `mutualSettle`, `reclaim`, `triggerFallback`, `triggerDefault` | `rules` |
 | [`HoldbackTypes.sol`](../../contracts/src/HoldbackTypes.sol) | A library: the settlement view and the EIP-712 struct hashes that `packages/core` signs. `Money` keeps only the basis-point scale: phase one has no rate arithmetic on chain | none; compiled into the rules contract [inferred] |
 | [`IHoldbackRules.sol`](../../contracts/src/IHoldbackRules.sol) | The rules contract's interface, and the place for its descriptions: it declares the enums `Stage`, `Reason` and `Decider`, the struct `Deal`, and every event, error, external function and getter of `HoldbackRules`, and holds no logic. `HoldbackRules` implements it. The calldata structs stay in `HoldbackTypes`. The layout moved no byte of the runtime code (T-384, holdback PR 433) | none (interface) |
 | [`IHoldbackBeacon.sol`](../../contracts/src/IHoldbackBeacon.sol) | The interface of the randomness beacon that fixes the fallback's and the escalation's panel seeds | none (interface) |
-| [`DrandQuicknetBeacon.sol`](../../contracts/src/DrandQuicknetBeacon.sol) | Verifies a drand quicknet round on chain (BLS12-381, EIP-2537 precompiles). The on-chain proof stays for now (Rafa, 2026-11-11; ADR-0031, SC-8), and the question comes back with the choice of chain | `<filled at the redeploy>` |
+| [`DrandQuicknetBeacon.sol`](../../contracts/src/DrandQuicknetBeacon.sol) | Verifies a drand quicknet round on chain (BLS12-381, EIP-2537 precompiles). The on-chain proof stays for now (Rafa, 2026-11-11; ADR-0031, SC-8), and the question comes back with the choice of chain | `beacon` |
 
 Relied on, not in scope: Commerce Payments' `AuthCaptureEscrow` and `ERC3009PaymentCollector`, Multicall3, Solady (below).
 
-**The freeze record** (filled at the freeze, not before):
+**The freeze record** is the record itself, so this page copies none of its values:
 
-| Item | Value |
+| Item | Where to read it |
 | --- | --- |
-| Frozen commit | `<FREEZE_COMMIT>` |
-| `HoldbackRules` runtime size | `<RUNTIME_BYTES>` bytes against the EIP-170 limit of 24,576 bytes [to measure at the freeze: the length of `deployedBytecode` in `contracts/out/HoldbackRules.sol/HoldbackRules.json`] |
-| `ESCROW` | `<filled at the redeploy>`: address and code hash |
-| `ERC3009_COLLECTOR` | `<filled at the redeploy>`: address and code hash |
-| `EXPIRY_MARGIN` | `<filled at the redeploy>`: seconds |
-| `BEACON` | `<filled at the redeploy>`: address and code hash |
-| `TOKEN` | `<filled at the redeploy>`: address and code hash |
-| `BEACON_MARGIN` | `<filled at the redeploy>`: seconds |
+| Frozen commit | the tag `contracts-phase-one-1`; the record's `commit` |
+| `HoldbackRules` runtime size | the length of `deployedBytecode` in `contracts/out/HoldbackRules.sol/HoldbackRules.json`, against the EIP-170 limit of 24,576 bytes |
+| The runtime hashes | SHA-256 of the code on chain with the immutables zeroed and the metadata tail cut ([`test-quality.md`](test-quality.md), "Runtime code"); the `onchain_hash` lines of [`cutover-phase-one.md`](../cutover-phase-one.md), step 3.2, compute them from the record |
+| `ESCROW`, `ERC3009_COLLECTOR`, `BEACON`, `TOKEN` | the record's `escrow`, `erc3009Collector`, `beacon` and `token.address`; each creation transaction is under `contracts` |
+| `EXPIRY_MARGIN`, `BEACON_MARGIN` | the record's `expiryMarginSec` and `beaconMarginSec` |
+| Compiler settings | the record's `compiler`, from `contracts/foundry.toml` |
+| Source verification | Sourcify, by each address in the record |
+
+`deploy-sepolia.sh --check` reads every getter on chain against these fields (check 5 below).
 
 The rules contract signs under the EIP-712 domain `{name: "Holdback", version: "0.8", chainId: <the deployment's chain>, verifyingContract: <rules>}` (`_domainNameAndVersion` in `HoldbackRules.sol`). A second token needs a second deployment, and so a second domain.
 
@@ -81,7 +82,7 @@ The state machine and the settlement interface are in [`docs/architecture.md`](.
 
 ## The frozen commit and how to confirm it
 
-- **Commit:** `<FREEZE_COMMIT>`, the `commit` field of `sepolia.json` after the redeploy. The compiler settings are in the same record: solc 0.8.28, via IR, optimizer on with 200 runs, EVM version prague [measured: `contracts/foundry.toml` at the lane's tip; to confirm at the freeze].
+- **Commit:** the `commit` field of `sepolia.json`, which the tag `contracts-phase-one-1` names too. The compiler settings are in the same record, under `compiler` [measured: the record's fields; `contracts/foundry.toml` sets them].
 - **Confirm:** run [`contracts/script/deploy-sepolia.sh`](../../contracts/script/deploy-sepolia.sh) `--check <rpc-url>` from a checkout whose build inputs equal the frozen commit. It deploys nothing and only reads. It fails unless all of these hold [measured: read from the script at the lane's tip]:
   1. the RPC serves chain ID 11155111;
   2. `src`, `lib`, `foundry.toml`, `remappings.txt` and `script/TestUSDC.sol` equal the recorded commit, with no uncommitted change;
@@ -92,13 +93,13 @@ The state machine and the settlement interface are in [`docs/architecture.md`](.
   7. the token's name, symbol, decimals and EIP-712 domain separator match;
   8. the record it derives equals `sepolia.json`.
 - **`--verify`** runs `--check`, then publishes each contract's source on Sourcify, and on Etherscan when a key is in the environment (T-383).
-- **The deployment today** (domain 0.7, commit `64be1f1`, deployed 2026-11-04) is not in phase one; its addresses stay in `sepolia.json` until the redeploy writes the new record.
+- **Earlier deployments** are not in phase one. Their records are kept beside `sepolia.json` under dated names (`contracts/deployments/sepolia-<date>-domain-<version>.json`).
 
 ## Third-party code: out of scope, relied on
 
 | Code | Where | Pinned at | Use |
 | --- | --- | --- | --- |
-| Commerce Payments Protocol: `AuthCaptureEscrow` v1.1.0 and `ERC3009PaymentCollector` (with its ERC-6492 handler) | git submodule `contracts/lib/commerce-payments` (`https://github.com/base/commerce-payments`, from `.gitmodules` [measured]) | `6b0a5ef3f0df973857f558e2d6b5dd645b5e97f9` [measured: `git ls-tree HEAD contracts/lib/commerce-payments`; the same commit is in `docs/tasks/T-201-cpp-spike.md` and both reviews] | Holds the buyer's funds. The deployment's copies and addresses: `<filled at the redeploy>` |
+| Commerce Payments Protocol: `AuthCaptureEscrow` v1.1.0 and `ERC3009PaymentCollector` (with its ERC-6492 handler) | git submodule `contracts/lib/commerce-payments` (`https://github.com/base/commerce-payments`, from `.gitmodules` [measured]) | `6b0a5ef3f0df973857f558e2d6b5dd645b5e97f9` [measured: `git ls-tree HEAD contracts/lib/commerce-payments`; the same commit is in `docs/tasks/T-201-cpp-spike.md` and both reviews] | Holds the buyer's funds. The deployment's copies: `escrow` and `erc3009Collector` in `sepolia.json` |
 | Solady (`EIP712`, `SignatureCheckerLib`, `LibString`) | `lib/commerce-payments/lib/solady` | 0.1.1, `5ea5d9f` [documented: public-audit cross-check §2.1] | Imported by `HoldbackRules.sol` and `HoldbackTypes.sol` [measured: their import lines] |
 | Permit2 | `lib/commerce-payments/lib/permit2` | source at `cc56ad0` [documented: cross-check §2.1] | Not in phase one: the phase-one contracts fund by ERC-3009 only. `forge test` still imports it for test helpers (`contracts/test/unit/Base.sol`) |
 | OpenZeppelin Contracts | `lib/commerce-payments/lib/spend-permissions/lib/openzeppelin-contracts` | not recorded in the files read | Used by CPP [inferred] |
@@ -135,12 +136,12 @@ The public-audit cross-check lists the published audits of CPP and Solady, and o
 
 - **No admin keys.** The contracts have no owner, pause, freeze, blacklist or upgrade proxy. [`contracts/test/fuzz/NoAdmin.fuzz.t.sol`](../../contracts/test/fuzz/NoAdmin.fuzz.t.sol) holds them to it: an ABI allowlist per contract, a forbidden-selector check, an ether and unknown-selector refusal, and an opcode walk for `SELFDESTRUCT` and `DELEGATECALL`. `invariant_noAdminPath` in `contracts/test/invariant/RulesInvariants.t.sol` checks that no code hash changes [measured: the test names; not run here].
 - **No privileged caller.** The rules contract is the escrow's operator for its deals (`_paymentInfo` sets `operator` to the rules contract); it is a code address, not a key.
-- **The deployer** `<filled at the redeploy>` is a throwaway key with no authority on chain; it pays gas [documented: `deploy-sepolia.sh` header].
+- **The deployer**, the record's `deployer`, is a throwaway key with no authority on chain; it pays gas [documented: `deploy-sepolia.sh` header].
 - **The operators' relayer keys** have no role in any contract [documented: `docs/neutrality.md`].
 - **CPP trusts its operator.** The rules contract is that operator, so its correctness decides every capture and void [documented: cross-check §2.1, Cantina 3.3.5].
 - **The beacon** is immutable in the rules contract. Biasing a round needs a colluding threshold of drand nodes [documented: `docs/neutrality.md`, beacon row].
 - **The parties choose** the three adjudicators in the signed terms, and the deployer fixes the token. Every decision is final when written, and no adjudicator posts a bond on chain (ADR-0031 §8).
-- **tUSDC is an open-mint test token by design.** Anyone can call `mint` on the deployment's token, `<filled at the redeploy>`; it guards no value [measured: `contracts/script/TestUSDC.sol`].
+- **tUSDC is an open-mint test token by design.** Anyone can call `mint` on the deployment's token, the record's `token.address`; it guards no value [measured: `contracts/script/TestUSDC.sol`].
 
 ## Prior reviews
 
