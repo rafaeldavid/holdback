@@ -32,6 +32,8 @@ export type DeploymentFile = {
   bonds?: string;
   beacon: string;
   expiryMarginSec?: number;
+  /** The rules contract's beacon margin in seconds (ADR-0032); records from before phase one have none. */
+  beaconMarginSec?: number;
   /** What the deploy script checked on chain, such as the beacon's code hash. */
   checks?: Record<string, string | boolean>;
   /** Each contract's address, transaction, block and constructor arguments. */
