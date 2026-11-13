@@ -253,8 +253,9 @@ the delivery. A safety config that passes because the model lost one of these st
 The witnesses cover steps, not every interleaving: a step the list does not name can still go missing unseen.
 
 **What became of `broken/late-judge-by.cfg`.** It moved, and it changed meaning. T-337 wrote it as the record of
-an open issue (L-6): the deployed contract took terms whose `judgeBy` falls after the escrow's expiry. The lane's
-contract refuses such terms at funding (`HoldbackRules.sol:222-228`, ADR-0031 section 6), and core refuses them for
+an open issue (L-6): the 2026-11-04 contract (domain 0.7) took terms whose `judgeBy` falls after the escrow's
+expiry. The phase-one contract refuses such terms at funding (`HoldbackRules.sol:222-228` at `74fa299`, ADR-0031
+section 6), and core refuses them for
 SimChain, so no code this model describes can reach that trace. The variant is now a planted fault like the
 others, one config per profile: it removes the refusal and shows that `ExpiryAfterCaptures` would catch its loss.
 
@@ -265,7 +266,10 @@ others, one config per profile: it removes the refusal and shows that `ExpiryAft
 commit `74fa299`. The mapping was read, not checked by a tool [inferred]. Later refactors on the lane change no
 behaviour the model describes and move these lines: RF-2 took the turn, its deadline and its round out of `decide`
 into `_turn`, and RF-3 gave each deadline one function. Read the cited lines with
-`git show 74fa299:contracts/src/HoldbackRules.sol`. The citations are pinned again when the lane freezes.
+`git show 74fa299:contracts/src/HoldbackRules.sol`. The lane froze on 2026-11-13 at the annotated tag
+`contracts-phase-one-1`, whose `contracts/src` equals the deployment record's `commit`. These citations are not yet
+pinned at the tag, and `HoldbackRules.sol` differs between the two commits
+(`git diff --stat 74fa299 contracts-phase-one-1 -- contracts/src`) [measured, 2026-11-13].
 
 | Model action | Contract function and line |
 | --- | --- |
@@ -316,8 +320,8 @@ model's absolute clock stops at the deadline the current state can use.
 
 ## Model to code: full profile
 
-`S:` is `packages/core/src/state.ts` and `Sim:` is `packages/settlement/sim/simchain.ts`, at `74fa299`. SimChain
-steps core's `step` and then posts the money.
+`S:` is `packages/core/src/state.ts` and `Sim:` is `packages/settlement/sim/simchain.ts`, at `74fa299`; both files
+have changed since, so the lines are those of that commit. SimChain steps core's `step` and then posts the money.
 
 | Model action | Core and SimChain |
 | --- | --- |

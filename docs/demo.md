@@ -19,6 +19,8 @@ open demo/out/index.html  # timeline viewer
 
 `pnpm demo` runs the full protocol on SimChain, party appeals and bonds included (ADR-0031 §8). The public demo runs the phase-one contracts, which have no party appeal and no bond, so its deals have no appeal beat and no bond behind a decision.
 
+**Two other ways to see a deal.** `pnpm duet` runs one deal between two model-driven agents from two vendors and leaves a record anyone can replay (T-391, [`tools/duet/README.md`](../tools/duet/README.md)). The site's demo page (`site/demo/`, served at crow.direct/demo) shows a first reader how two agents agree the checks and close a deal. The beats below are the SimChain demo that `pnpm demo` runs.
+
 **Live mode (T-028).** `pnpm demo --live` needs `HOLDBACK_ANTHROPIC_API_KEY`, `HOLDBACK_OPENAI_COMPATIBLE_API_KEY` and `HOLDBACK_OPENAI_COMPATIBLE_BASE_URL` (DeepSeek), in the environment or in the git-ignored `.env` at the repository root, which the script loads with `--env-file-if-exists`; without them it refuses and names what is missing. Every bench then seats `config/judges-live.yaml` (Anthropic and DeepSeek, five pinned models) and calls the models; the per-beat fake scripts are ignored, so beat 6's decision after the escalation is the models' own verdicts. Transcripts say `Mode: live`, name each seat's pinned model ID, and the run ends with the number of live calls and tokens by model. Costs are dominated by input: the demo's CSV deliverable is about 60,000 to 75,000 tokens per judge call, so one full run (14 calls) costs about $3 at list prices (measured tokens, 2026-11-01). Live verdicts are not scripted to the story: on 2026-11-01 beat 3's panel split and escalated, beat 6's appeal rejected, and beat 7's fallback rejected the "good" CSV (the rubric's notes criterion), so the scripted narration of beats 3 to 7 does not hold in live mode.
 
 Outputs per beat, in `demo/out/`:
@@ -39,7 +41,7 @@ Goal (not yet true): the transcripts and the `.expect.md` snapshots in `fixtures
 | Fallback adjudicator | Bench B | Takes over if Bench A misses its deadline |
 | Appeal adjudicator | Bench C | Five judges, three families; decides escalations, and on SimChain party appeals |
 | Operators | op-1, op-2 | Interchangeable API nodes |
-| Settlement | SimChain | In-process escrow rules with no admin keys. The public demo at crow.direct settles on Ethereum Sepolia instead, since 2026-11-03 (D41), on the phase-one contracts: no party appeal and no bond (ADR-0031) |
+| Settlement | SimChain | In-process escrow rules with no admin keys. The public demo at crow.direct settles on Ethereum Sepolia instead, since 2026-11-03 (D41), and since 2026-11-13 on the phase-one contracts: no party appeal and no bond (ADR-0031) |
 
 All names are invented for the demo.
 

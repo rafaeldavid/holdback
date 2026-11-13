@@ -21,7 +21,7 @@ Labels: **measured** (read in the named function or file), **inferred**, **guess
 | AS-5 | **The record:** the deal's word and the events, as evidence of who signed what | The rules contract's storage and logs | No entry point rewrites a terminal row; there is no admin path (the contract's NatSpec: no owner, role, pause, upgrade, fallback or receive) |
 | AS-6 | **Liveness:** every funded deal closes | The timeouts anyone may call (`reclaim`, `triggerFallback`, `triggerDefault`) | Each non-terminal row has a timeout (`state-model.md` section 3) |
 
-The deployed model's assets AS-2 and AS-3, adjudicators' bonds and appeal bonds, are not in phase one.
+The 2026-11-04 contracts' (domain 0.7) assets AS-2 and AS-3, adjudicators' bonds and appeal bonds, are not in phase one.
 
 ## 2. Actors
 
@@ -61,7 +61,7 @@ A nested call needs no hostile token. The ERC-3009 collector unwraps an ERC-6492
 
 ## 4. Assumptions
 
-Each assumption names what the contracts rely on, where, and what happens if it fails. The deployed model's TA-3 and TA-10, about the vault's push payments and a bond held through a long appeal window, are not in phase one.
+Each assumption names what the contracts rely on, where, and what happens if it fails. The 0.7 contracts' TA-3 and TA-10, about the vault's push payments and a bond held through a long appeal window, are not in phase one.
 
 | # | Assumption | Where the code relies on it | If it fails |
 | --- | --- | --- | --- |
@@ -82,7 +82,7 @@ Each assumption names what the contracts rely on, where, and what happens if it 
 
 ## 5. Attack classes and where each is handled
 
-Each row names what an attacker tries, the code that refuses it and the test that covers it. The tests are named from the files in `contracts/test/` at the frozen commit (the tag `contracts-phase-one-1`; [`scope.md`](scope.md)) [measured on the lane's tip: the files and the invariant names exist; their bodies were not read for this page].
+Each row names what an attacker tries, the code that refuses it and the test that covers it. The tests are named from the files in `contracts/test/` at the frozen commit (the tag `contracts-phase-one-1`; [`scope.md`](scope.md)) [measured at the tag on 2026-11-13 with `git ls-tree` and `git grep`: the files and the invariant names exist; their bodies were not read for this page].
 
 | Class | What the attacker tries | Refused at | Test |
 | --- | --- | --- | --- |
@@ -133,5 +133,5 @@ Each is accepted or tracked elsewhere; this list points to it.
 ## Where this page did not look
 
 - **Not read in full:** the ERC-3009 collector, `TokenStore.sol`, and Solady's signature library. The claims about them come from [`scope.md`](scope.md) and the reviews it cites.
-- **Not run for this page:** no invariant campaign and no model check. The unit tests passed on the lane on 2026-11-12 ([`scope.md`](scope.md)).
+- **Not run for this page:** no invariant campaign and no model check. The unit tests passed on the lane at `ba941e0` on 2026-11-12, before the freeze ([`scope.md`](scope.md)).
 - **Not covered:** the off-chain components (the operators, the reference adjudicator, the judgment pipeline). [`scope.md`](scope.md) lists what each may and may not do.

@@ -80,15 +80,14 @@ Accepted for the prototype and tracked here:
 - A formal model of the state machine (`formal/Holdback.tla`, T-204), in two profiles, phase one and the full protocol (`formal/README.md`), checks two properties with TLC:
   - **Liveness:** every funded commitment reaches Released, Refunded or Settled (`FundedSettles`; a default ends Refunded) under fairness of "anyone may trigger timeouts", even when any single named actor halts.
   - **Safety:** no transition moves funds without a valid signature, decision or timeout.
-- A contract review checklist (T-206). `docs/reviews/2026-11-03-contract-review.md` §3 answers it item by item for the 0.7 contracts, each with a file and line or a named test. The bond items describe those contracts and are not in phase one, which has no bond vault:
+- A contract review checklist (T-206). `docs/reviews/2026-11-03-contract-review.md` §3 answers it item by item for the 2026-11-04 contracts (domain 0.7), each with a file and line or a named test; that review also checks their bond vault, which phase one does not have. The checklist, for the phase-one contracts:
   - no owner, role, pause, freeze, blacklist or upgrade proxy; every parameter, the beacon included, is immutable or a constant;
   - no `SELFDESTRUCT`, `CALLCODE` or Holdback `DELEGATECALL` in the bytecode, and no `receive` or `fallback`;
   - every timeout is callable by anyone, refused before its deadline and allowed from it;
   - no function moves held funds without a signature, a decision or an expired timeout;
-  - for the 0.7 contracts only: no bond is encumbered without its adjudicator's own acceptance or decision;
-  - settle-once: every money path leaves the funded stages before its first call to CPP or a token (on the 0.7 contracts, the bond vault's `release` and `encumber`, which may come first, make no external call);
+  - settle-once: every money path leaves the funded stages before its first call to CPP or a token;
   - the buyer's key is released in the same transaction as the capture, and never on reject or reclaim;
-  - `authorizationExpiry` falls after the last possible capture (ADR-0003), and on the 0.7 contracts every bond is still released after the buyer's own reclaim on CPP;
+  - `authorizationExpiry` falls after the last possible capture (ADR-0003);
   - every agreed deadline binds every path that acts on it;
   - no field a decider controls changes a panel seed (ADR-0018);
   - every signed message binds the commitment, the signer's role and what it moves, under the deployment's EIP-712 domain.
