@@ -1,0 +1,21 @@
+// Types for kit.mjs, for the TypeScript pages that read the kit (site/footer.ts, site/drawer.ts, tools/duet/replay.ts).
+export declare const TOKENS_CSS: string;
+export declare const COMPONENTS_CSS: string;
+export declare const TOKENS: Record<string, string>;
+export declare const PARTS: string[];
+export declare function kitCss(o?: { parts?: string[]; scope?: string; mark?: string }): string;
+export declare function markDataUri(): string;
+export declare function icon(name: 'chevron' | 'close'): string;
+type Link = [href: string, label: string];
+export declare function headerBar(o: { home: string; name?: string; links?: Link[]; button?: { label: string; href: string } }): string;
+export declare function footer(o: { tagline: string; pill: string; links?: Link[]; linksHtml?: string; afterHtml?: string }): string;
+export declare function button(o: { label: string; href?: string; type?: string; variant?: 'filled' | 'outlined'; size?: 'tall' | 'compact'; attrs?: string }): string;
+export declare function pill(o: { label: string; tone?: 'neutral' | 'paid' | 'warn' }): string;
+export declare function sectionHead(o: { eyebrow?: string; title: string; lede?: string; level?: number }): string;
+export declare function facts(items: { value: string; label: string }[]): string;
+export declare function table(o: { head: string[]; rows: string[][]; label?: string }): string;
+export declare function listRows(items: { title: string; href?: string; line?: string; end?: string }[]): string;
+export declare function card(o: { title: string; line: string; href: string }): string;
+export declare function notice(o: { title: string; text: string; tone?: 'neutral' | 'warn' }): string;
+export declare function disclosure(o: { summary: string; bodyHtml: string }): string;
+export declare function dialog(o: { id: string; titleId: string; title: string; formHtml: string }): string;

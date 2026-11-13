@@ -1,0 +1,104 @@
+/* part: base */
+/* Crow's twelve components (site/brand/README.md). Every value comes from tokens.css; a page places a part and never
+   reshapes it. Class names start with ck- so this file can sit inside another page's styles. A page sets
+   box-sizing: border-box on every element, as the site's pages do (README.md, "How a page reads the kit"). */
+.ck-icon { width: 22px; height: 22px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+/* part: bar */
+.ck-bar { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--page) 92%, transparent); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid var(--hair); }
+.ck-bar-in { max-width: var(--width); margin: 0 auto; padding: 10px var(--gutter); display: flex; align-items: center; gap: 22px; }
+.ck-brand { display: flex; align-items: center; gap: 10px; font-weight: var(--weight-strong); font-size: var(--size-body); color: var(--ink); text-decoration: none; }
+.ck-mark { width: 30px; height: 30px; background: currentColor; -webkit-mask: url(/crow-mark.svg) center / contain no-repeat; mask: url(/crow-mark.svg) center / contain no-repeat; }
+.ck-gap { flex: 1; }
+.ck-nav { font-size: 14px; color: var(--ink-2); text-decoration: none; }
+.ck-nav:hover { color: var(--ink); }
+.ck-brand:focus-visible, .ck-nav:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+@media (max-width: 600px) { .ck-nav { display: none; } }
+/* part: button */
+.ck-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 var(--space-5); border: 0; border-radius: var(--radius-pill); background: var(--ink); color: var(--page); font: inherit; font-size: 16px; font-weight: var(--weight-strong); text-decoration: none; cursor: pointer; }
+.ck-btn-out { border: 1px solid var(--line); background: transparent; color: var(--ink); }
+.ck-btn-s { min-height: 34px; padding: 0 var(--space-4); font-size: 14px; }
+.ck-btn:disabled { opacity: .6; cursor: default; }
+.ck-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* part: pill */
+.ck-pill { display: inline-flex; align-items: center; min-height: 22px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius-pill); font-size: 12px; font-weight: var(--weight-strong); color: var(--ink); white-space: nowrap; }
+.ck-pill-paid { border-color: transparent; background: var(--paid-wash); color: var(--paid); }
+.ck-pill-warn { border-color: transparent; background: var(--warn-wash); color: var(--warn); }
+/* part: head */
+.ck-eyebrow { margin: 0; font-size: var(--size-note); font-weight: var(--weight-strong); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+.ck-title { margin: 14px 0 0; font-family: var(--display); font-size: var(--size-display); line-height: 1.04; font-weight: var(--weight-bold); letter-spacing: -.035em; }
+.ck-lede { margin: 12px 0 0; max-width: 600px; font-size: var(--size-lede); line-height: 1.4; color: var(--ink-2); text-wrap: balance; }
+@media (max-width: 600px) { .ck-lede { font-size: 19px; } }
+/* part: fact */
+.ck-facts { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.ck-fact { display: flex; flex-direction: column; gap: 2px; padding: 20px 16px 20px 0; }
+.ck-fact + .ck-fact { border-left: 1px solid var(--line); padding-left: 16px; }
+.ck-fact-value { font-family: var(--display); font-size: 26px; font-weight: var(--weight-bold); letter-spacing: -.01em; }
+.ck-fact-label { font-size: var(--size-note); color: var(--ink-2); }
+@media (max-width: 820px) { .ck-facts { grid-template-columns: repeat(2, 1fr); } .ck-fact:nth-child(3) { border-left: 0; padding-left: 0; } }
+/* part: table */
+.ck-table { width: 100%; border-collapse: collapse; font-size: var(--size-small); }
+.ck-table th { padding: 0 var(--space-4) var(--space-2) 0; border-bottom: 1px solid var(--line); text-align: left; font-size: var(--size-note); font-weight: var(--weight-strong); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+.ck-table td { padding: var(--space-3) var(--space-4) var(--space-3) 0; border-bottom: 1px solid var(--hair); vertical-align: top; }
+/* part: row */
+.ck-rows { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--hair); }
+.ck-row { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; padding: 14px 0; border-bottom: 1px solid var(--hair); }
+.ck-row-title { min-width: 120px; font-weight: var(--weight-strong); color: var(--ink); text-decoration: none; }
+a.ck-row-title:hover { text-decoration: underline; }
+a.ck-row-title:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.ck-row-line { font-size: var(--size-small); color: var(--ink-2); }
+.ck-row-end { margin-left: auto; font-size: var(--size-note); color: var(--ink-3); white-space: nowrap; }
+/* part: card */
+.ck-card { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 20px 44px 20px 20px; border: 1px solid var(--line); border-radius: var(--radius-card); color: var(--ink); text-decoration: none; }
+.ck-card:hover { border-color: var(--ink-2); }
+.ck-card:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.ck-card-title { font-weight: var(--weight-strong); }
+.ck-card-line { font-size: 14px; color: var(--ink-2); }
+.ck-card .ck-icon { position: absolute; right: 18px; top: 50%; width: 16px; height: 16px; margin-top: -8px; color: var(--ink-3); }
+/* part: notice */
+.ck-notice { padding: var(--space-4) var(--space-5); border-radius: var(--radius-field); background: var(--band); }
+.ck-notice-title { margin: 0; font-size: var(--size-small); font-weight: var(--weight-strong); color: var(--ink); }
+.ck-notice-text { margin: var(--space-1) 0 0; font-size: var(--size-small); color: var(--ink-2); }
+.ck-notice-warn { background: var(--warn-wash); }
+.ck-notice-warn .ck-notice-title { color: var(--warn); }
+/* part: disclosure */
+.ck-disc { border-bottom: 1px solid var(--line); }
+.ck-disc:not(.ck-disc + .ck-disc) { border-top: 1px solid var(--line); }
+.ck-disc > summary { position: relative; padding: 20px 32px 20px 0; list-style: none; cursor: pointer; font-size: 18px; font-weight: var(--weight-strong); }
+.ck-disc > summary::-webkit-details-marker { display: none; }
+.ck-disc > summary::after { content: "+"; position: absolute; right: 4px; top: 16px; font-size: 24px; font-weight: 300; color: var(--ink-2); }
+.ck-disc[open] > summary::after { content: "–"; }
+.ck-disc > summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.ck-disc-body { max-width: 720px; padding: 0 0 22px; font-size: 16px; color: var(--ink-2); }
+/* part: footer */
+body:has(> .ck-foot) { min-height: 100vh; display: flex; flex-direction: column; }
+body > .ck-foot { margin-top: auto; }
+.ck-foot { box-sizing: border-box; width: 100%; max-width: var(--width); margin-left: auto; margin-right: auto; padding: 20px var(--gutter) 32px; border-top: 1px solid var(--hair);
+  font: var(--size-note)/1.5 var(--font); color: var(--ink-3); text-align: left; }
+.ck-foot-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 24px; }
+.ck-foot-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0; }
+.ck-foot-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 22px; }
+.ck-foot a { color: var(--ink-2); text-decoration: none; }
+.ck-foot a:hover { color: var(--ink); }
+.ck-foot a:focus-visible, .ck-foot button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* part: dialog */
+.ck-dialog { position: fixed; inset: 0; margin: auto; width: min(440px, calc(100% - 32px)); max-width: 100%; height: fit-content; max-height: calc(100vh - 48px); padding: 0;
+  border: 1px solid var(--hair); border-radius: var(--radius-card); background: var(--page); color: var(--ink); box-shadow: var(--lift); font-family: var(--font); }
+.ck-dialog::backdrop { background: var(--scrim); }
+.ck-dialog[open] { animation: ck-dialog-in .24s cubic-bezier(.25, .8, .25, 1); }
+@keyframes ck-dialog-in { from { transform: scale(.96); opacity: 0; } to { transform: none; opacity: 1; } }
+.ck-dialog-form { display: flex; flex-direction: column; gap: 12px; padding: 20px 24px 28px; }
+.ck-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.ck-dialog-title { margin: 0; font-size: 24px; font-weight: var(--weight-bold); letter-spacing: -.01em; }
+.ck-dialog-close { width: 32px; height: 32px; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--page); color: var(--ink); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.ck-dialog-close .ck-icon { width: 12px; height: 12px; }
+.ck-dialog-lede { margin: 0 0 8px; color: var(--ink-2); font-size: var(--size-small); line-height: 1.5; }
+.ck-dialog-label { font-size: var(--size-note); font-weight: var(--weight-strong); color: var(--ink-2); }
+.ck-dialog input[type=email] { font: inherit; font-size: 16px; color: var(--ink); background: var(--page); border: 1px solid var(--line); border-radius: var(--radius-field); padding: 0 14px; min-height: 48px; }
+.ck-dialog-form .ck-btn { margin-top: 4px; }
+.ck-dialog input:focus-visible, .ck-dialog button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.ck-dialog-msg { margin: 0; font-size: var(--size-small); color: var(--ink-2); }
+.ck-dialog-msg:empty { display: none; }
+.ck-dialog .ck-hp { position: absolute; left: -10000px; width: 1px; height: 1px; opacity: 0; }
+@media (max-width: 600px) { .ck-dialog { inset: auto 0 0 0; margin: 0; width: 100%; height: auto; max-height: 90vh; border: 0; border-top: 1px solid var(--hair); border-radius: var(--radius-card) var(--radius-card) 0 0; box-shadow: var(--lift-sheet); } .ck-dialog[open] { animation-name: ck-sheet-in; } }
+@keyframes ck-sheet-in { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ck-dialog[open] { animation: none; } }
