@@ -17,6 +17,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rolldown } from 'rolldown';
+import { DRAWER_CSS, drawerScript, JOIN_URL } from './drawer.ts';
 import { guideFiles, guideSource } from './guides.mjs';
 
 export const SITE_URL = 'https://crow.direct/';
@@ -257,7 +258,7 @@ ${FEATURES.map(([h, p, icon, note]) => `<div class="prop"><svg class="icon" view
 </section>`;
 // Early access: sign-ups go to the crow-early-access Worker (apps/early-access), which keeps only the address, the
 // time and the page.
-export const JOIN_URL = 'https://join.crow.direct/early-access';
+export { JOIN_URL }; // the sign-up service, in site/drawer.ts: the form and the drawer post to it
 const JOINFORM = `<form class="signup" id="join-form" novalidate aria-label="Request early access">
 <input id="join-email" name="email" type="email" autocomplete="email" required placeholder="you@company.com" aria-label="Email">
 <input class="hp" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">
@@ -434,7 +435,7 @@ export const HOME_JS = `(function () {
       .then(function () { send.disabled = false; });
   });
 })();
-`;
+` + drawerScript();
 
 /** The home page's styles, served as home.css: the look Rafa approved on 2026-11-12, unchanged. */
 export const HOME_CSS = `/* Light only, in either system mode (Rafa, 2026-11-13). The enterprise look (Rafa, 2026-11-12), as on the demo page: system type, white and grey, one ink accent for the
@@ -524,7 +525,7 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid 
 @media (min-width: 821px) and (max-height: 820px) { .hero { padding: 44px 0 36px; } .props { padding-top: 26px; gap: 20px 40px; } .foot { margin-top: 10px; padding: 14px 20px 18px; } }
 @media (max-width: 820px) { .props { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 600px) { h1 { font-size: min(44px, 9.6vw); } .stream { display: none; } .lede { font-size: 19px; } .hero { padding: 64px 0 48px; } .nav { display: none; } .props { grid-template-columns: 1fr; } }
-`;
+` + DRAWER_CSS;
 
 /**
  * 404.html: what the site answers for an address it does not have (Cloudflare serves it with status 404). A visitor
@@ -617,7 +618,7 @@ export function page(md, command = tryCommand()) {
 <span class="spacer"></span>
 <a class="nav" href="${BASE}demo/">Demo</a>
 <a class="nav" href="${BASE}llms.txt">Agent docs</a>
-<a class="quiet" href="#join-form">Request early access</a>
+<a class="quiet" href="#join-form" data-join>Request early access</a>
 </div></header>
 <main class="page">
 <section class="hero">

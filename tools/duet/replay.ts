@@ -5,6 +5,7 @@
 // behind "Exact call" disclosures. Every string from the record is escaped: an agent's words, or anything it quoted,
 // is shown as text, never as markup. The only network use is a link the reader clicks. A small inline script steps
 // through the run; without it, every step shows.
+import { DRAWER_CSS, drawerScript, JOIN_URL } from '../../site/drawer.ts';
 import { readFileSync } from 'node:fs';
 import type { Summary } from './measures.ts';
 import type { Event } from './record.ts';
@@ -261,8 +262,8 @@ const FAVICON = `data:image/svg+xml,${encodeURIComponent(markSvg('#1d1d1f').repl
 
 /** Where "Request early access" goes: the sign-up form on Crow's site. */
 export const EARLY_ACCESS = 'https://crow.direct/#join-form';
-/** The sign-up service the drawer posts to: the home page's own (site/build.mjs, JOIN_URL). */
-export const JOIN = 'https://join.crow.direct/early-access';
+/** The sign-up service the drawer posts to: the home page's own (site/drawer.ts). */
+export const JOIN = JOIN_URL;
 
 export interface PageExtras {
   /** Measures over their limits, and the ticket written for them. */
@@ -414,25 +415,7 @@ main{max-width:1040px;margin:0 auto;padding:56px 20px 72px}
 .demo-frame{height:min(64vh,600px);overflow-y:auto;padding:20px 16px 28px;scroll-behavior:smooth}
 .after{text-align:center;font-size:15px;color:var(--ink2);margin:20px 0 0}
 #demo-view[hidden]{display:none}
-.drawer{position:fixed;inset:0 0 0 auto;margin:0;width:min(420px,100%);max-width:100%;height:100%;max-height:100%;border:0;border-left:1px solid var(--hair);padding:0;background:var(--page);color:var(--ink);box-shadow:-12px 0 40px rgba(0,0,0,.12)}
-.drawer::backdrop{background:rgba(0,0,0,.28)}
-.drawer[open]{animation:drawer-in .28s var(--arrive)}
-@keyframes drawer-in{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
-.drawer-form{display:flex;flex-direction:column;gap:12px;padding:20px 24px 28px}
-.drawer-head{display:flex;align-items:center;justify-content:space-between;gap:16px}
-.drawer-head h2{font-family:var(--display);font-size:24px;letter-spacing:-.01em;margin:0}
-.drawer-lede{margin:0 0 8px;color:var(--ink2);font-size:15px;line-height:1.5}
-.drawer-label{font-size:13px;font-weight:600;color:var(--ink2)}
-.drawer input[type=email]{font:inherit;font-size:16px;color:var(--ink);background:var(--page);border:1px solid var(--line);border-radius:12px;padding:0 14px;min-height:48px}
-.drawer input:focus-visible{outline:2px solid var(--ink);outline-offset:1px}
-.drawer .button{min-height:48px;margin-top:4px}
-.drawer .button:disabled{opacity:.6;cursor:default}
-.drawer-msg{margin:0;font-size:15px;color:var(--ink2)}.drawer-msg:empty{display:none}
-.hp{position:absolute;left:-10000px;width:1px;height:1px;opacity:0}
-@media (max-width:600px){.drawer{inset:auto 0 0 0;width:100%;height:auto;max-height:90vh;border-left:0;border-top:1px solid var(--hair);border-radius:18px 18px 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.12)}.drawer[open]{animation-name:sheet-in}}
-@keyframes sheet-in{from{transform:translateY(24px);opacity:0}to{transform:none;opacity:1}}
-@media (prefers-reduced-motion:reduce){.drawer[open]{animation:none}}
-@media (min-width:980px){#demo-view{max-width:1200px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:56px;align-items:center;min-height:calc(100vh - 56px);padding-top:24px;padding-bottom:24px}#demo-view .hero{text-align:left;margin:0}#demo-view .headline{font-size:52px}#demo-view .intro{margin-left:0;font-size:19px}#demo-view .cta{justify-content:flex-start}#demo-view .after{text-align:left}#demo-view .demo{margin:0;max-width:none}#demo-view .demo-frame{height:clamp(300px,calc(100vh - 176px),640px)}}
+${DRAWER_CSS}@media (min-width:980px){#demo-view{max-width:1200px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:56px;align-items:center;min-height:calc(100vh - 56px);padding-top:24px;padding-bottom:24px}#demo-view .hero{text-align:left;margin:0}#demo-view .headline{font-size:52px}#demo-view .intro{margin-left:0;font-size:19px}#demo-view .cta{justify-content:flex-start}#demo-view .after{text-align:left}#demo-view .demo{margin:0;max-width:none}#demo-view .demo-frame{height:clamp(300px,calc(100vh - 176px),640px)}}
 .avatar{width:22px;height:22px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
 .avatar.seller{background:var(--ink);color:var(--page);border-color:var(--ink)}
 ol.run{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
@@ -660,37 +643,8 @@ ${local ? '<p class="small">This run used a local test setup, so it has no publi
 
 <footer>Made from this run's own record and nothing else. The agents' words appear as they wrote them; anything they quoted is shown as plain text. No key appears here: the agents never held one, and the record replaces any it meets with [secret].</footer>
 </main>
-<dialog class="drawer" id="join" aria-labelledby="join-title">
-<form class="drawer-form" id="join-form" novalidate>
-<div class="drawer-head"><h2 id="join-title">Request early access</h2><button class="icon-button" type="button" id="join-close" aria-label="Close"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></button></div>
-<p class="drawer-lede">Crow is in early access on test money. Leave your work email and we will write when your team can start.</p>
-<label class="drawer-label" for="join-email">Work email</label>
-<input id="join-email" name="email" type="email" autocomplete="email" required placeholder="you@company.com">
-<input class="hp" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">
-<button class="button" id="join-send" type="submit">Request early access</button>
-<p class="drawer-msg" id="join-msg" role="status"></p>
-</form>
-</dialog>
 <script>
-(function(){
-  // Request early access opens the drawer; the form posts to the same sign-up service as the home page's.
-  var dlg=document.getElementById('join'),jf=document.getElementById('join-form'),jm=document.getElementById('join-msg'),js=document.getElementById('join-send'),opener=null;
-  if(dlg&&typeof dlg.showModal==='function'){
-    document.querySelectorAll('[data-join]').forEach(function(a){a.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();opener=a;jm.textContent='';dlg.showModal();document.getElementById('join-email').focus()})});
-    document.getElementById('join-close').onclick=function(){dlg.close()};
-    dlg.addEventListener('click',function(e){if(e.target===dlg)dlg.close()});
-    dlg.addEventListener('close',function(){if(opener)opener.focus()});
-    jf.addEventListener('submit',function(e){
-      e.preventDefault();var email=jf.email.value.trim();
-      if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$/.test(email)){jm.textContent='Please enter a full email address, like you@company.com.';return}
-      js.disabled=true;jm.textContent='Sending\u2026';
-      fetch('${JOIN}',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:email,company:jf.company.value,page:location.pathname+'#early-access'})})
-        .then(function(r){return r.json().then(function(b){return{ok:r.ok,b:b}})})
-        .then(function(x){jm.textContent=x.ok?'Thank you. We\u2019ll be in touch at '+email+'.':(x.b&&x.b.error)||'That didn\u2019t go through. Please try again.';if(x.ok)jf.email.value=''})
-        .catch(function(){jm.textContent='That didn\u2019t go through here. You can also sign up at crow.direct.'})
-        .then(function(){js.disabled=false});
-    });
-  }
+${drawerScript()}(function(){
   // Two views in one file: the demo, and Learn more at #learn-more. Without a script both show, one after the other.
   var demo=document.getElementById('demo-view'),learn=document.getElementById('learn-more');
   function route(hash){var more=hash==='#learn-more';demo.hidden=more;learn.hidden=!more;window.scrollTo(0,0);if(more)pause();else if(!started)start();else if(at<items.length)play()}

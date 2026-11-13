@@ -92,9 +92,9 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       expect(page).not.toContain('What was checked, what each side paid');
       // Request early access opens a drawer with the sign-up form, posting to the home page's sign-up service.
       expect(page.match(/data-join rel=/g)?.length).toBe(3);
-      expect(page).toContain('<dialog class="drawer" id="join"');
+      expect(page).toContain("querySelectorAll('[data-join]')");
       expect(page).toContain(`fetch('${JOIN}'`);
-      expect(readFileSync(new URL('../../site/build.mjs', import.meta.url), 'utf8')).toContain(`export const JOIN_URL = '${JOIN}';`);
+      expect(JOIN).toBe('https://join.crow.direct/early-access');
       // Learn more reads without the demo: its headings name the demo deal.
       expect(page).toContain('<h3 class="block-title">The demo deal</h3>');
       expect(page).not.toMatch(/This sample purchase|Who made this sample/);

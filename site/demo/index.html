@@ -40,24 +40,31 @@ main{max-width:1040px;margin:0 auto;padding:56px 20px 72px}
 .demo-frame{height:min(64vh,600px);overflow-y:auto;padding:20px 16px 28px;scroll-behavior:smooth}
 .after{text-align:center;font-size:15px;color:var(--ink2);margin:20px 0 0}
 #demo-view[hidden]{display:none}
-.drawer{position:fixed;inset:0 0 0 auto;margin:0;width:min(420px,100%);max-width:100%;height:100%;max-height:100%;border:0;border-left:1px solid var(--hair);padding:0;background:var(--page);color:var(--ink);box-shadow:-12px 0 40px rgba(0,0,0,.12)}
-.drawer::backdrop{background:rgba(0,0,0,.28)}
-.drawer[open]{animation:drawer-in .28s var(--arrive)}
-@keyframes drawer-in{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
-.drawer-form{display:flex;flex-direction:column;gap:12px;padding:20px 24px 28px}
-.drawer-head{display:flex;align-items:center;justify-content:space-between;gap:16px}
-.drawer-head h2{font-family:var(--display);font-size:24px;letter-spacing:-.01em;margin:0}
-.drawer-lede{margin:0 0 8px;color:var(--ink2);font-size:15px;line-height:1.5}
-.drawer-label{font-size:13px;font-weight:600;color:var(--ink2)}
-.drawer input[type=email]{font:inherit;font-size:16px;color:var(--ink);background:var(--page);border:1px solid var(--line);border-radius:12px;padding:0 14px;min-height:48px}
-.drawer input:focus-visible{outline:2px solid var(--ink);outline-offset:1px}
-.drawer .button{min-height:48px;margin-top:4px}
-.drawer .button:disabled{opacity:.6;cursor:default}
-.drawer-msg{margin:0;font-size:15px;color:var(--ink2)}.drawer-msg:empty{display:none}
-.hp{position:absolute;left:-10000px;width:1px;height:1px;opacity:0}
-@media (max-width:600px){.drawer{inset:auto 0 0 0;width:100%;height:auto;max-height:90vh;border-left:0;border-top:1px solid var(--hair);border-radius:18px 18px 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.12)}.drawer[open]{animation-name:sheet-in}}
-@keyframes sheet-in{from{transform:translateY(24px);opacity:0}to{transform:none;opacity:1}}
-@media (prefers-reduced-motion:reduce){.drawer[open]{animation:none}}
+/* the early-access drawer: a side sheet on desktop, a bottom sheet on a phone (site/drawer.ts) */
+.drawer { --d-page: #ffffff; --d-ink: #1d1d1f; --d-ink-2: #6e6e73; --d-line: #d2d2d7; --d-hair: rgba(0, 0, 0, .08);
+  position: fixed; inset: 0 0 0 auto; margin: 0; width: min(420px, 100%); max-width: 100%; height: 100%; max-height: 100%; padding: 0; border: 0;
+  border-left: 1px solid var(--d-hair); background: var(--d-page); color: var(--d-ink); box-shadow: -12px 0 40px rgba(0, 0, 0, .12);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif; }
+.drawer::backdrop { background: rgba(0, 0, 0, .28); }
+.drawer[open] { animation: drawer-in .28s cubic-bezier(.25, .8, .25, 1); }
+@keyframes drawer-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.drawer-form { display: flex; flex-direction: column; gap: 12px; padding: 20px 24px 28px; }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.drawer-head h2 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -.01em; }
+.drawer-close { width: 32px; height: 32px; padding: 0; border: 1px solid var(--d-line); border-radius: 999px; background: var(--d-page); color: var(--d-ink); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.drawer-close svg { width: 12px; height: 12px; }
+.drawer-lede { margin: 0 0 8px; color: var(--d-ink-2); font-size: 15px; line-height: 1.5; }
+.drawer-label { font-size: 13px; font-weight: 600; color: var(--d-ink-2); }
+.drawer input[type=email] { font: inherit; font-size: 16px; color: var(--d-ink); background: var(--d-page); border: 1px solid var(--d-line); border-radius: 12px; padding: 0 14px; min-height: 48px; }
+.drawer-send { font: inherit; font-size: 16px; font-weight: 600; min-height: 48px; margin-top: 4px; border: 0; border-radius: 999px; background: var(--d-ink); color: var(--d-page); cursor: pointer; }
+.drawer-send:disabled { opacity: .6; cursor: default; }
+.drawer input:focus-visible, .drawer button:focus-visible { outline: 2px solid var(--d-ink); outline-offset: 2px; }
+.drawer-msg { margin: 0; font-size: 15px; color: var(--d-ink-2); }
+.drawer-msg:empty { display: none; }
+.drawer .hp { position: absolute; left: -10000px; width: 1px; height: 1px; opacity: 0; }
+@media (max-width: 600px) { .drawer { inset: auto 0 0 0; width: 100%; height: auto; max-height: 90vh; border-left: 0; border-top: 1px solid var(--d-hair); border-radius: 18px 18px 0 0; box-shadow: 0 -12px 40px rgba(0, 0, 0, .12); } .drawer[open] { animation-name: sheet-in; } }
+@keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .drawer[open] { animation: none; } }
 @media (min-width:980px){#demo-view{max-width:1200px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:56px;align-items:center;min-height:calc(100vh - 56px);padding-top:24px;padding-bottom:24px}#demo-view .hero{text-align:left;margin:0}#demo-view .headline{font-size:52px}#demo-view .intro{margin-left:0;font-size:19px}#demo-view .cta{justify-content:flex-start}#demo-view .after{text-align:left}#demo-view .demo{margin:0;max-width:none}#demo-view .demo-frame{height:clamp(300px,calc(100vh - 176px),640px)}}
 .avatar{width:22px;height:22px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
 .avatar.seller{background:var(--ink);color:var(--page);border-color:var(--ink)}
@@ -187,15 +194,15 @@ footer{font-size:12px;color:var(--ink3);margin:40px 0 0;max-width:720px}
 <li class="step buyer act"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Looked at the seller&#39;s public page</span></span></div></li>
 <li class="step buyer say"><div class="bubble"><p>The seller offers security reviews, priced on request. I ask for a price; my buying tool pauses before it pays anything.</p></div><span class="meta">Enterprise Procurement Agent</span></li>
 <li class="step buyer act"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Asked the seller for a price; its buying tool read the offer and paused for approval</span></span></div></li>
+<li class="step crow chain"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span><strong>The seller sent a signed offer</strong></span></div></li>
 <li class="step buyer say"><div class="bubble"><p>The offer is within budget and has the checks my company requires. I ask for approval to pay.</p></div><span class="meta">Enterprise Procurement Agent</span></li>
 <li class="step buyer act"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Asked its company to approve the order and pay</span></span></div></li>
 <li class="step buyer note"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 4.75v4M8 11.1v.15"/></svg><span><span class="title">The company&#39;s standing rule approved the payment</span><span class="sub">Within the budget of 750.00 test dollars, with the checks the company requires, and the report due within 3 days.</span></span></div></li>
 <li class="step seller say"><div class="bubble"><p>A buyer asked for a price. I sent an offer and wait for payment.</p></div><span class="meta">Enterprise Sales Agent</span></li>
-<li class="step crow chain"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span><strong>The seller sent a signed offer</strong></span></div></li>
 <li class="step crow chain"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span><strong>The independent reviewer agreed to check the work</strong></span></div></li>
 <li class="step crow chain"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span><strong>The buyer signed the agreement</strong></span></div></li>
 <li class="step crow money"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="3.75" width="12.5" height="8.5" rx="2"/><circle cx="8" cy="8" r="1.75"/></svg><span><strong>The buyer&#39;s payment is held: 701.00 test dollars</strong><span class="sub">700.00 test dollars for the work, 1.00 test dollars for the reviewer. Neither side can take it alone.</span></span></div></li>
-<li class="step seller act"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Checked where the order stands (2 times)</span></span></div></li>
+<li class="step seller act"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Checked where the order stands</span></span></div></li>
 <li class="step crow chain"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span><strong>The seller delivered the report, locked</strong></span></div></li>
 <li class="step crow chain"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span><strong>The reviewer can now open the report to check it</strong></span></div></li>
 <li class="step crow chain"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span><strong>The work passed the agreed checks</strong></span></div></li>
@@ -254,7 +261,7 @@ footer{font-size:12px;color:var(--ink3);margin:40px 0 0;max-width:720px}
 <p class="block-lead">The demo plays one purchase from start to finish: the Enterprise Procurement Agent buys a security review of 3 smart-contract files (400 lines), written as a report from the Enterprise Sales Agent.</p>
 <div class="facts">
 <div class="fact"><span class="fact-value">700.00 test dollars</span><span class="fact-label">Price</span></div>
-<div class="fact"><span class="fact-value">7 seconds</span><span class="fact-label">From first step to the end</span></div>
+<div class="fact"><span class="fact-value">5 seconds</span><span class="fact-label">From first step to the end</span></div>
 <div class="fact"><span class="fact-value">0</span><span class="fact-label">People involved</span></div>
 <div class="fact"><span class="fact-value">Seller paid</span><span class="fact-label">How it ended</span></div>
 </div>
@@ -266,7 +273,7 @@ footer{font-size:12px;color:var(--ink3);margin:40px 0 0;max-width:720px}
 <div class="spec"><dt>Buyer paid</dt><dd>701.00 test dollars: the price plus 1.00 test dollars for the independent reviewer</dd></div>
 <div class="spec"><dt>Seller received</dt><dd>700.00 test dollars</dd></div>
 <div class="spec"><dt>Where it ran</dt><dd>A local test setup on one computer, with test money</dd></div>
-<div class="spec"><dt>Time taken</dt><dd>7 seconds</dd></div>
+<div class="spec"><dt>Time taken</dt><dd>5 seconds</dd></div>
 </dl>
 </section>
 
@@ -278,46 +285,46 @@ footer{font-size:12px;color:var(--ink3);margin:40px 0 0;max-width:720px}
 <details class="faq"><summary>What did the buyer require before paying?</summary><div class="faq-body"><ul class="checks"><li><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span>The report follows the agreed format: the version reviewed, the files reviewed, and each finding with its place in the code and a fix.</span></li><li><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span>Every finding rated Medium or higher comes with files that prove it.</span></li><li><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span>Every finding points at a file in scope, at the agreed version of the code.</span></li><li><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span>Every file in scope was reviewed, none left out.</span></li><li><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span>The report holds no hidden characters.</span></li></ul></div></details>
 <details class="faq"><summary>What did each side pay and receive in the demo?</summary><div class="faq-body"><p>Buyer: paid 701.00 test dollars and received the report.</p><p>Seller: received 700.00 test dollars.</p><p>Independent reviewer: received 1.00 test dollars for checking the work.</p></div></details>
 <details class="faq"><summary>What limits did each company set for its agent?</summary><div class="faq-body"><p>The buyer gave the Enterprise Procurement Agent the job and a budget of 750.00 test dollars, required the checks that every file is reviewed and every finding stays in scope, and wanted the report within 3 days.</p><p>Instead of a person approving the payment, the buyer set a standing rule: approve only within the budget, with the required checks, the report due within 3 days, and an offer dated now. It answered 1 request: 1 approved, 0 refused.</p><p>The seller gave the Enterprise Sales Agent its order system and asked it to sell reports.</p><p>What a person had to do during the run: nothing. Every other choice, each agent made itself.</p></div></details>
-<details class="faq"><summary>How did the demo deal go, in numbers?</summary><div class="faq-body"><ul class="measures"><li><strong>The right outcome</strong>Yes. The work passed. The seller was paid and the buyer received the report.</li><li><strong>What each company told its agent</strong>Where Crow&#39;s guides are and how to use them, with what it wanted, its limits and its own setup.</li><li><strong>From the work passing to the seller being paid</strong>Not measured on the local simulator, which settles the decision and the payment within the same second; a test network measures it.</li><li><strong>People involved during the run</strong>0. The buyer set one standing rule in advance; it answered 1 approval request.</li><li><strong>AI model tokens used</strong>93,455 in all: 92,332 fresh input, 0 read again from the providers&#39; cache (billed at a fraction of the price), 0 written to it, and 1,123 written by the agents. The Enterprise Procurement Agent used 31,094: 19,252 to read Crow&#39;s guides and keep them in mind, 11,842 for the purchase itself. The Enterprise Sales Agent used 62,361: 41,510 for the guides, 20,851 for the sale. The most either carried at once: 9,931 tokens (buyer), 6,848 (seller). Scripted stand-ins count text length divided by four.</li><li><strong>Steps the agents took</strong>16 steps and 22 actions; 0 were stopped by the agents&#39; own tools.</li><li><strong>Times an agent got stuck</strong>0. Neither agent repeated a failing step or ran out of allowance.</li><li><strong>Agreed to terms the buyer ruled out</strong>No. The Enterprise Procurement Agent approved only terms the buyer allows.</li></ul><p>Every number is within the limits set for this test.</p></div></details>
+<details class="faq"><summary>How did the demo deal go, in numbers?</summary><div class="faq-body"><ul class="measures"><li><strong>The right outcome</strong>Yes. The work passed. The seller was paid and the buyer received the report.</li><li><strong>What each company told its agent</strong>Where Crow&#39;s guides are and how to use them, with what it wanted, its limits and its own setup.</li><li><strong>From the work passing to the seller being paid</strong>Not measured on the local simulator, which settles the decision and the payment within the same second; a test network measures it.</li><li><strong>People involved during the run</strong>0. The buyer set one standing rule in advance; it answered 1 approval request.</li><li><strong>AI model tokens used</strong>86,129 in all: 85,058 fresh input, 0 read again from the providers&#39; cache (billed at a fraction of the price), 0 written to it, and 1,071 written by the agents. The Enterprise Procurement Agent used 31,096: 19,252 to read Crow&#39;s guides and keep them in mind, 11,844 for the purchase itself. The Enterprise Sales Agent used 55,033: 37,359 for the guides, 17,674 for the sale. The most either carried at once: 9,932 tokens (buyer), 6,545 (seller). Scripted stand-ins count text length divided by four.</li><li><strong>Steps the agents took</strong>15 steps and 20 actions; 0 were stopped by the agents&#39; own tools.</li><li><strong>Times an agent got stuck</strong>0. Neither agent repeated a failing step or ran out of allowance.</li><li><strong>Agreed to terms the buyer ruled out</strong>No. The Enterprise Procurement Agent approved only terms the buyer allows.</li></ul><p>Every number is within the limits set for this test.</p></div></details>
 </div>
 <details class="record"><summary>Every step of the demo deal, with the exact calls</summary>
 <div class="conversation">
 <div class="heads"><span><span class="avatar buyer" aria-hidden="true">P</span> Enterprise Procurement Agent</span><span>The held payment</span><span>Enterprise Sales Agent <span class="avatar seller" aria-hidden="true">S</span></span></div>
 <ol class="run" id="run">
 <li class="step seller say" data-i="0"><div class="bubble"><p>I read Crow&#39;s guides first.</p></div><span class="meta">Enterprise Sales Agent · 1 second</span></li>
-<li class="step seller act" data-i="1"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Read Crow&#39;s front page for agents</span><details><summary>Exact call</summary><pre>GET http://127.0.0.1:53782/llms.txt</pre></details></span></div></li>
-<li class="step seller act" data-i="2"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Read Crow&#39;s guide for sellers</span><details><summary>Exact call</summary><pre>GET http://127.0.0.1:53782/sell.txt</pre></details></span></div></li>
+<li class="step seller act" data-i="1"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Read Crow&#39;s front page for agents</span><details><summary>Exact call</summary><pre>GET http://127.0.0.1:55751/llms.txt</pre></details></span></div></li>
+<li class="step seller act" data-i="2"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Read Crow&#39;s guide for sellers</span><details><summary>Exact call</summary><pre>GET http://127.0.0.1:55751/sell.txt</pre></details></span></div></li>
 <li class="step seller say" data-i="3"><div class="bubble"><p>I set up our selling tool with our order system, and start it.</p></div><span class="meta">Enterprise Sales Agent · 1 second</span></li>
-<li class="step seller act" data-i="4"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Saved a file in its folder</span><details><summary>Exact call</summary><pre>write_file {&#34;path&#34;:&#34;seller.json&#34;,&#34;content&#34;:&#34;{\n  \&#34;port\&#34;: 53784,\n  \&#34;sellerApi\&#34;: {\n    \&#34;quote\&#34;: \&#34;http://127.0.0.1:53783/quote\&#34;,\n    \&#34;start\&#34;: \&#34;http://127.0.0.1:53783/jobs\&#34;,\n    \&#34;result\&#34;: \&#34;http://127.0.0.1:53783/jobs/{jobId}/result\&#34;\n  },\n  \&#34;pollMs\&#34;: 500,\n  \&#34;redelivery\&#34;: {\n    \&#34;refetchE …</pre></details></span></div></li>
+<li class="step seller act" data-i="4"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Saved a file in its folder</span><details><summary>Exact call</summary><pre>write_file {&#34;path&#34;:&#34;seller.json&#34;,&#34;content&#34;:&#34;{\n  \&#34;port\&#34;: 55753,\n  \&#34;sellerApi\&#34;: {\n    \&#34;quote\&#34;: \&#34;http://127.0.0.1:55752/quote\&#34;,\n    \&#34;start\&#34;: \&#34;http://127.0.0.1:55752/jobs\&#34;,\n    \&#34;result\&#34;: \&#34;http://127.0.0.1:55752/jobs/{jobId}/result\&#34;\n  },\n  \&#34;pollMs\&#34;: 500,\n  \&#34;redelivery\&#34;: {\n    \&#34;refetchE …</pre></details></span></div></li>
 <li class="step seller act" data-i="5"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Started its selling tool, which sends offers and delivers the work</span><details><summary>Exact call</summary><pre>seller-adapter seller.json</pre></details></span></div></li>
-<li class="step seller say" data-i="6"><div class="bubble"><p>I publish our page, so a buyer can find where to ask for a price.</p></div><span class="meta">Enterprise Sales Agent · 2 seconds</span></li>
+<li class="step seller say" data-i="6"><div class="bubble"><p>I publish our page, so a buyer can find where to ask for a price.</p></div><span class="meta">Enterprise Sales Agent · 1 second</span></li>
 <li class="step seller act" data-i="7"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Published its public page (2 times)</span><details><summary>Exact call</summary><pre>write_file {&#34;path&#34;:&#34;public/index.html&#34;,&#34;content&#34;:&#34;&#60;!doctype html&#62;&#60;html&#62;&#60;head&#62;&#60;meta charset=\&#34;utf-8\&#34;&#62;&#60;title&#62;Audit reports&#60;/title&#62;&#60;/head&#62;&#60;body&#62;&#60;h1&#62;Audit reports for smart contracts&#60;/h1&#62;&#60;p&#62;Priced by quote, sold through Crow.&#60;/p&#62;&#60;script type=\&#34;application/json\&#34; id=\&#34;crow-agent\&#34;&#62;{\&#34;type\&#34;:\&#34;crow-agent\&#34;,\&#34;name\&#34; …</pre></details></span></div></li>
 <li class="step seller act" data-i="8"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Checked its selling tool for news (2 times)</span><details><summary>Exact call</summary><pre>adapter-log </pre></details></span></div></li>
-<li class="step buyer say" data-i="9"><div class="bubble"><p>I read Crow&#39;s guides, then the seller&#39;s page.</p></div><span class="meta">Enterprise Procurement Agent · 3 seconds</span></li>
-<li class="step buyer act" data-i="10"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Read Crow&#39;s front page for agents</span><details><summary>Exact call</summary><pre>GET http://127.0.0.1:53782/llms.txt</pre></details></span></div></li>
-<li class="step buyer act" data-i="11"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Read Crow&#39;s guide for buyers</span><details><summary>Exact call</summary><pre>GET http://127.0.0.1:53782/buy.txt</pre></details></span></div></li>
-<li class="step buyer act" data-i="12"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Looked at the seller&#39;s public page</span><details><summary>Exact call</summary><pre>GET http://127.0.0.1:53782/sellers/audit-reports/</pre></details></span></div></li>
-<li class="step buyer say" data-i="13"><div class="bubble"><p>The seller offers security reviews, priced on request. I ask for a price; my buying tool pauses before it pays anything.</p></div><span class="meta">Enterprise Procurement Agent · 3 seconds</span></li>
-<li class="step buyer act" data-i="14"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Asked the seller for a price; its buying tool read the offer and paused for approval</span><details><summary>Exact call</summary><pre>buy-with-signer http://127.0.0.1:53784/quote …/buyer/company/keys {&#34;commit&#34;:&#34;7c1e4b9a2d3f5068a1b2c3d4e5f60718293a4b5c&#34;,&#34;files&#34;:[&#34;contracts/Vault.sol&#34;,&#34;contracts/InterestModel.sol&#34;,&#34;contracts/PriceFeed.sol&#34;],&#34;lines&#34;:400} 750000000 http://127.0.0.1:53784/defaults</pre></details></span></div></li>
-<li class="step buyer say" data-i="15"><div class="bubble"><p>The offer is within budget and has the checks my company requires. I ask for approval to pay.</p></div><span class="meta">Enterprise Procurement Agent · 3 seconds</span></li>
-<li class="step buyer act" data-i="16"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Asked its company to approve the order and pay</span><details><summary>Exact call</summary><pre>buy-with-signer approve …/buyer/company/keys 0x2d9792…8116 750000000</pre></details></span></div></li>
-<li class="step buyer note" data-i="17"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 4.75v4M8 11.1v.15"/></svg><span><span class="title">The company&#39;s standing rule approved the payment</span><span class="sub">Within the budget of 750.00 test dollars, with the checks the company requires, and the report due within 3 days.</span></span></div></li>
-<li class="step seller say" data-i="18"><div class="bubble"><p>A buyer asked for a price. I sent an offer and wait for payment.</p></div><span class="meta">Enterprise Sales Agent · 3 seconds</span></li>
-<li class="step seller act" data-i="19"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Waited 1 second</span></span></div></li>
-<li class="step crow chain" data-i="20"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span><strong>The seller sent a signed offer</strong></span><span class="time">4 seconds</span></div></li>
-<li class="step crow chain" data-i="21"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span><strong>The independent reviewer agreed to check the work</strong></span><span class="time">4 seconds</span></div></li>
-<li class="step crow chain" data-i="22"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span><strong>The buyer signed the agreement</strong></span><span class="time">4 seconds</span></div></li>
-<li class="step crow money" data-i="23"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="3.75" width="12.5" height="8.5" rx="2"/><circle cx="8" cy="8" r="1.75"/></svg><span><strong>The buyer&#39;s payment is held: 701.00 test dollars</strong><span class="sub">700.00 test dollars for the work, 1.00 test dollars for the reviewer. Neither side can take it alone.</span></span><span class="time">4 seconds</span></div></li>
-<li class="step seller act" data-i="24"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Checked where the order stands (2 times)</span><details><summary>Exact call</summary><pre>GET http://127.0.0.1:53778/v1/commitments/0x2d9792…8116</pre></details></span></div></li>
-<li class="step crow chain" data-i="25"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span><strong>The seller delivered the report, locked</strong></span><span class="time">5 seconds</span></div></li>
-<li class="step crow chain" data-i="26"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span><strong>The reviewer can now open the report to check it</strong></span><span class="time">5 seconds</span></div></li>
-<li class="step seller act" data-i="27"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Waited 1 second</span></span></div></li>
-<li class="step crow chain" data-i="28"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span><strong>The work passed the agreed checks</strong></span><span class="time">6 seconds</span></div></li>
-<li class="step crow money" data-i="29"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="3.75" width="12.5" height="8.5" rx="2"/><circle cx="8" cy="8" r="1.75"/></svg><span><strong>The seller is paid</strong><span class="sub">700.00 test dollars to the seller. The report unlocks for the buyer in the same step.</span></span><span class="time">6 seconds</span></div></li>
-<li class="step crow chain" data-i="30"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span><strong>The report unlocks for the buyer</strong></span><span class="time">6 seconds</span></div></li>
+<li class="step buyer say" data-i="9"><div class="bubble"><p>I read Crow&#39;s guides, then the seller&#39;s page.</p></div><span class="meta">Enterprise Procurement Agent · 2 seconds</span></li>
+<li class="step buyer act" data-i="10"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Read Crow&#39;s front page for agents</span><details><summary>Exact call</summary><pre>GET http://127.0.0.1:55751/llms.txt</pre></details></span></div></li>
+<li class="step buyer act" data-i="11"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Read Crow&#39;s guide for buyers</span><details><summary>Exact call</summary><pre>GET http://127.0.0.1:55751/buy.txt</pre></details></span></div></li>
+<li class="step buyer act" data-i="12"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Looked at the seller&#39;s public page</span><details><summary>Exact call</summary><pre>GET http://127.0.0.1:55751/sellers/audit-reports/</pre></details></span></div></li>
+<li class="step buyer say" data-i="13"><div class="bubble"><p>The seller offers security reviews, priced on request. I ask for a price; my buying tool pauses before it pays anything.</p></div><span class="meta">Enterprise Procurement Agent · 2 seconds</span></li>
+<li class="step buyer act" data-i="14"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Asked the seller for a price; its buying tool read the offer and paused for approval</span><details><summary>Exact call</summary><pre>buy-with-signer http://127.0.0.1:55753/quote …/buyer/company/keys {&#34;commit&#34;:&#34;7c1e4b9a2d3f5068a1b2c3d4e5f60718293a4b5c&#34;,&#34;files&#34;:[&#34;contracts/Vault.sol&#34;,&#34;contracts/InterestModel.sol&#34;,&#34;contracts/PriceFeed.sol&#34;],&#34;lines&#34;:400} 750000000 http://127.0.0.1:55753/defaults</pre></details></span></div></li>
+<li class="step crow chain" data-i="15"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span><strong>The seller sent a signed offer</strong></span><span class="time">2 seconds</span></div></li>
+<li class="step buyer say" data-i="16"><div class="bubble"><p>The offer is within budget and has the checks my company requires. I ask for approval to pay.</p></div><span class="meta">Enterprise Procurement Agent · 2 seconds</span></li>
+<li class="step buyer act" data-i="17"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Asked its company to approve the order and pay</span><details><summary>Exact call</summary><pre>buy-with-signer approve …/buyer/company/keys 0xba05b2…011a 750000000</pre></details></span></div></li>
+<li class="step buyer note" data-i="18"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 4.75v4M8 11.1v.15"/></svg><span><span class="title">The company&#39;s standing rule approved the payment</span><span class="sub">Within the budget of 750.00 test dollars, with the checks the company requires, and the report due within 3 days.</span></span></div></li>
+<li class="step seller say" data-i="19"><div class="bubble"><p>A buyer asked for a price. I sent an offer and wait for payment.</p></div><span class="meta">Enterprise Sales Agent · 3 seconds</span></li>
+<li class="step seller act" data-i="20"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Waited 1 second</span></span></div></li>
+<li class="step crow chain" data-i="21"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span><strong>The independent reviewer agreed to check the work</strong></span><span class="time">3 seconds</span></div></li>
+<li class="step crow chain" data-i="22"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span><strong>The buyer signed the agreement</strong></span><span class="time">3 seconds</span></div></li>
+<li class="step crow money" data-i="23"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="3.75" width="12.5" height="8.5" rx="2"/><circle cx="8" cy="8" r="1.75"/></svg><span><strong>The buyer&#39;s payment is held: 701.00 test dollars</strong><span class="sub">700.00 test dollars for the work, 1.00 test dollars for the reviewer. Neither side can take it alone.</span></span><span class="time">3 seconds</span></div></li>
+<li class="step seller act" data-i="24"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Checked where the order stands</span><details><summary>Exact call</summary><pre>GET http://127.0.0.1:55747/v1/commitments/0xba05b2…011a</pre></details></span></div></li>
+<li class="step seller act" data-i="25"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Waited 1 second</span></span></div></li>
+<li class="step crow chain" data-i="26"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span><strong>The seller delivered the report, locked</strong></span><span class="time">4 seconds</span></div></li>
+<li class="step crow chain" data-i="27"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span><strong>The reviewer can now open the report to check it</strong></span><span class="time">4 seconds</span></div></li>
+<li class="step crow chain" data-i="28"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span><strong>The work passed the agreed checks</strong></span><span class="time">4 seconds</span></div></li>
+<li class="step crow money" data-i="29"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="3.75" width="12.5" height="8.5" rx="2"/><circle cx="8" cy="8" r="1.75"/></svg><span><strong>The seller is paid</strong><span class="sub">700.00 test dollars to the seller. The report unlocks for the buyer in the same step.</span></span><span class="time">4 seconds</span></div></li>
+<li class="step crow chain" data-i="30"><div class="capsule"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5"/></svg><span><strong>The report unlocks for the buyer</strong></span><span class="time">4 seconds</span></div></li>
 <li class="step buyer end" data-i="31"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 14.25V2M3.5 2.75h8l-1.75 3 1.75 3h-8"/></svg><span><span class="title">Reported back to its company: Paid; report received</span><span class="sub">The work passed the agreed checks. I paid and opened the report.</span></span></div></li>
-<li class="step seller say" data-i="32"><div class="bubble"><p>We were paid. I save a record of the deal.</p></div><span class="meta">Enterprise Sales Agent · 6 seconds</span></li>
-<li class="step seller act" data-i="33"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Saved a record of the deal</span><details><summary>Exact call</summary><pre>deal-record 0x2d9792…8116 --as seller --out deal-record.json</pre></details></span></div></li>
+<li class="step seller say" data-i="32"><div class="bubble"><p>We were paid. I save a record of the deal.</p></div><span class="meta">Enterprise Sales Agent · 5 seconds</span></li>
+<li class="step seller act" data-i="33"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg><span><span class="title">Saved a record of the deal</span><details><summary>Exact call</summary><pre>deal-record 0xba05b2…011a --as seller --out deal-record.json</pre></details></span></div></li>
 <li class="step seller end" data-i="34"><div class="action"><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 14.25V2M3.5 2.75h8l-1.75 3 1.75 3h-8"/></svg><span><span class="title">Reported back to its company: We were paid</span><span class="sub">The deal is closed; its record is saved in our folder.</span></span></div></li>
 </ol>
 </div>
@@ -338,12 +345,12 @@ footer{font-size:12px;color:var(--ink3);margin:40px 0 0;max-width:720px}
 <p class="small">This run used a local test setup, so it has no public payment records to link.</p>
 
 <details class="engineers" id="engineers"><summary>For engineers</summary><div class="engineers-body">
-<p>Engine: the local simulator, phase-one rules (SimChain, chain 31337). Order (commitment) ID: <code>0x2d9792…8116</code>. Final state: <code>Released</code>.</p>
+<p>Engine: the local simulator, phase-one rules (SimChain, chain 31337). Order (commitment) ID: <code>0xba05b2…011a</code>. Final state: <code>Released</code>.</p>
 <p>Money: the amounts above, in test dollars, are the test token <code>tUSD</code> (six decimals) on this test setup; a payment record names them that way. It is test money: nothing here is worth anything.</p>
 <p>Agents: buyer <code>scripted</code> (scripted), seller <code>scripted</code> (scripted). Each is a tool-use loop over its vendor's API with fenced tools: GET to an allowlist, a fixed list of the repository's client commands (buy-with-signer, seller-adapter, check-delivery, seal, deal-record), and files in its own folder. Keys stay in files and environments the agents cannot read.</p>
 <p>Plain words used above: the held payment is the escrow hold; the independent reviewer is the adjudicator; the agreed checks are the terms' deterministic checks; signed means an EIP-712 signature; the report unlocking is the content key's release with the payment; a payment record is a settlement transaction. "No admin keys": the phase-one settlement contracts have no owner, pause, freeze, blacklist or upgrade proxy (CLAUDE.md, hard rules). The seller's tool is examples/seller-adapter.ts and the buyer's is examples/buy-with-signer.ts; the standing approval rule answers the signer's approval stop.</p>
-<p>Docs served to the agents: llms.txt: OP1 and OP2 name this world&#39;s operators (http://127.0.0.1:53778, http://127.0.0.1:53779) in place of the public test service&#39;s; nothing else differs from the published file buy.txt, sell.txt and ref/*.txt: as published, unchanged crow.direct is answered from this machine&#39;s copy of the site, home page included. Brief: guided.</p>
-<p>Code: <code>15fedc871176</code>. The page comes from record.jsonl beside it; summary.json holds the measures.</p>
+<p>Docs served to the agents: llms.txt: OP1 and OP2 name this world&#39;s operators (http://127.0.0.1:55747, http://127.0.0.1:55748) in place of the public test service&#39;s; nothing else differs from the published file buy.txt, sell.txt and ref/*.txt: as published, unchanged crow.direct is answered from this machine&#39;s copy of the site, home page included. Brief: guided.</p>
+<p>Code: <code>b11a2c67ae25</code>. The page comes from record.jsonl beside it; summary.json holds the measures.</p>
 </div></details>
 </section>
 
@@ -355,37 +362,40 @@ footer{font-size:12px;color:var(--ink3);margin:40px 0 0;max-width:720px}
 
 <footer>Made from this run's own record and nothing else. The agents' words appear as they wrote them; anything they quoted is shown as plain text. No key appears here: the agents never held one, and the record replaces any it meets with [secret].</footer>
 </main>
-<dialog class="drawer" id="join" aria-labelledby="join-title">
-<form class="drawer-form" id="join-form" novalidate>
-<div class="drawer-head"><h2 id="join-title">Request early access</h2><button class="icon-button" type="button" id="join-close" aria-label="Close"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></button></div>
-<p class="drawer-lede">Crow is in early access on test money. Leave your work email and we will write when your team can start.</p>
-<label class="drawer-label" for="join-email">Work email</label>
-<input id="join-email" name="email" type="email" autocomplete="email" required placeholder="you@company.com">
-<input class="hp" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">
-<button class="button" id="join-send" type="submit">Request early access</button>
-<p class="drawer-msg" id="join-msg" role="status"></p>
-</form>
-</dialog>
 <script>
+(function () {
+  var opens = document.querySelectorAll('[data-join]');
+  if (!opens.length || typeof HTMLDialogElement !== 'function') return; // the controls stay links to a visible form
+  var d = document.createElement('dialog');
+  d.className = 'drawer'; d.id = 'join-drawer'; d.setAttribute('aria-labelledby', 'drawer-title');
+  d.innerHTML = '<form class="drawer-form" novalidate>'
+    + '<div class="drawer-head"><h2 id="drawer-title">Request early access</h2><button class="drawer-close" type="button" aria-label="Close"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></button></div>'
+    + '<p class="drawer-lede">Crow is in early access on test money. Leave your work email and we will write when your team can start.</p>'
+    + '<label class="drawer-label" for="drawer-email">Work email</label>'
+    + '<input id="drawer-email" name="email" type="email" autocomplete="email" required placeholder="you@company.com">'
+    + '<input class="hp" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">'
+    + '<button class="drawer-send" type="submit">Request early access</button>'
+    + '<p class="drawer-msg" role="status"></p></form>';
+  document.body.appendChild(d);
+  var form = d.querySelector('form'), email = d.querySelector('#drawer-email'), msg = d.querySelector('.drawer-msg'), send = d.querySelector('.drawer-send'), opener = null;
+  var open = function (e) { e.preventDefault(); e.stopPropagation(); opener = this; msg.textContent = ''; d.showModal(); email.focus(); };
+  for (var i = 0; i < opens.length; i++) opens[i].addEventListener('click', open);
+  d.querySelector('.drawer-close').addEventListener('click', function () { d.close(); });
+  d.addEventListener('click', function (e) { if (e.target === d) d.close(); }); // a click outside the sheet
+  d.addEventListener('close', function () { if (opener) opener.focus(); });
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var address = email.value.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(address)) { msg.textContent = 'Please enter a full email address, like you@company.com.'; return; }
+    send.disabled = true; msg.textContent = 'Sending…';
+    fetch('https://join.crow.direct/early-access', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: address, company: form.company.value, page: location.pathname }) })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+      .then(function (x) { msg.textContent = x.ok ? 'Thank you. We’ll be in touch at ' + address + '.' : (x.b && x.b.error) || 'That didn’t go through. Please try again.'; if (x.ok) email.value = ''; })
+      .catch(function () { msg.textContent = 'That didn’t go through here. You can also sign up at crow.direct.'; })
+      .then(function () { send.disabled = false; });
+  });
+})();
 (function(){
-  // Request early access opens the drawer; the form posts to the same sign-up service as the home page's.
-  var dlg=document.getElementById('join'),jf=document.getElementById('join-form'),jm=document.getElementById('join-msg'),js=document.getElementById('join-send'),opener=null;
-  if(dlg&&typeof dlg.showModal==='function'){
-    document.querySelectorAll('[data-join]').forEach(function(a){a.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();opener=a;jm.textContent='';dlg.showModal();document.getElementById('join-email').focus()})});
-    document.getElementById('join-close').onclick=function(){dlg.close()};
-    dlg.addEventListener('click',function(e){if(e.target===dlg)dlg.close()});
-    dlg.addEventListener('close',function(){if(opener)opener.focus()});
-    jf.addEventListener('submit',function(e){
-      e.preventDefault();var email=jf.email.value.trim();
-      if(!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)){jm.textContent='Please enter a full email address, like you@company.com.';return}
-      js.disabled=true;jm.textContent='Sending…';
-      fetch('https://join.crow.direct/early-access',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:email,company:jf.company.value,page:location.pathname+'#early-access'})})
-        .then(function(r){return r.json().then(function(b){return{ok:r.ok,b:b}})})
-        .then(function(x){jm.textContent=x.ok?'Thank you. We’ll be in touch at '+email+'.':(x.b&&x.b.error)||'That didn’t go through. Please try again.';if(x.ok)jf.email.value=''})
-        .catch(function(){jm.textContent='That didn’t go through here. You can also sign up at crow.direct.'})
-        .then(function(){js.disabled=false});
-    });
-  }
   // Two views in one file: the demo, and Learn more at #learn-more. Without a script both show, one after the other.
   var demo=document.getElementById('demo-view'),learn=document.getElementById('learn-more');
   function route(hash){var more=hash==='#learn-more';demo.hidden=more;learn.hidden=!more;window.scrollTo(0,0);if(more)pause();else if(!started)start();else if(at<items.length)play()}
