@@ -3,11 +3,15 @@
    its own. */
 :root { color-scheme: light;
   /* the Hasenheide palette (Rafa, 2026-11-13): oat paper, crow black and grey, Berlin pavement for the rules */
-  --page: #f3eee3; --band: #faf7f0; --ink: #2a2a2c; --ink-2: #5d5d60; --ink-3: #85837e; --line: #d6d0c4; --hair: #e6e0d5;
+  --page: #faf7f0; --band: #f3eee3; --ink: #2a2a2c; --ink-2: #5d5d60; --ink-3: #85837e; --line: #d6d0c4; --hair: #e6e0d5;
   --paid: #1d6b45; --paid-wash: #e2eee4; --warn: #b0233c; --warn-wash: #f7e1e4;
   /* one seasonal accent at a time, by the date in Berlin (Mar 1, Jun 1, Sep 1, Dec 1); a small pill, a thin rule, a
-     labelled chart series or the season's drawing only; never body text, a large area or a state */
+     labelled chart series, the season's drawing, the filled button, the eyebrow, icons and a call-to-action link; never
+     body text, a large area or a state */
   --accent-spring: #6f7a14; --accent-summer: #8f6c14; --accent-autumn: #a55a17; --accent-winter: #24466e;
+  /* this season's accent (autumn until 2026-12-01; Rafa, 2026-11-13: show it on the buttons and the home page) and
+     the text drawn on it */
+  --accent: var(--accent-autumn); --accent-ink: var(--page);
   --scrim: rgba(0, 0, 0, .28); --lift: 0 24px 64px rgba(0, 0, 0, .18); --lift-sheet: 0 -12px 40px rgba(0, 0, 0, .12);
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
   --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;

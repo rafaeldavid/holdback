@@ -471,13 +471,13 @@ h1 { font-family: var(--display); font-size: 64px; line-height: 1.04; font-weigh
 .signup .msg { flex-basis: 100%; color: var(--ink-2); font-size: var(--size-small); }
 .signup .msg:empty { display: none; }
 .hp { position: absolute; left: -10000px; width: 1px; height: 1px; opacity: 0; }
-.demo-link { display: inline-block; margin-top: 18px; font-size: 16px; font-weight: 500; text-decoration: none; }
+.demo-link { display: inline-block; margin-top: 18px; font-size: 16px; font-weight: var(--weight-strong); color: var(--accent); text-decoration: none; }
 .demo-link:hover { text-decoration: underline; }
 input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 /* the value props: all six at a glance, small and quiet, in the kit's icon stroke */
 .props { border-top: 1px solid var(--hair); padding: 40px 0 8px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px 40px; }
 .prop { display: grid; grid-template-columns: 22px 1fr; gap: 4px 12px; align-items: start; }
-.icon { grid-row: span 2; width: 22px; height: 22px; fill: none; stroke: var(--ink-2); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; margin-top: 1px; }
+.icon { grid-row: span 2; width: 22px; height: 22px; fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; margin-top: 1px; }
 .prop h2 { font-size: var(--size-small); font-weight: var(--weight-strong); letter-spacing: -.005em; }
 .prop h2 em { font-weight: 400; font-style: normal; color: var(--ink-3); }
 .prop p { font-size: 14px; line-height: 1.45; color: var(--ink-2); }

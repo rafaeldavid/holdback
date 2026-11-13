@@ -3,11 +3,15 @@
    its own. */
 :root { color-scheme: light;
   /* the Hasenheide palette (Rafa, 2026-11-13): oat paper, crow black and grey, Berlin pavement for the rules */
-  --page: #f3eee3; --band: #faf7f0; --ink: #2a2a2c; --ink-2: #5d5d60; --ink-3: #85837e; --line: #d6d0c4; --hair: #e6e0d5;
+  --page: #faf7f0; --band: #f3eee3; --ink: #2a2a2c; --ink-2: #5d5d60; --ink-3: #85837e; --line: #d6d0c4; --hair: #e6e0d5;
   --paid: #1d6b45; --paid-wash: #e2eee4; --warn: #b0233c; --warn-wash: #f7e1e4;
   /* one seasonal accent at a time, by the date in Berlin (Mar 1, Jun 1, Sep 1, Dec 1); a small pill, a thin rule, a
-     labelled chart series or the season's drawing only; never body text, a large area or a state */
+     labelled chart series, the season's drawing, the filled button, the eyebrow, icons and a call-to-action link; never
+     body text, a large area or a state */
   --accent-spring: #6f7a14; --accent-summer: #8f6c14; --accent-autumn: #a55a17; --accent-winter: #24466e;
+  /* this season's accent (autumn until 2026-12-01; Rafa, 2026-11-13: show it on the buttons and the home page) and
+     the text drawn on it */
+  --accent: var(--accent-autumn); --accent-ink: var(--page);
   --scrim: rgba(0, 0, 0, .28); --lift: 0 24px 64px rgba(0, 0, 0, .18); --lift-sheet: 0 -12px 40px rgba(0, 0, 0, .12);
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
   --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
@@ -39,7 +43,7 @@
 .ck-brand:focus-visible, .ck-nav:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 @media (max-width: 600px) { .ck-nav { display: none; } }
 /* part: button */
-.ck-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 var(--space-5); border: 0; border-radius: var(--radius-pill); background: var(--ink); color: var(--page); font: inherit; font-size: 16px; font-weight: var(--weight-strong); text-decoration: none; cursor: pointer; }
+.ck-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 var(--space-5); border: 0; border-radius: var(--radius-pill); background: var(--accent); color: var(--accent-ink); font: inherit; font-size: 16px; font-weight: var(--weight-strong); text-decoration: none; cursor: pointer; }
 .ck-btn-out { border: 1px solid var(--line); background: transparent; color: var(--ink); }
 .ck-btn-s { min-height: 34px; padding: 0 var(--space-4); font-size: 14px; }
 .ck-btn:disabled { opacity: .6; cursor: default; }
@@ -49,7 +53,7 @@
 .ck-pill-paid { border-color: transparent; background: var(--paid-wash); color: var(--paid); }
 .ck-pill-warn { border-color: transparent; background: var(--warn-wash); color: var(--warn); }
 /* part: head */
-.ck-eyebrow { margin: 0; font-size: var(--size-note); font-weight: var(--weight-strong); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+.ck-eyebrow { margin: 0; font-size: var(--size-note); font-weight: var(--weight-strong); letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
 .ck-title { margin: 14px 0 0; font-family: var(--display); font-size: var(--size-display); line-height: 1.04; font-weight: var(--weight-bold); letter-spacing: -.035em; }
 .ck-lede { margin: 12px 0 0; max-width: 600px; font-size: var(--size-lede); line-height: 1.4; color: var(--ink-2); text-wrap: balance; }
 @media (max-width: 600px) { .ck-lede { font-size: 19px; } }
@@ -111,13 +115,13 @@ h1 { font-family: var(--display); font-size: 64px; line-height: 1.04; font-weigh
 .signup .msg { flex-basis: 100%; color: var(--ink-2); font-size: var(--size-small); }
 .signup .msg:empty { display: none; }
 .hp { position: absolute; left: -10000px; width: 1px; height: 1px; opacity: 0; }
-.demo-link { display: inline-block; margin-top: 18px; font-size: 16px; font-weight: 500; text-decoration: none; }
+.demo-link { display: inline-block; margin-top: 18px; font-size: 16px; font-weight: var(--weight-strong); color: var(--accent); text-decoration: none; }
 .demo-link:hover { text-decoration: underline; }
 input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 /* the value props: all six at a glance, small and quiet, in the kit's icon stroke */
 .props { border-top: 1px solid var(--hair); padding: 40px 0 8px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px 40px; }
 .prop { display: grid; grid-template-columns: 22px 1fr; gap: 4px 12px; align-items: start; }
-.icon { grid-row: span 2; width: 22px; height: 22px; fill: none; stroke: var(--ink-2); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; margin-top: 1px; }
+.icon { grid-row: span 2; width: 22px; height: 22px; fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; margin-top: 1px; }
 .prop h2 { font-size: var(--size-small); font-weight: var(--weight-strong); letter-spacing: -.005em; }
 .prop h2 em { font-weight: 400; font-style: normal; color: var(--ink-3); }
 .prop p { font-size: 14px; line-height: 1.45; color: var(--ink-2); }

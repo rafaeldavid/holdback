@@ -402,7 +402,7 @@ a{color:inherit}
 .app{display:flex;align-items:center;gap:10px;font-weight:600;font-size:17px;color:var(--ink);text-decoration:none;line-height:1.2}.app .mark{width:30px;height:30px;flex:none}
 .spacer{flex:1}
 .navlink{font-size:14px;color:var(--ink-2);text-decoration:none}.navlink:hover{color:var(--ink)}
-.button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 22px;border-radius:999px;background:var(--ink);color:var(--page);font:inherit;font-size:16px;font-weight:600;text-decoration:none;border:1px solid var(--ink);cursor:pointer}
+.button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 22px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font:inherit;font-size:16px;font-weight:600;text-decoration:none;border:1px solid var(--accent);cursor:pointer}
 .button.quiet{min-height:34px;padding:0 16px;font-size:14px;background:transparent;color:var(--ink);border-color:var(--line)}
 .textlink{font-size:16px;font-weight:500;color:var(--ink);text-decoration:none}.textlink:hover{text-decoration:underline}
 main{max-width:1040px;margin:0 auto;padding:56px 20px 72px}
@@ -453,7 +453,7 @@ ol.run{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap
 /* Learn more: a product page. */
 .back{font-size:14px;color:var(--ink-2);text-decoration:none}
 .page-hero{max-width:720px;margin:12px 0 0}
-.eyebrow{font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-2);margin:0}
+.eyebrow{font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--accent);margin:0}
 .page-title{font-family:var(--display);font-size:48px;line-height:1.08;font-weight:700;letter-spacing:-.025em;margin:8px 0 0}
 .page-intro{font-size:20px;line-height:1.45;color:var(--ink-2);margin:14px 0 0}
 .honest{font-size:13px;color:var(--ink-3);margin:14px 0 0}
@@ -466,7 +466,7 @@ ol.run{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap
 .beat p{margin:0;font-size:18px;line-height:1.5;max-width:640px}
 .steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
 .steps li{background:var(--band);border-radius:var(--r-card);padding:22px 20px}
-.step-num{display:inline-flex;width:28px;height:28px;border-radius:999px;align-items:center;justify-content:center;background:var(--ink);color:var(--page);font-size:13px;font-weight:700}
+.step-num{display:inline-flex;width:28px;height:28px;border-radius:999px;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-ink);font-size:13px;font-weight:700}
 .steps h4,.feature h4{font-size:17px;font-weight:600;margin:14px 0 6px}
 .steps p,.feature p{margin:0;font-size:15px;color:var(--ink-2)}
 .features{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
