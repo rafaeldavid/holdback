@@ -210,6 +210,21 @@ Rafa accepted four choices for this redeploy ("Yes, all four", relayed by the co
    ```
 
    It must print `deploy-sepolia: …/contracts/deployments/sepolia.json matches the chain and the build at <the frozen commit>` [measured on anvil: 2.1 to 2.8 s]. If it fails on the token (`the record's token is …, but Crow's operators accept …`), step 3.1 did not run or did not pass.
+
+   **How `--check` compares the code on the chain** [measured by reading the script]. It does not hash the deployed runtime code. Instead:
+   - each creation transaction's input must equal this build's creation code plus the record's constructor arguments;
+   - the beacon's deployed code must equal, byte for byte, the runtime code its creation code returns;
+   - Multicall3's code hash must equal the canonical one.
+
+   **To compare the deployed runtime code with the freeze's figures** (step 0.1.2), zero the immutables first. The deployed code holds the immutables' values where the build artifact has zeros, so neither figure equals the deployed code's own hash (`extcodehash`). Zero the byte ranges the artifact lists in `deployedBytecode.immutableReferences`, cut the metadata tail by its CBOR length, then take SHA-256. The method is in [`audit/test-quality.md`](audit/test-quality.md), "Runtime code". In bash, from the cutover worktree after the deploy:
+
+   ```bash
+   onchain_hash() { local art="$1" addr="$2" code body n s l; code=$(cast code "$addr" --rpc-url https://ethereum-sepolia-rpc.publicnode.com); body=${code#0x}; while read -r s l; do [ -n "$s" ] || continue; body="${body:0:$((s*2))}$(printf '%0*d' $((l*2)) 0)${body:$(((s+l)*2))}"; done < <(jq -r '.deployedBytecode.immutableReferences // {} | .[][] | "\(.start) \(.length)"' "$art"); n=$((16#${body: -4})); body=${body:0:$((${#body}-(n+2)*2))}; echo "$addr $((${#body}/2)) bytes $(printf '%s' "$body" | xxd -r -p | shasum -a 256 | cut -d' ' -f1)"; }
+   onchain_hash contracts/out/HoldbackRules.sol/HoldbackRules.json "$(jq -r .rules contracts/deployments/sepolia.json)"
+   onchain_hash contracts/out/DrandQuicknetBeacon.sol/DrandQuicknetBeacon.json "$(jq -r .beacon contracts/deployments/sepolia.json)"
+   ```
+
+   It must print `20449 bytes 545f80b56390f540e5a98d715c7a436914af83d3653bf458d14c380ff53b0c47` and `3216 bytes 3a8c11c6bc2940b404c417b538bdd6a40c431717c4d32e62dfa5ab3479e38c96` [measured on anvil, T-383, on contracts the deploy script deployed from the same `contracts/src`; the raw `extcodehash` of the same rules contract was another value, as T-352's caution says].
 3. **Verify the source on Sourcify,** the pilot's explorer verification: no key, no account, no newer tool (the coordinator's decision, 2026-11-12). It runs the same check, then `forge verify-contract` for the five contracts with the record's constructor arguments, each built from the compiler's own source set. Leave `ETHERSCAN_API_KEY` unset: the Etherscan mode **needs a key and a newer forge; not run**, and the pinned forge is not raised before the freeze, because the compiler setup is part of what the audit reads.
 
    ```sh
@@ -402,8 +417,48 @@ It must print `results: 12 pass`: the price reaches the seller's payout address,
 
 3. **Run the one command as a stranger would:** copy it from the section "Try it" of `https://crow.direct/llms.txt` into an empty folder and run it. It must end `Released`.
 4. Read `https://crow.direct/llms.txt`: the pinned domain and deployment are the new ones.
+5. **Five checks of the live site** (the coordinator, 2026-11-13). Each runs from the cutover worktree, at the `main` commit the site was deployed from, so the expected values are computed there on the day, not copied from this page. Each must give the answer shown:
+   1. **The two scripts are the deployed commit's, and their install lines carry their hashes.** `buy.mjs` and `try.mjs` served at crow.direct hash to the worktree's files, and that SHA-256 appears in the home page's try command and in `buy.txt`'s install line:
 
-**It must show:** the script's line says `pass`; the stranger's deal ends `Released` with its Etherscan links.
+      ```bash
+      for f in try.mjs buy.mjs; do want=$(shasum -a 256 site/$f | cut -d' ' -f1); got=$(curl -fsS https://crow.direct/$f | shasum -a 256 | cut -d' ' -f1); echo "$f $([ "$want" = "$got" ] && echo same || echo DIFFERS) $want"; done
+      curl -fsS https://crow.direct/ | grep -c "$(shasum -a 256 site/try.mjs | cut -d' ' -f1)"
+      curl -fsS https://crow.direct/buy.txt | grep -c "$(shasum -a 256 site/buy.mjs | cut -d' ' -f1)"
+      ```
+
+      Both files print `same`, and each count is at least `1`. On the lane at `cc0a7ef` the two hashes were `try.mjs` `76abdebb…3c9c` and `buy.mjs` `0c8ca257…1a25` [measured]; the record's copies change them.
+   2. **The demo page serves, and its links resolve** (PR 459 and later):
+
+      ```bash
+      curl -s -o /dev/null -w '%{http_code}\n' https://crow.direct/demo
+      curl -fsSL https://crow.direct/demo | grep -oE 'href="(https?://|/)[^"#]*' | cut -d'"' -f2 | sort -u | while read -r u; do case "$u" in /*) u="https://crow.direct$u" ;; esac; echo "$(curl -s -o /dev/null -L -w '%{http_code}' "$u") $u"; done
+      ```
+
+      The first prints `200` or a redirect to `/demo/`; every link line starts with `200`.
+   3. **A path that does not exist returns the 404 page with status 404,** if PR 466 has merged by the freeze. T-391's session inferred this from `apps/site/wrangler.jsonc` (`not_found_handling: 404-page`) and has not seen it live:
+
+      ```bash
+      curl -s -o /dev/null -w '%{http_code}\n' "https://crow.direct/no-such-page-$(date +%s)"
+      ```
+
+      It prints `404`. Without PR 466, write down what it prints.
+   4. **The live home page is at most 8,000 bytes, and its first 600 bytes point to `/llms.txt`** (PR 465; `site/check.mjs` asserts both at build time):
+
+      ```bash
+      curl -fsS https://crow.direct/ | wc -c
+      curl -fs https://crow.direct/ | head -c 600 | grep -c '/llms.txt'
+      ```
+
+      The first prints at most `8000`; the second at least `1`.
+   5. **The live guides are the deployed commit's** (the short guides, PRs 444, 448, 462, 468 and 469). The site deploy builds them into `reports/site-out`:
+
+      ```bash
+      for f in llms.txt buy.txt sell.txt; do curl -fsS https://crow.direct/$f | cmp -s - reports/site-out/$f && echo "$f same" || echo "$f DIFFERS"; done
+      ```
+
+      Each prints `same`.
+
+**It must show:** the script's line says `pass`; the stranger's deal ends `Released` with its Etherscan links; the five checks of step 9.5 give their answers.
 **Time:** the live check is at most 120 s [measured by reading].
 **Rollback:** `npx wrangler@4 rollback <crow-site version from step 0.8> --name crow-site`, and only together with the operators and the test agents: the old command works only against the old world.
 
