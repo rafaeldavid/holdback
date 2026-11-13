@@ -97,3 +97,11 @@ c85147df56fd5e69dbb18cc8d750068e4ed11791:tests/metrics/fixtures/deal-once.events
 c85147df56fd5e69dbb18cc8d750068e4ed11791:tests/metrics/fixtures/deal-once.events.json:generic-api-key:186
 c85147df56fd5e69dbb18cc8d750068e4ed11791:tests/metrics/fixtures/discovery.json:generic-api-key:26
 c85147df56fd5e69dbb18cc8d750068e4ed11791:tests/metrics/fixtures/discovery.json:generic-api-key:83
+# False positives: the public Sepolia address of Commerce Payments' token store implementation, keyed
+# `tokenStoreImplementation`, in the phase-one deployment record of 2026-11-13, the kept record of 2026-11-04 and the
+# new record's two pinned copies, all in the cutover's commit. The same kind of line as c33af95's and e444e08's
+# entries above, with the new addresses. Allowed by Rafa on 2026-11-13.
+3a9d04260c21a9197e0b5ce16912f08137ec7606:contracts/deployments/sepolia.json:generic-api-key:45
+3a9d04260c21a9197e0b5ce16912f08137ec7606:contracts/deployments/sepolia-2026-11-04T0830Z-domain-0.7.json:generic-api-key:47
+3a9d04260c21a9197e0b5ce16912f08137ec7606:examples/deployments.ts:generic-api-key:89
+3a9d04260c21a9197e0b5ce16912f08137ec7606:site/try.mjs:generic-api-key:60
