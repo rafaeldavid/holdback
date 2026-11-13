@@ -130,7 +130,7 @@ All figures are at `c629d06`, from 2026-11-12 18:22 UTC (the commit) to 2026-11-
 | --- | --- | --- |
 | Unchanged from `main`'s list | 92 | the lines whose text did not change |
 | Retargeted | 22 | 17 here, 5 by T-380 in the lane's `mutants.json` (M013, M027, M028, M040, M112): the same mutant on the line's new text |
-| Retired | 65 | code the lane deleted, each with its reason in the file: bonds (23 mutants), party appeals (25), the second funding path (3), expireOffer (2), the sim beacon in `src/` (2), the money helpers (2), lines the cuts removed (8) |
+| Retired | 65 | code the lane deleted, each with its reason in the file: the bonds (29 mutants: B01 to B18 and 11 bond lines in `HoldbackRules.sol`), party appeals (24), the second funding path (3), the offer's expiry on chain (2), the sim beacon in `src/` (2), the money helpers (2), and payout and fee-share lines the cuts removed (3) |
 | New | 41 | 39 here (L001 to L041 without L025 and L027, which repeated T-380's M140 and M141), and M140 and M141 by T-380 |
 | **Run** | **155** | |
 
@@ -229,7 +229,7 @@ Both tools ran with the commands of `docs/reviews/2026-11-11-static-analysis.md`
 
 ### Runtime code: c629d06 against the freeze commit
 
-`reports/scratch/t-352/runtime-hashes.mjs` builds `contracts/src/` alone at each commit with `bytecode_hash = "none"` and `cbor_metadata = false`, and hashes each contract's `deployedBytecode` with `cast keccak` [measured, 56 s per commit]:
+`node contracts/scripts/runtime-hashes.mjs c629d06 0180a39` builds `contracts/src/` alone at each commit with `bytecode_hash = "none"` and `cbor_metadata = false`, and hashes each contract's `deployedBytecode` with `cast keccak` [measured, 56 s per commit]:
 
 | Contract | `c629d06` | `0180a39` (freeze) | Bytes |
 | --- | --- | --- | --- |

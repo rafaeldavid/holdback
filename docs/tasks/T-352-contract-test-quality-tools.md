@@ -119,4 +119,9 @@ node contracts/scripts/mutate.mjs --list contracts/scripts/mutants-lane.json --s
 **CI (not this task's: `.github/`).** A nightly job could run `node contracts/scripts/mutate.mjs --quick` (about 1 h) and `node contracts/scripts/coverage.mjs` (about 4 min) on the lane. It needs the same three submodule commands as the contracts job and Foundry 1.0.0, and it should upload `reports/scratch/t-352/` as an artifact. Pull-request CI should not run either tool.
 
 **Open.**
+- **For `packages/core` (not this task's paths):** pin the two role digests of `RoleVectors.t.sol` in `packages/core/src/eip712.vectors.test.ts` too:
+  - the fallback's `0x36a53f5e00f8667a82cdb7589237528a96cdfcdc1bebccf3bbbd1224ffdd191b`;
+  - the appeal's `0xdf36cfedd8b2ecad09dff2144b173ca11491141f45abc74f76e25a368cb03a27`.
+
+  Each is the example decision with only `role` changed. Then the repo itself shows they come from core; today only the test's comment says so.
 - The runtime hashes differ from T-384's figures for the same commits. Both methods find `c629d06` and `0180a39` equal. The difference is in how each built and hashed the code [inferred], and the coordinator may ask T-384 for its method.

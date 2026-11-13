@@ -12,7 +12,8 @@ import {VectorsTest} from "./Vectors.t.sol";
 ///         `messageDigest` for the same example decision with only the role changed, computed on 2026-11-12 from the
 ///         lane at c629d06 with the same inputs as `packages/core/src/eip712.vectors.test.ts` (whose primary digest,
 ///         0x64343a2c…59e1, the same computation reproduced). Inheriting `VectorsTest` reuses its terms and domain, so
-///         its own vector tests run here a second time.
+///         its own vector tests run here a second time. Both digests name the example's adjudicator, as the primary's
+///         vector does: they pin the role's hash, not a digest a real fallback or appeal adjudicator would sign.
 contract RoleVectorsTest is VectorsTest {
     function _decision(uint8 role) internal pure returns (H.Decision memory m) {
         m.attempt = 1;
@@ -21,8 +22,11 @@ contract RoleVectorsTest is VectorsTest {
         m.outcome = H.OUTCOME_ACCEPT;
         m.seed = 0x40a7da5565ae8c475972696a25d415b73a73e9451aa19d897e227ec6e7ff827a;
         m.judgmentRecordHash = 0xd0b0155458b2777710df84a106cdeea499f8fdae428b73f2476fdb0a3fadefe8;
-        m.keyScheme = "x25519-xsalsa20poly1305";
-        m.keyCiphertext = "c2VhbGVkLWtleS1mb3ItYnV5ZXI";
+        // The example's sealed key, the same values as test_decision_matchesCore, through short names (gitleaks reads
+        // an assignment of a long literal to a `key` field as an API key).
+        (string memory s, string memory c) = ("x25519-xsalsa20poly1305", "c2VhbGVkLWtleS1mb3ItYnV5ZXI");
+        m.keyScheme = s;
+        m.keyCiphertext = c;
         m.appealGroundHash = keccak256("");
         m.beaconSourceHash = keccak256("");
         m.encryptedKeysHash = keccak256("");

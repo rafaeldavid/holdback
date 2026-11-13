@@ -16,20 +16,15 @@ contract MutationGapsTest is Base {
     // ------------------------------------------------------------ agreeAndFund: the hold's size
     // M005 and M006, the acceptance's and the agree's expiries, are AgreeAndFundExpiry.t.sol (holdback PR 358).
 
-    /// M020: a hold of exactly 2^120 - 1 base units, CPP's largest, is representable (D31: any value the encoding can
-    /// represent). The test asserts only that the call is not refused as unrepresentable.
-    function test_agreeAndFund_aHoldAtTheLargestRepresentableAmountIsRepresentable() public {
+    /// M020: a hold of exactly 2^120 - 1 base units, CPP's largest, funds (D31: any value the encoding can represent).
+    /// Phase one has no bond that the price could outgrow, so the deal is Held and the escrow holds the whole amount.
+    function test_agreeAndFund_fundsAHoldAtTheLargestRepresentableAmount() public {
         H.Terms memory t = _terms();
         t.price = uint256(type(uint120).max) - FEE;
         usdc.mint(t.buyerPaymentAddress, t.price + FEE);
-        bytes memory sellerSig = _sellerSig(t, SELLER_PK);
-        H.Acceptance memory acc = _acceptance(t, ADJ_PK);
-        H.Agree memory ag = _agree(t, BUYER_PK);
-        H.Funding memory f = _erc3009(t, BUYER_PK);
-        try rules.agreeAndFund(t, sellerSig, acc, ag, f) {}
-        catch (bytes memory reason) {
-            assertTrue(bytes4(reason) != IHoldbackRules.Unrepresentable.selector, "2^120 - 1 is representable");
-        }
+        bytes32 id = _fund(t);
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Held));
+        assertEq(_held(t), uint256(type(uint120).max));
     }
 
     /// The other side of M020's boundary: one base unit more is refused as unrepresentable.

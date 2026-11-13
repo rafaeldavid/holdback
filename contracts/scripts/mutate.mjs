@@ -83,8 +83,13 @@ function loadList(path) {
   const base = loadList(join(dirname(path), own.inherit));
   const retired = own.retired ?? {};
   const redefined = new Map(own.mutants.map((m) => [m.id, m]));
-  const unknown = [...Object.keys(retired), ...redefined.keys()].filter((id) => !base.some((m) => m.id === id) && !/^L/.test(id));
-  if (unknown.length) fail(`${path}: retires or redefines ids its base does not have: ${unknown.join(', ')}`);
+  const inBase = (id) => base.some((m) => m.id === id);
+  const unknownRetired = Object.keys(retired).filter((id) => !inBase(id));
+  if (unknownRetired.length) fail(`${path}: retires ids its base does not have: ${unknownRetired.join(', ')}`);
+  const both = Object.keys(retired).filter((id) => redefined.has(id));
+  if (both.length) fail(`${path}: both retires and redefines ${both.join(', ')}; do one`);
+  const unknownRedefined = [...redefined.keys()].filter((id) => !inBase(id) && !/^L/.test(id));
+  if (unknownRedefined.length) fail(`${path}: redefines ids its base does not have: ${unknownRedefined.join(', ')}`);
   const merged = base.filter((m) => !(m.id in retired)).map((m) => redefined.get(m.id) ?? m);
   const added = own.mutants.filter((m) => !base.some((b) => b.id === m.id));
   return [...merged, ...added];
@@ -143,6 +148,7 @@ if (args.check) {
     const at = text.indexOf(m.find);
     if (at < 0) where.missing.push(m.id);
     else if (text.indexOf(m.find, at + 1) >= 0) where.twice.push(m.id);
+    else if (m.replace === m.find) where.missing.push(`${m.id} (replace equals find: no change)`);
     else where.applies.push(`${m.id} ${m.file}:${text.slice(0, at).split('\n').length}`);
   }
   log(`check of ${chosen.length} mutants from ${listPath} against ${label}:`);
@@ -235,13 +241,22 @@ const failures = (out) => ({
 const compiledSomething = (out) => /Compiling \d+ files? with/.test(out) && /Compiler run successful/.test(out);
 
 // Results and the report, written after every mutant and before any stop.
-const meta = { label, commit, srcHash, testsHash, build, fuzzSeed: FUZZ_SEED };
+const meta = {
+  label,
+  commit,
+  srcHash,
+  testsHash,
+  build,
+  fuzzSeed: FUZZ_SEED,
+  list: basename(listPath),
+  matchTest: matchTest ?? null,
+};
 let previous = {};
 if (args.resume && existsSync(resultsPath)) {
   const old = JSON.parse(readFileSync(resultsPath, 'utf8'));
-  const same = ['srcHash', 'testsHash', 'build', 'fuzzSeed'].every((k) => old.meta?.[k] === meta[k]);
+  const same = ['srcHash', 'testsHash', 'build', 'fuzzSeed', 'list', 'matchTest'].every((k) => (old.meta?.[k] ?? null) === meta[k]);
   if (!same) {
-    fail(`--resume: ${resultsPath} was recorded on other source or tests, another build or another seed; run without --resume`);
+    fail(`--resume: ${resultsPath} was recorded on other source or tests, another build, seed, list or test filter; run without --resume`);
   }
   previous = old.results ?? {};
 }
@@ -271,7 +286,9 @@ const report = () => {
     '',
     `${rows.length} mutants: ${count('killed')} killed, ${count('survived')} survived the ${build} run, ${count('not-compiled')} not compiled, ${count('stale')} stale, ${count('timeout')} timed out, ${count('error')} errors. Score ${scored ? ((100 * count('killed')) / scored).toFixed(1) : 'n/a'}% of the ${scored} that compiled and ran. After the full build: ${finalSurvivors} survive.`,
     '',
-    'Survivors of the main run ran again on the full build with every test, the side-by-side test included; that verdict is the "Full build" column.',
+    matchTest
+      ? `Only the tests matching \`${matchTest}\` ran (--match-test), and survivors got no full-build pass.`
+      : 'Survivors of the main run ran again on the full build with every test, the side-by-side test included; that verdict is the "Full build" column.',
     '',
     '| Mutant | Verdict | Where | Change | Killed by | Full build | Seconds |',
     '| --- | --- | --- | --- | --- | --- | --- |',
