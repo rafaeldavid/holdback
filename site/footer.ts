@@ -21,14 +21,13 @@ export const CODE_URL = 'https://github.com/rafaeldavid/holdback';
 
 /**
  * The footer (T-402; Rafa 2026-11-13: simple, little content): Crow, three links to pages that exist and, on the home
- * page, the copy-the-prompt button; then the legal line, the tagline and the "Testing Now Live" pill. `current` marks
+ * page, the copy-the-prompt button; then the legal line and the tagline (Rafa dropped the pill, 2026-11-13). `current` marks
  * the page's own link; `agents` follows the links; `after` follows the bar.
  */
 export const footerHtml = (o: { base: string; current?: 'demo'; agents?: string; after?: string }): string =>
   footer({
     home: o.base,
     tagline: TAGLINE,
-    pill: 'Testing Now Live',
     legal: '© 2026 Crow',
     links: [
       { href: `${o.base}demo/`, label: 'Demo', current: o.current === 'demo' },

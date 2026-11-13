@@ -9,7 +9,7 @@ export declare function icon(name: 'chevron' | 'close'): string;
 type Link = [href: string, label: string];
 export declare function headerBar(o: { home: string; name?: string; links?: Link[]; button?: { label: string; href: string } }): string;
 export type FooterLink = { href: string; label: string; current?: boolean; attrs?: string };
-export declare function footer(o: { home: string; name?: string; tagline: string; pill: string; legal: string; links: FooterLink[]; extraHtml?: string; afterHtml?: string }): string;
+export declare function footer(o: { home: string; name?: string; tagline: string; pill?: string; legal: string; links: FooterLink[]; extraHtml?: string; afterHtml?: string }): string;
 export declare function button(o: { label: string; href?: string; type?: string; variant?: 'filled' | 'outlined'; size?: 'tall' | 'compact'; attrs?: string }): string;
 export declare function pill(o: { label: string; tone?: 'neutral' | 'paid' | 'warn' }): string;
 export declare function sectionHead(o: { eyebrow?: string; title: string; lede?: string; level?: number }): string;

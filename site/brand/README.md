@@ -42,7 +42,7 @@ Each component has a fixed anatomy. A page places a part where it wants it; it n
 
 **2. Footer** (`footer`)
 - For: the foot of every page, short and quiet; it sits at the window's foot when the page is short.
-- Anatomy: one row (mark and name, then a few links and at most one control), then a slim bar (legal line, tagline, pill).
+- Anatomy: one row (mark and name, then a few links and at most one control), then a slim bar (legal line, tagline, and an optional pill; the site shows none).
 - Variants: none. A link may be marked current.
 - States: links darken on hover and show the focus ring; the current link is ink and strong. On a phone the links wrap and each is 44 px tall.
 - Do not: link to a page that does not exist, repeat the page's own call to action, or grow it into columns of links.

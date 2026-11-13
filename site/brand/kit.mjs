@@ -50,12 +50,12 @@ ${links.map(([href, label]) => `<a class="ck-nav" href="${esc(href)}">${esc(labe
 
 /**
  * 2. Footer: one row (the mark and the name, then a few links and at most one control), then a slim bar with the
- * legal line, the tagline and one pill. A link may be marked current; `afterHtml` follows the bar.
+ * legal line, the tagline and, optionally, one pill. A link may be marked current; `afterHtml` follows the bar.
  */
 export const footer = ({ home, name = 'Crow', tagline, pill, legal, links = [], extraHtml = '', afterHtml = '' }) => `<footer class="ck-foot">
 <div class="ck-foot-row"><a class="ck-brand" href="${esc(home)}"><span class="ck-mark" aria-hidden="true"></span>${esc(name)}</a>
 <nav class="ck-foot-nav" aria-label="Footer">${links.map((l) => `<a href="${esc(l.href)}"${l.current ? ' aria-current="page"' : ''}${l.attrs ? ` ${l.attrs}` : ''}>${esc(l.label)}</a>`).join('')}${extraHtml}</nav></div>
-<div class="ck-foot-bar"><span>${esc(legal)} · ${esc(tagline)}</span>${pillHtml({ label: pill })}</div>${afterHtml ? `\n${afterHtml}` : ''}
+<div class="ck-foot-bar"><span>${esc(legal)} · ${esc(tagline)}</span>${pill ? pillHtml({ label: pill }) : ''}</div>${afterHtml ? `\n${afterHtml}` : ''}
 </footer>`;
 
 /** 3. Button: a link when it has an href, else a button. Filled or outlined; tall (48 px) or compact (34 px). */

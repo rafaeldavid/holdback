@@ -135,7 +135,7 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       expect(page).toMatch(/This run: code <code>[0-9a-f]+<\/code>/);
       expect(readerText(page)).not.toMatch(/SimChain/);
       expect(page).toContain('<footer class="ck-foot">');
-      expect(page).toContain('Testing Now Live');
+      expect(page).not.toContain('Testing Now Live'); // Rafa, 2026-11-13: the pill left the footer
       expect(page).not.toContain("Made from this run's own record");
       expect(page).toContain('<meta property="og:title" content="Crow · Watch two agents close a deal">');
       if (name === 'refund') expect(page).toContain('would have held this one back');
