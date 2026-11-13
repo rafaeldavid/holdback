@@ -33,7 +33,7 @@ The sources are the two inventories of 2026-11-13: `reports/docs-inventory-2026-
 - From the first read only: `SECURITY.md`, `docs/PRD.md`, `docs/judgment-and-defenses.md`, `docs/quickstart.md`, `docs/team.md`, `docs/audit/state-model.md`, `fixtures/README.md`, `tools/sim/README.md`. Each is checked first; a row already true on `main` is closed with that reason.
 - Reported, not edited (the site's owner fixes them): `site/ref/http-seller.txt` and `site/ref/http.txt` (values to replace with pointers), `site/ref/http-buyer.txt` (the agree-and-fund example sends `operatorFeeNonce` at fee 0).
 
-**Generated pages (PR 3):** `tools/design-map/template.html`; the contract stack's inputs (`tools/contract-stack/plain.json`, the findings' status, the smoke deal's gas). Pages: the design map `https://claude.ai/artifact/4nAPcSGQz6nL5mb8AuDhd2`, the contract stack `https://claude.ai/artifact/74UsLdCNQERZYrDiE5F9tj`.
+**Generated pages (PR 3):** `tools/design-map/template.html`; the contract stack's inputs (`tools/contract-stack/plain.json`, the findings' status, the smoke deal's gas). Pages: the design map and the contract stack, each republished at its existing private artifact (the URLs are in `.claude/commands/map.md` and the private log).
 
 **Runbook split (PR 4):** `docs/cutover-phase-one.md`, a new redeploy runbook, and the pointers to it.
 

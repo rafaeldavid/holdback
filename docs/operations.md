@@ -116,7 +116,9 @@ Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wra
 
 **What the Sepolia world needs before any Worker flips:** `contracts/deployments/sepolia.json` on main (T-206; the build embeds it), its copy in `examples/deployments.ts`, the relayer secret on holdback-op1 (above), and Sepolia ETH on the funding lane. On its first passes the world checks the RPC and the contract, then tops up the deal lanes. It bonds no one: the phase-one contracts have no bond vault (ADR-0031 §8).
 
-**A redeploy of the contracts** follows the redeploy runbook, drawn from the phase-one cutover of 2026-11-13 (its dated record is [`cutover-phase-one.md`](cutover-phase-one.md)).
+**A redeploy of the contracts** follows `docs/cutover-phase-one.md`, the checklist the cutover of 2026-11-13 ran; a reusable redeploy runbook drawn from it is T-398 part 4.
+
+**A rollback to SimChain** follows the procedure of the 2026-11-03 cutover (the Deploy record, T-213, "Rollback"): set `SETTLEMENT` back to `sim` on both wrangler files and run `pnpm demo-cloud:deploy`, then deploy the previous site build.
 
 **Watching it:** `/v1/status` reports `settlement: {kind: "chain", chainId: …}` with the record's chain and the domain's `verifyingContract`; discovery's notes name the contracts, the funding lane and the explorer, and `demo.relayer` lists the funding lane and the deal lanes. Relayer balances are public on Etherscan. When a lane runs out of gas, writes on it answer `relay_refused` (the signed message stays valid elsewhere) and the faucet stops minting; top up the funding lane. Each money step waits for a block, so a test deal takes about a minute; a write that waits more than three minutes for its receipt answers 500. If its transaction lands later, T-219's in-flight row and T-218's log sync bring the operators' view of that deal up within a pass (live since T-220's deploy; the chain, not the view, holds the money).
 
@@ -210,8 +212,8 @@ The phase-one contracts are deployed on Ethereum Sepolia, a public testnet whose
 - **Check it.** `contracts/script/deploy-sepolia.sh --check <rpc-url>` deploys nothing and is read-only. It runs the same checks from the recorded addresses and the checkout's build. It ties each address to the transaction that created it. Then it fails unless the record it derives equals `contracts/deployments/sepolia.json`. Run it from a checkout whose build inputs equal the recorded commit's. Every check fails closed: an RPC error is a failure, never a pass.
 - **Rehearse first** on a fork: `anvil --fork-url <sepolia-rpc> --fork-block-number <a recent block> --hardfork prague`. Without `--hardfork prague` the fork lacks EIP-2537 and the beacon check fails.
 - **The deployer.** A throwaway key, whose address is in the JSON. It sits in an encrypted Foundry keystore at `~/.foundry/keystores/`, outside the repository, with its password in a 0600 file next to it. It only pays gas. Never print the key or the password, and never put either in `.env*`.
-- **Source verification.** `contracts/script/deploy-sepolia.sh --verify <rpc-url>` runs `--check` first, then publishes each contract's source with the recorded constructor arguments: on Sourcify always, with no key, and on Etherscan too when `ETHERSCAN_API_KEY` is in the environment (T-383). Forge 1.0.0 could not read Sourcify's answer on 2026-11-13; the phase-one deployment was verified through Sourcify's v2 API instead (the cutover entry, above). The deployment of 2026-11-04 is not verified. The JSON records the commit and compiler settings, so anyone can rebuild and compare the bytecode.
-- **Redeploying.** A contract fix ships as a new deployment that new deals opt into. Deals already open keep the contracts they started with. Deploying again, to Sepolia or anywhere else, is a gate (below), and follows the redeploy runbook.
+- **Source verification.** `contracts/script/deploy-sepolia.sh --verify <rpc-url>` runs `--check` first, then publishes each contract's source with the recorded constructor arguments: on Sourcify always, with no key, and on Etherscan too when `ETHERSCAN_API_KEY` is in the environment (T-383). Forge 1.0.0 could not read Sourcify's answer on 2026-11-13; the phase-one deployment was verified through Sourcify's v2 API instead (the phase-one cutover, below in the Deploy record). The deployment of 2026-11-04 is not verified. The JSON records the commit and compiler settings, so anyone can rebuild and compare the bytecode.
+- **Redeploying.** A contract fix ships as a new deployment that new deals opt into. Deals already open keep the contracts they started with. Deploying again, to Sepolia or anywhere else, is a gate (below), and follows `docs/cutover-phase-one.md` until a reusable runbook replaces it.
 - **Earlier deployments** keep their records beside `sepolia.json` under dated names (`sepolia-<date>-domain-<version>.json`). To check one, copy it over `sepolia.json` in a checkout at its `commit` and run `deploy-sepolia.sh --check`. The dated record below says when each went live.
 
 ## Costs
@@ -363,6 +365,12 @@ All three deploys below ran on Rafa's go-ahead, or by Rafa himself, on 2026-11-1
 
 **Site deploy 2026-11-11 15:04 UTC, commit `488f30a` on a detached HEAD: pass.** crow-site `a3fd2ab0-efb9-4d63-af16-659083754387` (rollback target `6094a438-4ada-4826-861f-10f6d99f4ad4`). Only `/llms.txt` changed: T-323's line on report mappings.
 
+### T-239: the test buyer (deployed 2026-11-11)
+
+**Test seller deploy 2026-11-11 15:16 UTC, commit `7103cdf`: pass.** crow-test-agents `830eb7e1-9c6d-4892-a153-97b87bf17faa` (rollback target `545afdd8-1e1c-40ff-aa35-2eea83d9ec0e`). This deploy put the test buyer live. The first seller-started deal, `0xd298b3da40a61685ff5903284131607582b9b05dc41a14fa78401facf25c687a`, ended Released (T-239 Evidence) [measured].
+
+**Test seller deploy 2026-11-11 15:45 UTC, commit `69c783b`: pass.** crow-test-agents `6d3b1cb7-dcd3-4ad9-81b8-7042693b9d21` (rollback target `830eb7e1-9c6d-4892-a153-97b87bf17faa`). It carries PR 313's review fixes to the test buyer. A seller-started deal against it, `0xe855a9baf0c72677e92bced214abaa0f62b9b9bf4f993fc051e14e3e5e549b01`, ended Released on Sepolia [measured].
+
 ### T-318 to T-321: the seller adapter, the buyer signer and the audit-deal docs (site deployed 2026-11-11)
 
 **Site deploy 2026-11-11 09:28 UTC, commit `be19adc` on a detached HEAD: pass.** crow-site `6094a438-4ada-4826-861f-10f6d99f4ad4` (rollback target `33f0658b-1a40-4b2e-8f4a-904359d131ff`).
@@ -384,12 +392,6 @@ Checks on the live service after the deploy (measured):
 - Discovery on both nodes states `limits.maxCiphertextBytes` 1048576 (1 MiB) and `demo.faucet.maxGrant` 1000000000000 base units (1,000,000 tUSDC).
 - `POST /v1/faucet` with `"amount": "2005710000"` for a fresh address answered 200 with a balance of 2005710000 base units (2,005.71 tUSDC).
 - `https://crow.direct/llms.txt` has the section "Writing checks for a report".
-
-### T-239: the test buyer (deployed 2026-11-11)
-
-**Test seller deploy 2026-11-11 15:16 UTC, commit `7103cdf`: pass.** crow-test-agents `830eb7e1-9c6d-4892-a153-97b87bf17faa` (rollback target `545afdd8-1e1c-40ff-aa35-2eea83d9ec0e`). This deploy put the test buyer live. The first seller-started deal, `0xd298b3da40a61685ff5903284131607582b9b05dc41a14fa78401facf25c687a`, ended Released (T-239 Evidence) [measured].
-
-**Test seller deploy 2026-11-11 15:45 UTC, commit `69c783b`: pass.** crow-test-agents `6d3b1cb7-dcd3-4ad9-81b8-7042693b9d21` (rollback target `830eb7e1-9c6d-4892-a153-97b87bf17faa`). It carries PR 313's review fixes to the test buyer. A seller-started deal against it, `0xe855a9baf0c72677e92bced214abaa0f62b9b9bf4f993fc051e14e3e5e549b01`, ended Released on Sepolia [measured].
 
 ### Crow Control, the founders' console (moved to control.crow.direct on 2026-11-11)
 

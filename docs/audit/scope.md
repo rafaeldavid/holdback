@@ -156,8 +156,8 @@ Every review below was run by AI model sessions. T-206 names an external audit a
 | The drand verifier review (T-343), with finding X-1 on the rules contract's rounds | `ed6ec36` on `main` | [`2026-11-11-drand-verifier-review.md`](../reviews/2026-11-11-drand-verifier-review.md) |
 | The drand verifier's second-family read (T-353) | `5a90dc5` | [`2026-11-11-drand-verifier-second-read.md`](../reviews/2026-11-11-drand-verifier-second-read.md) |
 | Static analysis (T-339): Slither and Aderyn | `1430f77` | [`2026-11-11-static-analysis.md`](../reviews/2026-11-11-static-analysis.md) |
-| The phase-one whole-diff review (T-388, package R11, review 1) | `0180a39`, the commit named for the freeze, against `64be1f1` | [`2026-11-12-phase-one-whole-diff-review.md`](../reviews/2026-11-12-phase-one-whole-diff-review.md) |
-| The phase-one second-family review (DeepSeek; T-388, review 2) | the same `contracts/src` | [`2026-11-12-phase-one-second-family-review.md`](../reviews/2026-11-12-phase-one-second-family-review.md) |
+| The phase-one whole-diff review (T-388, package R11, review 1) | `c629d06` (`0180a39`, the commit named for the freeze, differs from it in comments only), against `64be1f1` | [`2026-11-12-phase-one-whole-diff-review.md`](../reviews/2026-11-12-phase-one-whole-diff-review.md) |
+| The phase-one second-family review (DeepSeek; T-388, review 2) | `c629d06`, the same `contracts/src` | [`2026-11-12-phase-one-second-family-review.md`](../reviews/2026-11-12-phase-one-second-family-review.md) |
 
 The reviews before T-388 read earlier contracts (the 2026-11-03 and 2026-11-04 deployments) or `main` before phase one; the two T-388 reviews read the phase-one `contracts/src` that the tag holds. Each records the commit it read.
 

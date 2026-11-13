@@ -269,7 +269,7 @@ Invariants of the full protocol, property-tested on SimChain:
 - `junior + senior - reserved` ≥ `ceil(price × windowCoverageRatioBps / 10000)` before a new assignment, with a 100% ratio for `guaranteed_on_decision` commitments still open to appeal;
 - losses are taken from junior before senior;
 - encumbered bond is never counted twice (one commitment's overturn and another's default cannot draw on the same units);
-- capital charge: remainder to the adjudicator; backers: dust to junior; payouts from a bond round down and the bond keeps the dust.
+- bond rates follow the same `mulBps` and `splitBps` rule: the capital charge's remainder goes to the adjudicator, backers' dust to junior, and payouts from a bond round down with the bond keeping the dust.
 
 ## Settlement interface
 
@@ -280,7 +280,7 @@ The operator API and the internal SDK call only this interface. Chain details st
 ## Identity and signing
 
 - Agents, principals and adjudicators are EVM addresses: externally owned accounts, or smart accounts later.
-- Signed messages are EIP-712 typed data, with domain `{name: "Holdback", version: "0.8", chainId, verifyingContract}`. SimChain uses a fixed placeholder contract address. The domain version tracks the signed encoding: it moves when an existing typed-data struct or the terms encoding changes, so a signature made under one encoding never verifies under another. Additive schema versions leave it (ADR-0023: schema 0.7 kept domain version 0.6). ADR-0029 set 0.7 with schema 0.9; schema 0.11 moves it to 0.8, because the terms now name the buyer's payment address and the seller's payout address (ADR-0033).
+- Signed messages are EIP-712 typed data, with domain `{name: "Holdback", version, chainId, verifyingContract}`; the version is in `packages/core/src/eip712.ts`, and each node's `/v1/status` serves the live one. SimChain uses a fixed placeholder contract address. The domain version tracks the signed encoding: it moves when an existing typed-data struct or the terms encoding changes, so a signature made under one encoding never verifies under another. Additive schema versions leave it (ADR-0023: schema 0.7 kept domain version 0.6). ADR-0029 set 0.7 with schema 0.9; schema 0.11 moves it to 0.8, because the terms now name the buyer's payment address and the seller's payout address (ADR-0033).
 - Funding is gasless for agents. The buyer's payment address signs an ERC-3009 `ReceiveWithAuthorization` for price plus fee to the escrow's collector, and any relayer can submit it. There is no other funding path (ADR-0031 §3).
 - A mandate is the principal's EIP-712 signature over the agent's scope: caps, roles, categories, expiry. It is checked at agree and fund.
 
@@ -298,7 +298,7 @@ The operator API and the internal SDK call only this interface. Chain details st
 - The beacon margin sets the smallest windows a chain can decide in, for an escalation and for the fallback; ADR-0032 derives them from the margin and the chain's slot time.
 - On the Commerce Payments Protocol, `authorizationExpiry` is `fallbackBy + appealDecideSec + EXPIRY_MARGIN`, and `refundExpiry` equals it (ADR-0003).
 - Prepare's defaults are `DEFAULT_TIMING` in `apps/operator/src/terms.ts`, with an appeal window of 0.
-- The largest instant a deadline can take is 9999-12-31T23:59:59-23:59, the last RFC 3339 instant, and `appealWindowSec` and `appealDecideSec` fit in 32 bits. Core's parser refuses more (`packages/core/src/parse.ts`), and the contract refuses a later `fallbackBy` or a longer escalation window at funding (`Unrepresentable()`). A hold above `MAX_HOLD` (`packages/core/src/state.ts`, the escrow's uint120) is refused the same way.
+- The largest instant a deadline can take is 9999-12-31T23:59:59-23:59, the last RFC 3339 instant, and `appealWindowSec` and `appealDecideSec` fit in 32 bits. Core's parser refuses more (`packages/core/src/parse.ts`), and the contract refuses a later `fallbackBy` or a longer escalation window at funding (`Unrepresentable()`). Core's state machine refuses a hold above `MAX_HOLD` (`packages/core/src/state.ts`, the escrow's uint120) at the offer, and the contract refuses it at funding (`Unrepresentable()`).
 - On a phase-one deployment `appealWindowSec` must be 0 (D62).
 - Agents never see card hold windows. Card and Stripe funding converts to tokens before the hold, so card authorization lifetimes do not bound the escrow.
 
@@ -329,7 +329,7 @@ The repository map in [`README.md`](../README.md) lists each path and what it ho
 - **Coverage ratio:** minimum bond as a share of open exposure. SimChain only in phase one.
 - **Operator node:** a node offering the REST API, relaying and indexing, with no authority. **Escape hatch:** direct submission without any operator node.
 - **Operator fee:** what an operator node publishes (`fees.operator`) and asks for relaying a buyer's funded agreement: max(min, ceil(price × bps / 10000)), capped at max, paid by the buyer's own signed transfer in the same step as the funding, outside the hold, never refunded. Only that node asks for it; direct submission is free (ADR-0023, D33). The public demo's nodes publish a fee of 0 for the first pilots (T-389).
-- **Rules contract:** the escrow's operator in the Commerce Payments Protocol sense, the only party that can capture or void, constrained to decisions, early acceptance and timeouts.
+- **Rules contract:** the escrow's operator in the Commerce Payments Protocol sense, the only party that can capture or void, constrained to decisions, early acceptance, settlements both parties signed and timeouts.
 - **SimChain:** the in-process simulation of the settlement rules.
 - **Rail:** where custody happens. **On-ramp / off-ramp:** fiat conversion before the hold / after release.
 - **Receipt:** an operator-signed record of an accepted message or a settlement event.
