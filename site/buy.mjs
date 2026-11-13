@@ -3937,7 +3937,7 @@ var init_buyer_signer = __esmMin((() => {
 			const posted = events.some((e) => e.delivery);
 			if (done.outcome === "Settled" && !done.settlement?.keyReleased) note = "the settlement released no key: there is no work to open";
 			else if (done.outcome === "Settled" && !posted) {
-				if (options.delivery === void 0) note = "the settlement released the key to late work no operator records as a delivery: pass the signed delivery the seller handed you (resume ... --delivery <file>) to open it";
+				if (options.delivery === void 0) note = `the settlement released the key to late work no operator records as a delivery: pass the signed delivery the seller handed you, with this deal's ID (resume ${this.store} ${id} --delivery <file>), to open it`;
 				else {
 					work = await this.#openLate(id, options.delivery);
 					plaintextSha256 = await sha256(new TextEncoder().encode(work));
@@ -4182,7 +4182,9 @@ var init_buy_with_signer = __esmMin((async () => {
 		if (!stop) await finish(s);
 	};
 	if (first === "resume") {
-		const failed = (await Promise.allSettled((third ? [await loadKeys(store, third, expect())] : await openDeals(store, expect())).map(finish))).filter((r) => r.status === "rejected");
+		const deals = third ? [await loadKeys(store, third, expect())] : await openDeals(store, expect());
+		if (deals.length === 0) console.error(printable(`No open deal in ${store}: no funded deal there is waiting for its outcome. To follow a deal again, or to open late work with --delivery, name it: ${command$1("buy-with-signer", import.meta.url)} resume ${sh(store)} <commitment ID>`));
+		const failed = (await Promise.allSettled(deals.map(finish))).filter((r) => r.status === "rejected");
 		for (const f of failed) say({ error: String(f.reason?.message ?? f.reason) });
 		process.exitCode = failed.length > 0 ? 1 : 0;
 	} else if (first === "approve") {
