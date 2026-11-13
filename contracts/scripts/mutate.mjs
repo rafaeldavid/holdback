@@ -38,7 +38,8 @@
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   GAS_CAP_REGEX,
   ROOT,
@@ -63,11 +64,41 @@ const args = flags(process.argv.slice(2), {
   'no-full': 'bool',
   'timeout-min': 'value',
   build: 'value',
+  'match-test': 'value',
+  shard: 'value',
+  list: 'value',
+  check: 'bool',
 });
 const timeoutMs = Number(args['timeout-min'] ?? 30) * 60_000;
 const build = args.build ?? 'fast';
 if (!['fast', 'full'].includes(build)) fail('--build is fast or full');
-const list = JSON.parse(readFileSync(new URL('./mutants.json', import.meta.url), 'utf8')).mutants;
+
+/**
+ * The mutant list: mutants.json, or the file --list names. A list with `inherit` takes the inherited file's mutants
+ * in their order, drops the ids in `retired`, replaces in place the ids it redefines, and appends its new ones.
+ */
+function loadList(path) {
+  const own = JSON.parse(readFileSync(path, 'utf8'));
+  if (!own.inherit) return own.mutants;
+  const base = loadList(join(dirname(path), own.inherit));
+  const retired = own.retired ?? {};
+  const redefined = new Map(own.mutants.map((m) => [m.id, m]));
+  const inBase = (id) => base.some((m) => m.id === id);
+  const unknownRetired = Object.keys(retired).filter((id) => !inBase(id));
+  if (unknownRetired.length) fail(`${path}: retires ids its base does not have: ${unknownRetired.join(', ')}`);
+  const both = Object.keys(retired).filter((id) => redefined.has(id));
+  if (both.length) fail(`${path}: both retires and redefines ${both.join(', ')}; do one`);
+  const unknownRedefined = [...redefined.keys()].filter((id) => !inBase(id) && !/^L/.test(id));
+  if (unknownRedefined.length) fail(`${path}: redefines ids its base does not have: ${unknownRedefined.join(', ')}`);
+  const merged = base.filter((m) => !(m.id in retired)).map((m) => redefined.get(m.id) ?? m);
+  const added = own.mutants.filter((m) => !base.some((b) => b.id === m.id));
+  return [...merged, ...added];
+}
+const listPath = args.list ? join(ROOT, args.list) : fileURLToPath(new URL('./mutants.json', import.meta.url));
+const list = loadList(listPath);
+const ids = list.map((m) => m.id);
+const repeated = [...new Set(ids.filter((id, i) => ids.indexOf(id) !== i))];
+if (repeated.length) fail(`${listPath}: duplicate mutant ids: ${repeated.join(', ')}; give each mutant its own id`);
 const bad = list.filter((m) => !/^src\/[A-Za-z0-9_]+\.sol$/.test(m.file) || typeof m.find !== 'string' || !m.find);
 if (bad.length) fail(`mutants.json: ${bad.map((m) => m.id).join(', ')} name a file outside src/ or have no find`);
 let chosen = list;
@@ -77,6 +108,16 @@ if (args.only) {
   if (unknown.length) fail(`unknown mutant ids: ${unknown.join(', ')}`);
   chosen = list.filter((m) => ids.includes(m.id));
 } else if (args.quick) chosen = list.filter((m) => m.quick);
+// --shard k/n keeps every n-th mutant of the chosen list from the k-th (1-based), so n runs at once, each in its own
+// copy with its own build cache, together run the list once. Each shard writes its own results file.
+let shardTag = '';
+if (args.shard) {
+  const sm = /^(\d+)\/(\d+)$/.exec(args.shard);
+  const [k, n] = sm ? [Number(sm[1]), Number(sm[2])] : [0, 0];
+  if (!sm || n < 1 || k < 1 || k > n) fail('--shard is k/n with 1 <= k <= n');
+  chosen = chosen.filter((_, i) => i % n === k - 1);
+  shardTag = `-shard${k}of${n}`;
+}
 
 const realSrc = join(ROOT, 'contracts', 'src');
 const before = hashTree(realSrc);
@@ -84,9 +125,39 @@ const guard = () => {
   if (!sameTree(before, hashTree(realSrc))) fail(`the checkout's contracts/src changed during the run; stopping`);
 };
 
-const run = `${(args.ref ?? 'worktree').replace(/[^A-Za-z0-9._-]+/g, '_')}-${build}`;
+const log = (s) => process.stdout.write(`${s}\n`);
+// --match-test runs only the tests whose names match (forge's own filter), to measure what one test kills on its own,
+// such as the decision counter. Its baseline and verdicts use the same filter, and survivors get no full-build pass.
+const matchTest = args['match-test'];
+const listTag = `${args.list ? `-${basename(args.list, '.json')}` : ''}${matchTest ? `-mt-${matchTest.replace(/[^A-Za-z0-9_]+/g, '_')}` : ''}${shardTag}`;
+const run = `${(args.ref ?? 'worktree').replace(/[^A-Za-z0-9._-]+/g, '_')}-${build}${listTag}`;
 lock(`mutation-${run}`);
 const { contracts, label, commit } = prepareCopy(`mutation-${run}`, args.ref ?? null);
+
+// --check: say which mutants apply to this source exactly once, and stop. No forge runs.
+if (args.check) {
+  const where = { applies: [], missing: [], twice: [] };
+  for (const m of chosen) {
+    let text = '';
+    try {
+      text = readFileSync(join(contracts, m.file), 'utf8');
+    } catch {
+      where.missing.push(`${m.id} (no ${m.file})`);
+      continue;
+    }
+    const at = text.indexOf(m.find);
+    if (at < 0) where.missing.push(m.id);
+    else if (text.indexOf(m.find, at + 1) >= 0) where.twice.push(m.id);
+    else if (m.replace === m.find) where.missing.push(`${m.id} (replace equals find: no change)`);
+    else where.applies.push(`${m.id} ${m.file}:${text.slice(0, at).split('\n').length}`);
+  }
+  log(`check of ${chosen.length} mutants from ${listPath} against ${label}:`);
+  log(`  apply once: ${where.applies.length}`);
+  log(`  text missing (stale): ${where.missing.length}${where.missing.length ? ` ${where.missing.join(', ')}` : ''}`);
+  log(`  text found twice: ${where.twice.length}${where.twice.length ? ` ${where.twice.join(', ')}` : ''}`);
+  rmSync(join(SCRATCH, `mutation-${run}`), { recursive: true, force: true });
+  process.exit(where.missing.length + where.twice.length === 0 ? 0 : 1);
+}
 const resultsPath = join(SCRATCH, `mutation-${run}.json`);
 const reportPath = join(SCRATCH, `mutation-${run}.md`);
 const sha = (s) => createHash('sha256').update(s).digest('hex');
@@ -105,7 +176,10 @@ const fullToml = readFileSync(toml, 'utf8');
 // The side-by-side test does not compile under the fast build (stack too deep at SideBySide.t.sol:265), so the
 // main run leaves it out of the copy; the full-build step below puts it back.
 const SIDE_BY_SIDE = 'test/differential/SideBySide.t.sol';
-const testFilter = build === 'fast' ? ['--no-match-path', FAST_SKIP, '--no-match-test', GAS_CAP_REGEX] : [];
+const testFilter = [
+  ...(build === 'fast' ? ['--no-match-path', FAST_SKIP, '--no-match-test', GAS_CAP_REGEX] : []),
+  ...(matchTest ? ['--match-test', matchTest] : []),
+];
 if (build === 'fast') {
   if (!/^optimizer = true$/m.test(fullToml) || !/^via_ir = true$/m.test(fullToml)) {
     fail(`${toml} has no optimizer or via_ir line to adjust`);
@@ -139,7 +213,6 @@ const hasHarness = existsSync(sideBySide);
 if (hasHarness) cpSync(sideBySide, harness);
 rmSync(sideBySide, { force: true });
 
-const log = (s) => process.stdout.write(`${s}\n`);
 const forge = (sub, extra = []) => {
   const t0 = Date.now();
   const seed = sub === 'test' ? ['--fuzz-seed', FUZZ_SEED] : [];
@@ -168,13 +241,22 @@ const failures = (out) => ({
 const compiledSomething = (out) => /Compiling \d+ files? with/.test(out) && /Compiler run successful/.test(out);
 
 // Results and the report, written after every mutant and before any stop.
-const meta = { label, commit, srcHash, testsHash, build, fuzzSeed: FUZZ_SEED };
+const meta = {
+  label,
+  commit,
+  srcHash,
+  testsHash,
+  build,
+  fuzzSeed: FUZZ_SEED,
+  list: basename(listPath),
+  matchTest: matchTest ?? null,
+};
 let previous = {};
 if (args.resume && existsSync(resultsPath)) {
   const old = JSON.parse(readFileSync(resultsPath, 'utf8'));
-  const same = ['srcHash', 'testsHash', 'build', 'fuzzSeed'].every((k) => old.meta?.[k] === meta[k]);
+  const same = ['srcHash', 'testsHash', 'build', 'fuzzSeed', 'list', 'matchTest'].every((k) => (old.meta?.[k] ?? null) === meta[k]);
   if (!same) {
-    fail(`--resume: ${resultsPath} was recorded on other source or tests, another build or another seed; run without --resume`);
+    fail(`--resume: ${resultsPath} was recorded on other source or tests, another build, seed, list or test filter; run without --resume`);
   }
   previous = old.results ?? {};
 }
@@ -204,7 +286,9 @@ const report = () => {
     '',
     `${rows.length} mutants: ${count('killed')} killed, ${count('survived')} survived the ${build} run, ${count('not-compiled')} not compiled, ${count('stale')} stale, ${count('timeout')} timed out, ${count('error')} errors. Score ${scored ? ((100 * count('killed')) / scored).toFixed(1) : 'n/a'}% of the ${scored} that compiled and ran. After the full build: ${finalSurvivors} survive.`,
     '',
-    'Survivors of the main run ran again on the full build with every test, the side-by-side test included; that verdict is the "Full build" column.',
+    matchTest
+      ? `Only the tests matching \`${matchTest}\` ran (--match-test), and survivors got no full-build pass.`
+      : 'Survivors of the main run ran again on the full build with every test, the side-by-side test included; that verdict is the "Full build" column.',
     '',
     '| Mutant | Verdict | Where | Change | Killed by | Full build | Seconds |',
     '| --- | --- | --- | --- | --- | --- | --- |',
@@ -213,7 +297,17 @@ const report = () => {
         `| ${r.id}${r.money ? ' (money)' : ''} | ${r.verdict} | ${r.file}${r.line ? `:${r.line}` : ''} | ${r.op}: ${r.what} | ${(r.killedBy ?? [])[0] ?? r.detail ?? ''} | ${r.full ?? ''}${r.fullKilledBy?.length ? ` (${r.fullKilledBy[0]})` : ''} | ${r.seconds} |`,
     ),
     '',
+    `## Survivors, with the mutated text`,
+    '',
+    `Line numbers are those of commit ${commit}; the text below finds the line after comments move it.`,
+    '',
   ];
+  const oneLine = (s) => s.replace(/\s+/g, ' ').trim() || '(nothing)';
+  for (const r of rows.filter((x) => x.verdict === 'survived' && x.full !== 'killed')) {
+    const m = chosen.find((x) => x.id === r.id);
+    md.push(`- **${r.id}**, ${r.file}:${r.line}, ${r.what}: \`${oneLine(m.find)}\` became \`${oneLine(m.replace)}\``);
+  }
+  md.push('');
   writeFileSync(reportPath, md.join('\n'));
   return md[4];
 };
@@ -301,7 +395,7 @@ for (const m of chosen) {
 // Survivors again, on the full build with every test: the side-by-side test and, after a fast run, the gas tests.
 // `full` records that second verdict, by the same rules as the first.
 const survivors = chosen.filter((m) => results[m.id]?.verdict === 'survived' && results[m.id].full === undefined);
-if (survivors.length && !args['no-full']) {
+if (survivors.length && !args['no-full'] && !matchTest) {
   log(`running ${survivors.length} survivors again on the full build with every test`);
   if (hasHarness) cpSync(harness, sideBySide);
   writeFileSync(toml, fullToml);
