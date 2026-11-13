@@ -74,7 +74,7 @@ curl -s -X POST $OP1/v1/faucet -H 'content-type: application/json' -H "Idempoten
   "balance": { "token": "<demo.token.id>", "amount": "1000000000" },
   "mandate": { "...": "...", "mandateHash": "0x<hash>" },
   "nextGrantAfter": "<...>",
-  "notice": "TEST TOKENS ONLY ..."
+  "notice": "TEST TOKENS ONLY <...>"
 }
 ```
 
