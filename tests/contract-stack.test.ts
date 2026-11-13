@@ -49,7 +49,7 @@ describe('contract-stack page', () => {
   });
 
   it('reads every kept earlier deployment with its date and domain', () => {
-    const files = readdirSync(new URL('contracts/deployments/', root)).filter((f) => /^sepolia-\d{4}-\d{2}-\d{2}-domain-/.test(f));
+    const files = readdirSync(new URL('contracts/deployments/', root)).filter((f) => /^sepolia-\d{4}-\d{2}-\d{2}(T\d{4}Z)?-domain-/.test(f));
     expect(data.deployment.earlier).toHaveLength(files.length);
     for (const e of data.deployment.earlier) {
       expect(e.deployedOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);

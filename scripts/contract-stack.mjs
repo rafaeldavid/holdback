@@ -107,11 +107,12 @@ export function deployments() {
   live.domain = domainOf(history ? live.commit : null);
   // The deploy writes the record on the day it runs, so the commit that last changed it dates the deployment.
   live.recordedOn = history ? git(['log', '-1', '--format=%cs', '--', 'contracts/deployments/sepolia.json']) : null;
-  // An earlier record's name carries its date and its EIP-712 domain version (sepolia-2026-11-03-domain-0.6.json).
-  const earlier = list('contracts/deployments', /^sepolia-\d{4}-\d{2}-\d{2}-domain-[\d.]+\.json$/)
+  // An earlier record's name carries its date and its EIP-712 domain version (sepolia-2026-11-03-domain-0.6.json); since
+  // T-383 also the UTC time, so two deployments on one day differ (sepolia-2026-11-20T1403Z-domain-0.8.json).
+  const earlier = list('contracts/deployments', /^sepolia-\d{4}-\d{2}-\d{2}(T\d{4}Z)?-domain-[\d.]+\.json$/)
     .reverse()
     .map((file) => {
-      const [, deployedOn, version] = file.match(/^sepolia-(\d{4}-\d{2}-\d{2})-domain-([\d.]+)\.json$/);
+      const [, deployedOn, , version] = file.match(/^sepolia-(\d{4}-\d{2}-\d{2})(T\d{4}Z)?-domain-([\d.]+)\.json$/);
       return { ...record(file), deployedOn, domain: { version, readFrom: 'file name' } };
     });
   // Whether this checkout builds the code the live record was deployed from: 0 same, 1 changed, else unknown.

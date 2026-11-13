@@ -18,7 +18,7 @@
 //                 readOffer and checkOffer refuse them unless they equal what the buyer expects (Options.expect) and
 //                 what every operator publishes (T-332).
 //   agreeAndFund  signs the agreement, the funding and the operator fee, each rebuilt from the approved terms and
-//                 checked against what the operator prepared (verify.ts; site/llms.txt section 4).
+//                 checked against what the operator prepared (verify.ts; site/ref/signing.txt, "Prepare, verify, sign, submit").
 //   watch         follows the funded deal until the operators confirm its outcome, and tells the buyer's agent
 //                 (onReport) when it is released, refunded, unconfirmed, or past deliverBy with nothing delivered.
 //                 Then it sends the reclaim itself (T-325). Its record is `<address>.watch.json` beside the key file.
@@ -27,21 +27,21 @@
 //
 // The operator only relays: every state-changing message is signed here, by the buyer's key. The one exception is the
 // reclaim: the protocol's timeout trigger takes no signature, since the deadline both parties signed is its authority,
-// and the settlement layer refuses it before deliverBy (site/llms.txt, "Your own trigger"). The protocol steps are
+// and the settlement layer refuses it before deliverBy (site/ref/after-funding.txt, "Your own trigger"). The protocol steps are
 // agent.ts and verify.ts; this file adds the key store and the comparison with what the buyer approved. A buyer who
-// wants no seller code in its path uses the HTTP API directly (site/llms.txt sections 1 to 8).
+// wants no seller code in its path uses the HTTP API directly (site/buy.txt and site/ref/http-buyer.txt).
 //
 // The work a seller delivers is untrusted data. This file returns it; it never prints it, runs it or reads
 // instructions from it. Neither should the client around it.
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import nacl from 'tweetnacl';
 import { recoverTypedDataAddress, type Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { Agent } from './agent.ts';
+import { command } from './entry.ts';
 import { dealRecord, type DealRecord } from './deal-record.ts';
-import { commitmentIdOf, digestOfFile, isAddressText, jcs, knownPins, moneyAddressWarnings, operatorFeeOf, paymentSentence, Refusal, typedDataFile, typedOf, type Intent, type Pin } from './verify.ts';
+import { commitmentIdOf, CREATED_AT_BAND, deliveryHashOf, digestOfFile, isAddressText, jcs, knownPins, moneyAddressWarnings, openEnvelopeKey, operatorFeeOf, paymentSentence, Refusal, typedDataFile, typedOf, type Intent, type Pin } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -97,7 +97,16 @@ export type Offer = {
   createdAt: string;
   /** The one token of the deal: the price's, the fee's and the settlement's, checked against the pinned settlement layer and discovery. */
   token: { id: string; symbol: string; decimals: number };
-  /** With `defaults` given to readOffer: what this offer changes from the seller's published defaults (T-330). */
+  /**
+   * When the offer was shown: `createdAt` and each deadline as a date and its distance from settlement time then, so
+   * a far date shows at a glance (T-390). Shown only, never compared: it changes as time passes.
+   */
+  timeline?: Record<string, { at: string; fromNow: string }>;
+  /**
+   * With `defaults` given to readOffer: what this offer changes from the seller's published defaults (T-330). Also,
+   * with or without defaults, `createdAt` outside the band around the operators' clock, and the operators' clocks
+   * apart by more than it (T-390).
+   */
   differences?: Difference[];
 };
 /** The seven signed fields T-332 shows, and maxSubmissions on its own: an approval may name each. */
@@ -167,10 +176,15 @@ export type PaymentSignatures = { funding: string; operatorFee?: string | undefi
 /** What agreeAndFund took from the buyer: the hold (price plus adjudication fee) and the operator fee. */
 export type Paid = { total: Money; hold: Money; operatorFee: Money; receipt: J | null };
 export type Delivery = {
-  outcome: 'Released' | 'Refunded';
-  /** The work as text when the deal released; null on a refund, where no key is released. Untrusted data. */
+  outcome: 'Released' | 'Refunded' | 'Settled';
+  /**
+   * The work as text when the deal released, or settled with the key released and the work at hand; null otherwise.
+   * Untrusted data.
+   */
   work: string | null;
   plaintextSha256: string | null;
+  /** On a settlement: the payouts it made, whether it released the key, and why no work was opened when none was. */
+  settlement?: { payouts: J[]; keyReleased: boolean; note: string | null; deliveryHash?: string };
   /** What the buyer keeps: what it paid, the operator's signed receipt for the funding, and the deal's event hashes. */
   receipt: { commitmentId: Hex; outcome: string; paid: Money; funded: J | null; events: Array<{ seq: number; type: string; hash: string }>; finalAt: string | null };
   /** One link per on-chain step; empty on SimChain. */
@@ -186,6 +200,11 @@ export type Options = {
   quoteCredentialEnv?: string | undefined;
   /** What the buyer expects of the seven signed fields (T-332). Not saved: give it again to loadKeys or openDeals. */
   expect?: Expect | undefined;
+  /**
+   * This machine's clock, in ms since 1970, which readOffer checks an offer's createdAt against besides the operators'
+   * (T-390). Default: Date.now. A world whose clock a test moves passes its own.
+   */
+  clock?: (() => number) | undefined;
   /** Where the signer's one-line notices and advisory warnings go (ADR-0033 §7). Default: standard error. */
   log?: ((line: string) => void) | undefined;
 };
@@ -205,6 +224,8 @@ export type KeyOptions = Options & {
  * - `released`, `refunded`: the quorum of operators (`confirmations`) reports the outcome. `reclaimed`: settlement
  *   refunded the hold (price and adjudication fee) on the reclaim; without it the adjudicator decided the refund.
  *   `finalAt` is when no appeal can follow.
+ * - `settled`: the quorum reports a mutual settlement (late work, or any split of the price): its `payouts`, and
+ *   whether it released the key to the work.
  * - `unconfirmed`: some operators report `state`, but fewer than the quorum agree. The deal stays open, the signer
  *   keeps reading, and the reclaim stays armed. `agreeing` of the `answered` operators report it; `required` must.
  */
@@ -212,7 +233,8 @@ export type Report =
   | { kind: 'deliverBy-passed'; commitmentId: Hex; deliverBy: string; settlementTime: string }
   | { kind: 'released'; commitmentId: Hex; finalAt: string | null }
   | { kind: 'refunded'; commitmentId: Hex; reclaimed: boolean; finalAt: string | null }
-  | { kind: 'unconfirmed'; commitmentId: Hex; state: 'Released' | 'Refunded'; agreeing: number; answered: number; required: number };
+  | { kind: 'settled'; commitmentId: Hex; payouts: J[]; keyReleased: boolean; finalAt: string | null }
+  | { kind: 'unconfirmed'; commitmentId: Hex; state: 'Released' | 'Refunded' | 'Settled'; agreeing: number; answered: number; required: number };
 export type WatchOptions = {
   /**
    * Called once per report and awaited. A report is recorded only after it returns, so after a crash the next run
@@ -236,7 +258,14 @@ export type WatchOptions = {
   reclaimRetryMs?: number;
 };
 /** How the deal ended, as watch returns it and the watch file keeps it. */
-export type Outcome = { commitmentId: Hex; outcome: 'Released' | 'Refunded'; reclaimed: boolean; finalAt: string | null };
+export type Outcome = {
+  commitmentId: Hex;
+  outcome: 'Released' | 'Refunded' | 'Settled';
+  reclaimed: boolean;
+  finalAt: string | null;
+  /** On Settled: the payouts every agreeing operator records, and whether the settlement released the key. */
+  settlement?: { payouts: J[]; keyReleased: boolean };
+};
 
 type Saved = {
   version: 1;
@@ -366,6 +395,18 @@ function defaultsOf(d: J): Defaults {
   };
 }
 
+/** The differences readOffer finds against the clock, which checkOffer keeps from the shown offer (T-390). */
+const CLOCK_FIELDS = ['createdAt', 'settlementTime'];
+/** A distance in seconds as a person reads it: "in 5 years 1 day", "12 min ago". A year is 365 days here. */
+export function fromNow(sec: number): string {
+  const r = Math.abs(Math.round(sec));
+  const a = r >= 86_400 ? Math.round(r / 60) * 60 : r; // past a day, to the minute: seconds of drift do not change the words
+  const y = Math.floor(a / (365 * 86_400)), d = Math.floor((a % (365 * 86_400)) / 86_400), h = Math.floor((a % 86_400) / 3600), m = Math.floor((a % 3600) / 60);
+  const n = (v: number, unit: string) => `${v} ${unit}${v === 1 ? '' : 's'}`;
+  const text = y ? [n(y, 'year'), ...(d ? [n(d, 'day')] : [])].join(' ') : d ? [n(d, 'day'), ...(h ? [`${h} h`] : [])].join(' ') : h ? `${h} h ${m} min` : m ? `${m} min` : `${a} s`;
+  return a === 0 ? 'now' : sec > 0 ? `in ${text}` : `${text} ago`;
+}
+
 /**
  * What an offer changes from a seller's defaults (filled with the scope): each changed deliverable field, check,
  * rubric, adjudication fee and window, old value and new. Shown to the buyer's agent so it can decide; the signer
@@ -468,6 +509,7 @@ export class BuyerSigner {
   readonly #expect: Expect;
   readonly #saved: Saved;
   readonly #log: (line: string) => void;
+  readonly #clockNow: () => number;
   #connected: Promise<{ agent: Agent; pin: Pin }> | undefined;
 
   /**
@@ -499,6 +541,7 @@ export class BuyerSigner {
     this.#quoteCredentialEnv = options.quoteCredentialEnv;
     this.#expect = expectOf(options.expect);
     this.#log = options.log ?? ((line) => console.error(line));
+    this.#clockNow = options.clock ?? Date.now;
     this.address = privateKeyToAccount(s.privateKey).address.toLowerCase();
     this.encryptionPublicKey = Buffer.from(nacl.box.keyPair.fromSecretKey(new Uint8Array(Buffer.from(s.encryptionSecretKey, 'base64url'))).publicKey).toString('base64url');
     if (s.version !== 1 || s.address !== this.address) throw new Error(`the key file for ${s.address} in ${store} is not one this file wrote`);
@@ -660,6 +703,35 @@ export class BuyerSigner {
     return { token: grant?.granted?.token ?? pin.token.id, amount: grant?.granted?.amount ?? '0' };
   }
 
+  /**
+   * The offer against every configured operator's settlement time (T-390, T-388 H1): a difference when `createdAt` is
+   * outside CREATED_AT_BAND of any operator's time or of this machine's clock, or when the operators' times are further
+   * apart than the band; and the timeline from this machine's clock. Advisory: a difference stops a one-run buy for approval and refuses nothing (D31).
+   */
+  async #clock(sources: string[], offer: Offer): Promise<{ clock: Difference[]; timeline: NonNullable<Offer['timeline']> }> {
+    const answers = await this.#answers(sources, '/.well-known/holdback.json');
+    const times = answers.map((a) => ({ api: a.api, at: Date.parse(String(a.body?.settlementTime)) })).filter((x) => Number.isFinite(x.at));
+    if (times.length === 0) throw new Error('no operator reports its settlement time: the offer cannot be read against the clock');
+    const { behindSec, aheadSec } = CREATED_AT_BAND;
+    const clock: Difference[] = [];
+    const spread = (Math.max(...times.map((t) => t.at)) - Math.min(...times.map((t) => t.at))) / 1000;
+    if (spread > behindSec + aheadSec) clock.push({ field: 'settlementTime', old: `the operators' clocks within ${behindSec + aheadSec} s of each other`, new: Object.fromEntries(times.map((t) => [t.api, new Date(t.at).toISOString()])) });
+    const created = Date.parse(String(offer.createdAt));
+    // This machine's clock too (PR red team, Medium): both configured operators may be one party, and a time only they
+    // report is a time they choose. A machine whose own clock is off stops honest offers for approval, and loses nothing.
+    const local = this.#clockNow();
+    const offsets = [...times.map((t) => t.at), local].map((at) => (created - at) / 1000);
+    if (!Number.isFinite(created) || offsets.some((o) => o > aheadSec || o < -behindSec)) clock.push({ field: 'createdAt', old: `within ${behindSec} s behind and ${aheadSec} s ahead of every operator's settlement time and of this machine's clock`, new: offer.createdAt });
+    // From now on this machine's clock: the distances a person reads, which no operator sets.
+    const now = local;
+    const timeline: NonNullable<Offer['timeline']> = {};
+    for (const [k, v] of [['createdAt', offer.createdAt], ...['offerExpiresAt', 'fundBy', 'deliverBy', 'judgeBy', 'fallbackBy'].map((k) => [k, offer.deadlines?.[k]])] as Array<[string, J]>) {
+      const ms = Date.parse(String(v));
+      timeline[k] = { at: String(v), fromNow: Number.isFinite(ms) ? fromNow((ms - now) / 1000) : 'not a date' };
+    }
+    return { clock, timeline };
+  }
+
   /** The terms of `id` as both operators serve them, with the ID recomputed and the seller's signature recovered. */
   async #served(id: Hex): Promise<{ terms: J; offer: Offer }> {
     const { agent, pin } = await this.#connect();
@@ -762,10 +834,19 @@ export class BuyerSigner {
       defaults = fillWith(defaultsOf(given), this.#saved.scope) as Defaults;
     }
     const { offer } = await this.#served(id);
-    const { pin } = await this.#connect();
+    const { pin, agent } = await this.#connect();
     // ADR-0033 §7: advisory lines for an odd money address. They refuse nothing; checkOffer refuses a payment address that is not this buyer's.
     for (const w of [...moneyAddressWarnings('payout', offer.sellerPayoutAddress, pin, offer.adjudicators), ...moneyAddressWarnings('payment', offer.buyerPaymentAddress, pin, offer.adjudicators)]) this.#log(w);
-    const showing: Offer = defaults ? { ...offer, differences: differencesOf(defaults, offer) } : offer;
+    // T-390 (T-388 H1): the windows count from the seller's createdAt, so a createdAt far from the clock moves every
+    // deadline though no window differs. Judged now, when the offer is shown; checkOffer keeps this verdict.
+    const { clock, timeline } = await this.#clock(agent.sources(), offer);
+    for (const d of clock) {
+      this.#log(d.field === 'createdAt'
+        ? `Warning: the offer's createdAt, ${shown(d.new)}, is ${timeline['createdAt']?.fromNow ?? 'off'} by this machine's clock, and every deadline moves with it: deliverBy is ${timeline['deliverBy']?.fromNow ?? 'unknown'}. An honest offer's createdAt is ${d.old}. Approve it only if you mean these deadlines.`
+        : `Warning: the operators' clocks are further apart than ${CREATED_AT_BAND.behindSec + CREATED_AT_BAND.aheadSec} s (${shown(d.new)}): the offer's times cannot be read against one clock. Approve it only if you mean its deadlines.`);
+    }
+    const found = defaults ? differencesOf(defaults, offer) : [];
+    const showing: Offer = { ...offer, timeline, ...(defaults || clock.length ? { differences: [...found, ...clock] } : {}) };
     this.#saved.shown = { commitmentId: id, offer: showing, defaults };
     save(this.store, this.#saved);
     return showing;
@@ -787,7 +868,9 @@ export class BuyerSigner {
     this.#bind(id);
     const { terms, offer: read } = await this.#served(id);
     // The offer read again from every operator, compared with what the buyer's agent was shown.
-    const offer: Offer = shownBefore.defaults ? { ...read, differences: differencesOf(shownBefore.defaults, read) } : read;
+    // The clock's verdict is the one made when the offer was shown (readOffer): createdAt grows older while it waits.
+    const clock = (shownBefore.offer.differences ?? []).filter((d) => CLOCK_FIELDS.includes(d.field));
+    const offer: Offer = { ...read, ...(shownBefore.offer.timeline ? { timeline: shownBefore.offer.timeline } : {}), ...(shownBefore.defaults || clock.length ? { differences: [...(shownBefore.defaults ? differencesOf(shownBefore.defaults, read) : []), ...clock] } : {}) };
     for (const [field, of] of OFFER_FIELDS) if (!same(of(offer), of(shownBefore.offer))) refuse(`${field} is ${shown(of(offer))}, not the shown ${shown(of(shownBefore.offer))}`);
     const want: Array<[string, J, J]> = [
       ['buyer', terms.buyer, this.address],
@@ -857,7 +940,7 @@ export class BuyerSigner {
       const path = join(this.store, `${this.address}.${name}.typed.json`);
       const fee = name === 'operator-fee' ? ` --fee ${file.message.to} ${file.message.value}` : '';
       // From wherever the command runs, as buy-with-signer.ts builds its own lines.
-      const check = `node ${sh(relative(process.cwd(), fileURLToPath(new URL('./pay-from-wallet.ts', import.meta.url))))} check ${sh(path)} ${sh(termsPath)} ${this.address}${fee}${pin.chain ? '' : ' --sim'}`;
+      const check = `${command('pay-from-wallet', import.meta.url)} check ${sh(path)} ${sh(termsPath)} ${this.address}${fee}${pin.chain ? '' : ' --sim'}`;
       return { file, name, slot: s.slot, path, digest: s.digest, check, summary: `The ${name === 'funding' ? 'funding' : 'operator fee'} (digest ${s.digest}): ${paymentSentence(file, id, pin.token, checked.terms)}` };
     });
     // The record first, so a crash before the files leaves a record that writes the same files again (red team I-2).
@@ -992,7 +1075,11 @@ export class BuyerSigner {
       keep();
     };
     const final = async (o: Outcome) => {
-      await report(o.outcome === 'Released' ? { kind: 'released', commitmentId: id, finalAt: o.finalAt } : { kind: 'refunded', commitmentId: id, reclaimed: o.reclaimed, finalAt: o.finalAt });
+      await report(
+        o.outcome === 'Released' ? { kind: 'released', commitmentId: id, finalAt: o.finalAt }
+        : o.outcome === 'Settled' ? { kind: 'settled', commitmentId: id, payouts: o.settlement?.payouts ?? [], keyReleased: o.settlement?.keyReleased === true, finalAt: o.finalAt }
+        : { kind: 'refunded', commitmentId: id, reclaimed: o.reclaimed, finalAt: o.finalAt },
+      );
       return o;
     };
     if (w.outcome) return final(w.outcome);
@@ -1013,15 +1100,20 @@ export class BuyerSigner {
       seen = states.length ? states.join(' / ') : 'no answer';
       let wake = Infinity; // ms until deliverBy on the fastest clock, while the deal is Held before it
       let sent = false;
-      for (const state of ['Released', 'Refunded'] as const) {
+      for (const state of ['Released', 'Refunded', 'Settled'] as const) {
         const agreeing = views.filter((v) => stateOf(v) === state);
         if (agreeing.length === 0) continue;
         if (agreeing.length >= required && agreeing.length === views.length) {
           const events = await this.#answers(agreeing.map((v) => v.api), `/v1/commitments/${id}/events?limit=200`);
           const reclaimed = events.length > 0 && events.every((a) => Array.isArray(a.body?.items) && a.body.items.some((e: J) => e.type === 'settlement.reclaimed'));
-          w.outcome = { commitmentId: id, outcome: state, reclaimed, finalAt: agreeing[0]!.body.finalAt ?? null };
-          keep();
-          return final(w.outcome);
+          // A settlement's payouts and key release, as every agreeing operator's event records them: they must be one.
+          const settled = events.map((a) => (Array.isArray(a.body?.items) ? a.body.items : []).filter((e: J) => e.type === 'commitment.settled').at(-1)?.payload ?? null);
+          const one = state === 'Settled' && events.length === agreeing.length && settled.every((p) => p !== null) && new Set(settled.map((p) => jcs(lowerHex({ payouts: p.payouts ?? null, keyReleased: p.keyReleased === true })))).size === 1;
+          if (state !== 'Settled' || one) {
+            w.outcome = { commitmentId: id, outcome: state, reclaimed, finalAt: agreeing[0]!.body.finalAt ?? null, ...(state === 'Settled' ? { settlement: { payouts: lowerHex(settled[0]!.payouts ?? []), keyReleased: settled[0]!.keyReleased === true } } : {}) };
+            keep();
+            return final(w.outcome);
+          }
         }
         await report({ kind: 'unconfirmed', commitmentId: id, state, agreeing: agreeing.length, answered: views.length, required });
       }
@@ -1091,8 +1183,14 @@ export class BuyerSigner {
    * operators record. On a refund no work is released, and the hold or the price is back at the payment address. Returns the
    * work as text, with the receipt and one link per on-chain step. Text only: it stops on work that is not UTF-8.
    * Like watch, it goes on with one operator offline.
+   *
+   * On a mutual settlement (T-390) it returns the payouts. When the settlement released the key it opens the work: from
+   * the posted delivery, as on a release, or, for late work no operator records as a delivery, from `options.delivery`,
+   * the seller-signed delivery the seller handed over. That one opens only if the seller's signature recovers, the
+   * released envelope is this key's own in it, and the ciphertext and the plaintext match its signed hashes. Without
+   * the key released, or without the handed-over delivery for late work, it opens nothing and `settlement.note` says why.
    */
-  async openDelivery(commitmentId: string, options: WatchOptions = {}): Promise<Delivery> {
+  async openDelivery(commitmentId: string, options: WatchOptions & { delivery?: J } = {}): Promise<Delivery> {
     const id = commitmentId.toLowerCase() as Hex;
     const paid = this.#saved.commitmentId === id ? this.#saved.paid : undefined;
     if (!paid) throw new Error(`this key funded no hold for ${id}: call agreeAndFund first`);
@@ -1104,7 +1202,20 @@ export class BuyerSigner {
     events.sort((a, b) => a.seq - b.seq);
     let work: string | null = null;
     let plaintextSha256: string | null = null;
-    if (done.outcome === 'Released') {
+    let note: string | null = null;
+    let lateHash: string | null = null;
+    const posted = events.some((e) => e.delivery);
+    if (done.outcome === 'Settled' && !done.settlement?.keyReleased) note = 'the settlement released no key: there is no work to open';
+    else if (done.outcome === 'Settled' && !posted) {
+      if (options.delivery === undefined) note = 'the settlement released the key to late work no operator records as a delivery: pass the signed delivery the seller handed you (resume ... --delivery <file>) to open it';
+      else {
+        work = await this.#openLate(id, options.delivery);
+        plaintextSha256 = await sha256(new TextEncoder().encode(work));
+        // Compare it with the deliveryHash of the settlement you signed: no public read carries that one (PR 440 review, Low 1).
+        lateHash = deliveryHashOf(options.delivery).toLowerCase();
+      }
+    }
+    if (done.outcome === 'Released' || (done.outcome === 'Settled' && done.settlement?.keyReleased && posted)) {
       const recorded = events.find((e) => e.delivery)?.delivery;
       // The ciphertext comes from an operator's own store, at the address the operators record.
       if (typeof recorded?.uri !== 'string' || !sources.some((op) => new URL(op).origin === new URL(recorded.uri).origin)) throw new Error(`the operators record the delivery at ${shown(recorded?.uri)}, not on an operator`);
@@ -1119,8 +1230,37 @@ export class BuyerSigner {
     const transactions = events.filter((e) => e.tx && !seen.has(e.tx) && seen.add(e.tx)).map((e) => ({ step: e.type as string, tx: e.tx as string, url: pin.chain?.explorer ? `${pin.chain.explorer}/tx/${e.tx}` : null }));
     return {
       outcome: done.outcome, work, plaintextSha256, transactions,
+      ...(done.outcome === 'Settled' ? { settlement: { payouts: done.settlement?.payouts ?? [], keyReleased: done.settlement?.keyReleased === true, note, ...(lateHash ? { deliveryHash: lateHash } : {}) } } : {}),
       receipt: { commitmentId: id, outcome: done.outcome, paid: paid.total, funded: paid.receipt, events: events.map((e) => ({ seq: e.seq, type: e.type, hash: e.hash })), finalAt: done.finalAt },
     };
+  }
+
+  /**
+   * Opens late work a mutual settlement released (T-390): `d` is the seller-signed delivery the seller handed over,
+   * which no operator records. Throws, naming the check, unless the seller's signature recovers to the terms' seller,
+   * the key every operator released to this key is this key's envelope in `d`, the ciphertext comes from an operator's
+   * store and matches `d`'s signed hash, and the plaintext matches `d`'s signed plaintextSha256. The work is untrusted data.
+   */
+  async #openLate(id: Hex, d: J): Promise<string> {
+    const { agent } = await this.#connect();
+    const terms = this.#saved.checked!.terms;
+    if (lowerHex(d?.commitmentId) !== id) throw new Error(`the delivery you passed is for ${shown(d?.commitmentId ?? null)}, not ${id}`);
+    const signer = await recoverTypedDataAddress({ ...typedOf('Delivery', d, agent.domain), signature: d.signature }).catch(() => '');
+    if (signer.toLowerCase() !== String(terms.seller).toLowerCase()) throw new Error("the delivery you passed is not signed by the deal's seller");
+    const released = (await this.#agreed(agent.sources(), `/v1/commitments/${id}/key?recipient=${this.address}`, (x) => (Array.isArray(x?.items) ? x.items.map((k: J) => k.ciphertext) : []))) as string[];
+    const mine = (Array.isArray(d.encryptedKeys) ? d.encryptedKeys : []).filter((k: J) => String(k?.recipient).toLowerCase() === this.address);
+    if (mine.length !== 1 || !released.includes(mine[0].ciphertext)) throw new Error('the key the settlement released is not your envelope in the delivery you passed: it is not the delivery that settled');
+    const uri = String(d.ciphertext?.uri);
+    if (!agent.sources().some((op) => new URL(op).origin === new URL(uri).origin)) throw new Error(`the delivery's ciphertext is at ${shown(uri)}, not on an operator`);
+    const res = await fetch(uri, { signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) throw new Error(`the ciphertext at ${shown(uri)} answered ${res.status}`);
+    const ct = new Uint8Array(await res.arrayBuffer());
+    if ((await sha256(ct)) !== d.ciphertext.sha256) throw new Error("the ciphertext does not match the delivery's signed ciphertext.sha256");
+    const key = openEnvelopeKey(mine, this.address, new Uint8Array(Buffer.from(this.#saved.encryptionSecretKey, 'base64url')));
+    const aes = await crypto.subtle.importKey('raw', new Uint8Array(key), 'AES-GCM', false, ['decrypt']);
+    const plain = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: ct.slice(0, 12) }, aes, ct.slice(12)));
+    if ((await sha256(plain)) !== d.plaintextSha256) throw new Error("the work does not match the delivery's signed plaintextSha256");
+    return new TextDecoder('utf-8', { fatal: true }).decode(plain);
   }
 
   /**

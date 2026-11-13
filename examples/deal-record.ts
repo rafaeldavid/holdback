@@ -19,9 +19,10 @@
 // Public deals only: a private or judgment-level deal's terms need a ReadToken, and the record marks them unreadable.
 // Transactions and balances are what the operators report; read the chain itself to check them.
 import { readFileSync, writeFileSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
 import nacl from 'tweetnacl';
 import { recoverMessageAddress, recoverTypedDataAddress, type Hex } from 'viem';
+import { isMain } from './entry.ts';
+import { help, helpAsked } from './help.ts';
 import { commitmentIdOf, deliveryHashOf, jcs, jcsHash, knownPins, operatorFeeOf, typedOf, type Pin } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -389,8 +390,26 @@ async function view(a: Answers, id: Hex, o: Options, cache: Map<string, Uint8Arr
     add('operator fee', BigInt(operatorFee.amount) === due, `${operatorFee.amount} base units paid; ${due < 0n ? 'the published schedule is malformed' : `${due} due under ${schedule}`}`);
   }
   const out = events.filter((e) => SETTLED.includes(e.type));
-  const postings = out.flatMap((e) => (Array.isArray(e.payload?.postings) ? e.payload.postings : [])).filter((x: J) => lc(x.from) === `escrow:${id}`).map((x: J) => ({ to: lc(x.to), amount: x.amount, why: x.why ?? null }));
-  if (hold && out.length) {
+  let postings = out.flatMap((e) => (Array.isArray(e.payload?.postings) ? e.payload.postings : [])).filter((x: J) => lc(x.from) === `escrow:${id}`).map((x: J) => ({ to: lc(x.to), amount: x.amount, why: x.why ?? null }));
+  // T-390: a mutual settlement's event carries its payouts and no postings, on SimChain and on a chain alike
+  // (packages/settlement/sim/simchain.ts:967, evm-settlement.ts:1553). The payouts sum to the price; the adjudication
+  // fee goes back to the buyer's payment address, less the sitting adjudicator's rulebook share (0 bps in phase one).
+  const settledEv = out.at(-1)?.type === 'commitment.settled' ? out.at(-1) : null;
+  const fromPayouts = postings.length === 0 && settledEv !== null && Array.isArray(settledEv.payload?.payouts);
+  if (fromPayouts) postings = settledEv!.payload.payouts.map((p: J) => ({ to: lc(p.to), amount: p.amount, why: 'agreed payout (from the settled event)' }));
+  // A chain's events carry no postings at all: the release's or refund's transfers are in the token's logs (Handoff).
+  // Only on a chain: SimChain writes postings for every outcome but a settlement, so a SimChain event without them fails (PR 440 review, Low 3).
+  const noPostings = postings.length === 0 && pin?.chain !== undefined;
+  if (hold && out.length && noPostings) {
+    for (const name of ['postings conserve the hold', 'postings follow the outcome']) add(name, null, "the operators' events carry no postings for this outcome; read the token's Transfer logs of the transactions below to check it");
+  } else if (hold && out.length && fromPayouts) {
+    const ok = postings.every((x: J) => isMoney(x.amount) && x.amount.token === hold.token && BigInt(x.amount.amount) > 0n) && price !== null && fee !== null && sum(postings.map((x: J) => x.amount)) === BigInt(price.amount) && BigInt(price.amount) + BigInt(fee.amount) === BigInt(hold.amount);
+    add('postings conserve the hold', ok, `the settlement's payouts sum to the price, ${price?.amount} ${hold.token}, and the adjudication fee, ${fee?.amount}, returns to the buyer's payment address less the sitting adjudicator's rulebook share, which the event does not carry: the hold, ${hold.amount} ${hold.token}`);
+    const allowed = t ? [t.sellerPayoutAddress ?? t.seller, t.buyerPaymentAddress ?? t.buyer].map(lc) : [];
+    add('postings follow the outcome', t ? postings.every((x: J) => allowed.includes(x.to)) : null, t ? "settled: every payout goes to the seller's payout address or the buyer's payment address (ADR-0033)" : 'the terms were not read');
+    const apart = t ? [[t.buyer, t.buyerPaymentAddress ?? t.buyer], [t.seller, t.sellerPayoutAddress ?? t.seller]].filter(([s, m]) => lc(s) !== lc(m)).map(([s]) => lc(s)) : [];
+    if (apart.length) add('signing addresses receive nothing', postings.every((x: J) => !apart.includes(x.to)), `no payout goes to ${apart.join(' or ')}, which sign and differ from their money address`);
+  } else if (hold && out.length) {
     const ok = postings.every((x: J) => isMoney(x.amount) && x.amount.token === hold.token) && sum(postings.map((x: J) => x.amount)) === BigInt(hold.amount);
     add('postings conserve the hold', ok, `the postings out of escrow sum to the hold, ${hold.amount} ${hold.token}`);
     const to = (who: string, amount: bigint) => postings.some((x: J) => x.to === lc(who) && BigInt(x.amount.amount) === amount);
@@ -475,6 +494,11 @@ export async function dealRecord(id: Hex, o: Options): Promise<DealRecord> {
 
 /** The command: parses the arguments, reads the key from the environment, writes the record. */
 async function main(argv: string[]): Promise<number> {
+  const asked = helpAsked(argv);
+  if (asked !== null) {
+    (asked === 0 ? process.stdout : process.stderr).write(`${help('deal-record', import.meta.url)}\n`);
+    return asked;
+  }
   const [id, ...rest] = argv;
   const flag = (name: string) => {
     const i = rest.indexOf(name);
@@ -482,7 +506,7 @@ async function main(argv: string[]): Promise<number> {
   };
   const party = flag('--as');
   if (!id || (party !== 'buyer' && party !== 'seller')) {
-    process.stderr.write('usage: node examples/deal-record.ts <commitmentId> --as buyer|seller [--delivery <file>] [--settlement <file>] [--out <file>]\n');
+    process.stderr.write(`${help('deal-record', import.meta.url)}\n`);
     return 2;
   }
   const operators = (process.env['HOLDBACK_OPERATORS'] || 'https://api.crow.direct,https://api2.crow.direct').split(',');
@@ -506,7 +530,8 @@ async function main(argv: string[]): Promise<number> {
   return count(false) || r.disagreements.length ? 1 : 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// The program only when it is the one being run: not when buyer-signer.ts imports it, bundled or not (entry.ts).
+if (isMain(import.meta.url, 'deal-record')) {
   main(process.argv.slice(2)).then(
     (code) => process.exit(code),
     (e: unknown) => {

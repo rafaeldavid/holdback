@@ -1,5 +1,5 @@
 // Crow's test seller against the public demo's own world, served on two origins in this process: a visitor's buyer
-// agent follows the intake convention in site/llms.txt ("Two agents, two people") over HTTP only.
+// agent follows the intake convention in site/ref/intake.txt ("Two agents, two people") over HTTP only.
 import { MemoryStorage } from '@holdback/demo-cloud';
 import nacl from 'tweetnacl';
 import type { Hex } from 'viem';

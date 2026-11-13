@@ -13,9 +13,10 @@
 #
 # --verify runs --check first, then publishes each of the five contracts' source on the block explorers with the
 # constructor arguments the checked record holds (`forge verify-contract`, T-383): Sourcify always, with no key and no
-# account; Etherscan too when ETHERSCAN_API_KEY is in the environment, which forge reads by that name (it is never put
-# on a command line). A contract already verified is skipped, so a rerun is safe. VERIFY_DRY_RUN=1 prints the
-# commands instead of running them.
+# account, the pilot's verification; Etherscan too when ETHERSCAN_API_KEY is in the environment, which forge reads by
+# that name (it is never put on a command line). The Etherscan mode needs a key and a newer forge than the pinned 1.0.0;
+# it has not run. A contract already verified is skipped, so a rerun is safe. VERIFY_DRY_RUN=1 prints the commands
+# instead of running them.
 #
 # A rehearsal (T-383): the same routine on a local anvil (chain 31337, an RPC on 127.0.0.1 or localhost only), with
 # DEPLOY_RECORD naming the record to write or check, so a rehearsal never writes over contracts/deployments/sepolia.json.
@@ -311,6 +312,12 @@ if [ -n "$TOKEN" ]; then
       domainSeparator: $domainSeparator, tx: $tx, block: $block}')"
 fi
 
+# When the deployment happened: the first creation's block time, in UTC. The dated copy of this record is named by it
+# (scripts/record-copies.mjs keep), so two deployments on one day get two names.
+DEPLOYED_TS="$(cast block "$ESCROW_BLOCK" --field timestamp --rpc-url "$RPC")" || fail "reading block $ESCROW_BLOCK failed"
+DEPLOYED_TS="$(cast to-dec "$DEPLOYED_TS")" || fail "bad block time $DEPLOYED_TS"
+DEPLOYED_AT="$(jq -rn --argjson t "$DEPLOYED_TS" '$t | todate')" || fail "formatting the block time failed"
+
 SETTINGS_RAW="$(forge config --root "$ROOT" --json)"
 SETTINGS="$(jq -e '{solc: .solc, viaIR: .via_ir, optimizer: .optimizer, optimizerRuns: .optimizer_runs, evmVersion: .evm_version}' <<<"$SETTINGS_RAW")"
 
@@ -318,7 +325,7 @@ RECORD="$(jq -n \
   --arg commit "$COMMIT" \
   --arg deployer "$DEPLOYER" \
   --argjson compiler "$SETTINGS" \
-  --argjson fromBlock "$ESCROW_BLOCK" \
+  --argjson fromBlock "$ESCROW_BLOCK" --arg deployedAt "$DEPLOYED_AT" \
   --arg escrow "$ESCROW" --arg escrowTx "$ESCROW_TX" --argjson escrowBlock "$ESCROW_BLOCK" \
   --arg tokenStoreImplementation "$TOKEN_STORE_IMPL" \
   --arg c3009 "$C3009" --arg c3009Tx "$C3009_TX" --argjson c3009Block "$C3009_BLOCK" \
@@ -335,6 +342,7 @@ RECORD="$(jq -n \
     compiler: $compiler,
     deployer: $deployer,
     fromBlock: $fromBlock,
+    deployedAt: $deployedAt,
     escrow: $escrow,
     erc3009Collector: $c3009,
     multicall: $multicall,
@@ -425,7 +433,7 @@ verify_all() {
   elif [ -n "${ETHERSCAN_API_KEY:-}" ]; then
     echo "deploy-sepolia: the five contracts are verified on Sourcify and Etherscan"
   else
-    echo "deploy-sepolia: the five contracts are verified on Sourcify; set ETHERSCAN_API_KEY to verify on Etherscan too"
+    echo "deploy-sepolia: the five contracts are verified on Sourcify (Etherscan needs a key and a newer forge; not run)"
   fi
 }
 

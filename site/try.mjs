@@ -457,6 +457,14 @@ const HEX32 = /^0x[0-9a-fA-F]{64}$/;
 const freshNonce = () => `0x${Buffer.from(crypto.getRandomValues(/* @__PURE__ */ new Uint8Array(32))).toString("hex")}`;
 /** The agent picks its nonces; the operator must echo exactly the one the agent sent. */
 const own = (mine, theirs, name) => typeof mine !== "string" || !HEX32.test(mine) ? refuse$1(`generate ${name} yourself (32 random bytes) and send it with the prepare request`) : String(theirs).toLowerCase() === mine.toLowerCase() ? mine : refuse$1(`${name} is not the one you sent`);
+/**
+* How far an offer's `createdAt` may sit from settlement-layer time, in seconds: a prepared offer outside it is refused
+* (verifyPrepared), and the buyer signer lists one outside it as a difference to approve (T-390, T-388 H1).
+*/
+const CREATED_AT_BAND = {
+	behindSec: 600,
+	aheadSec: 60
+};
 /** An operator-chosen time must lie within [now - behind, now + ahead] seconds of settlement-layer time. */
 const nearTo = (now) => (ts, behind, ahead, name) => {
 	const d = (Date.parse(ts) - now) / 1e3;
@@ -684,7 +692,7 @@ function expected(intent, op, now) {
 	const near = nearTo(now);
 	if (intent.kind === "offer") {
 		const r = intent.request;
-		const terms = publicOfferTerms(r, intent.registration, intent.rulebookHash, near(op.createdAt, 600, 60, "createdAt"), own(r.nonce, op.nonce, "nonce"));
+		const terms = publicOfferTerms(r, intent.registration, intent.rulebookHash, near(op.createdAt, CREATED_AT_BAND.behindSec, CREATED_AT_BAND.aheadSec, "createdAt"), own(r.nonce, op.nonce, "nonce"));
 		return {
 			path: "/v1/commitments",
 			body: {
@@ -1800,6 +1808,14 @@ var Agent = class Agent {
 	}
 };
 
+// examples/finality.ts
+/** The finality clause for terms whose appeal window is `appealWindowSec` seconds and whose appeal deadline is `appealBy`. */
+function finality(appealWindowSec, appealBy) {
+	const window = Number(appealWindowSec ?? 0);
+	if (window === 0) return "final at the decision, since the terms have no appeal window";
+	return `final at ${appealBy ?? "the end of the appeal window"}, when the ${window} s appeal window closes, with nobody needing to act`;
+}
+
 // examples/try.ts
 const OPERATORS = (process.env["HOLDBACK_OPERATORS"] || "https://api.crow.direct,https://api2.crow.direct").split(",").map((s) => s.trim().replace(/\/+$/, "")).filter(Boolean);
 const PRICE_UNITS = "25000000";
@@ -1839,6 +1855,14 @@ const CSV = "customer_id,email\n1,ada@example.com\n2,alan@example.com\n3,grace@e
 /** What this script's own seller delivers when asked for a refund: 2 rows, which fail the rows check. */
 const BAD_CSV = "customer_id,email\n1,ada@example.com\n2,alan@example.com\n";
 const args = process.argv.slice(2);
+if (args.some((a) => a === "--help" || a === "-h")) {
+	(args[0] === "--help" || args[0] === "-h" ? console.log : console.error)([
+		"try: runs one test deal on Crow's demo with fresh keys, test tokens only. With --seller it is the buyer and Crow's test seller the other party; without, it plays both sides. --outcome refund asks for a refund.",
+		"usage: node try.mjs [--seller <test seller URL>] [--outcome release|refund]",
+		"example: node try.mjs --seller https://crow.direct/agents/test-seller"
+	].join("\n"));
+	process.exit(args[0] === "--help" || args[0] === "-h" ? 0 : 2);
+}
 const option = (name) => {
 	const i = args.indexOf(name);
 	return i >= 0 ? args[i + 1] : void 0;
@@ -2234,7 +2258,7 @@ async function main() {
 	}
 	step = "final";
 	const party = deal ? "with Crow's test seller as the other party" : SELLER ? "with both sides played here, since the test seller was unavailable" : "with both sides played here";
-	say(`${done.escrowState} in ${Math.round((Date.now() - started) / 1e3)} s ${party}; final at ${done.deadlines?.appealBy ?? "the end of the appeal window"}, when the 60 s appeal window closes, with nobody needing to act`);
+	say(`${done.escrowState} in ${Math.round((Date.now() - started) / 1e3)} s ${party}; ${finality(terms.timing?.appealWindowSec, done.deadlines?.appealBy)}`);
 	step = "done";
 	say(`commitment ${id} ${done.escrowState}`);
 }

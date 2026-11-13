@@ -1,5 +1,5 @@
 // One seller-started deal with Crow's test buyer (T-239), played by an outside seller with a fresh key: the faucet
-// admits it, it reads the buyer's card, offers 3 rows of customer_id,email on Crow naming the buyer (site/llms.txt,
+// admits it, it reads the buyer's card, offers 3 rows of customer_id,email on Crow naming the buyer (site/ref/intake.txt,
 // "Sell to Crow's test buyer"), posts the commitment ID, delivers once the deal is Held, and reads the outcome.
 // scripts/sell-to-test-buyer.mjs runs it against the live operators; buyer.test.ts runs it in process.
 import nacl from 'tweetnacl';

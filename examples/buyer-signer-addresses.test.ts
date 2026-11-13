@@ -317,7 +317,7 @@ describe('a wallet outside the signer pays (ADR-0033 §3)', () => {
     const lines = files.err.trimEnd().split('\n');
     const signs = lines.filter((l) => l.startsWith('{"sign":')).map((l) => JSON.parse(l) as { sign: string; summary: string });
     expect(signs.map((s) => s.sign.split('.').slice(-3, -2)[0])).toEqual(['funding', 'operator-fee']);
-    expect(lines.at(-1)).toMatch(new RegExp(`Stopped for the payment address's signatures: nothing is paid\\. .* fund ${dir} ${shown.commitmentId} <funding signature> \\[<operator-fee signature>\\]$`));
+    expect(lines.at(-1)).toMatch(new RegExp(`Stopped for the payment address's signatures: nothing is paid\\. .* node examples/pay-from-wallet\\.ts fund ${dir} ${shown.commitmentId} <funding signature> \\[<operator-fee signature>\\]$`));
     expect(await stateOf(shown.commitmentId)).toBe('AcceptedByAdjudicator');
     // The holder's own check, from the terms and its pinned layer (SimChain here), with no access to the key store.
     const termsFile = join(store(), 'terms.json');
@@ -332,6 +332,7 @@ describe('a wallet outside the signer pays (ADR-0033 §3)', () => {
     const funded = await node([here('./pay-from-wallet.ts'), 'fund', dir, shown.commitmentId, await pay.sign(signs[0]!.sign), await pay.sign(signs[1]!.sign)]);
     expect(funded.code, funded.err).toBe(0);
     expect(JSON.parse(funded.out)).toMatchObject({ funded: shown.commitmentId, paid: { token: 'tUSD', amount: TOTAL }, from: pay.address });
+    expect(funded.err.trimEnd().split('\n').at(-1)).toBe(`Funded. Follow the deal with: node examples/buy-with-signer.ts resume ${dir}`); // the tests run from the repository's root
     const done = await node([here('./buy-with-signer.ts'), 'resume', dir]);
     expect(done.code, done.err).toBe(0);
     expect(JSON.parse(done.out)).toMatchObject({ outcome: 'Released', work: CSV });
@@ -404,5 +405,42 @@ describe('a wallet outside the signer pays (ADR-0033 §3)', () => {
     expect(await balance(pay.address)).toBe(PRICE.amount);
     expect(await balance(signer.address)).toBe(signingBefore);
     expect((await signer.record()).row).toMatchObject({ refundedTo: pay.address, paidTo: null });
+  }, 60_000);
+});
+
+describe('a wallet outside the signer pays, on operators whose fee is 0 (the first pilots, T-389)', () => {
+  it('the signer writes the funding file only and asks for no operator-fee signature; the payment address pays the price plus the adjudication fee', async () => {
+    const zero = await serveTwoOrigins(await PublicWorld.open({ storage: new MemoryStorage(), env: { OPERATOR_FEE_BPS: '0', OPERATOR_FEE_MIN: '0' }, faucetPerClient: 100 }), { tickMs: 100 });
+    const free = await serveSeller(zero.urls);
+    try {
+      const pay = wallet(generatePrivateKey());
+      const hold = '26000000'; // 25 tUSD price + 1 tUSD adjudication fee; no operator fee
+      const signer = await makeKeys(store(), { operators: zero.urls, paymentAddress: pay.address, log: () => {} });
+      const quote = await signer.quote(free.quoteUrl, 'rows');
+      const offer = await signer.readOffer(quote.commitmentId);
+      expect(offer.fees.operator).toEqual({ token: 'tUSD', amount: '0' });
+      expect(offer.fees.total).toEqual({ token: 'tUSD', amount: hold });
+      await signer.checkOffer(quote.commitmentId, offer);
+      await signer.testFunds(hold);
+      const files = await signer.fundingFiles(quote.commitmentId);
+      expect(files.map((f) => f.name)).toEqual(['funding']);
+      expect(files[0]!.check).not.toContain('--fee');
+      expect(readdirSync(signer.store).some((f) => f.endsWith('.operator-fee.typed.json'))).toBe(false);
+      await expect(signer.agreeAndFund(quote.commitmentId, { funding: await pay.sign(files[0]!.path), operatorFee: '0x' + '11'.repeat(65) })).rejects.toThrow(/there is no operator-fee message/);
+      const paid = await signer.agreeAndFund(quote.commitmentId, { funding: await pay.sign(files[0]!.path) });
+      expect(paid).toMatchObject({ total: { token: 'tUSD', amount: hold }, hold: { token: 'tUSD', amount: hold }, operatorFee: { token: 'tUSD', amount: '0' } });
+      const payBalance = async () => ((await (await fetch(`${zero.urls[1]}/v1/balances/${pay.address}`)).json()) as { amount: string }).amount;
+      expect(await payBalance()).toBe('0');
+      const done = await signer.openDelivery(quote.commitmentId, { timeoutMs: 30_000, pollMs: 200 });
+      expect(done).toMatchObject({ outcome: 'Released', work: CSV });
+      expect(done.receipt).toMatchObject({ outcome: 'Released', paid: { token: 'tUSD', amount: hold } });
+      const record = await signer.record();
+      expect(record.row).toMatchObject({ operatorFee: { token: 'tUSD', amount: '0' }, paidTo: free.address });
+      expect(record.checks.filter((c) => c.ok === false)).toEqual([]);
+      expect(record.checks.find((c) => c.check === 'operator fee')?.ok).toBe(true);
+    } finally {
+      await free.close();
+      await zero.close();
+    }
   }, 60_000);
 });

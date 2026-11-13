@@ -73,6 +73,7 @@ const COST: Record<string, number> = {
   'tests/read-after-write.lint.test.ts': 5,
   'tests/spec.test.ts': 5,
   'tests/cut-feature-alignment.test.ts': 10, // T-354, measured locally at about 1 s; not yet measured in CI
+  'tools/duet/duet.test.ts': 310, // T-391, measured locally at about 31 s; not yet measured in CI
 };
 const DEFAULT_COST = 2;
 
@@ -101,7 +102,7 @@ class BalancedSequencer extends BaseSequencer {
 
 export default defineConfig({
   test: {
-    include: ['tests/**/*.test.ts', 'packages/*/src/**/*.test.ts', 'packages/settlement/sim/**/*.test.ts', 'packages/settlement/evm/**/*.test.ts','apps/*/src/**/*.test.ts', 'apps/demo/agents/**/*.test.ts', 'examples/*.test.ts', 'tools/sim/*.test.ts'],
+    include: ['tests/**/*.test.ts', 'packages/*/src/**/*.test.ts', 'packages/settlement/sim/**/*.test.ts', 'packages/settlement/evm/**/*.test.ts','apps/*/src/**/*.test.ts', 'apps/demo/agents/**/*.test.ts', 'examples/*.test.ts', 'tools/sim/*.test.ts', 'tools/duet/*.test.ts'],
     sequence: { sequencer: BalancedSequencer },
     // Whole-flow tests (demo beats, judged deals) take a few seconds alone and more under a full parallel
     // run; the 5 s default timed them out locally. Tests that need longer still set their own (T-035).

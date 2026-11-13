@@ -132,7 +132,7 @@ export interface AuditDealOptions {
 export interface AuditDealResult {
   commitmentId: Hex;
   /** `Held`: with a seller's own report, the seller's check run refused it, nothing was delivered and the run stopped. */
-  outcome: 'Released' | 'Refunded' | 'Held';
+  outcome: 'Released' | 'Refunded' | 'Held' | 'Settled'; // Settled: a mutual settlement (T-390); the rehearsal makes none
   buyer: string;
   seller: string;
   /** The offer as both operators served it and the buyer approved it. */
@@ -503,6 +503,8 @@ export interface LocalWorld {
   operators: string[];
   /** Moves this world's settlement time forward. */
   advanceClock(seconds: number): void;
+  /** This world's settlement time now, in ms: the clock the buyer signer checks an offer against here (T-390). */
+  now(): number;
   /**
    * What the judges decide on a rubric deal here (T-355). They stand in for the models: no model runs, each verdict's
    * rationale reads "fake judge: pass" or "fake judge: fail", and they pass until this is set.
@@ -534,6 +536,7 @@ export async function startLocalWorld(): Promise<LocalWorld> {
   return {
     operators: served.urls,
     advanceClock: (seconds) => void (aheadMs += seconds * 1000),
+    now: () => Date.now() + aheadMs,
     setPanel: (v) => void (verdict = v),
     front: async () => {
       let extra: number | null = null;
@@ -564,7 +567,7 @@ export async function startLocalWorld(): Promise<LocalWorld> {
 export const CASES = ['released', 'redelivered', 'rubric', 'refunded', 'missed-deadline', 'shown-mismatch', 'resume', 'two-addresses'] as const;
 export type CaseName = (typeof CASES)[number];
 /** `Not funded`: the buyer's signer refused before any signature, so the commitment never reached a hold. */
-export type EndState = 'Released' | 'Refunded' | 'Held' | 'Not funded';
+export type EndState = 'Released' | 'Refunded' | 'Held' | 'Not funded' | 'Settled'; // Settled: a mutual settlement (T-390); no case expects one
 /** How each case should end. A case that ends otherwise makes the command exit 1. */
 export const EXPECTED: Record<CaseName, EndState> = { released: 'Released', redelivered: 'Released', rubric: 'Released', refunded: 'Refunded', 'missed-deadline': 'Refunded', 'shown-mismatch': 'Not funded', resume: 'Released', 'two-addresses': 'Released' };
 /** The cases only the local world can rehearse, and why. */
@@ -866,7 +869,7 @@ export async function rehearse(o: RehearsalOptions): Promise<RehearsalResult> {
     const wallet = paymentKey ? privateKeyToAccount(paymentKey) : undefined;
     if (wallet && o.keys) throw new UsageError('--keys and a payment key do not go together: with a payment address every case makes a fresh signing key, which holds no money');
     const store = o.keys?.store ?? join(o.dir, 'buyer-keys');
-    const quiet = { operators: buyerOperators, log: (line: string) => say(`    ${line}`) };
+    const quiet = { operators: buyerOperators, log: (line: string) => say(`    ${line}`), ...(o.world ? { clock: o.world.now } : {}) };
     let signer: BuyerSigner = o.keys ? await loadKeys(o.keys.store, o.keys.buyer, quiet) : await makeKeys(store, { ...quiet, ...(wallet ? { paymentAddress: wallet.address } : {}) });
     step(o.keys ? 'The buyer opens its key' : 'The buyer makes keys', `buyer ${signer.address}; the key file is in ${store}${o.keys ? '' : ' with mode 0600'}${wallet ? `; the payment address ${signer.paymentAddress} funds the deal and receives every refund` : ''}.`);
     if (front) say(`    The buyer reads the operators through a front, ${front.operators.join(' and ')}, that serves this world unchanged until it raises the fee.`);
@@ -1109,6 +1112,13 @@ export function parseArgs(argv: readonly string[]): AuditDealArgs {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   let args: AuditDealArgs;
+  // T-397: --help or -h first answers with what it does, the usage and an example (exit 0); anywhere else it is a wrong call.
+  const argv = process.argv.slice(2), isHelp = (a: string | undefined) => a === '--help' || a === '-h';
+  if (argv.some(isHelp)) {
+    const text = `audit-deal: rehearses whole deals between the seller adapter and the buyer's signer, on a local chain by default (one process, its own clock) or with --live on the test service.\n${USAGE}\nexample: pnpm audit-deal --case released`;
+    (isHelp(argv[0]) ? console.log : console.error)(text);
+    process.exit(isHelp(argv[0]) ? 0 : 2);
+  }
   try {
     args = parseArgs(process.argv.slice(2));
   } catch (e) {

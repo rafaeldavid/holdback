@@ -4,7 +4,7 @@
 // (examples/agent.ts, examples/verify.ts), and holds its own keys, derived from the Worker's Sepolia-only secret
 // (keys.ts, label "buyer/standing"). The operators relay; they give it nothing they would not give any agent.
 //
-// A seller reads the card, offers on Crow naming the buyer's address and encryption key (site/llms.txt, section 5),
+// A seller reads the card, offers on Crow naming the buyer's address and encryption key (site/ref/http-seller.txt, "Offer"),
 // and posts the commitment ID here. The buyer reads the terms from the operators and checks them against its
 // published rules (buyer-rules.ts). It refuses an offer that breaks one, naming the rule, or takes it: it agrees and
 // funds with test tUSDC once the adjudicator accepts the offer, follows the deal to Released or Refunded, and sends
@@ -402,7 +402,7 @@ export class TestBuyer {
     try {
       [served, ctx] = await Promise.all([a.trusted(`/v1/commitments/${id}/terms`), this.context()]);
     } catch (e) {
-      if (/not_found/.test(message(e))) return problem(404, `the operators hold no commitment ${id}: offer on Crow first (site/llms.txt, section 5)`);
+      if (/not_found/.test(message(e))) return problem(404, `the operators hold no commitment ${id}: offer on Crow first (https://crow.direct/ref/intake.txt, "Sell to Crow's test buyer")`);
       return problem(503, `the test buyer cannot read the operators now: ${message(e)}`, { retryAfterSec: 30 });
     }
     const { id: _servedId, signatures, ...terms } = served; // eslint-disable-line @typescript-eslint/no-unused-vars
@@ -562,7 +562,7 @@ export class TestBuyer {
     const live = mandates.some((m) => m.clubId === d.terms.clubId && Date.parse(m.scope?.expiresAt) > Date.parse(d.terms.timing.fundBy));
     const need = BigInt(d.total);
     if (balance >= need && live) return;
-    // The faucet's default grant is 1,000 tUSDC; a deal that costs more names its own total (site/llms.txt, section 2).
+    // The faucet's default grant is 1,000 tUSDC; a deal that costs more names its own total (site/ref/http.txt, "Discover and get test tUSDC").
     const grant = await this.submit({ step: 'fund', path: '/v1/faucet', body: { address: a.address, ...(need > 1_000_000_000n ? { amount: need.toString() } : {}) }, key: crypto.randomUUID() });
     if (grant.clubId !== d.terms.clubId) throw new Refused(`the faucet admitted the buyer to ${grant.clubId}, not ${d.terms.clubId}`);
     this.log(`test-buyer: faucet granted ${grant.granted?.amount ?? '?'} base units`);
