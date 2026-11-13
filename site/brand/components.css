@@ -12,20 +12,20 @@
 .ck-gap { flex: 1; }
 .ck-nav { font-size: 14px; color: var(--ink-2); text-decoration: none; }
 .ck-nav:hover { color: var(--ink); }
-.ck-brand:focus-visible, .ck-nav:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.ck-brand:focus-visible, .ck-nav:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (max-width: 600px) { .ck-nav { display: none; } }
 /* part: button */
 .ck-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 var(--space-5); border: 0; border-radius: var(--radius-pill); background: var(--accent); color: var(--accent-ink); font: inherit; font-size: 16px; font-weight: var(--weight-strong); text-decoration: none; cursor: pointer; }
 .ck-btn-out { border: 1px solid var(--line); background: transparent; color: var(--ink); }
 .ck-btn-s { min-height: 34px; padding: 0 var(--space-4); font-size: 14px; }
 .ck-btn:disabled { opacity: .6; cursor: default; }
-.ck-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.ck-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* part: pill */
 .ck-pill { display: inline-flex; align-items: center; min-height: 22px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius-pill); font-size: 12px; font-weight: var(--weight-strong); color: var(--ink); white-space: nowrap; }
 .ck-pill-paid { border-color: transparent; background: var(--paid-wash); color: var(--paid); }
 .ck-pill-warn { border-color: transparent; background: var(--warn-wash); color: var(--warn); }
 /* part: head */
-.ck-eyebrow { margin: 0; font-size: var(--size-note); font-weight: var(--weight-strong); letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
+.ck-eyebrow { margin: 0; font-size: var(--size-note); font-weight: var(--weight-strong); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
 .ck-title { margin: 14px 0 0; font-family: var(--display); font-size: var(--size-display); line-height: 1.04; font-weight: var(--weight-bold); letter-spacing: -.035em; }
 .ck-lede { margin: 12px 0 0; max-width: 600px; font-size: var(--size-lede); line-height: 1.4; color: var(--ink-2); text-wrap: balance; }
 @media (max-width: 600px) { .ck-lede { font-size: 19px; } }
@@ -45,13 +45,13 @@
 .ck-row { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; padding: 14px 0; border-bottom: 1px solid var(--hair); }
 .ck-row-title { min-width: 120px; font-weight: var(--weight-strong); color: var(--ink); text-decoration: none; }
 a.ck-row-title:hover { text-decoration: underline; }
-a.ck-row-title:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+a.ck-row-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ck-row-line { font-size: var(--size-small); color: var(--ink-2); }
 .ck-row-end { margin-left: auto; font-size: var(--size-note); color: var(--ink-3); white-space: nowrap; }
 /* part: card */
 .ck-card { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 20px 44px 20px 20px; border: 1px solid var(--line); border-radius: var(--radius-card); color: var(--ink); text-decoration: none; }
 .ck-card:hover { border-color: var(--ink-2); }
-.ck-card:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.ck-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ck-card-title { font-weight: var(--weight-strong); }
 .ck-card-line { font-size: 14px; color: var(--ink-2); }
 .ck-card .ck-icon { position: absolute; right: 18px; top: 50%; width: 16px; height: 16px; margin-top: -8px; color: var(--ink-3); }
@@ -68,7 +68,7 @@ a.ck-row-title:focus-visible { outline: 2px solid var(--ink); outline-offset: 2p
 .ck-disc > summary::-webkit-details-marker { display: none; }
 .ck-disc > summary::after { content: "+"; position: absolute; right: 4px; top: 16px; font-size: 24px; font-weight: 300; color: var(--ink-2); }
 .ck-disc[open] > summary::after { content: "–"; }
-.ck-disc > summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.ck-disc > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ck-disc-body { max-width: 720px; padding: 0 0 22px; font-size: 16px; color: var(--ink-2); }
 /* part: footer */
 body:has(> .ck-foot) { min-height: 100vh; display: flex; flex-direction: column; }
@@ -82,7 +82,7 @@ body > .ck-foot { margin-top: auto; }
 .ck-foot-nav > a:hover { color: var(--ink); }
 .ck-foot-nav > a[aria-current] { color: var(--ink); font-weight: var(--weight-strong); }
 .ck-foot-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-4); margin-top: var(--space-3); font-size: var(--size-note); color: var(--ink-3); }
-.ck-foot a:focus-visible, .ck-foot button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.ck-foot a:focus-visible, .ck-foot button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (max-width: 600px) { .ck-foot-nav { gap: 0 var(--space-5); } .ck-foot-nav > a { min-height: 44px; } }
 /* part: dialog */
 .ck-dialog { position: fixed; inset: 0; margin: auto; width: min(440px, calc(100% - 32px)); max-width: 100%; height: fit-content; max-height: calc(100vh - 48px); padding: 0;
@@ -99,7 +99,7 @@ body > .ck-foot { margin-top: auto; }
 .ck-dialog-label { font-size: var(--size-note); font-weight: var(--weight-strong); color: var(--ink-2); }
 .ck-dialog input[type=email] { font: inherit; font-size: 16px; color: var(--ink); background: var(--page); border: 1px solid var(--line); border-radius: var(--radius-field); padding: 0 14px; min-height: 48px; }
 .ck-dialog-form .ck-btn { margin-top: 4px; }
-.ck-dialog input:focus-visible, .ck-dialog button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.ck-dialog input:focus-visible, .ck-dialog button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ck-dialog-msg { margin: 0; font-size: var(--size-small); color: var(--ink-2); }
 .ck-dialog-msg:empty { display: none; }
 .ck-dialog .ck-hp { position: absolute; left: -10000px; width: 1px; height: 1px; opacity: 0; }

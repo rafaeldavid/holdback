@@ -18,7 +18,17 @@ Read the names and values in `tokens.css`. In short:
 - **Colour.** `--page`, `--band`, `--ink`, `--ink-2`, `--ink-3`, `--line`, `--hair`. `--paid` and `--paid-wash` mark money that moved, and nothing else. `--warn` and `--warn-wash` mark a problem. `--scrim`, `--lift` and `--lift-sheet` are the dialog's backdrop and shadows.
 - **Type.** `--font`, `--display` and `--mono` are the system stacks. Five sizes, `--size-note` to `--size-display`, and two weights, `--weight-strong` and `--weight-bold`.
 - **Space, radius, width.** A 4 px scale, `--space-1` to `--space-7`. Three radii: `--radius-field`, `--radius-card`, `--radius-pill`. The page is `--width` wide with a `--gutter` each side.
+- **The accent.** `--accent` is this season's colour (autumn until 2026-12-01), drawn from `--accent-spring` to `--accent-winter`; `--accent-ink` is the text on it.
 - **Kept for one page.** `--demo-bubble` and the `--problems-*` tokens keep two pages' current look until Rafa picks one value (T-402, Handoff).
+
+## The accent
+
+The accent marks the one thing a view asks the reader to do, and nothing else (Rafa, 2026-11-13: not on everything).
+
+- **The filled button,** at most one per view: the home page's "Request early access", the demo page's call to action, the dialog's submit.
+- **The keyboard focus ring,** where it shows only when someone tabs.
+- **Never** on headings, eyebrows, icons, links, body text or a large area, and never as a state: paid and warn say states, with a word.
+- One season at a time. On 1 December, `--accent` points at `--accent-winter`; nothing else changes.
 
 ## The components
 

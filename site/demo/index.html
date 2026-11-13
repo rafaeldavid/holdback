@@ -31,11 +31,9 @@
   --page: #faf7f0; --band: #f3eee3; --ink: #2a2a2c; --ink-2: #5d5d60; --ink-3: #85837e; --line: #d6d0c4; --hair: #e6e0d5;
   --paid: #1d6b45; --paid-wash: #e2eee4; --warn: #b0233c; --warn-wash: #f7e1e4;
   /* one seasonal accent at a time, by the date in Berlin (Mar 1, Jun 1, Sep 1, Dec 1); a small pill, a thin rule, a
-     labelled chart series, the season's drawing, the filled button, the eyebrow, icons and a call-to-action link; never
-     body text, a large area or a state */
+     labelled chart series or the season's drawing; never body text, a large area or a state */
   --accent-spring: #6f7a14; --accent-summer: #8f6c14; --accent-autumn: #a55a17; --accent-winter: #24466e;
-  /* this season's accent (autumn until 2026-12-01; Rafa, 2026-11-13: show it on the buttons and the home page) and
-     the text drawn on it */
+  /* this season's accent, autumn until 2026-12-01 (README.md, "The accent"), and the text drawn on it */
   --accent: var(--accent-autumn); --accent-ink: var(--page);
   --scrim: rgba(0, 0, 0, .28); --lift: 0 24px 64px rgba(0, 0, 0, .18); --lift-sheet: 0 -12px 40px rgba(0, 0, 0, .12);
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
@@ -64,7 +62,7 @@
 .ck-btn-out { border: 1px solid var(--line); background: transparent; color: var(--ink); }
 .ck-btn-s { min-height: 34px; padding: 0 var(--space-4); font-size: 14px; }
 .ck-btn:disabled { opacity: .6; cursor: default; }
-.ck-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.ck-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* part: pill */
 .ck-pill { display: inline-flex; align-items: center; min-height: 22px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius-pill); font-size: 12px; font-weight: var(--weight-strong); color: var(--ink); white-space: nowrap; }
 .ck-pill-paid { border-color: transparent; background: var(--paid-wash); color: var(--paid); }
@@ -81,7 +79,7 @@ body > .ck-foot { margin-top: auto; }
 .ck-foot-nav > a:hover { color: var(--ink); }
 .ck-foot-nav > a[aria-current] { color: var(--ink); font-weight: var(--weight-strong); }
 .ck-foot-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-4); margin-top: var(--space-3); font-size: var(--size-note); color: var(--ink-3); }
-.ck-foot a:focus-visible, .ck-foot button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.ck-foot a:focus-visible, .ck-foot button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (max-width: 600px) { .ck-foot-nav { gap: 0 var(--space-5); } .ck-foot-nav > a { min-height: 44px; } }
 /* part: dialog */
 .ck-dialog { position: fixed; inset: 0; margin: auto; width: min(440px, calc(100% - 32px)); max-width: 100%; height: fit-content; max-height: calc(100vh - 48px); padding: 0;
@@ -98,7 +96,7 @@ body > .ck-foot { margin-top: auto; }
 .ck-dialog-label { font-size: var(--size-note); font-weight: var(--weight-strong); color: var(--ink-2); }
 .ck-dialog input[type=email] { font: inherit; font-size: 16px; color: var(--ink); background: var(--page); border: 1px solid var(--line); border-radius: var(--radius-field); padding: 0 14px; min-height: 48px; }
 .ck-dialog-form .ck-btn { margin-top: 4px; }
-.ck-dialog input:focus-visible, .ck-dialog button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.ck-dialog input:focus-visible, .ck-dialog button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ck-dialog-msg { margin: 0; font-size: var(--size-small); color: var(--ink-2); }
 .ck-dialog-msg:empty { display: none; }
 .ck-dialog .ck-hp { position: absolute; left: -10000px; width: 1px; height: 1px; opacity: 0; }
@@ -165,7 +163,7 @@ ol.run{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap
 /* Learn more: a product page. */
 .back{font-size:14px;color:var(--ink-2);text-decoration:none}
 .page-hero{max-width:720px;margin:12px 0 0}
-.eyebrow{font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--accent);margin:0}
+.eyebrow{font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-2);margin:0}
 .page-title{font-family:var(--display);font-size:48px;line-height:1.08;font-weight:700;letter-spacing:-.025em;margin:8px 0 0}
 .page-intro{font-size:20px;line-height:1.45;color:var(--ink-2);margin:14px 0 0}
 .honest{font-size:13px;color:var(--ink-3);margin:14px 0 0}
@@ -178,7 +176,7 @@ ol.run{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap
 .beat p{margin:0;font-size:18px;line-height:1.5;max-width:640px}
 .steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
 .steps li{background:var(--band);border-radius:var(--r-card);padding:22px 20px}
-.step-num{display:inline-flex;width:28px;height:28px;border-radius:999px;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-ink);font-size:13px;font-weight:700}
+.step-num{display:inline-flex;width:28px;height:28px;border-radius:999px;align-items:center;justify-content:center;background:var(--ink);color:var(--page);font-size:13px;font-weight:700}
 .steps h4,.feature h4{font-size:17px;font-weight:600;margin:14px 0 6px}
 .steps p,.feature p{margin:0;font-size:15px;color:var(--ink-2)}
 .features{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
