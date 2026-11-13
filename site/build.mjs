@@ -17,6 +17,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rolldown } from 'rolldown';
+import { JOIN_URL } from './drawer.ts';
 import { guideFiles, guideSource } from './guides.mjs';
 
 export const SITE_URL = 'https://crow.direct/';
@@ -257,7 +258,7 @@ ${FEATURES.map(([h, p, icon, note]) => `<div class="prop"><svg class="icon" view
 </section>`;
 // Early access: sign-ups go to the crow-early-access Worker (apps/early-access), which keeps only the address, the
 // time and the page.
-export const JOIN_URL = 'https://join.crow.direct/early-access';
+export { JOIN_URL }; // the sign-up service, in site/drawer.ts: the form and the drawer post to it
 const JOINFORM = `<form class="signup" id="join-form" novalidate aria-label="Request early access">
 <input id="join-email" name="email" type="email" autocomplete="email" required placeholder="you@company.com" aria-label="Email">
 <input class="hp" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">
@@ -615,9 +616,8 @@ export function page(md, command = tryCommand()) {
 <header class="bar"><div class="bar-inner">
 <a class="brand" href="${BASE}"><span class="logo" aria-hidden="true"></span>Crow</a>
 <span class="spacer"></span>
-<a class="nav" href="${BASE}demo/">Demo</a>
 <a class="nav" href="${BASE}llms.txt">Agent docs</a>
-<a class="quiet" href="#join-form">Request early access</a>
+<a class="quiet" href="${BASE}demo/">Watch Demo</a>
 </div></header>
 <main class="page">
 <section class="hero">
