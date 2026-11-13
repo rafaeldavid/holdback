@@ -6,7 +6,7 @@
 - **Paths this task may touch:** `contracts/script/deploy-sepolia.sh`; `packages/settlement/evm/live.ts` with its tests, and one data file beside it (the accepted-token table); one new command under `scripts/` with its test; the two lines that name a world (`apps/demo-cloud/src/worker.ts`, `apps/test-agents/src/worker.ts`) and the one test line that pins the first (`apps/demo-cloud/src/worker.test.ts`); `examples/deployments.ts` only as the copies command's target; `docs/cutover-phase-one.md` where a step's command changes; this file. Nothing under `contracts/src` or `contracts/test`.
 - **Human gate:** no. The task builds and tests on a local chain only. The deploy on Sepolia, and any explorer key, are Rafa's at the cutover.
 - **Change kind:** 7 for the script, 5 for the start-up check; one reviewer per pull request.
-- **Status:** part 1 done (PRs 422, 423, 429 and 430, into `contracts-audit-ready`); part 2 done on the merge of its pull request
+- **Status:** done (2026-11-13). Part 1 merged in PRs 422, 423, 429 and 430, into `contracts-audit-ready`; part 2, the cutover day sheet, ran on 2026-11-13, and its fixes from the first run merged in PRs 474 and 478
 - **Agent/session:** the T-383 session (Opus 5.5), started 2026-11-12 by the coordinator
 
 ## Intent

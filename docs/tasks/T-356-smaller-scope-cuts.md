@@ -5,7 +5,7 @@
 - **Depends on:** T-346 and T-349 (SC-7, merged to `contracts-audit-ready` at `4f6cea0`), T-341 (the side-by-side harness and the state oracle), T-354 (the alignment test), T-345 (`ZeroPrice.t.sol`), ADR-0031 (Proposed, with D57 and D58)
 - **Paths this task may touch:** `contracts/src/`; `contracts/test/` (tests of removed features, a test for each refusal, the harness's pinned parent, allow-list and handler); `contracts/script/` where a cut requires it; `packages/core/src/` for each cut's mirror; `packages/settlement/evm/`, `apps/operator/`, `apps/adjudicator/`, `apps/demo-cloud/`, `apps/test-agents/` and `examples/e2e-*` only where a cut breaks them; `scripts/evm-abis.mjs` and `abis.json`; the fixtures' SimChain-only list; `tests/cut-feature-alignment.known.json`; this task file. Never `spec/schemas/`, `site/`, `docs/api.md`, `docs/audit/`, `examples/seller-adapter.ts`, `examples/buyer-signer.ts`, `examples/audit-deal.ts`
 - **Human gate:** no for the branch. The freeze, the merge to `main` and the redeploy are Rafa's
-- **Status:** merged to contracts-audit-ready, waits for the freeze
+- **Status:** done (2026-11-13): merged to contracts-audit-ready, in `main` through PR 475 (`27ab44e`), and live on Sepolia since the phase-one cutover of 2026-11-13
 - **Agent/session:** implementer session, change kind 7 (smart contracts): `forge test`, one reviewer and one red team per pull request, a target of 300k tokens per pull request
 
 ## Intent

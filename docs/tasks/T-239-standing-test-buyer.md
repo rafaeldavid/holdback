@@ -5,7 +5,7 @@
 - **Depends on:** T-222 (the test seller and the `crow-test-agents` Worker), merged.
 - **Paths this task may touch:** `apps/test-agents/`; `site/llms.txt` (the new seller section only), `site/check.mjs` (a matching check, if needed), `site/index.html` (only as the build regenerates it); `docs/operations.md` (a deploy command for the test buyer only); this file.
 - **Human gate:** yes for the last criterion only: the deploy and the first seller-started deal on Sepolia wait for Rafa.
-- **Status:** review fixes merged, wait for the redeploy (first deployed 2026-11-11; the first seller-started deal ended Released on Sepolia)
+- **Status:** done (2026-11-13). First deployed 2026-11-11; redeployed in the phase-one cutover (crow-test-agents `4b675edd`), where a sale to the test buyer ended released (`docs/operations.md`, Deploy record)
 - **Agent/session:** t-239-standing-test-buyer
 - **Change kind:** 4 (API and operator code): the package's tests, no review, a target of 150k tokens.
 
