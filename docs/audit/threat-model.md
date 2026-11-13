@@ -21,7 +21,7 @@ Labels: **measured** (read in the named function or file), **inferred**, **guess
 | AS-5 | **The record:** the deal's word and the events, as evidence of who signed what | The rules contract's storage and logs | No entry point rewrites a terminal row; there is no admin path (the contract's NatSpec: no owner, role, pause, upgrade, fallback or receive) |
 | AS-6 | **Liveness:** every funded deal closes | The timeouts anyone may call (`reclaim`, `triggerFallback`, `triggerDefault`) | Each non-terminal row has a timeout (`state-model.md` section 3) |
 
-The 0.7 contracts' assets AS-2 and AS-3, adjudicators' bonds and appeal bonds, are not in phase one.
+The 2026-11-04 contracts' (domain 0.7) assets AS-2 and AS-3, adjudicators' bonds and appeal bonds, are not in phase one.
 
 ## 2. Actors
 
