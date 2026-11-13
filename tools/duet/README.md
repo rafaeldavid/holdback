@@ -134,6 +134,37 @@ The published page differs from the local one in two ways:
 
 The record's secret list has already been applied to everything on the page.
 
+The early-access controls open the site's sign-up pop-up (`site/drawer.ts`) when scripts run, and fall back to that link when they do not.
+
+## The demo page, for engineers
+
+The demo page speaks plain words; its "For engineers" card under Resources links here. This section holds what the page's old "For engineers" section said (T-400).
+
+**How the page is made.** It is generated from one run's `record.jsonl` alone, by `replay.ts`. `summary.json` beside the record holds the measures, and `ticket.md` the items over the limits when there are any. The page names the run's code commit and order ID in one small line under Resources. The rest of a run's details live beside its record: the engine, the operators and the docs served to the agents in the record's `world` line; the models, the brief and the company's policy in its `run.start` line; the order's final state in `summary.json` (`outcome.state`). Run records stay on the machine that made them. The published demo is a scripted run on the local simulator under phase-one rules, served the published guides with that world's operators in `OP1` and `OP2`; anyone can make it again, record and all. To make the published demo again:
+
+```bash
+pnpm duet run --scenario paid --buyer scripted --seller scripted
+```
+
+```bash
+pnpm duet publish reports/scratch/duet/<the run folder>
+```
+
+**The plain words and the protocol terms behind them:**
+
+| On the page | In the protocol |
+| --- | --- |
+| the held payment | the escrow hold |
+| the independent reviewer | the adjudicator |
+| the agreed checks | the terms' deterministic checks |
+| signed | an EIP-712 signature |
+| the report unlocking | the content key released with the payment |
+| a payment record | a settlement transaction |
+| no admin keys | the phase-one settlement contracts have no owner, pause, freeze, blacklist or upgrade proxy (CLAUDE.md, hard rules) |
+| test dollars | the test token named in the demo deal's facts, with six decimals |
+
+**The agents.** Each is a tool-use loop over its vendor's API with fenced tools: GET to an allowlist, a fixed list of the repository's client commands (`buy-with-signer`, `seller-adapter`, `check-delivery`, `seal`, `deal-record`), and files in its own folder. Keys stay in files and environments the agents cannot read. The seller's tool is `examples/seller-adapter.ts` and the buyer's is `examples/buy-with-signer.ts`; the company's standing approval rule answers the signer's approval stop.
+
 ## The mark
 
 `crow-mark.svg` is Crow's mark on the demo page: a crow in flight, "as the crow flies", the direct way. It sits in the header and serves as the tab icon. Rafa supplied the image on 2026-11-12 for this use. It was traced into this one path, which is filled with the text's colour. If the image is redrawn or replaced, replace this file; the page reads the path from it.
