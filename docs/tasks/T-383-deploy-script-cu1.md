@@ -208,6 +208,10 @@ Run `cd $W` once step 0 has made the worktree; the round of item 16 reads `.env`
 8. **Step 2.6.** `cast call <new rules> 'eip712Domain()(bytes1,string,string,uint256,address,bytes32,uint256[])' --rpc-url $R` reads `"Holdback"` and `"0.8"`.
 9. **Step 3.1.** Run the `--old` line step 2.3 printed: `node $W/scripts/record-copies.mjs --root $W --old contracts/deployments/sepolia-2026-11-04T0830Z-domain-0.7.json --new contracts/deployments/sepolia.json`. It prints `record-copies: pass: …`. Until T-385 removes them, it fails on exactly two `site/llms.txt` lines that name the cut vault.
 10. **Step 3.2.** `$W/contracts/script/deploy-sepolia.sh --check $R` prints `… matches the chain and the build at <frozen commit>`.
+    - `--check` compares the chain with the build by the creation transactions' input, the beacon's whole code and Multicall3's code hash. It does not hash the deployed runtime code.
+    - **Then the deployed runtime against the freeze's figures,** with the page's `onchain_hash` command (step 3.2). It zeroes the byte ranges in `deployedBytecode.immutableReferences`, because the deployed code holds the immutables' values where the artifact has zeros. Then it cuts the metadata tail by its CBOR length and takes SHA-256; the method is in `docs/audit/test-quality.md`, "Runtime code".
+    - It prints `HoldbackRules` `20449 bytes 545f80b5…0c47` and `DrandQuicknetBeacon` `3216 bytes 3a8c11c6…8c96` [measured on anvil].
+    - Never compare the figures with `extcodehash`: it differs, by design.
 11. **Step 3.3.** `$W/contracts/script/deploy-sepolia.sh --verify $R`, with `ETHERSCAN_API_KEY` unset, prints `the five contracts are verified on Sourcify (Etherscan needs a key and a newer forge; not run)`.
 12. **Step 3.4 to 3.8.** `node $W/site/check.mjs`; the page's guards; one commit; the pull request into `main`; Rafa's gitleaks lines; `pnpm -C $W verify`.
 13. **Step 4.** The two fork suites, each with `SEPOLIA_FORK_RPC` set, run one at a time; a skip is a failure.
@@ -223,7 +227,12 @@ Run `cd $W` once step 0 has made the worktree; the round of item 16 reads `.env`
 16. **Step 7.** Run `node --env-file-if-exists=.env $W/examples/e2e-round.ts run 5b --t220 --no-homepage`, then `… run 12 --no-homepage`. Each prints `results: … pass`. Scenario 12 prints `PASS: 31 of 31 checks held`, with "no operator fee moves: the fee is 0" on both deals [measured on anvil at `e5d2529`].
 17. **Step 8.** `node $W/apps/test-agents/scripts/deploy.mjs`; then the two `site/try.mjs --seller` deals and `sell-to-test-buyer.mjs`.
 18. **Step 11.1, part of point of no return 2.** Merge the step-3 pull request into `main` (a revert only from here). The site deploys from `main`, because the lane's agent docs describe the phase-one deployment.
-19. **Step 9, point of no return 1.** Run `git -C $W fetch origin && git -C $W switch --detach origin/main`. Then `pnpm -C $W site:deploy` ends `pass`. Then run the one command from `https://crow.direct/llms.txt` in an empty folder: it ends `Released`.
+19. **Step 9, point of no return 1.** Run `git -C $W fetch origin && git -C $W switch --detach origin/main`. Then `pnpm -C $W site:deploy` ends `pass`. Then run the one command from `https://crow.direct/llms.txt` in an empty folder: it ends `Released`. Then the five checks of the page's step 9.5, from `$W`, each with the answer the page gives:
+    1. `try.mjs` and `buy.mjs` served at crow.direct hash to `$W/site`'s files, and each hash appears in its install line, on the home page and in `buy.txt`. Compute the hashes on the day; the record's copies change them.
+    2. `https://crow.direct/demo` serves, and each of its links answers `200`.
+    3. A path that does not exist answers `404` with the 404 page, if PR 466 has merged by the freeze; otherwise write down what it answers.
+    4. The live home page is at most 8,000 bytes, and its first 600 bytes name `/llms.txt`.
+    5. The live `llms.txt`, `buy.txt` and `sell.txt` equal `$W/reports/site-out`'s, byte for byte.
 20. **Step 10.** The founder console.
 21. **The rest of step 11.**
     - `$W/contracts/script/deploy-sepolia.sh --check $R` from `main`.
