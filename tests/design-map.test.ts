@@ -164,7 +164,7 @@ describe('design map: the daily log', () => {
 describe('standing docs: no running numbers', () => {
   const STANDING = ['CLAUDE.md', 'README.md', 'contracts/README.md', 'formal/README.md', 'docs/PRD.md', 'docs/api.md', 'docs/architecture.md',
     'docs/demo.md', 'docs/judgment-and-defenses.md', 'docs/neutrality.md', 'docs/private-materials.md', 'docs/quickstart.md',
-    'docs/team.md', 'docs/testing.md', 'docs/writing.md'];
+    'docs/redeploy-contracts.md', 'docs/team.md', 'docs/testing.md', 'docs/writing.md'];
   const DRIFT = [/\b(?:D|T-|ADR-)\d+ (?:to|through) (?:D|T-|ADR-)?\d+\b/, /\b\d[\d,]* of \d[\d,]* tests\b/, /\b\d[\d,]* tests in \d+ suites\b/];
   const hits = (text: string) => text.split('\n').flatMap((line, i) => (DRIFT.some((p) => p.test(line)) ? [i + 1] : []));
 

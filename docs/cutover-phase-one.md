@@ -1,8 +1,14 @@
-# The phase-one cutover: checklist
+# The phase-one cutover: the record of 2026-11-13
 
-**Status: second pass for steps 2, 3, 6 and 7, rehearsed twice on a local chain.** Written on 2026-11-12 against `contracts-audit-ready` at `02ddb24` (T-363); steps 2, 3, 6 and 7 were rehearsed on anvil from the lane at `e4e930c`, twice in a row with no hand edit (T-383 part 2; the measured times below are from those runs). Nothing on this page has run on Sepolia. The whole-diff reviews (R11) still come before it runs for real, and the cutover-day sheet with every command in order is in [`tasks/T-383-deploy-script-cu1.md`](tasks/T-383-deploy-script-cu1.md), Handoff.
+**Status: done. The cutover ran on 2026-11-13 from 02:22 to 07:11 UTC, from the frozen commit `938c3fc` (the lane's tip, PR 474's merge), and ended with the tag `contracts-phase-one-1` on `27ab44e`, the merge of PR 475 into `main`.** The coordinating session ran this page and its day sheet ([`tasks/T-383-deploy-script-cu1.md`](tasks/T-383-deploy-script-cu1.md), Part 2) on Rafa's word; Rafa ran the contract deploy, the two live rounds and the tag push [measured by the coordinator].
 
-This page moves the live test service from the contracts deployed on 2026-11-04 to the phase-one contracts. It covers the contracts, two operators, the test seller and buyer, the site with its pinned client, and the founder console. The cutover of 2026-11-04 in [`operations.md`](operations.md) is its model.
+**The outcome.** Rafa deployed the five phase-one contracts at 05:32 UTC through Tenderly's Sepolia gateway, after a first attempt on publicnode failed and left one unused escrow. The deployment's source is verified on Sourcify, through Sourcify's API v2, because forge 1.0.0's `--verify` calls an API that Sourcify removed. The operators went live on the new contracts at 06:46 UTC, the test agents at 06:49 and the site at 07:01. The smoke deal, both of step 7's live rounds, the test agents' three deals and a stranger's one command all ended as expected. No deal holding money was left on the old contracts [all measured by the coordinator, except step 7's rounds, measured by Rafa's terminal]. The public one command failed for about 15 minutes, from 06:46 to 07:01 UTC [the window's ends measured from the deploy times; the failure inferred from the old bundle's pins]. The dated entry with every address, version and deal is in [`operations.md`](operations.md), "The phase-one cutover: new contracts, a new world (deployed 2026-11-13)".
+
+**The next redeploy** follows [`redeploy-contracts.md`](redeploy-contracts.md), the standing runbook drawn from this run. It carries every fix the run found.
+
+**How to read this page.** The steps below are the plan as Crow wrote it on 2026-11-12, at `02ddb24` (T-363), and rehearsed twice on anvil at `e4e930c` (T-383 part 2). They stay as the record of what was planned and run, with their values of that day. Two kinds of line changed: each "second pass" marker, which named work still to come, now says how that work closed; and a few lines now point to the runbook for the step that replaces them. A line marked **On 2026-11-13** says what happened when it ran, with its label. `scripts/record-copies.mjs` lists this page as history, so its old addresses stay on purpose.
+
+This page moved the live test service from the contracts deployed on 2026-11-04 to the phase-one contracts. It covers the contracts, two operators, the test seller and buyer, the site with its pinned client, and the founder console. The cutover of 2026-11-04 in [`operations.md`](operations.md) was its model.
 
 ## Decided on 2026-11-12
 
@@ -22,8 +28,7 @@ Rafa accepted four choices for this redeploy ("Yes, all four", relayed by the co
 3. **Secrets go by name.** Nobody reads, prints or copies `.env*`, the keystore, its password file, `SEPOLIA_RELAYER_KEY` or `TEST_AGENTS_SEED`. A keyed RPC URL is a secret too: pass it from the environment.
 4. **One build, one set of contracts.** The lane's build cannot settle on the old contracts, and the live operators cannot settle on the new ones (T-346 and T-349, Handoff). The order below keeps each build on its own contracts at every moment.
 5. **Write each result down as you go,** in `/Users/rafa/Documents/escrow/reports/cutover-phase-one/`. The freeze copies the record into [`operations.md`](operations.md).
-6. **Labels.** Each claim is marked measured, documented, inferred or guessed. "Measured" here means measured by reading the code at `02ddb24`, unless a past run is named.
-7. **"Second pass"** marks a line that depends on work not yet on the lane. The table at the end lists them all.
+6. **Labels.** Each claim is marked measured, documented, inferred or guessed. "Measured" in the plan's lines means measured by reading the code at `02ddb24`, unless a past run is named. In the lines marked **On 2026-11-13**, "measured" means measured by the coordinator on the day, unless another person or session is named.
 
 ## The order at a glance
 
@@ -41,6 +46,8 @@ Rafa accepted four choices for this redeploy ("Yes, all four", relayed by the co
 | 9 | The site and its one command, from `main` after step 11.1's merge | 8 | Rafa | **Point of no return 1** | The site with the operators |
 | 10 | The founder console | 8 | Rafa | Safe | Its own, kept privately |
 | 11 | The freeze: merge, tag, audit scope, rehearsal cases | 9 | Rafa | **Point of no return 2** | A revert only |
+
+**On 2026-11-13** the steps ran in this order: 0 to 6, then 8, then step 7's first round, then 11.1, 9, 11.2 and 11.2b's pull request, with step 7's second round beside them, then 11.3, then the paperwork of 11.2b, 11.4 and 11.6. Step 8 ran before step 7 because step 7 needed Rafa's own terminal [measured by the coordinator].
 
 **Where this order differs from the plan,** and why:
 
@@ -65,8 +72,10 @@ Rafa accepted four choices for this redeploy ("Yes, all four", relayed by the co
       for id in src/HoldbackRules.sol:HoldbackRules src/DrandQuicknetBeacon.sol:DrandQuicknetBeacon; do code=$(forge inspect --root contracts $id deployedBytecode); body=${code#0x}; n=$((16#${body: -4})); stripped=${body:0:$(( ${#body} - (n+2)*2 ))}; echo "$id $(( ${#stripped} / 2 )) bytes $(printf '%s' "$stripped" | xxd -r -p | shasum -a 256 | cut -d' ' -f1)"; done
       ```
 
-   The audit's scope names both: the tagged commit (step 11.3), and `0180a39` as the last change to `contracts/src`. **Second pass:** the gates wait for R7 to R11.
-2. **`main` takes no merge until step 11: the coordinator holds every merge to `main` from step 0 to step 11** (decided, 2026-11-12). Every deploy script refuses, with exit code 2, a checkout that lacks `origin/main`'s commits after a fresh fetch (`scripts/deploy-lib.mjs:100`) [measured]. If `main` moves mid-run, merge it into the cutover branch and repeat step 3's checks before the next deploy.
+   The audit's scope names both: the tagged commit (step 11.3), and `0180a39` as the last change to `contracts/src`.
+
+   **On 2026-11-13:** the frozen commit was `938c3fc6b2797c61a3a53a7b00679fbee1cc2906`, the lane's tip, PR 474's merge. Its `contracts/src` equalled `0180a39`'s, and both runtime hashes read the figures above [measured]. The gates before it, the two full reviews and the last proofs, had closed on 2026-11-12 and at about 00:55 UTC on 2026-11-13 [documented, the coordinator's log].
+2. **`main` takes no merge until step 11: the coordinator holds every merge to `main` from step 0 to step 11** (decided, 2026-11-12). Every deploy script refuses, with exit code 2, a checkout that lacks `origin/main`'s commits after a fresh fetch (`scripts/deploy-lib.mjs:100`) [measured]. If `main` moves mid-run, merge it into the cutover branch and repeat step 3's checks before the next deploy. **On 2026-11-13** the coordinator told every session at 02:25 UTC: no merge into either protected branch and no live deal until the cutover ends. It lifted the hold at 07:11 UTC, after the tag [measured].
 3. **Make the cutover worktree** at the frozen commit:
 
    ```sh
@@ -78,10 +87,12 @@ Rafa accepted four choices for this redeploy ("Yes, all four", relayed by the co
    ```
 
    Every command below runs against this worktree. The submodule line is needed for `forge` [inferred: a new worktree has empty submodule folders]. The `diff --quiet` line must print `0`: `contracts/src` equals `0180a39`'s (check 0.1.2). A `1` means the contract source changed after it: stop, and confirm the audit's scope with the coordinator before going on.
-4. **It holds `main`.** `git -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one merge-base --is-ancestor origin/main HEAD; echo $?` prints 0.
-5. **The tools answer:** `forge --version`, `cast --version`, `jq --version`, `node --version` (22), `npx wrangler@4 whoami` (Rafa's Cloudflare login).
-6. **The deployer has test ETH.** The deployment of 2026-11-03 used 75,443,236 gas for the larger, old set of contracts [measured, `docs/tasks/T-206-contract-review.md:126`]. At 20 gwei that is 1.51 Sepolia ETH. The phase-one set used 8,674,078 gas for its five creations on anvil (Prague) [measured, T-383's rehearsal], 0.17 ETH at 20 gwei; Sepolia's figure may differ [inferred]. Keep at least 0.5 Sepolia ETH, which also covers a whole rerun. Read the balance: `cast balance <deployer-address> --ether --rpc-url https://ethereum-sepolia-rpc.publicnode.com`. The deployer of the live record is `0x1A4435488eaF1A37d2327d44Fe67e97d83203B64`; reusing it is Rafa's call. **It held 0.1074 Sepolia ETH on 2026-11-12 at 19:59 UTC** [measured by the coordinator from a public endpoint]: below 0.5, so fund it, or a new deployer, before the day. 0.1074 ETH covers one deploy only while Sepolia's gas stays under about 12 gwei, and no rerun [inferred from the anvil figure].
-7. **The relayer's funding lane has test ETH:** `cast balance 0x601137a8DE7E195E1426f57C053aFa49B20Ef555 --ether --rpc-url https://ethereum-sepolia-rpc.publicnode.com`. The new world uses the same relayer key and the same four lanes, and tops each deal lane up by 0.03 ETH when it falls below 0.01 ETH (`apps/demo-cloud/src/world.ts:210-211`) [measured]. Do not run `apps/demo-cloud/scripts/relayer.mjs` or `apps/test-agents/scripts/seed.mjs`: both secrets stay as they are.
+
+   **On 2026-11-13** these lines were not enough. A fresh worktree also needs `pnpm -C <worktree> build` after the install, or step 2.1's test cannot resolve `@holdback/core` [measured]. The `--recursive` submodule line mattered later too: Sourcify's exact match in step 3.3 needs the remappings of a recursive checkout [measured by T-383].
+4. **It holds `main`.** `git -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one merge-base --is-ancestor origin/main HEAD; echo $?` prints 0. **On 2026-11-13** `origin/main` was `e29d387`, an ancestor [measured].
+5. **The tools answer:** `forge --version`, `cast --version`, `jq --version`, `node --version` (22), `npx wrangler@4 whoami` (Rafa's Cloudflare login). **On 2026-11-13:** forge and cast 1.0.0, jq 1.7.1, node 22.22.2 [measured].
+6. **The deployer has test ETH.** The deployment of 2026-11-03 used 75,443,236 gas for the larger, old set of contracts [measured, `docs/tasks/T-206-contract-review.md:126`]. At 20 gwei that is 1.51 Sepolia ETH. The phase-one set used 8,674,078 gas for its five creations on anvil (Prague) [measured, T-383's rehearsal], 0.17 ETH at 20 gwei; Sepolia's figure may differ [inferred]. Keep at least 0.5 Sepolia ETH, which also covers a whole rerun. Read the balance: `cast balance <deployer-address> --ether --rpc-url https://ethereum-sepolia-rpc.publicnode.com`. The deployer of the live record is `0x1A4435488eaF1A37d2327d44Fe67e97d83203B64`; reusing it is Rafa's call. It held 0.1074 Sepolia ETH on 2026-11-12 at 19:59 UTC [measured by the coordinator from a public endpoint]. **On 2026-11-13** Rafa had topped it up, and it held 1.1749 Sepolia ETH; he reused it [measured].
+7. **The relayer's funding lane has test ETH:** `cast balance 0x601137a8DE7E195E1426f57C053aFa49B20Ef555 --ether --rpc-url https://ethereum-sepolia-rpc.publicnode.com`. The new world uses the same relayer key and the same four lanes, and tops each deal lane up by 0.03 ETH when it falls below 0.01 ETH (`apps/demo-cloud/src/world.ts:210-211`) [measured]. Do not run `apps/demo-cloud/scripts/relayer.mjs` or `apps/test-agents/scripts/seed.mjs`: both secrets stay as they are. **On 2026-11-13** the funding lane held 2.7886 Sepolia ETH [measured].
 8. **Write down each Worker's live version,** the rollback target for the whole run:
 
    ```sh
@@ -91,11 +102,11 @@ Rafa accepted four choices for this redeploy ("Yes, all four", relayed by the co
    npx wrangler@4 deployments status --name crow-site --json
    ```
 
-   The deploy scripts read these themselves, but each later deploy replaces them, and step 9's rollback needs the versions from before step 6.
-9. **Save the baseline reads** of both nodes (`https://api.crow.direct` and `https://api2.crow.direct`): `/v1/status`, `/.well-known/holdback.json`, `/v1/clubs/demo-club`, `/v1/adjudicators`.
-10. **The rehearsal passed** on a local chain, and its corrections are in this page. **Second pass.**
+   The deploy scripts read these themselves, but each later deploy replaces them, and step 9's rollback needs the versions from before step 6. **On 2026-11-13** the four rollback targets were written down; [`operations.md`](operations.md) lists them in the cutover's table [measured].
+9. **Save the baseline reads** of both nodes (`https://api.crow.direct` and `https://api2.crow.direct`): `/v1/status`, `/.well-known/holdback.json`, `/v1/clubs/demo-club`, `/v1/adjudicators`. **On 2026-11-13** both nodes served domain 0.7, schema 0.10 and head event 886 [measured].
+10. **The rehearsal passed** on a local chain, and its corrections are in this page. **On 2026-11-13** the rehearsal of step 2.1 passed at the frozen commit, 15 of 15 tests in 151 s [measured]. It missed three breaks that CI found later (step 3).
 
-**It must show:** all ten lines true, and Rafa's go-ahead recorded with its date.
+**It must show:** all ten lines true, and Rafa's go-ahead recorded with its date. **On 2026-11-13** Rafa's go-ahead came at about 02:20 UTC: "When you're ready go ahead and execute the deployments and switchover" [documented, [`operations.md`](operations.md)].
 **Time:** not measured. **Rollback:** none. **Stopping here is safe.**
 
 ## Step 1. Start the quiet on the old world (plan step 1)
@@ -112,20 +123,22 @@ Rafa accepted four choices for this redeploy ("Yes, all four", relayed by the co
 **Do:**
 
 1. **Stop Crow's own deals.** Tell every session to run no live deal until step 9 passes: no `examples/e2e-round.ts run`, no `pnpm audit-deal --live`, no `node site/try.mjs`, no `sell-to-test-buyer.mjs`.
-2. **Tell the people Rafa has given the test service to,** the pilot partner first, when the service changes and that addresses, the token and the one command change with it. This is Rafa's message to send.
+2. **Tell the people Rafa has given the test service to,** the pilot partner first, when the service changes and that addresses, the token and the one command change with it. This is Rafa's message to send. **On 2026-11-13** the coordinator asked Rafa for it at about 02:30 UTC; this record does not show the message [documented, the coordinator's log].
 3. **List the deals that are not final,** on both nodes:
 
    ```sh
    curl -s "https://api.crow.direct/v1/commitments?limit=200" | jq -r '.nextCursor, (.items[] | select(.finalAt == null) | [.commitmentId, .escrowState, .appealState, (.deadlines | tostring)] | @tsv)'
    ```
 
-   The first line printed is `nextCursor`. While it is not `null`, repeat with `&cursor=<nextCursor>` added; 200 is the largest page (`apps/operator/src/server.ts:66`). Repeat the whole read on `https://api2.crow.direct`. [Inferred from `apps/operator/src/server.ts:1271-1294` and the state view; not run.]
+   The first line printed is `nextCursor`. While it is not `null`, repeat with `&cursor=<nextCursor>` added; 200 is the largest page (`apps/operator/src/server.ts:66`). Repeat the whole read on `https://api2.crow.direct`. [Inferred from `apps/operator/src/server.ts:1271-1294` and the state view; not run before the day.]
 4. **For each deal listed, wait for its last deadline.** The operators then close it. Anyone may also send the timeout: `POST /v1/commitments/<id>/triggers/<kind>` with `{}`.
 5. **A deal whose deadlines lie after the planned cutover** (any date is allowed, D31) has three ways out. Pick one for each and write it down:
    - wait for it;
    - its two parties close it by a settlement both sign. For a deal the Sepolia round's own keys opened: `node --env-file-if-exists=.env /Users/rafa/Documents/escrow/examples/e2e-round.ts settle <commitmentId>`, from the main checkout;
    - leave it on the old contracts and record its ID, state and deadlines. Its funds stay in the old escrow, and every timeout there stays permissionless. No Crow operator serves it after step 6, and no tool on the lane sends its timeouts (gap 2 of T-363). Only a rollback of both operators serves it again.
 6. **Check for a deal left on the first deployment** (EIP-712 domain 0.6, `contracts/deployments/sepolia-2026-11-03-domain-0.6.json`). No operator has served it since 2026-11-04, so no API read lists it [inferred]. Record what Rafa knows of it.
+
+**On 2026-11-13** each node listed 88 deals, none holding money. Two listed with no final time, `0x137ccb0d…3049` and `0x71f767f8…1197`. Both have been `Settled` on the old contract since 2026-11-06; each node is behind the chain for them, so it has no settle time. The coordinator recorded them as final, not left behind. Both test agents read `"open": 0` [measured].
 
 **It must show:** the list of step 1.3 is empty on both nodes, or every deal on it has a line saying which way out it takes.
 **Time:** bounded by the latest deadline among open deals. A default deal from the one command reaches `Released` in 43 to 48 s [measured, the smoke deals in [`operations.md`](operations.md)].
@@ -147,26 +160,27 @@ Rafa accepted four choices for this redeploy ("Yes, all four", relayed by the co
 
 **Do:**
 
-1. **Rehearse on this Mac,** with no RPC and no key: `pnpm -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one exec vitest run packages/settlement/evm/deploy-script.test.ts` runs this step and step 3's commands twice on anvil, as the cutover does. It must pass [measured: 15 tests in 38 s on this Mac, T-383]. A fork of Sepolia is a further option [documented for the old script, [`operations.md`](operations.md); not re-checked]: `anvil --fork-url <sepolia-rpc-url> --fork-block-number <a recent block> --hardfork prague`, then the deploy line of step 2.4 against `http://127.0.0.1:8545` from a scratch worktree, whose record you discard. A fork keeps chain ID 11155111, so the script treats it as Sepolia and writes that worktree's `sepolia.json`.
-2. **Confirm the chain:** `cast chain-id --rpc-url <sepolia-rpc-url>` prints `11155111`. Anything else: stop (rule 1).
+1. **Rehearse on this Mac,** with no RPC and no key: `pnpm -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one exec vitest run packages/settlement/evm/deploy-script.test.ts` runs this step and step 3's commands twice on anvil, as the cutover does. It must pass [measured: 15 tests in 38 s on this Mac, T-383]. A fork of Sepolia is a further option [documented for the old script, [`operations.md`](operations.md); not re-checked]: `anvil --fork-url <sepolia-rpc-url> --fork-block-number <a recent block> --hardfork prague`, then the deploy line of step 2.4 against `http://127.0.0.1:8545` from a scratch worktree, whose record you discard. A fork keeps chain ID 11155111, so the script treats it as Sepolia and writes that worktree's `sepolia.json`. **On 2026-11-13** the anvil rehearsal passed, 15 of 15 in 151 s, after `pnpm build` [measured]; nobody ran the fork option.
+2. **Confirm the chain:** `cast chain-id --rpc-url <sepolia-rpc-url>` prints `11155111`. Anything else: stop (rule 1). **On 2026-11-13** it printed `11155111` [measured].
 3. **Keep the old record** under its dated name, before the deploy writes over it. One command names the copy by the UTC date and time of the deployment it records (the record's `deployedAt`, or its first block's time for a record from before T-383) and the domain its rules contract signs under, reading both from the chain:
 
    ```sh
    node /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/scripts/record-copies.mjs keep --rpc https://ethereum-sepolia-rpc.publicnode.com
    ```
 
-   It prints `record-copies: kept contracts/deployments/sepolia.json as contracts/deployments/sepolia-<YYYY-MM-DD>T<HHMM>Z-domain-<version>.json` and the `--old` line for step 3.1. Write the name down. For the record of 2026-11-04 it names `contracts/deployments/sepolia-2026-11-04T0830Z-domain-0.7.json` [measured by the PR 434 review: a read-only run against the public Sepolia node, on a scratch copy of today's record]. Rerunning it is safe: the same content again is a no-op, and other content under the same name is refused. **Run it before step 2.4, never after:** run after the deploy, it would keep the new record, and step 3.1 then fails with "the two records name the same contracts" [inferred from the code]. Do not commit yet: the deploy must record the frozen commit as `HEAD`.
+   It prints `record-copies: kept contracts/deployments/sepolia.json as contracts/deployments/sepolia-<YYYY-MM-DD>T<HHMM>Z-domain-<version>.json` and the `--old` line for step 3.1. Write the name down. For the record of 2026-11-04 it names `contracts/deployments/sepolia-2026-11-04T0830Z-domain-0.7.json` [measured by the PR 434 review: a read-only run against the public Sepolia node, on a scratch copy of today's record]. Rerunning it is safe: the same content again is a no-op, and other content under the same name is refused. **Run it before step 2.4, never after:** run after the deploy, it would keep the new record, and step 3.1 then fails with "the two records name the same contracts" [inferred from the code]. Do not commit yet: the deploy must record the frozen commit as `HEAD`. **On 2026-11-13** it kept the old record as `contracts/deployments/sepolia-2026-11-04T0830Z-domain-0.7.json` [measured].
 4. **Deploy:**
 
    ```sh
    /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/contracts/script/deploy-sepolia.sh <sepolia-rpc-url> <keystore-file> <password-file>
    ```
 
+   **On 2026-11-13 the first attempt failed on publicnode.** At about 05:25 UTC it created one escrow, `0x5E692f62B9e16e56942FadE1d111c6FaFea5Df6f`, then stopped with "replacement transaction underpriced" between the first and the second `forge create`. The likely cause is a lagging backend behind the public node, which served a stale nonce to the second create [inferred]. The script wrote nothing, as designed. The escrow stays on chain unused, and no record names it. Rafa's second attempt, through `https://sepolia.gateway.tenderly.co`, passed at 05:32 UTC [measured]. The script does not wait for the deployer's nonce to advance between creates, so the runbook deploys through the Tenderly gateway first.
 5. **Read the deploy's token note.** Among its last lines the deploy prints `deploy-sepolia: this deployment created the token <new token>; the table names <old token> for chain 11155111 …`. Write both addresses down. The read-only `--check` runs at step 3.2, once the table names the new token.
-6. **Read the domain the rules contract signs under:** `cast call <rules-address> 'eip712Domain()(bytes1,string,string,uint256,address,bytes32,uint256[])' --rpc-url https://ethereum-sepolia-rpc.publicnode.com`. It must read "Holdback" 0.8; the old contracts read 0.7.
+6. **Read the domain the rules contract signs under:** `cast call <rules-address> 'eip712Domain()(bytes1,string,string,uint256,address,bytes32,uint256[])' --rpc-url https://ethereum-sepolia-rpc.publicnode.com`. It must read "Holdback" 0.8; the old contracts read 0.7. **On 2026-11-13** it read "Holdback" "0.8" [measured].
 7. **Explorer verification** moves to step 3.3: the `--verify` mode runs `--check` first, and that check waits for the table.
 
-**It must show:** step 2.3 names the dated copy; step 2.4 ends with `wrote …/contracts/deployments/sepolia.json`, with the token note of step 2.5 above it; the record's `commit` equals `git -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one rev-parse HEAD`, and it has `beaconMarginSec: 29` and a `deployedAt` time.
+**It must show:** step 2.3 names the dated copy; step 2.4 ends with `wrote …/contracts/deployments/sepolia.json`, with the token note of step 2.5 above it; the record's `commit` equals `git -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one rev-parse HEAD`, and it has `beaconMarginSec: 29` and a `deployedAt` time. **On 2026-11-13** all held: `deployedAt` 2026-11-13T05:32:12Z, `fromBlock` 12123907, `commit` the frozen commit [measured].
 **Time:** on anvil, step 2.3 took 0.2 s and step 2.4 7.5 to 7.8 s, a block a second [measured, T-383's two rehearsals]. On Sepolia each of the five creations waits for its block, about 12 s each, so a minute or two [inferred].
 **Rollback:** nothing on chain can be undone, and nothing needs to be: no live component reads the new contracts. To abandon, run `git -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one checkout -- contracts/deployments/sepolia.json` and delete the dated copy of step 2.3. The cost is the deployer's test ETH. **Stopping here is safe.**
 
@@ -192,7 +206,7 @@ Rafa accepted four choices for this redeploy ("Yes, all four", relayed by the co
 | `.gitleaksignore` | **Rafa's file.** gitleaks flagged the record and its copies at both earlier deployments (`:34-36`, `:49-55`). Each entry names the commit, so it can only be written after the commit exists | the `gitleaks` CI job |
 | `contracts/README.md:84-85`, [`operations.md`](operations.md), `docs/audit/scope.md` | The words package and step 11 own these | none |
 
-**Second pass:** the domain version in `examples/verify.ts:13,40`, `packages/core/src/eip712.ts:49,55` and the schema version arrive with T-358, on the lane, before the freeze. They are not part of this commit. The same holds for the two test rulebooks that still allow any payee (`packages/settlement/evm/testing.ts:71`, `packages/testkit/src/stub-terms.ts:26`); the demo club's own rulebook already pays the two parties only (`packages/settlement/sim/actors.ts:74`) [measured].
+The domain version (`examples/verify.ts`, `packages/core/src/eip712.ts`), the schema version and the two test rulebooks were the lane's to change before the freeze, not this commit's (T-358). **On 2026-11-13** the frozen commit already carried domain 0.8 and schema 0.11, and both nodes served them after step 6 [measured].
 
 **Do:**
 
@@ -202,14 +216,14 @@ Rafa accepted four choices for this redeploy ("Yes, all four", relayed by the co
    node /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/scripts/record-copies.mjs --root /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one --old <the dated name step 2.3 printed> --new contracts/deployments/sepolia.json
    ```
 
-   Before its last line it prints what the sweep read, and each path it did not read with the reason. On a full checkout of the lane at `e5d2529` it reads `the sweep read 1120 tracked file(s); skipped 193 history; 1 a submodule (contracts/lib/commerce-payments); 4 binary (holds a NUL byte) (site/crow-2x.webp, site/crow.png, site/favicon.png, site/og.png)` [measured]. Any other skipped path is a file the sweep did not search: look at it before going on. A tracked link is followed, and its target is searched. Step 2.3 printed this line in full, with both full paths, so it runs from any folder; copy it from there rather than typing the name. It must end with `record-copies: pass: …` [measured on anvil: 0.5 s, `pass: 12 value(s) replaced`, both rehearsals]. On the lane at the time of writing it fails on exactly two lines of `site/llms.txt` that name the cut vault [measured, `tests/record-copies.test.ts`]; the docs session (T-385) removes them before the freeze. Any other line it names is a pin to fix by hand, then rerun the command: a rerun is safe, because the substitution finds nothing left to replace and the sweep runs again.
+   Before its last line it prints what the sweep read, and each path it did not read with the reason. On a full checkout of the lane at `e5d2529` it reads `the sweep read 1120 tracked file(s); skipped 193 history; 1 a submodule (contracts/lib/commerce-payments); 4 binary (holds a NUL byte) (site/crow-2x.webp, site/crow.png, site/favicon.png, site/og.png)` [measured]. Any other skipped path is a file the sweep did not search: look at it before going on. A tracked link is followed, and its target is searched. Step 2.3 printed this line in full, with both full paths, so it runs from any folder; copy it from there rather than typing the name. It must end with `record-copies: pass: …` [measured on anvil: 0.5 s, `pass: 12 value(s) replaced`, both rehearsals]. Any line it names is a pin to fix by hand, then rerun the command: a rerun is safe, because the substitution finds nothing left to replace and the sweep runs again. **On 2026-11-13** it ended `pass: 13 value(s) replaced, 3 retired` [measured].
 2. **Check the deployment, read-only,** now with all three token values:
 
    ```sh
    /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/contracts/script/deploy-sepolia.sh --check https://ethereum-sepolia-rpc.publicnode.com
    ```
 
-   It must print `deploy-sepolia: …/contracts/deployments/sepolia.json matches the chain and the build at <the frozen commit>` [measured on anvil: 2.1 to 2.8 s]. If it fails on the token (`the record's token is …, but Crow's operators accept …`), step 3.1 did not run or did not pass.
+   It must print `deploy-sepolia: …/contracts/deployments/sepolia.json matches the chain and the build at <the frozen commit>` [measured on anvil: 2.1 to 2.8 s]. If it fails on the token (`the record's token is …, but Crow's operators accept …`), step 3.1 did not run or did not pass. **On 2026-11-13** it printed that the record matches the chain and the build at `938c3fc` [measured].
 
    **How `--check` compares the code on the chain** [measured by reading the script]. It does not hash the deployed runtime code. Instead:
    - each creation transaction's input must equal this build's creation code plus the record's constructor arguments;
@@ -224,21 +238,23 @@ Rafa accepted four choices for this redeploy ("Yes, all four", relayed by the co
    onchain_hash contracts/out/DrandQuicknetBeacon.sol/DrandQuicknetBeacon.json "$(jq -r .beacon contracts/deployments/sepolia.json)"
    ```
 
-   It must print `20449 bytes 545f80b56390f540e5a98d715c7a436914af83d3653bf458d14c380ff53b0c47` and `3216 bytes 3a8c11c6bc2940b404c417b538bdd6a40c431717c4d32e62dfa5ab3479e38c96` [measured on anvil, T-383, on contracts the deploy script deployed from the same `contracts/src`; the raw `extcodehash` of the same rules contract was another value, as T-352's caution says].
-3. **Verify the source on Sourcify,** the pilot's explorer verification: no key, no account, no newer tool (the coordinator's decision, 2026-11-12). It runs the same check, then `forge verify-contract` for the five contracts with the record's constructor arguments, each built from the compiler's own source set. Leave `ETHERSCAN_API_KEY` unset: the Etherscan mode **needs a key and a newer forge; not run**, and the pinned forge is not raised before the freeze, because the compiler setup is part of what the audit reads.
+   It must print `20449 bytes 545f80b56390f540e5a98d715c7a436914af83d3653bf458d14c380ff53b0c47` and `3216 bytes 3a8c11c6bc2940b404c417b538bdd6a40c431717c4d32e62dfa5ab3479e38c96` [measured on anvil, T-383, on contracts the deploy script deployed from the same `contracts/src`; the raw `extcodehash` of the same rules contract was another value, as T-352's caution says]. **On 2026-11-13** both lines printed these figures on Sepolia [measured].
+3. **Verify the source on Sourcify,** the pilot's explorer verification: no key, no account, no newer tool (the coordinator's decision, 2026-11-12). It runs the same check, then `forge verify-contract` for the five contracts with the record's constructor arguments, each built from the compiler's own source set. Leave `ETHERSCAN_API_KEY` unset: the Etherscan mode needs a key and a newer forge, and the pinned forge is not raised before the freeze, because the compiler setup is part of what the audit reads.
 
    ```sh
    /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/contracts/script/deploy-sepolia.sh --verify https://ethereum-sepolia-rpc.publicnode.com
    ```
 
-   It must end with `the five contracts are verified on Sourcify (Etherscan needs a key and a newer forge; not run)`. What Sourcify answers on Sepolia has not been tried [T-383 tested the commands it builds on a local chain only, as a dry run: 2.5 s]. A contract already verified is skipped, so a rerun is safe [inferred from forge; not run]. If one contract fails, the script stops there; rerun the step. For the record: forge 1.0.0's binary names only Etherscan's retired V1 endpoint [inferred by the T-383 review; not run].
+   It must end with `the five contracts are verified on Sourcify (Etherscan needs a key and a newer forge; not run)`. A contract already verified is skipped, so a rerun is safe [inferred from forge; not run]. If one contract fails, the script stops there; rerun the step.
+
+   **On 2026-11-13 this command failed.** forge 1.0.0 calls Sourcify's API v1, which Sourcify has removed: `POST /server/verify` answered 404 with an HTML page, and forge stopped with "error decoding response body" [measured by T-383]. T-383's session built another route, and the coordinator sent it. It posts the deploy build's own compile job, `forge build --force --build-info`, to Sourcify's API v2 (`POST https://sourcify.dev/server/v2/verify/11155111/<address>`), with the full compiler version, the contract's identifier and its creation transaction, then polls the job. The input must come from a checkout of the frozen commit with `--recursive` submodules: a checkout of only the submodules CI uses has another remapping set and gives only a partial match [measured by T-383]. The coordinator sent the orphan escrow first, then the five, with a generic User-Agent. All six read `exact_match`, runtime and creation, at 06:36 UTC [measured]. The script was a scratch file, not in git; [`redeploy-contracts.md`](redeploy-contracts.md) gives its steps as commands.
 4. Check the site:
 
    ```sh
    node /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/site/check.mjs
    ```
 
-   It passes on a Sepolia record's new pins [measured, `tests/record-copies.test.ts`]. The anvil rehearsal cannot show this step: a local record is no Sepolia pin, so there it fails by design.
+   It passes on a Sepolia record's new pins [measured, `tests/record-copies.test.ts`]. The anvil rehearsal cannot show this step: a local record is no Sepolia pin, so there it fails by design. **On 2026-11-13** it passed [measured].
 
 5. Run the guards:
 
@@ -247,12 +263,13 @@ Rafa accepted four choices for this redeploy ("Yes, all four", relayed by the co
    pnpm -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/apps/demo-cloud build
    ```
 
-6. Commit once, push the branch, and open one pull request from `cutover-phase-one` into `main`. Do not merge it. A pull request into `main` runs every CI job, CodeQL included [inferred: pull requests into the lane run no CodeQL].
-7. Rafa adds the gitleaks entries for the new commit to `.gitleaksignore`.
-8. Run the full check once: `pnpm -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one verify`.
+   **On 2026-11-13** the six guard files passed, 44 tests [measured]. They did not catch three breaks that CI found at the record's commit: `examples/deployments.ts`'s type failed `tsc` on `beaconMarginSec` (TS2353); `tests/record-copies.test.ts` read `sepolia.json` as the 2026-11-04 record; and `examples/e2e-chain.test.ts` named the cut bond contract. `pnpm typecheck` and `pnpm test` would have caught all three [measured: they failed on CI]. The branch fixed them in `bc67f3f`, `a777dd9` and `41a38a8`.
+6. Commit once, push the branch, and open one pull request from `cutover-phase-one` into `main`. Do not merge it. A pull request into `main` runs every CI job, CodeQL included [inferred: pull requests into the lane run no CodeQL]. **On 2026-11-13** this was PR 475, with the record's commit `3a9d042` and, by its head `3cb9428`, five fixes on top. CodeQL reported five alerts in test and check files that came from the lane. The branch fixed two (#7 and #24) and narrowed a third (#22). Three test-only alerts wait for Rafa's dismissal: #22 and #25 on `tools/duet/duet.test.ts:26`, and #21 on `examples/seller-adapter.test.ts:217` [measured, the engineering session's triage in the cutover's results folder].
+7. Rafa adds the gitleaks entries for the new commit to `.gitleaksignore`. **On 2026-11-13** gitleaks passed on PR 475, so no entry seemed needed. Later the engineering session found that the gitleaks action scans only a few commits of a pull request this large: PR 475 brought the whole lane, and the job scanned 1 to 3 commits, never the record's [measured from the jobs' logs]. The lane's PR 476, with 6 commits, flagged four lines of `3a9d042`, each the public `tokenStoreImplementation` address. Rafa allowed them at about 07:14 UTC ("Yes, add them"), in `32cac82` on the cutover branch and PR 479 into `main`. A full local scan of the cutover's range then found no leak [measured].
+8. Run the full check once: `pnpm -C /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one verify`. **On 2026-11-13** the first local run failed 27 anvil files, because after the deploy `contracts/out` held only the deploy's contracts. A full `(cd contracts && forge build)` fixed it and left the deployed contracts' artifacts byte-identical. `pnpm verify` then passed all nine steps at `3cb9428`. It rewrote the tracked `reports/differential-local.md`, which had to be restored before the next deploy's clean-tree check [measured by the engineering session and the coordinator].
 
-**It must show:** the copies command ends `pass`; the tracked tree is clean after the commit; `site/check.mjs` passes; every CI job on the pull request passes, gitleaks included; `--check` of step 3.2 still passes from this commit.
-**Time:** CI takes minutes [documented, the team's batching rule]; not measured for this change.
+**It must show:** the copies command ends `pass`; the tracked tree is clean after the commit; `site/check.mjs` passes; every CI job on the pull request passes, gitleaks included; `--check` of step 3.2 still passes from this commit. **On 2026-11-13** PR 475 passed every required check at `3cb9428` at 06:40 UTC, and the engineering session re-ran step 3.2 at `41a38a8` [measured].
+**Time:** CI takes minutes [documented, the team's batching rule]. **On 2026-11-13** step 3 ran from after the deploy at 05:32 UTC until PR 475 turned green at 06:40 UTC [measured]; the three breaks and the Sourcify route took most of it [inferred].
 **Rollback:** close the pull request. **Stopping here is safe:** the old world still serves, and nothing live has changed.
 
 ## Step 4. The fork suites against the new record (plan step 7)
@@ -271,7 +288,9 @@ Run them one at a time. If publicnode makes anvil exit, use `https://sepolia.gat
 - **`live-fork.test.ts`:** the public world, the Workers' code, runs one deal against the contracts the new record names, on a fork of Sepolia.
 - **`drand-fork.test.ts`:** the fallback adjudicator escalates from a live drand quicknet round, the appeal adjudicator decides the escalation from the next round, and the new rules contract, over its `DrandQuicknetBeacon`, accepts both decisions. A decision built from a bad proof is refused before any transaction. This is the one place before step 6 where the beacon and the margin meet real drand rounds. It also needs the network for the drand relays.
 
-AL-1 deleted the third suite of the first pass, `predeploy-fork.test.ts`, which was written for an upgrade in place (PR 404; gap 14 of T-363). Both suites need `SEPOLIA_FORK_RPC`, anvil and the new record, so they cannot pass before step 3. They were not run in T-383's rehearsal: no fork RPC was configured there.
+AL-1 deleted the third suite of the first pass, `predeploy-fork.test.ts`, which was written for an upgrade in place (PR 404; gap 14 of T-363). Both suites need `SEPOLIA_FORK_RPC`, anvil and the new record, so they cannot pass before step 3.
+
+**On 2026-11-13** `drand-fork.test.ts` passed at `3a9d042` [measured]. `live-fork.test.ts` reached `Released` on the new contracts, but its first test failed: `site/walkthrough.mjs` was stale for phase one, and no CI job runs it. T-393's session fixed the walkthrough (`e415c7b`), and the suite then passed both tests [measured]. The suite captures the walkthrough's output and prints none of it, so a pass shows no `walkthrough PASS` line [measured by T-393's session].
 
 **It must show:** each suite runs, not skips, and passes. A skipped suite is a failure here.
 **Time:** not measured for the phase-one record.
@@ -284,6 +303,8 @@ AL-1 deleted the third suite of the first pass, `predeploy-fork.test.ts`, which 
 1. Repeat the list of step 1.3 on both nodes. It must be empty, or hold only deals recorded as left behind in step 1.5.
 2. Read `head.eventSeq` from `https://api.crow.direct/v1/status` and `https://api2.crow.direct/v1/status` twice, 30 s apart. It must not move [documented, the check before T-220's deploy].
 3. Read the agents: `curl -s https://crow.direct/agents/test-seller/health` and `curl -s https://crow.direct/agents/test-buyer/health`. Each must say `"open": 0`. If one does not, the deal it holds is on the old contracts: record its ID as left behind (step 1.5), as for an operator's deal. The agents' storage is new with each record (T-383: its name is the record's rules address), so that deal stays in the old storage, which a rollback serves again.
+
+**On 2026-11-13,** 06:44 to 06:46 UTC: the same 88 deals on both nodes, with the same two settled-on-chain entries; `head.eventSeq` read 886 twice, 30 s apart; both agents read `"open": 0` [measured].
 
 **It must show:** all three lines true within the same minute.
 **The race that remains:** a stranger can open a deal between this check and step 6, because nothing can refuse new deals (gap 1 of T-363; no pause switch, accepted on 2026-11-12). Step 6.5 looks for it.
@@ -304,7 +325,7 @@ AL-1 deleted the third suite of the first pass, `predeploy-fork.test.ts`, which 
 
 **Do:**
 
-1. Rafa's go-ahead for this step, recorded.
+1. Rafa's go-ahead for this step, recorded. **On 2026-11-13,** about 06:41 UTC: "ok when ready merge and deploy and complete the switchover plan" [documented, [`operations.md`](operations.md)].
 2. Deploy:
 
    ```sh
@@ -312,16 +333,18 @@ AL-1 deleted the third suite of the first pass, `predeploy-fork.test.ts`, which 
    ```
 
    In a second terminal, watch the first requests: `npx wrangler@4 tail holdback-op1 --format json`.
-3. Save the record line it prints.
+3. Save the record line it prints. **On 2026-11-13** it printed a pass at 06:46 UTC from `3cb9428`; [`operations.md`](operations.md) holds the line. The deal guard counted 0 open deals [measured].
 4. Read both nodes and compare with the baseline of step 0.9:
-   - `/v1/status`: `settlement.chainId` is `"11155111"`; `domain.verifyingContract` is the new rules address. **Second pass:** `schemaVersion` reads 0.11 and the domain's version 0.8.
+   - `/v1/status`: `settlement.chainId` is `"11155111"`; `domain.verifyingContract` is the new rules address; `schemaVersion` reads 0.11 and the domain's version 0.8.
    - `/.well-known/holdback.json`: the token is the new token's address; the adjudicators' addresses are new.
-   - `/v1/clubs/demo-club`: a new `rulebookHash`; settlement payouts go to the two parties only. **Second pass:** the club's minimum appeal window against the window of 0 that phase one requires (T-358 settles it).
+   - `/v1/clubs/demo-club`: a new `rulebookHash`; settlement payouts go to the two parties only; the club's appeal window is 0, as phase one requires.
    - `/v1/adjudicators`: three demo adjudicators, each with `observed.bond` reading `none`.
-5. **Look for a deal the race of step 5 let through:** the old world cannot be read through the API any more. Compare the old rules contract's latest events on the explorer with the list saved in step 5. Record any new deal as left behind (step 1.5).
-6. **Expect one kind of error line** in the tail: the old world's last alarm tries to open under the new build and is refused with "this world settles on the rules contract …" (`world.ts:507`). The runtime retries a few times and stops [inferred]. Any other error: read it before going on.
 
-**It must show:** the script exits 0; its line says `pass` and names a smoke deal `Released`; the four reads match. With the operators' fee at 0 for the first pilots (T-389), the smoke deal's buyer pays 26 tUSDC (the price of 25 and the adjudication fee of 1) and the seller receives 25: `try.ts` prints `balances  buyer 974 tUSDC, seller 1025 tUSDC` after a faucet grant of 1,000 each, and three chain lines (funded, delivered, decided) [measured on anvil with `wrangler.op1.jsonc`'s fee settings, T-383, two runs at `1db0003`]. No operator-fee transfer.
+   **On 2026-11-13** all four reads matched on both nodes, with an operator fee of 0 bps and the build `3cb9428` [measured]. The saved club read names an appeal window of 0 [measured by reading the saved read].
+5. **Look for a deal the race of step 5 let through:** the old world cannot be read through the API any more. Compare the old rules contract's latest events on the explorer with the list saved in step 5. Record any new deal as left behind (step 1.5). **On 2026-11-13** the old rules contract logged no event in the 60 blocks around the switch [measured].
+6. **Expect one kind of error line** in the tail: the old world's last alarm tries to open under the new build and is refused with "this world settles on the rules contract …" (`world.ts:507`). The runtime retries a few times and stops [inferred]. Any other error: read it before going on. **On 2026-11-13** this record holds no note of the tail's lines.
+
+**It must show:** the script exits 0; its line says `pass` and names a smoke deal `Released`; the four reads match. With the operators' fee at 0 for the first pilots (T-389), the smoke deal's buyer pays 26 tUSDC (the price of 25 and the adjudication fee of 1) and the seller receives 25: `try.ts` prints `balances  buyer 974 tUSDC, seller 1025 tUSDC` after a faucet grant of 1,000 each, and three chain lines (funded, delivered, decided) [measured on anvil with `wrangler.op1.jsonc`'s fee settings, T-383, two runs at `1db0003`]. No operator-fee transfer. **On 2026-11-13** the smoke deal ended `Released` in 65 s with exactly these balances and no operator-fee transfer [measured].
 **Time:** past runs of this script ended their smoke deal in 43 to 48 s; the world's Durable Object took up to 75 s to restart; one whole run took 114 s [measured, [`operations.md`](operations.md)].
 **Rehearsed on anvil** (T-383, twice): the Workers' code path, the demo world opened on the record step 2 wrote, served on two origins, with no Cloudflare. The start-up checks passed; a record naming the previous token was refused, naming both tokens; the world was ready in 0.6 to 3.7 s; `examples/try.ts` ended `Released` in 4 to 5 s; discovery named the new rules address and the new token; the world's name was `holdback-public-demo-sepolia-<the new rules address>` [measured]. Not rehearsed: `pnpm demo-cloud:deploy` itself, wrangler, and the Durable Object's restart.
 **Rollback:** the script rolls back by itself on a failed check. By hand, both operators together, with the versions from step 0.8:
@@ -335,7 +358,7 @@ The old world then serves again, with its deals as they were.
 
 **Stopping here is safe only while no outside party has opened a deal on the new world.** The API is public from the moment this step passes. After a rollback, a deal opened on the new world is served by no operator until the operators return to it; its funds stay in the new escrow and its timeouts stay permissionless. From here on, prefer a fix forward.
 
-**The window that opens here:** until step 9, the site's published one command fails, because its bundle pins the old contracts. Until step 8, the live test agents refuse to sign, for the same reason [inferred from `apps/test-agents/src/worker.ts:56-58` and `examples/verify.ts:54-61`]. On 2026-11-03 the same window lasted a few minutes [documented]. Run steps 7 to 9 without a pause.
+**The window that opens here:** until step 9, the site's published one command fails, because its bundle pins the old contracts. Until step 8, the live test agents refuse to sign, for the same reason [inferred from `apps/test-agents/src/worker.ts:56-58` and `examples/verify.ts:54-61`]. On 2026-11-03 the same window lasted a few minutes [documented]. Run steps 7 to 9 without a pause. **On 2026-11-13** the one command's window lasted from 06:46 to 07:01 UTC, about 15 minutes, and the test agents' from 06:46 to 06:49 UTC [the window's ends measured from the deploy times; the failure and the refusal inferred from the old bundle's pins].
 
 ## Step 7. One escalation's gas on Sepolia (plan step 2)
 
@@ -359,11 +382,13 @@ node --env-file-if-exists=.env /Users/rafa/Documents/escrow/.worktrees/cutover-p
 
 It must print `results: 12 pass`: the price reaches the seller's payout address, a refund returns to the buyer's payment address, and no token transfer names a signing address, and at the operators' fee of 0 (T-389) that no operator fee moves [measured on anvil, T-383's rehearsal at `e5d2529` with `wrangler.op1.jsonc`'s fee settings: 31 of 31 checks in 22 s, "no operator fee moves: the fee is 0" on both deals; T-392 made the round's check follow the published fee]. On Sepolia the round's driver tops its keys up from the round's master address before a step that needs their own gas, so only the master needs test ETH [documented, `examples/e2e-keys.ts`]; on anvil the rehearsal set the buyer's and seller's balances itself.
 
-**Second pass:** the code-alignment package rewrites the round's scenarios for the phase-one world; the scenario's name and flags may change. A measurement before the deploy, as the plan orders it, needs a tool that does not exist: a local world that can settle on Sepolia, or a simulation of the whole deal on a Sepolia RPC (gap 3 of T-363).
+A measurement before the deploy, as the plan orders it, needs a tool that does not exist: a local world that can settle on Sepolia, or a simulation of the whole deal on a Sepolia RPC (gap 3 of T-363).
+
+**On 2026-11-13** the coordinator's attempt to run the round was refused by the permission classifier, because the round loads Rafa's seed, so Rafa ran both commands himself [measured]. Scenario 5b passed 21 of 21 checks, 06:57 to 07:00 UTC: the primary escalated, the appeal adjudicator's live panel decided, and the operators relayed every step. Scenario 12 passed 31 of 31 checks twice, at 07:00 and 07:07 UTC [measured by Rafa's terminal]. So the operators' estimate for an escalation's decision holds on Sepolia. The deals and their gas are in [`operations.md`](operations.md).
 
 **It must show:** the escalation's decision is mined, relayed by an operator; the record names its gas and its Etherscan link; the deal ends as the scenario expects.
 **If the estimate fails:** an escalated deal cannot be decided through the operators and ends by its default, a refund to the buyer. That is a bounded loss, and it is a broken promise of the service. Fix forward before step 8, or roll back as in step 6.
-**Also record** the gas of the smoke deal's three transactions. The operators' gas quote (`OPERATOR_FEE_GAS`) is 0 for the first pilots (T-389): Crow's relayer pays the gas. Record the gas anyway; it prices the quote if a fee is switched on again.
+**Also record** the gas of the smoke deal's three transactions. The operators' gas quote (`OPERATOR_FEE_GAS`) is 0 for the first pilots (T-389): Crow's relayer pays the gas. Record the gas anyway; it prices the quote if a fee is switched on again. **On 2026-11-13** the coordinator read it from the receipts: funded 581,420 gas, delivered 174,012, decided 524,804, at 1 gwei [measured]. About 580,000 gas is normal for a first funding, which writes new storage for the hold, the token balances and the authorization [inferred].
 **Time:** not measured for the phase-one scenario. **Stopping here:** as step 6.
 
 ## Step 8. The test agents, one deal each way (plan step 8)
@@ -384,6 +409,7 @@ It must print `results: 12 pass`: the price reaches the seller's payout address,
    node /Users/rafa/Documents/escrow/.worktrees/cutover-phase-one/site/try.mjs --seller https://crow.direct/agents/test-seller --outcome refund
    ```
 
+   **On 2026-11-13 these two lines failed** with "Cannot find package 'tweetnacl'": the bundle needs its two pinned packages beside it, and the worktree's `site/` has none. The coordinator ran a copy of `try.mjs` with `examples/node_modules` linked next to it [measured]. [`redeploy-contracts.md`](redeploy-contracts.md) gives a command that works from an empty folder.
 4. **Sell to the test buyer:**
 
    ```sh
@@ -392,8 +418,8 @@ It must print `results: 12 pass`: the price reaches the seller's payout address,
 
 **What to expect** [measured]: both agents keep their addresses, which derive from `TEST_AGENTS_SEED`. Neither has a mandate or a balance in the new world. Each takes both from the faucet on its first deal (`apps/test-agents/src/seller.ts:465-482`).
 
-**It must show:** the script's line says `pass`; the first deal of step 8.3 ends `Released` and the second `Refunded`; step 8.4 ends `released`. Save each deal's ID and transactions.
-**Time:** the health wait is at most 120 s [measured by reading]; the deals not measured on the new world.
+**It must show:** the script's line says `pass`; the first deal of step 8.3 ends `Released` and the second `Refunded`; step 8.4 ends `released`. Save each deal's ID and transactions. **On 2026-11-13** the deploy passed at 06:49 UTC; the two buys ended `Released` in 110 s and `Refunded` in 89 s, and the sale to the test buyer ended `released` [measured].
+**Time:** the health wait is at most 120 s [measured by reading].
 **Rollback:** `npx wrangler@4 rollback <crow-test-agents version from step 0.8> --name crow-test-agents`, and only together with the operators [documented, the pairing rule of T-312]. **Stopping here:** as step 6.
 
 ## Step 9. The site and its one command (plan step 8)
@@ -435,7 +461,7 @@ It must print `results: 12 pass`: the price reaches the seller's payout address,
       ```
 
       The first prints `200` or a redirect to `/demo/`; every link line starts with `200`.
-   3. **A path that does not exist returns the 404 page with status 404,** if PR 466 has merged by the freeze. T-391's session inferred this from `apps/site/wrangler.jsonc` (`not_found_handling: 404-page`) and has not seen it live:
+   3. **A path that does not exist returns the 404 page with status 404,** if PR 466 has merged by the freeze. T-391's session inferred this from `apps/site/wrangler.jsonc` (`not_found_handling: 404-page`) and had not seen it live:
 
       ```bash
       curl -s -o /dev/null -w '%{http_code}\n' "https://crow.direct/no-such-page-$(date +%s)"
@@ -458,6 +484,8 @@ It must print `results: 12 pass`: the price reaches the seller's payout address,
 
       Each prints `same`.
 
+**On 2026-11-13** the site deployed from `27ab44e` at 07:01 UTC and passed. The stranger's command from the live `llms.txt`, run in an empty folder, printed `try.mjs: OK` and ended `Released` in 112 s. The five checks passed at 07:03 UTC: both scripts `same`, with their hashes in the install lines; `/demo` answered 307 to `/demo/`, and its six links answered 200; a missing path answered 404 with the 404 page (PR 466 had merged before the freeze); the home page was 6,728 bytes with `/llms.txt` in its first 600; the three guides equalled the build's [measured].
+
 **It must show:** the script's line says `pass`; the stranger's deal ends `Released` with its Etherscan links; the five checks of step 9.5 give their answers.
 **Time:** the live check is at most 120 s [measured by reading].
 **Rollback:** `npx wrangler@4 rollback <crow-site version from step 0.8> --name crow-site`, and only together with the operators and the test agents: the old command works only against the old world.
@@ -468,7 +496,9 @@ It must print `results: 12 pass`: the price reaches the seller's payout address,
 
 **Who:** Rafa. The console's code, pins and deploy commands are kept privately ([`private-materials.md`](private-materials.md)).
 
-It must show the new rules address, the new token and the new world's start block, which is the record's `fromBlock`. The words package owns the console's pins. **Second pass:** this page has not read the console's files.
+It must show the new rules address, the new token and the new world's start block, which is the record's `fromBlock`. The words package owns the console's pins.
+
+**On 2026-11-13** a separate session applied the console's patch in the private repository, and Rafa started its build, whose jobs passed by about 08:02 UTC [documented, the coordinator's log; measured by that session]. This record has not read the console.
 
 **Rollback:** the console's own. **Stopping here is safe:** the console only reads.
 
@@ -476,9 +506,9 @@ It must show the new rules address, the new token and the new world's start bloc
 
 **Who:** Rafa.
 
-1. **Merge the pull request of step 3 into `main`.** `main` then holds the build that is live and the record it settles on. This runs right after step 8, before step 9: the site deploys from `main`.
-2. **Confirm once more, from `main`:** `contracts/script/deploy-sepolia.sh --check https://ethereum-sepolia-rpc.publicnode.com`.
-2b. **The lane takes the record too,** by a pull request from `cutover-phase-one` into `contracts-audit-ready`. Merge it once its `check` and `gitleaks` pass; both branches are protected, so nothing is pushed to them directly.
+1. **Merge the pull request of step 3 into `main`.** `main` then holds the build that is live and the record it settles on. This runs right after step 8, before step 9: the site deploys from `main`. **On 2026-11-13** the coordinator merged PR 475 at 07:00 UTC as `27ab44e8bf359783116a95eb45102c95ce5c3ed6`, on Rafa's word of 06:41 UTC, after step 7's first round. Its tree equals `3cb9428`'s [measured].
+2. **Confirm once more, from `main`:** `contracts/script/deploy-sepolia.sh --check https://ethereum-sepolia-rpc.publicnode.com`. **On 2026-11-13,** 07:04 UTC: the record matches the chain and the build at `938c3fc` [measured].
+2b. **The lane takes the record too,** by a pull request from `cutover-phase-one` into `contracts-audit-ready`. Merge it once its `check` and `gitleaks` pass; both branches are protected, so nothing is pushed to them directly. **On 2026-11-13** GitHub deleted `cutover-phase-one` at the merge of step 11.1, because the repository deletes merged branches. The coordinator pushed it again at `3cb9428` and opened PR 476. Its gitleaks job flagged four lines (step 3.7); after Rafa's lines it merged as `3b99a79` by 08:00 UTC [measured].
 3. **Tag `contracts-phase-one-1`** (decided, 2026-11-12) on the merge commit of step 11.1 on `main`, where Rafa's choice 3 puts the end of the cutover. Rafa pushes it; pushing a tag reaches outside the repository. The coordinator holds every other merge to `main`, so `origin/main` is that merge commit; the first command shows it, and its subject must name the step-3 pull request:
 
    ```sh
@@ -495,16 +525,18 @@ It must show the new rules address, the new token and the new world's start bloc
    git diff --quiet contracts-phase-one-1 0180a39f941194f3a90733e5f785675caa6c2f32 -- contracts/src; echo $?
    ```
 
-   Then the runtime hashes of check 0.1.2, at the tag, match the two values there. The redeploy with the audit's fixes is tagged `contracts-phase-one-2` the same way, on its own cutover's merge commit.
-4. **`docs/audit/scope.md` names the frozen commit,** the rules contract's size and the code-line count. The words package writes it. **Second pass.**
-5. **The pilot's rehearsal cases on the new world,** one at a time: `pnpm -C <checkout> audit-deal --live --case <case>` for released, redelivered, rubric, refunded, missed-deadline, shown-mismatch and resume. **Second pass:** the tool with `--case` is on `main` (T-355) and reaches the lane when `main` is merged into it; its live cases are built and have not run.
-6. **Write the record into [`operations.md`](operations.md),** in the coordinator's docs commit: the old world's name, rules address and record file; the new ones; every Worker's version and rollback target; each smoke and test deal; the deals left behind in step 1.5. Say that the new world bonds no one. Say that the old vault still holds the three demo adjudicators' deposits of 25,000 tUSDC each. They are test tokens, and the world has no withdrawal path for them (gap 12 of T-363).
-7. **Update the daily log** in the private repository.
+   Then the runtime hashes of check 0.1.2, at the tag, match the two values there. The redeploy with the audit's fixes is tagged `contracts-phase-one-2` the same way, on its own cutover's merge commit ([`redeploy-contracts.md`](redeploy-contracts.md)).
 
-**It must show:** `--check` passes from `main`; the tag points at step 11.1's merge commit, and the auditor's two `git diff` lines of step 11.3 print `0`; the seven cases have a deal record each.
+   **On 2026-11-13** Rafa pushed the annotated tag at about 07:10 UTC, on `27ab44e`. Both of the auditor's lines printed `0` [measured].
+4. **`docs/audit/scope.md` names the frozen commit,** the rules contract's size and the code-line count. The words package writes it. **On 2026-11-13** PR 477 (`adf4186`) made the audit pages name the frozen commit by the tag and by the record's fields [measured].
+5. **The pilot's rehearsal cases on the new world,** one at a time: `pnpm -C <checkout> audit-deal --live --case <case>` for released, redelivered, rubric, refunded, missed-deadline, shown-mismatch and resume. **On 2026-11-13** these did not run within the cutover. They became their own session after it, item 11 of the testnet-ready checklist [documented, the coordinator's log].
+6. **Write the record into [`operations.md`](operations.md),** in the coordinator's docs commit: the old world's name, rules address and record file; the new ones; every Worker's version and rollback target; each smoke and test deal; the deals left behind in step 1.5. Say that the new world bonds no one. Say that the old vault still holds the three demo adjudicators' deposits of 25,000 tUSDC each. They are test tokens, and the world has no withdrawal path for them (gap 12 of T-363). **On 2026-11-13** PR 477 wrote it [measured].
+7. **Update the daily log** in the private repository. **On 2026-11-13** the coordinator did [measured].
+
+**It must show:** `--check` passes from `main`; the tag points at step 11.1's merge commit, and the auditor's two `git diff` lines of step 11.3 print `0`; the seven cases have a deal record each. **On 2026-11-13** the first two held; the seven cases moved to their own session (step 11.5).
 **Rollback:** a revert on `main` only; `main` takes no force push. Moving a pushed tag is a history rewrite and a gate.
 
-**Point of no return 2.** The merge and the tag fix the commit an auditor reads. A contract change after this step is a new deployment and a new run of this page.
+**Point of no return 2.** The merge and the tag fix the commit an auditor reads. A contract change after this step is a new deployment and a run of [`redeploy-contracts.md`](redeploy-contracts.md).
 
 ## Points of no return, and where stopping is safe
 
@@ -531,23 +563,22 @@ It must show the new rules address, the new token and the new world's start bloc
 13. **The start-up check tells old contracts from new** by the domain, 0.7 against 0.8, and checks the token three ways (T-383).
 14. **No staging operators exist.** The first run of the lane's Workers on Cloudflare is step 6; its own smoke deal and rollback are the only net.
 
-## Second pass: every line that waits
+## What the run of 2026-11-13 found
 
-| Line | Waits for | What will change |
-| --- | --- | --- |
-| Step 0.1, 0.10 | R7 to R11 | The gates pass. The local rehearsal of steps 2, 3 and 6 is done (T-383 part 2, twice, at `e4e930c`); rerun it at the frozen commit with step 2.1's command |
-| Step 2, the constructor | R7 | Done for R8 by T-383: the margin of 29 s is in the script's create line, checks and record. A refactor that changes the constructor again changes the script with it |
-| Step 2.6, step 6.4 | T-358 | The domain reads 0.8 and the schema 0.11 |
-| Step 3.3 | none for the pilot | Done by T-383: `deploy-sepolia.sh --verify`, Sourcify with no key, the pilot's verification. The Etherscan mode needs a key and a newer forge; not run. Not tried against the real explorer |
-| Step 3, the versions and the test rulebooks | T-358; an owner for the two test rulebooks | They land on the lane before the freeze, not in the cutover's commit |
-| Step 3, `WORLD_NAMES.sim` | none | Done: `holdback-public-demo-sim-2026-11-12` |
-| Step 4 | none | Done: two fork suites for the phase-one record (AL-1 deleted the pre-deploy suite, PR 404). Not run yet: they need a fork RPC |
-| Step 6, the start-up check | none | Done: T-358's domain 0.8, and T-383's token check and old-record test |
-| Step 6.4, the club's minimum appeal window | T-358 | The rulebook and a required window of 0 agree |
-| Step 6, the world's fallback wake-up | R8 (ADR-0032) | The wake-up moves to the round's publishing time; the smoke deal does not exercise it |
-| Step 7 | The code-alignment package; a pre-deploy tool if one is built | The scenario's name and flags; perhaps the step's place |
-| Step 8, the faucet | T-358's operator package | The faucet and the agents carry the payment and payout addresses |
-| Step 10 | The words package | The console's pins and its command |
-| Step 11.4, 11.5 | The words package; `main` merged into the lane | `scope.md` names the commit; `pnpm audit-deal --case` exists on the lane |
+Each finding is in the day sheet's Handoff ([`tasks/T-383-deploy-script-cu1.md`](tasks/T-383-deploy-script-cu1.md), "After the first run on Sepolia"), and the runbook turns each that still applies into a step:
 
-The gaps no package owns are in [`tasks/T-363-cutover-checklist.md`](tasks/T-363-cutover-checklist.md), Handoff, with what this page could not verify by reading.
+1. A fresh worktree needs `pnpm build` after the install (step 0.3).
+2. The deploy failed once on publicnode with "replacement transaction underpriced"; the Tenderly gateway passed (step 2.4).
+3. The anvil rehearsal missed three breaks that `pnpm typecheck` and `pnpm test` on the record would have caught (step 3.5).
+4. No CI job runs `site/walkthrough.mjs`; step 4 found it stale.
+5. After the deploy, `contracts/out` holds only the deploy's contracts, so local anvil suites fail until a full `forge build` (step 3.8).
+6. `live-fork.test.ts` prints no `walkthrough PASS` line on a pass (step 4).
+7. A guide's agree-and-fund example, in `site/ref/http-buyer.txt`, sends `operatorFeeNonce` at a fee of 0. It is a wording fix, not a cutover step, and still open; the site guide's owner fixes it.
+8. CodeQL reports alerts on the cutover's pull request in test files that came from the lane (step 3.6).
+9. `site/try.mjs` cannot run from the worktree without its two pinned packages (step 8.3).
+10. `pnpm verify` rewrites the tracked `reports/differential-local.md` (step 3.8).
+11. The smoke deal's gas comes from its receipts (step 7).
+
+Two more came from the same run: forge 1.0.0's `--verify` cannot reach Sourcify (step 3.3), and the gitleaks action scans only a few commits of a large pull request (step 3.7).
+
+The gaps from before the run that no package owned are in [`tasks/T-363-cutover-checklist.md`](tasks/T-363-cutover-checklist.md), Handoff.
