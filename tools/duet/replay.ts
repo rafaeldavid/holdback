@@ -253,7 +253,7 @@ export const PITCH = {
  */
 export const HERO = {
   headline: "It's time to go direct.",
-  intro: 'Your agents can find almost any vendor, and almost any buyer. With Crow, two agents close the deal on their own: they agree the checks up front, the payment is set aside before the work starts, and the seller is paid the moment the work passes. Watch one deal below.',
+  intro: 'With Crow, any two agents can find each other and close a deal on their own: they agree the terms up front, the payment is set aside before the work starts, and the seller is paid the moment the work passes. Watch one deal below.',
   demoLabel: 'Sample Crow Test Demo',
   learnIntro: 'Two companies\' agents agree the checks, the payment is set aside, and the seller is paid the moment the work passes. Here is how it works, and the details of the demo deal: one sample purchase between two agents.',
   closing: 'Live in early access on test money.',
@@ -465,8 +465,8 @@ ol.run{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap
 .beat-label{font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-2);padding-top:3px}
 .beat p{margin:0;font-size:18px;line-height:1.5;max-width:640px}
 .steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
-.steps li{background:var(--band);border-radius:var(--r-card);padding:22px 20px;display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:12px;align-items:center;align-content:start}
-.step-num{display:inline-flex;width:28px;height:28px;border-radius:999px;align-items:center;justify-content:center;background:var(--ink);color:var(--page);font-size:13px;font-weight:700}
+.steps li{background:var(--band);border-radius:var(--r-card);overflow:hidden;padding:0 20px 22px 0;display:grid;grid-template-columns:40px minmax(0,1fr);grid-template-rows:40px auto;align-content:start}
+.step-num{grid-row:1;grid-column:1;display:flex;width:40px;height:40px;border-radius:0 0 var(--r-win) 0;align-items:center;justify-content:center;background:var(--ink);color:var(--page);font-size:14px;font-weight:700}.steps h4{grid-row:1;grid-column:2;align-self:center;padding-left:12px}.steps li p{padding-left:20px;margin-top:12px}
 .steps h4,.feature h4{font-size:17px;font-weight:600;margin:0}
 .steps p,.feature p{grid-column:1/-1;margin:8px 0 0;font-size:15px;color:var(--ink-2)}
 .features{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
