@@ -1207,7 +1207,7 @@ export class BuyerSigner {
     const posted = events.some((e) => e.delivery);
     if (done.outcome === 'Settled' && !done.settlement?.keyReleased) note = 'the settlement released no key: there is no work to open';
     else if (done.outcome === 'Settled' && !posted) {
-      if (options.delivery === undefined) note = `the settlement released the key to late work no operator records as a delivery: pass the signed delivery the seller handed you, with this deal's ID (resume <key store> ${id} --delivery <file>), to open it`;
+      if (options.delivery === undefined) note = `the settlement released the key to late work no operator records as a delivery: pass the signed delivery the seller handed you, with this deal's ID (resume ${this.store} ${id} --delivery <file>), to open it`;
       else {
         work = await this.#openLate(id, options.delivery);
         plaintextSha256 = await sha256(new TextEncoder().encode(work));
