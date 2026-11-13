@@ -5,7 +5,7 @@
 - **Depends on:** T-341 (side-by-side harness), T-336 (delivery-hash invariant)
 - **Paths this task may touch:** `contracts/scripts/` (new; the plan's package R10 names this folder), `docs/audit/test-quality.md` (new), new test files under `contracts/test/` only for gaps this task closes, this task file. Never `contracts/src/`, existing test files, `contracts/test/handlers/`, `contracts/test/invariant/`, `contracts/test/differential/`, `.github/`, `packages/`, `apps/`
 - **Human gate:** no
-- **Status:** in progress
+- **Status:** done (R10's results and gap tests merged into the lane as holdback PR 471 on 2026-11-13; the tools reached `main` in PR 365)
 - **Agent/session:** T-352 session (Opus 5.5), change kind 7, a target of 200k tokens
 
 ## Intent
