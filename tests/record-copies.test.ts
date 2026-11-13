@@ -2,7 +2,7 @@
 // made-up new record, the command leaves no old address or hash behind outside the history files, and it fails when a
 // file outside its list still pins one.
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,14 +11,36 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { changes, datedName, keep, literal, recordCopies, regenerateDeployments, substitute, sweep, sweepSummary, trackedFiles } from '../scripts/record-copies.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const OLD_NAME = 'contracts/deployments/sepolia-2026-11-04-domain-0.7.json';
+/** Where the copy test keeps the live record as its old side: a dated name no real deployment can hold. */
+const OLD_NAME = 'contracts/deployments/sepolia-2000-01-01T0000Z-domain-0.0.json';
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
+const readJson = (path: string): J => JSON.parse(readFileSync(join(root, path), 'utf8'));
+/** The live record: the phase-one deployment since the cutover, the old side of the next redeploy. */
+const LIVE = 'contracts/deployments/sepolia.json';
+/**
+ * A kept record of the shape before phase one, with the contracts phase one cut (the vault and the second collector):
+ * the 2026-11-04 one, by its dated copy. The pairing and retiring tests need an old side that has them.
+ */
+function recordWithCutContracts(): J {
+  const dir = join(root, 'contracts/deployments');
+  const found = readdirSync(dir)
+    .filter((f) => /^sepolia-\d{4}-\d{2}-\d{2}(T\d{4}Z)?-domain-[\d.]+\.json$/.test(f))
+    .sort()
+    .reverse()
+    .map((f) => readJson(`contracts/deployments/${f}`))
+    .find((r) => r.bonds && r.permit2Collector && r.contracts?.HoldbackBonds && r.contracts?.Permit2PaymentCollector); // not in phase one
+  if (!found) throw new Error('no kept record holds the contracts phase one cut; the dated records are kept for good');
+  return found;
+}
 
 /** A new address or hash: the old one's length, from a counter, so no two collide and none is a real deployment's. */
 let n = 0;
 const fresh = (old: string) => `0x${(++n).toString(16).padStart(old.length - 2, 'e')}`;
 
-/** A phase-one record made up from the 2026-11-04 one: new addresses and hashes, no vault, no second collector. */
+/**
+ * The next phase-one record, made up from `old`: new addresses and hashes, no vault, no second collector. `old` may be
+ * the 2026-11-04 record or a phase-one one; a field it does not have stays absent.
+ */
 function madeUp(old: J): J {
   const map = new Map<string, string>();
   const swap = (v: string) => {
@@ -51,7 +73,9 @@ function madeUp(old: J): J {
 }
 
 describe('the pieces', () => {
-  const old = JSON.parse(readFileSync(join(root, 'contracts/deployments/sepolia.json'), 'utf8'));
+  // The old side is built explicitly: the 2026-11-04 record, which has the cut contracts. Since the cutover the live
+  // record is phase one's and has none of them (the test below covers that shape).
+  const old = recordWithCutContracts();
 
   it('pairs values by field name, never by position, and retires the cut contracts only', () => {
     const neu = madeUp(old);
@@ -63,6 +87,18 @@ describe('the pieces', () => {
     expect(retired.has(old.permit2Collector.toLowerCase())).toBe(true); // not in phase one
     // The token-approval contract is an outside contract the old record named; it is not this deployment's to retire.
     expect(retired.has(old.permit2.toLowerCase())).toBe(false); // not in phase one
+  });
+
+  it('pairs every value of a phase-one record by name and retires nothing, since it holds no cut contract', () => {
+    const live = readJson(LIVE);
+    const neu = madeUp(live);
+    const { pairs, retired } = changes(live, neu);
+    for (const k of ['escrow', 'erc3009Collector', 'rules', 'beacon']) expect(pairs.get(live[k].toLowerCase()), k).toBe(neu[k]);
+    expect(pairs.get(live.token.address.toLowerCase())).toBe(neu.token.address);
+    expect(pairs.get(live.contracts.HoldbackRules.tx.toLowerCase())).toBe(neu.contracts.HoldbackRules.tx);
+    // The live record is phase one's: no vault, no second collector, so nothing to retire.
+    expect([live.bonds, live.permit2Collector, live.contracts.HoldbackBonds, live.contracts.Permit2PaymentCollector]).toEqual([undefined, undefined, undefined, undefined]); // not in phase one
+    expect([...retired]).toEqual([]);
   });
 
   it('writes each replacement in the letter case it found', () => {
@@ -202,12 +238,17 @@ describe('the command on a copy of the repository', () => {
 
   it('passes, and names what it replaced; or fails only on the lines the words package still owes', () => {
     const out = lines.join('\n');
-    // site/llms.txt still names the cut vault in two lines that the words package (AL-2) removes before the cutover
-    // (cutover checklist, step 3). Until it has, the sweep must fail on exactly those lines, and on nothing else.
-    const vault = old.bonds.toLowerCase();
-    const owed = readFileSync(join(root, 'site/llms.txt'), 'utf8').split('\n').flatMap((l, i) => (l.toLowerCase().includes(vault) ? [`site/llms.txt:${i + 1}: ${vault}`] : []));
+    // The old side is the live record, so this is the next redeploy as it will run. A record of the shape before phase
+    // one (the 2026-11-04 one) retires its vault's address and the second collector's address and transaction, 3
+    // values; a phase-one record retires none.
+    const cutShape = Boolean(old.contracts.HoldbackBonds || old.contracts.Permit2PaymentCollector); // not in phase one
+    const retired = cutShape ? 3 : 0;
+    // An old record with a vault: site/llms.txt may still name it on lines the words package removes. Until it has,
+    // the sweep must fail on exactly those lines, and on nothing else. A phase-one record has no vault to owe.
+    const vault = old.bonds ? String(old.bonds).toLowerCase() : null;
+    const owed = vault === null ? [] : readFileSync(join(root, 'site/llms.txt'), 'utf8').split('\n').flatMap((l, i) => (l.toLowerCase().includes(vault) ? [`site/llms.txt:${i + 1}: ${vault}`] : []));
     if (owed.length === 0) {
-      expect(out, out).toMatch(/record-copies: pass: \d+ value\(s\) replaced, 3 retired/);
+      expect(out, out).toMatch(new RegExp(`record-copies: pass: \\d+ value\\(s\\) replaced, ${retired} retired`));
       expect(code).toBe(0);
     } else {
       expect(code).toBe(1);
