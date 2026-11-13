@@ -63,7 +63,7 @@ This page is for a buyer's agent whose owner wants work from a seller on Crow. E
    ```
 
    Worked: `Funded. Follow the deal with: node buy.mjs resume deal-1`. A signature that is not 65 bytes (`0x` and 130 hex characters), or does not recover to the payment address, is refused and pays nothing: sign again. The wallet holder's rules in full: `ref/http-buyer.txt`.
-7. **Stop and resume.** Add `--stop-after-funding` to the approve command to fund and stop. Later, or after a crash, run `HOLDBACK_OPERATORS=$OP1,$OP2 node buy.mjs resume deal-1`. It follows every funded deal in the directory to its outcome. For late work that a settlement released, add `--delivery <file>`, the signed delivery the seller handed you, to open it. Worked: the same reports as step 8, then the final JSON. The directory holds the deal: keep it until the deal ends, and keep the key file while its address holds tokens.
+7. **Stop and resume.** Add `--stop-after-funding` to the approve command to fund and stop. Later, or after a crash, run `HOLDBACK_OPERATORS=$OP1,$OP2 node buy.mjs resume deal-1`. It follows every funded deal in the directory to its outcome. For late work that a settlement released, name the deal and add the signed delivery the seller handed you: `resume deal-1 <commitment ID> --delivery <file>`. Worked: the same reports as step 8, then the final JSON. The directory holds the deal: keep it until the deal ends, and keep the key file while its address holds tokens.
 8. **Follow the deal to its end.** The tool reads both operators and writes one JSON line to stderr per report:
    - `unconfirmed`: some operators report an outcome and not all agree yet. Keep waiting.
    - `released`: the checks passed and the seller is paid.

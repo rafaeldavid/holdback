@@ -146,7 +146,12 @@ describe('a deal that ends Settled finishes in the buyer\'s tools (T-390)', () =
     await settle(d, { releaseKey: true, deliveryHash: deliveryHashOf(late) as Hex, delivery: late });
     const asked = await resume(d.store, d.id);
     expect(asked.code, asked.err).toBe(0);
-    expect(JSON.parse(asked.out)).toMatchObject({ outcome: 'Settled', work: null, settlement: { keyReleased: true, note: expect.stringMatching(/--delivery <file>/) } });
+    expect(JSON.parse(asked.out)).toMatchObject({ outcome: 'Settled', work: null, settlement: { keyReleased: true, note: expect.stringContaining(`${d.id} --delivery <file>`) } });
+    // T-399: with the outcome saved, a resume that names no deal says so and how to name one, instead of printing nothing.
+    const none = await resume(d.store, '');
+    expect(none.code, none.err).toBe(0);
+    expect(none.out).toBe('');
+    expect(none.err).toMatch(/No open deal in .*: each deal there has its outcome saved\. .*resume .* <commitment ID>/);
     const file = join(d.store, 'late-delivery.json'), wrong = join(d.store, 'other-delivery.json');
     writeFileSync(file, JSON.stringify(late));
     writeFileSync(wrong, JSON.stringify(other));
