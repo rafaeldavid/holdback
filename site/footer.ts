@@ -2,40 +2,26 @@
 // writes, so the next wording change is one edit. site/build.mjs uses it for the home page, the 404 page, the problem
 // pages and the visual walkthrough; tools/duet/replay.ts for the demo page, inline so that page stays one file.
 //
-// The footer carries its own light colours, like the drawer, so it looks the same on every page. On a page shorter
-// than the window it sits at the window's foot: the page's body becomes a column at least the window's height and the
-// footer takes the space left over above it. On a longer page it simply follows the content.
+// The footer itself is the kit's (site/brand/, T-402). On a page shorter than the window it sits at the window's
+// foot; on a longer page it follows the content.
+
+import { footer, kitCss } from './brand/kit.mjs';
 
 /** The tagline (D56), said in words: the mark is a logo, prose says Crow. */
 export const TAGLINE = 'Verifiable settlement for AI commerce';
 /** The settled pitch line, in its settled order. */
 export const PITCH_LINE = 'Buy from any agent. Sell to any agent.';
 
-export const FOOTER_CSS = `/* the site's footer (site/footer.ts) */
-body:has(> .foot) { min-height: 100vh; display: flex; flex-direction: column; }
-body > .foot { margin-top: auto; }
-.foot { --f-ink: #1d1d1f; --f-ink-2: #6e6e73; --f-ink-3: #86868b; --f-line: #d2d2d7; --f-hair: rgba(0, 0, 0, .08);
-  box-sizing: border-box; width: 100%; max-width: 1040px; margin-left: auto; margin-right: auto; padding: 20px 20px 32px; border-top: 1px solid var(--f-hair);
-  font: 13px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif; color: var(--f-ink-3); text-align: left; }
-.foot-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 24px; }
-.foot-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0; }
-.foot-pill { display: inline-flex; align-items: center; min-height: 22px; padding: 0 10px; border: 1px solid var(--f-line); border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--f-ink); white-space: nowrap; }
-.foot-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 22px; }
-.foot a { color: var(--f-ink-2); text-decoration: none; }
-.foot a:hover { color: var(--f-ink); }
-.foot a:focus-visible, .foot button:focus-visible { outline: 2px solid var(--f-ink); outline-offset: 2px; }
-`;
+/** The footer's styles: the kit's pill and footer parts, with the kit's tokens on the footer itself, so the footer
+ * looks the same on a page with colours of its own (the visual walkthrough). Pages that read the whole kit need none. */
+export const FOOTER_CSS = kitCss({ parts: ['pill', 'footer'], scope: '.ck-foot' });
 
 /**
  * The footer: the tagline and the "Testing Now Live" pill on the left; the demo and the agent docs on the right, then
  * whatever a page adds there (the home page's copy-the-prompt button). `after` goes inside the footer, after its row.
  */
-export const footerHtml = (o: { base: string; links?: string; after?: string }): string => `<footer class="foot">
-<div class="foot-row">
-<p class="foot-status"><span>Crow · ${TAGLINE}</span><span class="foot-pill">Testing Now Live</span></p>
-<nav class="foot-links" aria-label="Footer"><a href="${o.base}demo/">Demo</a><a href="${o.base}llms.txt">Agent docs</a>${o.links ?? ''}</nav>
-</div>${o.after ? `\n${o.after}` : ''}
-</footer>`;
+export const footerHtml = (o: { base: string; links?: string; after?: string }): string =>
+  footer({ tagline: `Crow · ${TAGLINE}`, pill: 'Testing Now Live', links: [[`${o.base}demo/`, 'Demo'], [`${o.base}llms.txt`, 'Agent docs']], linksHtml: o.links ?? '', afterHtml: o.after ?? '' });
 
 const attr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 

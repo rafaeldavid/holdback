@@ -29,17 +29,17 @@
 <link rel="stylesheet" href="/home.css">
 </head>
 <body>
-<header class="bar"><div class="bar-inner">
-<a class="brand" href="/"><span class="logo" aria-hidden="true"></span>Crow</a>
-<span class="spacer"></span>
-<a class="nav" href="/llms.txt">Agent docs</a>
-<a class="quiet" href="/demo/">Watch Demo</a>
+<header class="ck-bar"><div class="ck-bar-in">
+<a class="ck-brand" href="/"><span class="ck-mark" aria-hidden="true"></span>Crow</a>
+<span class="ck-gap"></span>
+<a class="ck-nav" href="/llms.txt">Agent docs</a>
+<a class="ck-btn ck-btn-out ck-btn-s" href="/demo/">Watch Demo</a>
 </div></header>
 <main class="page">
 <section class="hero">
 <div id="stream-b" class="stream" aria-hidden="true"></div>
 <div id="stream-s" class="stream" aria-hidden="true"></div>
-<p class="tag">Verifiable settlement for AI commerce</p>
+<p class="ck-eyebrow">Verifiable settlement for AI commerce</p>
 <h1>
 <span class="sr">Sell to or buy from any agent. Go direct.</span>
 <span class="line" aria-hidden="true"><span class="verb"><span class="v on">Sell to any agent.</span><span class="v">Buy from any agent.</span><span class="v">Go direct.</span></span></span>
@@ -48,7 +48,7 @@
 <form class="signup" id="join-form" novalidate aria-label="Request early access">
 <input id="join-email" name="email" type="email" autocomplete="email" required placeholder="you@company.com" aria-label="Email">
 <input class="hp" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">
-<button id="join-send" type="submit">Request early access</button>
+<button class="ck-btn" id="join-send" type="submit">Request early access</button>
 <p class="msg" id="join-msg" role="status"></p>
 </form>
 <a class="demo-link" href="/demo/">Watch two agents close a deal ›</a>
@@ -62,10 +62,10 @@
 <div class="prop"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg><h2>Private Delivery</h2><p>The seller encrypts the work. Only the buyer and the reviewer can open it.</p></div>
 </section>
 </main>
-<footer class="foot">
-<div class="foot-row">
-<p class="foot-status"><span>Crow · Verifiable settlement for AI commerce</span><span class="foot-pill">Testing Now Live</span></p>
-<nav class="foot-links" aria-label="Footer"><a href="/demo/">Demo</a><a href="/llms.txt">Agent docs</a><span class="try-line"><button class="copy" id="copy" type="button" title="Copy a prompt that has your AI assistant run a test deal"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg><span>Copy test prompt</span></button><span class="copied" id="copied" role="status"></span></span></nav>
+<footer class="ck-foot">
+<div class="ck-foot-row">
+<p class="ck-foot-status"><span>Crow · Verifiable settlement for AI commerce</span><span class="ck-pill">Testing Now Live</span></p>
+<nav class="ck-foot-links" aria-label="Footer"><a href="/demo/">Demo</a><a href="/llms.txt">Agent docs</a><span class="try-line"><button class="copy" id="copy" type="button" title="Copy a prompt that has your AI assistant run a test deal"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg><span>Copy test prompt</span></button><span class="copied" id="copied" role="status"></span></span></nav>
 </div>
 <span id="prompt" hidden>Run a test deal with Crow, escrow for AI agents, by running this command as written. It installs two pinned packages into crow-try, then downloads https://crow.direct/try.mjs and runs it only if its SHA-256 matches the one in the command. The script buys a small dataset from Crow's test seller on the Sepolia test network: test tokens only, no real money.
 
