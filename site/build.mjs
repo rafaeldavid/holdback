@@ -17,7 +17,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rolldown } from 'rolldown';
-import { DRAWER_CSS, drawerScript, JOIN_URL } from './drawer.ts';
+import { JOIN_URL } from './drawer.ts';
 import { guideFiles, guideSource } from './guides.mjs';
 
 export const SITE_URL = 'https://crow.direct/';
@@ -435,7 +435,7 @@ export const HOME_JS = `(function () {
       .then(function () { send.disabled = false; });
   });
 })();
-` + drawerScript();
+`;
 
 /** The home page's styles, served as home.css: the look Rafa approved on 2026-11-12, unchanged. */
 export const HOME_CSS = `/* Light only, in either system mode (Rafa, 2026-11-13). The enterprise look (Rafa, 2026-11-12), as on the demo page: system type, white and grey, one ink accent for the
@@ -525,7 +525,7 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid 
 @media (min-width: 821px) and (max-height: 820px) { .hero { padding: 44px 0 36px; } .props { padding-top: 26px; gap: 20px 40px; } .foot { margin-top: 10px; padding: 14px 20px 18px; } }
 @media (max-width: 820px) { .props { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 600px) { h1 { font-size: min(44px, 9.6vw); } .stream { display: none; } .lede { font-size: 19px; } .hero { padding: 64px 0 48px; } .nav { display: none; } .props { grid-template-columns: 1fr; } }
-` + DRAWER_CSS;
+`;
 
 /**
  * 404.html: what the site answers for an address it does not have (Cloudflare serves it with status 404). A visitor
@@ -616,9 +616,8 @@ export function page(md, command = tryCommand()) {
 <header class="bar"><div class="bar-inner">
 <a class="brand" href="${BASE}"><span class="logo" aria-hidden="true"></span>Crow</a>
 <span class="spacer"></span>
-<a class="nav" href="${BASE}demo/">Demo</a>
 <a class="nav" href="${BASE}llms.txt">Agent docs</a>
-<a class="quiet" href="#join-form" data-join>Request early access</a>
+<a class="quiet" href="${BASE}demo/">Watch Demo</a>
 </div></header>
 <main class="page">
 <section class="hero">

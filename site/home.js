@@ -167,35 +167,3 @@
       .then(function () { send.disabled = false; });
   });
 })();
-(function () {
-  var opens = document.querySelectorAll('[data-join]');
-  if (!opens.length || typeof HTMLDialogElement !== 'function') return; // the controls stay links to a visible form
-  var d = document.createElement('dialog');
-  d.className = 'drawer'; d.id = 'join-drawer'; d.setAttribute('aria-labelledby', 'drawer-title');
-  d.innerHTML = '<form class="drawer-form" novalidate>'
-    + '<div class="drawer-head"><h2 id="drawer-title">Request early access</h2><button class="drawer-close" type="button" aria-label="Close"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></button></div>'
-    + '<p class="drawer-lede">Crow is in early access on test money. Leave your work email and we will write when your team can start.</p>'
-    + '<label class="drawer-label" for="drawer-email">Work email</label>'
-    + '<input id="drawer-email" name="email" type="email" autocomplete="email" required placeholder="you@company.com">'
-    + '<input class="hp" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">'
-    + '<button class="drawer-send" type="submit">Request early access</button>'
-    + '<p class="drawer-msg" role="status"></p></form>';
-  document.body.appendChild(d);
-  var form = d.querySelector('form'), email = d.querySelector('#drawer-email'), msg = d.querySelector('.drawer-msg'), send = d.querySelector('.drawer-send'), opener = null;
-  var open = function (e) { e.preventDefault(); e.stopPropagation(); opener = this; msg.textContent = ''; d.showModal(); email.focus(); };
-  for (var i = 0; i < opens.length; i++) opens[i].addEventListener('click', open);
-  d.querySelector('.drawer-close').addEventListener('click', function () { d.close(); });
-  d.addEventListener('click', function (e) { if (e.target === d) d.close(); }); // a click outside the sheet
-  d.addEventListener('close', function () { if (opener) opener.focus(); });
-  form.addEventListener('submit', function (e) {
-    e.preventDefault();
-    var address = email.value.trim();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(address)) { msg.textContent = 'Please enter a full email address, like you@company.com.'; return; }
-    send.disabled = true; msg.textContent = 'Sending…';
-    fetch('https://join.crow.direct/early-access', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: address, company: form.company.value, page: location.pathname }) })
-      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
-      .then(function (x) { msg.textContent = x.ok ? 'Thank you. We’ll be in touch at ' + address + '.' : (x.b && x.b.error) || 'That didn’t go through. Please try again.'; if (x.ok) email.value = ''; })
-      .catch(function () { msg.textContent = 'That didn’t go through here. You can also sign up at crow.direct.'; })
-      .then(function () { send.disabled = false; });
-  });
-})();
