@@ -132,7 +132,8 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       // page, and the record sentence is gone.
       expect(page).toContain(`href="${ENGINEERS}"`);
       expect(page).not.toContain('<details class="engineers"');
-      expect(page).toContain('This run: the local simulator, phase-one rules');
+      expect(page).toMatch(/This run: code <code>[0-9a-f]+<\/code>/);
+      expect(readerText(page)).not.toMatch(/SimChain/);
       expect(page).toContain('<footer class="foot">');
       expect(page).toContain('Testing Now Live');
       expect(page).not.toContain("Made from this run's own record");

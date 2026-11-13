@@ -140,7 +140,7 @@ The early-access controls open the site's sign-up pop-up (`site/drawer.ts`) when
 
 The demo page speaks plain words; its "For engineers" card under Resources links here. This section holds what the page's old "For engineers" section said (T-400).
 
-**How the page is made.** It is generated from one run's `record.jsonl` alone, by `replay.ts`. `summary.json` beside the record holds the measures, and `ticket.md` the items over the limits when there are any. The page names the run's engine, code commit and order ID in one small line under Resources. The order's final state, the models, the docs served to the agents and the brief are all in the record's `run.start` and `world` lines. To make the published demo again:
+**How the page is made.** It is generated from one run's `record.jsonl` alone, by `replay.ts`. `summary.json` beside the record holds the measures, and `ticket.md` the items over the limits when there are any. The page names the run's code commit and order ID in one small line under Resources. The rest of a run's details live beside its record: the engine, the operators and the docs served to the agents in the record's `world` line; the models, the brief and the company's policy in its `run.start` line; the order's final state in `summary.json` (`outcome.state`). Run records stay on the machine that made them. The published demo is a scripted run on the local simulator under phase-one rules, served the published guides with that world's operators in `OP1` and `OP2`; anyone can make it again, record and all. To make the published demo again:
 
 ```bash
 pnpm duet run --scenario paid --buyer scripted --seller scripted

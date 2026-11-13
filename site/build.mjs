@@ -513,7 +513,7 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid 
 .nf-links a:hover { text-decoration: underline; }
 .nf-links span { font-size: 15px; color: var(--ink-2); }
 /* a short desktop screen (720 px tall) shows the whole page, hero to footer, with no scroll */
-@media (min-width: 821px) and (max-height: 820px) { .hero { padding: 44px 0 36px; } .props { padding-top: 26px; gap: 20px 40px; } .foot { padding: 14px 20px 18px; } }
+@media (min-width: 821px) and (max-height: 820px) { .hero { padding: 44px 0 36px; } .props { padding-top: 26px; gap: 20px 40px; } }
 @media (max-width: 820px) { .props { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 600px) { h1 { font-size: min(44px, 9.6vw); } .stream { display: none; } .lede { font-size: 19px; } .hero { padding: 64px 0 48px; } .nav { display: none; } .props { grid-template-columns: 1fr; } }
 ` + FOOTER_CSS;

@@ -34,14 +34,17 @@ const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n).trimEnd()} …` : s);
 /**
  * Base units of the 6-decimal test token, a test dollar, as test dollars: two decimals, or none when there are no
- * cents ("700 test dollars", "700.50 test dollars", "1 test dollar"), worked on the integer, never a float. Said as
+ * cents, all six when there is a part below a cent ("700 test dollars", "700.50 test dollars", "1.000001 test
+ * dollars", "1 test dollar"), worked on the integer, never a float. Said as
  * dollars, never as "tokens", so no reader takes the money for AI model tokens (Rafa, 2026-11-13).
  */
 const money = (amount: unknown) => {
   const a = typeof amount === 'string' && /^\d+$/.test(amount) ? BigInt(amount) : typeof amount === 'bigint' ? amount : null;
   if (a === null) return '';
   const whole = a / 1_000_000n, cents = (a % 1_000_000n) / 10_000n;
-  return `${whole.toLocaleString('en-US')}${cents === 0n ? '' : `.${cents.toString().padStart(2, '0')}`} ${whole === 1n && cents === 0n ? 'test dollar' : 'test dollars'}`;
+  const frac = a % 1_000_000n;
+  const decimals = frac === 0n ? '' : frac % 10_000n === 0n ? `.${cents.toString().padStart(2, '0')}` : `.${frac.toString().padStart(6, '0').replace(/0+$/, '')}`;
+  return `${whole.toLocaleString('en-US')}${decimals} ${frac === 0n && whole === 1n ? 'test dollar' : 'test dollars'}`;
 };
 const base = (m: J): bigint | null => (typeof m?.amount === 'string' && /^\d+$/.test(m.amount) ? BigInt(m.amount) : null);
 const pathOf = (u: string) => { try { return new URL(u).pathname; } catch { return u; } };
@@ -628,7 +631,7 @@ ${liveOrder ? resource(liveOrder, "This order's public record", 'As the live ser
 ${txLinks.map((e) => resource(e.link, 'A payment record on the test network', String(steps([e]).at(0)?.title ?? ''))).join('\n')}
 </div>
 ${local ? '<p class="small">This run used a local test setup, so it has no public payment records to link.</p>' : ''}
-<p class="small">This run: ${esc(s.engine)}; code <code>${esc(String(start?.checkout?.commit ?? 'unknown').slice(0, 12))}</code>${start?.checkout?.dirty ? ' with local changes' : ''}, order <code>${esc(id ?? 'none')}</code>, made from its own record.</p>
+<p class="small">This run: code <code>${esc(String(start?.checkout?.commit ?? 'unknown').slice(0, 12))}</code>${start?.checkout?.dirty ? ' with local changes' : ''}, order <code>${esc(id ?? 'none')}</code>, made from its own record.</p>
 
 </section>
 
