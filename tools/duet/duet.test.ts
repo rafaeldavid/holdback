@@ -11,7 +11,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { measure } from './measures.ts';
 import { buyerBriefDirect, scenario, sellerBriefDirect } from './scenarios.ts';
 import { limitsFor, overLimits } from './tickets.ts';
-import { CROW_MARK, EARLY_ACCESS, forPublishing, HERO, JOIN, PITCH, replayPage } from './replay.ts';
+import { CROW_MARK, EARLY_ACCESS, ENGINEERS, forPublishing, HERO, JOIN, PITCH, replayPage } from './replay.ts';
 import { startWorld } from './world.ts';
 import { runAgent } from './loop.ts';
 import { anthropic, liveProvider, openaiCompatible, scripted, VendorError, type Provider, type Turn } from './providers.ts';
@@ -100,9 +100,11 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       expect(page).not.toMatch(/This sample purchase|Who made this sample/);
       // Money is said in test dollars, never as "tokens", which a reader could take for AI model tokens.
       expect(readerText(page)).not.toMatch(/test tokens/);
-      if (name === 'paid') expect(readerText(page)).toMatch(/700\.00 test dollars/);
-      // Where a reader checks a payment record, the token keeps its real name (in the engineers' section).
-      expect(page).toMatch(/the test token <code>[A-Za-z0-9]+<\/code> \(six decimals\)/);
+      // Whole amounts show no decimals, and one dollar is singular (T-400).
+      if (name === 'paid') expect(readerText(page)).toMatch(/700 test dollars/);
+      expect(readerText(page)).not.toMatch(/\d\.00 test dollar|\b1 test dollars/);
+      // Where a reader checks a payment record, the token keeps its real name (in the demo deal's facts).
+      expect(page).toMatch(/<dt>Test money<\/dt><dd>Test dollars: the test token [A-Za-z0-9]+, with six decimals\./);
       expect(page).toContain(`<h1 class="headline">${q(HERO.headline)}</h1>`);
       expect(page).toContain(`href="${EARLY_ACCESS}"`);
       expect(page).toContain(`<span class="demo-label">${HERO.demoLabel}</span>`);
@@ -126,7 +128,16 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       expect(page).toContain('This run used a local test setup, so it has no public payment records to link.');
       expect(page).not.toMatch(/href="http:\/\/(127\.0\.0\.1|localhost)/);
       expect(page).toContain('href="https://crow.direct/llms.txt"');
-      expect(page).toMatch(/For engineers<\/summary>[\s\S]*the local simulator, phase-one rules/);
+      // T-400: For engineers is one Resources card linking to the run tool's README; the site's footer closes the
+      // page, and the record sentence is gone.
+      expect(page).toContain(`href="${ENGINEERS}"`);
+      expect(page).not.toContain('<details class="engineers"');
+      expect(page).toMatch(/This run: code <code>[0-9a-f]+<\/code>/);
+      expect(readerText(page)).not.toMatch(/SimChain/);
+      expect(page).toContain('<footer class="foot">');
+      expect(page).toContain('Testing Now Live');
+      expect(page).not.toContain("Made from this run's own record");
+      expect(page).toContain('<meta property="og:title" content="Crow · Watch two agents close a deal">');
       if (name === 'refund') expect(page).toContain('would have held this one back');
       // The page for crow.direct/demo: the home page's own sign-up, no local folder, no long hex a scanner reads as a key.
       const published = replayPage(events, s, { publish: true });

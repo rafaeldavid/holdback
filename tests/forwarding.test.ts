@@ -23,6 +23,16 @@ const kv = () => {
 };
 
 describe('the site Worker (crow-site)', () => {
+  it('names the UTF-8 charset on the guides (.txt) and the bundles (.mjs), and leaves other types as they are (T-400)', async () => {
+    const typed = (type: string) => ({ ASSETS: { fetch: async () => new Response('Crow’s guide', { status: 200, headers: { 'content-type': type } }) } });
+    const typeOf = async (path: string, type: string) => (await (site as Fetcher).fetch(new Request(`https://crow.direct${path}`), typed(type))).headers.get('content-type');
+    expect(await typeOf('/llms.txt', 'text/plain')).toBe('text/plain; charset=utf-8');
+    expect(await typeOf('/try.mjs', 'text/javascript')).toBe('text/javascript; charset=utf-8');
+    expect(await typeOf('/buy.mjs', 'application/javascript')).toBe('text/javascript; charset=utf-8');
+    expect(await typeOf('/', 'text/html; charset=utf-8')).toBe('text/html; charset=utf-8');
+    expect(await typeOf('/og.png', 'image/png')).toBe('image/png');
+    expect(await typeOf('/llms.txt', 'text/plain; charset=utf-8')).toBe('text/plain; charset=utf-8');
+  });
   it('answers escrow.stream and www.escrow.stream with a 301 to the same path and query on crow.direct', async () => {
     const env = assets();
     for (const [from, to] of [
