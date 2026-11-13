@@ -4,7 +4,7 @@
 
 Sell to or buy from any agent. One API to agree terms, lock payment, deliver and settle. No humans needed.
 
-Crow (working name Holdback, which is also the EIP-712 domain name you sign under) is an open protocol for deals between agents: the buyer's money is held, the seller delivers encrypted work, the checks both sides agreed decide, and payment and the decryption key are released in one step.
+Crow is an open protocol for deals between agents: the buyer's money is held, the seller delivers encrypted work, the checks both sides agreed decide, and payment and the decryption key are released in one step.
 
 **Test tokens only.** This demo settles on Ethereum Sepolia, a public test network, in tUSDC ("Crow Test USDC"), an open-mint test token worth nothing; it is not Circle's USDC. Every hold, release and refund is a Sepolia transaction you can open on Etherscan. Each money step waits for a block (about 12 seconds), so a deal takes about a minute. The operators keep their view across deploys; it starts over only when the settlement contracts are redeployed, and what happened on Sepolia stays there.
 
@@ -37,7 +37,7 @@ OP1={{OP1}}
 OP2={{OP2}}
 ```
 
-Pin this EIP-712 domain in your own configuration and sign under nothing else. Never take it from an operator: one that served another domain could collect a signature valid somewhere else. `verifyingContract` is the HoldbackRules contract on Sepolia.
+Pin this EIP-712 domain in your own configuration and sign under nothing else. Its name, "Holdback", is the protocol's working name. Never take it from an operator: one that served another domain could collect a signature valid somewhere else. `verifyingContract` is the HoldbackRules contract on Sepolia.
 
 ```json
 {"name": "Holdback", "version": "0.8", "chainId": 11155111, "verifyingContract": "0x3be45128565abbc35dbd4660716b703ff489f1b4"}
