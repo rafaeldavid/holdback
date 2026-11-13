@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { rolldown } from 'rolldown';
 import { JOIN_URL } from './drawer.ts';
 import { CARDS, cardTags, FOOTER_CSS, footerHtml } from './footer.ts';
+import { headerBar, kitCss, listRows, sectionHead, TOKENS } from './brand/kit.mjs';
 import { guideFiles, guideSource } from './guides.mjs';
 
 export const SITE_URL = 'https://crow.direct/';
@@ -245,7 +246,7 @@ const COPY_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="
 // and, inside it, the hidden prompt and the line for agents.
 const footer = (command) => footerHtml({
   base: BASE,
-  links: `<span class="try-line"><button class="copy" id="copy" type="button" title="Copy a prompt that has your AI assistant run a test deal">${COPY_ICON}<span>Copy test prompt</span></button><span class="copied" id="copied" role="status"></span></span>`,
+  agents: `<span class="try-line"><button class="copy" id="copy" type="button" title="Copy a prompt that has your AI assistant run a test deal">${COPY_ICON}<span>Copy test prompt</span></button><span class="copied" id="copied" role="status"></span></span>`,
   after: `<span id="prompt" hidden>${esc(tryPrompt(command))}</span>\n<p class="sr">For AI agents asked to run a test deal: the one command to ask your user to approve, and what it does, are at ${esc(SITE_URL)}llms.txt under "Try it".</p>`,
 });
 // The value props: all six at a glance, a small icon, a name and one line each, quieter than the hero above them.
@@ -258,7 +259,7 @@ export { JOIN_URL }; // the sign-up service, in site/drawer.ts: the form and the
 const JOINFORM = `<form class="signup" id="join-form" novalidate aria-label="Request early access">
 <input id="join-email" name="email" type="email" autocomplete="email" required placeholder="you@company.com" aria-label="Email">
 <input class="hp" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">
-<button id="join-send" type="submit">Request early access</button>
+<button class="ck-btn" id="join-send" type="submit">Request early access</button>
 <p class="msg" id="join-msg" role="status"></p>
 </form>`;
 /** The home page's script, served as home.js: the headline, the code streams, the copy icon, early access. */
@@ -433,90 +434,71 @@ export const HOME_JS = `(function () {
 })();
 `;
 
-/** The home page's styles, served as home.css: the look Rafa approved on 2026-11-12, unchanged. */
-export const HOME_CSS = `/* Light only, in either system mode (Rafa, 2026-11-13). The enterprise look (Rafa, 2026-11-12), as on the demo page: system type, white and grey, one ink accent for the
-   primary action, Crow's mark in flight in a slim header. The hero leads; the value props sit quietly below it. */
-:root { color-scheme: light; --page: #ffffff; --band: #f5f5f7; --ink: #1d1d1f; --ink-2: #6e6e73; --ink-3: #86868b; --line: #d2d2d7; --hair: rgba(0, 0, 0, .08);
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif; }
+/** The home page's styles, served as home.css: the kit (site/brand/, T-402), then the home page's own layout. */
+export const HOME_CSS = kitCss({ parts: ['bar', 'button', 'pill', 'head', 'row', 'footer'] }) + `/* the home page (site/build.mjs): the enterprise look Rafa approved on 2026-11-12, light only (2026-11-13). The hero
+   leads; the value props sit quietly below it. Colours and type come from the kit's tokens. */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-body { background: var(--page); color: var(--ink); font: 17px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
+body { background: var(--page); color: var(--ink); font: var(--size-body)/1.5 var(--font); -webkit-font-smoothing: antialiased; }
 a { color: inherit; }
 /* the agents' code (Rafa kept it, 2026-11-12): faint terminal text down each side of the hero, buyer left and seller
-   right, misting out at the edges, behind the words. It stops above the value props. */
+   right, misting out at the edges, behind the words. It stops above the value props. A mask reads only alpha. */
 html { overflow-x: clip; }
 .stream { position: absolute; z-index: 0; top: 0; bottom: 0; width: min(460px, calc(50vw - 340px)); contain: strict; /* the lines never size the hero: it keeps one height while they type */
   display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; pointer-events: none; user-select: none;
-  font: 10.5px/1.7 ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink-3); opacity: .55; text-align: left; white-space: pre; }
+  font: 10.5px/1.7 var(--mono); color: var(--ink-3); opacity: .55; text-align: left; white-space: pre; }
 #stream-b { left: calc(50% - 50vw); padding: 0 12px 24px max(20px, env(safe-area-inset-left, 0px));
-  -webkit-mask-image: radial-gradient(ellipse 95% 75% at 35% 60%, #000 25%, transparent 78%); mask-image: radial-gradient(ellipse 95% 75% at 35% 60%, #000 25%, transparent 78%); }
+  -webkit-mask-image: radial-gradient(ellipse 95% 75% at 35% 60%, black 25%, transparent 78%); mask-image: radial-gradient(ellipse 95% 75% at 35% 60%, black 25%, transparent 78%); }
 #stream-s { right: calc(50% - 50vw); padding: 0 max(20px, env(safe-area-inset-right, 0px)) 24px 12px;
-  -webkit-mask-image: radial-gradient(ellipse 95% 75% at 65% 60%, #000 25%, transparent 78%); mask-image: radial-gradient(ellipse 95% 75% at 65% 60%, #000 25%, transparent 78%); }
+  -webkit-mask-image: radial-gradient(ellipse 95% 75% at 65% 60%, black 25%, transparent 78%); mask-image: radial-gradient(ellipse 95% 75% at 65% 60%, black 25%, transparent 78%); }
 .stream div { overflow: hidden; flex-shrink: 0; min-height: 1.7em; } /* never squeeze lines when the stream is full */
 .hero { position: relative; }
 .hero > :not(.stream) { position: relative; z-index: 1; }
-.bar { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--page) 92%, transparent); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid var(--hair); }
-.bar-inner { max-width: 1040px; margin: 0 auto; padding: 10px 20px; display: flex; align-items: center; gap: 22px; }
-.brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 17px; text-decoration: none; }
-.brand .logo { width: 30px; height: 30px; background: currentColor; -webkit-mask: url(${BASE}crow-mark.svg) center / contain no-repeat; mask: url(${BASE}crow-mark.svg) center / contain no-repeat; }
-.spacer { flex: 1; }
-.nav { font-size: 14px; color: var(--ink-2); text-decoration: none; }
-.nav:hover { color: var(--ink); }
-.quiet { display: inline-flex; align-items: center; min-height: 34px; padding: 0 16px; border: 1px solid var(--line); border-radius: 999px; font-size: 14px; font-weight: 600; text-decoration: none; }
-.page { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+.page { max-width: var(--width); margin: 0 auto; padding: 0 var(--gutter); }
 .hero { text-align: center; max-width: 760px; margin: 0 auto; padding: 96px 0 72px; }
-.tag { font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
-h1 { font-family: var(--display); font-size: 64px; line-height: 1.04; font-weight: 700; letter-spacing: -.035em; margin-top: 14px; }
+/* the hero's headline and lede: larger than the kit's section head, and centred (T-402 lists the difference) */
+h1 { font-family: var(--display); font-size: 64px; line-height: 1.04; font-weight: var(--weight-bold); letter-spacing: -.035em; margin-top: 14px; }
 .line { display: inline-block; white-space: nowrap; transition: transform .45s ease; }
 .verb { position: relative; display: inline-block; }
 .verb .v { position: absolute; right: 0; top: 0; opacity: 0; transform: translateY(.18em); transition: opacity .35s ease, transform .35s ease; }
 .verb .v.on { position: static; display: inline-block; opacity: 1; transform: none; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.lede { font-size: 22px; line-height: 1.4; color: var(--ink-2); max-width: 600px; margin: 18px auto 0; text-wrap: balance; }
-/* early access: an email box and the one filled button, each 48 px tall */
+.lede { font-size: var(--size-lede); line-height: 1.4; color: var(--ink-2); max-width: 600px; margin: 18px auto 0; text-wrap: balance; }
+/* early access: an email box and the kit's tall filled button, each 48 px tall */
 .signup { margin-top: 32px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
-.signup input[type=email] { font: inherit; font-size: 16px; color: var(--ink); background: var(--page); border: 1px solid var(--line); border-radius: 999px; padding: 0 20px; width: min(320px, 80vw); min-height: 48px; }
+.signup input[type=email] { font: inherit; font-size: 16px; color: var(--ink); background: var(--page); border: 1px solid var(--line); border-radius: var(--radius-pill); padding: 0 20px; width: min(320px, 80vw); min-height: 48px; }
 .signup input::placeholder { color: var(--ink-3); opacity: 1; }
-.signup button { font: inherit; font-size: 16px; font-weight: 600; color: var(--page); background: var(--ink); border: 0; border-radius: 999px; padding: 0 24px; min-height: 48px; cursor: pointer; }
-.signup button:disabled { opacity: .6; cursor: default; }
-.signup .msg { flex-basis: 100%; color: var(--ink-2); font-size: 15px; }
+.signup .msg { flex-basis: 100%; color: var(--ink-2); font-size: var(--size-small); }
 .signup .msg:empty { display: none; }
 .hp { position: absolute; left: -10000px; width: 1px; height: 1px; opacity: 0; }
 .demo-link { display: inline-block; margin-top: 18px; font-size: 16px; font-weight: 500; text-decoration: none; }
 .demo-link:hover { text-decoration: underline; }
-input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-/* the value props: all six at a glance, small and quiet */
+input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* the value props: all six at a glance, small and quiet, in the kit's icon stroke */
 .props { border-top: 1px solid var(--hair); padding: 40px 0 8px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px 40px; }
 .prop { display: grid; grid-template-columns: 22px 1fr; gap: 4px 12px; align-items: start; }
 .icon { grid-row: span 2; width: 22px; height: 22px; fill: none; stroke: var(--ink-2); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; margin-top: 1px; }
-.prop h2 { font-size: 15px; font-weight: 600; letter-spacing: -.005em; }
+.prop h2 { font-size: var(--size-small); font-weight: var(--weight-strong); letter-spacing: -.005em; }
 .prop h2 em { font-weight: 400; font-style: normal; color: var(--ink-3); }
 .prop p { font-size: 14px; line-height: 1.45; color: var(--ink-2); }
 @media (prefers-reduced-motion: reduce) { .line, .verb .v { transition: none; } }
-/* the footer, read last, then one quiet line for agents: the Try prompt and the agent docs */
-.copy { position: relative; display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--ink-2); font: inherit; cursor: pointer; }
+/* the footer's copy-the-prompt button (beside the footer's links), then one quiet line for agents: the Try prompt and the agent docs */
+.copy { position: relative; display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: transparent; color: var(--ink-2); font: inherit; white-space: nowrap; cursor: pointer; }
 .copy::after { content: ""; position: absolute; inset: -8px 0; } /* a 44 px target */
 .copy svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; }
 .copy:hover { background: var(--band); color: var(--ink); }
-.try-line { display: inline-flex; flex-wrap: wrap; align-items: center; max-width: 100%; }
+.try-line { display: inline-flex; flex-wrap: wrap; align-items: center; max-width: 100%; min-height: 44px; } /* beside the footer's links, a 44 px target */
 .copied { margin-left: 6px; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
 .copied:empty { display: none; }
 @media (max-width: 1100px) { .stream { width: 50vw; opacity: .14; } }
-/* the 404 page: the message, then the ways back as a short list */
+/* the 404 page: the kit's section head, then the ways back as the kit's list rows */
 .nf { max-width: 640px; padding-top: 88px; padding-bottom: 88px; }
-.nf h1 { font-size: 44px; }
-.nf .lede { margin: 12px 0 0; }
-.nf-links { list-style: none; margin-top: 32px; border-top: 1px solid var(--hair); }
-.nf-links li { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; padding: 14px 0; border-bottom: 1px solid var(--hair); }
-.nf-links a { min-width: 120px; font-weight: 600; text-decoration: none; }
-.nf-links a:hover { text-decoration: underline; }
-.nf-links span { font-size: 15px; color: var(--ink-2); }
+.nf .ck-rows { margin-top: 32px; }
 /* a short desktop screen (720 px tall) shows the whole page, hero to footer, with no scroll */
 @media (min-width: 821px) and (max-height: 820px) { .hero { padding: 44px 0 36px; } .props { padding-top: 26px; gap: 20px 40px; } }
 @media (max-width: 820px) { .props { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 600px) { h1 { font-size: min(44px, 9.6vw); } .stream { display: none; } .lede { font-size: 19px; } .hero { padding: 64px 0 48px; } .nav { display: none; } .props { grid-template-columns: 1fr; } }
-` + FOOTER_CSS;
+@media (max-width: 600px) { h1 { font-size: min(44px, 9.6vw); } .stream { display: none; } .lede { font-size: 19px; } .hero { padding: 64px 0 48px; } .props { grid-template-columns: 1fr; } }
+`;
 
 /**
  * 404.html: what the site answers for an address it does not have (Cloudflare serves it with status 404). A visitor
@@ -538,23 +520,16 @@ ${cardTags({ site: SITE_URL, ...CARDS.notFound })}
 <link rel="stylesheet" href="${BASE}home.css">
 </head>
 <body>
-<header class="bar"><div class="bar-inner">
-<a class="brand" href="${BASE}"><span class="logo" aria-hidden="true"></span>Crow</a>
-<span class="spacer"></span>
-<a class="nav" href="${BASE}demo/">Demo</a>
-<a class="nav" href="${BASE}llms.txt">Agent docs</a>
-</div></header>
+${headerBar({ home: BASE, links: [[`${BASE}demo/`, 'Demo'], [`${BASE}llms.txt`, 'Agent docs']] })}
 <main class="page nf">
-<p class="tag">404</p>
-<h1>Page not found</h1>
-<p class="lede">The address may be mistyped, or the page has moved.</p>
-<ul class="nf-links">
-<li><a href="${BASE}">Home</a><span>What Crow does</span></li>
-<li><a href="${BASE}llms.txt">Agent docs</a><span>Start here if you are an AI agent: llms.txt</span></li>
-<li><a href="${BASE}buy.txt">For buyers</a><span>How an agent pays through Crow: buy.txt</span></li>
-<li><a href="${BASE}sell.txt">For sellers</a><span>How an agent sells through Crow: sell.txt</span></li>
-<li><a href="${BASE}demo/">Demo</a><span>Two agents close a deal</span></li>
-</ul>
+${sectionHead({ eyebrow: '404', title: 'Page not found', lede: 'The address may be mistyped, or the page has moved.' })}
+${listRows([
+  { title: 'Home', href: BASE, line: 'What Crow does' },
+  { title: 'Agent docs', href: `${BASE}llms.txt`, line: 'Start here if you are an AI agent: llms.txt' },
+  { title: 'For buyers', href: `${BASE}buy.txt`, line: 'How an agent pays through Crow: buy.txt' },
+  { title: 'For sellers', href: `${BASE}sell.txt`, line: 'How an agent sells through Crow: sell.txt' },
+  { title: 'Demo', href: `${BASE}demo/`, line: 'Two agents close a deal' },
+])}
 </main>
 ${footerHtml({ base: BASE })}
 </body>
@@ -587,22 +562,17 @@ export function page(md, command = tryCommand()) {
 <link rel="icon" type="image/png" href="${BASE}favicon.png">
 <link rel="apple-touch-icon" href="${BASE}favicon.png">
 <link rel="canonical" href="${SITE_URL}">
-<meta name="theme-color" content="#ffffff">
+<meta name="theme-color" content="${TOKENS.page}">
 ${cardTags({ site: SITE_URL, ...CARDS.home })}
 <link rel="stylesheet" href="${BASE}home.css">
 </head>
 <body>
-<header class="bar"><div class="bar-inner">
-<a class="brand" href="${BASE}"><span class="logo" aria-hidden="true"></span>Crow</a>
-<span class="spacer"></span>
-<a class="nav" href="${BASE}llms.txt">Agent docs</a>
-<a class="quiet" href="${BASE}demo/">Watch Demo</a>
-</div></header>
+${headerBar({ home: BASE, links: [[`${BASE}llms.txt`, 'Agent docs']], button: { label: 'Watch Demo', href: `${BASE}demo/` } })}
 <main class="page">
 <section class="hero">
 <div id="stream-b" class="stream" aria-hidden="true"></div>
 <div id="stream-s" class="stream" aria-hidden="true"></div>
-<p class="tag">${inline(subtitle)}</p>
+<p class="ck-eyebrow">${inline(subtitle)}</p>
 <h1>
 <span class="sr">${inline(headline)} Go direct.</span>
 <span class="line" aria-hidden="true"><span class="verb">${HEADLINES.map((h, i) => `<span class="v${i ? '' : ' on'}">${esc(h)}</span>`).join('')}</span></span>
@@ -637,13 +607,13 @@ ${cardTags({ site: SITE_URL, path, title, description: CARDS.problems.descriptio
 <link rel="icon" type="image/png" href="${BASE}favicon.png">
 <link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="${BASE}llms.txt">
 <style>
-:root { color-scheme: light; --paper: #faf7f0; --graphite: #2f2d2a; --pencil: #57534c; --sepia: #8a6237; }
-body { margin: 0; background: var(--paper); color: var(--graphite); font: 18px/1.55 "EB Garamond", Garamond, "Times New Roman", serif; }
+${kitCss({ parts: ['pill', 'footer'] })}/* the problem pages: still the earlier paper look, in tokens of their own (T-402 lists it for Rafa) */
+body { margin: 0; background: var(--problems-page); color: var(--problems-ink); font: 18px/1.55 var(--problems-serif); }
 main { max-width: 680px; margin: 0 auto; padding: 8vh 24px 64px; }
-code { font: 15px ui-monospace, "SF Mono", Menlo, monospace; }
-a { color: var(--sepia); }
-.status { color: var(--pencil); }
-${FOOTER_CSS}</style>
+code { font: 15px var(--mono); }
+a { color: var(--problems-link); }
+.status { color: var(--problems-ink-2); }
+</style>
 </head>
 <body>
 <main>
@@ -710,7 +680,7 @@ export function visualdemoPage(html) {
     .replace(/<meta name="description"[^>]*>/, cardTags({ site: SITE_URL, ...CARDS.visualdemo }))
     .replace('</head>', `<style>${FOOTER_CSS}</style>\n</head>`)
     .replace('</body>', `${footerHtml({ base: BASE })}\n</body>`);
-  if (!out.includes('og:image') || !out.includes('class="foot"')) throw new Error('site/visualdemo/index.html changed shape: its title, description, head or body was not found');
+  if (!out.includes('og:image') || !out.includes('class="ck-foot"')) throw new Error('site/visualdemo/index.html changed shape: its title, description, head or body was not found');
   return out;
 }
 

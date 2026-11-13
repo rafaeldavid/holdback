@@ -33,6 +33,8 @@
 //    own modules, viem and tweetnacl, declares its commands in its banner, and buy.txt's first step installs it by its
 //    sha256.
 // 14. ASCII only (T-401): llms.txt, buy.txt, sell.txt and every ref/*.txt hold no byte above 127.
+// 15. One brand kit (T-402): a colour or a font stack is written only in site/brand/tokens.css. The pages' sources
+//    write none of their own, the kit's components read the tokens, and nothing in the kit is !important or dark.
 // 12. The budget (T-393): each role's first-deal path, the front door plus its page, is within FIRST_DEAL_BUDGET
 //    (site/guides.mjs). With HOLDBACK_AGENT_ANTHROPIC_API_KEY set it counts with Anthropic's count_tokens for the
 //    pinned model; without it, bytes divided by four. It says which.
@@ -74,7 +76,7 @@ const notFound = read('404.html');
 expect(notFound === notFoundPage(), 'site/404.html is stale: run node site/build.mjs');
 const nfHead = Buffer.from(notFound).subarray(0, POINTER_WITHIN).toString('utf8');
 expect(Buffer.byteLength(notFound) <= 4000 && /<!-- Not found \(404\)\. For AI agents: [^>]*llms\.txt[^>]*buy\.txt[^>]*sell\.txt[^>]*-->/.test(nfHead) && nfHead.includes(`href="${BASE}llms.txt"`), `site/404.html must be at most 4,000 bytes and point to llms.txt, buy.txt and sell.txt in its first ${POINTER_WITHIN} bytes`);
-for (const path of ['', 'llms.txt', 'buy.txt', 'sell.txt', 'demo/']) expect(notFound.includes(`<a href="${BASE}${path}">`), `site/404.html does not link ${BASE}${path}`);
+for (const path of ['', 'llms.txt', 'buy.txt', 'sell.txt', 'demo/']) expect(notFound.includes(` href="${BASE}${path}">`), `site/404.html does not link ${BASE}${path}`);
 
 // 2. Placeholders.
 const configure = md.slice(md.indexOf('## Configure'), md.indexOf('## ', md.indexOf('## Configure') + 3));
@@ -90,7 +92,7 @@ expect(mdLinks.some((u) => u.host === 'github.com' && u.pathname === '/rafaeldav
 // The home page (the enterprise look, Rafa 2026-11-12, as on the demo page): a slim header with Crow's mark and the
 // links to the demo, the agent docs and early access; the hero (the tagline, the headline's three lines, the lede,
 // early access, the demo link); the six value props, each with an icon; then the footer and the agent docs link.
-expect(!/\{\{/.test(html) && /<header class="bar"><div class="bar-inner">\s*<a class="brand" href="\/"><span class="logo" aria-hidden="true"><\/span>Crow<\/a>[\s\S]*?<a class="nav" href="\/llms\.txt">[^<]+<\/a>\s*<a class="quiet" href="\/demo\/">[^<]+<\/a>\s*<\/div><\/header>\s*<main class="page">\s*<section class="hero">\s*<div id="stream-b" class="stream" aria-hidden="true"><\/div>\s*<div id="stream-s" class="stream" aria-hidden="true"><\/div>\s*<p class="tag">[^<]+<\/p>\s*<h1>\s*<span class="sr">[^<]+<\/span>\s*<span class="line" aria-hidden="true"><span class="verb">(<span class="v[^"]*">[^<]+<\/span>){3}<\/span><\/span>\s*<\/h1>\s*<p class="lede">[^<]+<\/p>\s*<form class="signup" id="join-form"[\s\S]*?<\/form>\s*<a class="demo-link" href="\/demo\/">[^<]+<\/a>\s*<\/section>\s*<section class="props"[^>]*>(\s*<div class="prop"><svg class="icon"[\s\S]*?<\/svg><h2>[\s\S]*?<\/h2><p>[^<]+<\/p><\/div>){6}\s*<\/section>\s*<\/main>\s*<footer class="foot">\s*<div class="foot-row">\s*<p class="foot-status"><span>Crow · Verifiable settlement for AI commerce<\/span><span class="foot-pill">Testing Now Live<\/span><\/p>\s*<nav class="foot-links"[^>]*>[\s\S]*?<a href="\/llms\.txt">[^<]+<\/a>[\s\S]*?<button class="copy" id="copy"[\s\S]*<\/footer>/.test(html), 'index.html must be the header with the mark, the agent docs link and the Watch Demo button, the hero with the code streams, the three headlines and early access, six value props each with an icon, and the footer with the agent docs link and the copy-the-prompt button');
+expect(!/\{\{/.test(html) && /<header class="ck-bar"><div class="ck-bar-in">\s*<a class="ck-brand" href="\/"><span class="ck-mark" aria-hidden="true"><\/span>Crow<\/a>[\s\S]*?<a class="ck-nav" href="\/llms\.txt">[^<]+<\/a>\s*<a class="ck-btn ck-btn-out ck-btn-s" href="\/demo\/">[^<]+<\/a>\s*<\/div><\/header>\s*<main class="page">\s*<section class="hero">\s*<div id="stream-b" class="stream" aria-hidden="true"><\/div>\s*<div id="stream-s" class="stream" aria-hidden="true"><\/div>\s*<p class="ck-eyebrow">[^<]+<\/p>\s*<h1>\s*<span class="sr">[^<]+<\/span>\s*<span class="line" aria-hidden="true"><span class="verb">(<span class="v[^"]*">[^<]+<\/span>){3}<\/span><\/span>\s*<\/h1>\s*<p class="lede">[^<]+<\/p>\s*<form class="signup" id="join-form"[\s\S]*?<\/form>\s*<a class="demo-link" href="\/demo\/">[^<]+<\/a>\s*<\/section>\s*<section class="props"[^>]*>(\s*<div class="prop"><svg class="icon"[\s\S]*?<\/svg><h2>[\s\S]*?<\/h2><p>[^<]+<\/p><\/div>){6}\s*<\/section>\s*<\/main>\s*<footer class="ck-foot">\s*<div class="ck-foot-row"><a class="ck-brand"[\s\S]*?<nav class="ck-foot-nav"[^>]*>[\s\S]*?<a href="\/llms\.txt">[^<]+<\/a>[\s\S]*?<button class="copy" id="copy"[\s\S]*?<\/nav><\/div>\s*<div class="ck-foot-bar"><span>© 2026 Crow · Verifiable settlement for AI commerce<\/span><\/div>[\s\S]*<\/footer>/.test(html), 'index.html must be the header with the mark, the agent docs link and the Watch Demo button, the hero with the code streams, the three headlines and early access, six value props each with an icon, and the footer with the agent docs link, the copy-the-prompt button and the bar with the tagline');
 expect(!/%%|CONFIRM/.test(html) && !/^%% /m.test(strip(md)), 'an editor note reached index.html');
 expect(!/127\.0\.0\.1|localhost/.test(md + html), 'a local address is in the site');
 for (const [p, text] of guides) if (!['llms.txt', 'sell.txt'].includes(p)) expect(!/127\.0\.0\.1|localhost/.test(text), `${p} has a local address`);
@@ -166,7 +168,7 @@ const problems = await problemPages();
 const built = new Map([['index.html', html], ['404.html', read('404.html')], ['demo/index.html', read('demo/index.html')], ['visualdemo/index.html', visualdemoPage(read('visualdemo/index.html'))], ...problems]);
 for (const [path, h] of built) {
   expect(/<title>[^<]+<\/title>/.test(h) && ['name="description"', 'property="og:title"', 'property="og:description"', 'property="og:url"', 'property="og:image"', 'name="twitter:card" content="summary_large_image"'].every((t) => h.includes(t)), `${path} lacks its title, description or link-preview card (site/footer.ts)`);
-  expect(h.includes('<footer class="foot">') && h.includes('Crow · Verifiable settlement for AI commerce') && h.includes('Testing Now Live'), `${path} lacks the site's footer (site/footer.ts)`);
+  expect(h.includes('<footer class="ck-foot">') && h.includes('© 2026 Crow · Verifiable settlement for AI commerce'), `${path} lacks the site's footer (site/footer.ts)`);
   expect(!/prefers-color-scheme/.test(h), `${path} follows the system's dark mode: the site is light only`);
 }
 expect(!/prefers-color-scheme/.test(HOME_CSS), 'home.css follows the system dark mode: the site is light only');
@@ -327,6 +329,25 @@ if (existsSync(here('../reports/site-out/llms.txt'))) expect(existsSync(here('..
 // 14. ASCII only (T-401): every guide an agent reads, llms.txt, buy.txt, sell.txt and ref/*.txt, holds no byte above 127.
 for (const [p, text] of guides) for (const { line, char } of nonAscii(text)) expect(false, `site/${p} line ${line} holds ${char}: write the guides in ASCII ("Crow", "...", "x", "-")`);
 for (const [p, text] of filledGuides) if (!nonAscii(guides.get(p) ?? '').length) for (const { line, char } of nonAscii(text)) expect(false, `the published ${p} line ${line} holds ${char}: a filled value is not ASCII`);
+
+// 15. One brand kit (T-402): a colour (hex, rgb(), hsl()) or a font stack is written only in site/brand/tokens.css.
+// The sources of the home page, the 404 and problem pages, the footer, the early-access dialog and the demo page, and
+// the kit's own components.css, write none: they read the tokens. Nothing is allow-listed today; an entry needs its
+// reason beside it. site/visualdemo/ and site/og.html (the share image's source, drawn once by hand) are not read here.
+const KIT_READERS = ['build.mjs', 'footer.ts', 'drawer.ts', 'home.js', '../tools/duet/replay.ts', 'brand/components.css', 'brand/kit.mjs'];
+const KIT_ALLOWED = new Map(); // 'path' -> the reason it may write a colour or a font stack
+const COLOUR = /(?<![\w&/-])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])|\b(?:rgba?|hsla?)\(/g;
+const FONT_STACK = /-apple-system|BlinkMacSystemFont|Helvetica|Arial|Garamond|Menlo|\bsans-serif\b|\bmonospace\b|"SF (?:Pro|Mono)/g;
+for (const p of KIT_READERS) {
+  if (KIT_ALLOWED.has(p)) continue;
+  const src = read(p), at = p.startsWith('../') ? p.slice(3) : `site/${p}`;
+  for (const m of src.matchAll(COLOUR)) expect(false, `${at} writes the colour ${m[0]} at line ${src.slice(0, m.index).split('\n').length}: use a token from site/brand/tokens.css`);
+  for (const m of src.matchAll(FONT_STACK)) expect(false, `${at} writes a font stack (${m[0]}) at line ${src.slice(0, m.index).split('\n').length}: use --font, --display or --mono from site/brand/tokens.css`);
+}
+const kitFiles = ['brand/tokens.css', 'brand/components.css'].map(read).join('\n');
+expect(!/!important/.test(kitFiles), 'site/brand/ uses !important: a part is never reshaped from outside, so it needs none');
+expect(!/prefers-color-scheme/.test(kitFiles + HOME_CSS), 'site/brand/ or home.css follows the system dark mode: the kit is light only');
+expect((read('brand/tokens.css').match(/:root \{/g) ?? []).length === 1, 'site/brand/tokens.css holds one :root block and nothing else');
 
 // 12. The budget (T-393).
 let measured = [];
