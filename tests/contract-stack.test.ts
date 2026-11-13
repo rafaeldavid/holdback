@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error -- plain ESM helper without type declarations
-import { build, collect, INPUTS, PHASE_ONE_ADDRESS_KEYS, plain, shallow, stackVersion } from '../scripts/contract-stack.mjs';
+import { build, collect, CUT_WITH_BONDS, INPUTS, PHASE_ONE_ADDRESS_KEYS, plain, shallow, stackVersion } from '../scripts/contract-stack.mjs';
 import { execFileSync } from 'node:child_process';
 
 const root = new URL('../', import.meta.url);
@@ -94,7 +94,8 @@ describe('contract-stack page', () => {
   });
 
   it('counts a T-212 item marked done as fixed, so the page follows the hardening task', () => {
-    for (const id of ['L-1', 'L-7', 'I-8']) expect(data.findings.find((f: { id: string }) => f.id === id)?.state, id).toBe('fixed');
+    // L-7 and I-8 fixed bond and appeal code that the phase-one contracts cut, so they show as cut, never as open.
+    for (const id of ['L-1', 'L-7', 'I-8']) expect(data.findings.find((f: { id: string }) => f.id === id)?.state, id).toBe(CUT_WITH_BONDS.includes(id) ? 'cut' : 'fixed');
   });
 
   it('has plain wording for every finding state it shows, or falls back to the review', () => {

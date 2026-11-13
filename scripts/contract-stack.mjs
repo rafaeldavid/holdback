@@ -154,9 +154,14 @@ function hardeningItems() {
   return items;
 }
 
+// The review's findings about the bond vault and party appeals, which the phase-one contracts cut (ADR-0031 §8, SC-7):
+// their fixes were real on the 2026-11-04 contracts, but the code they fixed is gone, so the page shows them as cut.
+// known-issues lists L-2, L-3 and L-5 in its section 9; these four it names only as history or as "I-8 rest".
+export const CUT_WITH_BONDS = ['M-1', 'M-3', 'L-7', 'I-8'];
+
 // docs/audit/known-issues.md by finding ID: 'fixed' when its row in the findings tables says "fixed", 'cut' when the
 // row sits in section 9, "Not in phase one". Rows that name several IDs ("I-1, I-4, …") or a part ("I-8 rest") are
-// left to the review and T-212.
+// left to the review and T-212; a "<ID> limit" row that is open becomes its own finding (limits()).
 export function knownIssues() {
   const out = {};
   let cutSection = false;
@@ -174,7 +179,7 @@ export function knownIssues() {
 export function findings() {
   const words = plain().findings;
   const items = hardeningItems();
-  const known = knownIssues();
+  const known = { ...knownIssues(), ...Object.fromEntries(CUT_WITH_BONDS.map((id) => [id, 'cut'])) };
   // A re-rated finding keeps its history in the cell ("low, medium since D43"): the rating after "since" applies now.
   const current = (cell) => (cell.match(/(high|medium|low|info) since\b/i)?.[1] ?? cell.split(/[\s,]/)[0]).toLowerCase();
   const rows = [...read(REVIEW).matchAll(/^\| ([HMLI]-\d+) \| ([^|]+) \| ([^|]+) \| ([^|]*) \| ([^|]*) \| ([^|]*) \|$/gm)].map((m) => ({
@@ -199,7 +204,23 @@ export function findings() {
       : state === 'fixed' && known[r.id] ? `${r.reviewTitle}. Fixed in the phase-one contracts (${KNOWN}).`
       : state === 'fixed' && item?.done && !/^fixed\b/i.test(r.status) ? `${r.reviewTitle}. Fixed in T-212 item ${item.item}.` : `${r.reviewTitle}. Review status: ${r.status}.`;
     return { ...r, item: item?.item ?? null, state, title: w.title ?? r.reviewTitle, text: w[state] ?? fallback };
-  });
+  }).concat(limits(words));
+}
+
+// known-issues rows named "<ID> limit" whose status starts "open": a residual of a fixed finding that stays open in
+// phase one (the H-2 limit: a call carrying the buyer's key publishes it even when the call reverts).
+function limits(words) {
+  const out = [];
+  for (const line of read(KNOWN).split('\n')) {
+    const m = line.match(/^\| ([HMLI]-\d+ limit) \|(.*)\|$/);
+    if (!m) continue;
+    const cells = m[2].split('|').map((c) => c.trim());
+    if (!/^open\b/i.test(cells[3] ?? '')) continue;
+    const severity = (cells[2] ?? 'info').split(/[\s,]/)[0].toLowerCase();
+    const w = words[m[1]] ?? {};
+    out.push({ id: m[1], severity, severityNote: severity, reviewTitle: cells[0], litmus: '', label: '', status: cells[3], item: null, state: 'open', title: w.title ?? cells[0], text: w.open ?? `${cells[0]}. Status in ${KNOWN}: open in phase one.` });
+  }
+  return out;
 }
 
 /** The review's informational items that the summary table folds into one row ("I-1 to I-13"). */
@@ -224,7 +245,8 @@ export function gas() {
 // else T-212's last (the deployment of 2026-11-04, which recorded it there).
 const GAS_LINE = /Gas on Sepolia: fund ([\d,]+), deliver ([\d,]+), decide ([\d,]+), total ([\d,]+)/g;
 export function sepoliaGas() {
-  const fromOps = [...read(OPERATIONS).matchAll(GAS_LINE)][0];
+  const ops = read(OPERATIONS);
+  const fromOps = [...ops.slice(Math.max(0, ops.indexOf('\n## Deploy record'))).matchAll(GAS_LINE)][0];
   const m = fromOps ?? [...read(HARDENING).matchAll(GAS_LINE)].at(-1);
   return m ? { fund: num(m[1]), deliver: num(m[2]), decide: num(m[3]), total: num(m[4]), source: fromOps ? OPERATIONS : HARDENING } : null;
 }

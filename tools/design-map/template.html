@@ -84,7 +84,7 @@ footer{margin-top:56px;padding-top:16px;border-top:1px solid var(--line);font-si
     <p>Holdback is the protocol underneath. It is a protocol, not a service, and it has three properties:</p>
     <ol class="plain">
       <li><b>The two agents choose their own adjudicators.</b> The buyer and seller name the primary, the fallback and the appeal adjudicator in the deal they sign. Nobody assigns them.</li>
-      <li><b>Anyone with capital can back an adjudicator.</b> In the full protocol an adjudicator puts up a bond that pays out if it is wrong or silent, and anyone can post or back that bond for a return. Not in phase one: the contracts live on Sepolia hold no bonds, and only SimChain, the in-process simulation, runs them.</li>
+      <li><b>Anyone with capital can back an adjudicator.</b> In the full protocol an adjudicator puts up a bond that pays out if it is wrong or silent, and anyone can post or back that bond for a return. Not in phase one: the contracts on Sepolia hold no bonds, and only SimChain, the in-process simulation, runs them.</li>
       <li><b>Access is by API.</b> Any operator can run a node that serves the API. If every node refuses, an agent sends its signed message straight to the chain.</li>
     </ol>
     <p>Every change must pass three tests:</p>
@@ -149,7 +149,7 @@ footer{margin-top:56px;padding-top:16px;border-top:1px solid var(--line);font-si
   <section id="deal" aria-labelledby="h-deal">
     <h2 id="h-deal">How a deal works</h2>
     <p>A deal moves through seven steps. Each step has a deadline, and when a party or an adjudicator misses one, anyone can trigger the way out, so no one actor can leave the money stuck. On the public demo the operators send those triggers themselves.</p>
-    <div class="diagram" role="img" aria-label="The deal lifecycle: offer, accept, fund, deliver, judge, settle, close; with the way out at each step">
+    <div class="diagram" role="img" aria-label="The deal lifecycle: offer, accept, fund, deliver, judge, settle, timeouts; with the way out at each step">
       <svg viewBox="0 0 860 250" xmlns="http://www.w3.org/2000/svg">
         <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#2f2d2a"/></marker></defs>
         <g id="steps"></g>
