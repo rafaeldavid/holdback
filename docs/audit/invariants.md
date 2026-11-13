@@ -2,7 +2,7 @@
 
 The phase-one contracts are checked against the stateful-fuzzing invariants of `RulesInvariants.t.sol`, the commitment state machine, and the properties of a TLA+ model in two profiles. This page lists each property in plain words, the test or model property that checks it, and the contract functions it constrains. A property that a mutant breaks must make its check fail; that is how each invariant was shown to bite (T-203) [documented: the NatSpec of `RulesInvariants.t.sol`]. SimChain keeps the full protocol, appeals and bonds included; where this page names the full profile it says so.
 
-Labels: **measured** (read from the named file at the lane's tip, or produced by the named command), **documented** (stated in the doc cited), **inferred** (concluded from reading). Contract code is cited by function name in `HoldbackRules.sol` at the frozen commit (the tag `contracts-phase-one-1`; [`scope.md`](scope.md)); test code by file and function name. None of the invariant suites or model checks ran for this page.
+Labels: **measured** (read from the named file at the frozen commit, or produced by the named command), **documented** (stated in the doc cited), **inferred** (concluded from reading). The frozen commit is the annotated tag `contracts-phase-one-1`, whose `contracts/src` equals the deployment record's `commit` ([`scope.md`](scope.md)). Contract code is cited by function name in `HoldbackRules.sol` at that commit; test code by file and function name. None of the invariant suites or model checks ran for this page.
 
 ## The invariant suite
 
@@ -101,7 +101,7 @@ The contract refuses at funding terms whose deadlines are not strictly ordered `
 | `SignersHoldNothing` | invariant | phase one | A signing address apart from its money address holds nothing | `invariant_signingAddressesMoveNoMoney` |
 | `BondMoneyLands`, `FundedFinal`, `OfferEnds`, `BondsFreed` | action property, liveness | full; SimChain only | The full protocol's appeal and bond money, the appeal state's close, an offer's recorded expiry, and every encumbered bond freed | none: not in phase one |
 
-`formal/README.md` lists each planted fault with the property it must fail ("Configs") and maps each phase-one action and variable to a contract line ("Model to code: phase one"), and the full profile to SimChain ("Model to code: full profile"). Its citations are pinned at the lane's commit `74fa299` and are pinned again at the freeze. Not in phase one: the model's `Expire`, `FileAppeal`, `DecideAppeal`, `ExpireAppeal`, `TickAppeal` and `ApplyDefault` steps, which the phase-one profile disables.
+`formal/README.md` lists each planted fault with the property it must fail ("Configs") and maps each phase-one action and variable to a contract line ("Model to code: phase one"), and the full profile to SimChain ("Model to code: full profile"). Its citations are pinned at the lane's commit `74fa299`, before the freeze, and are not yet pinned at the tag `contracts-phase-one-1`. Not in phase one: the model's `Expire`, `FileAppeal`, `DecideAppeal`, `ExpireAppeal`, `TickAppeal` and `ApplyDefault` steps, which the phase-one profile disables.
 
 ### Where the model and the contract differ
 

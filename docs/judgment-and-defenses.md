@@ -41,7 +41,7 @@ The screen (`packages/judgment/src/screen.ts`, version `screen-1` since T-367) l
 - the verdict schema's own field, `injectionSuspected`;
 - hidden characters: Unicode tags, zero-width and bidi controls, characters NFKC changes, words that mix Latin with Cyrillic or Greek letters;
 - a decodable base64, hex or percent-encoded run whose decoded text holds any of the above, names a judging target, holds a weak phrase next to a judging target in the text around the run, or reads as running prose (five words in a row, with spaces, hyphens, underscores or camel case between them); any decodable Morse run;
-- text still encoded after two levels of decoding, and decoded text past 1 MiB (1,048,576 characters) in one delivery: both flag unread;
+- text still encoded after two levels of decoding, and decoded text past `MAX_DECODED_CHARS` characters in one delivery (`packages/judgment/src/screen.ts`): both flag unread;
 - in a CSV, a cell that starts a spreadsheet formula.
 
 **It lets through phrases that are ordinary in honest work, unless a judging target sits within 80 characters of them.** A judging target is the verdict, the rubric, the judges, the panel, an evaluator, a grader, an adjudicator, an assistant, the AI or an LLM, `injectionSuspected`, an `overall` value, "every criterion", "the highest score", or an order on the work itself ("accept this report", "pass on this delivery"). The phrases:
@@ -55,7 +55,7 @@ The screen (`packages/judgment/src/screen.ts`, version `screen-1` since T-367) l
 
 A flag on a deal with a rubric escalates the case, and a flagged case needs a unanimous accept. On a checks-only deal a flag only adds a reason to the record. The screen is a heuristic and has no classifier yet (Phase 3); the judges' own rule 3 (report text aimed at them as suspected injection) is the next line of defense.
 
-**What the judges read of a long delivery.** The prompt carries at most `maxDataChars` characters of the delivery (100,000 by default), each line counted with its line break. A CSV over the limit is sampled by seeded rows (`sample.ts`). Anything else gets the first line and lines at even intervals; a line longer than the room left, the first line or the only line included, is cut to that room, and the note above the data says what was cut. A sampled read escalates.
+**What the judges read of a long delivery.** The prompt carries at most `maxDataChars` characters of the delivery (by default `DEFAULT_MAX_DATA_CHARS` in `packages/judgment/src/prompt.ts`), each line counted with its line break. A CSV over the limit is sampled by seeded rows (`sample.ts`). Anything else gets the first line and lines at even intervals; a line longer than the room left, the first line or the only line included, is cut to that room, and the note above the data says what was cut. A sampled read escalates.
 
 ## Panel policy (defaults; rulebook may tighten)
 

@@ -39,7 +39,7 @@ pnpm snap --judges fake <name>     # fixed passing verdicts instead of recording
 pnpm snap --judges fake --record --update <name>   # write stub recordings (capturedFrom: fake); never replaces a live one
 ```
 
-`--judges live` and `--settlement local|testnet` refuse until T-008/T-009 and Phase 2. The runner makes no network calls.
+`--judges live` and `--settlement testnet` refuse (`LIVE_REFUSAL` and `settlementRefusal` in `packages/testkit/src/runner.ts`). `--settlement local` runs each fixture against the contracts on anvil and compares it with its SimChain run, except the SimChain-only fixtures in `LOCAL_EXCLUSIONS` (same file), which use party appeals or bonds, not in phase one. The runner makes no network calls beyond a local anvil.
 
 ## Scenario files
 

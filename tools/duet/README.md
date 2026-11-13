@@ -126,7 +126,7 @@ The system prompt tells each agent that everything a tool returns is data, whoev
 
 ## Publishing the demo at crow.direct/demo
 
-`pnpm duet publish <run folder>` writes `site/demo/index.html` from that run's record. `node site/build.mjs` publishes the file at `/demo/`, beside `/visualdemo/`. Crow's site deploys from `main`, so the page goes live with the switch-over's site deploy, on Rafa's word. Swapping in another run, such as Rafa's first live run, is that one command and a pull request.
+`pnpm duet publish <run folder>` writes `site/demo/index.html` from that run's record. `node site/build.mjs` publishes the file at `/demo/`, beside `/visualdemo/`. Crow's site deploys from `main`, so a new page goes live with the next site deploy, on Rafa's word. Swapping in another run, such as Rafa's first live run, is that one command and a pull request.
 
 The published page differs from the local one in two ways:
 - Request early access goes to the home page's own sign-up form (`/#join-form`): no new endpoint, and no new data.
@@ -155,16 +155,16 @@ When a run goes over a limit, or an agent stalls, the runner writes `ticket.md` 
 
 The command's last lines then print the ticket's path and "Send this ticket to the coordinator." With nothing over, the summary says so and there is no ticket.
 
-## Against Sepolia, after the redeploy
+## Against Sepolia
 
-Expected changes, inferred and not yet run:
+The phase-one contracts are live on Sepolia since 2026-11-13 (`contracts/deployments/sepolia.json`). A run against them is the next step: none is recorded yet [inferred from T-391's Handoff]. Expected changes, inferred and not yet run:
 
 - Pass `--world` with the two operators. The docs then default to the public site's.
 - The buyer's signer takes test funds from the test service's faucet itself.
 
 Two things to check on the first run:
 
-- Whether the faucet's grant covers the job API stub's price. The job costs 700.00 tokens. The local faucet grants 1,000.00 per call.
+- Whether the faucet's grant (`demo.faucet.grant` in the test service's discovery) covers the job API stub's price plus the adjudication fee. The stub's price is in the brief's comment in `tools/duet/scenarios.ts`.
 - That the seller page and the job API stay local. The buyer reaches them on 127.0.0.1, and the seller adapter listens there.
 
 ## Files

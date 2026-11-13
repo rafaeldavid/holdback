@@ -49,11 +49,11 @@ forge test
 | `test/invariant/` | `RulesInvariants.t.sol`, `HandlerSmoke.t.sol` and `StateOracle.t.sol` (with `StateOracle.sol`), with `test/handlers/RulesHandler.sol` | The invariants listed in [`docs/audit/invariants.md`](../docs/audit/invariants.md). Their run count and depth are set inline in `RulesInvariants.t.sol`, not in `foundry.toml` |
 | `test/crosscheck/` | One file per case | Cases from the public-audit cross-check (`docs/reviews/2026-11-03-public-audit-crosscheck.md`), and the drand verifier's reviews |
 | `test/attack/` | `PhaseOneRedTeam.t.sol` | The red team's attacks on the phase-one contracts |
-| `test/differential/` | `SideBySide.t.sol` and `PinnedSource.t.sol`, with the pinned old side in `old/` and a planted mutant in `planted/` | The side-by-side harness (T-341): the deployed source and today's source run the same calls, and any difference not in `AllowList.sol` fails |
+| `test/differential/` | `SideBySide.t.sol` and `PinnedSource.t.sol`, with the pinned old side in `old/` and a planted mutant in `planted/` | The side-by-side harness (T-341): the source of the 2026-11-04 deployment (`contracts/src/` at `64be1f1`, pinned in `old/`) and today's source run the same calls, and any difference not in `AllowList.sol` fails |
 
 Notes:
 - `NoAdmin.fuzz.t.sol` reads the compiled ABIs from `out/`, and the drand tests read `../fixtures/beacon`. `foundry.toml` grants read access to those two paths only.
-- `forge test` prints today's count of tests and suites. The deployed commit `64be1f1` passed 241 (`docs/tasks/T-212-contract-hardening.md`, Evidence).
+- `forge test` prints today's count of tests and suites; CI prints it on every run.
 - CI runs `forge test` in its `contracts` job. Its `anvil` job runs `forge build`, because `forge test` does not compile `script/`, which the anvil tests need.
 
 ## TypeScript tests that need anvil
@@ -85,10 +85,11 @@ The script reads the ABIs its `SOURCES` names (`HoldbackRules`, `TestUSDC`, `Aut
 
 | File | Commit | EIP-712 domain | Status |
 | --- | --- | --- | --- |
-| `deployments/sepolia.json` | `64be1f1` | "Holdback" 0.7 | Live since 2026-11-04. New deals settle here |
-| `deployments/sepolia-2026-11-03-domain-0.6.json` | `2342756` | "Holdback" 0.6 | Superseded. Deals opened on it finish on it |
+| `deployments/sepolia.json` | The record's `commit` field; the annotated tag `contracts-phase-one-1` holds the same `contracts/src` | "Holdback", the version in `holdbackDomain` (`packages/core/src/eip712.ts`) | Live since the record's `deployedAt` (the phase-one contracts, ADR-0031). New deals settle here |
+| `deployments/sepolia-2026-11-04T0830Z-domain-0.7.json` | `64be1f1` | "Holdback" 0.7 | Superseded on 2026-11-13. Deals opened on it finish on it |
+| `deployments/sepolia-2026-11-03-domain-0.6.json` | `2342756` | "Holdback" 0.6 | Superseded on 2026-11-04. Deals opened on it finish on it |
 
-Each record holds the addresses, creation transactions, blocks, constructor arguments, the commit and the compiler settings. `docs/operations.md` ("Sepolia contracts") describes the deploy steps. Deploying is a gate: it waits for Rafa.
+Each record holds the addresses, creation transactions, blocks, constructor arguments, the commit and the compiler settings. The dated records keep their values as written. `docs/operations.md` ("Sepolia contracts") describes the deploy steps. Deploying is a gate: it waits for Rafa.
 
 Check the live record against the chain. The command deploys nothing and only reads:
 
@@ -98,9 +99,9 @@ contracts/script/deploy-sepolia.sh --check <sepolia-rpc-url>
 
 **The build-input rule.** `--check` fails unless `src`, `lib`, `foundry.toml`, `remappings.txt` and `script/TestUSDC.sol` equal the commit in the record, with no uncommitted change. So:
 - run `--check` from a checkout whose build inputs equal the recorded commit;
-- a change to any of those five paths ships as a new deployment with a new record. The old record moves to a dated file, as the 0.6 record did.
+- a change to any of those five paths ships as a new deployment with a new record. The old record moves to a dated file, as the 0.6 and 0.7 records did.
 
-To check the 0.6 record, check out `2342756` and copy that file over `sepolia.json` first (documented: `docs/operations.md`).
+To check a dated record, check out the commit in its `commit` field and copy that file over `sepolia.json` first (documented: `docs/operations.md`).
 
 ## Events are part of the interface
 

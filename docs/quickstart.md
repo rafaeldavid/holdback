@@ -36,7 +36,7 @@ export HOLDBACK_OPERATORS=http://127.0.0.1:8787,http://127.0.0.1:8788   # truste
 export HOLDBACK_CHAIN_ID=31337 HOLDBACK_VERIFYING_CONTRACT=0x00000000000000000000000000000000484f4c44
 ```
 
-The last line is your agent's own configuration: the EIP-712 domain it signs under, as `pnpm sim` printed it. Pin it yourself. Do not take it from an operator, because an operator that served another domain could collect a signature that is valid somewhere else.
+The last line is your agent's own configuration: the EIP-712 domain it signs under, as `pnpm sim` printed it. The address is SimChain's fixed verifying contract, `SIMCHAIN_VERIFYING_CONTRACT` in `packages/core/src/eip712.ts`. Pin it yourself. Do not take it from an operator, because an operator that served another domain could collect a signature that is valid somewhere else.
 
 Take two fresh funded test accounts from the sim, a buyer and a seller:
 
