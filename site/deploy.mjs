@@ -37,13 +37,15 @@ const PROBE_TIMEOUT_MS = 10_000;
  * @param {{ llms: Buffer, trySha256: string }} built reports/site-out/llms.txt, and the SHA-256 of site/try.mjs that
  *   the one command in llms.txt checks
  * @returns {string | null} null when nothing is.
- * @typedef {{ status: number, body: Buffer }} Answer
+ * @typedef {{ status: number, body: Buffer, type?: string }} Answer `type` is the content-type header, when the probe read it
  */
 export function siteProblem({ home, llms, tryMjs }, built) {
   const not200 = (url, a) => (a.status === 200 ? null : `${url} did not answer 200 (last answer: ${a.status === 0 ? 'no answer' : `HTTP ${a.status}`})`);
   const down = not200(SITE_URL, home) ?? not200(LLMS_URL, llms);
   if (down) return down;
   if (!llms.body.equals(built.llms)) return `${LLMS_URL} answered 200, but its body is not the built ${OUT}/llms.txt`;
+  // The guides and the bundles are UTF-8; without the charset a browser reads "Crow’s" as junk (T-400, apps/site/worker.js).
+  for (const [url, a] of [[LLMS_URL, llms], [TRY_URL, tryMjs]]) if (a.status === 200 && a.type !== undefined && !/charset=utf-8/i.test(a.type)) return `${url} answered 200 as "${a.type}", with no charset=utf-8`;
   const sha = createHash('sha256').update(tryMjs.body).digest('hex');
   return not200(TRY_URL, tryMjs) ?? (sha === built.trySha256 ? null : `${TRY_URL} answered 200, but its SHA-256 starts ${sha.slice(0, 12)}, and the build pinned ${built.trySha256.slice(0, 12)}`);
 }
@@ -119,11 +121,11 @@ export async function deploy({ args, sh, probe, clean, built, sleep, now, log, e
   return failure ? 1 : 0;
 }
 
-/** One GET, never followed past a redirect: the status and the bytes, or status 0 when there is no answer in time. */
+/** One GET, never followed past a redirect: the status, the content type and the bytes, or status 0 when there is no answer in time. */
 async function probe(url, timeoutMs) {
   try {
     const r = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) });
-    return { status: r.status, body: Buffer.from(await r.arrayBuffer()) };
+    return { status: r.status, type: r.headers.get('content-type') ?? '', body: Buffer.from(await r.arrayBuffer()) };
   } catch {
     return { status: 0, body: Buffer.alloc(0) };
   }

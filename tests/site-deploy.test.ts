@@ -18,13 +18,20 @@ const TRY = Buffer.from('// try.mjs: one test deal\n');
 const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 const BUILT = { llms: LLMS, trySha256: sha256(TRY) };
 
-type Answer = { status: number; body: Buffer };
+type Answer = { status: number; body: Buffer; type?: string };
 const ok = (body: Buffer | string = ''): Answer => ({ status: 200, body: Buffer.from(body) });
 const GOOD = { home: ok('<!doctype html>'), llms: ok(LLMS), tryMjs: ok(TRY) };
 
 describe('what one read of the live site means', () => {
   it('has no problem when the page answers 200, llms.txt is the built file and try.mjs hashes to the pin', () => {
     expect(siteProblem(GOOD, BUILT)).toBeNull();
+  });
+
+  it('names a guide or bundle served without the UTF-8 charset (T-400)', () => {
+    const typed = (a: Answer, type: string) => ({ ...a, type });
+    expect(siteProblem({ ...GOOD, llms: typed(ok(LLMS), 'text/plain; charset=utf-8'), tryMjs: typed(ok(TRY), 'text/javascript; charset=utf-8') }, BUILT)).toBeNull();
+    expect(siteProblem({ ...GOOD, llms: typed(ok(LLMS), 'text/plain') }, BUILT)).toBe(`${SITE}llms.txt answered 200 as "text/plain", with no charset=utf-8`);
+    expect(siteProblem({ ...GOOD, tryMjs: typed(ok(TRY), 'text/javascript') }, BUILT)).toBe(`${SITE}try.mjs answered 200 as "text/javascript", with no charset=utf-8`);
   });
 
   it('names the first file that is not what the build made', () => {
