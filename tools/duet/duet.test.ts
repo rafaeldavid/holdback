@@ -101,6 +101,8 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       // Money is said in test dollars, never as "tokens", which a reader could take for AI model tokens.
       expect(readerText(page)).not.toMatch(/test tokens/);
       if (name === 'paid') expect(readerText(page)).toMatch(/700\.00 test dollars/);
+      // Where a reader checks a payment record, the token keeps its real name (in the engineers' section).
+      expect(page).toMatch(/the test token <code>[A-Za-z0-9]+<\/code> \(six decimals\)/);
       expect(page).toContain(`<h1 class="headline">${q(HERO.headline)}</h1>`);
       expect(page).toContain(`href="${EARLY_ACCESS}"`);
       expect(page).toContain(`<span class="demo-label">${HERO.demoLabel}</span>`);
