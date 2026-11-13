@@ -99,7 +99,7 @@ export const HISTORY = [
   { path: 'docs/reviews/', why: 'dated history: reviews' },
   { path: 'docs/research/', why: 'dated history: research and its recorded runs' },
   { path: 'docs/operations.md', why: 'the dated record of each deploy' },
-  { path: 'docs/cutover-phase-one.md', why: "this cutover's runbook, which names the old world on purpose" },
+  { path: 'docs/cutover-phase-one.md', why: 'the dated record of the 2026-11-13 cutover, which names the old world on purpose' },
   { path: 'docs/audit/scope.md', why: 'rewritten for the frozen commit at cutover step 11.4' },
   { path: 'tests/metrics/fixtures/', why: 'recorded answers of past live runs' },
   { path: 'examples/e2e-run.test.ts', why: 'a recorded Sepolia run' },
