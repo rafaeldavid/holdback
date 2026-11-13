@@ -437,12 +437,11 @@ export const HOME_JS = `(function () {
 `;
 
 /** The home page's styles, served as home.css: the look Rafa approved on 2026-11-12, unchanged. */
-export const HOME_CSS = `/* The enterprise look (Rafa, 2026-11-12), as on the demo page: system type, white and grey, one ink accent for the
+export const HOME_CSS = `/* Light only, in either system mode (Rafa, 2026-11-13). The enterprise look (Rafa, 2026-11-12), as on the demo page: system type, white and grey, one ink accent for the
    primary action, Crow's mark in flight in a slim header. The hero leads; the value props sit quietly below it. */
-:root { color-scheme: light dark; --page: #ffffff; --band: #f5f5f7; --ink: #1d1d1f; --ink-2: #6e6e73; --ink-3: #86868b; --line: #d2d2d7; --hair: rgba(0, 0, 0, .08);
+:root { color-scheme: light; --page: #ffffff; --band: #f5f5f7; --ink: #1d1d1f; --ink-2: #6e6e73; --ink-3: #86868b; --line: #d2d2d7; --hair: rgba(0, 0, 0, .08);
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
   --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif; }
-@media (prefers-color-scheme: dark) { :root { --page: #000000; --band: #111113; --ink: #f5f5f7; --ink-2: #a1a1a6; --ink-3: #86868b; --line: #3a3a3c; --hair: rgba(255, 255, 255, .1); } }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body { background: var(--page); color: var(--ink); font: 17px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
@@ -450,7 +449,7 @@ a { color: inherit; }
 /* the agents' code (Rafa kept it, 2026-11-12): faint terminal text down each side of the hero, buyer left and seller
    right, misting out at the edges, behind the words. It stops above the value props. */
 html { overflow-x: clip; }
-.stream { position: absolute; z-index: 0; top: 0; bottom: 0; width: min(460px, calc(50vw - 340px));
+.stream { position: absolute; z-index: 0; top: 0; bottom: 0; width: min(460px, calc(50vw - 340px)); contain: strict; /* the lines never size the hero: it keeps one height while they type */
   display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; pointer-events: none; user-select: none;
   font: 10.5px/1.7 ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink-3); opacity: .55; text-align: left; white-space: pre; }
 #stream-b { left: calc(50% - 50vw); padding: 0 12px 24px max(20px, env(safe-area-inset-left, 0px));
@@ -521,6 +520,8 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid 
 .nf-links a { min-width: 120px; font-weight: 600; text-decoration: none; }
 .nf-links a:hover { text-decoration: underline; }
 .nf-links span { font-size: 15px; color: var(--ink-2); }
+/* a short desktop screen (720 px tall) shows the whole page, hero to footer, with no scroll */
+@media (min-width: 821px) and (max-height: 820px) { .hero { padding: 44px 0 36px; } .props { padding-top: 26px; gap: 20px 40px; } .foot { margin-top: 10px; padding: 14px 20px 18px; } }
 @media (max-width: 820px) { .props { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 600px) { h1 { font-size: 44px; } .lede { font-size: 19px; } .hero { padding: 64px 0 48px; } .nav { display: none; } .props { grid-template-columns: 1fr; } }
 `;
