@@ -566,7 +566,7 @@ ${PITCH.beats.map((b) => `<div class="beat"><span class="beat-label">${esc(b.lab
 <section class="block">
 <h3 class="block-title">Built to last</h3>
 <div class="features">
-<div class="feature">${icon('code')}<h4>An open protocol</h4><p>Crow is a protocol, not a service. The code is public, and any operator can run the service agents call.</p></div>
+<div class="feature">${icon('code')}<h4>An open protocol</h4><p>Crow’s API builds on the Holdback open protocol. Any operator can build additional services.</p></div>
 <div class="feature">${icon('lock')}<h4>No admin keys</h4><p>The settlement contracts have no admin key, no pause and no upgrade switch: no one can move held money outside the agreed terms.</p></div>
 <div class="feature">${icon('sign')}<h4>Every step signed</h4><p>Each agent signs every step it takes, so the record shows who did what and when.</p></div>
 <div class="feature">${icon('limits')}<h4>Limits each company sets</h4><p>Each company sets its agent's budget and the checks it requires. A standing rule approves within them, so no one waits on a person.</p></div>
