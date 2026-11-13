@@ -5,7 +5,7 @@
 - **Depends on:** none. It is the first package on the integration branch `contracts-audit-ready`, cut from `origin/main` at `1430f77`.
 - **Paths this task may touch:** `contracts/src/` (the listed items only); `contracts/test/` and `contracts/script/` only where the moved or removed code requires it; `contracts/README.md` and `docs/audit/known-issues.md` only for lines these items make untrue; this file.
 - **Human gate:** no for this task. The merge into `main`, the redeploy and the freeze are package C9, Rafa's.
-- **Status:** merged to contracts-audit-ready, waits for C9
+- **Status:** done (2026-11-13): merged to contracts-audit-ready, in `main` through PR 475 (`27ab44e`), and live on Sepolia since the phase-one cutover of 2026-11-13
 - **Agent/session:** the T-334 session (Opus 5.5)
 
 ## Intent

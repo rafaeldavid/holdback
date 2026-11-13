@@ -72,6 +72,7 @@ flowchart LR
 - **Branch and worktree:** `git worktree add .worktrees/holdback-T-xxx -b t-xxx-<slug>`. `.worktrees/` sits inside the repo and is gitignored.
 - **Commits:** imperative subject, with the task ID in the body.
 - **PR template:** `.github/pull_request_template.md`, in pstack's opening-a-pr format: a Conventional Commits title, then Why, What changed, Scope, Tradeoffs, Blast Radius and Verification. Verification bullets come from `pnpm verify` and are labeled measured, inferred or guessed. Blast Radius names any human gate or litmus test the change touches. The task's acceptance checklist stays in the task file.
+- **Closing a task:** the PR that finishes a task says `Closes T-xxx` on a line of its own in its body (several: `Closes T-xxx, T-yyy`). Crow Control marks the task done from that merged PR, on any branch, so no PR exists only to set a Status line to done; a Status line only parks a task (paused, deferred or benched).
 - **Handoff:** before stopping, write what is done, what is not, how to resume, and which open questions remain into the task file.
 - **Decision log:** every non-trivial choice made inside a task goes into the task file's Decisions section. If the choice changes architecture, a contract or a defense, it becomes an ADR.
 

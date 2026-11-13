@@ -5,7 +5,7 @@
 - **Depends on:** T-358 (holdback PR 387, the two money addresses and domain 0.8), T-341 (the side-by-side harness and the state oracle), T-356 (the parent-commit harness), T-336 (the delivery liveness counter)
 - **Paths this task may touch:** `contracts/src/`; `contracts/test/`; `packages/settlement/evm/abis.json` where the ABI changes; one-line reads of the deal's word in `packages/`, `apps/` or `examples/` only if a change forces them; this task file. Never `formal/` (R4b), `docs/audit/` (AL-2), `spec/schemas/`, `site/`
 - **Human gate:** no for the branch. The freeze, the merge to `main` and the redeploy are Rafa's
-- **Status:** merged to contracts-audit-ready, waits for the freeze
+- **Status:** done (2026-11-13): merged to contracts-audit-ready, in `main` through PR 475 (`27ab44e`), and live on Sepolia since the phase-one cutover of 2026-11-13
 - **Agent/session:** implementer session, change kind 7 (smart contracts): `forge test`, one reviewer per pull request, a target of 300k tokens for the package
 
 ## Intent

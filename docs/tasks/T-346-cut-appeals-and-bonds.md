@@ -5,7 +5,7 @@
 - **Depends on:** T-334 (the clean-up, merged to `contracts-audit-ready` at `b88f9e5`), T-341 (the side-by-side harness and the state oracle, holdback PR 333, merged to `main` at `67fde99`), T-342 (ADR-0031, the phase-one scope), T-340 (`docs/audit/state-model.md`)
 - **Paths this task may touch:** `contracts/src/`; `contracts/test/` (tests of the removed feature, the new contract-signer and late-work tests, the harness's allow-list and handler for this change, the state oracle's phase-one rows); `contracts/script/` only where a removed contract requires it; `packages/core/src/` only for the SC-7 mirror; the simulator's SimChain-only exclusion list (`packages/testkit/src/runner.ts`, `LOCAL_EXCLUSIONS`); this task file. Never `apps/`, `examples/`, `site/`, `spec/schemas/`, `packages/settlement/`, `docs/audit/`
 - **Human gate:** no for the branch. The freeze, the merge to `main` and the redeploy are Rafa's
-- **Status:** merged to contracts-audit-ready, waits for the freeze
+- **Status:** done (2026-11-13): merged to contracts-audit-ready, in `main` through PR 475 (`27ab44e`), and live on Sepolia since the phase-one cutover of 2026-11-13
 - **Agent/session:** implementer session, change kind 7 (smart contracts): `forge test`, one reviewer and one red team before it lands, a target of 300k tokens
 
 ## Intent

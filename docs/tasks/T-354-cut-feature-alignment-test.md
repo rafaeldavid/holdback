@@ -5,7 +5,7 @@
 - **Depends on:** ADR-0031 (the phase-one contract scope); the contract refinement plan, section 7b (kept privately, `docs/private-materials.md`)
 - **Paths this task may touch:** one new test file under `tests/` and one data file beside it; `vitest.config.ts` (a cost line for the new file only); this task file
 - **Human gate:** no
-- **Status:** merged to contracts-audit-ready
+- **Status:** done (2026-11-13): merged to contracts-audit-ready, and in `main` through PR 475 (`27ab44e`), where the test runs in CI
 - **Agent/session:** T-354 side session, change kind 4 (one test, no review, a target of 100k tokens)
 
 ## Intent
