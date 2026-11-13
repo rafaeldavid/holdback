@@ -4,7 +4,7 @@ This page lists every event the phase-one rules contract emits; the beacon emits
 
 Not in phase one (SimChain keeps the full protocol's event types): the vault's `BondDeposited`, `BondWithdrawn`, `BondEncumbered`, `BondReleased`, `AppealBondHeld`, `AppealBondPaid` and `BondSlashed`; the appeal events `AppealFiled` and `AppealClosed`; and `Paid`, the event for a third-party payout. One event is new: `SettlementAddresses` (ADR-0033). The contracts deployed on Sepolia today still emit the old set until the redeploy.
 
-Labels: **measured** (read from the named file at the lane's tip, or produced by the named command), **documented** (stated in the doc cited), **inferred** (concluded from reading), **unknown** (not in this repository). Contract code is cited by function name in `HoldbackRules.sol` at `<FREEZE_COMMIT>`. The event list comes from `grep -n "event \|emit "` over `contracts/src/` [measured on the lane, 2026-11-12; to measure again at the freeze].
+Labels: **measured** (read from the named file at the lane's tip, or produced by the named command), **documented** (stated in the doc cited), **inferred** (concluded from reading), **unknown** (not in this repository). Contract code is cited by function name in `HoldbackRules.sol` at the frozen commit (the tag `contracts-phase-one-1`; [`scope.md`](scope.md)). The event list comes from `grep -n "event \|emit "` over `contracts/src/` [measured on the lane, 2026-11-12; to measure again at the freeze].
 
 ## Who reads the events
 

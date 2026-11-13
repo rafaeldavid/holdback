@@ -2,7 +2,7 @@
 
 ## Summary
 
-This page names who can act on the contracts, what each actor can and cannot do, what is at stake, and the assumptions the contracts rest on. It describes the phase-one contracts in `contracts/src` at `<FREEZE_COMMIT>` ([`scope.md`](scope.md)). SimChain keeps the full protocol, appeals and bonds included; this page does not describe it. It changes no code and adds no finding beyond [`state-model.md`](state-model.md) section 11.
+This page names who can act on the contracts, what each actor can and cannot do, what is at stake, and the assumptions the contracts rest on. It describes the phase-one contracts in `contracts/src` at the frozen commit (the tag `contracts-phase-one-1`; [`scope.md`](scope.md)). SimChain keeps the full protocol, appeals and bonds included; this page does not describe it. It changes no code and adds no finding beyond [`state-model.md`](state-model.md) section 11.
 
 - **Every entry point of the rules contract is open to anyone.** Authority comes from a signature or an expired deadline, never from the caller [measured: `HoldbackRules.sol` does not read `msg.sender`].
 - **No actor can move a hold outside the signed terms** [inferred from the transition table in `state-model.md` section 3].
@@ -10,7 +10,7 @@ This page names who can act on the contracts, what each actor can and cannot do,
 - **Phase one has no party appeals and no bonds on chain** (D57). The first decision by the primary or the fallback adjudicator is final, and so is the appeal adjudicator's decision after an escalation.
 - **Phase one keeps contract signers and the on-chain beacon proof.** The maintainer refused scope cut SC-4 and did not cut SC-8, both on 2026-11-11. A multisig or another smart contract can be the buyer, the seller or an adjudicator, and any contract can relay a step.
 
-Labels: **measured** (read in the named function or file), **inferred**, **guessed**. Citations follow `state-model.md`: contract code by function, error, event or constant name in `HoldbackRules.sol` and `HoldbackTypes.sol` (imported as `H`) at `<FREEZE_COMMIT>`; `E:` is a line of the Commerce Payments `AuthCaptureEscrow.sol` at `6b0a5ef`. Row numbers (P01 to P17) are that page's section 9.3. SC-n and IS-n are the labels of the contract refinement plan, which the maintainers keep privately ([`docs/private-materials.md`](../private-materials.md)).
+Labels: **measured** (read in the named function or file), **inferred**, **guessed**. Citations follow `state-model.md`: contract code by function, error, event or constant name in `HoldbackRules.sol` and `HoldbackTypes.sol` (imported as `H`) at the frozen commit (the tag `contracts-phase-one-1`; [`scope.md`](scope.md)); `E:` is a line of the Commerce Payments `AuthCaptureEscrow.sol` at `6b0a5ef`. Row numbers (P01 to P17) are that page's section 9.3. SC-n and IS-n are the labels of the contract refinement plan, which the maintainers keep privately ([`docs/private-materials.md`](../private-materials.md)).
 
 ## 1. Assets
 
@@ -82,7 +82,7 @@ Each assumption names what the contracts rely on, where, and what happens if it 
 
 ## 5. Attack classes and where each is handled
 
-Each row names what an attacker tries, the code that refuses it and the test that covers it. The tests are named from the files in `contracts/test/` at `<FREEZE_COMMIT>` [measured on the lane's tip: the files and the invariant names exist; their bodies were not read for this page].
+Each row names what an attacker tries, the code that refuses it and the test that covers it. The tests are named from the files in `contracts/test/` at the frozen commit (the tag `contracts-phase-one-1`; [`scope.md`](scope.md)) [measured on the lane's tip: the files and the invariant names exist; their bodies were not read for this page].
 
 | Class | What the attacker tries | Refused at | Test |
 | --- | --- | --- | --- |

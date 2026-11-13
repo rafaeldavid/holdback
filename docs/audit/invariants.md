@@ -2,7 +2,7 @@
 
 The phase-one contracts are checked against the stateful-fuzzing invariants of `RulesInvariants.t.sol`, the commitment state machine, and the properties of a TLA+ model in two profiles. This page lists each property in plain words, the test or model property that checks it, and the contract functions it constrains. A property that a mutant breaks must make its check fail; that is how each invariant was shown to bite (T-203) [documented: the NatSpec of `RulesInvariants.t.sol`]. SimChain keeps the full protocol, appeals and bonds included; where this page names the full profile it says so.
 
-Labels: **measured** (read from the named file at the lane's tip, or produced by the named command), **documented** (stated in the doc cited), **inferred** (concluded from reading). Contract code is cited by function name in `HoldbackRules.sol` at `<FREEZE_COMMIT>`; test code by file and function name. None of the invariant suites or model checks ran for this page.
+Labels: **measured** (read from the named file at the lane's tip, or produced by the named command), **documented** (stated in the doc cited), **inferred** (concluded from reading). Contract code is cited by function name in `HoldbackRules.sol` at the frozen commit (the tag `contracts-phase-one-1`; [`scope.md`](scope.md)); test code by file and function name. None of the invariant suites or model checks ran for this page.
 
 ## The invariant suite
 

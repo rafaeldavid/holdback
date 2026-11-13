@@ -2,7 +2,7 @@
 
 ## Summary
 
-This page lists every state a deal can be in on chain under the phase-one contracts: the rules contract and the Commerce Payments escrow, at commit `<FREEZE_COMMIT>`. Phase one has no party appeals and no bonds (D57). SimChain keeps the full protocol, appeals and bonds included; this page does not describe it. The model of the contracts deployed on Sepolia today (EIP-712 domain 0.7, with party appeals and the bond vault) is `main`'s version of this page at commit `e29d387`. This page changes no code.
+This page lists every state a deal can be in on chain under the phase-one contracts: the rules contract and the Commerce Payments escrow, at the frozen commit (the tag `contracts-phase-one-1`; [`scope.md`](scope.md)). Phase one has no party appeals and no bonds (D57). SimChain keeps the full protocol, appeals and bonds included; this page does not describe it. The model of the contracts the live demo settled on until 2026-11-13 (EIP-712 domain 0.7, with party appeals and the bond vault) is `main`'s version of this page at commit `e29d387`. This page changes no code.
 
 - **Each legal word is one row of section 9.3** (P01 to P17), and each row names the function that writes it [measured: read in `HoldbackRules.sol`].
 - **Every other combination is illegal** (section 4), each with the code that makes it unreachable [inferred from reading every write to the word]. `invariant_legalDealStates` checks every deal against section 9.3's rows after every step of the fuzzing campaign [documented: its NatSpec in `contracts/test/invariant/RulesInvariants.t.sol`]. One state is reachable that the word does not show: a funded deal whose escrow the buyer's payment address has already emptied (section 5.2).
@@ -14,7 +14,7 @@ This page lists every state a deal can be in on chain under the phase-one contra
 
 Labels: **measured** (read in the named function or file), **documented** (stated in the doc cited), **inferred** (concluded from reading, not checked by a run), **guessed**.
 
-Citations: contract code is cited by the name of its function, error, event or constant in [`HoldbackRules.sol`](../../contracts/src/HoldbackRules.sol) and [`HoldbackTypes.sol`](../../contracts/src/HoldbackTypes.sol) (the library is imported as `H`) at `<FREEZE_COMMIT>`. `E:` is a line of `contracts/lib/commerce-payments/src/AuthCaptureEscrow.sol` at the pinned commit `6b0a5ef`. The scope cuts (SC-1 to SC-8) and implicit-state items (IS-1 to IS-14) are the contract refinement plan's labels; the maintainers keep the plan privately ([`docs/private-materials.md`](../private-materials.md)), and this page restates each label where it uses it.
+Citations: contract code is cited by the name of its function, error, event or constant in [`HoldbackRules.sol`](../../contracts/src/HoldbackRules.sol) and [`HoldbackTypes.sol`](../../contracts/src/HoldbackTypes.sol) (the library is imported as `H`) at the frozen commit (the tag `contracts-phase-one-1`; [`scope.md`](scope.md)). `E:` is a line of `contracts/lib/commerce-payments/src/AuthCaptureEscrow.sol` at the pinned commit `6b0a5ef`. The scope cuts (SC-1 to SC-8) and implicit-state items (IS-1 to IS-14) are the contract refinement plan's labels; the maintainers keep the plan privately ([`docs/private-materials.md`](../private-materials.md)), and this page restates each label where it uses it.
 
 ## 1. What is stored
 
@@ -298,7 +298,7 @@ The nonces of the messages that carry one are assumptions too: the stage stops a
 
 ## 9. The phase-one machine
 
-Phase one is an escrow with a neutral decider: hold, deliver, decide (the primary, then the fallback, with escalation), early accept, a two-party settlement, and timeouts. The lane's contract builds it, and each row names the function that writes it at `<FREEZE_COMMIT>`.
+Phase one is an escrow with a neutral decider: hold, deliver, decide (the primary, then the fallback, with escalation), early accept, a two-party settlement, and timeouts. The lane's contract builds it, and each row names the function that writes it at the frozen commit (the tag `contracts-phase-one-1`; [`scope.md`](scope.md)).
 
 ### 9.1 What phase one changed from the deployed contracts
 
