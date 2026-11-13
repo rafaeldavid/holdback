@@ -276,7 +276,7 @@ export const SILENT: Scenario[] = [
         r.check('the demo fallback adjudicator decides', decided.every((es) => es.at(-1)?.payload?.role === 'fallback') && log.length === 1 && lc(log[0]!.args.adjudicator) === fallback, `Decided by ${log.map((l) => short(l.args.adjudicator)).join(', ') || 'nobody'}; role ${decided.map((es) => es.at(-1)?.payload?.role ?? 'none').join(' / ')}`);
         const named = decides.at(-1)?.args?.[1]?.beaconRound;
         const takeover = logsOf(deal.record, 'FallbackTriggered')[0]?.args?.beaconRound;
-        r.check("the fallback decision's beacon is drand-quicknet at the fallback's round, the first after judgeBy − 1 + the margin", source === 'drand-quicknet' && want !== null && Number(named) === want && Number(takeover) === want && rounds.every((x) => Number(x) === want), `the club's beacon ${source}; margin ${margin} s; the fallback's round ${want ?? 'unknown'}; decide's beaconRound ${named ?? 'none'}, FallbackTriggered's ${takeover ?? 'none'}, both operators' ${rounds.join(' and ')}; HoldbackRules verified its BLS signature, or decide would have reverted`);
+        r.check("the fallback decision's beacon is drand-quicknet at the fallback's round, the first after judgeBy - 1 + the margin", source === 'drand-quicknet' && want !== null && Number(named) === want && Number(takeover) === want && rounds.every((x) => Number(x) === want), `the club's beacon ${source}; margin ${margin} s; the fallback's round ${want ?? 'unknown'}; decide's beaconRound ${named ?? 'none'}, FallbackTriggered's ${takeover ?? 'none'}, both operators' ${rounds.join(' and ')}; HoldbackRules verified its BLS signature, or decide would have reverted`);
         r.check('the key reaches the buyer on chain', keysToBuyer(deal).length === 1, `${keysToBuyer(deal).length} KeyReleased log(s) to the buyer`);
         paidCheck(r, deal, 'the price reaches the seller on chain', seller, BigInt(price));
         paidCheck(r, deal, 'the adjudication fee goes to the fallback, whose decision settles', fallback, fee);
@@ -284,7 +284,7 @@ export const SILENT: Scenario[] = [
         const actors = decided.map((es) => lc(es.at(-1)?.actor ?? 'none'));
         r.check('the demo fallback adjudicator decides', decided.every((es) => es.at(-1)?.payload?.role === 'fallback') && actors.every((a) => a === fallback), `judgment.decided by ${actors.map(short).join(' / ')}, role ${decided.map((es) => es.at(-1)?.payload?.role ?? 'none').join(' / ')}`);
         // SimChain's beacon is the settlement layer's own clock, not drand: the drand proof is checked on a chain.
-        r.check(`the fallback decision's beacon is ${source} at the fallback's round, the first after judgeBy − 1 + the margin`, want !== null && rounds.every((x) => Number(x) === want), `the fallback's round ${want ?? 'unknown'} (margin ${margin} s); both operators' judgment.decided ${rounds.join(' and ')}; drand quicknet is checked on a chain`);
+        r.check(`the fallback decision's beacon is ${source} at the fallback's round, the first after judgeBy - 1 + the margin`, want !== null && rounds.every((x) => Number(x) === want), `the fallback's round ${want ?? 'unknown'} (margin ${margin} s); both operators' judgment.decided ${rounds.join(' and ')}; drand quicknet is checked on a chain`);
       }
     },
   },

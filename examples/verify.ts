@@ -60,10 +60,10 @@ export function knownPins(): Pin[] {
   ];
 }
 
-/** Multicall3, at one address on every chain that has it: it makes any call it is asked to (ADR-0033 §7). */
+/** Multicall3, at one address on every chain that has it: it makes any call it is asked to (ADR-0033 section 7). */
 const MULTICALL3 = '0xca11bde05977b3631167028862be2a173976ca11';
 /**
- * ADR-0033 §7's advisory warnings for one money address: the zero address, a contract of the pinned deployment,
+ * ADR-0033 section 7's advisory warnings for one money address: the zero address, a contract of the pinned deployment,
  * Multicall3, or one of the deal's adjudicators. Warnings only: no tool refuses any of them (D31).
  */
 export function moneyAddressWarnings(role: 'payment' | 'payout', address: string, pin: Pin, adjudicators?: { primary: string; fallback: string; appeal: string }): string[] {
@@ -130,7 +130,7 @@ export const TYPES = {
   KeyUnlock: [f('kind', 'string'), f('round', 'uint64')],
   EncryptedKey: [f('recipient', 'address'), f('scheme', 'string'), f('ciphertext', 'string'), f('unlock', 'KeyUnlock')],
   Delivery: [f('commitmentId', 'bytes32'), f('attempt', 'uint8'), f('ciphertext', 'Ciphertext'), f('plaintextSha256', 'string'), f('plaintextMime', 'string'), f('encryptedKeys', 'EncryptedKey[]'), f('submittedAt', 'uint64')],
-  // SimChain only: a party appeal, which the full protocol keeps and phase one cuts (ADR-0031 §8).
+  // SimChain only: a party appeal, which the full protocol keeps and phase one cuts (ADR-0031 section 8).
   Appeal: [f('commitmentId', 'bytes32'), f('appellant', 'string'), f('appellantAddress', 'address'), f('grounds', 'string'), f('bond', 'TokenAmount'), f('filedAt', 'uint64')],
   Payout: [f('to', 'address'), f('amount', 'TokenAmount')],
   MutualSettlement: [f('commitmentId', 'bytes32'), f('hasDelivery', 'bool'), f('deliveryHash', 'bytes32'), f('payouts', 'Payout[]'), f('releaseKey', 'bool'), ...exp],
@@ -182,7 +182,7 @@ const nearTo = (now: number) => (ts: J, behind: number, ahead: number, name: str
   return typeof ts === 'string' && d >= -behind && d <= ahead ? ts : refuse(`${name} ${ts} is not within the expected window around settlement time`);
 };
 /** An appeal bond is the rulebook's rate of the price, rounded up; the settlement layer would accept more. */
-// SimChain only (ADR-0031 §8): phase one has no party appeal and no bond, and a chain's operators refuse one at prepare.
+// SimChain only (ADR-0031 section 8): phase one has no party appeal and no bond, and a chain's operators refuse one at prepare.
 export const appealBondOf = (price: J, rateBps: number): string => ((BigInt(price.amount) * BigInt(rateBps) + 9_999n) / 10_000n).toString();
 const DEC = /^(0|[1-9][0-9]{0,77})$/;
 /**
@@ -249,7 +249,7 @@ export type Intent =
    */
   | { kind: 'early-accept'; terms: J; nonce: Hex; deliveryHash: Hex }
   /** appealBondRateBps: from the club rulebook as at least two operators serve it. */
-  // SimChain only (ADR-0031 §8): examples/e2e-scenarios-appeal.ts files party appeals on SimChain's full protocol.
+  // SimChain only (ADR-0031 section 8): examples/e2e-scenarios-appeal.ts files party appeals on SimChain's full protocol.
   | { kind: 'appeal'; terms: J; me: string; grounds?: string; appealBondRateBps: number }
   /**
    * delivery (SC-5b, the late-work settlement): the seller-signed delivery that was never posted, which the body
@@ -270,7 +270,7 @@ export const isAddressText = (a: unknown): a is string => {
   return hex === hex.toLowerCase() || hex === hex.toUpperCase() || getAddress(a) === a;
 };
 /**
- * A money address from the party's own request (ADR-0033 §6): the address given, lowercased, or the party's signing
+ * A money address from the party's own request (ADR-0033 section 6): the address given, lowercased, or the party's signing
  * address when none is given. Never from an operator's answer.
  */
 const moneyAddress = (given: J, signer: string, field: string): string => {
@@ -314,7 +314,7 @@ function expected(intent: Intent, op: J, now: number): Plan {
   if (intent.kind === 'agree-and-fund') {
     if (t.buyer.toLowerCase() !== intent.me.toLowerCase()) refuse('the terms name another buyer');
     if (t.buyerEncryptionPublicKey !== intent.encryptionPublicKey) refuse('the terms seal the work to a key you do not hold');
-    // ADR-0033 §6: the payment address funds the hold and receives every refund, so it must be the buyer's own.
+    // ADR-0033 section 6: the payment address funds the hold and receives every refund, so it must be the buyer's own.
     const paying = (intent.paymentAddress ?? intent.me).toLowerCase();
     if (String(t.buyerPaymentAddress).toLowerCase() !== paying) refuse(`the terms name ${t.buyerPaymentAddress} as the payment address, not your ${paying}`);
     const want = intent.expectedPrice;
@@ -364,7 +364,7 @@ function expected(intent: Intent, op: J, now: number): Plan {
   if (intent.kind === 'appeal') {
     const role = intent.me.toLowerCase() === t.buyer.toLowerCase() ? 'buyer' : intent.me.toLowerCase() === t.seller.toLowerCase() ? 'seller' : refuse('you are neither party');
     if (!Number.isSafeInteger(intent.appealBondRateBps) || intent.appealBondRateBps < 0 || intent.appealBondRateBps > 10_000) refuse('appealBondRateBps must come from the club rulebook');
-    // SimChain only (ADR-0031 §8): the full protocol's appeal and its bond; phase one's operators refuse it at prepare.
+    // SimChain only (ADR-0031 section 8): the full protocol's appeal and its bond; phase one's operators refuse it at prepare.
     const bond = { token: t.price.token, amount: appealBondOf(t.price, intent.appealBondRateBps) };
     const m = { commitmentId: id, appellant: role, appellantAddress: intent.me.toLowerCase(), grounds: intent.grounds ?? 'wrong-outcome', bond, filedAt: near(op.filedAt, 600, 60, 'filedAt') };
     return { path: `/v1/commitments/${id}/appeals`, body: { ...m, signature: null }, slots: [{ slot: 'signature', primaryType: 'Appeal', signer: intent.me, message: m }] };
@@ -423,7 +423,7 @@ export function verifyPrepared(prepared: J, intent: Intent, me: string, domain: 
   return { path: plan.path, body: plan.body, toSign, slots };
 }
 
-// ---- A message another wallet signs (ADR-0033 §3): the typed-data file, and the holder's own check ----
+// ---- A message another wallet signs (ADR-0033 section 3): the typed-data file, and the holder's own check ----
 
 /** The EIP712Domain type for a domain object, in the standard field order, with only the fields it holds. */
 const domainType = (d: J) => ['name:string', 'version:string', 'chainId:uint256', 'verifyingContract:address', 'salt:bytes32'].map((s) => s.split(':')).filter(([n]) => d[n!] !== undefined).map(([name, type]) => ({ name: name!, type: type! }));
@@ -473,7 +473,7 @@ export function paymentSentence(file: J, commitmentId: Hex, token: { id: string;
   const whole = d > 0n ? ` (${units / 10n ** d}.${(units % 10n ** d).toString().padStart(Number(d), '0')} ${token.symbol ?? token.id})` : '';
   const until = /^[0-9]+$/.test(String(m.validBefore)) ? new Date(Number(m.validBefore) * 1000).toISOString().replace('.000Z', 'Z') : String(m.validBefore);
   const what = file.primaryType === 'TransferWithAuthorization' || file.primaryType === 'TransferAuthorization' ? `to ${m.to}, the operator's fee` : file.primaryType === 'ReceiveWithAuthorization' ? `to ${m.to}, the escrow's collector, into the hold` : 'into the hold';
-  // With the terms: who the deal binds (ADR-0033 §10), and the deadline that ends the offer, which comes before validBefore.
+  // With the terms: who the deal binds (ADR-0033 section 10), and the deadline that ends the offer, which comes before validBefore.
   const who = terms ? ` The terms: buyer ${String(terms.buyer).toLowerCase()} agrees, seller ${String(terms.seller).toLowerCase()} delivers, and ${String(terms.sellerPayoutAddress).toLowerCase()} is paid on a release. Sign before the offer expires at ${terms.timing?.offerExpiresAt}: after that nothing can fund it.` : '';
   return `${m.from} pays ${units} base units of ${token.id}${whole} ${what}, valid until ${until}, for deal ${commitmentId} only.${who}`;
 }
@@ -518,7 +518,7 @@ export function strictTypedDataFile(file: J): void {
 }
 
 /**
- * The check the holder of a payment address runs alone before it signs (ADR-0033 §3 and §10): it rebuilds the
+ * The check the holder of a payment address runs alone before it signs (ADR-0033 section 3 and section 10): it rebuilds the
  * message from the terms it approves and its own pinned settlement layer (`domain` and, on a chain, `chain`: the
  * rules contract, the escrow, the collector, the token's domain and the expiry margin), never from the file it checks,
  * and refuses the file unless it is exactly that message. `buyer` is the signing key the holder expects the terms to
@@ -676,7 +676,7 @@ export type PrivateOfferInput = {
 };
 
 /**
- * The client-side prepare recipe (ADR-0024 §4, docs/api.md "Private deals"): the plaintext terms of a private offer
+ * The client-side prepare recipe (ADR-0024 section 4, docs/api.md "Private deals"): the plaintext terms of a private offer
  * from the agent's own inputs, with no operator call. Pure and deterministic: field for field what POST
  * /v1/prepare/offer would build, plus the level, the salts and the seller's per-deal key in the bodies. Its
  * commitmentIdOf is the ID the sealed form carries.
@@ -707,7 +707,7 @@ export function privateOfferTerms(x: PrivateOfferInput): J {
 
 const b64u = (b: Uint8Array) => Buffer.from(b).toString('base64url');
 const hexBytes = (h: string) => new Uint8Array(Buffer.from(h.slice(2), 'hex'));
-/** AAD for one part: the commitment ID's 32 bytes, then the part name in UTF-8 (ADR-0024 §2). */
+/** AAD for one part: the commitment ID's 32 bytes, then the part name in UTF-8 (ADR-0024 section 2). */
 const aadOf = (id: Hex, name: 'deliverable' | 'acceptance') => new Uint8Array([...hexBytes(id), ...new TextEncoder().encode(name)]);
 
 /** AES-256-GCM of the body's RFC 8785 JSON under `key`, AAD bound to the deal and part: iv || ciphertext || tag, base64url. */
@@ -756,7 +756,7 @@ export function openEnvelopeKey(envelopes: J[], me: string, secretKey: Uint8Arra
 }
 
 /**
- * The sealed wire form (ADR-0024 §2): both bodies encrypted under separate fresh keys and each key sealed to every
+ * The sealed wire form (ADR-0024 section 2): both bodies encrypted under separate fresh keys and each key sealed to every
  * reader (at offer: the buyer and the primary). The keys come back for the seller to keep for later disclosure.
  */
 export async function sealPrivateTerms(terms: J, readers: Array<{ address: string; encryptionPublicKey: string }>): Promise<{ sealed: J; id: Hex; keys: { deliverable: Uint8Array; acceptance: Uint8Array } }> {
@@ -779,7 +779,7 @@ export async function openPrivateTerms(sealed: J, id: Hex, me: string, secretKey
 }
 
 /**
- * Checks a counterparty's per-deal key certificate before you sign anything with that party (ADR-0024 §7): signed by
+ * Checks a counterparty's per-deal key certificate before you sign anything with that party (ADR-0024 section 7): signed by
  * the long-term agent it names, for exactly the per-deal keys in the terms, this club and role, the price within its
  * per-commitment cap, unexpired. Then check the agent's mandate from `principal` as two operators serve it
  * (Agent.checkDelegation does both). Throws Refusal.

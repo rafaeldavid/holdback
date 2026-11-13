@@ -293,7 +293,7 @@ export class Agent {
 
   /**
    * A one-time signing key and x25519 key for one deal, and the Delegation this long-term key signs for them
-   * (ADR-0024 §7). Use the returned agent for everything in that deal; send the certificate to the counterparty
+   * (ADR-0024 section 7). Use the returned agent for everything in that deal; send the certificate to the counterparty
    * before agree, and to the primary with the offer. Random keys, not derived ones: one xpub would link every deal.
    * Funding the deal key from your treasury links the two on chain (residual 11); fund it how you choose.
    */
@@ -310,7 +310,7 @@ export class Agent {
   }
 
   /**
-   * Checks a counterparty's Delegation before you sign with it (ADR-0024 §7, D32): the certificate itself
+   * Checks a counterparty's Delegation before you sign with it (ADR-0024 section 7, D32): the certificate itself
    * (verify.ts verifyDelegation), then the certifying agent's mandate from its principal in this club, as every
    * operator serves it, allowing the role and the price. Settlement does not run this check; you do.
    */
@@ -328,7 +328,7 @@ export class Agent {
   }
 
   /**
-   * An Authorization header with a ReadToken for one commitment at one operator (ADR-0024 §3). The audience binds it
+   * An Authorization header with a ReadToken for one commitment at one operator (ADR-0024 section 3). The audience binds it
    * to that operator, so it cannot be replayed at another; you pick the expiry (D31).
    */
   async readToken(id: Hex, api = this.operators[0]!, ttlSec = 300): Promise<string> {
@@ -343,7 +343,7 @@ export class Agent {
   }
 
   /**
-   * Seller, with its per-deal agent: a private offer from the recipe, with no operator prepare (ADR-0024 §4). The
+   * Seller, with its per-deal agent: a private offer from the recipe, with no operator prepare (ADR-0024 section 4). The
    * agent reads the rulebook hash, the primary's registration and settlement time from every operator, picks its own
    * nonce and salts, builds the terms, seals both bodies to the buyer's per-deal key and the primary's registered key,
    * signs and submits ciphertext. The operator never sees the bodies. Keep `keys`: they are what you disclose later.

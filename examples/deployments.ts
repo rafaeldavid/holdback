@@ -23,12 +23,12 @@ export type DeploymentFile = {
   };
   escrow: string;
   erc3009Collector: string;
-  /** The Permit2 collector of a deployment from before phase one; a phase-one record has none (ADR-0031 §3). */
+  /** The Permit2 collector of a deployment from before phase one; a phase-one record has none (ADR-0031 section 3). */
   permit2Collector?: string;
   permit2?: string;
   multicall: string;
   rules: string;
-  /** The bond vault of a deployment from before phase one; a phase-one record has none (ADR-0031 §8). */
+  /** The bond vault of a deployment from before phase one; a phase-one record has none (ADR-0031 section 8). */
   bonds?: string;
   beacon: string;
   expiryMarginSec?: number;

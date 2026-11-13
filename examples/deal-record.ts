@@ -353,7 +353,7 @@ async function view(a: Answers, id: Hex, o: Options, cache: Map<string, Uint8Arr
     const signer = lc(await recoverMessageAddress({ message: { raw: recordHash }, signature }).catch(() => ''));
     const named = t ? [t.adjudication?.adjudicator, t.adjudication?.fallbackAdjudicator, t.adjudication?.appealAdjudicator].map(lc) : [];
     add("adjudicator's record signature", signer === lc(j.adjudicator) && named.includes(signer), `recovered to ${signer || 'nothing'}; the record names ${lc(j.adjudicator)}; the terms name ${named.join(', ') || 'no adjudicators (terms unread)'}`);
-    // `appeal.decided`: SimChain only, where the full protocol's party appeal is decided (ADR-0031 §8); no phase-one chain emits it.
+    // `appeal.decided`: SimChain only, where the full protocol's party appeal is decided (ADR-0031 section 8); no phase-one chain emits it.
     const decided = [...of('judgment.decided'), ...of('appeal.decided')].map((e) => lc(e.payload?.recordHash));
     add('judgment names the delivery', decided.includes(lc(recordHash)) && lc(j.deliveryHash) === lc(d?.payload?.deliveryHash), 'a decided event carries this recordHash, and the record names the recorded deliveryHash');
     // SimChain only: as above.

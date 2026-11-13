@@ -49,7 +49,10 @@ function expectDeal(r: Run): string {
   // T-390: phase one's terms have no appeal window, so the closing line says the decision is final, and names no window.
   expect(r.out).toMatch(/^final +\S.*; final at the decision, since the terms have no appeal window$/m);
   expect(r.out).not.toMatch(/appeal window closes/);
-  expect(r.out).toMatch(/^offer +0x[0-9a-f]{6}…[0-9a-f]{4} Offered: 3 rows of customer_id,email for 25 tUSD/m);
+  expect(r.out).toMatch(/^offer +0x[0-9a-f]{6}\.\.\.[0-9a-f]{4} Offered: 3 rows of customer_id,email for 25 tUSD/m);
+  // T-401: an agent copies what the one command prints, so it prints "Crow" in words and only ASCII.
+  expect(r.out).toMatch(/^Crow test deal on /m);
+  expect(r.out).not.toMatch(/[^\x00-\x7f]/);
   expect(r.out).toMatch(/^fund +Held: 26 tUSD held \(25 price \+ 1 adjudication fee\), operator fee 0\.01 tUSD$/m);
   expect(r.out).toMatch(/^outcome +Released: checks cols pass, rows pass, uniq pass; decision accept$/m);
   expect(r.out).toContain('3 rows, 1,ada@example.com | 2,alan@example.com | 3,grace@example.com');

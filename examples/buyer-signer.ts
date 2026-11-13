@@ -119,7 +119,7 @@ type Signed = 'settlement' | 'disclosure' | 'clubId' | 'rulebookHash' | 'policyI
 export type Approved = Pick<Offer, 'price' | 'deliverable' | 'checks' | 'deadlines' | 'adjudicators'> & Partial<Pick<Offer, Signed>> & {
   fees: { adjudication: Money; operator: Money; total?: Money };
   seller?: string;
-  /** The seller's payout address the buyer approved. Without it, the one shown must stay (ADR-0033 §6). */
+  /** The seller's payout address the buyer approved. Without it, the one shown must stay (ADR-0033 section 6). */
   sellerPayoutAddress?: string;
   rubric?: J;
   commitmentId?: Hex;
@@ -167,7 +167,7 @@ export type Defaults = {
  */
 export type Difference = { field: string; old: J; new: J };
 /**
- * One message the payment address signs, written as an `eth_signTypedData_v4` file (ADR-0033 §3). `name` is
+ * One message the payment address signs, written as an `eth_signTypedData_v4` file (ADR-0033 section 3). `name` is
  * `funding` or `operator-fee`; `slot` the body field its signature fills; `summary` the one sentence that says what it does.
  */
 export type PaymentFile = { name: 'funding' | 'operator-fee'; slot: string; path: string; digest: Hex; summary: string; check: string };
@@ -205,7 +205,7 @@ export type Options = {
    * (T-390). Default: Date.now. A world whose clock a test moves passes its own.
    */
   clock?: (() => number) | undefined;
-  /** Where the signer's one-line notices and advisory warnings go (ADR-0033 §7). Default: standard error. */
+  /** Where the signer's one-line notices and advisory warnings go (ADR-0033 section 7). Default: standard error. */
   log?: ((line: string) => void) | undefined;
 };
 /** What makeKeys takes beyond Options: saved in the key file, so every later run of this deal uses it. */
@@ -213,7 +213,7 @@ export type KeyOptions = Options & {
   /**
    * The buyer's payment address (ADR-0033): it funds the hold and the operator fee, and receives every refund. Left
    * out: this deal's signing address, and the signer says so in one line. Take it from your own configuration only,
-   * never from a seller, an operator or a message (ADR-0033 §6).
+   * never from a seller, an operator or a message (ADR-0033 section 6).
    */
   paymentAddress?: string | undefined;
 };
@@ -648,7 +648,7 @@ export class BuyerSigner {
     const credential = name === undefined ? undefined : process.env[name];
     // The variable's name in the error, never its value.
     if (name !== undefined && !credential) throw new Error(`quoteCredentialEnv names ${name}, which is not set: set it to the seller's quote credential`);
-    // ADR-0033 §7: the one line that says where the money comes from when no payment address is set.
+    // ADR-0033 section 7: the one line that says where the money comes from when no payment address is set.
     if (this.#saved.paymentAddress === undefined) this.#log(`Payment address: not set. The signing address ${this.address} funds the hold, and refunds return to it.`);
     else this.#log(`Payment address: ${this.paymentAddress} funds the hold and the operator fee, and refunds return to it. The signing address ${this.address} receives none of the deal's money.`);
     this.#saved.quoteKey ??= crypto.randomUUID();
@@ -687,7 +687,7 @@ export class BuyerSigner {
       const grant = await agent.call('POST', '/v1/faucet', { address: this.address, amount });
       return { token: grant.granted.token, amount: grant.granted.amount };
     }
-    // ADR-0033 §5 (T-378): one grant, the tokens to the payment address and the mandate to the signing key, which gets
+    // ADR-0033 section 5 (T-378): one grant, the tokens to the payment address and the mandate to the signing key, which gets
     // no tokens. The faucet mints nothing to a payment address that already holds the amount.
     const heldNow = async () => String((await agent.trusted(`/v1/balances/${this.paymentAddress}`, (x) => x.amount)) ?? '0');
     let grant: J = null;
@@ -835,7 +835,7 @@ export class BuyerSigner {
     }
     const { offer } = await this.#served(id);
     const { pin, agent } = await this.#connect();
-    // ADR-0033 §7: advisory lines for an odd money address. They refuse nothing; checkOffer refuses a payment address that is not this buyer's.
+    // ADR-0033 section 7: advisory lines for an odd money address. They refuse nothing; checkOffer refuses a payment address that is not this buyer's.
     for (const w of [...moneyAddressWarnings('payout', offer.sellerPayoutAddress, pin, offer.adjudicators), ...moneyAddressWarnings('payment', offer.buyerPaymentAddress, pin, offer.adjudicators)]) this.#log(w);
     // T-390 (T-388 H1): the windows count from the seller's createdAt, so a createdAt far from the clock moves every
     // deadline though no window differs. Judged now, when the offer is shown; checkOffer keeps this verdict.
@@ -875,7 +875,7 @@ export class BuyerSigner {
     const want: Array<[string, J, J]> = [
       ['buyer', terms.buyer, this.address],
       ['buyerEncryptionPublicKey', terms.buyerEncryptionPublicKey, this.encryptionPublicKey],
-      // ADR-0033 §6: the payment address is this buyer's own, from its key file and nowhere else.
+      // ADR-0033 section 6: the payment address is this buyer's own, from its key file and nowhere else.
       ['buyerPaymentAddress', offer.buyerPaymentAddress, this.paymentAddress],
       ...(approved.sellerPayoutAddress ? [['sellerPayoutAddress', offer.sellerPayoutAddress, approved.sellerPayoutAddress] as [string, J, J]] : []),
       ['price', offer.price, approved.price],

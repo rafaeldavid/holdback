@@ -598,7 +598,7 @@ const isAddressText = (a) => {
 	return hex === hex.toLowerCase() || hex === hex.toUpperCase() || getAddress(a) === a;
 };
 /**
-* A money address from the party's own request (ADR-0033 §6): the address given, lowercased, or the party's signing
+* A money address from the party's own request (ADR-0033 section 6): the address given, lowercased, or the party's signing
 * address when none is given. Never from an operator's answer.
 */
 const moneyAddress = (given, signer, field) => {
@@ -1059,7 +1059,7 @@ async function openOwnEnvelope(x) {
 const SALT = /^0x[0-9a-f]{64}$/;
 const whole = (ts) => typeof ts === "string" && Number.isFinite(Date.parse(ts)) && Date.parse(ts) % 1e3 === 0;
 /**
-* The client-side prepare recipe (ADR-0024 §4, docs/api.md "Private deals"): the plaintext terms of a private offer
+* The client-side prepare recipe (ADR-0024 section 4, docs/api.md "Private deals"): the plaintext terms of a private offer
 * from the agent's own inputs, with no operator call. Pure and deterministic: field for field what POST
 * /v1/prepare/offer would build, plus the level, the salts and the seller's per-deal key in the bodies. Its
 * commitmentIdOf is the ID the sealed form carries.
@@ -1128,7 +1128,7 @@ function privateOfferTerms(x) {
 }
 const b64u = (b) => Buffer.from(b).toString("base64url");
 const hexBytes = (h) => new Uint8Array(Buffer.from(h.slice(2), "hex"));
-/** AAD for one part: the commitment ID's 32 bytes, then the part name in UTF-8 (ADR-0024 §2). */
+/** AAD for one part: the commitment ID's 32 bytes, then the part name in UTF-8 (ADR-0024 section 2). */
 const aadOf = (id, name) => new Uint8Array([...hexBytes(id), ...new TextEncoder().encode(name)]);
 /** AES-256-GCM of the body's RFC 8785 JSON under `key`, AAD bound to the deal and part: iv || ciphertext || tag, base64url. */
 async function sealPart(body, id, name, key) {
@@ -1188,7 +1188,7 @@ function openEnvelopeKey(envelopes, me, secretKey) {
 	return key && key.length === 32 ? key : refuse$1("your envelope does not open with your key");
 }
 /**
-* The sealed wire form (ADR-0024 §2): both bodies encrypted under separate fresh keys and each key sealed to every
+* The sealed wire form (ADR-0024 section 2): both bodies encrypted under separate fresh keys and each key sealed to every
 * reader (at offer: the buyer and the primary). The keys come back for the seller to keep for later disclosure.
 */
 async function sealPrivateTerms(terms, readers) {
@@ -1230,7 +1230,7 @@ async function openPrivateTerms(sealed, id, me, secretKey) {
 	return terms;
 }
 /**
-* Checks a counterparty's per-deal key certificate before you sign anything with that party (ADR-0024 §7): signed by
+* Checks a counterparty's per-deal key certificate before you sign anything with that party (ADR-0024 section 7): signed by
 * the long-term agent it names, for exactly the per-deal keys in the terms, this club and role, the price within its
 * per-commitment cap, unexpired. Then check the agent's mandate from `principal` as two operators serve it
 * (Agent.checkDelegation does both). Throws Refusal.
@@ -1647,7 +1647,7 @@ var Agent = class Agent {
 	}
 	/**
 	* A one-time signing key and x25519 key for one deal, and the Delegation this long-term key signs for them
-	* (ADR-0024 §7). Use the returned agent for everything in that deal; send the certificate to the counterparty
+	* (ADR-0024 section 7). Use the returned agent for everything in that deal; send the certificate to the counterparty
 	* before agree, and to the primary with the offer. Random keys, not derived ones: one xpub would link every deal.
 	* Funding the deal key from your treasury links the two on chain (residual 11); fund it how you choose.
 	*/
@@ -1681,7 +1681,7 @@ var Agent = class Agent {
 		};
 	}
 	/**
-	* Checks a counterparty's Delegation before you sign with it (ADR-0024 §7, D32): the certificate itself
+	* Checks a counterparty's Delegation before you sign with it (ADR-0024 section 7, D32): the certificate itself
 	* (verify.ts verifyDelegation), then the certifying agent's mandate from its principal in this club, as every
 	* operator serves it, allowing the role and the price. Settlement does not run this check; you do.
 	*/
@@ -1699,7 +1699,7 @@ var Agent = class Agent {
 		return (await (await fetch(`${api}/.well-known/holdback.json`)).json()).receiptSigner.toLowerCase();
 	}
 	/**
-	* An Authorization header with a ReadToken for one commitment at one operator (ADR-0024 §3). The audience binds it
+	* An Authorization header with a ReadToken for one commitment at one operator (ADR-0024 section 3). The audience binds it
 	* to that operator, so it cannot be replayed at another; you pick the expiry (D31).
 	*/
 	async readToken(id, api = this.operators[0], ttlSec = 300) {
@@ -1722,7 +1722,7 @@ var Agent = class Agent {
 		return this.call("GET", path, void 0, api, { authorization: await this.readToken(id, api) });
 	}
 	/**
-	* Seller, with its per-deal agent: a private offer from the recipe, with no operator prepare (ADR-0024 §4). The
+	* Seller, with its per-deal agent: a private offer from the recipe, with no operator prepare (ADR-0024 section 4). The
 	* agent reads the rulebook hash, the primary's registration and settlement time from every operator, picks its own
 	* nonce and salts, builds the terms, seals both bodies to the buyer's per-deal key and the primary's registered key,
 	* signs and submits ciphertext. The operator never sees the bodies. Keep `keys`: they are what you disclose later.
@@ -1850,7 +1850,7 @@ const option = (name) => {
 };
 const SELLER = option("--seller")?.replace(/\/+$/, "");
 const OUTCOME = option("--outcome") ?? "release";
-const short = (h) => `${h.slice(0, 8)}…${h.slice(-4)}`;
+const short = (h) => `${h.slice(0, 8)}...${h.slice(-4)}`;
 /** Base units of a 6-decimal token as a decimal string, in integer arithmetic. */
 const units = (base) => {
 	const v = BigInt(base);
@@ -2000,7 +2000,7 @@ async function askTestSeller(buyer, price) {
 }
 async function main() {
 	const started = Date.now();
-	console.log(`’crow test deal on ${OPERATORS.join(" and ")}: test tokens only, nothing here is real money`);
+	console.log(`Crow test deal on ${OPERATORS.join(" and ")}: test tokens only, nothing here is real money`);
 	if (!globalThis.crypto?.subtle || typeof fetch !== "function") throw new Error(`this needs Node 20 or later (Web Crypto and fetch); this is Node ${process.versions.node}`);
 	if (OUTCOME !== "release" && OUTCOME !== "refund") throw new Error(`--outcome is release or refund, not ${OUTCOME}`);
 	if (args.includes("--seller") && !/^https?:\/\/\S+$/.test(SELLER ?? "")) throw new Error("--seller takes the intake URL, such as https://crow.direct/agents/test-seller");

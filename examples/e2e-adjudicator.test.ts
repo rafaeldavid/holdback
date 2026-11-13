@@ -88,7 +88,7 @@ describe('against the demo world on SimChain', () => {
     const later = await runOn(demo.urls, seed, 'http://127.0.0.1:9', lines);
     await RoundAdjudicator.ready(later, 'adjudicator-1');
     expect(posts()).toBe(1);
-    expect(lines.join('\n')).toMatch(/adjudicator-1 0x\w+…\w+: its registration is in place .*; reused/);
+    expect(lines.join('\n')).toMatch(/adjudicator-1 0x\w+\.\.\.\w+: its registration is in place .*; reused/);
     expect(lines.join('\n')).not.toContain(roundKey(seed, 'adjudicator-1').slice(2));
   }, 60_000);
 
