@@ -311,6 +311,7 @@ if (existsSync(here('../reports/site-out/llms.txt'))) expect(existsSync(here('..
 
 // 14. ASCII only (T-401): every guide an agent reads, llms.txt, buy.txt, sell.txt and ref/*.txt, holds no byte above 127.
 for (const [p, text] of guides) for (const { line, char } of nonAscii(text)) expect(false, `site/${p} line ${line} holds ${char}: write the guides in ASCII ("Crow", "...", "x", "-")`);
+for (const [p, text] of filledGuides) if (!nonAscii(guides.get(p) ?? '').length) for (const { line, char } of nonAscii(text)) expect(false, `the published ${p} line ${line} holds ${char}: a filled value is not ASCII`);
 
 // 12. The budget (T-393).
 let measured = [];
