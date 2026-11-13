@@ -206,8 +206,6 @@ export const strip = (md) => md.split('\n').filter((l) => !l.startsWith('%% ')).
  * left, the seller's on the right, each with its call results as comments. They type in deal order through four
  * deals (release, refund, default, escalation); below 1100 px wide each spans half the page, fainter, behind the content.
  */
-/** The page's description, og and twitter text (Rafa's mock). */
-export const DESCRIPTION = 'Verifiable settlement for AI commerce. Sell to any agent. Buy from any agent.';
 /** The value props: a name, one line, and an optional note set after the name. */
 const FEATURES = [
   ['Verifiable Settlement', 'Payment waits in a non-custodial vault until the work passes.', 'lock'],
@@ -572,7 +570,7 @@ ${footerHtml({ base: BASE })}
  */
 export function page(md, command = tryCommand()) {
   const tagline = /^> (.+)$/m.exec(strip(md))[1];
-  const cut = tagline.indexOf('. ') + 1, title = tagline.slice(0, cut - 1), subtitle = tagline.slice(cut).trim();
+  const subtitle = tagline.slice(tagline.indexOf('. ') + 1).trim(); // the title and the card text come from site/footer.ts
   // the first paragraph after the tagline: the headline's sentence, then the lede
   const src = strip(md), after = src.slice(src.indexOf(tagline) + tagline.length).trim();
   const intro = after.slice(0, after.indexOf('\n\n')).trim();
