@@ -50,6 +50,16 @@ Measured on 2026-11-13 at the branch's head, unless marked otherwise.
 - **Checks** [measured]: `node site/build.mjs && node site/check.mjs` PASS; `pnpm vitest run tools/duet/duet.test.ts tests/forwarding.test.ts tests/site-deploy.test.ts tests/site-guides.test.ts` 61 of 61 tests pass (the duet test runs `tsc` over `tools/duet`, hence `kit.d.mts`); `pnpm typecheck` and `pnpm lint` pass.
 - **The kit page:** `reports/scratch/t402/kit.html`, 50,561 bytes, self-contained, built by `reports/scratch/t402/kit-page.mjs` from `site/brand/` alone [measured]. Not committed, not published.
 
+## Later asks on 2026-11-13, in their own commits
+
+- **The footer** (Rafa, through the coordinator: "the footer is not well designed and distributed based on standard Enterprise Software sites especially in mobile"). A grouped footer came first. Rafa then said: "Footer is far too big for the amount of content and the buttons are elsewhere. Maybe just keep the least of it / simplify". The footer is now one row and a slim bar. The row holds Crow and three links to pages that exist: Demo (marked current on the demo page), Agent docs, GitHub. On the home page it also holds the copy-the-prompt button. The bar holds "© 2026 Crow", the tagline and the pill. On a phone, each link is 44 px tall, and the page is 375 px wide with no sideways scroll [measured]. `site/index.html` is 7,150 bytes (budget 8,000) and `site/404.html` 3,536 bytes (limit 4,000) [measured].
+- **The Hasenheide palette** (Rafa chose it in the palette research session). It is one commit to `site/brand/tokens.css`; the other files in that commit are build output. No component uses a seasonal accent yet.
+  - Contrast from the tokens matches the research [measured, `reports/scratch/t402/contrast.txt`]: ink 12.4:1, ink-2 5.7:1, ink-3 3.3:1, paid 5.6:1, warn 5.8:1, accents 4.1 to 8.3:1, paid on its wash 5.4:1, warn on its wash 5.3:1.
+  - Case for Rafa: `--ink-3` (3.3:1) still colours some small text: the footer's bar, "soon" on the home page, the email placeholder and the demo page's small notes. The old grey was also below 4.5:1 there.
+  - Case for Rafa: `og.png` (the share image) and `site/visualdemo/` keep the white look; `--demo-bubble` stays a cool grey on the oat page.
+- **The dialog** keeps its geometry and behaviour after both [measured, `reports/scratch/t402/final/dialog.json`].
+- **The comparison page:** `reports/scratch/t402/diff.html` shows each page today and with the kit side by side; the screenshots are in `before/` and `final/` beside it.
+
 ## Decisions
 
 - **Where two pages differ today, each keeps its look** (the coordinator's rule; Rafa picks later):
