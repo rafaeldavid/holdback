@@ -33,7 +33,7 @@
 //    (site/guides.mjs). With HOLDBACK_AGENT_ANTHROPIC_API_KEY set it counts with Anthropic's count_tokens for the
 //    pinned model; without it, bytes divided by four. It says which.
 import { existsSync, readFileSync } from 'node:fs';
-import { ASSETS, BASE, BUY_COMMANDS, HOME_CSS, HOME_JS, BUY_MJS_URL, BUY_URL, buyBundle, buyInstall, buySha256, filled, page, pins, problemPages, publishedGuides, SELL_URL, SITE_URL, strip, TEST_SELLER_URL, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
+import { ASSETS, BASE, BUY_COMMANDS, HOME_CSS, HOME_JS, notFoundPage, BUY_MJS_URL, BUY_URL, buyBundle, buyInstall, buySha256, filled, page, pins, problemPages, publishedGuides, SELL_URL, SITE_URL, strip, TEST_SELLER_URL, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
 import { apiRoutes, citedSections, duplicateSentences, hasSection, FIRST_DEAL_BUDGET, guideFiles, guideSource, measurePaths, namedCalls, namedReferences, referenceFiles, routeKnown } from './guides.mjs';
 
 const here = (p) => new URL(p, import.meta.url);
@@ -64,6 +64,12 @@ const head600 = Buffer.from(html).subarray(0, POINTER_WITHIN).toString('utf8');
 expect(Buffer.byteLength(html) <= HOME_MAX_BYTES, `site/index.html is ${Buffer.byteLength(html)} bytes: an agent reading the home page pays for every byte; keep it at or under ${HOME_MAX_BYTES} (styles in home.css, scripts in home.js)`);
 expect(head600.includes(`<link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="${BASE}llms.txt">`) && /<!-- For AI agents: [^>]*llms\.txt[^>]*-->/.test(head600), `the first ${POINTER_WITHIN} bytes of index.html must carry the plain sentence for agents and the <link rel="alternate"> to llms.txt`);
 expect(!/<style|<script>/.test(html), 'index.html carries inline styles or an inline script: they belong in home.css and home.js');
+// The 404 page: an agent that guessed a wrong address is pointed to the guides first, for little more than a kilobyte.
+const notFound = read('404.html');
+expect(notFound === notFoundPage(), 'site/404.html is stale: run node site/build.mjs');
+const nfHead = Buffer.from(notFound).subarray(0, POINTER_WITHIN).toString('utf8');
+expect(Buffer.byteLength(notFound) <= 4000 && /<!-- Not found \(404\)\. For AI agents: [^>]*llms\.txt[^>]*buy\.txt[^>]*sell\.txt[^>]*-->/.test(nfHead) && nfHead.includes(`href="${BASE}llms.txt"`), `site/404.html must be at most 4,000 bytes and point to llms.txt, buy.txt and sell.txt in its first ${POINTER_WITHIN} bytes`);
+for (const path of ['', 'llms.txt', 'buy.txt', 'sell.txt', 'demo/']) expect(notFound.includes(`<a href="${BASE}${path}">`), `site/404.html does not link ${BASE}${path}`);
 
 // 2. Placeholders.
 const configure = md.slice(md.indexOf('## Configure'), md.indexOf('## ', md.indexOf('## Configure') + 3));
@@ -79,7 +85,7 @@ expect(mdLinks.some((u) => u.host === 'github.com' && u.pathname === '/rafaeldav
 // The home page (the enterprise look, Rafa 2026-11-12, as on the demo page): a slim header with Crow's mark and the
 // links to the demo, the agent docs and early access; the hero (the tagline, the headline's three lines, the lede,
 // early access, the demo link); the six value props, each with an icon; then the footer and the agent docs link.
-expect(!/\{\{/.test(html) && /<header class="bar"><div class="bar-inner">\s*<a class="brand" href="\/"><span class="logo" aria-hidden="true"><\/span>Crow<\/a>[\s\S]*?<a class="nav" href="\/demo\/">[^<]+<\/a>\s*<a class="nav" href="\/llms\.txt">[^<]+<\/a>\s*<a class="quiet" href="#join-form">[^<]+<\/a>\s*<\/div><\/header>\s*<main class="page">\s*<section class="hero">\s*<div id="stream-b" class="stream" aria-hidden="true"><\/div>\s*<div id="stream-s" class="stream" aria-hidden="true"><\/div>\s*<p class="tag">[^<]+<\/p>\s*<h1>\s*<span class="sr">[^<]+<\/span>\s*<span class="line" aria-hidden="true"><span class="verb">(<span class="v[^"]*">[^<]+<\/span>){3}<\/span><\/span>\s*<\/h1>\s*<p class="lede">[^<]+<\/p>\s*<form class="signup" id="join-form"[\s\S]*?<\/form>\s*<a class="demo-link" href="\/demo\/">[^<]+<\/a>\s*<\/section>\s*<section class="props"[^>]*>(\s*<div class="prop"><svg class="icon"[\s\S]*?<\/svg><h2>[\s\S]*?<\/h2><p>[^<]+<\/p><\/div>){6}\s*<\/section>\s*<\/main>\s*<footer class="foot">\s*<p>[^<]+<\/p>\s*<p>[\s\S]*?<a href="\/llms\.txt">[^<]+<\/a><\/p>[\s\S]*<\/footer>/.test(html), 'index.html must be the header with the mark and its links, the hero with the code streams, the three headlines and early access, six value props each with an icon, and the footer with the agent docs link');
+expect(!/\{\{/.test(html) && /<header class="bar"><div class="bar-inner">\s*<a class="brand" href="\/"><span class="logo" aria-hidden="true"><\/span>Crow<\/a>[\s\S]*?<a class="nav" href="\/demo\/">[^<]+<\/a>\s*<a class="nav" href="\/llms\.txt">[^<]+<\/a>\s*<a class="quiet" href="#join-form">[^<]+<\/a>\s*<\/div><\/header>\s*<main class="page">\s*<section class="hero">\s*<div id="stream-b" class="stream" aria-hidden="true"><\/div>\s*<div id="stream-s" class="stream" aria-hidden="true"><\/div>\s*<p class="tag">[^<]+<\/p>\s*<h1>\s*<span class="sr">[^<]+<\/span>\s*<span class="line" aria-hidden="true"><span class="verb">(<span class="v[^"]*">[^<]+<\/span>){3}<\/span><\/span>\s*<\/h1>\s*<p class="lede">[^<]+<\/p>\s*<form class="signup" id="join-form"[\s\S]*?<\/form>\s*<a class="demo-link" href="\/demo\/">[^<]+<\/a>\s*<\/section>\s*<section class="props"[^>]*>(\s*<div class="prop"><svg class="icon"[\s\S]*?<\/svg><h2>[\s\S]*?<\/h2><p>[^<]+<\/p><\/div>){6}\s*<\/section>\s*<\/main>\s*<footer class="foot">\s*<div class="foot-row">\s*<p class="foot-status">[^<]+<\/p>\s*<nav class="foot-links"[^>]*>[\s\S]*?<a href="\/llms\.txt">[^<]+<\/a>[\s\S]*?<button class="copy" id="copy"[\s\S]*<\/footer>/.test(html), 'index.html must be the header with the mark and its links, the hero with the code streams, the three headlines and early access, six value props each with an icon, and the footer with the agent docs link and the copy-the-prompt button');
 expect(!/%%|CONFIRM/.test(html) && !/^%% /m.test(strip(md)), 'an editor note reached index.html');
 expect(!/127\.0\.0\.1|localhost/.test(md + html), 'a local address is in the site');
 for (const [p, text] of guides) if (!['llms.txt', 'sell.txt'].includes(p)) expect(!/127\.0\.0\.1|localhost/.test(text), `${p} has a local address`);
@@ -241,7 +247,7 @@ const roles = sectionOf(md, 'Read one page for your role');
 expect(roles.includes(BUY_URL) && roles.includes(SELL_URL), `llms.txt has a "Read one page for your role" section that links ${BUY_URL} and ${SELL_URL}`);
 
 // 11. The guides together (T-393).
-const published = new Set(['index.html', 'home.css', 'home.js', 'try.mjs', 'buy.mjs', 'version.json', ...ASSETS]);
+const published = new Set(['index.html', '404.html', 'home.css', 'home.js', 'try.mjs', 'buy.mjs', 'version.json', ...ASSETS]);
 const scripts = JSON.parse(read('../package.json')).scripts;
 const refs = referenceFiles();
 const listed = [...sectionOf(md, 'Reference').matchAll(/^- `([a-z0-9-]+\.txt)`/gm)].map((m) => `ref/${m[1]}`).sort();

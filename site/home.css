@@ -60,14 +60,27 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid 
 .prop p { font-size: 14px; line-height: 1.45; color: var(--ink-2); }
 @media (prefers-reduced-motion: reduce) { .line, .verb .v { transition: none; } }
 /* the footer, read last, then one quiet line for agents: the Try prompt and the agent docs */
-.foot { max-width: 1040px; margin: 0 auto; padding: 40px 20px 56px; font-size: 14px; line-height: 1.6; color: var(--ink-2); }
-.foot a { text-underline-offset: 2px; }
-.copy { position: relative; display: inline-grid; place-items: center; width: 28px; height: 28px; margin: -4px 0 -4px 2px; vertical-align: middle; padding: 0; border: 0; border-radius: 8px; background: transparent; color: inherit; cursor: pointer; }
-.copy::after { content: ""; position: absolute; inset: -8px; } /* a 44 px target around a 28 px button */
+.foot { max-width: 1040px; margin: 24px auto 0; padding: 20px 20px 40px; border-top: 1px solid var(--hair); font-size: 13px; line-height: 1.5; color: var(--ink-3); }
+.foot-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 24px; }
+.foot-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 22px; }
+.foot a { color: var(--ink-2); text-decoration: none; }
+.foot a:hover { color: var(--ink); }
+.copy { position: relative; display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--ink-2); font: inherit; cursor: pointer; }
+.copy::after { content: ""; position: absolute; inset: -8px 0; } /* a 44 px target */
 .copy svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; }
 .copy:hover { background: var(--band); color: var(--ink); }
-.nb { white-space: nowrap; } /* the copy icon stays with the word before it */
+.try-line { display: inline-flex; flex-wrap: wrap; align-items: center; max-width: 100%; }
 .copied { margin-left: 6px; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
+.copied:empty { display: none; }
 @media (max-width: 1100px) { .stream { width: 50vw; opacity: .14; } }
+/* the 404 page: the message, then the ways back as a short list */
+.nf { max-width: 640px; padding-top: 88px; padding-bottom: 88px; }
+.nf h1 { font-size: 44px; }
+.nf .lede { margin: 12px 0 0; }
+.nf-links { list-style: none; margin-top: 32px; border-top: 1px solid var(--hair); }
+.nf-links li { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; padding: 14px 0; border-bottom: 1px solid var(--hair); }
+.nf-links a { min-width: 120px; font-weight: 600; text-decoration: none; }
+.nf-links a:hover { text-decoration: underline; }
+.nf-links span { font-size: 15px; color: var(--ink-2); }
 @media (max-width: 820px) { .props { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 600px) { h1 { font-size: 44px; } .lede { font-size: 19px; } .hero { padding: 64px 0 48px; } .nav { display: none; } .props { grid-template-columns: 1fr; } }

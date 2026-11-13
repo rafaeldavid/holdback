@@ -350,10 +350,10 @@ describe("the agents' tools hold their limits", () => {
     expect(lines(rec.file).some((e) => e.kind === 'command' && e.command === 'check-delivery' && JSON.stringify(e.args) === '["--help"]')).toBe(true);
     expect((await tools.call('run_command', { command: 'adapter-log', args: ['--help'] })).content).toMatch(/^adapter-log: /);
   });
-  // T-397 (T-393's session) makes every client command answer --help with its usage and one example. Unskip when it merges.
-  it.skip('T-397: every client command answers --help with its usage and one example, exit 0', async () => {
+  // T-397 (PRs 468 and 469): every client command answers --help itself, with its usage and one example.
+  it('T-397: every client command answers --help with its usage and one example, exit 0', async () => {
     const { tools } = box();
-    for (const command of ['check-delivery', 'deal-record', 'seal']) {
+    for (const command of ['check-delivery', 'deal-record', 'seal', 'seller-adapter']) {
       const r = await tools.call('run_command', { command, args: ['--help'] });
       expect(r.content).toMatch(/^exit 0/);
       expect(r.content).toMatch(/usage/i);
