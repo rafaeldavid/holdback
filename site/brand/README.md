@@ -22,7 +22,7 @@ Read the names and values in `tokens.css`. In short:
 
 ## The components
 
-Each component has a fixed anatomy. A page places a part where it wants it; it never changes the part's size, padding, border or colour from outside, and the kit uses no `!important`. Icons are one family: 24 px boxes, stroked at 1.6 in the text's colour (`.ck-icon`).
+Each component has a fixed anatomy. A page places a part where it wants it; it never changes the part's size, padding, border or colour from outside, and the kit uses no `!important`. Icons are one family: line drawings stroked at 1.6 in the text's colour, round caps (`.ck-icon`).
 
 **1. Header bar** (`headerBar`)
 - For: the top of every page; Crow's mark and name lead home.
@@ -110,7 +110,7 @@ Each component has a fixed anatomy. A page places a part where it wants it; it n
 
 ## How a page reads the kit
 
-- **The site's build** (`site/build.mjs`) writes `kitCss({ parts })` at the top of `home.css`, then the home page's own layout, and builds the header, the section head, the list rows and the footer from `kit.mjs`. The problem pages inline the same CSS.
+- **The site's build** (`site/build.mjs`) writes `kitCss({ parts })` at the top of `home.css`, then the home page's own layout, and builds the header, the section head, the list rows and the footer from `kit.mjs`. The problem pages inline the pill and footer parts.
 - **The demo page's builder** (`tools/duet/replay.ts`) inlines `kitCss({ parts })` into the page's one `<style>`, so the page stays one self-contained file.
 - **Another repository** (Crow Control, the report pages) imports `kit.mjs` from a checkout of this repository at build time and inlines `kitCss()` into its own page. A page that must stay one file passes `mark: markDataUri()` so the header's mark needs no second file. A page with CSS variables of its own passes `scope` to put the tokens on one element instead of `:root`.
-- **Every page** sets `box-sizing: border-box` on all elements, as the site's pages do, and draws its own layout around the parts. Pages that write a colour or a font stack fail `site/check.mjs`.
+- **Every page** should set `box-sizing: border-box` on all elements, as the home and demo pages do (the problem pages and the visual walkthrough do not yet, which is why their footer pill is 2 px taller), and draws its own layout around the parts. Pages that write a colour or a font stack fail `site/check.mjs`.

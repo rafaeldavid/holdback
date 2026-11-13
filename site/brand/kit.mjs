@@ -2,7 +2,7 @@
 // its HTML. site/brand/README.md defines each component. Every page Crow builds reads these files: the site's build
 // (site/build.mjs), the demo page's builder (tools/duet/replay.ts) and, at build time, the private repository.
 //
-// Text arguments are escaped; an argument whose name ends in Html is placed as written, so it must be the caller's own
+// Text arguments are escaped; an argument whose name ends in Html, and a button's or a footer link's `attrs`, is placed as written, so it must be the caller's own
 // markup, never a visitor's or a deliverable's text.
 import { readFileSync } from 'node:fs';
 
@@ -36,7 +36,7 @@ export const markDataUri = () => `data:image/svg+xml,${encodeURIComponent(read('
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-/** The kit's icons: one family, 24 by 24, stroked at 1.6 in the text's colour. */
+/** The kit's icons: one family, stroked at 1.6 in the text's colour. */
 const ICON_PATHS = { chevron: '<path d="M9 5l7 7-7 7"/>', close: '<path d="M3 3l8 8M11 3l-8 8"/>' };
 const ICON_BOX = { chevron: '0 0 24 24', close: '0 0 14 14' };
 export const icon = (name) => `<svg class="ck-icon" viewBox="${ICON_BOX[name]}" aria-hidden="true">${ICON_PATHS[name]}</svg>`;
