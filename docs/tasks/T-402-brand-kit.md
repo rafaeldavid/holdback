@@ -57,6 +57,12 @@ Measured on 2026-11-13 at the branch's head, unless marked otherwise.
   - Contrast from the tokens matches the research [measured, `reports/scratch/t402/contrast.txt`]: ink 12.4:1, ink-2 5.7:1, ink-3 3.3:1, paid 5.6:1, warn 5.8:1, accents 4.1 to 8.3:1, paid on its wash 5.4:1, warn on its wash 5.3:1.
   - Case for Rafa: `--ink-3` (3.3:1) still colours some small text: the footer's bar, "soon" on the home page, the email placeholder and the demo page's small notes. The old grey was also below 4.5:1 there.
   - Case for Rafa: `og.png` (the share image) and `site/visualdemo/` keep the white look; `--demo-bubble` stays a cool grey on the oat page.
+- **The page and the accent, Rafa's rounds on 2026-11-13.**
+  - The page was too dark. It now takes the palette's lighter oat, Lime-blossom white (`#faf7f0`); panels take the darker oat (`#f3eee3`).
+  - The accent was then on everything. It now marks only the one filled button per view and the keyboard focus ring (README, "The accent"): autumn amber until 2026-12-01.
+  - Rafa tried a lime-leaf green button (a scratch build, not committed) and kept amber.
+  - Contrast [measured]: ink 13.4:1 on the page, ink-2 6.1:1, page text on the amber button 4.8:1.
+  - Open, for Rafa: the panels are the beige still on the page; the demo's buyer bubble (`--demo-bubble`) is a cool grey from the white look.
 - **The dialog** keeps its geometry and behaviour after both [measured, `reports/scratch/t402/final/dialog.json`].
 - **The comparison page:** `reports/scratch/t402/diff.html` shows each page today and with the kit side by side; the screenshots are in `before/` and `final/` beside it.
 
