@@ -12,7 +12,7 @@ Validation as of November 3, 2026 (measured, `pnpm validate:spec`): all 33 examp
 - a model ID containing "latest";
 - an extra field in a judge verdict.
 
-The `$id` URLs (`https://holdback.dev/schemas/v0.10/…`) are namespaces for resolving `$ref` between files. They are not hosted. Replace the domain if the project gets one.
+The `$id` URLs (`https://holdback.dev/schemas/v0.11/…`) are namespaces for resolving `$ref` between files. They are not hosted. Replace the domain if the project gets one.
 
 ## Annotations
 
@@ -20,6 +20,11 @@ The `$id` URLs (`https://holdback.dev/schemas/v0.10/…`) are namespaces for res
 - **Every free-text string is marked or constrained.** A string with no `date-time` format, pattern, enum or const must carry the marker. URIs count as free text: they are marked and capped at 2048 characters. Identifiers instead get a pattern: club IDs, token IDs, and `Ident` for judge, provider, family, model and version labels. `tests/spec.test.ts` lints this, with an empty allowlist.
 
 ## Changelog
+
+- **v0.11 (2026-11-12, D60, D62, ADR-0033), changes a signed struct:** every `$id`, the `Holdback-Schema-Version` header and the OpenAPI `x-holdback-schema-version` move to 0.11, and the EIP-712 domain version and `commitment.schemaVersion` move to 0.8. A 0.7 signature never verifies under 0.8, and every commitment ID moves.
+  - **Commitment:** two required addresses after `seller`: `buyerPaymentAddress` funds the hold and receives every refund (the escrow's payer), and `sellerPayoutAddress` receives every payment to the seller (the escrow's receiver). `buyer` and `seller` stay the addresses that sign. Either may equal its signing address; tooling defaults to that.
+  - **Appeal window:** `timing.appealWindowSec` takes 0, and the rulebook's `minWindowsSec.appealWindow` may be 0. A phase-one deployment has no party appeal and refuses any other value than 0, in the contract, in core and at the prepare routes (ADR-0033 §2b).
+  - **Messages:** no shape changes. The `from` of `FundingAuthorization` and of the operator fee's `TransferAuthorization` is the buyer's payment address. `KeyRegistration` is still listed; its removal waits for a later version.
 
 - **v0.10 (2026-11-04, D46, ADR-0030), additive plus one cap:** every `$id`, the `Holdback-Schema-Version` header and the OpenAPI `x-holdback-schema-version` move to 0.10. No existing typed-data struct changes, so the EIP-712 domain version and `commitment.schemaVersion` stay 0.7.
   - **Messages:** a new `AdjudicatorRegistration`, an adjudicator's self-signed registration: its address, encryption key and `keyId`, `policyHash`, `registryHash`, minimum fee, `poolTermsHash`, `bodyHash` over the rest of its record, and `issuedAt`, which orders one address's registrations. `KeyRegistration` is deprecated: operators take `AdjudicatorRegistration` instead, and the next breaking version removes it.

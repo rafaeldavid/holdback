@@ -23,21 +23,30 @@ export interface RelativeTiming {
   appealDecideSec: number;
 }
 
-/** 15 minutes to accept, 30 to fund, a day to deliver, 5 minutes for each adjudicator and for appeals. */
+/**
+ * 15 minutes to accept, 30 to fund, a day to deliver, 5 minutes for each adjudicator, and no party appeal: phase one
+ * has none and requires an appeal window of 0 (ADR-0033 §2b). An agent on the full protocol (SimChain) names its own.
+ */
 export const DEFAULT_TIMING: RelativeTiming = {
   offerExpiresInSec: 900,
   fundWithinSec: 1800,
   deliverWithinSec: 86_400,
   judgeWithinSec: 300,
   fallbackWithinSec: 300,
-  appealWindowSec: 300,
+  appealWindowSec: 0,
   appealDecideSec: 300,
+};
+
+/** The buyer as it identifies itself to the seller: signing address, encryption key, and the address that pays (ADR-0033). */
+export type BuyerIdentity = PartyIdentity & {
+  /** Funds the hold and receives every refund (ADR-0033 §1). Absent: the signing address. */
+  paymentAddress?: Address;
 };
 
 export interface TermsInput {
   clubId: string;
   /** The buyer's address and encryption key, as the buyer gave them to the seller. */
-  buyer: PartyIdentity;
+  buyer: BuyerIdentity;
   adjudicators: AdjudicatorSlate;
   price: TokenAmount;
   deliverable: Deliverable;
@@ -52,7 +61,7 @@ export interface TermsInput {
 
 export interface TermsDraft {
   clubId: string;
-  buyer: PartyIdentity;
+  buyer: BuyerIdentity;
   adjudicators: AdjudicatorSlate;
   price: TokenAmount;
   deliverable: Deliverable;
@@ -89,6 +98,8 @@ export function checksOnlyTerms(input: Omit<TermsInput, 'rubric'> & { checks: De
 /** What the offer adds to a draft: the seller, and the hashes and fee read from the club and the adjudicator. */
 export interface ResolvedTerms {
   seller: Address;
+  /** Receives every payment to the seller (ADR-0033 §1). Absent: the seller's signing address. */
+  sellerPayoutAddress?: Address;
   rulebookHash: Hex32;
   policyId: string;
   policyHash: Hex32;
@@ -107,11 +118,14 @@ export function completeTerms(d: TermsDraft, r: ResolvedTerms): CommitmentTerms 
   const deliverBy = plusSeconds(createdAt, d.timing.deliverWithinSec);
   const judgeBy = plusSeconds(deliverBy, d.timing.judgeWithinSec);
   return {
-    schemaVersion: '0.7',
+    schemaVersion: '0.8',
     clubId: d.clubId,
     rulebookHash: r.rulebookHash,
     buyer: d.buyer.address,
     seller: r.seller,
+    // ADR-0033 §7: with no separate address named, each defaults to its party's signing address.
+    buyerPaymentAddress: d.buyer.paymentAddress ?? d.buyer.address,
+    sellerPayoutAddress: r.sellerPayoutAddress ?? r.seller,
     deliverable: structuredClone(d.deliverable),
     acceptance: structuredClone(d.acceptance),
     price: { ...d.price },

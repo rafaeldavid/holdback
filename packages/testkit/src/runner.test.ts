@@ -228,11 +228,11 @@ describe('pnpm snap', () => {
     expect(r.text).toMatch(/T-206/);
   });
 
-  it('names every fixture kept on SimChain until Phase 4, each with a reason', () => {
+  it('names every fixture kept on SimChain (until Phase 4, or not in phase one), each with a reason', () => {
     expect(Object.keys(LOCAL_EXCLUSIONS).length).toBeGreaterThan(0);
     for (const [name, reason] of Object.entries(LOCAL_EXCLUSIONS)) {
       expect(existsSync(join(repo, 'fixtures/scenarios', `${name}.scenario.yaml`))).toBe(true);
-      expect(reason).toMatch(/Phase 4/);
+      expect(reason).toMatch(/Phase 4|not in phase one: .*\(SC-7, ADR-0031\)$/);
     }
   });
 
@@ -250,7 +250,7 @@ describe('pnpm snap', () => {
     await main(['--settlement=local', '_example'], { root, contractsRoot: repo, out: (l) => out.push(l) });
     const text = out.join('\n');
     expect(text).toMatch(/pass {2}_example on the contract/);
-    expect(text).toMatch(/excluded until Phase 4/);
+    expect(text).toMatch(/excluded, not in phase one/);
     expect(text).toMatch(/gas \d/);
   }, 120_000);
 

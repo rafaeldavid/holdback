@@ -240,6 +240,10 @@ export class Adjudicator {
     // The URI is the seller's or the terms' text, and refusals are published: name only a hash it ends in (red team M2).
     const ct = (uri: string) => `the store read of ${/(sha256:[0-9a-f]{64})$/.exec(uri)?.[1] ?? 'a ciphertext'}`;
     this.#port = {
+      // Read through, so a port that learns its contracts after construction is followed (ADR-0031 §8).
+      get phaseOne() {
+        return p.phaseOne ?? false;
+      },
       now: () => p.now(),
       randomness: (c) => p.randomness(c),
       offers: (a) => this.#read('the offer list', () => p.offers(a)),
@@ -252,6 +256,7 @@ export class Adjudicator {
       registration: (a) => this.#read('the registration read', () => p.registration(a), `registration|${a.toLowerCase()}`),
       ...(p.policy ? { policy: (h: Hex32) => this.#read('the policy read', () => p.policy!(h), `policy|${h}`) } : {}),
       triggerFallback: (id) => p.triggerFallback(id),
+      // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
       expireAppeal: (id) => p.expireAppeal(id),
       publishRecord: (r) => p.publishRecord(r),
       submit: (m) => p.submit(m),
@@ -373,9 +378,10 @@ export class Adjudicator {
     const port = this.#port;
     const report: RunReport = { accepted: [], declined: [], expired: [], triggered: [], decided: [], undecided: [], refused: [], unavailable: [] };
     // T-211: its own decisions hold its bond until their appeal closes, and a sham deal's parties never close it. So it
-    // expires them itself once due, first, so the bond they free counts for what follows.
-    for (const id of await this.#list('appeal expiries', report, () => port.appealExpiriesDue(this.address))) {
+    // expires them itself once due, first, so the bond they free counts for what follows. Phase one has neither.
+    for (const id of port.phaseOne ? [] : await this.#list('appeal expiries', report, () => port.appealExpiriesDue(this.address))) {
       try {
+        // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
         if ((await port.expireAppeal(id)).ok) report.expired.push(id);
       } catch (e) {
         // T-372: the error's class only; the demo publishes refusals, and a relay's message can carry a keyed URL.
@@ -456,7 +462,8 @@ export class Adjudicator {
       policyHash: adjudication.policyHash,
       registryHash: adjudication.registryHash,
       fee: adjudication.fee,
-      bondReserved: c.price,
+      // Phase one has no bonds, and its contract refuses any other value (ADR-0031 §8 point 2); SimChain keeps the price.
+      bondReserved: this.#cfg.settlement.phaseOne ? ({ token: c.price.token, amount: '0' } as TokenAmount) : c.price,
       nonce: keccak256(concat([toBytes(c.id), stringToBytes('holdback.acceptance-nonce.v1')])),
       expiresAt: c.timing.offerExpiresAt,
     };
@@ -532,19 +539,28 @@ export class Adjudicator {
   #untrusted(role: 'fallback' | 'appeal', who: Address, what: 'offer' | 'fallback turn' | 'terms'): Problem | null {
     const trusted = this.#trusted();
     if (trusted.includes(who.toLowerCase())) return null;
-    const why = `an appeal decided by an untrusted adjudicator could pay the price from this adjudicator's bond (${what === 'offer' ? 'T-212' : 'T-221, ADR-0030 §6'})`;
+    // Triage item 63 (T-378): on the phase-one contracts no bond is at stake (ADR-0031 §8); the rule stays the adjudicator's
+    // own consent rule (D29), and its reason says what is at stake there: the final word on the deals it escalates.
+    const why = this.#port.phaseOne
+      ? `on the phase-one contracts the appeal adjudicator decides every escalation, and its decision is final; ${this.#cfg.name} escalates only to an adjudicator it trusts (ADR-0031 §8, D29)`
+      : `an appeal decided by an untrusted adjudicator could pay the price from this adjudicator's bond (${what === 'offer' ? 'T-212' : 'T-221, ADR-0030 §6'})`;
     if (what === 'offer') return problem('invalid_terms', `${this.#cfg.name} does not trust ${who} as the ${role} adjudicator: ${why}; offer with a ${role} adjudicator it trusts`);
     if (what === 'terms') return problem('invalid_terms', `${this.#cfg.name} takes a fallback turn only under an appeal adjudicator it trusts (${trusted.join(', ')}), and ${who} is not one: ${why}`);
     // A fallback turn comes only after judgeBy, when core refuses the primary's decision; the parties may still settle.
     return problem('invalid_terms', `${this.#cfg.name} does not trust ${who} as the appeal adjudicator, so it declines this deal's fallback turn: ${why}. So no adjudicator will decide this deal's first instance; the default outcome applies at fallbackBy unless the parties settle by mutual agreement first`);
   }
 
-  /** D29 (T-211): a primary's or fallback's decision holds its bond until the appeal closes, and the deal sets how long. */
+  /**
+   * D29 (T-211): on the full protocol a primary's or fallback's decision holds its bond until the appeal closes, and the
+   * deal sets how long. On the phase-one contracts no bond is held; the limit stays this adjudicator's own choice.
+   */
   #windowsProblem(c: DecisionTask['commitment']): Problem | null {
     const limits = this.#cfg.appealLimits ?? DEFAULT_APPEAL_LIMITS;
     for (const [field, max] of [['appealWindowSec', limits.maxAppealWindowSec], ['appealDecideSec', limits.maxAppealDecideSec]] as const) {
       if (c.timing[field] > max) {
-        return problem('invalid_terms', `${this.#cfg.name} decides only deals whose ${field} is at most ${max} s: a decider's bond stays reserved until the appeal closes, and this deal sets ${c.timing[field]} s (T-211, D29)`);
+        // Triage item 63 (T-378): the phase-one contracts reserve no bond, so the reason there is how long a deal stays open.
+        const why = this.#port.phaseOne ? 'a deal it escalates stays open that long, and on the phase-one contracts nothing else bounds it' : "a decider's bond stays reserved until the appeal closes";
+        return problem('invalid_terms', `${this.#cfg.name} decides only deals whose ${field} is at most ${max} s: ${why}, and this deal sets ${c.timing[field]} s (T-211, D29)`);
       }
     }
     return null;
@@ -558,10 +574,15 @@ export class Adjudicator {
     return null;
   }
 
-  /** The contract reserves a fallback's bond when it decides and refuses an uncovered one (T-206 M-3). */
+  /**
+   * The contract reserves a fallback's bond when it decides and refuses an uncovered one (T-206 M-3). Phase one has no
+   * bond behind any decision (ADR-0031 §8), so there is no cover to check, at the takeover or before signing.
+   */
   async #coverProblem(c: DecisionTask['commitment']): Promise<Problem | null> {
+    if (this.#port.phaseOne) return null;
     const cover = await this.#port.bondCover(this.address, c);
     if (cover >= BigInt(c.price.amount)) return null;
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     return problem('coverage_exceeded', `${this.#cfg.name} has ${cover} free bond for this deal and the price is ${c.price.amount} ${c.price.token}: a fallback's decision is backed by its bond, so it declines rather than sign one it cannot cover`);
   }
 
@@ -798,7 +819,7 @@ export class Adjudicator {
     if (!source) {
       return err(problem('adjudicator_unavailable', `${this.#cfg.name} has no source for the randomness this commitment's rulebook names (a drand-quicknet rulebook needs a drand source); it does not decide rather than seed the panel from another (ADR-0018 §5)`));
     }
-    const round = roundFor(role, fixedAt, source.clock);
+    const round = roundFor(role, fixedAt, source.clock, source.marginSec ?? 0);
     const got = await source.value(round);
     if (!got) return err(problem('seed_mismatch', `beacon round ${round} is not published or not proven yet; waiting (no substitute source)`));
     // A bad proof burns up to 250,000 gas in the contract's pairing check: this service signs only a proof it checked.

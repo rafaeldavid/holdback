@@ -29,9 +29,12 @@ This recipe runs `examples/seller-adapter.ts` in production on one Linux machine
      "sellerApi": { "quote": "http://127.0.0.1:8790/quote", "start": "http://127.0.0.1:8790/jobs", "result": "http://127.0.0.1:8790/jobs/{jobId}/result" },
      "quoteAuth": { "kind": "bearer", "env": "HOLDBACK_QUOTE_CREDENTIALS" },
      "quoteRateLimit": { "overall": { "requests": 100, "windowSec": 60 } },
+     "payoutAddress": "0x<the address you are paid at>",
      "journal": "/var/lib/crow-seller/seller-adapter.journal.json"
    }
    ```
+
+   **The payout address.** Every offer names `payoutAddress` as the address a release or your share of a settlement pays (ADR-0033). Set one apart from `HOLDBACK_KEY` in production: the key that signs on this server every day then never holds the income, and losing the server loses no money. Take it from your own records, never from a message, and type it as a checksummed or lowercase address: the adapter refuses a mixed-case address whose checksum fails. Left out, payments go to the signing key, and a start-up line says so. The adapter warns, and still starts, when it is the zero address, a contract of the deployment, Multicall3 or one of your adjudicators. It refuses to sign any prepared offer that names another payout address.
 
    The values are yours: any positive whole numbers. `overall` counts the requests that passed the credential, which caps how many offers the adapter signs. Past it the route answers 429 with `Retry-After` in seconds. Leave `quoteAuth` out to keep the route open. The adapter refuses a field it does not take, naming it, and the four options removed in T-331 (`stream`, `host`, `trustProxy`, `quoteRateLimit.perClient`), saying what to do instead. A limit per client address belongs in Caddy, which sees the address. `examples/seller-adapter.config.json` is a smaller example that points at the stub API.
 
@@ -59,7 +62,7 @@ This recipe runs `examples/seller-adapter.ts` in production on one Linux machine
    journalctl -u seller-adapter -f
    ```
 
-   The adapter's first log lines say which club and adjudicators its offers name and where they came from, when the mandate ends, where your API is and which variable holds its credential, and what the quote route takes: the credential's variable name (never its value) and the rate limit.
+   The adapter's first log lines say where payments go (the payout address), which club and adjudicators its offers name and where they came from, when the mandate ends, where your API is and which variable holds its credential, and what the quote route takes: the credential's variable name (never its value) and the rate limit.
 
 5. **Publish.** Your card's quoted item names `https://<your name>/quote`, and `https://<your name>/defaults` as `pricing.defaults` (`site/sell.txt`, "Sell a priced API service").
 

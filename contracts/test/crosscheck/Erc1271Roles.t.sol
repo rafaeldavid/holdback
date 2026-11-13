@@ -2,8 +2,8 @@
 pragma solidity ^0.8.28;
 
 import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
-import {HoldbackBonds} from "../../src/HoldbackBonds.sol";
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "../unit/Base.sol";
 
@@ -64,9 +64,6 @@ contract Erc1271RolesTest is Base {
         super.setUp();
         sellerWallet = new RoleWallet(vm.addr(SW_PK));
         adjWallet = new RoleWallet(vm.addr(AW_PK));
-        usdc.mint(address(adjWallet), BOND);
-        adjWallet.exec(address(usdc), abi.encodeCall(usdc.approve, (address(bonds), BOND)));
-        adjWallet.exec(address(bonds), abi.encodeCall(HoldbackBonds.deposit, (address(usdc), BOND)));
     }
 
     function _wrongModes() internal pure returns (uint8[3] memory) {
@@ -85,18 +82,20 @@ contract Erc1271RolesTest is Base {
     function test_sellerWallet_signsTermsAndDelivery_andIsPaid() public {
         H.Terms memory t = _terms();
         t.seller = address(sellerWallet);
+        t.sellerPayoutAddress = address(sellerWallet); // ADR-0033: the wallet also holds the money
         bytes32 id = _fundAs(t, SW_PK, ADJ_PK);
         (H.Delivery memory d,) = _delivery();
         rules.deliver(t, d, _deliverySig(id, d, SW_PK));
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Delivered));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Delivered));
         rules.decide(t, _primary(t, id, H.OUTCOME_ACCEPT), _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Released));
         assertEq(usdc.balanceOf(address(sellerWallet)), PRICE, "the wallet is paid the price");
     }
 
     function test_sellerWallet_wrongAnswer_refusesTheTerms() public {
         H.Terms memory t = _terms();
         t.seller = address(sellerWallet);
+        t.sellerPayoutAddress = address(sellerWallet); // ADR-0033: the wallet also holds the money
         bytes memory s = _sellerSig(t, SW_PK);
         H.Acceptance memory acc = _acceptance(t, ADJ_PK);
         H.Agree memory ag = _agree(t, BUYER_PK);
@@ -104,49 +103,49 @@ contract Erc1271RolesTest is Base {
         uint8[3] memory modes = _wrongModes();
         for (uint256 i; i < modes.length; i++) {
             sellerWallet.setMode(modes[i]);
-            vm.expectRevert(HoldbackRules.BadSignature.selector);
+            vm.expectRevert(IHoldbackRules.BadSignature.selector);
             rules.agreeAndFund(t, s, acc, ag, f);
         }
         sellerWallet.setMode(0);
         rules.agreeAndFund(t, s, acc, ag, f);
-        assertEq(uint8(_stage(hx.id(t))), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(_stage(hx.id(t))), uint8(IHoldbackRules.Stage.Held));
     }
 
     function test_sellerWallet_wrongAnswer_refusesTheDelivery() public {
         H.Terms memory t = _terms();
         t.seller = address(sellerWallet);
+        t.sellerPayoutAddress = address(sellerWallet); // ADR-0033: the wallet also holds the money
         bytes32 id = _fundAs(t, SW_PK, ADJ_PK);
         (H.Delivery memory d,) = _delivery();
         bytes memory sig = _deliverySig(id, d, SW_PK);
         uint8[3] memory modes = _wrongModes();
         for (uint256 i; i < modes.length; i++) {
             sellerWallet.setMode(modes[i]);
-            vm.expectRevert(HoldbackRules.BadSignature.selector);
+            vm.expectRevert(IHoldbackRules.BadSignature.selector);
             rules.deliver(t, d, sig);
         }
         sellerWallet.setMode(0);
         bytes memory otherKey = _deliverySig(id, d, OTHER_PK);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.deliver(t, d, otherKey);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Held));
         rules.deliver(t, d, sig);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Delivered));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Delivered));
     }
 
     // ------------------------------------------------------------ the adjudicator
 
-    function test_primaryWallet_acceptsAndDecides_bondAndFee() public {
+    function test_primaryWallet_acceptsAndDecides_fee() public {
         H.Terms memory t = _terms();
         t.adjudicator = address(adjWallet);
         bytes32 id = _fundAs(t, SELLER_PK, AW_PK);
-        assertEq(bonds.encumberedOf(address(adjWallet), address(usdc)), PRICE, "the wallet's bond covers the price");
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Held), "the wallet's acceptance funded the deal");
         _deliver(t, id);
         H.Decision memory m =
             _signDecision(t, id, _decision(H.ROLE_PRIMARY, H.OUTCOME_ACCEPT), address(adjWallet), AW_PK);
         rules.decide(t, m, _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Released));
         assertEq(usdc.balanceOf(address(adjWallet)), FEE, "the wallet is paid the fee");
-        assertEq(bonds.encumberedOf(address(adjWallet), address(usdc)), PRICE, "held until the appeal closes");
     }
 
     function test_primaryWallet_wrongAnswer_refusesTheAcceptance() public {
@@ -159,10 +158,10 @@ contract Erc1271RolesTest is Base {
         uint8[3] memory modes = _wrongModes();
         for (uint256 i; i < modes.length; i++) {
             adjWallet.setMode(modes[i]);
-            vm.expectRevert(HoldbackRules.BadSignature.selector);
+            vm.expectRevert(IHoldbackRules.BadSignature.selector);
             rules.agreeAndFund(t, s, acc, ag, f);
         }
-        assertEq(bonds.encumberedOf(address(adjWallet), address(usdc)), 0, "nothing encumbered without consent");
+        assertEq(uint8(_stage(hx.id(t))), uint8(IHoldbackRules.Stage.None), "nothing funded without consent");
     }
 
     function test_primaryWallet_wrongAnswer_refusesTheDecision() public {
@@ -175,21 +174,21 @@ contract Erc1271RolesTest is Base {
         uint8[3] memory modes = _wrongModes();
         for (uint256 i; i < modes.length; i++) {
             adjWallet.setMode(modes[i]);
-            vm.expectRevert(HoldbackRules.BadSignature.selector);
+            vm.expectRevert(IHoldbackRules.BadSignature.selector);
             rules.decide(t, m, _noDelivery(), "");
         }
         adjWallet.setMode(0);
         H.Decision memory forged =
             _signDecision(t, id, _decision(H.ROLE_PRIMARY, H.OUTCOME_ACCEPT), address(adjWallet), OTHER_PK);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.decide(t, forged, _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Delivered));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Delivered));
         rules.decide(t, m, _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Released));
     }
 
-    /// The fallback's own decision encumbers its bond (M-3, PR #135); as a wallet it consents through ERC-1271.
-    function test_fallbackWallet_decidesAfterTakeover_andReservesItsBond() public {
+    /// The fallback, as a wallet, signs its decision through ERC-1271 after the takeover.
+    function test_fallbackWallet_decidesAfterTakeover() public {
         H.Terms memory t = _terms();
         t.fallbackAdjudicator = address(adjWallet);
         bytes32 id = _fund(t);
@@ -199,13 +198,12 @@ contract Erc1271RolesTest is Base {
         H.Decision memory m = _beaconDecision(id, H.ROLE_FALLBACK, H.OUTCOME_REJECT, t.timing.judgeBy);
         m = _signDecision(t, id, m, address(adjWallet), AW_PK);
         adjWallet.setMode(RoleWallet(adjWallet).WRONG_MAGIC());
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.decide(t, m, _noDelivery(), "");
-        assertEq(bonds.encumberedOf(address(adjWallet), address(usdc)), 0);
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.FallbackJudging));
         adjWallet.setMode(0);
         rules.decide(t, m, _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
-        assertEq(bonds.encumberedOf(address(adjWallet), address(usdc)), PRICE, "the decision reserved the bond");
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
         assertEq(usdc.balanceOf(address(adjWallet)), FEE);
     }
 }

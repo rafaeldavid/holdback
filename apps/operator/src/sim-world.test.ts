@@ -1,7 +1,7 @@
 // End to end over HTTP: prepare -> sign (viem, the agent's own key) -> submit, against a sim world (SimChain,
 // two operators, three test adjudicators with fake judges). The operator signs no party message.
 import { readFileSync } from 'node:fs';
-import { holdbackDomain, termsDigest, type CommitmentTerms, type DeterministicCheck, type Hex32 } from '@holdback/core';
+import { deliveryHash, holdbackDomain, termsDigest, type CommitmentTerms, type Delivery, type DeterministicCheck, type Hex32, type MutualSettlement } from '@holdback/core';
 import { seal, wrapKeyForRecipients } from '@holdback/core/crypto';
 import { hashTypedData } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -82,8 +82,8 @@ const offerInput = (buyer: string, seller: string, price = '25000000') => ({
   checks,
 });
 
-async function heldDeal(buyer: string, seller: string, price?: string): Promise<Hex32> {
-  const offer = (await call<Prepared>('POST', '/v1/prepare/offer', offerInput(buyer, seller, price))).body;
+async function heldDeal(buyer: string, seller: string, price?: string, extra: Record<string, unknown> = {}): Promise<Hex32> {
+  const offer = (await call<Prepared>('POST', '/v1/prepare/offer', { ...offerInput(buyer, seller, price), ...extra })).body;
   expect((await submit(await sign(offer, seller))).body.escrowState).toBe('Offered');
   await waitFor(offer.commitmentId, ['AcceptedByAdjudicator']);
   const af = (await call<Prepared>('POST', '/v1/prepare/agree-and-fund', { commitmentId: offer.commitmentId, ...nonces() })).body;
@@ -166,10 +166,12 @@ describe('operator API: prepare, sign, submit', () => {
 
   it('refunds the price but not the fee when the checks fail', async () => {
     const before = BigInt((await call('GET', `/v1/balances/${acct('buyer-2').address}`)).body.amount);
-    const id = await heldDeal('buyer-2', 'seller-2');
+    // The seller appeals below: the full protocol's party appeal needs an appeal window (the default is phase one's 0).
+    const id = await heldDeal('buyer-2', 'seller-2', undefined, { timing: { appealWindowSec: 300 } });
     await deliver(id, 'seller-2', 'id,email\n');
     expect((await waitFor(id, ['Released', 'Refunded'])).escrowState).toBe('Refunded');
     expect(BigInt((await call('GET', `/v1/balances/${acct('buyer-2').address}`)).body.amount)).toBe(before - 1_000_000n);
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     const appeal = (await call<Prepared>('POST', '/v1/prepare/appeal', { commitmentId: id, appellant: acct('seller-2').address })).body;
     expect(appeal.check.join(' ')).toMatch(/bond of 1\.25 tUSD .* fee of 25 tUSD, 26\.25 tUSD in all/);
     await submit(await sign(appeal, 'seller-2'));
@@ -218,6 +220,100 @@ describe('operator API: prepare, sign, submit', () => {
     expect((await timed({ offerExpiresInSec: 0 })).body.detail).toMatch(/createdAt must be before/);
     const y = await call('POST', '/v1/prepare/offer', { ...offerInput('buyer-1', 'seller-1'), createdAt: '+020270-01-01T00:00:00Z' });
     expect([y.status, y.body.detail]).toEqual([400, expect.stringMatching(/RFC 3339/)]);
+  });
+
+  // T-357, ADR-0031 SC-5b: late work settled by agreement. The seller signs a delivery it never posts and hands it to
+  // the buyer; prepare rebuilds the hash from that delivery, and the settlement layer releases its buyer envelope.
+  /** A delivery the seller signs and hands the buyer, never posted. */
+  async function unposted(id: Hex32, seller: string): Promise<Delivery> {
+    const sealed = await seal(new TextEncoder().encode(CSV));
+    const stored = (await call('POST', '/v1/ciphertext', sealed.ciphertext)).body;
+    const { recipients } = (await call('GET', `/v1/commitments/${id}/recipients`)).body;
+    const encryptedKeys = wrapKeyForRecipients(sealed.key, recipients.map((r: { address: string; encryptionPublicKey: string }) => ({ recipient: r.address, publicKey: r.encryptionPublicKey })));
+    const pd = (await call<Prepared>('POST', '/v1/prepare/delivery', { commitmentId: id, ciphertext: { uri: stored.uri, sha256: stored.id, bytes: stored.bytes }, plaintextSha256: sealed.plaintextSha256, encryptedKeys })).body;
+    return (await sign(pd, seller)).submit.body as unknown as Delivery;
+  }
+
+  // T-378: the late-work settlement through the HTTP API, end to end. The prepared body carries the delivery, both parties
+  // sign, and POST /settlements settles it and releases the buyer's envelope. The event log shows it as late work:
+  // commitment.settled with keyReleased true and key.released, with no delivery.submitted, and deliveryHash naming it.
+  it('settles late work through POST /settlements: the body carries the unposted delivery and the key is released', async () => {
+    const id = await heldDeal('buyer-1', 'seller-1', '6000000');
+    const late = await unposted(id, 'seller-1');
+    const p = (await call<Prepared>('POST', '/v1/prepare/settlement', { commitmentId: id, nonce: nonce(), toSellerBps: 7000, delivery: late })).body;
+    // What the agent signs is rebuilt from its own intent: the hash of the delivery it holds, computed by itself.
+    expect(p.sign[0]!.typedData.message['deliveryHash']).toBe(deliveryHash(late));
+    expect(p.defaults).toMatchObject({ releaseKey: true });
+    expect(p.check.join(' ')).toMatch(/never posted.*nothing checks the seller's signature on it/);
+    expect(p.check.join(' ')).toMatch(/submit\.body carries that delivery as delivery/);
+    expect(p.submit.body['delivery']).toEqual(late);
+    await sign(await sign(p, 'buyer-1'), 'seller-1');
+    // A dry run takes the same body and changes nothing.
+    const dry = await fetch(`${api}${p.submit.path}?validateOnly=true`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(p.submit.body) });
+    expect([dry.status, ((await dry.json()) as { escrowState: string }).escrowState, dry.headers.get('holdback-signature-check')]).toEqual([200, 'Settled', 'verified']);
+    expect((await call('GET', `/v1/commitments/${id}`)).body.escrowState).toBe('Held');
+    const r = await call('POST', p.submit.path, p.submit.body);
+    expect([r.status, r.body.escrowState]).toEqual([200, 'Settled']);
+    const keys = (await call('GET', `/v1/commitments/${id}/key?recipient=${acct('buyer-1').address}`)).body.items;
+    const mine = late.encryptedKeys.find((k) => k.recipient.toLowerCase() === acct('buyer-1').address.toLowerCase())!;
+    expect(keys.map((k: { ciphertext: string }) => k.ciphertext)).toEqual([mine.ciphertext]);
+    // The record tells late work apart, from the events alone.
+    const events = (await call('GET', `/v1/commitments/${id}/events?limit=200`)).body.items as Array<{ seq: number; type: string; payload: Record<string, unknown> }>;
+    const seqOf = (type: string) => events.find((e) => e.type === type)?.seq;
+    expect(events.map((e) => e.type)).not.toContain('delivery.submitted');
+    expect(events.find((e) => e.type === 'commitment.settled')?.payload).toMatchObject({ keyReleased: true });
+    expect(seqOf('key.released')).toBeGreaterThan(seqOf('commitment.settled')!);
+    expect((p.submit.body as unknown as MutualSettlement).deliveryHash).toBe(deliveryHash(late));
+  });
+
+  it('POST /settlements still settles a late-work body after the same delivery was posted (PR 408 review, Low 2)', async () => {
+    const id = await heldDeal('buyer-1', 'seller-1', '2000000');
+    const late = await unposted(id, 'seller-1');
+    const p = (await call<Prepared>('POST', '/v1/prepare/settlement', { commitmentId: id, nonce: nonce(), toSellerBps: 5000, delivery: late })).body;
+    await sign(await sign(p, 'buyer-1'), 'seller-1');
+    // The seller posts the same delivery after both signed. The primary is silenced first, so no decision can land before
+    // the settlement does (in CI one did, and the deal was Released before the settlement arrived).
+    const silence = (silent: boolean) => fetch(`${world.url}/adjudicators/primary`, { method: 'POST', body: JSON.stringify({ silent }) });
+    expect((await silence(true)).ok).toBe(true);
+    try {
+      expect((await call('POST', `/v1/commitments/${id}/deliveries`, late)).body.escrowState).toBe('Delivered');
+      expect((await call('POST', p.submit.path, p.submit.body)).body.escrowState).toBe('Settled');
+    } finally {
+      await silence(false);
+    }
+  });
+
+  it('POST /settlements refuses a carried delivery that does not name the late work, and keys its idempotency on the delivery too', async () => {
+    const id = await heldDeal('buyer-2', 'seller-2', '3000000');
+    const late = await unposted(id, 'seller-2');
+    const p = (await call<Prepared>('POST', '/v1/prepare/settlement', { commitmentId: id, nonce: nonce(), toSellerBps: 5000, delivery: late })).body;
+    await sign(await sign(p, 'buyer-2'), 'seller-2');
+    const body = p.submit.body as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+    // releaseKey false: the delivery is not needed, so it is refused (the signatures fail too, but the rule answers first).
+    expect((await call('POST', p.submit.path, { ...body, releaseKey: false })).body).toMatchObject({ type: 'invalid_terms', field: 'delivery' });
+    expect((await call('POST', p.submit.path, { ...body, delivery: { ...late, commitmentId: `0x${'11'.repeat(32)}` } })).body).toMatchObject({ type: 'invalid_terms', field: 'delivery.commitmentId' });
+    expect((await call('POST', p.submit.path, { ...body, delivery: 'late' })).body).toMatchObject({ type: 'invalid_terms' });
+    // A delivery that does not hash to the signed deliveryHash: the settlement layer refuses it.
+    const other = await unposted(id, 'seller-2');
+    expect((await call('POST', p.submit.path, { ...body, delivery: other })).status).toBe(400);
+    // The same Idempotency-Key with another delivery is a conflict; with the same body it replays.
+    const post = (b: unknown) => fetch(`${api}${p.submit.path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': `late-${id}` }, body: JSON.stringify(b) });
+    const first = await post(body);
+    const replay = await post(body);
+    expect([first.status, replay.status]).toEqual([200, 200]);
+    // The replay is the stored answer, receipt included, not a second relay.
+    expect(await replay.json()).toEqual(await first.json());
+    expect((await post({ ...body, delivery: other })).status).toBe(409);
+  });
+
+  it('refuses to prepare a settlement for a delivery of another deal or with no buyer envelope', async () => {
+    const id = await heldDeal('buyer-2', 'seller-2', '3000000');
+    const mine = await unposted(id, 'seller-2');
+    const other = { ...mine, commitmentId: `0x${'11'.repeat(32)}` };
+    expect((await call('POST', '/v1/prepare/settlement', { commitmentId: id, nonce: nonce(), toSellerBps: 5000, delivery: other })).body).toMatchObject({ type: 'invalid_terms', field: 'delivery.commitmentId' });
+    const noEnvelope = { ...mine, encryptedKeys: mine.encryptedKeys.filter((k) => k.recipient.toLowerCase() !== acct('buyer-2').address.toLowerCase()) };
+    expect((await call('POST', '/v1/prepare/settlement', { commitmentId: id, nonce: nonce(), toSellerBps: 5000, delivery: noEnvelope })).body).toMatchObject({ type: 'invalid_terms', field: 'delivery.encryptedKeys' });
+    expect((await call('POST', '/v1/prepare/settlement', { commitmentId: id, nonce: nonce(), toSellerBps: 5000, releaseKey: true })).body).toMatchObject({ type: 'invalid_terms', field: 'releaseKey' });
   });
 
   it('derives no nonce: a settlement takes the caller\'s, and the same inputs give the same typed data', async () => {
@@ -300,10 +396,12 @@ describe('operator API: sim batch 1 friction', () => {
   });
 
   it('refuses to prepare early-accept, appeal and settlement in a state that cannot take them', async () => {
-    const id = await heldDeal('buyer-1', 'seller-1', '2000000');
+    // The full protocol's party appeal: the terms name an appeal window (the default is phase one's 0).
+    const id = await heldDeal('buyer-1', 'seller-1', '2000000', { timing: { appealWindowSec: 300 } });
     const early = await call('POST', '/v1/prepare/early-accept', { commitmentId: id, nonce: nonce() });
     expect([early.status, early.body.type]).toEqual([409, 'invalid_state']);
     expect(early.body.detail).toMatch(/is Held; early-accept needs Delivered/);
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     const appeal = await call('POST', '/v1/prepare/appeal', { commitmentId: id, appellant: acct('buyer-1').address });
     expect([appeal.status, appeal.body.type]).toEqual([409, 'invalid_state']);
     expect(appeal.body.detail).toMatch(/is Held; an appeal needs a first-instance decision/);
@@ -314,12 +412,15 @@ describe('operator API: sim batch 1 friction', () => {
     expect([late.status, late.body.type]).toEqual([409, 'invalid_state']);
     expect(late.body.detail).toMatch(/is Released; a settlement needs Held, Delivered, FallbackJudging or Escalated/);
     expect((await call('POST', '/v1/prepare/early-accept', { commitmentId: id, nonce: nonce() })).status).toBe(409);
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     expect((await call('POST', '/v1/prepare/appeal', { commitmentId: id, appellant: acct('buyer-1').address })).status).toBe(200); // window open
     // T-206 L-7: the accept went for the seller, so only the buyer may appeal it.
     const favoured = await call('POST', '/v1/prepare/appeal', { commitmentId: id, appellant: acct('seller-1').address });
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     expect([favoured.status, favoured.body.type, favoured.body.field]).toEqual([400, 'invalid_terms', 'appellant']);
     // Past appealBy (default window 300 s) the decision is final and an appeal is refused at prepare.
     await fetch(`${world.url}/advance`, { method: 'POST', body: JSON.stringify({ seconds: 400 }) });
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     const closed = await call('POST', '/v1/prepare/appeal', { commitmentId: id, appellant: acct('buyer-1').address });
     expect([closed.status, closed.body.type]).toEqual([409, 'invalid_state']);
     expect(closed.body.detail).toMatch(/is Released, final since .*; an appeal needs/);
@@ -336,6 +437,7 @@ describe('operator API: sim batch 1 friction', () => {
     await waitFor(offer.commitmentId, ['Released', 'Refunded']);
     const roles = (await call('GET', `/v1/commitments/${offer.commitmentId}/events?limit=200`)).body.items.filter((e: { type: string }) => e.type === 'judgment.decided').map((e: { payload: { role: string; outcome: string } }) => `${e.payload.role}:${e.payload.outcome}`);
     expect(roles).toContain('primary:escalate'); // the screen flagged the injection
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     const r = await call('POST', '/v1/prepare/appeal', { commitmentId: offer.commitmentId, appellant: acct('buyer-2').address });
     expect([r.status, r.body.type]).toEqual([409, 'invalid_state']);
     expect(r.body.detail).toMatch(/final since .*escalated decisions are final/);

@@ -12,10 +12,10 @@ T-327. The terms require every one of the 40 customers Atlas already holds (a re
 | Prefix | none (normal flow: reaches a terminal state, invariants hold) |
 | Settlement | SimChain (T-006) driving @holdback/core `step` |
 | Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0xd136…9300 |
-| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
+| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0xd9bc…492d |
 | Buyer | atlas-buyer 0x2B3c…5688 |
 | Seller | tidewater-seller 0x4F75…699c |
-| Terms | fixtures/terms/clean-customers-reference.yaml (loaded) · commitment 0x332c…5506 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-reference.yaml (loaded) · commitment 0x5b7e…2421 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xeb39…37F6 · fallback bench-b 0xf5A7…7055 · appeal bench-c 0x2d50…09f7 |
 | Operators | op-1 · op-2 |
 
@@ -52,7 +52,7 @@ T-327. The terms require every one of the 40 customers Atlas already holds (a re
 
 ## Receipts and log
 
-- Events 0–8. Chain head 0xc3d6…ac55. Replay of 6 SimChain submissions from genesis matches the settlement state.
+- Events 0–8. Chain head 0x5abd…fbdb. Replay of 6 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). The runner labels them without signing; the operator API signs real receipts.
 
 ## Invariants

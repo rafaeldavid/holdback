@@ -54,7 +54,7 @@ const common = {
   seller: seller.address,
   buyer: { address: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey },
   adjudicators: { primary, fallback, appeal },
-  timing: { judgeWithinSec: window, fallbackWithinSec: window, appealWindowSec: window, appealDecideSec: window },
+  timing: { judgeWithinSec: window, fallbackWithinSec: window, appealWindowSec: 0, appealDecideSec: window },
 };
 const CODE_FIX = {
   template: 'default',

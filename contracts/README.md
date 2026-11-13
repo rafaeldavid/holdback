@@ -4,9 +4,9 @@ Crow's settlement contracts (protocol name Holdback), their tests and the Sepoli
 
 | Path | Holds |
 | --- | --- |
-| `src/` | The six contract files an audit covers (see [`docs/audit/scope.md`](../docs/audit/scope.md)) |
-| `test/` | Foundry tests: `unit/`, `fuzz/`, `invariant/` with its handler in `handlers/`, and `crosscheck/` |
-| `script/` | `deploy-sepolia.sh`; `TestUSDC.sol`, the open-mint test token on Sepolia; `LocalUSDC.sol` and `LocalMulticall3.sol`, helpers for the anvil tests |
+| `src/` | The contract files an audit covers (see [`docs/audit/scope.md`](../docs/audit/scope.md)): `DrandQuicknetBeacon.sol`, `HoldbackRules.sol`, `HoldbackTypes.sol`, `IHoldbackBeacon.sol` and `IHoldbackRules.sol`. `IHoldbackRules.sol` declares the rules contract's types, events, errors and functions and is the place for their descriptions, with no logic; `HoldbackRules` implements it |
+| `test/` | Foundry tests: `unit/`, `fuzz/`, `invariant/` with its handler in `handlers/`, `crosscheck/`, `differential/` and `attack/` |
+| `script/` | `deploy-sepolia.sh`; `TestUSDC.sol`, the open-mint test token on Sepolia; `LocalUSDC.sol`, `LocalMulticall3.sol` and `SimBeacon.sol` (the local chain's beacon, refused on any chain but 31337), helpers for the anvil tests |
 | `deployments/` | The Sepolia deployment records |
 | `lib/commerce-payments` | A git submodule: Coinbase's Commerce Payments Protocol, with the nested libraries `remappings.txt` names. Its README lists two escrow addresses on Base: `0xf968…b19c` is version 1.1.0, and `0xBdEA…0cff` is version 1.0.0 with the older fee interface (ADR-0034 §3.4) |
 
@@ -21,6 +21,8 @@ git submodule update --init --depth 1 contracts/lib/commerce-payments
 git -C contracts/lib/commerce-payments submodule update --init --depth 1 lib/forge-std lib/permit2 lib/solady lib/spend-permissions
 git -C contracts/lib/commerce-payments/lib/spend-permissions submodule update --init --depth 1 lib/openzeppelin-contracts
 ```
+
+`lib/permit2` builds the tests only. The phase-one contracts fund by ERC-3009 alone (ADR-0031 §3), but the test world (`test/unit/Base.sol`) and the side-by-side harness (`test/differential/Sides.sol`) still deploy Permit2 and its collector.
 
 Do not use `--recursive`. It clones about 100 nested test dependencies of Commerce Payments and has hung CI for more than 40 minutes (documented: the comment in `ci.yml`).
 
@@ -43,9 +45,10 @@ forge test
 | Suite | Files | What it checks |
 | --- | --- | --- |
 | `test/unit/` | One test file per entry point or review fix, and `Base.sol` | Each entry point and each review fix. `Vectors.t.sol` pins the EIP-712 hashes against `packages/core`. `GasPerDeal.t.sol` holds gas budgets |
-| `test/fuzz/` | `NoAdmin`, `Postings`, `Rounding` | No admin path, postings that balance, and named rounding. `foundry.toml` sets no fuzz run count, so Foundry's default applies |
+| `test/fuzz/` | `NoAdmin`, `Postings` | No admin path and postings that balance. `foundry.toml` sets no fuzz run count, so Foundry's default applies |
 | `test/invariant/` | `RulesInvariants.t.sol`, `HandlerSmoke.t.sol` and `StateOracle.t.sol` (with `StateOracle.sol`), with `test/handlers/RulesHandler.sol` | The invariants listed in [`docs/audit/invariants.md`](../docs/audit/invariants.md). Their run count and depth are set inline in `RulesInvariants.t.sol`, not in `foundry.toml` |
 | `test/crosscheck/` | One file per case | Cases from the public-audit cross-check (`docs/reviews/2026-11-03-public-audit-crosscheck.md`), and the drand verifier's reviews |
+| `test/attack/` | `PhaseOneRedTeam.t.sol` | The red team's attacks on the phase-one contracts |
 | `test/differential/` | `SideBySide.t.sol` and `PinnedSource.t.sol`, with the pinned old side in `old/` and a planted mutant in `planted/` | The side-by-side harness (T-341): the deployed source and today's source run the same calls, and any difference not in `AllowList.sol` fails |
 
 Notes:
@@ -76,7 +79,7 @@ cd contracts && forge build && cd ..
 node scripts/evm-abis.mjs
 ```
 
-The script reads six ABIs from `contracts/out` and writes them to `abis.json`: `HoldbackRules`, `HoldbackBonds`, `TestUSDC`, `AuthCaptureEscrow`, `LocalMulticall3` and `ERC3009PaymentCollector`. `packages/settlement/evm/abis.test.ts` fails when `abis.json` differs from `contracts/out`. It skips without build output.
+The script reads the ABIs its `SOURCES` names (`HoldbackRules`, `TestUSDC`, `AuthCaptureEscrow`, `LocalMulticall3` and `ERC3009PaymentCollector`) from `contracts/out` and writes them to `abis.json`. `packages/settlement/evm/abis.test.ts` fails when `abis.json` differs from `contracts/out`. It skips without build output.
 
 ## Deployments
 
@@ -101,4 +104,4 @@ To check the 0.6 record, check out `2342756` and copy that file over `sepolia.js
 
 ## Events are part of the interface
 
-The operators' view and the monitoring read the contracts' events. The EVM adapter in `packages/settlement/evm` follows timeouts and deliveries from their logs (documented: `docs/neutrality.md`, residual 13). Treat a removed, renamed or reshaped event as an interface change: it needs the same care as a changed function, a new `abis.json` and a new deployment.
+The operators' view and the monitoring read the contracts' events. The EVM adapter in `packages/settlement/evm` follows timeouts and deliveries from their logs (documented: `docs/neutrality.md`, residual 13). Treat a removed, renamed or reshaped event as an interface change: it needs the same care as a changed function, a new `abis.json` and a new deployment. Phase one removed the events of the features it cut, which are not in phase one: the bond vault's events, `AppealFiled`, `AppealClosed` and `Paid` (ADR-0031 §10). It added `SettlementAddresses`, which names each deal's payment and payout addresses (ADR-0033).

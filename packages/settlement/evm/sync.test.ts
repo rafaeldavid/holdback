@@ -6,16 +6,16 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseEvent, wholeSecond, type AdjudicatorAcceptance, type Address, type Club, type Decision, type SettlementEvent } from '@holdback/core';
-import { BlockNotFoundError, concat, encodeFunctionData, keccak256, maxUint256, parseGwei, stringToBytes, type Hex } from 'viem';
+import { BlockNotFoundError, concat, encodeFunctionData, keccak256, parseGwei, stringToBytes, type Hex } from 'viem';
 import { privateKeyToAccount, sign } from 'viem/accounts';
 import { foundry } from 'viem/chains';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Genesis } from '../sim/simchain.js';
 import type { Submission } from '../src/interface.js';
 import { RelayRefused, type EvmChain, type LaneRow } from './chain.js';
-import { acceptanceView, agreeView, appealView, decisionView, deliveryView, earlyAcceptView, keyProof, mutualView, NO_DELIVERY, NO_KEY, termsView } from './encode.js';
+import { acceptanceView, agreeView, decisionView, deliveryView, earlyAcceptView, keyProof, mutualView, NO_DELIVERY, NO_KEY, termsView } from './encode.js';
 import { EvmSettlement } from './evm-settlement.js';
-import { ensureBond, LIVE_ABIS, LiveChain, type DeploymentFile, type LaneStore } from './live.js';
+import { LIVE_ABIS, LiveChain, type DeploymentFile, type LaneStore } from './live.js';
 import { ChainSync, LOG_RANGE, type Cursor } from './sync.js';
 import { evmCast, evmGenesis, EvmDeal, testActor, type TestActor } from './testing.js';
 import { anvilAvailable, EvmWorld } from './world.js';
@@ -69,7 +69,7 @@ describe('ChainSync reads', () => {
       eventCount: () => 0,
       follows: () => true,
       applied: () => false,
-      stage: async () => ({ stage: 'Held', appeal: 0 }),
+      stage: async () => ({ stage: 'Held' }),
       observe: async () => {
         observed++;
         return { applied: 0, seen: 0, behind: 0, unknown: 0 };
@@ -156,10 +156,8 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
       token: { address: d.token, name: anvil.tokenDomain.name, version: anvil.tokenDomain.version, symbol: 'tUSDC', decimals: 6 },
       escrow: d.escrow,
       erc3009Collector: d.erc3009Collector,
-      permit2Collector: d.permit2Collector,
       multicall: d.multicall,
       rules: d.rules,
-      bonds: d.bonds,
       beacon: d.beacon,
       expiryMarginSec: Number(anvil.expiryMargin),
     };
@@ -168,14 +166,11 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     const everyone = [...chain.lanes, ...hasty.lanes].map((l) => l.address).concat(Object.values(cast).map((a) => a.address), watcher.address, mempoolWatcher.address, deployer.address);
     for (const a of everyone) await anvil.rpc('anvil_setBalance', [a, '0x56bc75e2d63100000']);
     const start = wholeSecond(wall());
-    ({ genesis, club } = await evmGenesis({ cast, token: lc(d.token), chainId: anvil.chainId, rules: d.rules, start, buyer: 0n, bond: 0n }));
+    ({ genesis, club } = await evmGenesis({ cast, token: lc(d.token), chainId: anvil.chainId, rules: d.rules, start, buyer: 0n }));
     // The world's sim beacon is the contract's SimBeacon, deployed with the zero seed (world.ts).
     genesis = { ...genesis, simSeed: `0x${'00'.repeat(32)}` };
     await chain.mint(cast.buyer.address, 10n ** 12n);
     await chain.mint(cast.seller.address, 10n ** 10n);
-    for (const a of [cast.primary, cast.fallback, cast.appeal]) await ensureBond(chain, a.key, 500_000_000_000n, 10n ** 18n);
-    // The parties' one-time allowance to HoldbackBonds for appeal bonds.
-    for (const p of [cast.buyer, cast.seller]) await chain.send({ key: p.key, to: d.token, data: encodeFunctionData({ abi: chain.abis.token, functionName: 'approve', args: [d.bonds, maxUint256] }) });
   }, 180_000);
   afterAll(async () => {
     await anvil?.stop();
@@ -285,7 +280,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     const af = await d.agreeAndFund();
     if (af.kind !== 'agree_and_fund') throw new Error('unreachable');
     const seq = s.log().length;
-    const mined = await direct(cast.buyer, 'agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(served), agreeView(af.agree), { method: 0, signature: af.funding.signature }]);
+    const mined = await direct(cast.buyer, 'agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(served), agreeView(af.agree), { signature: af.funding.signature }]);
     expect((await s.state(d.id))!.escrowState).toBe('AcceptedByAdjudicator');
     expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0, unknown: 0 });
     expect((await s.state(d.id))!.escrowState).toBe('Held');
@@ -557,24 +552,42 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect((await ok(s, await d.decide('appeal', 'accept', round))).state.escrowState).toBe('Released');
   }, 60_000);
 
-  it('an appeal filed directly by the seller hands the appeal adjudicator its envelope, and it decides', async () => {
+  // T-358, ADR-0033 §10 test 33 (neutrality.direct-funding-separate-addresses): the direct route, which neutrality rests
+  // on, with all four addresses apart. Direct transactions fund the deal and settle it; the sync keeps the operators'
+  // view; the signing addresses move no money.
+  it('a deal with its money addresses apart, funded and settled by direct transactions, stays in the operators\' view', async () => {
     const { s, sync } = await node();
-    const d = await funded('direct-appeal', s, { deliver: true });
-    await ok(s, await d.decide('primary', 'reject'));
-    const p = ((await d.appealBy('seller', 100_000_000n)) as { appeal: Parameters<typeof appealView>[0] }).appeal;
+    const payment = testActor('t358-payment');
+    const payout = testActor('t358-payout').address;
+    await anvil.rpc('anvil_setBalance', [payment.address, '0x56bc75e2d63100000']);
+    await chain.mint(payment.address, 10n ** 10n);
+    const d = new EvmDeal(s, cast, club, 'direct-apart', 2_000_000_000n, 50_000_000n, { payment, payout });
+    await ok(s, await d.offer());
+    await ok(s, await d.accept());
+    const served = s.log().find((e) => e.commitmentId === d.id && e.type === 'adjudicator.accepted')!.payload['acceptance'] as AdjudicatorAcceptance;
+    const sellerSignature = s.log().find((e) => e.commitmentId === d.id && e.type === 'commitment.offered')!.payload['sellerSignature'] as Hex;
+    const af = await d.agreeAndFund();
+    if (af.kind !== 'agree_and_fund') throw new Error('unreachable');
+    const balances = async () => Promise.all([cast.buyer.address, cast.seller.address, payment.address, payout].map((a) => s.tokenBalance(a, true)));
+    const [b0, s0, p0, o0] = await balances();
     const seq = s.log().length;
-    await direct(cast.seller, 'fileAppeal', [termsView(d.terms), appealView(p)]);
+    await direct(cast.buyer, 'agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(served), agreeView(af.agree), { signature: af.funding.signature }]);
+    expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0, unknown: 0 });
+    expect((await s.state(d.id))!.escrowState).toBe('Held');
+    const funded = after(s, d.id, seq).find((e) => e.type === 'hold.funded')!;
+    expect([lc(String(funded.actor)), funded.submittedVia]).toEqual([lc(payment.address), 'direct']); // the payment address funded
+    const m = ((await d.mutual(1_500_000_000n, false)) as { message: Parameters<typeof mutualView>[0] }).message;
+    await direct(cast.seller, 'mutualSettle', [termsView(d.terms), mutualView(m), NO_DELIVERY, NO_KEY]);
     expect(await sync.pass()).toMatchObject({ applied: 1 });
-    expect(await s.state(d.id)).toMatchObject({ escrowState: 'Refunded', appealState: 'open' });
-    expect(after(s, d.id, seq).map((e) => [e.type, e.submittedVia, e.payload['path'] ?? e.payload['grounds']])).toEqual([
-      ['appeal.filed', 'direct', 'wrong-outcome'],
-      ['key.released', 'direct', 'appeal'],
-    ]);
-    expect(await s.keysFor(d.id, cast.appeal.address)).toHaveLength(1);
-    const state = s.escrowState(d.id)!;
-    const round = state.kind === 'Refunded' && state.via.kind === 'first_instance' && state.via.appeal.kind === 'open' ? Math.floor(Date.parse(state.via.appeal.openedAt) / 1000) + 1 : 0;
-    await roundDue(s, round);
-    expect((await ok(s, await d.decide('appeal', 'reject', round))).state.appealState).toBe('upheld');
+    expect((await s.state(d.id))!.escrowState).toBe('Settled');
+    expect((await s.stage(d.id)).stage).toBe('Settled');
+    const [b1, s1, p1, o1] = await balances();
+    expect([b1, s1]).toEqual([b0, s0]); // the signing addresses hold what they held
+    expect(o1! - o0!).toBe(1_500_000_000n); // the seller's share to the payout address
+    expect(p0! - p1!).toBe(1_500_000_000n); // the payment address paid price + fee and got 500 + the fee back
+    expect((await s.state(d.id))!.balances).toMatchObject({ [d.terms.buyerPaymentAddress]: expect.anything(), [d.terms.sellerPayoutAddress]: expect.anything() });
+    expect(schemaErrors(s.log())).toEqual([]);
+    chained(s);
   }, 60_000);
 
   it('a mutual settlement sent by the buyer settles the deal', async () => {
@@ -585,6 +598,32 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect(await sync.pass()).toMatchObject({ applied: 1 });
     expect((await s.state(d.id))!.escrowState).toBe('Settled');
     expect(s.log().filter((e) => e.commitmentId === d.id).at(-1)).toMatchObject({ type: 'commitment.settled', submittedVia: 'direct', payload: { keyReleased: false } });
+  }, 60_000);
+
+  // T-357, ADR-0031 SC-5b: late work settled directly on chain, releasing the key of a delivery this node never saw.
+  it('a late settlement sent directly that released a key waits for the delivery; the seller posts it, and the node joins it with no second transaction', async () => {
+    const { s, sync } = await node();
+    const d = await funded('direct-late-mutual', s);
+    await d.deliver(); // signed, never posted: the seller hands it to the buyer
+    const late = d.delivery!;
+    const m = ((await d.mutual(1_500_000_000n, true)) as { message: Parameters<typeof mutualView>[0] }).message;
+    const mined = await direct(cast.buyer, 'mutualSettle', [termsView(d.terms), mutualView(m), deliveryView(late), keyProof(late, d.terms.buyer)!]);
+    expect(await sync.pass()).toMatchObject({ applied: 0, behind: 1 });
+    expect((await s.state(d.id))!.escrowState).toBe('Settled');
+    expect(s.escrowState(d.id)!.kind).toBe('Held');
+    expect(s.lag(d.id)).toMatch(new RegExp(`${mined.hash}.*never posted`));
+    const sent = s.transactions().length;
+    const joined = await ok(s, { kind: 'deliver', delivery: late });
+    expect(joined.state.escrowState).toBe('Settled');
+    expect(s.transactions().slice(sent).map((t) => [t.hash, t.via])).toEqual([[mined.hash, 'direct']]);
+    expect(s.lag(d.id)).toBeNull();
+    const mine = late.encryptedKeys.find((k) => k.recipient.toLowerCase() === d.terms.buyer.toLowerCase())!;
+    // The key served while behind and the one the join reads are the same envelope: the list and the log hold it once
+    // (T-357 review, L4).
+    expect((await s.keysFor(d.id, d.terms.buyer)).map((k) => k.ciphertext)).toEqual([mine.ciphertext]);
+    expect(s.log().filter((e) => e.commitmentId === d.id && e.type === 'key.released' && String(e.payload['recipient']).toLowerCase() === d.terms.buyer.toLowerCase())).toHaveLength(1);
+    expect(schemaErrors(s.log())).toEqual([]);
+    chained(s);
   }, 60_000);
 
   it('a call inside a Multicall3 bundle is read through the bundle', async () => {
@@ -679,7 +718,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     const accept = await d.accept();
     const af = await d.agreeAndFund();
     if (accept.kind !== 'adjudicator_accept' || af.kind !== 'agree_and_fund') throw new Error('unreachable');
-    const mined = await direct(cast.buyer, 'agreeAndFund', [termsView(d.terms), offer.commitment.signatures.seller, acceptanceView(accept.message), agreeView(af.agree), { method: 0, signature: af.funding.signature }]);
+    const mined = await direct(cast.buyer, 'agreeAndFund', [termsView(d.terms), offer.commitment.signatures.seller, acceptanceView(accept.message), agreeView(af.agree), { signature: af.funding.signature }]);
     expect(await sync.pass()).toMatchObject({ applied: 0, unknown: 1 });
     expect(s.follows(d.id)).toBe(false);
     const joined = await ok(s, offer);
@@ -704,7 +743,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     const sub = await d.agreeAndFund({ operatorFee: { to: cast.operator.address, value: 4_710_000n } });
     if (sub.kind !== 'agree_and_fund' || accept.kind !== 'adjudicator_accept') throw new Error('unreachable');
     const sellerSignature = s.log().find((e) => e.commitmentId === d.id && e.type === 'commitment.offered')!.payload['sellerSignature'] as Hex;
-    await direct(watcher, 'agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(sub.agree), { method: 0, signature: sub.funding.signature }]);
+    await direct(watcher, 'agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(sub.agree), { signature: sub.funding.signature }]);
     await sync.pass();
     expect((await s.state(d.id))!.escrowState).toBe('Held');
     expect(s.log().some((e) => e.commitmentId === d.id && e.type === 'fee.operator')).toBe(false);
@@ -728,7 +767,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     const sub = await d.agreeAndFund({ operatorFee: { to: cast.operator.address, value: 4_710_000n } });
     if (sub.kind !== 'agree_and_fund' || accept.kind !== 'adjudicator_accept') throw new Error('unreachable');
     const sellerSignature = s.log().find((e) => e.commitmentId === d.id && e.type === 'commitment.offered')!.payload['sellerSignature'] as Hex;
-    const fundLeg = encodeFunctionData({ abi: chain.abis.rules, functionName: 'agreeAndFund', args: [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(sub.agree), { method: 0, signature: sub.funding.signature }] });
+    const fundLeg = encodeFunctionData({ abi: chain.abis.rules, functionName: 'agreeAndFund', args: [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(sub.agree), { signature: sub.funding.signature }] });
     const fees = await s.tokenBalance(cast.operator.address, true);
     let copy: Hex | undefined;
     let pending: Promise<Awaited<ReturnType<EvmSettlement['submit']>>> | undefined;
@@ -760,7 +799,8 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect(await s.tokenBalance(cast.operator.address, true)).toBe(fees + 4_710_000n);
   }, 60_000);
 
-  it('timeouts sent by a stranger: an offer expires, and a held deal is reclaimed', async () => {
+  // ADR-0031 §7 (SC-6): an unfunded offer's expiry is never on chain; a stranger can only send the reclaim.
+  it('timeouts: a held deal reclaimed by a stranger syncs; an offer expires in the node\'s own record, with no transaction', async () => {
     const { s, sync } = await node();
     const offered = new EvmDeal(s, cast, club, 'direct-expire');
     await ok(s, await offered.offer());
@@ -768,31 +808,58 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     const held = await funded('direct-reclaim', s);
     expect(s.openDeals()).toEqual({ recent: 2, idle: 0 });
     await jump(3_601);
-    await direct(cast.stranger, 'expireOffer', [termsView(offered.terms)]);
     await direct(cast.stranger, 'reclaim', [termsView(held.terms)]);
-    expect(await sync.pass()).toMatchObject({ applied: 2 });
+    expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
+    const txs = s.transactions().length;
+    expect((await s.trigger(offered.id, 'expire_offer', { via: 'op-1' })).ok).toBe(true);
+    expect(s.transactions()).toHaveLength(txs);
     expect((await s.state(offered.id))!.escrowState).toBe('Expired');
-    expect(s.log().filter((e) => e.commitmentId === offered.id).at(-1)).toMatchObject({ type: 'offer.expired', submittedVia: 'direct', payload: { from: 'AcceptedByAdjudicator' } });
+    expect((await s.stage(offered.id)).stage).toBe('None');
+    expect(s.log().filter((e) => e.commitmentId === offered.id).at(-1)).toMatchObject({ type: 'offer.expired', submittedVia: 'op-1', payload: { from: 'AcceptedByAdjudicator' } });
+    // A later sync pass reads the chain's None for the expired offer and does not put it behind.
+    await sync.pass();
+    expect(s.behindStage(offered.id)).toBeNull();
+    expect((await s.state(offered.id))!.escrowState).toBe('Expired');
     expect((await s.state(held.id))!.escrowState).toBe('Refunded');
     expect(s.log().filter((e) => e.commitmentId === held.id).at(-1)).toMatchObject({ type: 'settlement.reclaimed', submittedVia: 'direct' });
     expect(s.openDeals()).toEqual({ recent: 0, idle: 0 });
   }, 90_000);
 
-  it('a takeover sent by a stranger hands the fallback its envelope with the contract round; a default and an appeal expiry close deals', async () => {
+  // SC-6 (T-356, review M-1): before SC-6 the contract's expireOffer reverted WrongStage(Held) for this race; now the
+  // trigger reads the chain first.
+  it('an offer funded on chain that this node has not synced is not marked expired: the trigger reads dealOf first', async () => {
+    const { s, sync } = await node();
+    const d = new EvmDeal(s, cast, club, 'expire-race');
+    await ok(s, await d.offer());
+    await ok(s, await d.accept());
+    const served = s.log().find((e) => e.commitmentId === d.id && e.type === 'adjudicator.accepted')!.payload['acceptance'] as AdjudicatorAcceptance;
+    const sellerSignature = s.log().find((e) => e.commitmentId === d.id && e.type === 'commitment.offered')!.payload['sellerSignature'] as Hex;
+    const af = await d.agreeAndFund();
+    if (af.kind !== 'agree_and_fund') throw new Error('unreachable');
+    await direct(cast.buyer, 'agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(served), agreeView(af.agree), { signature: af.funding.signature }]);
+    await jump(901);
+    const r = await s.trigger(d.id, 'expire_offer', { via: 'op-1' });
+    expect(r.ok ? 'ok' : `${r.problem.type}: ${r.problem.detail}`).toMatch(/^invalid_state: the contract holds this deal Held/);
+    expect(s.escrowState(d.id)!.kind).toBe('AcceptedByAdjudicator');
+    expect(s.log().some((e) => e.commitmentId === d.id && e.type === 'offer.expired')).toBe(false);
+    expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
+    expect(s.escrowState(d.id)!.kind).toBe('Held');
+  }, 60_000);
+
+  it('a takeover sent by a stranger hands the fallback its envelope with the contract round; a default closes a deal, and a decision is final at once', async () => {
     const { s, sync } = await node();
     const takeover = await funded('direct-fallback', s, { deliver: true });
     const defaulted = await funded('direct-default', s, { deliver: true });
-    const appealed = await funded('direct-appeal-expiry', s, { deliver: true });
+    const decided = await funded('direct-decided', s, { deliver: true });
     const forwardedTakeover = await funded('forwarded-fallback', s, { deliver: true });
     const opaqueTakeover = await funded('opaque-fallback', s, { deliver: true });
-    await ok(s, await appealed.decide('primary', 'accept'));
+    await ok(s, await decided.decide('primary', 'accept'));
     await jump(4_201);
     for (const d of [takeover, defaulted]) await direct(cast.stranger, 'triggerFallback', [termsView(d.terms)]);
-    await direct(cast.buyer, 'expireAppeal', [termsView(appealed.terms)]);
     // A takeover through any contract follows from its logs alone: a timeout carries no signed message.
     await forwarded(cast.buyer, 'triggerFallback', [termsView(forwardedTakeover.terms)]);
     await forwarded(cast.buyer, 'triggerFallback', [termsView(opaqueTakeover.terms)], 'opaque');
-    expect(await sync.pass()).toMatchObject({ applied: 5, behind: 0 });
+    expect(await sync.pass()).toMatchObject({ applied: 4, behind: 0 });
     for (const d of [forwardedTakeover, opaqueTakeover]) {
       expect(s.escrowState(d.id)!.kind).toBe('FallbackJudging');
       expect(await s.keysFor(d.id, cast.fallback.address)).toHaveLength(1);
@@ -804,11 +871,11 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
       expect(s.log().find((e) => e.commitmentId === d.id && e.type === 'fallback.triggered')).toMatchObject({ submittedVia: 'direct', payload: { beaconRound: judgeBy(d) } });
       expect(await s.keysFor(d.id, cast.fallback.address)).toHaveLength(1);
     }
-    const appealView_ = (await s.state(appealed.id))!;
-    expect(appealView_).toMatchObject({ escrowState: 'Released', appealState: 'expired' });
-    // D20: final at appealBy, not when the stranger closed it.
-    const decidedAt = s.log().find((e) => e.commitmentId === appealed.id && e.type === 'judgment.decided')!.at;
-    expect(Date.parse(appealView_.finalAt!)).toBe(Date.parse(decidedAt) + 300_000);
+    // D20 on the phase-one contracts (ADR-0031 §8): the first decision is final when it settles, with no appeal window.
+    const decidedView = (await s.state(decided.id))!;
+    expect(decidedView).toMatchObject({ escrowState: 'Released', appealState: 'none' });
+    expect(decidedView.finalAt).toBe(decidedView.settledAt);
+    expect(decidedView.deadlines['appealBy']).toBeUndefined();
     // The fallback decides the first and both forwarded takeovers (review H1); the second runs out its window and anyone
     // defaults it.
     for (const d of [takeover, forwardedTakeover, opaqueTakeover]) expect((await ok(s, await d.decide('fallback', 'accept', judgeBy(d)))).state.escrowState).toBe('Released');
@@ -880,7 +947,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     // Residual 13, case 3: two signed steps for one deal in one transaction (the funding and the delivery), sent by a
     // watcher who holds copies of both. The book stays AcceptedByAdjudicator while dealOf moves to Delivered.
     await raw(watcher, multicall, bundle([
-      { target: rules, allowFailure: false, callData: rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(af.agree), { method: 0, signature: af.funding.signature }]) },
+      { target: rules, allowFailure: false, callData: rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(af.agree), { signature: af.funding.signature }]) },
       { target: rules, allowFailure: false, callData: rulesCall('deliver', [termsView(d.terms), deliveryView(delivery.delivery), delivery.delivery.signature]) },
     ]));
     // A deal funded on chain whose offer never reached this node.
@@ -889,7 +956,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     const unseenAccept = await unseen.accept();
     const unseenFund = await unseen.agreeAndFund();
     if (offer.kind !== 'offer' || unseenAccept.kind !== 'adjudicator_accept' || unseenFund.kind !== 'agree_and_fund') throw new Error('unreachable');
-    await direct(watcher, 'agreeAndFund', [termsView(unseen.terms), offer.commitment.signatures.seller, acceptanceView(unseenAccept.message), agreeView(unseenFund.agree), { method: 0, signature: unseenFund.funding.signature }]);
+    await direct(watcher, 'agreeAndFund', [termsView(unseen.terms), offer.commitment.signatures.seller, acceptanceView(unseenAccept.message), agreeView(unseenFund.agree), { signature: unseenFund.funding.signature }]);
     expect(await sync.pass()).toMatchObject({ behind: 1 });
     expect(s.lag(d.id)).toContain('2 signed calls');
     expect((await s.state(d.id))!.escrowState).toBe('Delivered');
@@ -967,7 +1034,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     if (accept.kind !== 'adjudicator_accept' || af.kind !== 'agree_and_fund' || delivery.kind !== 'deliver') throw new Error('unreachable');
     const sellerSignature = s.log().find((e) => e.commitmentId === d.id && e.type === 'commitment.offered')!.payload['sellerSignature'] as Hex;
     await raw(watcher, multicall, bundle([
-      { target: rules, allowFailure: false, callData: rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(af.agree), { method: 0, signature: af.funding.signature }]) },
+      { target: rules, allowFailure: false, callData: rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(af.agree), { signature: af.funding.signature }]) },
       { target: rules, allowFailure: false, callData: rulesCall('deliver', [termsView(d.terms), deliveryView(delivery.delivery), delivery.delivery.signature]) },
     ]));
     expect(await sync.pass()).toMatchObject({ behind: 1 });
@@ -1134,7 +1201,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
     const book = s.escrowState(d.id)!;
     expect(book.kind === 'Released' ? book.via.kind : book.kind).toBe('first_instance');
-    expect((await s.state(d.id))!.deadlines['appealBy']).toBeDefined();
+    expect((await s.state(d.id))!.deadlines['appealBy']).toBeUndefined();
     expect(after(s, d.id, seq).map((e) => e.type)).toEqual(['judgment.decided', 'settlement.released', 'key.released']);
   }, 60_000);
 
@@ -1202,7 +1269,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
       primaryType: 'Agree',
       message: { commitmentId: d.id, buyer: cast.buyer.address, nonce, expiresAt },
     });
-    await raw(cast.buyer, chain.deployment.rules, rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), { nonce, expiresAt, signature }, { method: 0, signature: af.funding.signature }]));
+    await raw(cast.buyer, chain.deployment.rules, rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), { nonce, expiresAt, signature }, { signature: af.funding.signature }]));
     await direct(cast.stranger, 'decide', decideArgs(beside, await decision(beside, 'primary', 'accept')));
     expect(await sync.pass()).toMatchObject({ applied: 2, behind: 0 });
     expect(s.escrowState(d.id)!.kind).toBe('Held');
@@ -1289,11 +1356,11 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
     expect(await s.state(d.id)).toMatchObject({ escrowState: 'Released', appealState: 'none' });
     expect(await s.keysFor(d.id, cast.fallback.address)).toEqual([]);
-    // The buyer's appeal goes through the operator as usual.
-    expect((await ok(s, await d.appealBy('buyer', 100_000_000n))).state.appealState).toBe('open');
   }, 60_000);
 
-  it('a copied fund leg with a planted offer expiry after it: the view records the funding (red-team round 2, A)', async () => {
+  // SC-6 (T-356): the planted call was an offer expiry, which the phase-one contracts no longer have; a reclaim before
+  // deliverBy is refused there the same way, so it stands in.
+  it('a copied fund leg with a planted early reclaim after it: the view records the funding (red-team round 2, A)', async () => {
     const { s, sync } = await node();
     const d = new EvmDeal(s, cast, club, 'planted-expiry');
     await ok(s, await d.offer());
@@ -1302,8 +1369,8 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     const sub = await d.agreeAndFund();
     if (sub.kind !== 'agree_and_fund' || accept.kind !== 'adjudicator_accept') throw new Error('unreachable');
     const sellerSignature = s.log().find((e) => e.commitmentId === d.id && e.type === 'commitment.offered')!.payload['sellerSignature'] as Hex;
-    const fundLeg = rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(sub.agree), { method: 0, signature: sub.funding.signature }]);
-    await plantedAfter(watcher, fundLeg, rulesCall('expireOffer', [termsView(d.terms)]));
+    const fundLeg = rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(sub.agree), { signature: sub.funding.signature }]);
+    await plantedAfter(watcher, fundLeg, rulesCall('reclaim', [termsView(d.terms)]));
     expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
     expect(s.escrowState(d.id)!.kind).toBe('Held');
     expect((await ok(s, await d.deliver())).state.escrowState).toBe('Delivered');
@@ -1347,7 +1414,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     const sub = await d.agreeAndFund({ operatorFee: { to: cast.operator.address, value: 4_710_000n } });
     if (sub.kind !== 'agree_and_fund' || accept.kind !== 'adjudicator_accept') throw new Error('unreachable');
     const sellerSignature = s.log().find((e) => e.commitmentId === d.id && e.type === 'commitment.offered')!.payload['sellerSignature'] as Hex;
-    const fundLeg = rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(sub.agree), { method: 0, signature: sub.funding.signature }]);
+    const fundLeg = rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(sub.agree), { signature: sub.funding.signature }]);
     // The watcher signs its own transfer of 1 base unit, with the nonce bound to this commitment.
     await chain.mint(watcher.address, 10n);
     const validBefore = d.terms.timing.fundBy;
@@ -1411,7 +1478,12 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect(s.lag(d.id)).toContain('/deliveries');
     const joined = await ok(s, sub);
     expect(joined.state.escrowState).toBe('Released');
-    expect(joined.events.map((e) => e.type)).toEqual(['delivery.submitted', 'key.released', 'judgment.decided', 'settlement.released', 'key.released']);
+    // The buyer's key once: the node recorded it while behind, from the transaction's log, and the join records no
+    // second copy (T-357 review, L4; before T-374 the join ended with a second key.released for the same envelope).
+    expect(joined.events.map((e) => e.type)).toEqual(['delivery.submitted', 'key.released', 'judgment.decided', 'settlement.released']);
+    const buyerKeys = s.log().filter((e) => e.commitmentId === d.id && e.type === 'key.released' && String(e.payload['recipient']).toLowerCase() === d.terms.buyer.toLowerCase());
+    expect(buyerKeys).toHaveLength(1);
+    expect(await s.keysFor(d.id, d.terms.buyer)).toHaveLength(1);
   }, 60_000);
 
   it('a forwarded call padded with 120 KB of selectors keeps a pass short (review N1)', async () => {
@@ -1450,11 +1522,8 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     await direct(cast.primary, 'decide', decideArgs(d, m));
     await sync.pass();
     expect(await s.keysFor(d.id, cast.buyer.address)).toHaveLength(1);
-    // The appeal window closes; the buyer closes it on the contract.
-    await jump(301);
-    await direct(cast.buyer, 'expireAppeal', [termsView(d.terms)]);
-    await sync.pass();
-    expect(await s.state(d.id)).toMatchObject({ escrowState: 'Released', appealState: 'expired' });
+    // The decision is final at once (ADR-0031 §8): no appeal window is left for anyone to close.
+    expect(await s.state(d.id)).toMatchObject({ escrowState: 'Released', appealState: 'none' });
     expect((await s.stage(d.id)).stage).toBe('Released');
     expect(s.log().filter((e) => e.commitmentId === d.id).map((e) => [e.type, e.submittedVia])).toEqual([
       ['commitment.offered', 'op-1'],
@@ -1466,7 +1535,6 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
       ['judgment.decided', 'direct'],
       ['settlement.released', 'direct'],
       ['key.released', 'direct'],
-      ['appeal.expired', 'direct'],
     ]);
     expect(s.transactions().filter((t) => t.via === 'op-1').map((t) => t.call)).toEqual(['agreeAndFund']);
     expect(schemaErrors(s.log())).toEqual([]);

@@ -47,6 +47,7 @@ export interface DecisionTask {
    * escalated). A service that made that decision already consented to the deal (T-211); absent, it has not.
    */
   firstDecider?: Address;
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   /** Appeal ground the appellant named, if the settlement layer could classify it. */
   appealGround?: AppealGround;
   deadline: Timestamp;
@@ -59,6 +60,12 @@ export interface OfferTask {
 }
 
 export interface AdjudicatorSettlement {
+  /**
+   * True on the phase-one contracts (ADR-0031 §8, D57): no bonds and no party appeals, so an acceptance reserves 0, a
+   * first decision is final at once, and there is no appeal to expire or bond to cover. Absent or false: the full
+   * protocol, as SimChain keeps it.
+   */
+  readonly phaseOne?: boolean;
   now(): Timestamp;
   /**
    * The beacon the commitment's club rulebook names (ADR-0018 §6, T-217): its clock and its rounds. null when this port
@@ -77,7 +84,9 @@ export interface AdjudicatorSettlement {
    */
   appealExpiriesDue(adjudicator: Hex32): Promise<Hex32[]>;
   /** The permissionless appeal expiry. */
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   expireAppeal(commitmentId: Hex32): Promise<Result<unknown, Problem>>;
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   /**
    * The bond this adjudicator could put behind its decision on the commitment now, in base units of the price token:
    * its free bond (the contract's `freeOf`) plus what the commitment already holds on it. The contract reserves a

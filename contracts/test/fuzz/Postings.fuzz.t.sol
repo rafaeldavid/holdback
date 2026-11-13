@@ -2,14 +2,14 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
-import {HoldbackTypes as H, Money} from "../../src/HoldbackTypes.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
+import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "../unit/Base.sol";
 
 /// @title PostingsFuzzTest
 /// @notice T-203: each postings-table row that moves held money, for random price and fee (and random mutual
 ///         splits), pays every party exactly its share and leaves nothing in the hold (docs/architecture.md,
-///         ADR-0022). The primary's guaranteed-mode bond requirement is the ceiling of 100% of the price, and it is
-///         released in full when the commitment closes.
+///         ADR-0022). Phase one encumbers no bond (T-346, ADR-0031 §8), so the hold is the only balance a deal keeps.
 contract PostingsFuzzTest is Base {
     address internal constant THIRD = address(0x7777);
 
@@ -30,16 +30,10 @@ contract PostingsFuzzTest is Base {
         t.fee = bound(fee, 0, 100_000_000);
         id = _fund(t);
         assertEq(_held(t), t.price + t.fee, "hold != price + fee");
-        assertEq(
-            bonds.encumberedOf(adjudicator, address(usdc)),
-            Money.requirement(t.price, Money.ALL_BPS),
-            "guaranteed requirement is not ceil(100% of price)"
-        );
     }
 
     function _closed(H.Terms memory t) internal view {
         assertEq(_held(t), 0, "hold not empty");
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), 0, "bond still encumbered");
     }
 
     function testFuzz_release(uint256 price, uint256 fee) public {
@@ -51,7 +45,6 @@ contract PostingsFuzzTest is Base {
         assertEq(s1.seller - s0.seller, t.price);
         assertEq(s1.adj - s0.adj, t.fee);
         assertEq(s1.buyer, s0.buyer);
-        // The decider's bond stays encumbered until the appeal window closes.
         assertEq(_held(t), 0);
     }
 
@@ -99,10 +92,11 @@ contract PostingsFuzzTest is Base {
         rules.triggerDefault(t);
         assertEq(_snap().buyer - s0.buyer, t.price + t.fee);
         _closed(t);
-        assertEq(bonds.encumberedOf(fallbackAdj, address(usdc)), 0);
     }
 
-    /// A random three-way split of the price; the fee share is 0 bps, so the whole fee is the buyer's remainder.
+    /// A random split of the price between the seller and the buyer, the buyer named twice; the fee share is 0 bps, so
+    /// the whole fee is the buyer's remainder. Since SC-3 (ADR-0031 §4) a settlement pays the parties only, so the
+    /// third address (THIRD) receives nothing.
     function testFuzz_mutualSettlement(uint256 price, uint256 fee, uint256 a, uint256 b) public {
         (H.Terms memory t, bytes32 id) = _fundedWith(price, fee);
         a = bound(a, 0, t.price);
@@ -112,7 +106,7 @@ contract PostingsFuzzTest is Base {
         m.payouts = new H.Payout[]((a > 0 ? 1 : 0) + (b > 0 ? 1 : 0) + (c > 0 ? 1 : 0));
         uint256 j;
         if (a > 0) m.payouts[j++] = H.Payout(seller, a);
-        if (b > 0) m.payouts[j++] = H.Payout(THIRD, b);
+        if (b > 0) m.payouts[j++] = H.Payout(buyer, b);
         if (c > 0) m.payouts[j++] = H.Payout(buyer, c);
         m.expiresAt = type(uint64).max;
         bytes32 h = hx.mutual(id, t.token, m);
@@ -122,10 +116,12 @@ contract PostingsFuzzTest is Base {
         Snap memory s0 = _snap();
         rules.mutualSettle(t, m, _noDelivery(), none);
         Snap memory s1 = _snap();
-        (uint256 share, uint256 rest) = Money.split(t.fee, rules.MUTUAL_FEE_SHARE_BPS());
+        // The rulebook is not on chain, so the fee share is the default of 0: the whole fee goes back to the buyer.
+        assertEq(rules.MUTUAL_FEE_SHARE_BPS(), 0, "the mutual fee share left 0");
+        (uint256 share, uint256 rest) = (0, t.fee);
         assertEq(s1.seller - s0.seller, a);
-        assertEq(s1.third - s0.third, b);
-        assertEq(s1.buyer - s0.buyer, c + rest);
+        assertEq(s1.third, s0.third, "a third address is never paid");
+        assertEq(s1.buyer - s0.buyer, b + c + rest);
         assertEq(s1.adj - s0.adj, share);
         _closed(t);
     }
@@ -143,7 +139,7 @@ contract PostingsFuzzTest is Base {
         m.buyerSignature = _sign(BUYER_PK, h);
         m.sellerSignature = _sign(SELLER_PK, h);
         H.KeyProof memory none;
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, m, _noDelivery(), none);
         assertEq(_held(t), t.price + t.fee);
     }

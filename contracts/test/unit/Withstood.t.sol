@@ -5,6 +5,7 @@ import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 import {MockERC3009Token} from "commerce-payments-test/mocks/MockERC3009Token.sol";
 import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -18,13 +19,21 @@ contract HookToken is MockERC3009Token {
         hook = h;
     }
 
+    /// T-356 (SC-3): a settlement pays the parties only, so the hook also fires when a watched party (the seller) is
+    /// paid, and the re-entry runs during a party's payout.
+    address public watched;
+
+    function setWatched(address w) external {
+        watched = w;
+    }
+
     function _afterTokenTransfer(address, address to, uint256) internal override {
-        if (to == hook && hook != address(0)) Reenterer(hook).onTokens();
+        if (hook != address(0) && (to == hook || (to == watched && watched != address(0)))) Reenterer(hook).onTokens();
     }
 }
 
-/// A mutual-settlement payee (needs no signature) that replays a prepared call into the rules contract or CPP while
-/// its payout is being transferred.
+/// The hook token's callee (needs no signature): it replays a prepared call into the rules contract or CPP while a
+/// payout it watches is being transferred (since SC-3, the seller's).
 contract Reenterer {
     address public target;
     bytes public payload;
@@ -58,38 +67,22 @@ contract WithstoodTest is Base {
         H.Decision memory primary = _primary(t, id, H.OUTCOME_ACCEPT); // signed, never submitted
         vm.warp(t.timing.judgeBy);
         rules.triggerFallback(t);
-        // Main nets one address's primary and fallback reservations into one (BondConsent.t.sol,
-        // test_samePrimaryAndFallback_fullyBooked_decidesWithOneReservation), so the address holds PRICE, not 2 * PRICE.
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), PRICE, "one netted reservation on one address");
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.decide(t, primary, _noDelivery(), "");
         // Re-labelled as a fallback decision with the primary's seed: the seed must be the beacon's.
         H.Decision memory relabelled = _decision(H.ROLE_FALLBACK, H.OUTCOME_ACCEPT);
         relabelled = _signDecision(t, id, relabelled, adjudicator, ADJ_PK);
-        vm.expectRevert(HoldbackRules.BadSeed.selector);
+        vm.expectRevert(IHoldbackRules.BadSeed.selector);
         rules.decide(t, relabelled, _noDelivery(), "");
-        // The honest fallback decision releases exactly one reservation and keeps one.
+        // The honest fallback decision settles.
         H.Decision memory m = _beaconDecision(id, H.ROLE_FALLBACK, H.OUTCOME_ACCEPT, t.timing.judgeBy);
         m = _signDecision(t, id, m, adjudicator, ADJ_PK);
         rules.decide(t, m, _noDelivery(), "");
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), PRICE);
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Released));
     }
 
-    /// A relayer cannot swap the funding method: the collector signature is bound to its own domain.
-    function test_defense_funding_method_swap_refused() public {
-        H.Terms memory t = _terms();
-        H.Funding memory f = _erc3009(t, BUYER_PK);
-        f.method = 1; // claim it is a Permit2 signature
-        vm.prank(buyer);
-        usdc.approve(permit2, type(uint256).max);
-        bytes memory s = _sellerSig(t, SELLER_PK);
-        H.Acceptance memory a = _acceptance(t, ADJ_PK);
-        H.Agree memory g = _agree(t, BUYER_PK);
-        vm.expectRevert();
-        rules.agreeAndFund(t, s, a, g, f);
-    }
-
-    /// A mutual payout to the zero address reverts the whole settlement (CPP ZeroFeeReceiver): nothing is lost.
+    /// A mutual payout to the zero address reverts the whole settlement: nothing is lost. Since SC-3 the rules
+    /// contract refuses it itself, as a payout to neither party, before CPP's ZeroFeeReceiver could.
     function test_defense_mutual_payout_to_zero_address_reverts() public {
         (H.Terms memory t, bytes32 id) = _funded();
         H.Payout[] memory p = new H.Payout[](2);
@@ -98,43 +91,45 @@ contract WithstoodTest is Base {
         H.Mutual memory m = _mutual(t, id, p);
         H.Delivery memory none;
         H.KeyProof memory k;
-        vm.expectRevert(AuthCaptureEscrow.ZeroFeeReceiver.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, m, none, k);
         assertEq(_held(t), PRICE + FEE);
     }
 
-    /// Info, not a defense (D31, D32): the buyer and the seller co-sign a payout to the rules contract itself, the
-    /// contract accepts it, and no function can move those tokens again. The parties own that choice, so the contract
-    /// stays as it is; this test pins the behaviour so a change to it is deliberate.
-    function test_info_mutual_payout_to_rules_strands_tokens() public {
+    /// Before SC-3 the buyer and the seller could co-sign a payout to the rules contract itself, and no function could
+    /// move those tokens again (an Info this test pinned). Since SC-3 that payout is to neither party and is refused:
+    /// nothing is stranded.
+    function test_mutual_payout_to_rules_isRefused() public {
         (H.Terms memory t, bytes32 id) = _funded();
         H.Payout[] memory p = new H.Payout[](1);
         p[0] = H.Payout(address(rules), PRICE);
         H.Mutual memory m = _mutual(t, id, p);
         H.Delivery memory none;
         H.KeyProof memory k;
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, m, none, k);
-        assertEq(usdc.balanceOf(address(rules)), PRICE, "no function can move these again");
+        assertEq(usdc.balanceOf(address(rules)), 0, "nothing stranded");
+        assertEq(_held(t), PRICE + FEE);
     }
 
-    /// Reentrancy through a hook token: the payee of a mutual settlement re-enters during its payout. The deal is
-    /// already Settled (effects before interactions) and CPP's transient guard refuses nested operator calls.
+    /// Reentrancy through a hook token: a call re-enters while a mutual settlement pays the seller. The deal is
+    /// already Settled (effects before interactions) and CPP's transient guard refuses nested operator calls. Since
+    /// SC-1 a deployment serves one token and assumes it has no hook (ADR-0031 §2); this test deploys one for a hook
+    /// token anyway, so the ordering defense stays proven if that assumption is ever broken. Since SC-3 the payee is a
+    /// party (the seller), not a third address.
     function test_defense_reentrant_payee_cannot_move_funds_again() public {
         HookToken hook = new HookToken();
         Reenterer r = new Reenterer();
         hook.setHook(address(r));
+        hook.setWatched(seller);
         hook.mint(buyer, 1_000_000_000);
-        hook.mint(adjudicator, BOND);
-        vm.startPrank(adjudicator);
-        hook.approve(address(bonds), BOND);
-        bonds.deposit(address(hook), BOND);
-        vm.stopPrank();
+        rules = new HoldbackRules(escrow, address(collector3009), MARGIN, sim, address(hook), _beaconMargin());
 
         H.Terms memory t = _terms();
         t.token = address(hook);
         bytes32 id = _fund(t);
         H.Payout[] memory p = new H.Payout[](2);
-        p[0] = H.Payout(address(r), 1_000_000);
+        p[0] = H.Payout(seller, 1_000_000);
         p[1] = H.Payout(buyer, PRICE - 1_000_000);
         H.Mutual memory m = _mutual(t, id, p);
         H.Delivery memory none;
@@ -145,8 +140,8 @@ contract WithstoodTest is Base {
         rules.mutualSettle(t, m, none, k);
         assertTrue(r.called(), "the hook fired during the payout");
         assertFalse(r.succeeded(), "the nested settlement was refused");
-        assertEq(bytes4(r.revertData()), HoldbackRules.WrongStage.selector);
-        assertEq(hook.balanceOf(address(r)), 1_000_000, "paid exactly once");
+        assertEq(bytes4(r.revertData()), IHoldbackRules.WrongStage.selector);
+        assertEq(hook.balanceOf(seller), 1_000_000, "paid exactly once");
         assertEq(hook.balanceOf(escrow.getTokenStore(address(rules))), 0);
 
         // 2. Re-enter CPP directly with the operator's PaymentInfo, on a fresh deal: CPP's transient reentrancy
@@ -172,20 +167,11 @@ contract WithstoodTest is Base {
         H.Agree memory g = _agree(t, BUYER_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
         HoldbackRules other =
-            new HoldbackRules(escrow, address(collector3009), address(collectorPermit2), MARGIN, sim);
-        _bondOn(other, adjudicator, BOND);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+            new HoldbackRules(escrow, address(collector3009), MARGIN, sim, address(usdc), _beaconMargin());
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         other.agreeAndFund(t, s, a, g, f);
         // The genuine deployment still accepts the same messages.
         rules.agreeAndFund(t, s, a, g, f);
-    }
-
-    function _bondOn(HoldbackRules r, address a, uint256 amount) internal {
-        usdc.mint(a, amount);
-        vm.startPrank(a);
-        usdc.approve(address(r.BONDS()), amount);
-        r.BONDS().deposit(address(usdc), amount);
-        vm.stopPrank();
     }
 
     /// A zero-address role can never sign: Solady's checker returns false for signer 0, so a deal that names no
@@ -197,14 +183,13 @@ contract WithstoodTest is Base {
         _deliver(t, id);
         vm.warp(t.timing.judgeBy);
         rules.triggerFallback(t);
-        assertEq(rules.dealOf(id).flags & 2, 0, "nothing encumbered on address(0)");
         H.Decision memory m = _beaconDecision(id, H.ROLE_FALLBACK, H.OUTCOME_ACCEPT, t.timing.judgeBy);
         m = _signDecision(t, id, m, address(0), OTHER_PK);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.decide(t, m, _noDelivery(), "");
         vm.warp(t.timing.fallbackBy);
         rules.triggerDefault(t);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
     }
 
     function _mutual(H.Terms memory t, bytes32 id, H.Payout[] memory p) internal view returns (H.Mutual memory m) {

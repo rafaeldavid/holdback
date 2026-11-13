@@ -35,9 +35,9 @@ const commitment = parsed.value;
 const terms = termsOf(commitment);
 
 // Pinned vectors. A change here changes every commitment ID and signature in the system: it needs an ADR.
-const EXAMPLE_TERMS_ID = '0xa810f6f37f0e3184a03db60650490d9b4895a4ce565213c147fb538d0cc39ffb';
+const EXAMPLE_TERMS_ID = '0x98d5f840beb84a65e44f7a50703c14d6294e1d8b94882a4b54791d087d257800';
 const EXAMPLE_TERMS_SELLER_SIGNATURE =
-  '0xec205647d7103338e7ea7eea9c10f95a3be71a4582c590a4a84b3e97922c0157780b069dfc4c79618bcbc4a1b9bdd33cc650f51bb48a007a99a981d51ff6ed601b';
+  '0xbde851ba8e0c6a619d75c992eed01e6e337adf737945062f51065f130d4979161cf90c3c53772ee3777359ad190b47eca628a6baecbebdb3ec8309219d67aea01c';
 
 // Distributes over unions, so removing `signature` from a SignedMessage keeps each variant.
 function without<T extends object, K extends keyof T>(obj: T, key: K): T extends unknown ? Omit<T, K> : never {
@@ -228,7 +228,7 @@ describe('message signatures', () => {
     const domainSeparator = keccak256(
       encodeAbiParameters(
         [{ type: 'bytes32' }, { type: 'bytes32' }, { type: 'bytes32' }, { type: 'uint256' }, { type: 'address' }],
-        [hashType('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)'), hashType('Holdback'), hashType('0.7'), 31337n, SIMCHAIN_VERIFYING_CONTRACT],
+        [hashType('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)'), hashType('Holdback'), hashType('0.8'), 31337n, SIMCHAIN_VERIFYING_CONTRACT],
       ),
     );
     const structHash = keccak256(

@@ -1,12 +1,11 @@
 // Contract reverts as the problem types SimChain returns (docs/api.md). The mapping is by error name, so a revert
-// from HoldbackRules, HoldbackBonds, CPP or the token reads the same to an agent on either backend.
+// from HoldbackRules, CPP or the token reads the same to an agent on either backend.
 import { problem, type Problem, type ProblemType } from '@holdback/core';
 import { decodeErrorResult, type Abi, type Hex } from 'viem';
 
 const BY_NAME: Record<string, ProblemType> = {
   // HoldbackRules
   WrongStage: 'invalid_state',
-  WrongAppealState: 'invalid_state',
   TooEarly: 'invalid_state', // core: a timeout before its deadline is invalid_state
   BadSignature: 'invalid_signature',
   DeadlinePassed: 'deadline_passed',
@@ -15,11 +14,6 @@ const BY_NAME: Record<string, ProblemType> = {
   InvalidMessage: 'invalid_terms',
   BadKeyProof: 'invalid_terms',
   BadSeed: 'seed_mismatch',
-  // HoldbackBonds
-  InsufficientFreeBond: 'coverage_exceeded',
-  AppealBondTooLarge: 'invalid_terms',
-  AppealBondExists: 'invalid_state',
-  NotRules: 'invalid_state',
   // ERC-20 (solady)
   InsufficientBalance: 'insufficient_funds',
   InsufficientAllowance: 'insufficient_funds',

@@ -54,7 +54,7 @@ describe.skipIf(!ready)(`the operators send due timeouts on their own in the pub
         price: { token: usdc, amount: PRICE },
         deliverable: DATASET,
         checks: CHECKS,
-        timing: { judgeWithinSec: 5, fallbackWithinSec: 5, appealWindowSec: 5, appealDecideSec: 5, ...timing },
+        timing: { judgeWithinSec: 5, fallbackWithinSec: 5, appealWindowSec: 0, appealDecideSec: 5, ...timing },
       });
       // An offer the demo primary accepts and nobody funds.
       const unfunded = await seller.agent.offer(terms({ offerExpiresInSec: 20, fundWithinSec: 30, deliverWithinSec: 40 }));
@@ -74,22 +74,23 @@ describe.skipIf(!ready)(`the operators send due timeouts on their own in the pub
       const at = (id: string) => Date.parse(evm.log().filter((e) => e.commitmentId === id).at(-1)!.at);
       expect(at(unfunded.id)).toBeGreaterThanOrEqual(Date.parse(unfunded.terms.timing.offerExpiresAt) + 60_000);
       expect(at(undelivered.id)).toBeGreaterThanOrEqual(Date.parse(undelivered.terms.timing.deliverBy) + 60_000);
-      expect((await evm.stage(unfunded.id as Hex)).stage).toBe('Expired');
+      // ADR-0031 §7 (SC-6): the offer's expiry is node 1's own record; the contract still holds it as None.
+      expect((await evm.stage(unfunded.id as Hex)).stage).toBe('None');
       expect((await evm.stage(undelivered.id as Hex)).stage).toBe('Refunded');
       expect(await evm.tokenBalance(buyer.agent.address, true)).toBe(before + held);
-      // Node 1's relay sent each, from the deal's relayer lane; neither party ever held test ETH.
+      // Node 1 marked the expiry and sent the reclaim, from the deal's relayer lane; neither party ever held test ETH.
       const last = (id: string) => evm.log().filter((e) => e.commitmentId === id).at(-1)!;
       expect(last(unfunded.id)).toMatchObject({ type: 'offer.expired', submittedVia: 'demo-op-1' });
       expect(last(undelivered.id)).toMatchObject({ type: 'settlement.reclaimed', submittedVia: 'demo-op-1' });
-      for (const id of [unfunded.id, undelivered.id]) {
-        const tx = evm.transactions().filter((t) => t.commitmentId === id).at(-1)!;
-        expect([lc(tx.from), tx.via]).toEqual([lc(evm.world.senderFor(id as Hex)), 'demo-op-1']);
-      }
+      expect(evm.transactions().filter((t) => t.commitmentId === unfunded.id)).toEqual([]);
+      const tx = evm.transactions().filter((t) => t.commitmentId === undelivered.id).at(-1)!;
+      expect([lc(tx.from), tx.via]).toEqual([lc(evm.world.senderFor(undelivered.id as Hex)), 'demo-op-1']);
       for (const a of [buyer.agent, seller.agent]) expect(await evm.world.publicClient.getTransactionCount({ address: a.address as Hex })).toBe(0);
-      // Counted: the day's budget row, written before each send, and the day's telemetry.
+      // Counted: the day's budget row, written before each send, and the day's telemetry. The expiry costs nothing.
       const day = new Date().toISOString().slice(0, 10);
-      expect(await storage.get(`ot:${day}`)).toEqual({ sent: 2, offers: 1 });
-      expect(world.telemetry.usage()).toMatchObject({ timeouts: { expire_offer: 1, reclaim: 1 } });
+      expect(await storage.get(`ot:${day}`)).toEqual({ sent: 1, offers: 0 });
+      expect(world.telemetry.usage()).toMatchObject({ timeouts: { reclaim: 1 } });
+      expect(world.telemetry.usage().timeouts?.['expire_offer'] ?? 0).toBe(0);
       // Nothing is left to send, and no alarm is due for a timeout.
       for (let i = 0; i < 20 && (world.lastTimeouts()?.sent.length ?? 0) > 0; i++) await sleep(250);
       expect(world.lastTimeouts()).toMatchObject({ sent: [], refused: [] });

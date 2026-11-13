@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { adjudicatorTyped, RoundAdjudicator, type Script } from './e2e-adjudicator.ts';
 import { roundEncryptionKey, roundKey } from './e2e-keys.ts';
 import { BAD_CSV, CHECKS, CSV, DATASET, PRICE } from './e2e-scenario-kit.ts';
-import { buyerOpens, deliver, finish, fund, logsOf, offer, openDeal, Round, Run, sleep, until, type Deal } from './e2e-run.ts';
+import { buyerOpens, deliver, eventsOf, finish, fund, logsOf, offer, openDeal, Round, Run, sleep, until, type Deal } from './e2e-run.ts';
 import { ANVIL_SKIP, anvilReady, anvilWorld, root, simWorld, type AnvilWorld, type Served } from './e2e-world.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -45,7 +45,7 @@ async function served<T>(r: Run, a: RoundAdjudicator, script: Script, f: () => P
 describe('adjudicatorTyped', () => {
   it('hashes an acceptance, decisions and a registration as core does', async () => {
     const core = await import(pathToFileURL(createRequire(join(root, 'apps/operator/package.json')).resolve('@holdback/core')).href);
-    const domain = { name: 'Holdback' as const, version: '0.7', chainId: 11155111, verifyingContract: '0xf38287e5c5c1f20c6d03be500edbf8a244f27cfa' as Hex };
+    const domain = { name: 'Holdback' as const, version: '0.8', chainId: 11155111, verifyingContract: '0xf38287e5c5c1f20c6d03be500edbf8a244f27cfa' as Hex };
     const h = (c: string) => `0x${c.repeat(64)}` as Hex;
     const asset = '0x2c6fa6f2ad3b2b44fb4c2e4d2a3e3cfcf96ae3a8';
     const me = '0x5d10fecab9242e66cb134b77309a3566ed75e3dd';
@@ -89,8 +89,6 @@ describe('against the demo world on SimChain', () => {
     await RoundAdjudicator.ready(later, 'adjudicator-1');
     expect(posts()).toBe(1);
     expect(lines.join('\n')).toMatch(/adjudicator-1 0x\w+…\w+: its registration is in place .*; reused/);
-    // No bond on SimChain: it can be an appeal adjudicator here, not a bonded primary or fallback.
-    await expect(a.bond(r, 1n)).rejects.toThrow(/SimChain: the round's adjudicator-1 cannot bond at run time/);
     expect(lines.join('\n')).not.toContain(roundKey(seed, 'adjudicator-1').slice(2));
   }, 60_000);
 
@@ -160,16 +158,14 @@ describe.skipIf(!anvilReady)(`against the demo world on anvil${ANVIL_SKIP}`, () 
     await world?.close();
   });
 
-  it('bonds from its own key once, and a later run reuses the bond without a transaction', async () => {
+  it('registers with no bond on the phase-one contracts (ADR-0031 §8): no transaction from its key, now or on a later run', async () => {
     const chain = r.round.chain!;
-    const bond = 3n * BigInt(PRICE);
-    a = await RoundAdjudicator.ready(r, 'adjudicator-1', { bond });
-    expect(BigInt((await chain.holdings([a.address]))[a.address]!.free)).toBe(bond);
-    expect(r.notes.join('\n')).toMatch(/adjudicator-1 0x\w+…\w+ bonded 75 tUSDC in HoldbackBonds from its own key: approve \S+ \(\d+ gas\), deposit \S+ \(\d+ gas\)/);
-    const sent = await chain.client.getTransactionCount({ address: a.address as Hex });
+    a = await RoundAdjudicator.ready(r, 'adjudicator-1');
+    expect((await chain.holdings([a.address]))[a.address]).toMatchObject({ bond: '0', free: '0' });
+    expect(await chain.client.getTransactionCount({ address: a.address as Hex })).toBe(0);
     const later = await runOn(world.urls, seed, world.rpcUrl, lines);
-    await RoundAdjudicator.ready(later, 'adjudicator-1', { bond });
-    expect(await chain.client.getTransactionCount({ address: a.address as Hex })).toBe(sent);
+    await RoundAdjudicator.ready(later, 'adjudicator-1');
+    expect(await chain.client.getTransactionCount({ address: a.address as Hex })).toBe(0);
     expect(later.notes).toEqual([]);
   }, 180_000);
 
@@ -183,6 +179,9 @@ describe.skipIf(!anvilReady)(`against the demo world on anvil${ANVIL_SKIP}`, () 
     });
     expect(reject.value.record.chain?.stage, lines.join('\n')).toBe('Refunded');
     expect(decided(reject.value)).toEqual([a.address]);
+    // Its acceptance reserved no bond, which the contract requires before it funds (ADR-0031 §8).
+    const accepted = (await eventsOf(reject.value.buyer, reject.value.id, reject.value.buyer.sources()[0]!)).find((e) => e.type === 'adjudicator.accepted');
+    expect(accepted?.payload?.bondRequired).toMatchObject({ amount: '0' });
     const accept = await served(r, a, { decide: 'accept' }, async () => {
       const deal = await dealWith(r, a, PRICE, BAD_CSV);
       await until(r, deal.buyer, deal.id, ['Released', 'Refunded'], 120_000);

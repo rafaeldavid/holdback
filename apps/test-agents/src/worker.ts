@@ -4,6 +4,7 @@
 // any is open. Both reach the operators over their public API like any agent (seller.ts, buyer.ts). Test tokens
 // only: they sign for the pinned Sepolia deployment and nothing else, and refuse to start without their Sepolia-only
 // secret.
+import { SEPOLIA } from '../../../examples/deployments.ts';
 import { knownPins, type Pin } from '../../../examples/verify.ts';
 import { prefixed, TestBuyer } from './buyer.ts';
 import { SEED_VAR } from './keys.ts';
@@ -36,8 +37,11 @@ export interface Env {
   TEST_AGENTS_SEED?: string;
 }
 
-/** Bump to start fresh storage. The seller's keys stay: they derive from TEST_AGENTS_SEED alone. */
-const OBJECT_NAME = 'crow-test-agents-sepolia-2026-11-04';
+/**
+ * Fresh storage for each deployment: the name is the pinned record's rules address (T-383), so a new record is a new
+ * object with no second edit. The seller's keys stay: they derive from TEST_AGENTS_SEED alone.
+ */
+const OBJECT_NAME = `crow-test-agents-sepolia-${(SEPOLIA?.rules ?? 'unpinned').toLowerCase()}`;
 const CLIENT = 'x-crow-test-agents-client';
 const SEPOLIA_CHAIN_ID = 11155111;
 

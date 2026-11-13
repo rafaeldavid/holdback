@@ -2,13 +2,13 @@ import { readFileSync } from 'node:fs';
 import { keccak256, type Hex } from 'viem';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { DRAND_QUICKNET_CHAIN_HASH } from './beacon.js';
+import { DRAND_QUICKNET, DRAND_QUICKNET_CHAIN_HASH, roundAfter } from './beacon.js';
 import { rulebookHash } from './canonical.js';
 import { commitmentId, deliveryHash, termsOf } from './eip712.js';
 import type { TokenAmount } from './money/index.js';
 import { parseAppeal, parseClub, parseCommitment, parseDelivery, parseMessage } from './parse.js';
 import { PROBLEM_TYPES, type ProblemType } from './problem.js';
-import { beaconRoundFor, offer, panelSeed, postedDeliveryHash, step, type EscrowEvent, type EscrowState, type OfferInput } from './state.js';
+import { APPEAL_WINDOW_PROBLEM, HOLD_TOO_LARGE_PROBLEM, MAX_HOLD, beaconRoundFor, offer, panelSeed, postedDeliveryHash, step, type EscrowEvent, type EscrowState, type OfferInput } from './state.js';
 import type { AdjudicatorAcceptance, Agree, Appeal, Commitment, CommitmentTerms, Decision, Delivery, EarlyAccept, FundingAuthorization, MutualSettlement, Rulebook, Scope } from './types.js';
 
 function load(file: string): unknown {
@@ -23,10 +23,14 @@ const SIG: Hex = `0x${'ab'.repeat(65)}`;
 const ZERO32: Hex = `0x${'00'.repeat(32)}`;
 const tusd = (amount: string): TokenAmount => ({ token: 'tUSD', amount: amount as TokenAmount['amount'] });
 
-// The example's hashes are placeholders, so derive a self-consistent commitment from its terms.
+// The example's hashes are placeholders, so derive a self-consistent commitment from its terms. The example names a
+// payout address apart from its seller (ADR-0033); these tests keep both money addresses equal to the signing
+// addresses unless a test sets them apart ('two money addresses' below). The example states an appeal window of 0, as
+// phase one requires; these tests run the full protocol's party appeals, so they give it 300 s unless a test says.
 const rulebook = parsedClub.value.rulebook;
 function commitmentFor(rb: Rulebook, patch: Partial<CommitmentTerms> = {}): Commitment {
-  const t = { ...termsOf(exampleCommitment), ...patch, rulebookHash: rulebookHash(rb) };
+  const base = termsOf(exampleCommitment);
+  const t = { ...base, buyerPaymentAddress: base.buyer, sellerPayoutAddress: base.seller, timing: { ...base.timing, appealWindowSec: 300 }, ...patch, rulebookHash: rulebookHash(rb) };
   return { ...t, id: commitmentId(t), signatures: { seller: SIG } };
 }
 const commitment = commitmentFor(rulebook);
@@ -307,6 +311,76 @@ describe('offer', () => {
     ['a private disclosure level in Phase 1', withRulebook(rulebook, { disclosure: { level: 'private' } as never }), 'invalid_terms'],
   ])('refuses %s', (_name, over, type) => {
     expect(offer(offerInput(over))).toMatchObject({ ok: false, error: { type } });
+  });
+
+  // T-356 (SC-5, ADR-0031 §6): on the phase-one profile the offer is refused for what the contracts refuse at funding.
+  const zero = (amount: string) => ({ token: 'tUSD', amount }) as TokenAmount;
+  const phaseOne = (patch: Partial<CommitmentTerms>, rb: Rulebook = rulebook): OfferInput => offerInput({ ...withRulebook(rb, { timing: exampleCommitment.timing, ...patch }), profile: 'phase_one' });
+  it.each<[string, OfferInput, RegExp]>([
+    ['price and fee both 0, the deal holding nothing', phaseOne({ price: zero('0'), adjudication: { ...exampleCommitment.adjudication, fee: zero('0') } }), /both 0.*ZeroAmount/],
+    ['an escalation window of 0', phaseOne({ timing: { ...exampleCommitment.timing, appealDecideSec: 0 } }, { ...rulebook, minWindowsSec: { ...rulebook.minWindowsSec, appealDecide: 0 } }), /appealDecideSec must be at least 1/],
+    ['maxSubmissions other than 1', phaseOne({ timing: { ...exampleCommitment.timing, maxSubmissions: 2 as never } }, { ...rulebook, maxSubmissions: 3 }), /take one delivery/],
+  ])('phase one refuses %s', (_name, input, detail) => {
+    const r = offer(input);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.type).toBe('invalid_terms');
+      expect(r.error.detail).toMatch(detail);
+    }
+  });
+
+  // T-358 (ADR-0033 §2b): phase one has no party appeal, so its terms state an appeal window of 0, whatever the
+  // rulebook's minimum. The contract (StrictTerms.t.sol) and the prepare routes refuse with the same reason.
+  it.each([1, 300, 2 ** 32])('phase one refuses an appeal window of %i s with APPEAL_WINDOW_PROBLEM', (sec) => {
+    const r = offer(phaseOne({ timing: { ...exampleCommitment.timing, appealWindowSec: sec } }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatchObject({ type: 'invalid_terms', detail: APPEAL_WINDOW_PROBLEM });
+  });
+
+  it('phase one takes an appeal window of 0 under a rulebook whose minimum is 300 s; the full protocol keeps the minimum', () => {
+    const strict = { ...rulebook, minWindowsSec: { ...rulebook.minWindowsSec, appealWindow: 300 } };
+    const zero = { timing: { ...exampleCommitment.timing, appealWindowSec: 0 } };
+    expect(offer(phaseOne(zero, strict)).ok).toBe(true);
+    expect(offer(offerInput(withRulebook(strict, zero)))).toMatchObject({ ok: false, error: { type: 'invalid_terms' } });
+    expect(offer(offerInput(withRulebook(strict, { timing: { ...exampleCommitment.timing, appealWindowSec: 300 } }))).ok).toBe(true);
+  });
+
+  // T-380 (R8 fix 3): core and the contract refuse the same values at the same bounds, each only because it cannot
+  // represent them (D31). The contract's side is contracts/test/unit/Unrepresentable.t.sol, value for value.
+  describe('the bounds core and the contract share (T-380)', () => {
+    const fee = BigInt(exampleCommitment.adjudication.fee.amount);
+    const priced = (hold: bigint) => phaseOne({ price: zero((hold - fee).toString()) });
+    const wide = { ...scope(['seller']), maxPerCommitment: zero((2n ** 256n - 1n).toString()), maxDaily: zero((2n ** 256n - 1n).toString()) };
+    it('phase one takes a hold of 2^120 − 1 and refuses 2^120 with HOLD_TOO_LARGE_PROBLEM; the full protocol takes both', () => {
+      expect(offer({ ...priced(MAX_HOLD), sellerScope: wide })).toMatchObject({ ok: true });
+      expect(offer({ ...priced(MAX_HOLD + 1n), sellerScope: wide })).toMatchObject({ ok: false, error: { type: 'invalid_terms', detail: HOLD_TOO_LARGE_PROBLEM } });
+      expect(offer({ ...priced(MAX_HOLD + 1n), sellerScope: wide, profile: 'full' }).ok).toBe(true);
+    });
+    const parsed = (timing: Partial<CommitmentTerms['timing']>) => {
+      const json = structuredClone(exampleCommitment) as unknown as { timing: Record<string, unknown> };
+      Object.assign(json.timing, timing);
+      return parseCommitment(json);
+    };
+    it('parses an escalation window of 2^32 − 1 s and refuses 2^32 s', () => {
+      expect(parsed({ appealDecideSec: 2 ** 32 - 1 }).ok).toBe(true);
+      expect(parsed({ appealDecideSec: 2 ** 32 })).toMatchObject({ ok: false, error: { type: 'invalid_terms' } });
+    });
+    // The last instant RFC 3339 can state is 9999-12-31T23:59:59-23:59 (a four-digit year, the largest offset): the
+    // contract's LAST_TIMESTAMP. No RFC 3339 string names a later second, so core cannot carry one (T-380 review).
+    it('parses a fallbackBy at the last RFC 3339 instant, 253,402,387,139 s, and refuses a later year', () => {
+      expect(parsed({ fallbackBy: '9999-12-31T23:59:59-23:59' }).ok).toBe(true);
+      expect(Date.parse('9999-12-31T23:59:59-23:59') / 1000).toBe(253_402_387_139);
+      expect(parsed({ fallbackBy: '9999-12-31T23:59:59-00:01' }).ok).toBe(true);
+      expect(parsed({ fallbackBy: '9999-12-31T23:59:59Z' }).ok).toBe(true);
+      expect(parsed({ fallbackBy: '+010000-01-01T00:00:00Z' })).toMatchObject({ ok: false, error: { type: 'invalid_terms' } });
+      expect(parsed({ fallbackBy: '10000-01-01T00:00:00Z' })).toMatchObject({ ok: false, error: { type: 'invalid_terms' } });
+    });
+  });
+
+  it('phase one takes a zero price with a fee above 0, and the full protocol takes a deal that holds nothing', () => {
+    expect(offer(phaseOne({ price: zero('0') })).ok).toBe(true);
+    const nothing = { price: zero('0'), adjudication: { ...exampleCommitment.adjudication, fee: zero('0') } };
+    expect(offer(offerInput(withRulebook(rulebook, nothing))).ok).toBe(true);
   });
 });
 
@@ -714,7 +788,8 @@ describe('beacon rounds on the clock the rulebook names (ADR-0018 §6, T-217)', 
   });
 
   it('counts the fallback and appeal rounds on the quicknet clock, and the sim rounds as before', () => {
-    expect(beaconRoundFor(run(toFallback, drandOffered()), 'fallback')).toBe(roundAt(secondsOf(T.judgeBy)));
+    // ADR-0032: the fallback's round is the first published at or after judgeBy, roundAt(judgeBy − 1) + 1.
+    expect(beaconRoundFor(run(toFallback, drandOffered()), 'fallback')).toBe(roundAt(secondsOf(T.judgeBy) - 1) + 1);
     expect(beaconRoundFor(run(toEscalated, drandOffered()), 'appeal')).toBe(roundAt(secondsOf(escalatedAt)) + 1);
     expect(beaconRoundFor(run(toAppealOpen, drandOffered()), 'appeal')).toBe(roundAt(secondsOf(T.appealFiled)) + 1);
     expect(beaconRoundFor(run(toFallback), 'fallback')).toBe(secondsOf(T.judgeBy));
@@ -735,7 +810,7 @@ describe('beacon rounds on the clock the rulebook names (ADR-0018 §6, T-217)', 
   ])('agrees with DrandQuicknetBeacon.roundAt at %s', (_name, t) => {
     const fallback = run(toFallback, drandOffered());
     if (fallback.kind !== 'FallbackJudging') throw new Error('setup');
-    expect(beaconRoundFor({ ...fallback, terms: { ...fallback.terms, timing: { ...fallback.terms.timing, judgeBy: atSecond(t) } } }, 'fallback')).toBe(roundAt(t));
+    expect(beaconRoundFor({ ...fallback, terms: { ...fallback.terms, timing: { ...fallback.terms.timing, judgeBy: atSecond(t) } } }, 'fallback')).toBe(roundAt(Math.max(0, t - 1)) + 1);
     const escalated = run(toEscalated, drandOffered());
     if (escalated.kind !== 'Escalated') throw new Error('setup');
     expect(beaconRoundFor({ ...escalated, escalation: { ...escalated.escalation, at: atSecond(t) } }, 'appeal')).toBe(roundAt(t) + 1);
@@ -750,10 +825,63 @@ describe('beacon rounds on the clock the rulebook names (ADR-0018 §6, T-217)', 
       const value = testBeacon(round);
       return { type: 'decide', at: T.fallbackDecide, message: decision('fallback', 'accept', { seed: panelSeed(id, 'fallback', 1, value), beacon: { source: 'drand-quicknet', round, value, signature: `0x${'8f'.repeat(48)}` } }), beacon: { round, value } };
     };
-    const ok = step(s, withRound(roundAt(secondsOf(T.judgeBy))));
+    const ok = step(s, withRound(roundAt(secondsOf(T.judgeBy) - 1) + 1));
     expect(ok.ok ? ok.value.kind : ok.error.type).toBe('Released');
     const sim = step(s, withRound(secondsOf(T.judgeBy)));
     expect(sim.ok ? sim.value.kind : sim.error.type).toBe('seed_mismatch');
+  });
+});
+
+// ADR-0032 (T-380): the panel round is taken BEACON_MARGIN seconds after the last choice, as the rules contract's
+// `_roundAfter` takes it: roundAt(lastChoice + margin) + 1, with lastChoice = judgeBy − 1 for the fallback and the
+// escalation's (or the filing's) second for the appeal adjudicator.
+describe('the beacon margin (ADR-0032)', () => {
+  const drandOffered = (): EscrowState => ({ ...offered(), beaconSource: 'drand-quicknet' });
+  const G = 1692803367;
+  const roundAt = (t: number): number => (t < G ? 0 : Math.floor((t - G) / 3) + 1);
+  const published = (r: number): number => G + (r - 1) * 3;
+
+  it('adds the margin to both rounds, on the drand clock and the sim clock', () => {
+    for (const margin of [0, 29]) {
+      expect(beaconRoundFor(run(toFallback, drandOffered()), 'fallback', margin)).toBe(roundAt(secondsOf(T.judgeBy) - 1 + margin) + 1);
+      expect(beaconRoundFor(run(toEscalated, drandOffered()), 'appeal', margin)).toBe(roundAt(secondsOf(escalatedAt) + margin) + 1);
+      expect(beaconRoundFor(run(toFallback), 'fallback', margin)).toBe(secondsOf(T.judgeBy) + margin);
+      expect(beaconRoundFor(run(toEscalated), 'appeal', margin)).toBe(secondsOf(escalatedAt) + margin + 1);
+    }
+  });
+
+  it('publishes the round between margin + 1 and margin + 3 seconds after the last choice, for 300 seconds of drand clock', () => {
+    for (let t = 1_790_000_000; t < 1_790_000_300; t++) {
+      const r = roundAfter(DRAND_QUICKNET, t, 29);
+      expect(published(r) - t).toBeGreaterThanOrEqual(30);
+      expect(published(r) - t).toBeLessThanOrEqual(32);
+      expect(published(r - 1)).toBeLessThanOrEqual(t + 29);
+    }
+  });
+
+  it("names ADR-0032's rounds: the escalation at 1,790,000,000 s and the fallback at judgeBy 1,790,172,800 s", () => {
+    expect(roundAfter(DRAND_QUICKNET, 1_790_000_000, 29)).toBe(32_398_889);
+    expect(roundAfter(DRAND_QUICKNET, 1_790_172_800 - 1, 29)).toBe(32_456_489);
+    expect(roundAfter(DRAND_QUICKNET, 1_790_000_000, 0)).toBe(32_398_879);
+    expect(roundAfter(DRAND_QUICKNET, 1_790_172_800 - 1, 0)).toBe(32_456_479);
+  });
+
+  it('steps a fallback decision for the margin round, and refuses the round without the margin', () => {
+    const s = run(toFallback, drandOffered());
+    const withRound = (round: number): EscrowEvent => {
+      const value = testBeacon(round);
+      return { type: 'decide', at: T.fallbackDecide, message: decision('fallback', 'accept', { seed: panelSeed(id, 'fallback', 1, value), beacon: { source: 'drand-quicknet', round, value, signature: `0x${'8f'.repeat(48)}` } }), beacon: { round, value } };
+    };
+    const margined = roundAt(secondsOf(T.judgeBy) - 1 + 29) + 1;
+    const ok = step(s, withRound(margined), 'phase_one', 29);
+    expect(ok.ok ? ok.value.kind : ok.error.type).toBe('Released');
+    const bare = step(s, withRound(roundAt(secondsOf(T.judgeBy) - 1) + 1), 'phase_one', 29);
+    expect(bare.ok ? bare.value.kind : bare.error.type).toBe('seed_mismatch');
+  });
+
+  it('refuses a margin that is not whole non-negative seconds', () => {
+    expect(() => roundAfter(DRAND_QUICKNET, 1_790_000_000, -1)).toThrow(RangeError);
+    expect(() => roundAfter(DRAND_QUICKNET, 1_790_000_000, 0.5)).toThrow(RangeError);
   });
 });
 
@@ -799,7 +927,6 @@ describe('mutual settlement (ADR-0019, D23 payouts)', () => {
   });
 
   it.each<[string, EscrowEvent[], EscrowEvent, ProblemType]>([
-    ['a delivery hash while Held', toHeld, ev.mutual(T.deliver, { deliveryHash: dh }), 'invalid_terms'],
     ['releasing a key that does not exist yet', toHeld, ev.mutual(T.deliver, { releaseKey: true }), 'invalid_terms'],
     ['a stale delivery hash', toDelivered, ev.mutual(T.decide, { deliveryHash: ZERO32 }), 'invalid_terms'],
     ['a null delivery hash after delivery', toDelivered, ev.mutual(T.decide), 'invalid_terms'],
@@ -820,6 +947,56 @@ describe('mutual settlement (ADR-0019, D23 payouts)', () => {
   ])('refuses %s', (_name, path, event, type) => {
     const r = stepF(run(path), event);
     expect(r.ok ? `ok: ${r.value.kind}` : r.error.type).toBe(type);
+  });
+});
+
+// T-357, ADR-0031 SC-5b, ADR-0019 as amended 2026-11-12: in Held, a settlement both parties signed may name a delivery
+// nobody posted and release its key, under exactly the checks of HoldbackRules.mutualSettle (:370-382). The late
+// delivery travels with the settlement, as the contract's `dv` and key proof do.
+describe('late-work settlement in Held (SC-5b)', () => {
+  const late = '2026-11-01T11:00:00Z'; // after deliverBy: no delivery can land any more
+  const lateDelivery = delivery({ submittedAt: late, ciphertext: { uri: 'file:///store/late', sha256: `sha256:${'e'.repeat(64)}`, bytes: 120, cipher: 'aes-256-gcm' } });
+  const LATE_DH = deliveryHash(lateDelivery);
+  const carried = (at: string, over: Partial<MutualSettlement>, d: Delivery | undefined): EscrowEvent => {
+    const e = ev.mutual(at, over) as Extract<EscrowEvent, { type: 'mutual_settle' }>;
+    return d ? { ...e, delivery: d } : e;
+  };
+  const settledView = (s: EscrowState) => (s.kind === 'Settled' ? { from: s.from, keyReleased: s.keyReleased, deliveryHash: postedDeliveryHash(s) } : s.kind);
+
+  it.each<[string, EscrowEvent, { from: string; keyReleased: boolean; deliveryHash: undefined }]>([
+    ['late work after deliverBy, key released from the delivery it names', carried(late, { deliveryHash: LATE_DH, releaseKey: true }, lateDelivery), { from: 'Held', keyReleased: true, deliveryHash: undefined }],
+    ['the same before deliverBy: the contract sets no deadline on a settlement', carried(T.deliver, { deliveryHash: LATE_DH, releaseKey: true }, lateDelivery), { from: 'Held', keyReleased: true, deliveryHash: undefined }],
+    ['a delivery named and its key kept: the contract checks nothing more (:370, :379)', carried(late, { deliveryHash: LATE_DH, releaseKey: false }, undefined), { from: 'Held', keyReleased: false, deliveryHash: undefined }],
+    ['a carried delivery with only the buyer envelope: the key proof reads only that one (:381)', carried(late, { deliveryHash: deliveryHash(delivery({ encryptedKeys: [{ recipient: buyer, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' }] })), releaseKey: true }, delivery({ encryptedKeys: [{ recipient: buyer, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' }] })), { from: 'Held', keyReleased: true, deliveryHash: undefined }],
+  ])('settles: %s', (_name, event, expected) => {
+    const r = step(run(toHeld), event);
+    if (!r.ok) throw new Error(`${r.error.type}: ${r.error.detail}`);
+    expect(settledView(r.value)).toEqual(expected);
+  });
+
+  // Each refusal is one the contract makes too, named by its revert.
+  it.each<[string, EscrowEvent, ProblemType, RegExp]>([
+    ['releasing a key with no delivery named (InvalidMessage, :370)', carried(late, { releaseKey: true }, lateDelivery), 'invalid_terms', /releaseKey needs a delivery/],
+    ['releasing a key with no delivery carried (BadKeyProof, :380)', carried(late, { deliveryHash: LATE_DH, releaseKey: true }, undefined), 'invalid_terms', /carries no delivery/],
+    ['a carried delivery that is not the one both signed (BadKeyProof, :380)', carried(late, { deliveryHash: LATE_DH, releaseKey: true }, delivery()), 'invalid_terms', /does not hash to/],
+    ['a delivery for another commitment (BadKeyProof, :380: the contract hashes with this id)', carried(late, { deliveryHash: deliveryHash(delivery({ commitmentId: ZERO32 })), releaseKey: true }, delivery({ commitmentId: ZERO32 })), 'invalid_terms', /another commitment/],
+    ['a carried delivery with no envelope for the buyer (BadKeyProof, :381)', carried(late, { deliveryHash: deliveryHash(delivery({ encryptedKeys: [{ recipient: primary, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' }] })), releaseKey: true }, delivery({ encryptedKeys: [{ recipient: primary, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' }] })), 'invalid_terms', /no envelope for the buyer/],
+    ['an expired settlement message (MessageExpired, :369)', carried(late, { deliveryHash: LATE_DH, releaseKey: true, expiresAt: late }, lateDelivery), 'deadline_passed', /expired/],
+    ['payouts that do not sum to the price (InvalidMessage, _payOut :408)', carried(late, { deliveryHash: LATE_DH, releaseKey: true, payouts: split('1400000001', '600000000') }, lateDelivery), 'invalid_terms', /must equal the price/],
+  ])('refuses %s', (_name, event, type, detail) => {
+    const r = step(run(toHeld), event);
+    expect(r.ok ? `ok: ${r.value.kind}` : r.error.type).toBe(type);
+    if (!r.ok) expect(r.error.detail).toMatch(detail);
+  });
+
+  it('reads the carried delivery only in Held: after a delivery the settlement names the posted one (:374)', () => {
+    const r = step(run(toDelivered), carried(T.decide, { deliveryHash: LATE_DH, releaseKey: true }, lateDelivery));
+    expect(r.ok ? `ok: ${r.value.kind}` : r.error.detail).toMatch(/does not name the current delivery/);
+  });
+
+  it('a reclaim that lands first ends the deal: the late settlement is refused (settle once)', () => {
+    const r = step(run([...toHeld, ev.at('reclaim', T.deliverBy)]), carried(late, { deliveryHash: LATE_DH, releaseKey: true }, lateDelivery));
+    expect(r.ok ? `ok: ${r.value.kind}` : r.error.type).toBe('invalid_state');
   });
 });
 
@@ -901,5 +1078,180 @@ describe('step never throws on parsed input', () => {
       { numRuns: 300, seed: SEED },
     );
     expect(accepted).toBeGreaterThan(20);
+  });
+});
+
+// T-346 (SC-7, ADR-0031 §8): the phase-one profile refuses what the phase-one contracts refuse. The full
+// protocol, above, is unchanged and stays the default.
+describe('phase_one profile', () => {
+  const phaseOne = (events: EscrowEvent[], from: EscrowState = offered()): EscrowState => {
+    let s = from;
+    for (const e of events) {
+      const r = step(s, fill(s, e), 'phase_one');
+      if (!r.ok) throw new Error(`phase-one step ${e.type} failed in ${s.kind}: ${r.error.type} ${r.error.detail}`);
+      s = r.value;
+    }
+    return s;
+  };
+  const zeroBond = { bondReserved: tusd('0') };
+  const toHeldP1 = [ev.accept(zeroBond, T.accept, tusd('0')), ev.agree(), ev.fund()];
+  const toDeliveredP1 = [...toHeldP1, ev.deliver()];
+
+  it('takes an acceptance that reserves 0 and reads no free bond', () => {
+    expect(phaseOne([ev.accept(zeroBond, T.accept, tusd('0'))]).kind).toBe('AcceptedByAdjudicator');
+  });
+
+  it.each([
+    ['the price', terms.price],
+    ['one base unit', tusd('1')],
+    ['0 in another token', { token: 'tEUR', amount: '0' as TokenAmount['amount'] }],
+  ])('refuses an acceptance that reserves %s', (_, bondReserved) => {
+    const r = step(offered(), ev.accept({ bondReserved }), 'phase_one');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.type).toBe('acceptance_mismatch');
+  });
+
+  // T-356 (SC-3, ADR-0031 §4): the phase-one contracts pay a mutual settlement to the parties only, whatever the
+  // rulebook's payoutsTo says.
+  it('refuses a payout to a third address, even when the rulebook allows any recipient', () => {
+    const held = phaseOne(toHeldP1);
+    const third = ev.mutual(T.deliver, { payouts: [...split('1000000000', '500000000'), { to: outsider, amount: tusd('500000000') }] }, { allowed: true, payoutsTo: 'any' });
+    const r = step(held, fill(held, third), 'phase_one');
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.type).toBe('invalid_terms');
+      expect(r.error.detail).toContain("neither the buyer's payment address nor the seller's payout address");
+    }
+    expect(step(held, fill(held, ev.mutual(T.deliver, { payouts: split('1500000000', '500000000') }, { allowed: true, payoutsTo: 'any' })), 'phase_one').ok).toBe(true);
+    // The full protocol keeps D23: the same payout settles there.
+    const full = run([ev.accept(), ev.agree(), ev.fund()]);
+    expect(step(full, fill(full, third)).ok).toBe(true);
+  });
+
+  // T-356 (SC-2, ADR-0031 §3): the phase-one contracts fund by ERC-3009 only.
+  it('refuses a Permit2 funding authorization, which the full protocol takes', () => {
+    const agreed = phaseOne([ev.accept(zeroBond, T.accept, tusd('0')), ev.agree()]);
+    const permit2 = ev.fund(T.fund, { message: { scheme: 'permit2' } });
+    const r = step(agreed, fill(agreed, permit2), 'phase_one');
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.type).toBe('invalid_terms');
+      expect(r.error.detail).toContain('ERC-3009 only');
+    }
+    expect(phaseOne([ev.fund()], agreed).kind).toBe('Held');
+    const base = run([ev.accept(), ev.agree()]);
+    const full = step(base, fill(base, permit2));
+    expect(full.ok ? full.value.kind : full.error.type).toBe('Held');
+  });
+
+  it('keeps the full rule by default: an acceptance reserving 0 is below the price', () => {
+    const r = step(offered(), ev.accept(zeroBond));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.type).toBe('coverage_exceeded');
+  });
+
+  it.each([
+    ['primary accept', ev.decide('primary', 'accept', T.decide), 'Released'],
+    ['primary reject', ev.decide('primary', 'reject', T.decide), 'Refunded'],
+  ])('a %s is final at the decision: its appeal state is closed with no appeal', (_, decide, kind) => {
+    const s = phaseOne([...toDeliveredP1, decide]);
+    expect(s.kind).toBe(kind);
+    if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance') {
+      // Red team RT-3: not `none` with appealBy reached, which readers take for an appeal expiry due now.
+      expect(s.via.appeal).toEqual({ kind: 'expired', appeal: null });
+    } else {
+      throw new Error('not a first-instance decision');
+    }
+  });
+
+  it("the fallback's decision is final at the decision too", () => {
+    const s = phaseOne([...toDeliveredP1, ev.at('trigger_fallback', T.judgeBy), ev.decide('fallback', 'accept', T.fallbackDecide)]);
+    expect(s.kind).toBe('Released');
+    if (s.kind === 'Released' && s.via.kind === 'first_instance') {
+      expect(s.via.appeal).toEqual({ kind: 'expired', appeal: null });
+    }
+  });
+
+  it.each([
+    ['a party appeal', ev.fileAppeal(T.decide)],
+    ['an appeal expiry', ev.at('expire_appeal', T.appealBy)],
+    ['an appeal decision', ev.decide('appeal', 'reject', T.appealFiled)],
+  ])('refuses %s on a decided deal', (_, e) => {
+    const s = phaseOne([...toDeliveredP1, ev.decide('primary', 'accept', T.decide)]);
+    const r = step(s, fill(s, e), 'phase_one');
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.type).toBe('invalid_state');
+      expect(r.error.detail).toContain('phase one has no party appeal');
+    }
+  });
+
+  it('an escalation is still decided by the appeal adjudicator, finally', () => {
+    const s = phaseOne([...toDeliveredP1, ev.decide('primary', 'escalate', escalatedAt), ev.decide('appeal', 'accept', escalationDecideBy.replace('10:06', '10:02'))]);
+    expect(s.kind).toBe('Released');
+    if (s.kind === 'Released') expect(s.via.kind).toBe('escalation');
+  });
+});
+
+// T-358 (ADR-0033): the buyer's payment address funds the hold and the seller's payout address is paid; `buyer` and
+// `seller` keep signing. These terms set all four apart.
+describe('two money addresses (ADR-0033)', () => {
+  const PAYMENT: Hex = '0x00000000000000000000000000000000000000c1';
+  const PAYOUT: Hex = '0x00000000000000000000000000000000000000c2';
+  const apart = commitmentFor(rulebook, { buyerPaymentAddress: PAYMENT, sellerPayoutAddress: PAYOUT, timing: exampleCommitment.timing });
+  const aid = apart.id;
+  const adh = deliveryHash(delivery({ commitmentId: aid }));
+  const p1 = (s: EscrowState, e: EscrowEvent) => step(s, fill(s, e), 'phase_one');
+  const offeredApart = (): EscrowState => {
+    const r = offer({ ...offerInput({ commitment: apart }), profile: 'phase_one' });
+    if (!r.ok) throw new Error(r.error.detail);
+    return r.value;
+  };
+  const agreedApart = (): EscrowState => {
+    let s = offeredApart();
+    for (const e of [ev.accept({ commitmentId: aid, bondReserved: tusd('0') }, T.accept, tusd('0')), ev.agree(T.agree, { commitmentId: aid })]) {
+      const r = p1(s, e);
+      if (!r.ok) throw new Error(r.error.detail);
+      s = r.value;
+    }
+    return s;
+  };
+  const fundFrom = (from: Hex) => ev.fund(T.fund, { from, message: { commitmentId: aid } });
+  const heldApart = (): EscrowState => {
+    const r = p1(agreedApart(), fundFrom(PAYMENT));
+    if (!r.ok) throw new Error(r.error.detail);
+    return r.value;
+  };
+
+  it("the payment address funds; the buyer's signing address cannot", () => {
+    expect(p1(agreedApart(), fundFrom(PAYMENT))).toMatchObject({ ok: true, value: { kind: 'Held' } });
+    const r = p1(agreedApart(), fundFrom(buyer));
+    expect(r).toMatchObject({ ok: false, error: { type: 'invalid_signature' } });
+    if (!r.ok) expect(r.error.detail).toContain(PAYMENT);
+  });
+
+  it('the agreement and the early accept stay on the signing address', () => {
+    expect(p1(offeredApart(), ev.accept({ commitmentId: aid, bondReserved: tusd('0') }, T.accept, tusd('0'))).ok).toBe(true);
+    const accepted = (p1(offeredApart(), ev.accept({ commitmentId: aid, bondReserved: tusd('0') }, T.accept, tusd('0'))) as { value: EscrowState }).value;
+    expect(p1(accepted, ev.agree(T.agree, { commitmentId: aid, message: { buyer: PAYMENT } }))).toMatchObject({ ok: false, error: { type: 'invalid_signature' } });
+    const delivered = (p1(heldApart(), ev.deliver(T.deliver, { commitmentId: aid })) as { value: EscrowState }).value;
+    expect(p1(delivered, ev.earlyAccept(T.decide, PAYMENT, { commitmentId: aid, deliveryHash: adh }))).toMatchObject({ ok: false });
+    expect(p1(delivered, ev.earlyAccept(T.decide, buyer, { commitmentId: aid, deliveryHash: adh }))).toMatchObject({ ok: true, value: { kind: 'Released' } });
+  });
+
+  it("phase one pays a settlement to the payment and payout addresses only; a signing address is a third address", () => {
+    const pays = (payouts: MutualSettlement['payouts']) => p1(heldApart(), ev.mutual(T.deliver, { commitmentId: aid, payouts }, { allowed: true, payoutsTo: 'any' }));
+    expect(pays([{ to: PAYOUT, amount: tusd('1400000000') }, { to: PAYMENT, amount: tusd('600000000') }])).toMatchObject({ ok: true, value: { kind: 'Settled' } });
+    for (const signer of [seller, buyer]) {
+      const r = pays([{ to: signer, amount: tusd('1400000000') }, { to: signer === seller ? PAYMENT : PAYOUT, amount: tusd('600000000') }]);
+      expect(r).toMatchObject({ ok: false, error: { type: 'invalid_terms' } });
+      if (!r.ok) expect(r.error.detail).toContain("neither the buyer's payment address nor the seller's payout address");
+    }
+  });
+
+  it('a changed payment or payout address changes the commitment ID', () => {
+    expect(commitmentFor(rulebook, { buyerPaymentAddress: PAYMENT, sellerPayoutAddress: buyer }).id).not.toBe(aid);
+    expect(commitmentFor(rulebook, { buyerPaymentAddress: seller, sellerPayoutAddress: PAYOUT }).id).not.toBe(aid);
+    expect(commitment.id).not.toBe(aid);
   });
 });

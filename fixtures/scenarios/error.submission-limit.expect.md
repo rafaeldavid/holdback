@@ -12,10 +12,10 @@ The club allows one submission (maxSubmissions = 1). Tidewater's first delivery 
 | Prefix | error. (the system must refuse a step; invariants hold) |
 | Settlement | SimChain (T-006) driving @holdback/core `step` |
 | Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0xd136…9300 |
-| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
+| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0xd9bc…492d |
 | Buyer | atlas-buyer 0xB6c8…686A |
 | Seller | tidewater-seller 0x6995…B27a |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x374d…eb9d · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x1047…b356 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0x0098…265F · fallback bench-b 0xb591…4919 · appeal bench-c 0x4521…48C9 |
 | Operators | op-1 · op-2 |
 
@@ -46,7 +46,7 @@ Refusals:
 
 ## Receipts and log
 
-- Events 0–3. Chain head 0x6e2f…4cc7. Replay of 4 SimChain submissions from genesis matches the settlement state.
+- Events 0–3. Chain head 0x2813…7983. Replay of 4 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 4 (rcpt-0001–rcpt-0004). The runner labels them without signing; the operator API signs real receipts.
 
 ## Invariants

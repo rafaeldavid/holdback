@@ -34,6 +34,7 @@ import {
   type BeaconFact,
   type Club,
   type CommitmentStateView,
+  type Delivery,
   type EncryptedKey,
   type EscrowEvent,
   type EscrowState,
@@ -43,6 +44,7 @@ import {
   type Scope,
   type SettlementEvent,
   type SettlementEventType,
+  type SettlementProfile,
   type SignableMessage,
   type Timestamp,
   type TokenAmount,
@@ -71,6 +73,12 @@ export interface Genesis {
    * the expiry. Default DEFAULT_EXPIRY_MARGIN_SEC, the local deployment's value; T-206 chooses the public one.
    */
   expiryMarginSec?: number;
+  /**
+   * The protocol this SimChain enforces (T-378): `full` (the default) keeps party appeals and bonds, for `pnpm snap` and the
+   * SimChain-only fixtures; `phase_one` runs core's phase-one profile, as the contracts do (ADR-0031 §8), for the local
+   * worlds partners rehearse on, so a local rehearsal refuses what the chain refuses. On `phase_one` no bond is reserved.
+   */
+  profile?: SettlementProfile;
 }
 
 export const DEFAULT_EXPIRY_MARGIN_SEC = 86_400;
@@ -237,6 +245,8 @@ const TRIGGER_EVENT: Record<Exclude<TimeoutKind, 'settle'>, EscrowEvent['type']>
 
 export class SimChain implements Settlement {
   readonly kind = 'sim' as const;
+  /** ADR-0032: SimChain takes the rounds with no margin (judgeBy, and t + 1 after an escalation). */
+  readonly beaconMarginSec = 0;
   private readonly domain;
   private readonly w: Stores = { ledger: new Map(), recs: new Map(), nonces: new Set(), reserved: new Map(), spent: new Map(), log: [] };
   private readonly idempotency = new Map<string, { body: Hex32; result: Extract<SubmitResult, { ok: true }> }>();
@@ -603,13 +613,19 @@ export class SimChain implements Settlement {
     if (Date.parse(at) >= Date.parse(expiry)) refuse('deadline_passed', `${what}, and no payment can be captured at or after authorizationExpiry ${expiry}; only a refund remains`);
   }
 
+  /** The protocol this chain enforces: the genesis's `profile`, `full` when it names none. */
+  get profile(): SettlementProfile {
+    return this.genesis.profile ?? 'full';
+  }
+
   private stepped(state: EscrowState, e: EscrowEvent): EscrowState {
-    const r = step(state, e);
+    const r = step(state, e, this.profile);
     return r.ok ? r.value : refuse(r.error.type, r.error.detail);
   }
 
   private reserve(tx: Tx, id: Hex32, a: string, amount: bigint): void {
-    if (amount === 0n) return;
+    // The phase-one contracts hold no bond (ADR-0031 §8), so a phase-one SimChain reserves none.
+    if (amount === 0n || this.profile === 'phase_one') return;
     const r = tx.rec(id)!;
     tx.setRec(id, { ...r, reservations: { ...r.reservations, [lc(a)]: (r.reservations[lc(a)] ?? 0n) + amount } });
     tx.reserved.set(lc(a), tx.reservedOf(a) + amount);
@@ -693,7 +709,7 @@ export class SimChain implements Settlement {
         const club = this.genesis.clubs.find((k) => k.id === t.clubId && k.rulebookHash === t.rulebookHash);
         const sellerScope = this.scopeFor(t.seller, t.clubId, { terms: t, club });
         const nonce = `${lc(t.seller)}:terms:${t.nonce}`;
-        const r = offer({ commitment: c, at, sellerScope, rulebook: club?.rulebook ?? null, nonceUsed: tx.nonceUsed(nonce) });
+        const r = offer({ commitment: c, at, sellerScope, rulebook: club?.rulebook ?? null, nonceUsed: tx.nonceUsed(nonce), profile: this.profile });
         if (!r.ok) refuse(r.error.type, r.error.detail);
         tx.useNonce(nonce);
         tx.setRec(c.id, { state: r.ok ? r.value : (undefined as never), club: club!, reservations: {}, held: [], released: [], lastEventSeq: 0, updatedAt: at });
@@ -710,7 +726,8 @@ export class SimChain implements Settlement {
         // Guaranteed mode: 100% of the price, rounded up (ADR-0007, ADR-0022 rule 1).
         const required = mulBps(next.terms.price, ALL_BPS, 'ceil');
         if (!required.ok) refuse('invalid_terms', required.error.kind);
-        const need = BigInt(required.ok ? required.value.amount : '0');
+        // Phase one reserves nothing, as the contracts (ADR-0031 §8 point 2): core has refused an acceptance that reserves a bond.
+        const need = this.profile === 'phase_one' ? 0n : BigInt(required.ok ? required.value.amount : '0');
         if (unencumbered < need) refuse('coverage_exceeded', `free bond ${unencumbered} is below ${need}`);
         this.reserve(tx, m.commitmentId, m.adjudicator, need);
         tx.emit('adjudicator.accepted', m.commitmentId, m.adjudicator, { seedCommitment: m.seedCommitment, bondReserved: tx.amount(need) });
@@ -750,10 +767,11 @@ export class SimChain implements Settlement {
         this.beforeCaptureExpiry(rec.state.terms, at, 'an early accept pays the seller');
         const next = this.stepped(rec.state, { type: 'early_accept', at, message: m });
         this.setState(tx, m.commitmentId, next);
-        const { price, adjudication, seller, buyer } = next.terms;
+        const { price, adjudication, buyer, buyerPaymentAddress, sellerPayoutAddress } = next.terms;
         const postings: Posting[] = [];
-        tx.post(account.escrow(m.commitmentId), account.party(seller), BigInt(price.amount), 'price to the seller', postings);
-        tx.post(account.escrow(m.commitmentId), account.party(buyer), BigInt(adjudication.fee.amount), 'fee back to the buyer: no adjudicator judged', postings);
+        // ADR-0033: deal money moves to and from the payment and payout addresses; buyer and seller sign.
+        tx.post(account.escrow(m.commitmentId), account.party(sellerPayoutAddress), BigInt(price.amount), 'price to the seller', postings);
+        tx.post(account.escrow(m.commitmentId), account.party(buyerPaymentAddress), BigInt(adjudication.fee.amount), 'fee back to the buyer: no adjudicator judged', postings);
         this.releaseAll(tx, m.commitmentId);
         tx.emit('settlement.released', m.commitmentId, buyer, { via: 'early_accept', postings });
         this.releaseHeld(tx, m.commitmentId, buyer, buyer, 'early_accept');
@@ -779,7 +797,7 @@ export class SimChain implements Settlement {
         return p.commitmentId;
       }
       case 'mutual_settle':
-        return this.mutualSettle(tx, s.message);
+        return this.mutualSettle(tx, s.message, s.delivery);
       case 'trigger':
         return this.trigger_(tx, s.commitmentId, s.timeout);
     }
@@ -825,7 +843,7 @@ export class SimChain implements Settlement {
    */
   private operatorFee(tx: Tx, m: NonNullable<Extract<Submission, { kind: 'agree_and_fund' }>['operatorFee']>): void {
     const { terms } = this.recOf(tx, m.commitmentId).state;
-    if (lc(m.from) !== lc(terms.buyer)) refuse('invalid_terms', `the operator fee must come from the buyer ${terms.buyer}`);
+    if (lc(m.from) !== lc(terms.buyerPaymentAddress)) refuse('invalid_terms', `the operator fee must come from the buyer's payment address ${terms.buyerPaymentAddress}`);
     if (m.token !== terms.price.token) refuse('invalid_terms', `the operator fee is in ${m.token}, not the price token ${terms.price.token}`);
     if (lc(m.to) === lc(m.from)) refuse('invalid_terms', 'the operator fee pays its own payer');
     const at = Date.parse(tx.at);
@@ -851,7 +869,8 @@ export class SimChain implements Settlement {
       refuse('invalid_terms', prev.kind === 'Refunded' ? 'a decision on a refunded deal carries no key for the buyer' : `a ${m.outcome} decision carries no key for the buyer`);
     }
     const { terms } = next;
-    const { price, adjudication, buyer, seller } = terms;
+    // ADR-0033: buyer receives the key; the payment and payout addresses receive the money.
+    const { price, adjudication, buyer, buyerPaymentAddress, sellerPayoutAddress } = terms;
     const seedSource = m.role === 'primary' ? { seedSource: 'commit-reveal' } : { seedSource: 'beacon', beaconRound: beacon?.round };
     const decidedBy = { role: m.role, outcome: m.outcome, recordHash: m.judgmentRecordHash, ...seedSource };
 
@@ -872,7 +891,8 @@ export class SimChain implements Settlement {
       }
       tx.emit('appeal.decided', id, m.adjudicator, { ...decidedBy, appealState: verdict, postings });
       if (verdict === 'overturned') {
-        const wronged = prev.kind === 'Released' ? buyer : seller;
+        // ADR-0033 §4: a bond pays the wronged party's money address; the appeal bond above stays with its signer.
+        const wronged = prev.kind === 'Released' ? buyerPaymentAddress : sellerPayoutAddress;
         const bondPostings: Posting[] = [];
         this.payFromBond(tx, id, first, account.party(wronged), BigInt(price.amount), 'overturn', bondPostings);
       }
@@ -890,7 +910,7 @@ export class SimChain implements Settlement {
     const postings: Posting[] = [];
     const escrow = account.escrow(id);
     if (next.kind === 'Released' || next.kind === 'Refunded') {
-      const payee = next.kind === 'Released' ? seller : buyer;
+      const payee = next.kind === 'Released' ? sellerPayoutAddress : buyerPaymentAddress;
       tx.post(escrow, account.party(payee), BigInt(price.amount), next.kind === 'Released' ? 'price to the seller' : 'price back to the buyer', postings);
       tx.post(escrow, account.party(m.adjudicator), BigInt(adjudication.fee.amount), `fee to the ${m.role} adjudicator, whose decision settles`, postings);
       tx.emit('judgment.decided', id, m.adjudicator, decidedBy);
@@ -911,22 +931,27 @@ export class SimChain implements Settlement {
     return refuse('invalid_state', `a decision led to ${next.kind}`);
   }
 
-  private mutualSettle(tx: Tx, m: Extract<Submission, { kind: 'mutual_settle' }>['message']): Hex32 {
+  private mutualSettle(tx: Tx, m: Extract<Submission, { kind: 'mutual_settle' }>['message'], carried: Delivery | undefined): Hex32 {
     const id = m.commitmentId;
     const rec = this.recOf(tx, id);
     tx.useNonce(`mutual:${id}:${m.nonce}`);
     const prev = rec.state;
-    const next = this.stepped(prev, { type: 'mutual_settle', at: tx.at, message: m, rule: rec.club.rulebook.mutualSettlement });
+    // SC-5b (T-357): in Held the settlement carries the unposted delivery it names; core checks it as the contract does.
+    const late = prev.kind === 'Held' && m.releaseKey ? carried : undefined;
+    const next = this.stepped(prev, { type: 'mutual_settle', at: tx.at, message: m, rule: rec.club.rulebook.mutualSettlement, ...(late ? { delivery: late } : {}) });
     if (next.kind !== 'Settled') return refuse('invalid_state', `settlement led to ${next.kind}`);
     this.setState(tx, id, next);
-    const { price, adjudication, buyer } = next.terms;
+    const { price, adjudication, buyer, buyerPaymentAddress, sellerPayoutAddress } = next.terms;
     // D23: one posting per payout. Core already checked the sum, token and recipients; this re-checks the sum
     // so a posting can never take more than the price out of escrow.
     const payouts = next.payouts.map((p) => ({ to: p.to, amount: BigInt(p.amount.amount) }));
     if (payouts.some((p) => p.amount <= 0n) || payouts.reduce((a, p) => a + p.amount, 0n) !== BigInt(price.amount)) refuse('invalid_terms', 'payouts must be positive and sum to the price');
-    // A payout to anyone but the buyer is a capture; returning everything to the buyer is not (CPP void).
+    // A payout to the seller's payout address, or to anyone but the buyer's payment address, is a capture; returning
+    // everything to the payment address is not (CPP void). The payout address is checked first, as on the contract, so
+    // with the two addresses equal every payout is a capture (ADR-0033 §2).
     const shareBps = BigInt(rec.club.rulebook.mutualSettlement.adjudicatorFeeShareAfterDeliveryBps);
-    if (payouts.some((p) => lc(p.to) !== lc(buyer)) || (shareBps > 0n && BigInt(adjudication.fee.amount) > 0n)) this.beforeCaptureExpiry(next.terms, tx.at, 'this settlement pays someone other than the buyer');
+    const capture = (to: Address) => lc(to) === lc(sellerPayoutAddress) || lc(to) !== lc(buyerPaymentAddress);
+    if (payouts.some((p) => capture(p.to)) || (shareBps > 0n && BigInt(adjudication.fee.amount) > 0n)) this.beforeCaptureExpiry(next.terms, tx.at, 'this settlement pays someone other than the buyer');
     const postings: Posting[] = [];
     const escrow = account.escrow(id);
     for (const p of payouts) tx.post(escrow, account.party(p.to), p.amount, 'agreed payout', postings);
@@ -936,11 +961,15 @@ export class SimChain implements Settlement {
     if (!fee.ok) refuse('invalid_terms', fee.error.kind);
     if (fee.ok) {
       tx.post(escrow, account.party(sitting), BigInt(fee.value.share.amount), 'fee share to the sitting adjudicator', postings);
-      tx.post(escrow, account.party(buyer), BigInt(fee.value.remainder.amount), 'fee back to the buyer', postings);
+      tx.post(escrow, account.party(buyerPaymentAddress), BigInt(fee.value.remainder.amount), 'fee back to the buyer', postings);
     }
     this.releaseAll(tx, id);
     tx.emit('commitment.settled', id, 'anyone', { payouts: next.payouts, keyReleased: next.keyReleased });
-    if (next.keyReleased) this.releaseHeld(tx, id, buyer, 'anyone', 'mutual settlement');
+    if (next.keyReleased && late) {
+      // The buyer's first envelope in the delivery both parties named, as the contract's key proof releases it (:381).
+      const env = late.encryptedKeys.find((k) => lc(k.recipient) === lc(buyer))!;
+      this.releaseKey(tx, id, signedEnvelope(env), 'anyone', 'mutual settlement');
+    } else if (next.keyReleased) this.releaseHeld(tx, id, buyer, 'anyone', 'mutual settlement');
     return id;
   }
 
@@ -951,7 +980,7 @@ export class SimChain implements Settlement {
     const type = TRIGGER_EVENT[timeout as Exclude<TimeoutKind, 'settle'>];
     const next = this.stepped(prev, { type, at: tx.at } as EscrowEvent);
     this.setState(tx, id, next);
-    const { price, adjudication, buyer, seller } = next.terms;
+    const { price, adjudication, buyerPaymentAddress, sellerPayoutAddress } = next.terms;
     const escrow = account.escrow(id);
     const postings: Posting[] = [];
     switch (type) {
@@ -960,7 +989,7 @@ export class SimChain implements Settlement {
         tx.emit('offer.expired', id, 'anyone', { from: prev.kind });
         break;
       case 'reclaim':
-        tx.post(escrow, account.party(buyer), tx.bal(escrow), 'price + fee back to the buyer: nothing delivered', postings);
+        tx.post(escrow, account.party(buyerPaymentAddress), tx.bal(escrow), 'price + fee back to the buyer: nothing delivered', postings);
         this.releaseAll(tx, id);
         tx.emit('settlement.reclaimed', id, 'anyone', { postings });
         break;
@@ -974,20 +1003,20 @@ export class SimChain implements Settlement {
         break;
       case 'apply_default_outcome': {
         if (prev.kind !== 'Defaulted') return refuse('invalid_state', 'no default to apply');
-        tx.post(escrow, account.party(buyer), tx.bal(escrow), 'price + fee back to the buyer: default outcome', postings);
+        tx.post(escrow, account.party(buyerPaymentAddress), tx.bal(escrow), 'price + fee back to the buyer: default outcome', postings);
         tx.emit('settlement.refunded', id, 'anyone', { via: 'default_outcome', from: prev.from, postings });
         // ADR-0022 rule 3: a payout from a bond rounds down; the bond keeps the dust.
         const comp = mulBps(price, BigInt(rec.club.rulebook.defaultOutcome.judged.sellerCompensationRateBps), 'floor');
         if (!comp.ok) return refuse('invalid_terms', comp.error.kind);
         const bondPostings: Posting[] = [];
         if (prev.from === 'Escalated') {
-          this.payFromBond(tx, id, adjudication.appealAdjudicator, account.party(seller), BigInt(comp.value.amount), 'default', bondPostings);
+          this.payFromBond(tx, id, adjudication.appealAdjudicator, account.party(sellerPayoutAddress), BigInt(comp.value.amount), 'default', bondPostings);
         } else {
           // Both adjudicators missed their windows: the fallback pays half rounded down, the primary the rest.
           const split = splitBps(comp.value, HALF_BPS);
           if (!split.ok) return refuse('invalid_terms', split.error.kind);
-          this.payFromBond(tx, id, adjudication.adjudicator, account.party(seller), BigInt(split.value.remainder.amount), 'default', bondPostings);
-          this.payFromBond(tx, id, adjudication.fallbackAdjudicator, account.party(seller), BigInt(split.value.share.amount), 'default', bondPostings);
+          this.payFromBond(tx, id, adjudication.adjudicator, account.party(sellerPayoutAddress), BigInt(split.value.remainder.amount), 'default', bondPostings);
+          this.payFromBond(tx, id, adjudication.fallbackAdjudicator, account.party(sellerPayoutAddress), BigInt(split.value.share.amount), 'default', bondPostings);
         }
         this.releaseAll(tx, id);
         break;
@@ -1021,7 +1050,9 @@ export class SimChain implements Settlement {
     const t = s.terms.timing;
     const deadlines: Record<string, Timestamp> = { offerExpiresAt: t.offerExpiresAt, fundBy: t.fundBy, deliverBy: t.deliverBy, judgeBy: t.judgeBy, fallbackBy: t.fallbackBy };
     let appealState: CommitmentStateView['appealState'] = 'none';
-    if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance') {
+    // Phase one has no party appeal: the API reports appealState `none`, as the EVM adapter does (core, firstInstance; PR 416
+    // review M1), though core closes the appeal state at once.
+    if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance' && this.profile !== 'phase_one') {
       const a = s.via.appeal;
       appealState = a.kind;
       if (a.kind === 'none') {
@@ -1044,7 +1075,8 @@ export class SimChain implements Settlement {
       ...(posted ? { deliveryHash: posted } : {}),
       ...hold,
       deadlines,
-      balances: { [s.terms.buyer]: amount(s.terms.buyer), [s.terms.seller]: amount(s.terms.seller) },
+      // ADR-0033 §4: the parties' money is at the payment and payout addresses.
+      balances: { [s.terms.buyerPaymentAddress]: amount(s.terms.buyerPaymentAddress), [s.terms.sellerPayoutAddress]: amount(s.terms.sellerPayoutAddress) },
       settledAt: s.kind === 'Released' || s.kind === 'Refunded' || s.kind === 'Settled' ? s.settledAt : null,
       finalAt: this.finalAt(rec),
       lastEventSeq: rec.lastEventSeq,
@@ -1069,7 +1101,8 @@ export class SimChain implements Settlement {
         return s.settledAt;
       case 'Released':
       case 'Refunded': {
-        if (s.via.kind !== 'first_instance') return s.settledAt;
+        // Phase one: the first decision is final when it settles (ADR-0031 §8 point 7), as the EVM adapter reports it.
+        if (s.via.kind !== 'first_instance' || this.profile === 'phase_one') return s.settledAt;
         const a = s.via.appeal;
         if (a.kind === 'none') return passed(a.appealBy) ? a.appealBy : null;
         if (a.kind === 'open') return passed(a.appealDecideBy) ? a.appealDecideBy : null;

@@ -51,18 +51,23 @@ export function stackVersion() {
   return { commit, short: commit.slice(0, 7), date };
 }
 
-/** The record's address fields, with the names the page shows. */
+/**
+ * The record's address fields, with the names the page shows. A phase-one record (ADR-0031) has the first six; the
+ * last three appear only in records deployed before it, which the page still reads, and are left out when absent.
+ */
 const ADDRESSES = [
   ['rules', 'HoldbackRules'],
-  ['bonds', 'HoldbackBonds'],
   ['beacon', 'DrandQuicknetBeacon'],
   ['escrow', 'AuthCaptureEscrow'],
   ['erc3009Collector', 'ERC3009PaymentCollector'],
-  ['permit2Collector', 'Permit2PaymentCollector'],
   ['token', 'tUSDC'],
   ['multicall', 'Multicall3'],
+  // Not in phase one: the adjudicators' bond vault and Permit2 funding, named only by an earlier deployment record.
+  ['bonds', 'HoldbackBonds'],
+  ['permit2Collector', 'Permit2PaymentCollector'],
   ['permit2', 'Permit2'],
 ];
+export const PHASE_ONE_ADDRESS_KEYS = ADDRESSES.slice(0, 6).map(([key]) => key);
 
 export function plain() {
   return JSON.parse(read('tools/contract-stack/plain.json'));
@@ -102,11 +107,12 @@ export function deployments() {
   live.domain = domainOf(history ? live.commit : null);
   // The deploy writes the record on the day it runs, so the commit that last changed it dates the deployment.
   live.recordedOn = history ? git(['log', '-1', '--format=%cs', '--', 'contracts/deployments/sepolia.json']) : null;
-  // An earlier record's name carries its date and its EIP-712 domain version (sepolia-2026-11-03-domain-0.6.json).
-  const earlier = list('contracts/deployments', /^sepolia-\d{4}-\d{2}-\d{2}-domain-[\d.]+\.json$/)
+  // An earlier record's name carries its date and its EIP-712 domain version (sepolia-2026-11-03-domain-0.6.json); since
+  // T-383 also the UTC time, so two deployments on one day differ (sepolia-2026-11-20T1403Z-domain-0.8.json).
+  const earlier = list('contracts/deployments', /^sepolia-\d{4}-\d{2}-\d{2}(T\d{4}Z)?-domain-[\d.]+\.json$/)
     .reverse()
     .map((file) => {
-      const [, deployedOn, version] = file.match(/^sepolia-(\d{4}-\d{2}-\d{2})-domain-([\d.]+)\.json$/);
+      const [, deployedOn, , version] = file.match(/^sepolia-(\d{4}-\d{2}-\d{2})(T\d{4}Z)?-domain-([\d.]+)\.json$/);
       return { ...record(file), deployedOn, domain: { version, readFrom: 'file name' } };
     });
   // Whether this checkout builds the code the live record was deployed from: 0 same, 1 changed, else unknown.

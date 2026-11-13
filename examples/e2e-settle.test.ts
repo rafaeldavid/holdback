@@ -36,12 +36,12 @@ const addressOf = (seed: Hex, role: 'buyer' | 'seller') => privateKeyToAccount(r
 
 /** Public terms in the shape the operators serve, on Sepolia's token: 25 tUSDC, with a 1 tUSDC adjudication fee. */
 const termsOf = (buyer: string, seller: string, nonce = `0x${'44'.repeat(32)}`) => ({
-  schemaVersion: '0.7', clubId: 'demo-club', rulebookHash: `0x${'11'.repeat(32)}`, buyer, seller,
+  schemaVersion: '0.8', clubId: 'demo-club', rulebookHash: `0x${'11'.repeat(32)}`, buyer, seller, buyerPaymentAddress: buyer, sellerPayoutAddress: seller,
   deliverable: { kind: 'dataset', description: 'customers.csv', format: 'text/csv' },
   acceptance: { deterministicChecks: [{ id: 'rows', type: 'row_count_range', required: true, min: 3, max: 3 }], rubric: { criteria: [], passThreshold: 0 } },
   price: { token: ASSET, amount: '25000000' },
   adjudication: { adjudicator: DEMO_PRIMARY, fallbackAdjudicator: '0x0000000000000000000000000000000000000b0b', appealAdjudicator: '0x0000000000000000000000000000000000000c0c', policyId: 'demo-policy', fee: { token: ASSET, amount: '1000000' }, registryHash: `0x${'22'.repeat(32)}`, policyHash: `0x${'33'.repeat(32)}` },
-  timing: { offerExpiresAt: '2026-11-06T07:41:41Z', fundBy: '2026-11-06T07:56:41Z', deliverBy: '2026-11-07T07:26:41Z', judgeBy: '2026-11-07T07:27:41Z', fallbackBy: '2026-11-07T07:28:41Z', appealWindowSec: 60, appealDecideSec: 60, maxSubmissions: 1 },
+  timing: { offerExpiresAt: '2026-11-06T07:41:41Z', fundBy: '2026-11-06T07:56:41Z', deliverBy: '2026-11-07T07:26:41Z', judgeBy: '2026-11-07T07:27:41Z', fallbackBy: '2026-11-07T07:28:41Z', appealWindowSec: 0, appealDecideSec: 60, maxSubmissions: 1 },
   settlement: { mode: 'guaranteed_on_decision', token: ASSET }, remedy: { onReject: 'full_refund' }, disclosure: { level: 'public' },
   buyerEncryptionPublicKey: 'A'.repeat(43), nonce, createdAt: '2026-11-06T07:26:41Z',
 });
@@ -100,7 +100,7 @@ describe("planSettlement: only the round's own open deal, and exactly the messag
   });
 
   it('refuses a deal that holds nothing to settle, by its stage at the block it was read at', () => {
-    for (const stage of ['None', 'Released', 'Refunded', 'Settled', 'Expired']) {
+    for (const stage of ['None', 'Released', 'Refunded', 'Settled']) {
       expect(() => planSettlement({ ...base, stage })).toThrow(new RegExp(`^refusing: dealOf reads ${id} ${stage} at block 12075100, and a mutual settlement closes only a Held, Delivered, FallbackJudging or Escalated deal`));
     }
   });
@@ -112,7 +112,7 @@ describe("planSettlement: only the round's own open deal, and exactly the messag
   });
 });
 
-const ABIS = JSON.parse(readFileSync(new URL('../packages/settlement/evm/abis.json', import.meta.url), 'utf8')) as Record<'rules' | 'bonds' | 'token' | 'escrow', Abi>;
+const ABIS = JSON.parse(readFileSync(new URL('../packages/settlement/evm/abis.json', import.meta.url), 'utf8')) as Record<'rules' | 'token' | 'escrow', Abi>;
 /** The settlement transaction in the stand-in, mined in block SETTLED_AT once an operator relays it. */
 const SETTLE_TX = `0x${'5e'.repeat(32)}` as Hex;
 const PLANNED_AT = 12_075_100n;
@@ -155,7 +155,7 @@ async function standIn(o: { terms: J; stage: string; answers?: [Answer, Answer] 
     const send = (status: number, body: unknown) => res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
     const url = req.url ?? '';
     if (url === '/.well-known/holdback.json') return send(200, discovery());
-    if (url === '/v1/status') return send(200, { schemaVersion: '0.10', domain: pin.domain });
+    if (url === '/v1/status') return send(200, { schemaVersion: '0.11', domain: pin.domain });
     if (url === `/v1/commitments/${id}/terms`) return send(200, served);
     if (url === `/v1/commitments/${id}`) return send(200, { commitmentId: id, escrowState: settled ? 'Settled' : o.stage, updatedAt: '2026-11-06T07:26:50Z', notices: [BEHIND] });
     if (req.method === 'POST' && url === `/v1/commitments/${id}/settlements`) {
@@ -171,7 +171,7 @@ async function standIn(o: { terms: J; stage: string; answers?: [Answer, Answer] 
     send(404, { type: 'not_found', detail: 'stand-in' });
   });
   const d = SEPOLIA!;
-  const contractAt: Record<string, keyof typeof ABIS> = { [d.rules.toLowerCase()]: 'rules', [d.escrow.toLowerCase()]: 'escrow', [d.bonds.toLowerCase()]: 'bonds', [d.token.address.toLowerCase()]: 'token' };
+  const contractAt: Record<string, keyof typeof ABIS> = { [d.rules.toLowerCase()]: 'rules', [d.escrow.toLowerCase()]: 'escrow', [d.token.address.toLowerCase()]: 'token' };
   const hold = BigInt(o.terms.price.amount) + BigInt(o.terms.adjudication.fee.amount);
   const log = (contract: keyof typeof ABIS, address: string, eventName: string, args: J, data: Hex, i: number) => ({
     address: address.toLowerCase(), topics: encodeEventTopics({ abi: ABIS[contract], eventName, args } as never), data,
@@ -179,7 +179,6 @@ async function standIn(o: { terms: J; stage: string; answers?: [Answer, Answer] 
   });
   const uint = (v: bigint) => encodeAbiParameters([{ type: 'uint256' }], [v]);
   const logs = () => [
-    log('bonds', d.bonds, 'BondReleased', { adjudicator: DEMO_PRIMARY, token: ASSET }, uint(BigInt(o.terms.price.amount)), 0),
     log('token', d.token.address, 'Transfer', { from: STORE, to: o.terms.buyer }, uint(hold), 1),
     log('rules', d.rules, 'Refunded', { jobId: id, client: o.terms.buyer }, uint(hold), 2),
     log('rules', d.rules, 'MutuallySettled', { id }, encodeAbiParameters([{ type: 'bool' }], [false]), 3),
@@ -200,7 +199,7 @@ async function standIn(o: { terms: J; stage: string; answers?: [Answer, Answer] 
         case 'eth_getTransactionCount':
           return reply({ result: '0x0' });
         case 'eth_getLogs':
-          return reply({ result: settled ? [logs()[3]] : [] });
+          return reply({ result: settled ? [logs()[2]] : [] });
         case 'eth_getTransactionReceipt':
           return reply({ result: settled && params[0] === SETTLE_TX ? { ...at, transactionHash: SETTLE_TX, status: '0x1', gasUsed: numberToHex(158_825), cumulativeGasUsed: numberToHex(158_825), effectiveGasPrice: numberToHex(parseGwei('2')), logs: logs(), logsBloom: `0x${'00'.repeat(256)}`, contractAddress: null } : null });
         case 'eth_getTransactionByHash':
@@ -212,7 +211,7 @@ async function standIn(o: { terms: J; stage: string; answers?: [Answer, Answer] 
           calls.push({ fn: functionName, block: params[1] });
           const after = settled && params[1] !== 'latest' && BigInt(params[1]) >= SETTLED_AT;
           const result = {
-            dealOf: { stage: STAGES.indexOf(after ? 'Settled' : (o.stage as (typeof STAGES)[number])), attempt: 1, appeal: after ? 5 : 0, flags: 0, t1: 0, t2: 0, seedTag: 0n },
+            dealOf: { stage: STAGES.indexOf(after ? 'Settled' : (o.stage as (typeof STAGES)[number])), attempt: 1, t1: 0, seedTag: 0n, reason: after ? 3 : 0, decider: 0 },
             deliveryHashOf: o.stage === 'Held' ? ZERO32 : POSTED,
             paymentState: [true, after ? 0n : hold, 0n],
           }[functionName];

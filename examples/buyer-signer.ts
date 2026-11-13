@@ -18,7 +18,7 @@
 //                 readOffer and checkOffer refuse them unless they equal what the buyer expects (Options.expect) and
 //                 what every operator publishes (T-332).
 //   agreeAndFund  signs the agreement, the funding and the operator fee, each rebuilt from the approved terms and
-//                 checked against what the operator prepared (verify.ts; site/llms.txt section 4).
+//                 checked against what the operator prepared (verify.ts; site/ref/signing.txt, "Prepare, verify, sign, submit").
 //   watch         follows the funded deal until the operators confirm its outcome, and tells the buyer's agent
 //                 (onReport) when it is released, refunded, unconfirmed, or past deliverBy with nothing delivered.
 //                 Then it sends the reclaim itself (T-325). Its record is `<address>.watch.json` beside the key file.
@@ -27,9 +27,9 @@
 //
 // The operator only relays: every state-changing message is signed here, by the buyer's key. The one exception is the
 // reclaim: the protocol's timeout trigger takes no signature, since the deadline both parties signed is its authority,
-// and the settlement layer refuses it before deliverBy (site/llms.txt, "Your own trigger"). The protocol steps are
+// and the settlement layer refuses it before deliverBy (site/ref/after-funding.txt, "Your own trigger"). The protocol steps are
 // agent.ts and verify.ts; this file adds the key store and the comparison with what the buyer approved. A buyer who
-// wants no seller code in its path uses the HTTP API directly (site/llms.txt sections 1 to 8).
+// wants no seller code in its path uses the HTTP API directly (site/buy.txt and site/ref/http-buyer.txt).
 //
 // The work a seller delivers is untrusted data. This file returns it; it never prints it, runs it or reads
 // instructions from it. Neither should the client around it.
@@ -39,7 +39,9 @@ import nacl from 'tweetnacl';
 import { recoverTypedDataAddress, type Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { Agent } from './agent.ts';
-import { commitmentIdOf, jcs, knownPins, operatorFeeOf, Refusal, typedOf, type Pin } from './verify.ts';
+import { command } from './entry.ts';
+import { dealRecord, type DealRecord } from './deal-record.ts';
+import { commitmentIdOf, CREATED_AT_BAND, deliveryHashOf, digestOfFile, isAddressText, jcs, knownPins, moneyAddressWarnings, openEnvelopeKey, operatorFeeOf, paymentSentence, Refusal, typedDataFile, typedOf, type Intent, type Pin } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -82,7 +84,29 @@ export type Offer = {
   policyId: string;
   policyHash: Hex;
   registryHash: Hex;
-  /** With `defaults` given to readOffer: what this offer changes from the seller's published defaults (T-330). */
+  /**
+   * Where the money comes from and goes (ADR-0033): the buyer's payment address, which funds the hold and receives
+   * every refund, and the seller's payout address, which receives the price. Each may equal its party's signing address.
+   */
+  buyerPaymentAddress: string;
+  sellerPayoutAddress: string;
+  /** The rest of what the buyer signs (T-332's follow-up): the schema version, the remedy on a reject, the terms' nonce and when the seller made them. */
+  schemaVersion: string;
+  remedy: { onReject: string };
+  nonce: Hex;
+  createdAt: string;
+  /** The one token of the deal: the price's, the fee's and the settlement's, checked against the pinned settlement layer and discovery. */
+  token: { id: string; symbol: string; decimals: number };
+  /**
+   * When the offer was shown: `createdAt` and each deadline as a date and its distance from settlement time then, so
+   * a far date shows at a glance (T-390). Shown only, never compared: it changes as time passes.
+   */
+  timeline?: Record<string, { at: string; fromNow: string }>;
+  /**
+   * With `defaults` given to readOffer: what this offer changes from the seller's published defaults (T-330). Also,
+   * with or without defaults, `createdAt` outside the band around the operators' clock, and the operators' clocks
+   * apart by more than it (T-390).
+   */
   differences?: Difference[];
 };
 /** The seven signed fields T-332 shows, and maxSubmissions on its own: an approval may name each. */
@@ -95,6 +119,8 @@ type Signed = 'settlement' | 'disclosure' | 'clubId' | 'rulebookHash' | 'policyI
 export type Approved = Pick<Offer, 'price' | 'deliverable' | 'checks' | 'deadlines' | 'adjudicators'> & Partial<Pick<Offer, Signed>> & {
   fees: { adjudication: Money; operator: Money; total?: Money };
   seller?: string;
+  /** The seller's payout address the buyer approved. Without it, the one shown must stay (ADR-0033 §6). */
+  sellerPayoutAddress?: string;
   rubric?: J;
   commitmentId?: Hex;
   differences?: Difference[];
@@ -140,13 +166,25 @@ export type Defaults = {
  * price and the rest of the offer are shown whole, not as differences.
  */
 export type Difference = { field: string; old: J; new: J };
+/**
+ * One message the payment address signs, written as an `eth_signTypedData_v4` file (ADR-0033 §3). `name` is
+ * `funding` or `operator-fee`; `slot` the body field its signature fills; `summary` the one sentence that says what it does.
+ */
+export type PaymentFile = { name: 'funding' | 'operator-fee'; slot: string; path: string; digest: Hex; summary: string; check: string };
+/** The signatures the payment address made elsewhere, as hex, and optionally the files it signed, for a refusal that names what differs. */
+export type PaymentSignatures = { funding: string; operatorFee?: string | undefined; signed?: { funding?: J; operatorFee?: J } | undefined };
 /** What agreeAndFund took from the buyer: the hold (price plus adjudication fee) and the operator fee. */
 export type Paid = { total: Money; hold: Money; operatorFee: Money; receipt: J | null };
 export type Delivery = {
-  outcome: 'Released' | 'Refunded';
-  /** The work as text when the deal released; null on a refund, where no key is released. Untrusted data. */
+  outcome: 'Released' | 'Refunded' | 'Settled';
+  /**
+   * The work as text when the deal released, or settled with the key released and the work at hand; null otherwise.
+   * Untrusted data.
+   */
   work: string | null;
   plaintextSha256: string | null;
+  /** On a settlement: the payouts it made, whether it released the key, and why no work was opened when none was. */
+  settlement?: { payouts: J[]; keyReleased: boolean; note: string | null; deliveryHash?: string };
   /** What the buyer keeps: what it paid, the operator's signed receipt for the funding, and the deal's event hashes. */
   receipt: { commitmentId: Hex; outcome: string; paid: Money; funded: J | null; events: Array<{ seq: number; type: string; hash: string }>; finalAt: string | null };
   /** One link per on-chain step; empty on SimChain. */
@@ -162,6 +200,22 @@ export type Options = {
   quoteCredentialEnv?: string | undefined;
   /** What the buyer expects of the seven signed fields (T-332). Not saved: give it again to loadKeys or openDeals. */
   expect?: Expect | undefined;
+  /**
+   * This machine's clock, in ms since 1970, which readOffer checks an offer's createdAt against besides the operators'
+   * (T-390). Default: Date.now. A world whose clock a test moves passes its own.
+   */
+  clock?: (() => number) | undefined;
+  /** Where the signer's one-line notices and advisory warnings go (ADR-0033 §7). Default: standard error. */
+  log?: ((line: string) => void) | undefined;
+};
+/** What makeKeys takes beyond Options: saved in the key file, so every later run of this deal uses it. */
+export type KeyOptions = Options & {
+  /**
+   * The buyer's payment address (ADR-0033): it funds the hold and the operator fee, and receives every refund. Left
+   * out: this deal's signing address, and the signer says so in one line. Take it from your own configuration only,
+   * never from a seller, an operator or a message (ADR-0033 §6).
+   */
+  paymentAddress?: string | undefined;
 };
 /**
  * What watch tells the buyer's agent.
@@ -170,6 +224,8 @@ export type Options = {
  * - `released`, `refunded`: the quorum of operators (`confirmations`) reports the outcome. `reclaimed`: settlement
  *   refunded the hold (price and adjudication fee) on the reclaim; without it the adjudicator decided the refund.
  *   `finalAt` is when no appeal can follow.
+ * - `settled`: the quorum reports a mutual settlement (late work, or any split of the price): its `payouts`, and
+ *   whether it released the key to the work.
  * - `unconfirmed`: some operators report `state`, but fewer than the quorum agree. The deal stays open, the signer
  *   keeps reading, and the reclaim stays armed. `agreeing` of the `answered` operators report it; `required` must.
  */
@@ -177,7 +233,8 @@ export type Report =
   | { kind: 'deliverBy-passed'; commitmentId: Hex; deliverBy: string; settlementTime: string }
   | { kind: 'released'; commitmentId: Hex; finalAt: string | null }
   | { kind: 'refunded'; commitmentId: Hex; reclaimed: boolean; finalAt: string | null }
-  | { kind: 'unconfirmed'; commitmentId: Hex; state: 'Released' | 'Refunded'; agreeing: number; answered: number; required: number };
+  | { kind: 'settled'; commitmentId: Hex; payouts: J[]; keyReleased: boolean; finalAt: string | null }
+  | { kind: 'unconfirmed'; commitmentId: Hex; state: 'Released' | 'Refunded' | 'Settled'; agreeing: number; answered: number; required: number };
 export type WatchOptions = {
   /**
    * Called once per report and awaited. A report is recorded only after it returns, so after a crash the next run
@@ -201,7 +258,14 @@ export type WatchOptions = {
   reclaimRetryMs?: number;
 };
 /** How the deal ended, as watch returns it and the watch file keeps it. */
-export type Outcome = { commitmentId: Hex; outcome: 'Released' | 'Refunded'; reclaimed: boolean; finalAt: string | null };
+export type Outcome = {
+  commitmentId: Hex;
+  outcome: 'Released' | 'Refunded' | 'Settled';
+  reclaimed: boolean;
+  finalAt: string | null;
+  /** On Settled: the payouts every agreeing operator records, and whether the settlement released the key. */
+  settlement?: { payouts: J[]; keyReleased: boolean };
+};
 
 type Saved = {
   version: 1;
@@ -209,6 +273,8 @@ type Saved = {
   privateKey: Hex;
   encryptionSecretKey: string;
   createdAt: string;
+  /** The buyer's payment address, lowercase, when it is not the signing address (ADR-0033). */
+  paymentAddress?: string;
   /** The Idempotency-Key of the quote request, so a retry after a crash replays the seller's answer. */
   quoteKey?: string;
   commitmentId?: Hex;
@@ -220,6 +286,11 @@ type Saved = {
   shown?: { commitmentId: Hex; offer: Offer; defaults: Defaults | null };
   /** The terms checkOffer passed, and the offer the buyer approved. */
   checked?: { terms: J; offer: Offer };
+  /**
+   * With a separate payment address: the funding as fundingFiles prepared it. The nonces repeat the preparation,
+   * so the messages stay the ones written to the files; each file's digest is the one its signature must be over.
+   */
+  funding?: { commitmentId: Hex; nonces: { agreeNonce: Hex; fundingNonce: Hex; operatorFeeNonce?: Hex }; files: PaymentFile[] };
   paid?: Paid;
 };
 
@@ -324,6 +395,18 @@ function defaultsOf(d: J): Defaults {
   };
 }
 
+/** The differences readOffer finds against the clock, which checkOffer keeps from the shown offer (T-390). */
+const CLOCK_FIELDS = ['createdAt', 'settlementTime'];
+/** A distance in seconds as a person reads it: "in 5 years 1 day", "12 min ago". A year is 365 days here. */
+export function fromNow(sec: number): string {
+  const r = Math.abs(Math.round(sec));
+  const a = r >= 86_400 ? Math.round(r / 60) * 60 : r; // past a day, to the minute: seconds of drift do not change the words
+  const y = Math.floor(a / (365 * 86_400)), d = Math.floor((a % (365 * 86_400)) / 86_400), h = Math.floor((a % 86_400) / 3600), m = Math.floor((a % 3600) / 60);
+  const n = (v: number, unit: string) => `${v} ${unit}${v === 1 ? '' : 's'}`;
+  const text = y ? [n(y, 'year'), ...(d ? [n(d, 'day')] : [])].join(' ') : d ? [n(d, 'day'), ...(h ? [`${h} h`] : [])].join(' ') : h ? `${h} h ${m} min` : m ? `${m} min` : `${a} s`;
+  return a === 0 ? 'now' : sec > 0 ? `in ${text}` : `${text} ago`;
+}
+
 /**
  * What an offer changes from a seller's defaults (filled with the scope): each changed deliverable field, check,
  * rubric, adjudication fee and window, old value and new. Shown to the buyer's agent so it can decide; the signer
@@ -362,6 +445,8 @@ const OFFER_FIELDS: Array<[string, (o: Offer) => J]> = [
   ['windows', (o) => o.windows], ['maxSubmissions', (o) => o.maxSubmissions], ['adjudicators', (o) => o.adjudicators],
   ['settlement.mode', (o) => o.settlement?.mode], ['disclosure.level', (o) => o.disclosure?.level], ['clubId', (o) => o.clubId], ['rulebookHash', (o) => o.rulebookHash],
   ['policyId', (o) => o.policyId], ['policyHash', (o) => o.policyHash], ['registryHash', (o) => o.registryHash],
+  ['buyerPaymentAddress', (o) => o.buyerPaymentAddress], ['sellerPayoutAddress', (o) => o.sellerPayoutAddress],
+  ['schemaVersion', (o) => o.schemaVersion], ['token', (o) => o.token], ['remedy.onReject', (o) => o.remedy?.onReject], ['nonce', (o) => o.nonce], ['createdAt', (o) => o.createdAt],
   ['differences', (o) => o.differences ?? null],
 ];
 /** The seven of T-332 and maxSubmissions, as OFFER_FIELDS names them. An Approved holds each under the name's first part. */
@@ -379,6 +464,27 @@ function expectOf(e: unknown): Expect {
     if (typeof v !== 'string') throw new Error(`expect.${k} is not a string`);
   }
   return { ...(e as Expect) };
+}
+
+/**
+ * Why a file a wallet signed is not the message the signer wrote, by name: another payer, another deal, more than the
+ * approved amount, or anything else (the domain, the types, the recipient, the dates). Null when they are the same.
+ */
+function signedFileDiffers(name: string, got: J, mine: J): string | null {
+  let digest: string;
+  try {
+    digest = digestOfFile(got);
+  } catch {
+    return `the signed ${name} file is not EIP-712 typed data`;
+  }
+  if (digest === digestOfFile(mine)) return null;
+  const g = isRecord(got?.message) ? got.message : {}, m = mine.message;
+  const lc = (v: J) => String(v).toLowerCase();
+  if (lc(g.from) !== lc(m.from)) return `the signed ${name} message pays from ${shown(g.from ?? null)}, not the payment address ${m.from}`;
+  if (m.commitmentId !== undefined && lc(g.commitmentId) !== lc(m.commitmentId)) return `the signed ${name} message is for another deal: ${shown(g.commitmentId ?? null)}, not ${m.commitmentId}`;
+  if (lc(g.nonce) !== lc(m.nonce)) return m.commitmentId !== undefined ? `the signed ${name} message has the nonce ${shown(g.nonce ?? null)}, not the ${m.nonce} the signer wrote for this deal: sign the file it wrote last` : `the signed ${name} message is for another deal: its nonce ${shown(g.nonce ?? null)} is not this deal's ${m.nonce}`;
+  if (DEC.test(String(g.value)) && BigInt(g.value) > BigInt(m.value)) return `the signed ${name} message pays ${g.value} base units, more than the approved ${m.value}`;
+  return `the signed ${name} message is not the one the signer wrote (its domain, types, recipient, amount or dates differ)`;
 }
 
 /** Writes one key file: a temporary file with mode 0600, then a rename, so a crash leaves the old file or the new one. */
@@ -402,8 +508,17 @@ export class BuyerSigner {
   readonly #quoteCredentialEnv: string | undefined;
   readonly #expect: Expect;
   readonly #saved: Saved;
+  readonly #log: (line: string) => void;
+  readonly #clockNow: () => number;
   #connected: Promise<{ agent: Agent; pin: Pin }> | undefined;
 
+  /**
+   * The buyer's payment address (ADR-0033): it funds the hold and the operator fee and receives every refund. The
+   * signing address unless makeKeys was given another.
+   */
+  get paymentAddress(): string {
+    return this.#saved.paymentAddress ?? this.address;
+  }
   /** The deal this key serves, once quote or checkOffer bound it. */
   get commitmentId(): Hex | undefined {
     return this.#saved.commitmentId;
@@ -425,9 +540,12 @@ export class BuyerSigner {
     this.#operators = options.operators ?? defaultOperators();
     this.#quoteCredentialEnv = options.quoteCredentialEnv;
     this.#expect = expectOf(options.expect);
+    this.#log = options.log ?? ((line) => console.error(line));
+    this.#clockNow = options.clock ?? Date.now;
     this.address = privateKeyToAccount(s.privateKey).address.toLowerCase();
     this.encryptionPublicKey = Buffer.from(nacl.box.keyPair.fromSecretKey(new Uint8Array(Buffer.from(s.encryptionSecretKey, 'base64url'))).publicKey).toString('base64url');
     if (s.version !== 1 || s.address !== this.address) throw new Error(`the key file for ${s.address} in ${store} is not one this file wrote`);
+    if (s.paymentAddress !== undefined && !/^0x[0-9a-f]{40}$/.test(s.paymentAddress)) throw new Error(`the key file for ${s.address} in ${store} names a payment address that is not one`);
   }
 
   /**
@@ -445,6 +563,32 @@ export class BuyerSigner {
       return { agent: new Agent(this.#operators, this.#saved.privateKey, secret, pin.domain, pin.chain), pin };
     })();
     return this.#connected;
+  }
+
+  /**
+   * The deal's one token (plan section 2c): the pinned settlement layer's, which every operator's discovery must name
+   * too, or the signer refuses. A tool takes it from here and never from a template.
+   */
+  async token(): Promise<Pin['token']> {
+    const { agent, pin } = await this.#connect();
+    const listed = await agent.trusted('/.well-known/holdback.json', (x) => (typeof x.demo?.token?.id === 'string' ? x.demo.token.id.toLowerCase() : null));
+    if (listed !== null && listed !== pin.token.id.toLowerCase()) refuse(`the operators' discovery names the token ${shown(listed)}, and the pinned settlement layer holds ${pin.token.id} (${pin.token.symbol})`);
+    return { ...pin.token };
+  }
+
+  /**
+   * The buyer's own terms (the defaults' format, as `--expect-terms` takes them) in the deal's one token: a `price` or
+   * `fee` that names no token takes it, and one that names another is refused, naming both, before any quote is asked.
+   */
+  async inToken<T>(terms: T): Promise<T> {
+    const token = await this.token();
+    const t = structuredClone(terms) as J;
+    for (const k of ['price', 'fee']) {
+      if (!isRecord(t?.[k])) continue;
+      if (t[k].token !== undefined && String(t[k].token).toLowerCase() !== token.id.toLowerCase()) refuse(`your terms' ${k} names the token ${shown(t[k].token)}, and these operators settle in ${token.id} (${token.symbol}) only: name that token, or leave the token out`);
+      t[k] = { token: token.id, amount: t[k].amount };
+    }
+    return t as T;
   }
 
   /** A key serves one deal: binds it to `id`, or stops when it already serves another. */
@@ -504,6 +648,9 @@ export class BuyerSigner {
     const credential = name === undefined ? undefined : process.env[name];
     // The variable's name in the error, never its value.
     if (name !== undefined && !credential) throw new Error(`quoteCredentialEnv names ${name}, which is not set: set it to the seller's quote credential`);
+    // ADR-0033 §7: the one line that says where the money comes from when no payment address is set.
+    if (this.#saved.paymentAddress === undefined) this.#log(`Payment address: not set. The signing address ${this.address} funds the hold, and refunds return to it.`);
+    else this.#log(`Payment address: ${this.paymentAddress} funds the hold and the operator fee, and refunds return to it. The signing address ${this.address} receives none of the deal's money.`);
     this.#saved.quoteKey ??= crypto.randomUUID();
     this.#saved.scope = scope;
     if (options === undefined) delete this.#saved.options;
@@ -512,7 +659,7 @@ export class BuyerSigner {
     const res = await fetch(quoteUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'idempotency-key': this.#saved.quoteKey, ...(credential ? { authorization: `Bearer ${credential}` } : {}) },
-      body: JSON.stringify({ buyer: this.address, buyerEncryptionPublicKey: this.encryptionPublicKey, scope, ...(options === undefined ? {} : { options }) }),
+      body: JSON.stringify({ buyer: this.address, buyerEncryptionPublicKey: this.encryptionPublicKey, ...(this.#saved.paymentAddress === undefined ? {} : { buyerPaymentAddress: this.#saved.paymentAddress }), scope, ...(options === undefined ? {} : { options }) }),
       signal: AbortSignal.timeout(120_000),
     });
     const q = (await res.json().catch(() => null)) as J;
@@ -529,19 +676,65 @@ export class BuyerSigner {
   }
 
   /**
-   * Test service only: asks the faucet for `amount` base units of the test token (the deal's total) and a mandate
-   * in the demo club, which a fresh key needs before it can agree. The faucet serves an address once an hour.
+   * Test service only: asks the faucet for `amount` base units of the test token (the deal's total) for the payment
+   * address, and a mandate in the demo club for the signing key, which a fresh key needs before it can agree. With
+   * the two addresses apart the signing key gets the mandate and no tokens. The faucet serves a signing key once an hour.
    */
   async testFunds(amount: string): Promise<Money> {
     if (!DEC.test(amount) || amount === '0') throw new Error('amount is base units as a decimal string, above 0');
-    const { agent } = await this.#connect();
-    const grant = await agent.call('POST', '/v1/faucet', { address: this.address, amount });
-    return { token: grant.granted.token, amount: grant.granted.amount };
+    const { agent, pin } = await this.#connect();
+    if (this.paymentAddress === this.address) {
+      const grant = await agent.call('POST', '/v1/faucet', { address: this.address, amount });
+      return { token: grant.granted.token, amount: grant.granted.amount };
+    }
+    // ADR-0033 §5 (T-378): one grant, the tokens to the payment address and the mandate to the signing key, which gets
+    // no tokens. The faucet mints nothing to a payment address that already holds the amount.
+    const heldNow = async () => String((await agent.trusted(`/v1/balances/${this.paymentAddress}`, (x) => x.amount)) ?? '0');
+    let grant: J = null;
+    try {
+      grant = await agent.call('POST', '/v1/faucet', { address: this.address, amount, paymentAddress: this.paymentAddress });
+    } catch (e) {
+      // A second run within the hour (an approve after a stop): the first grant stands when the payment address holds the total.
+      const h = await heldNow();
+      if (!/: rate_limited: /.test((e as Error).message) || !DEC.test(h) || BigInt(h) < BigInt(amount)) throw e;
+    }
+    const held = await heldNow();
+    if (!DEC.test(held) || BigInt(held) < BigInt(amount)) throw new Error(`the faucet did not fund the payment address ${this.paymentAddress} (it holds ${held} base units): these operators predate the faucet's payment address (T-378)`);
+    return { token: grant?.granted?.token ?? pin.token.id, amount: grant?.granted?.amount ?? '0' };
+  }
+
+  /**
+   * The offer against every configured operator's settlement time (T-390, T-388 H1): a difference when `createdAt` is
+   * outside CREATED_AT_BAND of any operator's time or of this machine's clock, or when the operators' times are further
+   * apart than the band; and the timeline from this machine's clock. Advisory: a difference stops a one-run buy for approval and refuses nothing (D31).
+   */
+  async #clock(sources: string[], offer: Offer): Promise<{ clock: Difference[]; timeline: NonNullable<Offer['timeline']> }> {
+    const answers = await this.#answers(sources, '/.well-known/holdback.json');
+    const times = answers.map((a) => ({ api: a.api, at: Date.parse(String(a.body?.settlementTime)) })).filter((x) => Number.isFinite(x.at));
+    if (times.length === 0) throw new Error('no operator reports its settlement time: the offer cannot be read against the clock');
+    const { behindSec, aheadSec } = CREATED_AT_BAND;
+    const clock: Difference[] = [];
+    const spread = (Math.max(...times.map((t) => t.at)) - Math.min(...times.map((t) => t.at))) / 1000;
+    if (spread > behindSec + aheadSec) clock.push({ field: 'settlementTime', old: `the operators' clocks within ${behindSec + aheadSec} s of each other`, new: Object.fromEntries(times.map((t) => [t.api, new Date(t.at).toISOString()])) });
+    const created = Date.parse(String(offer.createdAt));
+    // This machine's clock too (PR red team, Medium): both configured operators may be one party, and a time only they
+    // report is a time they choose. A machine whose own clock is off stops honest offers for approval, and loses nothing.
+    const local = this.#clockNow();
+    const offsets = [...times.map((t) => t.at), local].map((at) => (created - at) / 1000);
+    if (!Number.isFinite(created) || offsets.some((o) => o > aheadSec || o < -behindSec)) clock.push({ field: 'createdAt', old: `within ${behindSec} s behind and ${aheadSec} s ahead of every operator's settlement time and of this machine's clock`, new: offer.createdAt });
+    // From now on this machine's clock: the distances a person reads, which no operator sets.
+    const now = local;
+    const timeline: NonNullable<Offer['timeline']> = {};
+    for (const [k, v] of [['createdAt', offer.createdAt], ...['offerExpiresAt', 'fundBy', 'deliverBy', 'judgeBy', 'fallbackBy'].map((k) => [k, offer.deadlines?.[k]])] as Array<[string, J]>) {
+      const ms = Date.parse(String(v));
+      timeline[k] = { at: String(v), fromNow: Number.isFinite(ms) ? fromNow((ms - now) / 1000) : 'not a date' };
+    }
+    return { clock, timeline };
   }
 
   /** The terms of `id` as both operators serve them, with the ID recomputed and the seller's signature recovered. */
   async #served(id: Hex): Promise<{ terms: J; offer: Offer }> {
-    const { agent } = await this.#connect();
+    const { agent, pin } = await this.#connect();
     const { id: servedId, signatures, ...terms } = await agent.trusted(`/v1/commitments/${id}/terms`);
     // The level first: at private and judgment an operator serves no plain deliverable or acceptance (ADR-0024), so
     // the ID below would not recompute. Name the level, not a mismatch that reads like tampering (T-332).
@@ -550,7 +743,11 @@ export class BuyerSigner {
     const signer = await recoverTypedDataAddress({ ...typedOf('CommitmentTerms', terms, agent.domain), signature: signatures?.seller }).catch(() => '');
     if (signer.toLowerCase() !== String(terms.seller).toLowerCase()) refuse("the seller's signature does not recover to the seller in the terms");
     const price: Money = terms.price, adjudication: Money = terms.adjudication.fee;
-    if (!isMoney(price) || !isMoney(adjudication) || adjudication.token !== price.token) refuse('the price and the adjudication fee are not amounts of one token');
+    if (!isMoney(price) || !isMoney(adjudication) || adjudication.token !== price.token || terms.settlement?.token !== price.token) refuse('the price, the adjudication fee and the settlement are not in one token');
+    // One token (plan section 2c): the pinned settlement layer's, which every operator's discovery must name too.
+    const listed = await agent.trusted('/.well-known/holdback.json', (x) => (typeof x.demo?.token?.id === 'string' ? x.demo.token.id.toLowerCase() : null));
+    if (listed !== null && listed !== pin.token.id.toLowerCase()) refuse(`the operators' discovery names the token ${shown(listed)}, and the pinned settlement layer holds ${pin.token.id} (${pin.token.symbol})`);
+    if (price.token.toLowerCase() !== pin.token.id.toLowerCase()) refuse(`the offer is in ${shown(price.token)}, and this settlement layer holds ${pin.token.id} (${pin.token.symbol}): the operators refuse any other`);
     // The operator fee: computed here from the schedule both operators publish, never read from the seller.
     const schedule = await agent.operatorFeeSchedule();
     const operator = schedule ? operatorFeeOf(price, schedule) : 0n;
@@ -569,6 +766,9 @@ export class BuyerSigner {
       adjudicators: { primary: a.adjudicator, fallback: a.fallbackAdjudicator, appeal: a.appealAdjudicator },
       settlement: { mode: terms.settlement?.mode }, disclosure: { level: terms.disclosure?.level }, clubId: terms.clubId, rulebookHash: terms.rulebookHash,
       policyId: a.policyId, policyHash: a.policyHash, registryHash: a.registryHash,
+      buyerPaymentAddress: String(terms.buyerPaymentAddress).toLowerCase(), sellerPayoutAddress: String(terms.sellerPayoutAddress).toLowerCase(),
+      schemaVersion: terms.schemaVersion, remedy: { onReject: terms.remedy?.onReject }, nonce: String(terms.nonce).toLowerCase() as Hex, createdAt: terms.createdAt,
+      token: { ...pin.token },
     };
     await this.#expected(agent, offer);
     return { terms, offer };
@@ -634,7 +834,19 @@ export class BuyerSigner {
       defaults = fillWith(defaultsOf(given), this.#saved.scope) as Defaults;
     }
     const { offer } = await this.#served(id);
-    const showing: Offer = defaults ? { ...offer, differences: differencesOf(defaults, offer) } : offer;
+    const { pin, agent } = await this.#connect();
+    // ADR-0033 §7: advisory lines for an odd money address. They refuse nothing; checkOffer refuses a payment address that is not this buyer's.
+    for (const w of [...moneyAddressWarnings('payout', offer.sellerPayoutAddress, pin, offer.adjudicators), ...moneyAddressWarnings('payment', offer.buyerPaymentAddress, pin, offer.adjudicators)]) this.#log(w);
+    // T-390 (T-388 H1): the windows count from the seller's createdAt, so a createdAt far from the clock moves every
+    // deadline though no window differs. Judged now, when the offer is shown; checkOffer keeps this verdict.
+    const { clock, timeline } = await this.#clock(agent.sources(), offer);
+    for (const d of clock) {
+      this.#log(d.field === 'createdAt'
+        ? `Warning: the offer's createdAt, ${shown(d.new)}, is ${timeline['createdAt']?.fromNow ?? 'off'} by this machine's clock, and every deadline moves with it: deliverBy is ${timeline['deliverBy']?.fromNow ?? 'unknown'}. An honest offer's createdAt is ${d.old}. Approve it only if you mean these deadlines.`
+        : `Warning: the operators' clocks are further apart than ${CREATED_AT_BAND.behindSec + CREATED_AT_BAND.aheadSec} s (${shown(d.new)}): the offer's times cannot be read against one clock. Approve it only if you mean its deadlines.`);
+    }
+    const found = defaults ? differencesOf(defaults, offer) : [];
+    const showing: Offer = { ...offer, timeline, ...(defaults || clock.length ? { differences: [...found, ...clock] } : {}) };
     this.#saved.shown = { commitmentId: id, offer: showing, defaults };
     save(this.store, this.#saved);
     return showing;
@@ -656,11 +868,16 @@ export class BuyerSigner {
     this.#bind(id);
     const { terms, offer: read } = await this.#served(id);
     // The offer read again from every operator, compared with what the buyer's agent was shown.
-    const offer: Offer = shownBefore.defaults ? { ...read, differences: differencesOf(shownBefore.defaults, read) } : read;
+    // The clock's verdict is the one made when the offer was shown (readOffer): createdAt grows older while it waits.
+    const clock = (shownBefore.offer.differences ?? []).filter((d) => CLOCK_FIELDS.includes(d.field));
+    const offer: Offer = { ...read, ...(shownBefore.offer.timeline ? { timeline: shownBefore.offer.timeline } : {}), ...(shownBefore.defaults || clock.length ? { differences: [...(shownBefore.defaults ? differencesOf(shownBefore.defaults, read) : []), ...clock] } : {}) };
     for (const [field, of] of OFFER_FIELDS) if (!same(of(offer), of(shownBefore.offer))) refuse(`${field} is ${shown(of(offer))}, not the shown ${shown(of(shownBefore.offer))}`);
     const want: Array<[string, J, J]> = [
       ['buyer', terms.buyer, this.address],
       ['buyerEncryptionPublicKey', terms.buyerEncryptionPublicKey, this.encryptionPublicKey],
+      // ADR-0033 §6: the payment address is this buyer's own, from its key file and nowhere else.
+      ['buyerPaymentAddress', offer.buyerPaymentAddress, this.paymentAddress],
+      ...(approved.sellerPayoutAddress ? [['sellerPayoutAddress', offer.sellerPayoutAddress, approved.sellerPayoutAddress] as [string, J, J]] : []),
       ['price', offer.price, approved.price],
       ['fees.adjudication', offer.fees.adjudication, approved.fees?.adjudication],
       ['fees.operator', offer.fees.operator, approved.fees?.operator],
@@ -683,12 +900,75 @@ export class BuyerSigner {
     return offer;
   }
 
+  /** The prepared funding for the checked terms, with the payment address apart; `nonces` repeat an earlier preparation. */
+  async #prepareFunding(checked: { terms: J; offer: Offer }, nonces?: { agreeNonce: Hex; fundingNonce: Hex; operatorFeeNonce?: Hex }) {
+    const { agent } = await this.#connect();
+    const { price, fees } = checked.offer;
+    const schedule = await agent.operatorFeeSchedule();
+    const fee = schedule ? operatorFeeOf(price, schedule) : 0n;
+    if (fee.toString() !== fees.operator.amount) refuse(`the operator fee is now ${fee} base units, not the approved ${fees.operator.amount}`);
+    return agent.prepareAgreeAndFund(checked.terms, BigInt(fees.total.amount), { paymentAddress: this.paymentAddress, ...(nonces ? { nonces } : {}) });
+  }
+
+  /**
+   * With a payment address apart from this key (ADR-0033): writes each message the payment address must sign as a
+   * file in the standard typed-data form `eth_signTypedData_v4` takes, `<address>.funding.typed.json` and, when the
+   * operators charge a fee, `<address>.operator-fee.typed.json`, beside the key file. Each message is rebuilt from the
+   * approved terms and checked against what the operators prepared (verify.ts), so the two cannot take more than the
+   * approved total. It returns one sentence for each (who pays whom how much, until when, for which deal, and the
+   * offer's expiry), its digest, and the check the wallet's holder runs before signing (pay-from-wallet.ts check),
+   * with the terms written beside the files for it. The holder should run that check where the wallet is: a file
+   * replaced on the way would fund another deal (red team M-1). Then give the signatures to agreeAndFund. Calling it
+   * again writes the same messages. It signs and sends nothing, and it refuses once the offer has expired.
+   */
+  async fundingFiles(commitmentId: string): Promise<PaymentFile[]> {
+    const id = commitmentId.toLowerCase() as Hex;
+    const checked = this.#saved.commitmentId === id ? this.#saved.checked : undefined;
+    if (!checked) return refuse(`checkOffer has not passed for ${id} with this key`);
+    if (this.paymentAddress === this.address) throw new Error('this key is its own payment address: agreeAndFund signs the funding itself');
+    if (this.#saved.paid) throw new Error(`${id} is funded already`);
+    const { agent, pin } = await this.#connect();
+    const expires = Date.parse(String(checked.terms.timing.offerExpiresAt));
+    if ((await agent.settlementNow()) >= expires) throw new Error(`the offer ${id} expired at ${checked.terms.timing.offerExpiresAt}: nothing can fund it now, so no files are written`);
+    const saved = this.#saved.funding?.commitmentId === id ? this.#saved.funding : undefined;
+    const { intent, slots } = await this.#prepareFunding(checked, saved?.nonces);
+    const termsPath = join(this.store, `${this.address}.terms.json`);
+    const sh = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
+    const out: Array<{ file: J } & PaymentFile> = slots.filter((x) => x.signer === this.paymentAddress).map((s) => {
+      const name = s.slot === 'fund.signature' ? 'funding' : 'operator-fee';
+      const file = typedDataFile(s.typed);
+      const path = join(this.store, `${this.address}.${name}.typed.json`);
+      const fee = name === 'operator-fee' ? ` --fee ${file.message.to} ${file.message.value}` : '';
+      // From wherever the command runs, as buy-with-signer.ts builds its own lines.
+      const check = `${command('pay-from-wallet', import.meta.url)} check ${sh(path)} ${sh(termsPath)} ${this.address}${fee}${pin.chain ? '' : ' --sim'}`;
+      return { file, name, slot: s.slot, path, digest: s.digest, check, summary: `The ${name === 'funding' ? 'funding' : 'operator fee'} (digest ${s.digest}): ${paymentSentence(file, id, pin.token, checked.terms)}` };
+    });
+    // The record first, so a crash before the files leaves a record that writes the same files again (red team I-2).
+    const i = intent as Extract<Intent, { kind: 'agree-and-fund' }>;
+    const files: PaymentFile[] = out.map(({ file: _f, ...f }) => f); // eslint-disable-line @typescript-eslint/no-unused-vars
+    this.#saved.funding = { commitmentId: id, nonces: { agreeNonce: i.agreeNonce, fundingNonce: i.fundingNonce, ...(i.operatorFee ? { operatorFeeNonce: i.operatorFee.nonce } : {}) }, files };
+    save(this.store, this.#saved);
+    const write = (path: string, v: J) => {
+      writeFileSync(`${path}.tmp`, `${JSON.stringify(v, null, 2)}\n`, { mode: 0o600 });
+      renameSync(`${path}.tmp`, path);
+    };
+    write(termsPath, checked.terms);
+    for (const f of out) write(f.path, f.file);
+    return files.map((f) => ({ ...f }));
+  }
+
   /**
    * Signs the agreement, the funding authorisation and the operator fee authorisation for the terms checkOffer
    * passed, and returns what the buyer paid. Each prepared message is rebuilt from those terms and compared before it
    * is signed, and the three together cannot take more than the approved total (verify.ts).
+   *
+   * With a payment address apart from this key, that address signs the funding and the fee elsewhere, from the files
+   * fundingFiles wrote, and `signatures` brings them back as hex. This key signs only the agreement. Nothing is sent
+   * unless each signature recovers to the payment address over the message this signer rebuilt from the approved
+   * terms, which is the one in its file. With `signatures.signed` (the files the wallet signed), a file that differs
+   * is refused by name: another payer, another deal, or more than the approved amount.
    */
-  async agreeAndFund(commitmentId: string): Promise<Paid> {
+  async agreeAndFund(commitmentId: string, signatures?: PaymentSignatures): Promise<Paid> {
     const id = commitmentId.toLowerCase() as Hex;
     const checked = this.#saved.commitmentId === id ? this.#saved.checked : undefined;
     if (!checked) return refuse(`checkOffer has not passed for ${id} with this key`);
@@ -697,12 +977,25 @@ export class BuyerSigner {
     const { price, fees } = checked.offer;
     const hold = BigInt(price.amount) + BigInt(fees.adjudication.amount);
     const paid: Paid = { total: fees.total, hold: { token: price.token, amount: hold.toString() }, operatorFee: fees.operator, receipt: null };
+    const apart = this.paymentAddress !== this.address;
+    const written = this.#saved.funding?.commitmentId === id ? this.#saved.funding : undefined;
+    if (apart && !written) throw new Error(`the payment address ${this.paymentAddress} signs the funding: call fundingFiles, sign its files with that wallet, and pass the signatures here`);
+    if (!apart && signatures) throw new Error('this key is its own payment address: it signs the funding itself, and takes no signatures');
     const state = (await agent.trusted(`/v1/commitments/${id}`, (x) => x.escrowState)) as string;
     if (state === 'AcceptedByAdjudicator') {
-      const schedule = await agent.operatorFeeSchedule();
-      const fee = schedule ? operatorFeeOf(price, schedule) : 0n;
-      if (fee.toString() !== fees.operator.amount) refuse(`the operator fee is now ${fee} base units, not the approved ${fees.operator.amount}`);
-      const held = await agent.agreeAndFund(checked.terms, BigInt(fees.total.amount));
+      let held: J;
+      if (apart) {
+        const { prepared, intent, slots } = await this.#prepareFunding(checked, written!.nonces);
+        for (const f of written!.files) {
+          if (slots.find((s) => s.slot === f.slot)?.digest !== f.digest) refuse(`the operators now prepare another ${f.name} message than the one in ${f.path}: call fundingFiles again, and sign the new file`);
+        }
+        held = await agent.submitAgreeAndFund(prepared, intent, this.#outsideSignatures(written!, signatures, slots));
+      } else {
+        const schedule = await agent.operatorFeeSchedule();
+        const fee = schedule ? operatorFeeOf(price, schedule) : 0n;
+        if (fee.toString() !== fees.operator.amount) refuse(`the operator fee is now ${fee} base units, not the approved ${fees.operator.amount}`);
+        held = await agent.agreeAndFund(checked.terms, BigInt(fees.total.amount));
+      }
       if (held.escrowState !== 'Held' || held.hold?.amount?.amount !== paid.hold.amount) throw new Error(`expected Held with ${paid.hold.amount} base units, got ${held.escrowState} ${shown(held.hold?.amount ?? null)}`);
       paid.receipt = held.receipt ?? null;
     } else {
@@ -715,6 +1008,37 @@ export class BuyerSigner {
     this.#saved.paid = paid;
     save(this.store, this.#saved);
     return paid;
+  }
+
+  /**
+   * The outside signatures by slot, after the checks that name what is wrong: one for each file written, as hex,
+   * and each signed file given compared with the file written. Agent.submitAgreeAndFund then recovers each signature
+   * over this signer's own message, which is what makes a wrong one fail.
+   */
+  #outsideSignatures(written: NonNullable<Saved['funding']>, given: PaymentSignatures | undefined, slots: Array<{ slot: string; typed: J }>): Record<string, Hex> {
+    const out: Record<string, Hex> = {};
+    const keys = written.files.map((f) => (f.name === 'funding' ? 'funding' : 'operatorFee'));
+    for (const k of ['funding', 'operatorFee'] as const) if (given?.[k] !== undefined && !keys.includes(k)) refuse(`there is no ${k === 'funding' ? 'funding' : 'operator-fee'} message for the payment address to sign in this deal`);
+    for (const f of written.files) {
+      // Red team M-1: a file replaced after it was written leads the wallet to sign another deal's message. Name it.
+      let onDisk: string | null = null;
+      try {
+        onDisk = digestOfFile(JSON.parse(readFileSync(f.path, 'utf8')));
+      } catch {
+        onDisk = existsSync(f.path) ? 'unreadable' : null;
+      }
+      if (onDisk !== null && onDisk !== f.digest) refuse(`${f.path} is not the file the signer wrote: it now hashes to ${onDisk}, not ${f.digest}. Someone replaced it; a signature over it pays for another message. Write the files again with fundingFiles, run the check where the wallet is, and sign the new ones`);
+      const key = f.name === 'funding' ? 'funding' : 'operatorFee';
+      const sig = given?.[key];
+      if (typeof sig !== 'string' || !/^0x[0-9a-fA-F]{130}$/.test(sig.trim())) refuse(`the ${f.name} signature is missing or not 65 bytes as 0x and 130 hex characters: sign ${f.path} with the wallet that holds ${this.paymentAddress}`);
+      const signed = given?.signed?.[key];
+      if (signed !== undefined) {
+        const why = signedFileDiffers(f.name, signed, typedDataFile(slots.find((s) => s.slot === f.slot)!.typed));
+        if (why) refuse(why);
+      }
+      out[f.slot] = String(sig).trim() as Hex;
+    }
+    return out;
   }
 
   /**
@@ -751,7 +1075,11 @@ export class BuyerSigner {
       keep();
     };
     const final = async (o: Outcome) => {
-      await report(o.outcome === 'Released' ? { kind: 'released', commitmentId: id, finalAt: o.finalAt } : { kind: 'refunded', commitmentId: id, reclaimed: o.reclaimed, finalAt: o.finalAt });
+      await report(
+        o.outcome === 'Released' ? { kind: 'released', commitmentId: id, finalAt: o.finalAt }
+        : o.outcome === 'Settled' ? { kind: 'settled', commitmentId: id, payouts: o.settlement?.payouts ?? [], keyReleased: o.settlement?.keyReleased === true, finalAt: o.finalAt }
+        : { kind: 'refunded', commitmentId: id, reclaimed: o.reclaimed, finalAt: o.finalAt },
+      );
       return o;
     };
     if (w.outcome) return final(w.outcome);
@@ -772,15 +1100,20 @@ export class BuyerSigner {
       seen = states.length ? states.join(' / ') : 'no answer';
       let wake = Infinity; // ms until deliverBy on the fastest clock, while the deal is Held before it
       let sent = false;
-      for (const state of ['Released', 'Refunded'] as const) {
+      for (const state of ['Released', 'Refunded', 'Settled'] as const) {
         const agreeing = views.filter((v) => stateOf(v) === state);
         if (agreeing.length === 0) continue;
         if (agreeing.length >= required && agreeing.length === views.length) {
           const events = await this.#answers(agreeing.map((v) => v.api), `/v1/commitments/${id}/events?limit=200`);
           const reclaimed = events.length > 0 && events.every((a) => Array.isArray(a.body?.items) && a.body.items.some((e: J) => e.type === 'settlement.reclaimed'));
-          w.outcome = { commitmentId: id, outcome: state, reclaimed, finalAt: agreeing[0]!.body.finalAt ?? null };
-          keep();
-          return final(w.outcome);
+          // A settlement's payouts and key release, as every agreeing operator's event records them: they must be one.
+          const settled = events.map((a) => (Array.isArray(a.body?.items) ? a.body.items : []).filter((e: J) => e.type === 'commitment.settled').at(-1)?.payload ?? null);
+          const one = state === 'Settled' && events.length === agreeing.length && settled.every((p) => p !== null) && new Set(settled.map((p) => jcs(lowerHex({ payouts: p.payouts ?? null, keyReleased: p.keyReleased === true })))).size === 1;
+          if (state !== 'Settled' || one) {
+            w.outcome = { commitmentId: id, outcome: state, reclaimed, finalAt: agreeing[0]!.body.finalAt ?? null, ...(state === 'Settled' ? { settlement: { payouts: lowerHex(settled[0]!.payouts ?? []), keyReleased: settled[0]!.keyReleased === true } } : {}) };
+            keep();
+            return final(w.outcome);
+          }
         }
         await report({ kind: 'unconfirmed', commitmentId: id, state, agreeing: agreeing.length, answered: views.length, required });
       }
@@ -847,11 +1180,17 @@ export class BuyerSigner {
   /**
    * Watches the deal to its outcome (watch, with the same options: it reports, and reclaims after a missed deadline).
    * On a release it opens this key's envelope, decrypts the work and checks its SHA-256 against the delivery the
-   * operators record. On a refund no work is released, and the hold or the price is back on this key. Returns the
+   * operators record. On a refund no work is released, and the hold or the price is back at the payment address. Returns the
    * work as text, with the receipt and one link per on-chain step. Text only: it stops on work that is not UTF-8.
    * Like watch, it goes on with one operator offline.
+   *
+   * On a mutual settlement (T-390) it returns the payouts. When the settlement released the key it opens the work: from
+   * the posted delivery, as on a release, or, for late work no operator records as a delivery, from `options.delivery`,
+   * the seller-signed delivery the seller handed over. That one opens only if the seller's signature recovers, the
+   * released envelope is this key's own in it, and the ciphertext and the plaintext match its signed hashes. Without
+   * the key released, or without the handed-over delivery for late work, it opens nothing and `settlement.note` says why.
    */
-  async openDelivery(commitmentId: string, options: WatchOptions = {}): Promise<Delivery> {
+  async openDelivery(commitmentId: string, options: WatchOptions & { delivery?: J } = {}): Promise<Delivery> {
     const id = commitmentId.toLowerCase() as Hex;
     const paid = this.#saved.commitmentId === id ? this.#saved.paid : undefined;
     if (!paid) throw new Error(`this key funded no hold for ${id}: call agreeAndFund first`);
@@ -863,7 +1202,20 @@ export class BuyerSigner {
     events.sort((a, b) => a.seq - b.seq);
     let work: string | null = null;
     let plaintextSha256: string | null = null;
-    if (done.outcome === 'Released') {
+    let note: string | null = null;
+    let lateHash: string | null = null;
+    const posted = events.some((e) => e.delivery);
+    if (done.outcome === 'Settled' && !done.settlement?.keyReleased) note = 'the settlement released no key: there is no work to open';
+    else if (done.outcome === 'Settled' && !posted) {
+      if (options.delivery === undefined) note = 'the settlement released the key to late work no operator records as a delivery: pass the signed delivery the seller handed you (resume ... --delivery <file>) to open it';
+      else {
+        work = await this.#openLate(id, options.delivery);
+        plaintextSha256 = await sha256(new TextEncoder().encode(work));
+        // Compare it with the deliveryHash of the settlement you signed: no public read carries that one (PR 440 review, Low 1).
+        lateHash = deliveryHashOf(options.delivery).toLowerCase();
+      }
+    }
+    if (done.outcome === 'Released' || (done.outcome === 'Settled' && done.settlement?.keyReleased && posted)) {
       const recorded = events.find((e) => e.delivery)?.delivery;
       // The ciphertext comes from an operator's own store, at the address the operators record.
       if (typeof recorded?.uri !== 'string' || !sources.some((op) => new URL(op).origin === new URL(recorded.uri).origin)) throw new Error(`the operators record the delivery at ${shown(recorded?.uri)}, not on an operator`);
@@ -878,8 +1230,48 @@ export class BuyerSigner {
     const transactions = events.filter((e) => e.tx && !seen.has(e.tx) && seen.add(e.tx)).map((e) => ({ step: e.type as string, tx: e.tx as string, url: pin.chain?.explorer ? `${pin.chain.explorer}/tx/${e.tx}` : null }));
     return {
       outcome: done.outcome, work, plaintextSha256, transactions,
+      ...(done.outcome === 'Settled' ? { settlement: { payouts: done.settlement?.payouts ?? [], keyReleased: done.settlement?.keyReleased === true, note, ...(lateHash ? { deliveryHash: lateHash } : {}) } } : {}),
       receipt: { commitmentId: id, outcome: done.outcome, paid: paid.total, funded: paid.receipt, events: events.map((e) => ({ seq: e.seq, type: e.type, hash: e.hash })), finalAt: done.finalAt },
     };
+  }
+
+  /**
+   * Opens late work a mutual settlement released (T-390): `d` is the seller-signed delivery the seller handed over,
+   * which no operator records. Throws, naming the check, unless the seller's signature recovers to the terms' seller,
+   * the key every operator released to this key is this key's envelope in `d`, the ciphertext comes from an operator's
+   * store and matches `d`'s signed hash, and the plaintext matches `d`'s signed plaintextSha256. The work is untrusted data.
+   */
+  async #openLate(id: Hex, d: J): Promise<string> {
+    const { agent } = await this.#connect();
+    const terms = this.#saved.checked!.terms;
+    if (lowerHex(d?.commitmentId) !== id) throw new Error(`the delivery you passed is for ${shown(d?.commitmentId ?? null)}, not ${id}`);
+    const signer = await recoverTypedDataAddress({ ...typedOf('Delivery', d, agent.domain), signature: d.signature }).catch(() => '');
+    if (signer.toLowerCase() !== String(terms.seller).toLowerCase()) throw new Error("the delivery you passed is not signed by the deal's seller");
+    const released = (await this.#agreed(agent.sources(), `/v1/commitments/${id}/key?recipient=${this.address}`, (x) => (Array.isArray(x?.items) ? x.items.map((k: J) => k.ciphertext) : []))) as string[];
+    const mine = (Array.isArray(d.encryptedKeys) ? d.encryptedKeys : []).filter((k: J) => String(k?.recipient).toLowerCase() === this.address);
+    if (mine.length !== 1 || !released.includes(mine[0].ciphertext)) throw new Error('the key the settlement released is not your envelope in the delivery you passed: it is not the delivery that settled');
+    const uri = String(d.ciphertext?.uri);
+    if (!agent.sources().some((op) => new URL(op).origin === new URL(uri).origin)) throw new Error(`the delivery's ciphertext is at ${shown(uri)}, not on an operator`);
+    const res = await fetch(uri, { signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) throw new Error(`the ciphertext at ${shown(uri)} answered ${res.status}`);
+    const ct = new Uint8Array(await res.arrayBuffer());
+    if ((await sha256(ct)) !== d.ciphertext.sha256) throw new Error("the ciphertext does not match the delivery's signed ciphertext.sha256");
+    const key = openEnvelopeKey(mine, this.address, new Uint8Array(Buffer.from(this.#saved.encryptionSecretKey, 'base64url')));
+    const aes = await crypto.subtle.importKey('raw', new Uint8Array(key), 'AES-GCM', false, ['decrypt']);
+    const plain = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: ct.slice(0, 12) }, aes, ct.slice(12)));
+    if ((await sha256(plain)) !== d.plaintextSha256) throw new Error("the work does not match the delivery's signed plaintextSha256");
+    return new TextDecoder('utf-8', { fatal: true }).decode(plain);
+  }
+
+  /**
+   * The buyer's deal record (deal-record.ts) for the deal this key serves, read from every configured operator. The
+   * signer's x25519 key opens the buyer's released envelope to check the work's hash; the key never reaches the record.
+   * `operators`: read these instead of the configured ones.
+   */
+  async record(operators: string[] = this.#operators): Promise<DealRecord> {
+    const id = this.#saved.commitmentId;
+    if (!id) throw new Error('this key serves no deal yet: quote or checkOffer binds one');
+    return dealRecord(id, { operators, party: 'buyer', encryptionSecretKey: this.#saved.encryptionSecretKey });
   }
 }
 
@@ -898,14 +1290,19 @@ export async function openDeals(store: string, options: Options = {}): Promise<B
 
 /**
  * Fresh keys for one deal: a signing key and an x25519 key, saved as `<store>/<address>.json` with file mode 0600.
- * `store` is a directory on the buyer's machine. The file stays until you delete it: after a refund the price is on
- * this key, so keep the file while the key holds anything.
+ * `store` is a directory on the buyer's machine. The file stays until you delete it. With `paymentAddress` set, that
+ * address funds the deal and receives every refund, and this key holds nothing (ADR-0033). Without it, after a refund
+ * the price is on this key, so keep the file while the key holds anything.
  */
-export async function makeKeys(store: string, options: Options = {}): Promise<BuyerSigner> {
+export async function makeKeys(store: string, options: KeyOptions = {}): Promise<BuyerSigner> {
+  const { paymentAddress, ...rest } = options;
+  if (paymentAddress !== undefined && !isAddressText(paymentAddress)) throw new Error('paymentAddress must be an address: 0x and 40 hex characters, with a valid checksum if in mixed case');
   const privateKey = generatePrivateKey();
-  const saved: Saved = { version: 1, address: privateKeyToAccount(privateKey).address.toLowerCase(), privateKey, encryptionSecretKey: Buffer.from(nacl.randomBytes(32)).toString('base64url'), createdAt: new Date().toISOString() };
+  const address = privateKeyToAccount(privateKey).address.toLowerCase();
+  const paying = paymentAddress?.toLowerCase();
+  const saved: Saved = { version: 1, address, privateKey, encryptionSecretKey: Buffer.from(nacl.randomBytes(32)).toString('base64url'), createdAt: new Date().toISOString(), ...(paying && paying !== address ? { paymentAddress: paying } : {}) };
   save(store, saved);
-  return new BuyerSigner(store, saved, options);
+  return new BuyerSigner(store, saved, rest);
 }
 
 /** Reopens the keys of one deal after a restart, by its commitment ID or by the buyer address makeKeys returned. */

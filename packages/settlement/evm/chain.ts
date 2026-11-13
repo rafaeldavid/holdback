@@ -10,11 +10,10 @@ import type { Submission } from '../src/interface.js';
 export interface Deployment {
   token: Address;
   escrow: Address;
+  /** The one funding collector: phase one funds by ERC-3009 only (ADR-0031 §3). */
   erc3009Collector: Address;
-  permit2Collector: Address;
   multicall: Address;
   rules: Address;
-  bonds: Address;
   /** The beacon behind the rules contract: SimBeacon on anvil, DrandQuicknetBeacon on a shared chain. */
   beacon: Address;
   /** The first block after deployment; logs before it are setup. */
@@ -23,7 +22,6 @@ export interface Deployment {
 
 export interface Abis {
   rules: Abi;
-  bonds: Abi;
   token: Abi;
   escrow: Abi;
   multicall: Abi;
@@ -48,7 +46,7 @@ export class RelayRefused extends Error {}
 /**
  * What the settlement adapter relayed in one transaction (T-219), kept in its lane's in-flight row. After a restart
  * the node applies the mined transaction as this relay: the operator's label, the messages the calldata holds only as
- * hashes (a delivery's envelopes, appeal grounds), and the answer a retry with the same Idempotency-Key replays.
+ * hashes (a delivery's envelopes), and the answer a retry with the same Idempotency-Key replays.
  */
 export interface RelayNote {
   commitmentId: Hex32;
@@ -96,6 +94,11 @@ export interface EvmChain {
   senderFor(lane: string): Address;
   /** The rules contract's CPP authorizationExpiry margin after fallbackBy + appealDecideSec, in seconds (ADR-0025). */
   readonly expiryMargin: bigint;
+  /**
+   * The rules contract's `BEACON_MARGIN()` in seconds (ADR-0032): how far after the last choice the fallback and
+   * escalation rounds are taken. 0 on a local chain; 29 on Ethereum mainnet and Sepolia.
+   */
+  readonly beaconMarginSec: number;
   /** The token's EIP-712 domain name and version, which ERC-3009 authorizations are signed under. */
   readonly tokenDomain: { name: string; version: string };
   /** eth_call from `from`; throws the RPC error on a revert. `at` (scenario clock): the pending block's second. */

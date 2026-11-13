@@ -1,5 +1,5 @@
 // One seller-started deal with Crow's test buyer (T-239), played by an outside seller with a fresh key: the faucet
-// admits it, it reads the buyer's card, offers 3 rows of customer_id,email on Crow naming the buyer (site/llms.txt,
+// admits it, it reads the buyer's card, offers 3 rows of customer_id,email on Crow naming the buyer (site/ref/intake.txt,
 // "Sell to Crow's test buyer"), posts the commitment ID, delivers once the deal is Held, and reads the outcome.
 // scripts/sell-to-test-buyer.mjs runs it against the live operators; buyer.test.ts runs it in process.
 import nacl from 'tweetnacl';
@@ -27,7 +27,7 @@ export interface SellOnceOptions {
   log?: (line: string) => void;
 }
 
-const TIMING = { offerExpiresInSec: 600, fundWithinSec: 900, deliverWithinSec: 3600, judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 60, appealDecideSec: 60 };
+const TIMING = { offerExpiresInSec: 600, fundWithinSec: 900, deliverWithinSec: 3600, judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 0, appealDecideSec: 60 }; // phase one: no party appeal (ADR-0033 §2b)
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function sellOnce(o: SellOnceOptions): Promise<{ id: Hex; status: J }> {

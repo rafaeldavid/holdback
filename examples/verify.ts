@@ -5,12 +5,12 @@
 // refuses. The agent then signs its own typed data and submits its own body. Standard libraries only (viem), and
 // tweetnacl with Web Crypto to open the buyer's own envelope before an early accept (openOwnEnvelope).
 import nacl from 'tweetnacl';
-import { encodeAbiParameters, hashStruct, hashTypedData, keccak256, parseAbiParameters, recoverTypedDataAddress, toBytes, type Hex } from 'viem';
+import { encodeAbiParameters, getAddress, hashStruct, hashTypedData, keccak256, parseAbiParameters, recoverTypedDataAddress, toBytes, type Hex } from 'viem';
 import { SEPOLIA, type DeploymentFile } from './deployments.ts';
 
 export type Domain = { name: 'Holdback'; version: string; chainId: number; verifyingContract: Hex };
 /** SimChain's domain, as `pnpm sim` prints it. Configure yours; never take it from an operator. */
-export const SIMCHAIN_DOMAIN: Domain = { name: 'Holdback', version: '0.7', chainId: 31337, verifyingContract: '0x00000000000000000000000000000000484f4c44' };
+export const SIMCHAIN_DOMAIN: Domain = { name: 'Holdback', version: '0.8', chainId: 31337, verifyingContract: '0x00000000000000000000000000000000484f4c44' };
 export const configuredDomain = (): Domain => ({
   ...SIMCHAIN_DOMAIN,
   ...(process.env['HOLDBACK_CHAIN_ID'] ? { chainId: Number(process.env['HOLDBACK_CHAIN_ID']) } : {}),
@@ -37,7 +37,7 @@ export type Pin = { domain: Domain; token: { id: string; symbol: string; decimal
 export function pinOf(d: DeploymentFile, explorer?: string): Pin {
   const lc = (a: string) => a.toLowerCase() as Hex;
   return {
-    domain: { name: 'Holdback', version: '0.7', chainId: d.chainId, verifyingContract: lc(d.rules) },
+    domain: { name: 'Holdback', version: '0.8', chainId: d.chainId, verifyingContract: lc(d.rules) },
     token: { id: lc(d.token.address), symbol: d.token.symbol, decimals: d.token.decimals },
     chain: {
       tokenDomain: { name: d.token.name, version: d.token.version, chainId: d.chainId, verifyingContract: lc(d.token.address) },
@@ -60,6 +60,25 @@ export function knownPins(): Pin[] {
   ];
 }
 
+/** Multicall3, at one address on every chain that has it: it makes any call it is asked to (ADR-0033 §7). */
+const MULTICALL3 = '0xca11bde05977b3631167028862be2a173976ca11';
+/**
+ * ADR-0033 §7's advisory warnings for one money address: the zero address, a contract of the pinned deployment,
+ * Multicall3, or one of the deal's adjudicators. Warnings only: no tool refuses any of them (D31).
+ */
+export function moneyAddressWarnings(role: 'payment' | 'payout', address: string, pin: Pin, adjudicators?: { primary: string; fallback: string; appeal: string }): string[] {
+  const a = address.toLowerCase();
+  const out: string[] = [];
+  const effect = role === 'payout' ? 'payments to the seller would be stranded there' : 'no signature can fund this deal';
+  if (a === `0x${'0'.repeat(40)}`) out.push(`Warning: the ${role} address is the zero address: ${role === 'payout' ? 'payments to the seller would be lost or would revert, depending on the token' : effect}.`);
+  const c = pin.chain;
+  const deployment: Array<[string, string]> = c ? [['rules contract', c.rules], ['escrow', c.escrow], ['collector', c.collector], ['token', c.tokenDomain.verifyingContract]] : [];
+  for (const [name, at] of deployment) if (at.toLowerCase() === a) out.push(`Warning: the ${role} address is this deployment's ${name}: ${effect}.`);
+  if (a === MULTICALL3) out.push(`Warning: the ${role} address is Multicall3: ${role === 'payout' ? "anyone could take the seller's payment" : effect}.`);
+  for (const [r, at] of Object.entries(adjudicators ?? {})) if (String(at).toLowerCase() === a) out.push(`Warning: the ${role} address is the deal's ${r} adjudicator: the adjudicator that decides would receive the price on one of its two outcomes.`);
+  return out;
+}
+
 const ERC3009 = ['from:address', 'to:address', 'value:uint256', 'validAfter:uint256', 'validBefore:uint256', 'nonce:bytes32'].map((s) => ({ name: s.split(':')[0]!, type: s.split(':')[1]! }));
 /** USDC's ERC-3009 types, signed under the token's own domain: the funding and the operator fee on a chain. */
 export const ERC3009_TYPES = { ReceiveWithAuthorization: ERC3009, TransferWithAuthorization: ERC3009 };
@@ -68,7 +87,7 @@ const PAYMENT_INFO_TYPEHASH = keccak256(toBytes('PaymentInfo(address operator,ad
 
 /**
  * The funding nonce on a chain (ADR-0025): CPP's PaymentInfo hash with the payer zeroed. Every field comes from the
- * terms and the pinned deployment (operator = the rules contract, receiver = seller, maxAmount = price + fee,
+ * terms and the pinned deployment (operator = the rules contract, receiver = the seller's payout address (ADR-0033), maxAmount = price + fee,
  * preApprovalExpiry = fundBy, both other expiries = fallbackBy + appealDecideSec + margin, salt = commitment ID).
  */
 export function fundingNonceOf(t: J, id: Hex, c: ChainPin): Hex {
@@ -76,7 +95,7 @@ export function fundingNonceOf(t: J, id: Hex, c: ChainPin): Hex {
   const expiry = Number(secs(t.timing.fallbackBy)) + Number(t.timing.appealDecideSec) + c.expiryMarginSec;
   const inner = keccak256(
     encodeAbiParameters(parseAbiParameters('bytes32, address, address, address, address, uint120, uint48, uint48, uint48, uint16, uint16, address, uint256'), [
-      PAYMENT_INFO_TYPEHASH, c.rules, ZERO_ADDRESS, t.seller, t.price.token, total, Number(secs(t.timing.fundBy)), expiry, expiry, 0, 10_000, ZERO_ADDRESS, BigInt(id),
+      PAYMENT_INFO_TYPEHASH, c.rules, ZERO_ADDRESS, t.sellerPayoutAddress, t.price.token, total, Number(secs(t.timing.fundBy)), expiry, expiry, 0, 10_000, ZERO_ADDRESS, BigInt(id),
     ]),
   );
   return keccak256(encodeAbiParameters(parseAbiParameters('uint256, address, bytes32'), [BigInt(c.tokenDomain.chainId), c.escrow, inner]));
@@ -92,7 +111,7 @@ const erc3009Typed = (primaryType: string, c: ChainPin, m: J): J => ({
 
 const f = (name: string, type: string) => ({ name, type });
 const exp = [f('nonce', 'bytes32'), f('expiresAt', 'uint64')];
-/** The EIP-712 types of schema 0.10, domain version 0.7 (packages/core/src/eip712.ts), pinned here. */
+/** The EIP-712 types of schema 0.11, domain version 0.8 (packages/core/src/eip712.ts), pinned here. */
 export const TYPES = {
   TokenAmount: [f('token', 'string'), f('amount', 'uint256')],
   Adjudication: [f('adjudicator', 'address'), f('fallbackAdjudicator', 'address'), f('appealAdjudicator', 'address'), f('policyId', 'string'), f('fee', 'TokenAmount'), f('registryHash', 'bytes32'), f('policyHash', 'bytes32')],
@@ -100,7 +119,7 @@ export const TYPES = {
   Settlement: [f('mode', 'string'), f('token', 'string')],
   Remedy: [f('onReject', 'string')],
   Disclosure: [f('level', 'string')],
-  CommitmentTerms: [f('schemaVersion', 'string'), f('clubId', 'string'), f('rulebookHash', 'bytes32'), f('buyer', 'address'), f('seller', 'address'), f('deliverableHash', 'bytes32'), f('acceptanceHash', 'bytes32'), f('price', 'TokenAmount'), f('adjudication', 'Adjudication'), f('timing', 'Timing'), f('settlement', 'Settlement'), f('remedy', 'Remedy'), f('disclosure', 'Disclosure'), f('buyerEncryptionPublicKey', 'string'), f('nonce', 'bytes32'), f('createdAt', 'uint64')],
+  CommitmentTerms: [f('schemaVersion', 'string'), f('clubId', 'string'), f('rulebookHash', 'bytes32'), f('buyer', 'address'), f('seller', 'address'), f('buyerPaymentAddress', 'address'), f('sellerPayoutAddress', 'address'), f('deliverableHash', 'bytes32'), f('acceptanceHash', 'bytes32'), f('price', 'TokenAmount'), f('adjudication', 'Adjudication'), f('timing', 'Timing'), f('settlement', 'Settlement'), f('remedy', 'Remedy'), f('disclosure', 'Disclosure'), f('buyerEncryptionPublicKey', 'string'), f('nonce', 'bytes32'), f('createdAt', 'uint64')],
   Agree: [f('commitmentId', 'bytes32'), f('buyer', 'address'), ...exp],
   FundingAuthorization: [f('scheme', 'string'), f('commitmentId', 'bytes32'), f('from', 'address'), f('value', 'uint256'), f('token', 'string'), f('validAfter', 'uint64'), f('validBefore', 'uint64'), ...exp],
   // Schema 0.7 (ADR-0023), same domain version 0.6: the buyer's operator fee.
@@ -111,6 +130,7 @@ export const TYPES = {
   KeyUnlock: [f('kind', 'string'), f('round', 'uint64')],
   EncryptedKey: [f('recipient', 'address'), f('scheme', 'string'), f('ciphertext', 'string'), f('unlock', 'KeyUnlock')],
   Delivery: [f('commitmentId', 'bytes32'), f('attempt', 'uint8'), f('ciphertext', 'Ciphertext'), f('plaintextSha256', 'string'), f('plaintextMime', 'string'), f('encryptedKeys', 'EncryptedKey[]'), f('submittedAt', 'uint64')],
+  // SimChain only: a party appeal, which the full protocol keeps and phase one cuts (ADR-0031 §8).
   Appeal: [f('commitmentId', 'bytes32'), f('appellant', 'string'), f('appellantAddress', 'address'), f('grounds', 'string'), f('bond', 'TokenAmount'), f('filedAt', 'uint64')],
   Payout: [f('to', 'address'), f('amount', 'TokenAmount')],
   MutualSettlement: [f('commitmentId', 'bytes32'), f('hasDelivery', 'bool'), f('deliveryHash', 'bytes32'), f('payouts', 'Payout[]'), f('releaseKey', 'bool'), ...exp],
@@ -130,7 +150,7 @@ export const TYPES = {
   // Schema 0.10 (ADR-0030), same domain version 0.7: an adjudicator's self-signed registration.
   AdjudicatorRegistration: [f('adjudicator', 'address'), f('encryptionPublicKey', 'string'), f('keyId', 'string'), f('policyHash', 'bytes32'), f('registryHash', 'bytes32'), f('fee', 'TokenAmount'), f('poolTermsHash', 'bytes32'), f('bodyHash', 'bytes32'), f('issuedAt', 'uint64'), ...exp],
 };
-const DEFAULT_TIMING: Record<string, number> = { offerExpiresInSec: 900, fundWithinSec: 1800, deliverWithinSec: 86_400, judgeWithinSec: 300, fallbackWithinSec: 300, appealWindowSec: 300, appealDecideSec: 300 };
+const DEFAULT_TIMING: Record<string, number> = { offerExpiresInSec: 900, fundWithinSec: 1800, deliverWithinSec: 86_400, judgeWithinSec: 300, fallbackWithinSec: 300, appealWindowSec: 0, appealDecideSec: 300 };
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 export class Refusal extends Error {}
@@ -151,12 +171,18 @@ export const freshNonce = (): Hex => `0x${Buffer.from(crypto.getRandomValues(new
 /** The agent picks its nonces; the operator must echo exactly the one the agent sent. */
 const own = (mine: J, theirs: J, name: string) =>
   typeof mine !== 'string' || !HEX32.test(mine) ? refuse(`generate ${name} yourself (32 random bytes) and send it with the prepare request`) : String(theirs).toLowerCase() === mine.toLowerCase() ? mine : refuse(`${name} is not the one you sent`);
+/**
+ * How far an offer's `createdAt` may sit from settlement-layer time, in seconds: a prepared offer outside it is refused
+ * (verifyPrepared), and the buyer signer lists one outside it as a difference to approve (T-390, T-388 H1).
+ */
+export const CREATED_AT_BAND = { behindSec: 600, aheadSec: 60 } as const;
 /** An operator-chosen time must lie within [now - behind, now + ahead] seconds of settlement-layer time. */
 const nearTo = (now: number) => (ts: J, behind: number, ahead: number, name: string) => {
   const d = (Date.parse(ts) - now) / 1000;
   return typeof ts === 'string' && d >= -behind && d <= ahead ? ts : refuse(`${name} ${ts} is not within the expected window around settlement time`);
 };
 /** An appeal bond is the rulebook's rate of the price, rounded up; the settlement layer would accept more. */
+// SimChain only (ADR-0031 §8): phase one has no party appeal and no bond, and a chain's operators refuse one at prepare.
 export const appealBondOf = (price: J, rateBps: number): string => ((BigInt(price.amount) * BigInt(rateBps) + 9_999n) / 10_000n).toString();
 const DEC = /^(0|[1-9][0-9]{0,77})$/;
 /**
@@ -214,7 +240,8 @@ export type Intent =
    * chain: on a chain (ADR-0025) the funding and the fee are the token's ERC-3009 authorizations, rebuilt from this pin,
    * and their nonces are fixed by the terms (fundingNonceOf, operatorFeeNonceOf): pass those as fundingNonce and the fee nonce.
    */
-  | { kind: 'agree-and-fund'; terms: J; me: string; encryptionPublicKey: string; maxTotal: bigint; agreeNonce: Hex; fundingNonce: Hex; expectedPrice?: { token: string; amount: string }; expectedCommitmentId?: Hex; operatorFee?: { schedule: J; nonce: Hex } | undefined; chain?: ChainPin }
+  /** paymentAddress (ADR-0033): your own address that funds the hold and receives every refund. Default: `me`. */
+  | { kind: 'agree-and-fund'; terms: J; me: string; paymentAddress?: string; encryptionPublicKey: string; maxTotal: bigint; agreeNonce: Hex; fundingNonce: Hex; expectedPrice?: { token: string; amount: string }; expectedCommitmentId?: Hex; operatorFee?: { schedule: J; nonce: Hex } | undefined; chain?: ChainPin }
   | { kind: 'delivery'; terms: J; ciphertext: { uri: string; sha256: string; bytes: number }; plaintextSha256: string; encryptedKeys: J[] }
   /**
    * Run openOwnEnvelope on the seller's signed delivery first: an early accept pays for the envelope the seller filed.
@@ -222,34 +249,74 @@ export type Intent =
    */
   | { kind: 'early-accept'; terms: J; nonce: Hex; deliveryHash: Hex }
   /** appealBondRateBps: from the club rulebook as at least two operators serve it. */
+  // SimChain only (ADR-0031 §8): examples/e2e-scenarios-appeal.ts files party appeals on SimChain's full protocol.
   | { kind: 'appeal'; terms: J; me: string; grounds?: string; appealBondRateBps: number }
-  | { kind: 'settlement'; terms: J; payouts: J[]; releaseKey: boolean; deliveryHash: Hex | null; nonce: Hex };
+  /**
+   * delivery (SC-5b, the late-work settlement): the seller-signed delivery that was never posted, which the body
+   * carries; the settlement names it by deliveryHash, which must be that delivery's hash, and it must release the key.
+   */
+  | { kind: 'settlement'; terms: J; payouts: J[]; releaseKey: boolean; deliveryHash: Hex | null; nonce: Hex; delivery?: J };
 /** A slot's typed data is the message under the pinned Holdback domain, unless `typed` gives another (ERC-3009 on a chain). */
 type Plan = { path: string; body: J; slots: Array<{ slot: string; primaryType: string; signer: string; message: J; typed?: J }> };
 
+const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+/**
+ * An address as a person may type it: 0x and 40 hex characters, all lowercase, all uppercase, or mixed case with a
+ * valid EIP-55 checksum. A mixed-case address whose checksum fails is a typo, and money sent there is lost.
+ */
+export const isAddressText = (a: unknown): a is string => {
+  if (typeof a !== 'string' || !ADDRESS.test(a)) return false;
+  const hex = a.slice(2);
+  return hex === hex.toLowerCase() || hex === hex.toUpperCase() || getAddress(a) === a;
+};
+/**
+ * A money address from the party's own request (ADR-0033 §6): the address given, lowercased, or the party's signing
+ * address when none is given. Never from an operator's answer.
+ */
+const moneyAddress = (given: J, signer: string, field: string): string => {
+  if (given === undefined || given === null) return signer.toLowerCase();
+  return isAddressText(given) ? given.toLowerCase() : refuse(`${field} must be an address: 0x and 40 hex characters, with a valid checksum if in mixed case`);
+};
+
+/**
+ * The public terms an offer request gives, field for field what POST /v1/prepare/offer builds (apps/operator/src/terms.ts),
+ * from the agent's own request, the club and adjudicator it read from every operator, settlement-layer time in whole
+ * seconds and its own nonce. `request.buyer.paymentAddress` and `request.sellerPayoutAddress` name the money
+ * addresses (ADR-0033); each left out is its party's signing address. Pure: verifyPrepared rebuilds a prepared offer
+ * with it, and Agent.offerDirect signs and submits it with no prepare call at all.
+ */
+export function publicOfferTerms(r: J, registration: { policy: J; policyHash: Hex; registry: { hash: Hex }; fee: { min: J } }, rulebookHash: Hex, createdAt: string, nonce: Hex): J {
+  const reg = registration;
+  if (jcsHash(reg.policy) !== reg.policyHash) refuse("the adjudicator's policyHash does not match its policy");
+  const plus = (ts: string, s: number) => iso(Date.parse(ts) + s * 1000);
+  const timing = { ...DEFAULT_TIMING, ...r.timing };
+  const deliverBy = plus(createdAt, timing['deliverWithinSec']!), judgeBy = plus(deliverBy, timing['judgeWithinSec']!);
+  return {
+    schemaVersion: '0.8', clubId: r.clubId, rulebookHash, buyer: r.buyer.address.toLowerCase(), seller: r.seller.toLowerCase(),
+    buyerPaymentAddress: moneyAddress(r.buyer.paymentAddress, r.buyer.address, 'buyer.paymentAddress'), sellerPayoutAddress: moneyAddress(r.sellerPayoutAddress, r.seller, 'sellerPayoutAddress'), deliverable: r.deliverable,
+    acceptance: { deterministicChecks: r.checks ?? [], rubric: r.template === 'checks-only' ? { criteria: [], passThreshold: 0 } : r.rubric }, price: r.price,
+    adjudication: { adjudicator: r.adjudicators.primary, fallbackAdjudicator: r.adjudicators.fallback, appealAdjudicator: r.adjudicators.appeal, policyId: reg.policy.id, fee: r.fee ?? reg.fee.min, registryHash: reg.registry.hash, policyHash: reg.policyHash },
+    timing: { offerExpiresAt: plus(createdAt, timing['offerExpiresInSec']!), fundBy: plus(createdAt, timing['fundWithinSec']!), deliverBy, judgeBy, fallbackBy: plus(judgeBy, timing['fallbackWithinSec']!), appealWindowSec: timing['appealWindowSec'], appealDecideSec: timing['appealDecideSec'], maxSubmissions: 1 },
+    settlement: { mode: 'guaranteed_on_decision', token: r.price.token }, remedy: { onReject: 'full_refund' }, disclosure: { level: 'public' },
+    buyerEncryptionPublicKey: r.buyer.encryptionPublicKey, nonce, createdAt,
+  };
+}
+
 /** Builds the body the agent expects, taking from the operator's proposal only times bounded around `now`. */
 function expected(intent: Intent, op: J, now: number): Plan {
-  const plus = (ts: string, s: number) => iso(Date.parse(ts) + s * 1000);
   const near = nearTo(now);
   if (intent.kind === 'offer') {
-    const r = intent.request, reg = intent.registration;
-    if (jcsHash(reg.policy) !== reg.policyHash) refuse("the adjudicator's policyHash does not match its policy");
-    const timing = { ...DEFAULT_TIMING, ...r.timing }, createdAt = near(op.createdAt, 600, 60, 'createdAt');
-    const deliverBy = plus(createdAt, timing['deliverWithinSec']!), judgeBy = plus(deliverBy, timing['judgeWithinSec']!);
-    const terms = {
-      schemaVersion: '0.7', clubId: r.clubId, rulebookHash: intent.rulebookHash, buyer: r.buyer.address.toLowerCase(), seller: r.seller.toLowerCase(), deliverable: r.deliverable,
-      acceptance: { deterministicChecks: r.checks ?? [], rubric: r.template === 'checks-only' ? { criteria: [], passThreshold: 0 } : r.rubric }, price: r.price,
-      adjudication: { adjudicator: r.adjudicators.primary, fallbackAdjudicator: r.adjudicators.fallback, appealAdjudicator: r.adjudicators.appeal, policyId: reg.policy.id, fee: r.fee ?? reg.fee.min, registryHash: reg.registry.hash, policyHash: reg.policyHash },
-      timing: { offerExpiresAt: plus(createdAt, timing['offerExpiresInSec']!), fundBy: plus(createdAt, timing['fundWithinSec']!), deliverBy, judgeBy, fallbackBy: plus(judgeBy, timing['fallbackWithinSec']!), appealWindowSec: timing['appealWindowSec'], appealDecideSec: timing['appealDecideSec'], maxSubmissions: 1 },
-      settlement: { mode: 'guaranteed_on_decision', token: r.price.token }, remedy: { onReject: 'full_refund' }, disclosure: { level: 'public' },
-      buyerEncryptionPublicKey: r.buyer.encryptionPublicKey, nonce: own(r.nonce, op.nonce, 'nonce'), createdAt,
-    };
+    const r = intent.request;
+    const terms = publicOfferTerms(r, intent.registration, intent.rulebookHash, near(op.createdAt, CREATED_AT_BAND.behindSec, CREATED_AT_BAND.aheadSec, 'createdAt'), own(r.nonce, op.nonce, 'nonce') as Hex);
     return { path: '/v1/commitments', body: { ...terms, id: commitmentIdOf(terms), signatures: { seller: null } }, slots: [{ slot: 'signatures.seller', primaryType: 'CommitmentTerms', signer: terms.seller, message: terms }] };
   }
   const t = intent.terms, id = commitmentIdOf(t);
   if (intent.kind === 'agree-and-fund') {
     if (t.buyer.toLowerCase() !== intent.me.toLowerCase()) refuse('the terms name another buyer');
     if (t.buyerEncryptionPublicKey !== intent.encryptionPublicKey) refuse('the terms seal the work to a key you do not hold');
+    // ADR-0033 §6: the payment address funds the hold and receives every refund, so it must be the buyer's own.
+    const paying = (intent.paymentAddress ?? intent.me).toLowerCase();
+    if (String(t.buyerPaymentAddress).toLowerCase() !== paying) refuse(`the terms name ${t.buyerPaymentAddress} as the payment address, not your ${paying}`);
     const want = intent.expectedPrice;
     // Money is a decimal string of base units (no floats, no leading zeros): compared as strings, never parsed loosely.
     if (want && (typeof want.token !== 'string' || typeof want.amount !== 'string' || !/^(0|[1-9][0-9]*)$/.test(want.amount))) refuse('expectedPrice must be {"token", "amount"} with amount in base units as a decimal string, e.g. "25000000"');
@@ -266,22 +333,23 @@ function expected(intent: Intent, op: J, now: number): Plan {
     // On a chain the token pulls the funds on its own ERC-3009 signature: valid from 0, nonce fixed by the terms.
     const c = intent.chain;
     if (c && intent.fundingNonce.toLowerCase() !== fundingNonceOf(t, id, c).toLowerCase()) refuse('on this chain the funding nonce is fixed by the terms: pass fundingNonceOf(terms)');
-    const fund = { type: 'FundingAuthorization', scheme: 'erc3009', commitmentId: id, from: t.buyer, value: total.toString(), token: t.price.token, validAfter: c ? '1970-01-01T00:00:00Z' : t.createdAt, validBefore: t.timing.fundBy, nonce: own(intent.fundingNonce, op.fund?.nonce, 'fundingNonce'), expiresAt: t.timing.fundBy };
-    const fundTyped = c ? erc3009Typed('ReceiveWithAuthorization', c, { from: t.buyer, to: c.collector, value: total, validAfter: 0n, validBefore: secs(t.timing.fundBy), nonce: fund.nonce }) : undefined;
-    const slots = [{ slot: 'signature', primaryType: 'Agree', signer: t.buyer, message: agree }, { slot: 'fund.signature', primaryType: fundTyped ? 'ReceiveWithAuthorization' : 'FundingAuthorization', signer: t.buyer, message: fund, ...(fundTyped ? { typed: fundTyped } : {}) }];
+    // ADR-0033: the buyer's payment address signs the funding and the operator fee; the signing address the agreement.
+    const fund = { type: 'FundingAuthorization', scheme: 'erc3009', commitmentId: id, from: t.buyerPaymentAddress, value: total.toString(), token: t.price.token, validAfter: c ? '1970-01-01T00:00:00Z' : t.createdAt, validBefore: t.timing.fundBy, nonce: own(intent.fundingNonce, op.fund?.nonce, 'fundingNonce'), expiresAt: t.timing.fundBy };
+    const fundTyped = c ? erc3009Typed('ReceiveWithAuthorization', c, { from: t.buyerPaymentAddress, to: c.collector, value: total, validAfter: 0n, validBefore: secs(t.timing.fundBy), nonce: fund.nonce }) : undefined;
+    const slots = [{ slot: 'signature', primaryType: 'Agree', signer: t.buyer, message: agree }, { slot: 'fund.signature', primaryType: fundTyped ? 'ReceiveWithAuthorization' : 'FundingAuthorization', signer: t.buyerPaymentAddress, message: fund, ...(fundTyped ? { typed: fundTyped } : {}) }];
     if (due === 0n) return { path: `/v1/commitments/${id}/agree`, body: { ...agree, signature: null, fund: { ...fund, signature: null } }, slots };
     const feeNonce = intent.operatorFee!.nonce;
     if ([intent.agreeNonce, intent.fundingNonce].some((n) => String(n).toLowerCase() === String(feeNonce).toLowerCase())) refuse('the operator fee nonce must differ from agreeNonce and fundingNonce');
     if (c && feeNonce.toLowerCase() !== operatorFeeNonceOf(id).toLowerCase()) refuse('on this chain the operator fee nonce is fixed by the commitment: pass operatorFeeNonceOf(id)');
     const fee = {
-      type: 'TransferAuthorization', scheme: 'erc3009', purpose: 'operator_fee', commitmentId: id, from: t.buyer, to: intent.operatorFee!.schedule.to, value: due.toString(), token: t.price.token,
+      type: 'TransferAuthorization', scheme: 'erc3009', purpose: 'operator_fee', commitmentId: id, from: t.buyerPaymentAddress, to: intent.operatorFee!.schedule.to, value: due.toString(), token: t.price.token,
       validAfter: c ? '1970-01-01T00:00:00Z' : t.createdAt, validBefore: t.timing.fundBy, nonce: own(feeNonce, op.operatorFee?.nonce, 'operatorFeeNonce'), expiresAt: t.timing.fundBy,
     };
-    const feeTyped = c ? erc3009Typed('TransferWithAuthorization', c, { from: t.buyer, to: fee.to, value: due, validAfter: 0n, validBefore: secs(t.timing.fundBy), nonce: fee.nonce }) : undefined;
+    const feeTyped = c ? erc3009Typed('TransferWithAuthorization', c, { from: t.buyerPaymentAddress, to: fee.to, value: due, validAfter: 0n, validBefore: secs(t.timing.fundBy), nonce: fee.nonce }) : undefined;
     return {
       path: `/v1/commitments/${id}/agree`,
       body: { ...agree, signature: null, fund: { ...fund, signature: null }, operatorFee: { ...fee, signature: null } },
-      slots: [...slots, { slot: 'operatorFee.signature', primaryType: feeTyped ? 'TransferWithAuthorization' : 'TransferAuthorization', signer: t.buyer, message: fee, ...(feeTyped ? { typed: feeTyped } : {}) }],
+      slots: [...slots, { slot: 'operatorFee.signature', primaryType: feeTyped ? 'TransferWithAuthorization' : 'TransferAuthorization', signer: t.buyerPaymentAddress, message: fee, ...(feeTyped ? { typed: feeTyped } : {}) }],
     };
   }
   if (intent.kind === 'delivery') {
@@ -296,13 +364,19 @@ function expected(intent: Intent, op: J, now: number): Plan {
   if (intent.kind === 'appeal') {
     const role = intent.me.toLowerCase() === t.buyer.toLowerCase() ? 'buyer' : intent.me.toLowerCase() === t.seller.toLowerCase() ? 'seller' : refuse('you are neither party');
     if (!Number.isSafeInteger(intent.appealBondRateBps) || intent.appealBondRateBps < 0 || intent.appealBondRateBps > 10_000) refuse('appealBondRateBps must come from the club rulebook');
+    // SimChain only (ADR-0031 §8): the full protocol's appeal and its bond; phase one's operators refuse it at prepare.
     const bond = { token: t.price.token, amount: appealBondOf(t.price, intent.appealBondRateBps) };
     const m = { commitmentId: id, appellant: role, appellantAddress: intent.me.toLowerCase(), grounds: intent.grounds ?? 'wrong-outcome', bond, filedAt: near(op.filedAt, 600, 60, 'filedAt') };
     return { path: `/v1/commitments/${id}/appeals`, body: { ...m, signature: null }, slots: [{ slot: 'signature', primaryType: 'Appeal', signer: intent.me, message: m }] };
   }
   const m = { type: 'MutualSettlement', commitmentId: id, deliveryHash: intent.deliveryHash, payouts: intent.payouts, releaseKey: intent.releaseKey, nonce: own(intent.nonce, op.nonce, 'nonce'), expiresAt: near(op.expiresAt, 0, 86_400, 'expiresAt') };
   const slots = [{ slot: 'buyerSignature', signer: t.buyer }, { slot: 'sellerSignature', signer: t.seller }].map((s) => ({ ...s, primaryType: 'MutualSettlement', message: m }));
-  return { path: `/v1/commitments/${id}/settlements`, body: { ...m, buyerSignature: null, sellerSignature: null }, slots };
+  if (intent.delivery !== undefined) {
+    if (!intent.releaseKey) refuse('a settlement that carries late work releases its key');
+    if (String(intent.delivery?.commitmentId).toLowerCase() !== id.toLowerCase()) refuse('the delivery you carry is for another commitment');
+    if (deliveryHashOf(intent.delivery).toLowerCase() !== String(intent.deliveryHash).toLowerCase()) refuse("deliveryHash is not the hash of the delivery you carry");
+  }
+  return { path: `/v1/commitments/${id}/settlements`, body: { ...m, buyerSignature: null, sellerSignature: null, ...(intent.delivery !== undefined ? { delivery: intent.delivery } : {}) }, slots };
 }
 
 /** The first path where two JSON values differ, for a refusal message. */
@@ -318,7 +392,7 @@ const ints = (types: J, type: string, v: J): J =>
  * Checks a prepared message against the agent's intent and pinned domain. Returns the body to submit and the
  * typed data the agent built itself for each slot `me` signs. Throws Refusal on any difference.
  */
-export function verifyPrepared(prepared: J, intent: Intent, me: string, domain: Domain, settlementNowMs: number): { path: string; body: J; toSign: Array<{ slot: string; typed: J }> } {
+export function verifyPrepared(prepared: J, intent: Intent, me: string, domain: Domain, settlementNowMs: number): { path: string; body: J; toSign: Array<{ slot: string; typed: J }>; slots: Array<{ slot: string; signer: string; typed: J; digest: Hex }> } {
   if (prepared?.kind !== intent.kind) refuse(`expected a ${intent.kind}, got ${prepared?.kind}`);
   if (!Number.isFinite(settlementNowMs)) refuse('settlement-layer time is unknown');
   const plan = expected(intent, prepared.submit?.body ?? {}, settlementNowMs);
@@ -327,6 +401,8 @@ export function verifyPrepared(prepared: J, intent: Intent, me: string, domain: 
   if (where) refuse(`${where} differs from what you asked for`);
   if (!Array.isArray(prepared.sign) || prepared.sign.length !== plan.slots.length) refuse(`expected ${plan.slots.length} signature slot(s), got ${prepared.sign?.length}`);
   const toSign = [];
+  // Every slot, with the typed data the agent built itself: what another signer (a payment address, ADR-0033) signs.
+  const slots: Array<{ slot: string; signer: string; typed: J; digest: Hex }> = [];
   for (const [i, want] of plan.slots.entries()) {
     const got = prepared.sign[i];
     if (got.slot !== want.slot || got.typedData?.primaryType !== want.primaryType || got.signer.toLowerCase() !== want.signer.toLowerCase()) refuse(`slot ${i} is ${got.slot}/${got.typedData?.primaryType}, expected ${want.slot}/${want.primaryType}`);
@@ -342,8 +418,153 @@ export function verifyPrepared(prepared: J, intent: Intent, me: string, domain: 
     }
     if (theirs !== mine || got.digest !== mine) refuse(`the typed data for ${want.slot} (domain, types or message) is not the message you intend`);
     if (want.signer.toLowerCase() === me.toLowerCase()) toSign.push({ slot: want.slot, typed });
+    slots.push({ slot: want.slot, signer: want.signer.toLowerCase(), typed, digest: mine });
   }
-  return { path: plan.path, body: plan.body, toSign };
+  return { path: plan.path, body: plan.body, toSign, slots };
+}
+
+// ---- A message another wallet signs (ADR-0033 §3): the typed-data file, and the holder's own check ----
+
+/** The EIP712Domain type for a domain object, in the standard field order, with only the fields it holds. */
+const domainType = (d: J) => ['name:string', 'version:string', 'chainId:uint256', 'verifyingContract:address', 'salt:bytes32'].map((s) => s.split(':')).filter(([n]) => d[n!] !== undefined).map(([name, type]) => ({ name: name!, type: type! }));
+/** The message as plain JSON: only the fields its type declares, integers as decimal strings. */
+const asJson = (types: J, type: string, v: J): J =>
+  type.endsWith('[]') ? v.map((x: J) => asJson(types, type.slice(0, -2), x)) : types[type] ? Object.fromEntries(types[type].map((x: J) => [x.name, asJson(types, x.type, v?.[x.name])])) : typeof v === 'bigint' ? v.toString() : /^u?int\d*$/.test(type) ? String(v) : v;
+
+/**
+ * Typed data as the standard file `eth_signTypedData_v4` takes: `types` (with `EIP712Domain`, and only the types the
+ * primary type uses), `domain`, `primaryType` and `message`, integers as decimal strings. Any wallet that signs typed
+ * data signs it, and its signature is the one over `typed`.
+ */
+export function typedDataFile(typed: J): J {
+  const used = new Set<string>();
+  const walk = (t: string) => {
+    const base = t.replace(/\[\]$/, '');
+    if (!typed.types[base] || used.has(base)) return;
+    used.add(base);
+    for (const f of typed.types[base]) walk(f.type);
+  };
+  walk(typed.primaryType);
+  const types = Object.fromEntries([...used].sort((a, b) => (a === typed.primaryType ? -1 : b === typed.primaryType ? 1 : a.localeCompare(b))).map((t) => [t, typed.types[t]]));
+  const domain = Object.fromEntries(Object.entries(typed.domain).map(([k, v]) => [k, typeof v === 'bigint' ? Number(v) : v]));
+  return { types: { EIP712Domain: domainType(domain), ...types }, domain, primaryType: typed.primaryType, message: asJson(typed.types, typed.primaryType, typed.message) };
+}
+
+/** The digest of a typed-data file as a wallet hashes it. Throws Refusal when it is not one. */
+export function digestOfFile(file: J): Hex {
+  try {
+    const types = { ...file.types };
+    delete types.EIP712Domain;
+    return hashTypedData({ domain: file.domain, types, primaryType: file.primaryType, message: ints(types, file.primaryType, file.message) });
+  } catch {
+    return refuse('the file is not EIP-712 typed data: domain, types, primaryType and message');
+  }
+}
+
+/**
+ * What a funding or operator-fee message does, in one sentence, read from the message itself: which address pays
+ * which address how much, until when, and for which deal. `token` names the token; with `decimals` above 0 the
+ * amount is also shown in whole units.
+ */
+export function paymentSentence(file: J, commitmentId: Hex, token: { id: string; symbol?: string; decimals?: number }, terms?: J): string {
+  const m = file.message;
+  const units = BigInt(m.value);
+  const d = BigInt(token.decimals ?? 0);
+  const whole = d > 0n ? ` (${units / 10n ** d}.${(units % 10n ** d).toString().padStart(Number(d), '0')} ${token.symbol ?? token.id})` : '';
+  const until = /^[0-9]+$/.test(String(m.validBefore)) ? new Date(Number(m.validBefore) * 1000).toISOString().replace('.000Z', 'Z') : String(m.validBefore);
+  const what = file.primaryType === 'TransferWithAuthorization' || file.primaryType === 'TransferAuthorization' ? `to ${m.to}, the operator's fee` : file.primaryType === 'ReceiveWithAuthorization' ? `to ${m.to}, the escrow's collector, into the hold` : 'into the hold';
+  // With the terms: who the deal binds (ADR-0033 §10), and the deadline that ends the offer, which comes before validBefore.
+  const who = terms ? ` The terms: buyer ${String(terms.buyer).toLowerCase()} agrees, seller ${String(terms.seller).toLowerCase()} delivers, and ${String(terms.sellerPayoutAddress).toLowerCase()} is paid on a release. Sign before the offer expires at ${terms.timing?.offerExpiresAt}: after that nothing can fund it.` : '';
+  return `${m.from} pays ${units} base units of ${token.id}${whole} ${what}, valid until ${until}, for deal ${commitmentId} only.${who}`;
+}
+
+const CANONICAL = /^(0|[1-9][0-9]*)$/;
+/**
+ * Refuses a typed-data file that is not exactly one EIP-712 message (red team L-1): the four keys and no others,
+ * `EIP712Domain` equal to the domain's own fields in the standard order, no unused type, each message (and nested
+ * struct) holding exactly its type's fields, and every integer a canonical decimal string. A wallet that hashes the
+ * file as written then hashes the digest the check names.
+ */
+export function strictTypedDataFile(file: J): void {
+  if (!file || typeof file !== 'object' || Array.isArray(file)) refuse('the file is not a JSON object');
+  if (jcs(Object.keys(file).sort()) !== jcs(['domain', 'message', 'primaryType', 'types'])) refuse('the file must hold exactly domain, types, primaryType and message');
+  const { types, domain, primaryType, message } = file;
+  if (!types || typeof types !== 'object' || !domain || typeof domain !== 'object' || typeof primaryType !== 'string') refuse('the file\'s types, domain or primaryType is malformed');
+  const known = ['name', 'version', 'chainId', 'verifyingContract', 'salt'];
+  if (Object.keys(domain).some((k) => !known.includes(k))) refuse('the file\'s domain has a field EIP712Domain does not');
+  if (jcs(types.EIP712Domain ?? null) !== jcs(domainType(domain))) refuse('the file\'s EIP712Domain type is not the domain\'s own fields in the standard order');
+  const used = new Set<string>();
+  const walk = (t: string) => {
+    const base = t.replace(/\[\]$/, '');
+    if (!Array.isArray(types[base]) || used.has(base)) return;
+    used.add(base);
+    for (const f of types[base]) walk(f.type);
+  };
+  walk(primaryType);
+  if (!used.has(primaryType)) refuse(`the file has no type ${primaryType}`);
+  if (jcs(Object.keys(types).filter((k) => k !== 'EIP712Domain').sort()) !== jcs([...used].sort())) refuse('the file has a type its primary type does not use');
+  const exact = (type: string, v: J, at: string): void => {
+    if (type.endsWith('[]')) {
+      if (!Array.isArray(v)) refuse(`${at} is not a list`);
+      return v.forEach((x: J, i: number) => exact(type.slice(0, -2), x, `${at}[${i}]`));
+    }
+    if (types[type]) {
+      if (!v || typeof v !== 'object' || Array.isArray(v) || jcs(Object.keys(v).sort()) !== jcs(types[type].map((f: J) => f.name).sort())) refuse(`${at} does not hold exactly the fields of ${type}`);
+      return types[type].forEach((f: J) => exact(f.type, v[f.name], `${at}.${f.name}`));
+    }
+    if (/^u?int\d*$/.test(type) && !(typeof v === 'string' && CANONICAL.test(v))) refuse(`${at} is not an integer as a canonical decimal string`);
+  };
+  exact(primaryType, message, 'message');
+}
+
+/**
+ * The check the holder of a payment address runs alone before it signs (ADR-0033 §3 and §10): it rebuilds the
+ * message from the terms it approves and its own pinned settlement layer (`domain` and, on a chain, `chain`: the
+ * rules contract, the escrow, the collector, the token's domain and the expiry margin), never from the file it checks,
+ * and refuses the file unless it is exactly that message. `buyer` is the signing key the holder expects the terms to
+ * name. For the operator fee, `operatorFee` is the recipient and amount the holder read from the operators.
+ * Returns the one-sentence summary to show before signing. Throws Refusal naming what differs.
+ */
+export function checkPaymentFile(file: J, terms: J, o: { kind: 'funding' | 'operator-fee'; domain: Domain; chain?: ChainPin | undefined; buyer: string; operatorFee?: { to: string; amount: string }; token?: Pin['token'] }): { digest: Hex; summary: string } {
+  const id = commitmentIdOf(terms), c = o.chain, t = terms;
+  strictTypedDataFile(file);
+  if (String(t.buyer).toLowerCase() !== o.buyer.toLowerCase()) refuse(`the terms name ${t.buyer} as the buyer's signing key, not the ${o.buyer} you expect`);
+  // The terms' token is the pinned layer's (plan section 2c): on a chain, the token whose domain the funding is signed under.
+  const pinnedToken = c ? c.tokenDomain.verifyingContract : o.token?.id;
+  if (pinnedToken !== undefined && String(t.price.token).toLowerCase() !== pinnedToken.toLowerCase()) refuse(`the terms are in ${t.price.token}, and your pinned settlement layer holds ${pinnedToken}`);
+  const payer = String(t.buyerPaymentAddress).toLowerCase();
+  const m = file?.message ?? {};
+  if (String(m.from).toLowerCase() !== payer) refuse(`the message pays from ${m.from}, not the payment address ${payer} the terms name`);
+  let want: J;
+  if (o.kind === 'funding') {
+    const total = BigInt(t.price.amount) + BigInt(t.adjudication.fee.amount);
+    if (BigInt(m.value ?? -1) !== total) refuse(`the message pays ${m.value} base units, not the ${total} the terms hold (price plus adjudication fee)`);
+    if (c) {
+      const nonce = fundingNonceOf(t, id, c);
+      if (String(m.nonce).toLowerCase() !== nonce.toLowerCase()) refuse(`the message's nonce ${m.nonce} is not the ${nonce} these terms give on your pinned deployment: it is for another deal, another rules contract, receiver, chain or margin`);
+      want = erc3009Typed('ReceiveWithAuthorization', c, { from: payer, to: c.collector, value: total, validAfter: 0n, validBefore: secs(t.timing.fundBy), nonce });
+    } else {
+      if (String(m.commitmentId).toLowerCase() !== id) refuse(`the message is for deal ${m.commitmentId}, not ${id}`);
+      want = typedOf('FundingAuthorization', { scheme: 'erc3009', commitmentId: id, from: payer, value: total.toString(), token: t.price.token, validAfter: t.createdAt, validBefore: t.timing.fundBy, nonce: m.nonce, expiresAt: t.timing.fundBy }, o.domain);
+    }
+  } else {
+    const fee = o.operatorFee ?? refuse('give the operator fee you read from the operators: its recipient and amount');
+    if (String(m.to).toLowerCase() !== fee.to.toLowerCase()) refuse(`the message pays the fee to ${m.to}, not the operator ${fee.to}`);
+    if (BigInt(m.value ?? -1) !== BigInt(fee.amount)) refuse(`the message pays a fee of ${m.value} base units, not the ${fee.amount} you read`);
+    if (c) {
+      const nonce = operatorFeeNonceOf(id);
+      if (String(m.nonce).toLowerCase() !== nonce.toLowerCase()) refuse(`the message's nonce ${m.nonce} is not this deal's operator-fee nonce ${nonce}: it is for another deal`);
+      want = erc3009Typed('TransferWithAuthorization', c, { from: payer, to: fee.to, value: BigInt(fee.amount), validAfter: 0n, validBefore: secs(t.timing.fundBy), nonce });
+    } else {
+      if (String(m.commitmentId).toLowerCase() !== id) refuse(`the message is for deal ${m.commitmentId}, not ${id}`);
+      want = typedOf('TransferAuthorization', { scheme: 'erc3009', purpose: 'operator_fee', commitmentId: id, from: payer, to: fee.to, value: fee.amount, token: t.price.token, validAfter: t.createdAt, validBefore: t.timing.fundBy, nonce: m.nonce, expiresAt: t.timing.fundBy }, o.domain);
+    }
+  }
+  const digest = digestOfFile(file);
+  if (digest !== hashTypedData(want)) refuse('the file is not the message these terms give on your pinned settlement layer (its domain, types or another field differ)');
+  // The pinned token formats the amount, and only when it is the terms' own token.
+  const token = o.token && o.token.id.toLowerCase() === String(t.price.token).toLowerCase() ? o.token : { id: t.price.token };
+  return { digest, summary: paymentSentence(file, id, token, t) };
 }
 
 /** The delivery hash the settlement layer records (EIP-712 struct hash of the delivery without its signature). */
@@ -427,8 +648,10 @@ export type PrivateOfferInput = {
   rulebookHash: Hex;
   /** The seller's per-deal address. */
   seller: string;
-  /** The buyer's per-deal address and x25519 key, as its Delegation certifies them. */
-  buyer: { address: string; encryptionPublicKey: string };
+  /** The buyer's per-deal address and x25519 key, as its Delegation certifies them, and its payment address (ADR-0033; default: the per-deal address). */
+  buyer: { address: string; encryptionPublicKey: string; paymentAddress?: string };
+  /** The seller's payout address (ADR-0033). Default: the seller's per-deal address. */
+  sellerPayoutAddress?: string;
   adjudicators: { primary: string; fallback: string; appeal: string };
   /** The primary's registration, as two operators serve it (Agent.registration). */
   registration: { policy: J; policyHash: Hex; registry: { hash: Hex }; fee: { min: J } };
@@ -470,7 +693,8 @@ export function privateOfferTerms(x: PrivateOfferInput): J {
   const createdAt = iso(Date.parse(x.createdAt));
   const deliverBy = plus(createdAt, timing['deliverWithinSec']!), judgeBy = plus(deliverBy, timing['judgeWithinSec']!);
   return {
-    schemaVersion: '0.7', clubId: x.clubId, rulebookHash: x.rulebookHash, buyer: x.buyer.address.toLowerCase(), seller: x.seller.toLowerCase(),
+    schemaVersion: '0.8', clubId: x.clubId, rulebookHash: x.rulebookHash, buyer: x.buyer.address.toLowerCase(), seller: x.seller.toLowerCase(),
+    buyerPaymentAddress: moneyAddress(x.buyer.paymentAddress, x.buyer.address, 'buyer.paymentAddress'), sellerPayoutAddress: moneyAddress(x.sellerPayoutAddress, x.seller, 'sellerPayoutAddress'),
     deliverable: { ...x.deliverable, salt: x.salts.deliverable, sellerEncryptionPublicKey: x.sellerEncryptionPublicKey },
     acceptance: { ...x.acceptance, salt: x.salts.acceptance },
     price: x.price,

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -9,39 +9,22 @@ import {Base} from "./Base.sol";
 /// @notice Each test refuses an input that a check in HoldbackRules exists to refuse, where the first mutation run on
 ///         main (T-352, 2026-11-11, `contracts/scripts/mutate.mjs`) found that dropping or moving the check left every
 ///         test passing, or where `forge coverage` showed the check's revert never ran. The mutant each test kills is
-///         named in its comment; `docs/audit/test-quality.md` has the run.
+///         named in its comment; `docs/audit/test-quality.md` has the run. Ported to the phase-one lane for package
+///         R10 (T-352): errors through `IHoldbackRules` (T-384), payouts to the money addresses (ADR-0033), and no
+///         test of the funding method, which phase one no longer has (SC-2).
 contract MutationGapsTest is Base {
-    // ------------------------------------------------------------ agreeAndFund: the funding method and the hold's size
+    // ------------------------------------------------------------ agreeAndFund: the hold's size
     // M005 and M006, the acceptance's and the agree's expiries, are AgreeAndFundExpiry.t.sol (holdback PR 358).
-    // Every test here uses only what Base offers on main and on the phase-one lane alike (no bonds, D57).
 
-    /// M008: only funding methods 0 (ERC-3009) and 1 (Permit2) exist; method 2 is refused, not read as Permit2.
-    function test_agreeAndFund_refusesAnUnknownFundingMethod() public {
-        H.Terms memory t = _terms();
-        bytes memory sellerSig = _sellerSig(t, SELLER_PK);
-        H.Acceptance memory acc = _acceptance(t, ADJ_PK);
-        H.Agree memory ag = _agree(t, BUYER_PK);
-        H.Funding memory f = _permit2(t, BUYER_PK);
-        f.method = 2;
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
-        rules.agreeAndFund(t, sellerSig, acc, ag, f);
-    }
-
-    /// M020: a hold of exactly 2^120 - 1 base units, CPP's largest, is representable (D31: any value the encoding can
-    /// represent). The test asserts only that the call is not refused as unrepresentable, so it holds both with an
-    /// on-chain bond that this price outgrows (main) and without bonds (the phase-one lane, D57).
-    function test_agreeAndFund_aHoldAtTheLargestRepresentableAmountIsRepresentable() public {
+    /// M020: a hold of exactly 2^120 - 1 base units, CPP's largest, funds (D31: any value the encoding can represent).
+    /// Phase one has no bond that the price could outgrow, so the deal is Held and the escrow holds the whole amount.
+    function test_agreeAndFund_fundsAHoldAtTheLargestRepresentableAmount() public {
         H.Terms memory t = _terms();
         t.price = uint256(type(uint120).max) - FEE;
-        usdc.mint(buyer, t.price + FEE);
-        bytes memory sellerSig = _sellerSig(t, SELLER_PK);
-        H.Acceptance memory acc = _acceptance(t, ADJ_PK);
-        H.Agree memory ag = _agree(t, BUYER_PK);
-        H.Funding memory f = _erc3009(t, BUYER_PK);
-        try rules.agreeAndFund(t, sellerSig, acc, ag, f) {}
-        catch (bytes memory reason) {
-            assertTrue(bytes4(reason) != HoldbackRules.Unrepresentable.selector, "2^120 - 1 is representable");
-        }
+        usdc.mint(t.buyerPaymentAddress, t.price + FEE);
+        bytes32 id = _fund(t);
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Held));
+        assertEq(_held(t), uint256(type(uint120).max));
     }
 
     /// The other side of M020's boundary: one base unit more is refused as unrepresentable.
@@ -51,8 +34,8 @@ contract MutationGapsTest is Base {
         bytes memory sellerSig = _sellerSig(t, SELLER_PK);
         H.Acceptance memory acc = _acceptance(t, ADJ_PK);
         H.Agree memory ag = _agree(t, BUYER_PK);
-        H.Funding memory f = H.Funding({method: 0, signature: ""});
-        vm.expectRevert(HoldbackRules.Unrepresentable.selector);
+        H.Funding memory f = H.Funding({signature: ""});
+        vm.expectRevert(IHoldbackRules.Unrepresentable.selector);
         rules.agreeAndFund(t, sellerSig, acc, ag, f);
     }
 
@@ -66,36 +49,36 @@ contract MutationGapsTest is Base {
         m.expiresAt = uint64(block.timestamp);
         m.signature = _sign(BUYER_PK, hx.early(id, t.buyer, m));
         bytes memory dsig = _deliverySig(id, d, SELLER_PK);
-        vm.expectRevert(HoldbackRules.MessageExpired.selector);
+        vm.expectRevert(IHoldbackRules.MessageExpired.selector);
         rules.earlyAccept(t, m, d, dsig, k);
     }
 
     /// M083: a mutual settlement at its expiresAt does not settle.
     function test_mutualSettle_refusesAnExpiredMessage() public {
         (H.Terms memory t, bytes32 id) = _funded();
-        H.Mutual memory m = _mutual(t, id, _toBuyer(), false, false, bytes32(0), uint64(block.timestamp));
+        H.Mutual memory m = _mutual(t, id, _toBuyer(t), false, false, bytes32(0), uint64(block.timestamp));
         H.KeyProof memory none;
-        vm.expectRevert(HoldbackRules.MessageExpired.selector);
+        vm.expectRevert(IHoldbackRules.MessageExpired.selector);
         rules.mutualSettle(t, m, _noDelivery(), none);
     }
 
     // ------------------------------------------------------------ mutualSettle: what a settlement without a delivery may say
 
-    /// Line 436 (never ran before T-352): a settlement that names no delivery cannot release a key.
+    /// A settlement that names no delivery cannot release a key (a revert branch no test reached before T-352).
     function test_mutualSettle_noDelivery_refusesAKeyRelease() public {
         (H.Terms memory t, bytes32 id) = _funded();
-        H.Mutual memory m = _mutual(t, id, _toBuyer(), false, true, bytes32(0), type(uint64).max);
+        H.Mutual memory m = _mutual(t, id, _toBuyer(t), false, true, bytes32(0), type(uint64).max);
         H.KeyProof memory none;
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, m, _noDelivery(), none);
     }
 
-    /// Line 436: a settlement that names no delivery cannot carry a delivery hash.
+    /// A settlement that names no delivery cannot carry a delivery hash.
     function test_mutualSettle_noDelivery_refusesADeliveryHash() public {
         (H.Terms memory t, bytes32 id) = _funded();
-        H.Mutual memory m = _mutual(t, id, _toBuyer(), false, false, keccak256("a delivery"), type(uint64).max);
+        H.Mutual memory m = _mutual(t, id, _toBuyer(t), false, false, keccak256("a delivery"), type(uint64).max);
         H.KeyProof memory none;
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, m, _noDelivery(), none);
     }
 
@@ -103,10 +86,16 @@ contract MutationGapsTest is Base {
     function test_mutualSettle_refusesAKeyFromAnotherDelivery() public {
         (H.Terms memory t, bytes32 id) = _funded();
         (H.Delivery memory d, H.KeyProof memory k) = _deliver(t, id);
-        H.Mutual memory m = _mutual(t, id, _toBuyer(), true, true, hx.delivery(id, d), type(uint64).max);
-        H.Delivery memory other = d;
-        other.ciphertextHash = keccak256("another ciphertext");
-        vm.expectRevert(HoldbackRules.BadKeyProof.selector);
+        H.Mutual memory m = _mutual(t, id, _toBuyer(t), true, true, hx.delivery(id, d), type(uint64).max);
+        H.Delivery memory other = H.Delivery({
+            attempt: d.attempt,
+            ciphertextHash: keccak256("another ciphertext"),
+            plaintextSha256Hash: d.plaintextSha256Hash,
+            plaintextMimeHash: d.plaintextMimeHash,
+            encryptedKeysHash: d.encryptedKeysHash,
+            submittedAt: d.submittedAt
+        });
+        vm.expectRevert(IHoldbackRules.BadKeyProof.selector);
         rules.mutualSettle(t, m, other, k);
     }
 
@@ -126,8 +115,19 @@ contract MutationGapsTest is Base {
         H.EarlyAccept memory m = _early(t, id, BUYER_PK);
         m.deliveryHash = hx.delivery(id, other);
         m.signature = _sign(BUYER_PK, hx.early(id, t.buyer, m));
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.earlyAccept(t, m, other, "", k);
+    }
+
+    /// M128: phase one takes one delivery attempt, `ONLY_ATTEMPT`; a seller-signed delivery with another attempt
+    /// number is refused (`forge coverage` at c629d06 showed this revert never ran).
+    function test_deliver_refusesAnotherAttemptNumber() public {
+        (H.Terms memory t, bytes32 id) = _funded();
+        (H.Delivery memory d,) = _delivery();
+        d.attempt = 2;
+        bytes memory sig = _deliverySig(id, d, SELLER_PK);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
+        rules.deliver(t, d, sig);
     }
 
     // ------------------------------------------------------------ the key proof and the first decision
@@ -139,7 +139,19 @@ contract MutationGapsTest is Base {
         H.EarlyAccept memory m = _early(t, id, BUYER_PK);
         bytes memory dsig = _deliverySig(id, d, SELLER_PK);
         k.keyHashes[0] = keccak256("an envelope the delivery does not list");
-        vm.expectRevert(HoldbackRules.BadKeyProof.selector);
+        vm.expectRevert(IHoldbackRules.BadKeyProof.selector);
+        rules.earlyAccept(t, m, d, dsig, k);
+    }
+
+    /// M132: a key proof whose index is past the end of its key list is refused with BadKeyProof, not by the array
+    /// bound's panic (the R10 run at c629d06 found no test that sent one).
+    function test_earlyAccept_refusesAKeyIndexPastTheList() public {
+        (H.Terms memory t, bytes32 id) = _funded();
+        (H.Delivery memory d, H.KeyProof memory k) = _delivery();
+        H.EarlyAccept memory m = _early(t, id, BUYER_PK);
+        bytes memory dsig = _deliverySig(id, d, SELLER_PK);
+        k.index = k.keyHashes.length;
+        vm.expectRevert(IHoldbackRules.BadKeyProof.selector);
         rules.earlyAccept(t, m, d, dsig, k);
     }
 
@@ -150,15 +162,16 @@ contract MutationGapsTest is Base {
         H.Decision memory m = _decision(H.ROLE_PRIMARY, H.OUTCOME_ACCEPT);
         m.appealGroundHash = keccak256("ground");
         m = _signDecision(t, id, m, adjudicator, ADJ_PK);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.decide(t, m, _noDelivery(), "");
     }
 
     // ------------------------------------------------------------ builders
 
-    function _toBuyer() internal pure returns (H.Payout[] memory p) {
+    /// The whole price back to the buyer's payment address (ADR-0033).
+    function _toBuyer(H.Terms memory t) internal pure returns (H.Payout[] memory p) {
         p = new H.Payout[](1);
-        p[0] = H.Payout(address(0), PRICE);
+        p[0] = H.Payout(t.buyerPaymentAddress, PRICE);
     }
 
     function _mutual(
@@ -170,9 +183,6 @@ contract MutationGapsTest is Base {
         bytes32 dh,
         uint64 expiresAt
     ) internal view returns (H.Mutual memory m) {
-        for (uint256 i; i < payouts.length; i++) {
-            if (payouts[i].to == address(0)) payouts[i].to = buyer;
-        }
         m.hasDelivery = hasDelivery;
         m.deliveryHash = dh;
         m.payouts = payouts;

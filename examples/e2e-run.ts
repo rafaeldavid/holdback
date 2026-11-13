@@ -10,11 +10,12 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { BaseError, ContractFunctionRevertedError, recoverTypedDataAddress, type Hex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { Agent } from './agent.ts';
 import { SEPOLIA, type DeploymentFile } from './deployments.ts';
 import { RoundChain, type TxRecord } from './e2e-chain.ts';
-import { printable, roundEncryptionKey, roundKey, type Role } from './e2e-keys.ts';
-import { commitmentIdOf, jcs, knownPins, operatorFeeOf, Refusal, typedOf, type Pin } from './verify.ts';
+import { printable, roundEncryptionKey, roundKey, type MoneyRole, type Role } from './e2e-keys.ts';
+import { commitmentIdOf, freshNonce, fundingNonceOf, jcs, knownPins, operatorFeeNonceOf, operatorFeeOf, Refusal, typedOf, verifyPrepared, type Intent, type Pin } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -137,6 +138,15 @@ export class Round {
     return this.agent(role).address;
   }
 
+  /** A money address's key (ADR-0033, T-381): the payment address signs the funding; the payout address only receives. Never printed. */
+  moneyKey(role: MoneyRole): Hex {
+    return roundKey(this.o.seed, role);
+  }
+
+  moneyAddress(role: MoneyRole): string {
+    return privateKeyToAccount(this.moneyKey(role)).address.toLowerCase();
+  }
+
   /** Base units of the 6-decimal test token as "25.5 tUSDC". */
   amount(base: string | bigint): string {
     const v = BigInt(base);
@@ -161,7 +171,7 @@ export interface DealRecord {
   relay: string;
   transactions: Array<TxRecord & { steps: string[]; link: string; sentBy: string }>;
   /** dealOf and CPP's payment state after `block`, the deal's last transaction's block (the latest block when it has none). */
-  chain?: { stage: string; appeal: string; attempt: number; payment: { collected: boolean; capturable: string; refundable: string }; block?: number };
+  chain?: { stage: string; attempt: number; payment: { collected: boolean; capturable: string; refundable: string }; block?: number };
   operators?: { views: Array<{ origin: string; escrowState: string; appealState?: string; events: number; head: string | null }>; agree: boolean };
   balances: { before: Record<string, Holding>; after?: Record<string, Holding> };
   /** On a chain: the block the starting balances were read at, where the chain's own list of the deal's transactions starts. */
@@ -184,6 +194,8 @@ export interface Deal {
   operatorFee?: bigint;
   hold?: bigint;
   delivery?: J;
+  /** The payment address's key when it is not the buyer's signing key (ADR-0033): it signs the funding and the operator fee. */
+  payer?: Hex;
   /** Transactions the round sent itself (direct calls), by step. */
   sent: Array<{ step: string; tx: TxRecord }>;
 }
@@ -387,12 +399,14 @@ export interface OfferSpec {
   adjudicators?: { primary: string; fallback: string; appeal: string };
   /** Which operator relays this deal's steps: 0 (the first) or 1. */
   relay?: number;
+  /** The money addresses apart from the signing keys (ADR-0033): the round's buyer-payment and seller-payout keys. */
+  money?: boolean;
 }
 
 /** The demo club's shortest windows (discovery's `demo.minWindowSec`), so a scenario takes minutes. */
 export const shortWindows = (run: Run, extra: Record<string, number> = {}) => {
   const m = run.round.demo.minWindowSec;
-  return { judgeWithinSec: m, fallbackWithinSec: m, appealWindowSec: m, appealDecideSec: m, ...extra };
+  return { judgeWithinSec: m, fallbackWithinSec: m, appealWindowSec: 0, appealDecideSec: m, ...extra };
 };
 
 /** The seller offers through the API; the deal's record starts with every party's holdings. */
@@ -410,14 +424,15 @@ export async function offer(run: Run, spec: OfferSpec, parties: readonly string[
   run.step = 'offer';
   const offered = await seller.offer({
     template: spec.template, clubId: round.demo.clubId, seller: seller.address,
-    buyer: { address: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey },
+    buyer: { address: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey, ...(spec.money ? { paymentAddress: round.moneyAddress('buyer-payment') } : {}) },
+    ...(spec.money ? { sellerPayoutAddress: round.moneyAddress('seller-payout') } : {}),
     adjudicators: spec.adjudicators ?? round.demo.adjudicators, price: { token: round.demo.token, amount: spec.price },
     deliverable: spec.deliverable, ...(spec.checks ? { checks: spec.checks } : {}), ...(spec.rubric ? { rubric: spec.rubric } : {}), timing: spec.timing ?? shortWindows(run),
   });
   const record: DealRecord = { label: spec.label, id: offered.id, relay: new URL(seller.operators[0]!).origin, transactions: [], balances: { before }, ...(from === undefined ? {} : { fromBlock: Number(from) }), notes: [] };
   run.deals.push(record);
   run.say(`${short(offered.id)} ${offered.state.escrowState}: ${spec.label}, ${round.amount(spec.price)}, relayed by ${record.relay}`);
-  return { label: spec.label, id: offered.id, terms: offered.terms, buyer, seller, record, sent: [] };
+  return { label: spec.label, id: offered.id, terms: offered.terms, buyer, seller, record, sent: [], ...(spec.money ? { payer: round.moneyKey('buyer-payment') } : {}) };
 }
 
 /**
@@ -454,6 +469,58 @@ export async function refreshBefore(run: Run, deal: Deal, address: string): Prom
   if (a in deal.record.balances.before) deal.record.balances.before[a] = (await holdingsNow(run, [a]))[a]!;
 }
 
+/**
+ * The payment address's tokens for one deal (ADR-0033, T-381), without moving any to the buyer's signing address: on
+ * a chain the buyer's key mints them to it (tUSDC is open-mint; the buyer pays the gas in Sepolia ETH, not tokens); on
+ * SimChain the faucet grants them to it.
+ */
+async function fundPayer(run: Run, deal: Deal, need: bigint): Promise<void> {
+  const { round } = run;
+  const payer = privateKeyToAccount(deal.payer!).address.toLowerCase();
+  const held = BigInt((await holdingsNow(run, [payer]))[payer]!.token);
+  if (held < need) {
+    if (round.chain) {
+      const minted = await round.chain.mint(round.key('buyer'), payer, need - held);
+      run.say(`minted ${round.amount(need - held)} to the payment address ${short(payer)} from the buyer's key: ${round.chain.link(minted.tx)} (${minted.gasUsed} gas)`);
+    } else {
+      const grant = await deal.buyer.call('POST', '/v1/faucet', { address: payer });
+      run.say(`faucet: the payment address ${short(payer)} granted ${round.amount(grant.granted.amount)}`);
+      const now = BigInt((await holdingsNow(run, [payer]))[payer]!.token);
+      if (now < need) throw new Error(`the payment address holds ${round.amount(now)}, needs ${round.amount(need)}, and the faucet is spent`);
+    }
+  }
+  await refreshBefore(run, deal, payer);
+}
+
+/**
+ * Agree and fund with two signers (ADR-0033): the buyer's signing key signs the agreement, and the payment address's
+ * key signs the funding and the operator fee. Each verifies the prepared message as its own (verify.ts), as the
+ * agent's agreeAndFund does for one key, and signs only its own slots.
+ */
+async function agreeAndFundFrom(buyer: Agent, buyerKey: Hex, payerKey: Hex, terms: J, maxTotal: bigint): Promise<J> {
+  const payer = privateKeyToAccount(payerKey);
+  const signer = privateKeyToAccount(buyerKey);
+  if (signer.address.toLowerCase() !== buyer.address) throw new Error(`the buyer's key signs for ${signer.address}, not the agent's ${buyer.address}`);
+  const schedule = await buyer.operatorFeeSchedule();
+  const id = commitmentIdOf(terms);
+  const c = buyer.chain;
+  const nonces = { agreeNonce: freshNonce(), fundingNonce: c ? fundingNonceOf(terms, id, c) : freshNonce() };
+  const feeNonce = c ? operatorFeeNonceOf(id) : freshNonce();
+  const prepared = await buyer.call('POST', '/v1/prepare/agree-and-fund', { commitmentId: id, ...nonces, ...(schedule ? { operatorFeeNonce: feeNonce } : {}) });
+  const intent = { kind: 'agree-and-fund', terms, me: buyer.address, paymentAddress: payer.address, encryptionPublicKey: buyer.encryptionPublicKey, maxTotal, ...nonces, ...(schedule ? { operatorFee: { schedule, nonce: feeNonce } } : {}), ...(c ? { chain: c } : {}) } as Intent;
+  const now = await buyer.settlementNow();
+  const mine = verifyPrepared(prepared, intent, buyer.address, buyer.domain, now);
+  const theirs = verifyPrepared(prepared, intent, payer.address, buyer.domain, now);
+  if (theirs.toSign.length === 0) throw new Refusal(`refusing to fund: no slot of the prepared funding is the payment address ${payer.address}'s to sign`);
+  const body = mine.body;
+  for (const [s, account] of [...mine.toSign.map((x) => [x, signer] as const), ...theirs.toSign.map((x) => [x, payer] as const)]) {
+    const keys = s.slot.split('.');
+    const parent = keys.slice(0, -1).reduce((o: J, k: string) => o[k], body);
+    parent[keys.at(-1)!] = await account.signTypedData(s.typed);
+  }
+  return buyer.call('POST', mine.path, body);
+}
+
 /** The buyer agrees and funds: price and adjudication fee into the hold, and the operator fee it computes itself. */
 export async function fund(run: Run, deal: Deal): Promise<void> {
   const { round } = run;
@@ -461,10 +528,13 @@ export async function fund(run: Run, deal: Deal): Promise<void> {
   const schedule = await deal.buyer.operatorFeeSchedule();
   const operatorFee = schedule ? operatorFeeOf(t.price, schedule) : 0n;
   const hold = BigInt(t.price.amount) + BigInt(t.adjudication.fee.amount);
-  await ensureFunds(run, 'buyer', hold + operatorFee);
-  await refreshBefore(run, deal, deal.buyer.address);
+  if (deal.payer) await fundPayer(run, deal, hold + operatorFee);
+  else {
+    await ensureFunds(run, 'buyer', hold + operatorFee);
+    await refreshBefore(run, deal, deal.buyer.address);
+  }
   run.step = 'fund';
-  const held = await deal.buyer.agreeAndFund(t, hold + operatorFee);
+  const held = deal.payer ? await agreeAndFundFrom(deal.buyer, round.key('buyer'), deal.payer, t, hold + operatorFee) : await deal.buyer.agreeAndFund(t, hold + operatorFee);
   if (held.escrowState !== 'Held' || held.hold?.amount?.amount !== hold.toString()) throw new Error(`expected Held with ${hold} base units, got ${held.escrowState} ${jcs(held.hold?.amount ?? null)}`);
   deal.operatorFee = operatorFee;
   deal.hold = hold;
@@ -538,7 +608,7 @@ export async function finish(run: Run, deal: Deal): Promise<void> {
     at = last === undefined ? undefined : BigInt(last);
     r.chain = { ...(await round.chain.deal(deal.id, at)), payment: await round.chain.payment(deal.terms, deal.id, at), ...(last === undefined ? {} : { block: last }) };
     for (const t of r.transactions) run.say(`${t.steps.join(', ').padEnd(28)} ${t.link} ${t.gasUsed} gas, block ${t.block}${t.status === 'success' ? '' : ' REVERTED'}`);
-    run.say(`dealOf${last === undefined ? '' : ` after block ${last}`}: ${r.chain.stage}, appeal ${r.chain.appeal}; CPP capturable ${round.amount(r.chain.payment.capturable)}, refundable ${round.amount(r.chain.payment.refundable)}`);
+    run.say(`dealOf${last === undefined ? '' : ` after block ${last}`}: ${r.chain.stage}; CPP capturable ${round.amount(r.chain.payment.capturable)}, refundable ${round.amount(r.chain.payment.refundable)}`);
   } else {
     r.notes.push('SimChain: no chain to read; the evidence is the operators\' view only');
   }
@@ -579,37 +649,23 @@ export async function openDeals(run: Run, deals: readonly DealRef[] = run.deals)
 
 /**
  * What the deal itself moved for `address`, in base units: the test token's Transfer logs to and from it among the
- * deal's own transactions, and HoldbackBonds' events for its bond and its free bond (the bond less what open deals
- * encumber). The round's buyer and seller play every deal, so a wallet's balance change across a deal can take in
- * another deal funded or paid in the same window: in round 1's 2026-11-05 run, 4's buyer showed -61.42 tUSDC and 5a's
- * seller 25 tUSDC from a second run's scenario 1. The relayer bundles only a deal's own operator fee with its funding,
- * so a deal's transactions carry no other deal's transfers [inferred from evm-settlement.ts, agreeAndFund].
+ * deal's own transactions. The phase-one contracts hold no bond (ADR-0031 §8), so bond and free bond move 0 on a chain.
+ * The round's buyer and seller play every deal, so a wallet's balance change across a deal can take in another deal
+ * funded or paid in the same window: in round 1's 2026-11-05 run, 4's buyer showed -61.42 tUSDC and 5a's seller 25
+ * tUSDC from a second run's scenario 1. The relayer bundles only a deal's own operator fee with its funding, so a deal's
+ * transactions carry no other deal's transfers [inferred from evm-settlement.ts, agreeAndFund].
  */
 export function flowOf(r: DealRecord, address: string): Holding {
   const a = address.toLowerCase();
   const is = (x: unknown) => String(x).toLowerCase() === a;
   let token = 0n;
-  let bond = 0n;
-  let free = 0n;
   for (const t of r.transactions) {
     for (const l of t.logs) {
       const amount = BigInt(l.args?.amount ?? 0);
       if (l.contract === 'token' && l.event === 'Transfer') token += (is(l.args.to) ? amount : 0n) - (is(l.args.from) ? amount : 0n);
-      if (l.contract !== 'bonds') continue;
-      // [bond, free] for each HoldbackBonds event that names this address. A slash takes the amount from the bond and
-      // from its encumbrance alike, so the free bond stays.
-      const step: Record<string, [bigint, bigint]> = { BondDeposited: [amount, amount], BondWithdrawn: [-amount, -amount], BondEncumbered: [0n, -amount], BondReleased: [0n, amount], BondSlashed: [-amount, 0n] };
-      if (l.event in step && is(l.args.adjudicator)) {
-        bond += step[l.event]![0];
-        free += step[l.event]![1];
-      }
-      if (l.event === 'AppealBondPaid' && l.args.toBond === true && is(l.args.to)) {
-        bond += amount;
-        free += amount;
-      }
     }
   }
-  return { token: token.toString(), bond: bond.toString(), free: free.toString() };
+  return { token: token.toString(), bond: '0', free: '0' };
 }
 
 /**

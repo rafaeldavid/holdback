@@ -18,7 +18,7 @@ import { generatePrivateKey, mnemonicToAccount, privateKeyToAccount } from 'viem
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { roundKey, type Role } from './e2e-keys.ts';
 import { typed } from './e2e-scenarios-direct.ts';
-import { ANVIL_SKIP, anvilReady, driver, ENV, expectNoSecrets, results, root, simWorld, WORLD, type DriverRun, type Served } from './e2e-world.ts';
+import { ANVIL_SKIP, anvilReady, driver, expectNoSecrets, NONZERO_FEE, results, root, simWorld, WORLD, type DriverRun, type Served } from './e2e-world.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 const here = (f: string) => fileURLToPath(new URL(f, import.meta.url));
@@ -88,13 +88,13 @@ async function restartableAnvil(): Promise<Restartable> {
   const deployment = {
     chainId: anvil.chainId, fromBlock: Number(d.fromBlock),
     token: { address: d.token, name: anvil.tokenDomain.name, version: anvil.tokenDomain.version, symbol: 'tUSDC', decimals: 6 },
-    escrow: d.escrow, erc3009Collector: d.erc3009Collector, permit2Collector: d.permit2Collector, multicall: d.multicall, rules: d.rules, bonds: d.bonds, beacon: d.beacon, expiryMarginSec: Number(anvil.expiryMargin),
+    escrow: d.escrow, erc3009Collector: d.erc3009Collector, multicall: d.multicall, rules: d.rules, bonds: d.bonds, beacon: d.beacon, expiryMarginSec: Number(anvil.expiryMargin),
   };
   const relayerKey = toHex(mnemonicToAccount(ANVIL_MNEMONIC, { addressIndex: 1 }).getHdKey().privateKey!);
   const open = async (inner: MemoryStorage): Promise<Node> => {
     const storage = new Watched(inner);
     const chain = new live.LiveChain({ deployment, rpcUrls: [anvil.rpcUrl], relayerKey, pollMs: 200, rebroadcastMs: 10_000, mintBatchMs: 200 });
-    return { world: await PublicWorld.open({ storage, env: { ...ENV, OPERATOR_FEE_GAS: '4700000' }, ...WORLD, live: { chain } }), storage, dead: false };
+    return { world: await PublicWorld.open({ storage, env: NONZERO_FEE, ...WORLD, live: { chain } }), storage, dead: false };
   };
   let current = await open(new MemoryStorage());
   let hold: Promise<void> | null = null;

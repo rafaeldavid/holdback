@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -19,7 +20,7 @@ contract AgreeAndFundExpiryTest is Base {
         bytes memory sellerSig = _sellerSig(t, SELLER_PK);
         H.Agree memory ag = _agree(t, BUYER_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
-        vm.expectRevert(HoldbackRules.MessageExpired.selector);
+        vm.expectRevert(IHoldbackRules.MessageExpired.selector);
         rules.agreeAndFund(t, sellerSig, acc, ag, f);
     }
 
@@ -31,7 +32,7 @@ contract AgreeAndFundExpiryTest is Base {
         H.Agree memory ag = _agree(t, BUYER_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
         bytes32 id = rules.agreeAndFund(t, sellerSig, acc, ag, f);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Held));
         assertEq(_held(t), PRICE + FEE);
     }
 
@@ -42,7 +43,7 @@ contract AgreeAndFundExpiryTest is Base {
         bytes memory sellerSig = _sellerSig(t, SELLER_PK);
         H.Acceptance memory acc = _acceptance(t, ADJ_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
-        vm.expectRevert(HoldbackRules.MessageExpired.selector);
+        vm.expectRevert(IHoldbackRules.MessageExpired.selector);
         rules.agreeAndFund(t, sellerSig, acc, ag, f);
     }
 
@@ -54,7 +55,7 @@ contract AgreeAndFundExpiryTest is Base {
         H.Acceptance memory acc = _acceptance(t, ADJ_PK);
         H.Funding memory f = _erc3009(t, BUYER_PK);
         bytes32 id = rules.agreeAndFund(t, sellerSig, acc, ag, f);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Held));
         assertEq(_held(t), PRICE + FEE);
     }
 

@@ -53,11 +53,13 @@ export function assertRoundChain(rpcChainId: number, pinnedChainId: number): voi
 }
 
 /** The contracts' ABIs as this repository builds them. */
-const ABIS = JSON.parse(readFileSync(new URL('../packages/settlement/evm/abis.json', import.meta.url), 'utf8')) as Record<'rules' | 'bonds' | 'token' | 'escrow' | 'multicall', Abi>;
+const ABIS = JSON.parse(readFileSync(new URL('../packages/settlement/evm/abis.json', import.meta.url), 'utf8')) as Record<'rules' | 'token' | 'escrow' | 'multicall', Abi>;
 
-/** HoldbackRules' stages and appeal states, in the contract's enum order. */
-export const STAGES = ['None', 'Held', 'Delivered', 'FallbackJudging', 'Escalated', 'Released', 'Refunded', 'Settled', 'Expired'] as const;
-export const APPEAL_STATES = ['none', 'open', 'upheld', 'overturned', 'expired', 'closed'] as const;
+/**
+ * HoldbackRules' stages, in the contract's enum order (`enum Stage`, eight members). The phase-one contracts keep no
+ * appeal state (ADR-0031 §8) and store nothing for an unfunded offer, so an expired offer reads None (ADR-0031 §7).
+ */
+export const STAGES = ['None', 'Held', 'Delivered', 'FallbackJudging', 'Escalated', 'Released', 'Refunded', 'Settled'] as const;
 
 const str = (s: string): Hex => keccak256(toBytes(s));
 const secs = (ts: string) => BigInt(Date.parse(ts) / 1000);
@@ -76,6 +78,8 @@ export function termsTuple(t: J) {
     rulebookHash: t.rulebookHash as Hex,
     buyer: getAddress(t.buyer),
     seller: getAddress(t.seller),
+    buyerPaymentAddress: getAddress(t.buyerPaymentAddress), // ADR-0033
+    sellerPayoutAddress: getAddress(t.sellerPayoutAddress),
     deliverableHash: jcsHash(t.deliverable),
     acceptanceHash: jcsHash(t.acceptance),
     token: getAddress(t.price.token),
@@ -106,11 +110,11 @@ const PAYMENT_INFO_TYPEHASH = keccak256(toBytes('PaymentInfo(address operator,ad
  * The key of CPP's `paymentState` for a deal (AuthCaptureEscrow.getHash), from the terms and the pinned deployment
  * alone, as HoldbackRules derives its PaymentInfo (ADR-0025). With `payer` zeroed it is the buyer's funding nonce.
  */
-export function paymentHashOf(t: J, id: Hex, d: DeploymentFile, payer: Address = getAddress(t.buyer)): Hex {
+export function paymentHashOf(t: J, id: Hex, d: DeploymentFile, payer: Address = getAddress(t.buyerPaymentAddress)): Hex {
   const expiry = Number(secs(t.timing.fallbackBy)) + Number(t.timing.appealDecideSec) + (d.expiryMarginSec ?? 86_400);
   const inner = keccak256(
     encodeAbiParameters(parseAbiParameters('bytes32, address, address, address, address, uint120, uint48, uint48, uint48, uint16, uint16, address, uint256'), [
-      PAYMENT_INFO_TYPEHASH, getAddress(d.rules), payer, getAddress(t.seller), getAddress(t.price.token), BigInt(t.price.amount) + BigInt(t.adjudication.fee.amount),
+      PAYMENT_INFO_TYPEHASH, getAddress(d.rules), payer, getAddress(t.sellerPayoutAddress), getAddress(t.price.token), BigInt(t.price.amount) + BigInt(t.adjudication.fee.amount),
       Number(secs(t.timing.fundBy)), expiry, expiry, 0, 10_000, ZERO_ADDRESS, BigInt(id),
     ]),
   );
@@ -162,7 +166,7 @@ export class RoundChain {
     this.explorer = explorer;
     this.client = createPublicClient({ transport: http(rpcUrl) }) as PublicClient;
     const d = deployment;
-    this.contracts = { [d.rules.toLowerCase()]: 'rules', [d.bonds.toLowerCase()]: 'bonds', [d.token.address.toLowerCase()]: 'token', [d.escrow.toLowerCase()]: 'escrow', [d.multicall.toLowerCase()]: 'multicall' };
+    this.contracts = { [d.rules.toLowerCase()]: 'rules', [d.token.address.toLowerCase()]: 'token', [d.escrow.toLowerCase()]: 'escrow', [d.multicall.toLowerCase()]: 'multicall' };
   }
 
   /** Connects to `rpcUrl` and refuses unless it serves the pinned deployment's chain, Sepolia or anvil. */
@@ -220,10 +224,19 @@ export class RoundChain {
     return getAddress(this.deployment.token.address);
   }
 
-  /** `dealOf(id)`: the stage, the appeal state and the attempt, at the latest block or after block `at`. */
-  async deal(id: Hex, at?: bigint): Promise<{ stage: string; appeal: string; attempt: number }> {
-    const d = await this.read<{ stage: number; appeal: number; attempt: number }>('rules', this.deployment.rules, 'dealOf', [id], at);
-    return { stage: STAGES[d.stage] ?? `stage ${d.stage}`, appeal: APPEAL_STATES[d.appeal] ?? `appeal ${d.appeal}`, attempt: d.attempt };
+  /**
+   * The rules contract's `BEACON_MARGIN()` in seconds (ADR-0032): 29 on Sepolia and mainnet, 0 on a local chain. It
+   * fixes the fallback's and the appeal adjudicator's beacon rounds, so the round reads it from the deployment and
+   * never assumes it (T-386).
+   */
+  async beaconMarginSec(): Promise<number> {
+    return Number(await this.read<bigint>('rules', this.deployment.rules, 'BEACON_MARGIN', []));
+  }
+
+  /** `dealOf(id)`: the stage and the attempt, at the latest block or after block `at`. */
+  async deal(id: Hex, at?: bigint): Promise<{ stage: string; attempt: number }> {
+    const d = await this.read<{ stage: number; attempt: number }>('rules', this.deployment.rules, 'dealOf', [id], at);
+    return { stage: STAGES[d.stage] ?? `stage ${d.stage}`, attempt: d.attempt };
   }
 
   /** CPP's payment state for the deal: what the escrow can still capture or refund, in base units, at the latest block or after block `at`. */
@@ -255,16 +268,15 @@ export class RoundChain {
     return this.behind(ask);
   }
 
-  /** Each address's test-token balance, bond and free bond in HoldbackBonds, in base units, at the latest block or after block `at`. */
+  /**
+   * Each address's test-token balance, in base units, at the latest block or after block `at`. The phase-one contracts
+   * hold no bond (ADR-0031 §8), so bond and free bond read 0: the fields stay for SimChain, which keeps bonds.
+   */
   async holdings(addresses: readonly string[], at?: bigint): Promise<Record<string, { token: string; bond: string; free: string }>> {
     const out: Record<string, { token: string; bond: string; free: string }> = {};
     for (const a of addresses) {
-      const [token, bond, free] = await Promise.all([
-        this.read<bigint>('token', this.token, 'balanceOf', [getAddress(a)], at),
-        this.read<bigint>('bonds', this.deployment.bonds, 'bondOf', [getAddress(a), this.token], at),
-        this.read<bigint>('bonds', this.deployment.bonds, 'freeOf', [getAddress(a), this.token], at),
-      ]);
-      out[a.toLowerCase()] = { token: token.toString(), bond: bond.toString(), free: free.toString() };
+      const token = await this.read<bigint>('token', this.token, 'balanceOf', [getAddress(a)], at);
+      out[a.toLowerCase()] = { token: token.toString(), bond: '0', free: '0' };
     }
     return out;
   }
@@ -377,7 +389,7 @@ export class RoundChain {
       gas = ((await this.behind(() => this.client.estimateContractGas(call), tryAgain)) * 6n) / 5n;
     } catch (e) {
       // anvil 1.0.0's eth_estimateGas refuses a call that costs less to run than its calldata floor (EIP-7623), such as
-      // expireAppeal with the terms as input; the simulation above passed, so send it with a fixed limit instead.
+      // a timeout with the terms as input; the simulation above passed, so send it with a fixed limit instead.
       if (!/gas floor exceeds the gas limit/.test(String((e as Error).message))) throw e;
       gas = DIRECT_GAS_LIMIT;
     }
@@ -409,11 +421,11 @@ export class RoundChain {
   }
 
   /**
-   * A timeout trigger sent directly: `reclaim`, `triggerFallback`, `triggerDefault`, `expireAppeal`, `expireOffer`.
+   * A timeout trigger sent directly: `reclaim`, `triggerFallback`, `triggerDefault`.
    * The contract judges the deadline by the latest block's time, which trails the wall by up to a block (12 s on
    * Sepolia), so a `TooEarly` refusal is retried every 3 s for up to `timeoutMs`.
    */
-  async trigger(key: Hex, fn: 'reclaim' | 'triggerFallback' | 'triggerDefault' | 'expireAppeal' | 'expireOffer', terms: J, timeoutMs = 120_000): Promise<TxRecord> {
+  async trigger(key: Hex, fn: 'reclaim' | 'triggerFallback' | 'triggerDefault', terms: J, timeoutMs = 120_000): Promise<TxRecord> {
     for (const end = Date.now() + timeoutMs; ; await new Promise((r) => setTimeout(r, 3000))) {
       try {
         return await this.send(key, 'rules', fn, [termsTuple(terms)]);
@@ -426,16 +438,5 @@ export class RoundChain {
   /** tUSDC is open-mint on Sepolia: a key with gas mints its own test tokens when the faucet is spent. */
   mint(key: Hex, to: string, amount: bigint): Promise<TxRecord> {
     return this.send(key, 'token', 'mint', [getAddress(to), amount]);
-  }
-
-  /** An adjudicator's own bond (HoldbackBonds bonds the sender): approve, then deposit, from its key. */
-  async depositBond(key: Hex, amount: bigint): Promise<TxRecord[]> {
-    const approved = await this.send(key, 'token', 'approve', [getAddress(this.deployment.bonds), amount]);
-    return [approved, await this.send(key, 'bonds', 'deposit', [this.token, amount])];
-  }
-
-  /** The appellant's token approval for its appeal bond (llms.txt: appeals need your own Sepolia ETH). */
-  approveBonds(key: Hex, amount: bigint): Promise<TxRecord> {
-    return this.send(key, 'token', 'approve', [getAddress(this.deployment.bonds), amount]);
   }
 }

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -20,20 +21,20 @@ contract LateDeliveryTest is Base {
         bytes memory sigA = _deliverySig(idA, d, SELLER_PK);
         vm.warp(tA.timing.deliverBy + 1 hours); // past deliverBy, before judgeBy
 
-        vm.expectRevert(HoldbackRules.DeadlinePassed.selector);
+        vm.expectRevert(IHoldbackRules.DeadlinePassed.selector);
         rules.deliver(tA, d, sigA);
         rules.reclaim(tA);
-        assertEq(uint8(_stage(idA)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(idA)), uint8(IHoldbackRules.Stage.Refunded));
 
         // Deal B, same instant: the late delivery carried by the primary's accept is refused.
         uint256 s0 = usdc.balanceOf(seller);
         bytes memory dsig = _deliverySig(idB, d, SELLER_PK);
         H.Decision memory accept = _primary(tB, idB, H.OUTCOME_ACCEPT);
-        vm.expectRevert(HoldbackRules.DeadlinePassed.selector);
+        vm.expectRevert(IHoldbackRules.DeadlinePassed.selector);
         rules.decide(tB, accept, d, dsig);
         assertEq(usdc.balanceOf(seller), s0, "no price for work delivered after deliverBy");
         rules.reclaim(tB);
-        assertEq(uint8(_stage(idB)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(idB)), uint8(IHoldbackRules.Stage.Refunded));
     }
 
     /// M-2, fixed in PR #127. Was test_attack_late_delivery_carried_by_escalate_blocks_reclaim: a late escalation
@@ -44,9 +45,9 @@ contract LateDeliveryTest is Base {
         vm.warp(t.timing.deliverBy + 1 hours);
         H.Decision memory esc = _primary(t, id, H.OUTCOME_ESCALATE);
         bytes memory dsig = _deliverySig(id, d, SELLER_PK);
-        vm.expectRevert(HoldbackRules.DeadlinePassed.selector);
+        vm.expectRevert(IHoldbackRules.DeadlinePassed.selector);
         rules.decide(t, esc, d, dsig);
         rules.reclaim(t);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
     }
 }

@@ -76,7 +76,7 @@ describe('e2e-scenarios-escalation.ts', () => {
       expect(byId['5b']).toMatchObject({ status: 'waits', waitsFor: ['T-217'] });
       const calls = byId['5a'].deals[0].transactions.flatMap((t: J) => t.calls.map((c: J) => c.fn));
       expect(calls).toEqual(expect.arrayContaining(['decide', 'triggerDefault']));
-      for (const name of ["the primary's decision on chain is an escalation", 'no Decided log names the appeal adjudicator', 'triggerDefault records the default from Escalated', "the escalation frees the primary's bond", 'the price and the adjudication fee return to the buyer on chain']) {
+      for (const name of ["the primary's decision on chain is an escalation", 'no Decided log names the appeal adjudicator', 'triggerDefault records the default from Escalated', 'the price and the adjudication fee return to the buyer on chain']) {
         expect(named(byId['5a'], name)?.ok, name).toBe(true);
       }
       expect(named(byId['5a'], 'the seller gets the default compensation')?.detail).toMatch(/^seller 0 tUSDC/);

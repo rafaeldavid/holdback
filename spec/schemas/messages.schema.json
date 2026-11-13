@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.10/messages.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.11/messages.schema.json",
   "title": "Signed protocol messages (EIP-712)",
-  "description": "Every state-changing message other than Delivery and Appeal. Each carries its EIP-712 domain implicitly: name Holdback, version 0.7, chainId, verifyingContract (ADR-0016, ADR-0029).",
+  "description": "Every state-changing message other than Delivery and Appeal. Each carries its EIP-712 domain implicitly: name Holdback, version 0.8, chainId, verifyingContract (ADR-0016, ADR-0029, ADR-0033).",
   "oneOf": [
     {
       "$ref": "#/$defs/Offer"
@@ -179,7 +179,7 @@
     },
     "FundingAuthorization": {
       "type": "object",
-      "description": "Buyer's transfer authorization; any relayer may submit it",
+      "description": "The buyer's payment address's transfer authorization for the hold; any relayer may submit it",
       "additionalProperties": false,
       "required": [
         "type",
@@ -208,7 +208,8 @@
           "$ref": "common.schema.json#/$defs/Hex32"
         },
         "from": {
-          "$ref": "common.schema.json#/$defs/Address"
+          "$ref": "common.schema.json#/$defs/Address",
+          "description": "The buyer's payment address, the commitment's buyerPaymentAddress (ADR-0033)"
         },
         "value": {
           "type": "string",
@@ -237,7 +238,7 @@
     },
     "TransferAuthorization": {
       "type": "object",
-      "description": "ADR-0023: the buyer's transfer of an operator fee to the relaying operator's published fee address, sent in the agree body as operatorFee and applied by the settlement layer in the same step as the agreement and the funding, outside the hold. Never refunded",
+      "description": "ADR-0023: the buyer's payment address's transfer of an operator fee to the relaying operator's published fee address, sent in the agree body as operatorFee and applied by the settlement layer in the same step as the agreement and the funding, outside the hold. Never refunded",
       "additionalProperties": false,
       "required": [
         "type",
@@ -270,7 +271,8 @@
           "$ref": "common.schema.json#/$defs/Hex32"
         },
         "from": {
-          "$ref": "common.schema.json#/$defs/Address"
+          "$ref": "common.schema.json#/$defs/Address",
+          "description": "The buyer's payment address, the commitment's buyerPaymentAddress (ADR-0033)"
         },
         "to": {
           "$ref": "common.schema.json#/$defs/Address"

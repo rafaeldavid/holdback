@@ -147,7 +147,7 @@ describe('sim:check on an honest run', () => {
     for (const k of ['released', 'refunded', 'early', 'settled', 'overturned', 'upheld', 'reclaimed', 'defaulted']) expect(status[f.ids[k]!], k).toBe('final');
     const open = r.commitments.find((c) => c.id === f.ids['open'])!;
     expect(open.status).toBe('open');
-    expect(open.explanation).toMatch(/expire-offer/);
+    expect(open.explanation).toMatch(/expire-offer/); // a transaction on SimChain only; phase one keeps the operators' clock record
     expect(r.totals[0]!.minted).toBe(r.totals[0]!.ledger);
   });
 
@@ -229,7 +229,7 @@ describe('sim:check catches a violation', () => {
   it('an operator that hides an event from a party (records match)', async () => {
     const reads = clone(f.reads);
     const c = reads[1]!.commitments[f.ids['overturned']!]!;
-    c.events = c.events.filter((e) => e.type !== 'bond.slashed');
+    c.events = c.events.filter((e) => e.type !== 'bond.slashed'); // SimChain only: an adjudicator bond pays the overturn
     const r = await check(f, { reads });
     expect(failed(r)).toEqual(['records-match']);
     expect(r.invariants.find((i) => i.id === 'records-match')!.violations.join('\n')).toMatch(/op-2/);
@@ -262,6 +262,7 @@ describe('sim:check catches a violation', () => {
     const audit = clone(f.audit);
     const id = f.ids['defaulted']!;
     const delivered = audit.log.find((e) => e.commitmentId === id && e.type === 'delivery.submitted')!;
+    // SimChain only: the default pays the seller from the adjudicators' bonds.
     const backdated = new Set(['default.triggered', 'settlement.refunded', 'bond.slashed', 'key.released']);
     audit.log = audit.log
       .filter((e) => !(e.commitmentId === id && e.type === 'fallback.triggered'))
@@ -284,10 +285,11 @@ describe('sim:check catches a violation', () => {
     expect(r.invariants.find((i) => i.id === 'within-terms')!.violations.join('\n')).toMatch(/default\.triggered.*before fallbackBy/);
   });
 
+  // SimChain only: a party appeal and its bond.
   it('an upheld appeal relabelled overturned, with the appellant\'s bond returned (review H2)', async () => {
     const audit = clone(f.audit);
     const id = f.ids['upheld']!;
-    const i = audit.log.findIndex((e) => e.commitmentId === id && e.type === 'appeal.decided');
+    const i = audit.log.findIndex((e) => e.commitmentId === id && e.type === 'appeal.decided'); // SimChain only
     const ev = audit.log[i]!;
     const buyer = f.cast.buyer.address.toLowerCase();
     let bond = 0n;
@@ -328,6 +330,7 @@ describe('sim:check catches a violation', () => {
     const audit = clone(f.audit);
     const id = f.ids['defaulted']!;
     const appeal = f.cast.appeal.address.toLowerCase();
+    // SimChain only: the default payout from an adjudicator's bond.
     const i = audit.log.findIndex((e) => e.commitmentId === id && e.type === 'bond.slashed');
     const ev = audit.log[i]!;
     const from = String(ev.payload['adjudicator']).toLowerCase();

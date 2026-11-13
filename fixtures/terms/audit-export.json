@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "0.7",
+  "schemaVersion": "0.8",
   "clubId": "data-services-v1",
   "deliverable": {
     "kind": "document",
@@ -187,7 +187,7 @@
     "deliverWithinSec": 604800,
     "judgeWithinSec": 3600,
     "fallbackWithinSec": 3600,
-    "appealWindowSec": 259200,
+    "appealWindowSec": 0,
     "appealDecideSec": 86400,
     "maxSubmissions": 1
   },

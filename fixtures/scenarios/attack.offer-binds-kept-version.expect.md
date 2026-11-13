@@ -12,10 +12,10 @@ ADR-0036. A seller wants its deal judged under an older, weaker screen that the 
 | Prefix | attack. (adversarial input: must not auto-accept) |
 | Settlement | SimChain (T-006) driving @holdback/core `step` |
 | Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x8cb8…ea79 |
-| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
+| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0xd9bc…492d |
 | Buyer | atlas-buyer 0x90F9…53dC |
 | Seller | tidewater-seller 0xA884…b13B |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x0f06…ae7f · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x19af…fa22 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xe321…af56 · fallback bench-b 0x6A72…54B9 · appeal bench-c 0xc843…9512 |
 | Operators | op-1 · op-2 |
 
@@ -57,7 +57,7 @@ Outages:
 
 ## Receipts and log
 
-- Events 0–0. Chain head 0x875b…a69c. Replay of 1 SimChain submissions from genesis matches the settlement state.
+- Events 0–0. Chain head 0x64a5…5dae. Replay of 1 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 1 (rcpt-0001–rcpt-0001). The runner labels them without signing; the operator API signs real receipts.
 
 ## Invariants

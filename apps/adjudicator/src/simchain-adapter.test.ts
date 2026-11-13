@@ -99,11 +99,13 @@ async function world(bonds = { primary: 10_000_000_000n, fallback: 10_000_000_00
   // The example commitment's deliverable and checks, on the sim club's rules and this bench.
   const now = chain.now();
   const terms: CommitmentTerms = {
-    schemaVersion: '0.7',
+    schemaVersion: '0.8',
     clubId: club.id,
     rulebookHash: club.rulebookHash,
     buyer: cast.buyer.address,
     seller: cast.seller.address,
+    buyerPaymentAddress: cast.buyer.address,
+    sellerPayoutAddress: cast.seller.address,
     deliverable: EXAMPLE.deliverable,
     acceptance: EXAMPLE.acceptance,
     price: tusd('2000000000'),
@@ -274,6 +276,7 @@ describe('the adjudicator service on the real SimChain (T-006)', () => {
     chain.advance(30);
     expect((await w.primary.adj.runOnce()).decided).toEqual([{ commitmentId: id, role: 'primary', outcome: 'reject' }]);
     chain.advance(10);
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     const body = { commitmentId: id, appellant: 'seller' as const, appellantAddress: cast.seller.address, grounds: 'wrong-outcome', bond: tusd('100000000'), filedAt: chain.now() };
     const { signature } = await sign(cast.seller, { ...body, type: 'Appeal' as const });
     must(await chain.submit({ kind: 'appeal', appeal: { ...body, signature } }));
@@ -361,6 +364,7 @@ describe('the adjudicator service on the real SimChain (T-006)', () => {
     chain.advanceTo(judgeBy);
     must(await chain.trigger(id, 'fallback')); // at the drained moment: SimChain reserves nothing for the fallback
     chain.advanceTo(drain.timing.offerExpiresAt);
+    // SimChain only: this test drives the adapter on SimChain, whose operators' clock expires the unfunded offer.
     must(await chain.trigger(drainId, 'expire_offer'));
     const sellerBefore = await sellerBalance(w);
     expect((await w.fallback.adj.runOnce()).decided).toEqual([{ commitmentId: id, role: 'fallback', outcome: 'accept' }]);
@@ -373,6 +377,7 @@ describe('the adjudicator service on the real SimChain (T-006)', () => {
     chain.advance(30);
     expect((await w.primary.adj.runOnce()).decided.map((d) => d.outcome)).toEqual(['accept']);
     chain.advance(10);
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     const body = { commitmentId: id, appellant: 'buyer' as const, appellantAddress: cast.buyer.address, grounds: 'wrong-outcome', bond: tusd('100000000'), filedAt: chain.now() };
     const { signature } = await sign(cast.buyer, { ...body, type: 'Appeal' as const });
     must(await chain.submit({ kind: 'appeal', appeal: { ...body, signature } }));
@@ -457,27 +462,14 @@ describe('the adjudicator service on the real SimChain (T-006)', () => {
     });
   });
 
-  // The contract (ADR-0016 §1): freeOf, read fresh, plus the price while the deal still holds this adjudicator's bond. A
-  // fallback's decision releases the primary's reservation before it encumbers its own, so a service that is its own
-  // fallback needs the price once, not twice.
-  describe("on the contract: freeOf plus the deal's own reservation (the EVM adapter)", () => {
-    const P = `0x${'a1'.repeat(20)}` as Address;
-    const F = `0x${'f1'.repeat(20)}` as Address;
-    const appealOpenDecidedBy = (who: Address) => ({ kind: 'Released', via: { kind: 'first_instance', decision: { adjudicator: who }, appeal: { kind: 'open' } } });
-    it.each([
-      ['a fallback that is also the primary, at its turn', 'FallbackJudging', P, P, 7n + 2_000_000_000n],
-      ['a fallback that is also the primary, before the takeover', 'Delivered', P, P, 7n + 2_000_000_000n],
-      ['a fallback that is not the primary', 'FallbackJudging', P, F, 7n],
-      ['the appeal adjudicator that decided first, its appeal open', appealOpenDecidedBy(P), P, P, 7n + 2_000_000_000n],
-      ['an appeal adjudicator after another decided first', appealOpenDecidedBy(F), P, P, 7n],
-      ['the appeal adjudicator after an escalation (the escalation released every bond)', 'Escalated', P, P, 7n],
-    ] as const)('%s', async (_name, state, primary, me, cover) => {
-      const { terms, id } = await world();
-      const c = { ...terms, id, signatures: { seller: '0x' }, adjudication: { ...terms.adjudication, adjudicator: primary } } as Commitment;
-      const s = typeof state === 'string' ? { kind: state } : state;
-      const evmShaped = { pool: () => ({ junior: 9n, senior: 0n, reserved: 0n }), freeBond: async () => 7n, escrowState: () => s } as unknown as SettlementReads;
-      const adapter = new SettlementAdapter({ chain: evmShaped, store: { ciphertext: async () => new Uint8Array(), publishRecord: async () => '' }, registration: async () => null });
-      expect(await adapter.bondCover(me, c)).toBe(cover);
+  // ADR-0031 §8: every chain settlement runs the phase-one contracts, which hold no bond and take no party appeal.
+  describe('phase one on a chain settlement, the full protocol on SimChain', () => {
+    const port = (kind: string) => new SettlementAdapter({ chain: { kind, escrowState: () => null } as unknown as SettlementReads, store: { ciphertext: async () => new Uint8Array(), publishRecord: async () => '' }, registration: async () => null });
+    it('is phase one on kind local and testnet, and not on sim', () => {
+      expect([port('local').phaseOne, port('testnet').phaseOne, port('sim').phaseOne]).toEqual([true, true, false]);
+    });
+    it('expires no appeal on a chain settlement', async () => {
+      expect(await port('local').appealExpiriesDue(`0x${'a1'.repeat(32)}`)).toEqual([]);
     });
   });
 });

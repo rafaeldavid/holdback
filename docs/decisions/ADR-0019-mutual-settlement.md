@@ -207,3 +207,22 @@ The sequence, with the old commitment `O` in `Held`, `Delivered`, `FallbackJudgi
 
 Doing steps 1 to 3 before step 4 leaves a single submission between the money moving and the new hold. The gaps are in `docs/backlog.md` under D24. Prior art: UCC 2-209(1) (https://www.law.cornell.edu/ucc/2/2-209), FAR 43.103(a) (https://www.acquisition.gov/far/43.103) and UCP 600 Art. 10 treat a modification as both parties signing new terms.
 
+
+## Amended 2026-11-12: a settlement in Held may settle late work and release its key (ADR-0031 SC-5b, T-357)
+
+**What changes.** In `Held`, where nothing is posted, a settlement both parties sign may name a delivery and, with `releaseKey`, release that delivery's key to the buyer in the same step as the payment. The settlement carries the delivery it names. The rules above that said otherwise ("`deliveryHash` … null while Held", "`releaseKey` must be false when there is no delivery", and the guards "`deliveryHash` matches the current delivery, or is null in `Held`" and "`releaseKey` requires a delivery") now read as follows, exactly as `HoldbackRules.mutualSettle` checks them:
+
+- No delivery named: no key is released.
+- A delivery named, key kept: nothing more is checked. The named hash is signed for the record.
+- A delivery named, key released: the carried delivery is for this commitment and hashes to the hash both parties signed, and it holds an envelope for the buyer; the first such envelope is released. Both parties' signatures over the settlement, which names that hash, are what endorse the delivery: no seller signature on the delivery, attempt or submission time is read.
+- After a delivery, nothing changes: the settlement names the posted delivery, and the key comes from it.
+
+**Why.** The contract already takes this settlement, for late work: after `deliverBy` no delivery can land, yet the two may still want the work (D37's amendment of 2026-11-03: "A buyer who wants late work settles for it with the seller"). Core, this ADR and the formal model refused it (finding F-1, `docs/audit/state-model.md`). Rafa decided on 2026-11-11 to keep the path: "If the work is not delivered on time, can the two still agree to transfer the funds through the contract? If not, I think we should keep it since we should measure how many actually use the timebounds stricly vs. who settles anyways", then "Yes, keep it" (ADR-0031 §6b). So the off-chain side changes to the contract's rule, and the key leaves in the same step as the payment, with a mark on chain that can be counted.
+
+**What does not change.** Two signatures, settle once, the nonce, the expiry, the payouts that sum to the price, the fee back to the buyer, and the race rule against a decision or a reclaim. The signed `MutualSettlement` type and `spec/schemas/` are unchanged. A reclaim that lands first still ends the deal.
+
+**What the on-chain release does and does not guarantee here.** To check the hash it signs, the buyer must hold the whole delivery, its own envelope included, so it can open the content key before it pays. The release in the paying step is then a signed record of the exchange, not the exchange itself. What keeps the exchange fair is the ciphertext: a seller that hands over the delivery and keeps the ciphertext at its `uri` until the settlement lands gives nothing away early. Prepare tells both sides this. On the posted path nothing changes: the settlement layer holds the envelopes.
+
+**The limit.** `POST /v1/commitments/{id}/settlements` takes a `MutualSettlement` only, so it cannot carry the delivery yet. Until an API change adds that, a late settlement that releases a key is prepared and signed through `POST /v1/prepare/settlement` (with the agent's own `delivery`) and submitted to the settlement layer directly. An operator that did not relay it holds no copy of the delivery: it waits behind the chain until either party posts that delivery to `POST /v1/commitments/{id}/deliveries`, which joins it with no second transaction (ADR-0031, residual 13).
+
+**Litmus tests.** Neutrality: both signatures, as before; no operator or adjudicator gains a step. The hold: the key still moves only with the payment, from the delivery both signed. Defended judgment: unchanged, since no one judges a settlement.

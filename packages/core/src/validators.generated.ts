@@ -15,7 +15,7 @@ export type SchemaValidator = ((data: unknown) => boolean) & { errors?: { instan
 export function schemaValidators(formats: Record<string, unknown>): Record<string, SchemaValidator> {
 const exports = {};
 exports.adjudicator = validate0;
-const schema0 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.10/adjudicator.schema.json","title":"Adjudicator registration","type":"object","required":["address","name","encryptionPublicKey","affiliations","policy","registry","policyHash","fee","status","pool","poolTermsHash"],"additionalProperties":false,"properties":{"address":{"$ref":"common.schema.json#/$defs/Address"},"name":{"type":"string","maxLength":120,"x-holdback-untrusted":true},"encryptionPublicKey":{"$ref":"common.schema.json#/$defs/Base64Url"},"affiliations":{"type":"array","maxItems":100,"items":{"type":"string","maxLength":120,"x-holdback-untrusted":true},"description":"Member IDs the adjudicator is affiliated with; it may not judge their commitments"},"policy":{"type":"object","additionalProperties":false,"required":["id","panelSize","appealPanelSize","minFamilies","minFamiliesAppeal","minValid","minValidAppeal","acceptSupermajority","rejectSupermajority","judgeTimeoutSec","rationaleMaxChars","promptTemplateHash","appealPromptTemplateHash","aggregationVersion","screenVersion","providerPrivacy","disclosureMin"],"properties":{"id":{"type":"string","x-holdback-untrusted":true,"maxLength":120},"panelSize":{"type":"integer","minimum":3},"appealPanelSize":{"type":"integer","minimum":5},"minFamilies":{"type":"integer","minimum":2},"minFamiliesAppeal":{"type":"integer","minimum":2},"minValid":{"type":"integer","minimum":2},"minValidAppeal":{"type":"integer","minimum":3},"acceptSupermajority":{"$ref":"common.schema.json#/$defs/Fraction","description":"Share of valid verdicts needed to accept, as an exact fraction greater than one half"},"rejectSupermajority":{"$ref":"common.schema.json#/$defs/Fraction","description":"Share of valid verdicts needed to reject, as an exact fraction greater than one half"},"judgeTimeoutSec":{"type":"integer","minimum":1},"rationaleMaxChars":{"type":"integer","minimum":1,"maximum":2000},"promptTemplateHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"SHA-256 of the fixed first-instance judge prompt template, before any commitment data is filled in"},"appealPromptTemplateHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"SHA-256 of the fixed appeal judge prompt template"},"aggregationVersion":{"$ref":"common.schema.json#/$defs/Ident","description":"Version of the deterministic aggregation rule (docs/judgment-and-defenses.md)"},"screenVersion":{"$ref":"common.schema.json#/$defs/Ident","description":"Version of the normalization and screen step"},"providerPrivacy":{"enum":["standard","zdr","tee","local"],"description":"How the adjudicator's model providers treat deliverables: standard terms, zero data retention, a trusted execution environment, or models run locally (ADR-0020)"},"disclosureMin":{"$ref":"common.schema.json#/$defs/DisclosureLevel","description":"Lowest disclosure level this adjudicator accepts"}},"description":"The adjudicator policy. Its keccak256 over RFC 8785 canonical JSON is the policyHash a commitment binds."},"registry":{"type":"object","additionalProperties":false,"required":["hash","uri"],"properties":{"hash":{"$ref":"common.schema.json#/$defs/Hex32"},"uri":{"type":"string","format":"uri","x-holdback-untrusted":true,"maxLength":2048}},"description":"The judge registry this adjudicator draws panels from; commitments bind its hash"},"policyHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256 of the RFC 8785 canonical JSON of policy; commitments bind it"},"fee":{"type":"object","additionalProperties":false,"required":["min"],"properties":{"min":{"$ref":"common.schema.json#/$defs/TokenAmount"}}},"metrics":{"type":"object","additionalProperties":false,"required":["falseAcceptRateBps","falseRejectRateBps","escalationRateBps","sampleSize","measuredAt"],"properties":{"falseAcceptRateBps":{"$ref":"common.schema.json#/$defs/Bps"},"falseRejectRateBps":{"$ref":"common.schema.json#/$defs/Bps"},"escalationRateBps":{"$ref":"common.schema.json#/$defs/Bps"},"sampleSize":{"type":"integer","minimum":0},"measuredAt":{"$ref":"common.schema.json#/$defs/Timestamp"}}},"status":{"enum":["active","suspended"]},"pool":{"type":"object","additionalProperties":false,"required":["junior","senior","reserved","terms"],"description":"The adjudicator's bond pool (ADR-0014 §2a). Junior is the adjudicator's own stake and takes losses first; senior is backers' stake, pro rata. Senior stays empty in Phase 1. The total bond is junior + senior and the open exposure is reserved; there is no separate bond field to disagree with them.","properties":{"junior":{"$ref":"common.schema.json#/$defs/TokenAmount"},"senior":{"$ref":"common.schema.json#/$defs/TokenAmount"},"reserved":{"$ref":"common.schema.json#/$defs/TokenAmount","description":"Encumbered by open commitments; the coverage gate is junior + senior - reserved >= price"},"terms":{"type":"object","additionalProperties":false,"required":["capitalChargeRateBps","capitalChargeToPoolRateBps","firstLossShareBps","noticePeriodSec"],"description":"What backers deposit under. Its keccak256 over RFC 8785 canonical JSON is poolTermsHash.","properties":{"capitalChargeRateBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Quoted capital charge in basis points of price (moved from fee in v0.5)"},"capitalChargeToPoolRateBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Share of the capital charge paid to the pool pro rata, in basis points (from Phase 4)"},"firstLossShareBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Junior's minimum share of the pool, in basis points; at least the rulebook's firstLossShareMinBps"},"noticePeriodSec":{"type":"integer","minimum":0,"description":"Withdrawal notice for backers"}}}}},"poolTermsHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256 of the RFC 8785 canonical JSON of pool.terms; a backer's deposit binds it"},"registration":{"type":"object","additionalProperties":false,"required":["keyId","bodyHash","issuedAt","nonce","expiresAt","signature"],"description":"The adjudicator's signature over this record (ADR-0030): with the record's address, encryptionPublicKey, policyHash, registry.hash, fee.min and poolTermsHash, these fields are the AdjudicatorRegistration message (messages.schema.json) it signed. Absent on an unsigned record, such as a SimChain genesis record.","properties":{"keyId":{"$ref":"common.schema.json#/$defs/Ident"},"bodyHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256 of the RFC 8785 JSON of this record without `registration`, with `pool` holding only `terms`"},"issuedAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}}}};
+const schema0 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.11/adjudicator.schema.json","title":"Adjudicator registration","type":"object","required":["address","name","encryptionPublicKey","affiliations","policy","registry","policyHash","fee","status","pool","poolTermsHash"],"additionalProperties":false,"properties":{"address":{"$ref":"common.schema.json#/$defs/Address"},"name":{"type":"string","maxLength":120,"x-holdback-untrusted":true},"encryptionPublicKey":{"$ref":"common.schema.json#/$defs/Base64Url"},"affiliations":{"type":"array","maxItems":100,"items":{"type":"string","maxLength":120,"x-holdback-untrusted":true},"description":"Member IDs the adjudicator is affiliated with; it may not judge their commitments"},"policy":{"type":"object","additionalProperties":false,"required":["id","panelSize","appealPanelSize","minFamilies","minFamiliesAppeal","minValid","minValidAppeal","acceptSupermajority","rejectSupermajority","judgeTimeoutSec","rationaleMaxChars","promptTemplateHash","appealPromptTemplateHash","aggregationVersion","screenVersion","providerPrivacy","disclosureMin"],"properties":{"id":{"type":"string","x-holdback-untrusted":true,"maxLength":120},"panelSize":{"type":"integer","minimum":3},"appealPanelSize":{"type":"integer","minimum":5},"minFamilies":{"type":"integer","minimum":2},"minFamiliesAppeal":{"type":"integer","minimum":2},"minValid":{"type":"integer","minimum":2},"minValidAppeal":{"type":"integer","minimum":3},"acceptSupermajority":{"$ref":"common.schema.json#/$defs/Fraction","description":"Share of valid verdicts needed to accept, as an exact fraction greater than one half"},"rejectSupermajority":{"$ref":"common.schema.json#/$defs/Fraction","description":"Share of valid verdicts needed to reject, as an exact fraction greater than one half"},"judgeTimeoutSec":{"type":"integer","minimum":1},"rationaleMaxChars":{"type":"integer","minimum":1,"maximum":2000},"promptTemplateHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"SHA-256 of the fixed first-instance judge prompt template, before any commitment data is filled in"},"appealPromptTemplateHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"SHA-256 of the fixed appeal judge prompt template"},"aggregationVersion":{"$ref":"common.schema.json#/$defs/Ident","description":"Version of the deterministic aggregation rule (docs/judgment-and-defenses.md)"},"screenVersion":{"$ref":"common.schema.json#/$defs/Ident","description":"Version of the normalization and screen step"},"providerPrivacy":{"enum":["standard","zdr","tee","local"],"description":"How the adjudicator's model providers treat deliverables: standard terms, zero data retention, a trusted execution environment, or models run locally (ADR-0020)"},"disclosureMin":{"$ref":"common.schema.json#/$defs/DisclosureLevel","description":"Lowest disclosure level this adjudicator accepts"}},"description":"The adjudicator policy. Its keccak256 over RFC 8785 canonical JSON is the policyHash a commitment binds."},"registry":{"type":"object","additionalProperties":false,"required":["hash","uri"],"properties":{"hash":{"$ref":"common.schema.json#/$defs/Hex32"},"uri":{"type":"string","format":"uri","x-holdback-untrusted":true,"maxLength":2048}},"description":"The judge registry this adjudicator draws panels from; commitments bind its hash"},"policyHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256 of the RFC 8785 canonical JSON of policy; commitments bind it"},"fee":{"type":"object","additionalProperties":false,"required":["min"],"properties":{"min":{"$ref":"common.schema.json#/$defs/TokenAmount"}}},"metrics":{"type":"object","additionalProperties":false,"required":["falseAcceptRateBps","falseRejectRateBps","escalationRateBps","sampleSize","measuredAt"],"properties":{"falseAcceptRateBps":{"$ref":"common.schema.json#/$defs/Bps"},"falseRejectRateBps":{"$ref":"common.schema.json#/$defs/Bps"},"escalationRateBps":{"$ref":"common.schema.json#/$defs/Bps"},"sampleSize":{"type":"integer","minimum":0},"measuredAt":{"$ref":"common.schema.json#/$defs/Timestamp"}}},"status":{"enum":["active","suspended"]},"pool":{"type":"object","additionalProperties":false,"required":["junior","senior","reserved","terms"],"description":"The adjudicator's bond pool (ADR-0014 §2a). Junior is the adjudicator's own stake and takes losses first; senior is backers' stake, pro rata. Senior stays empty in Phase 1. The total bond is junior + senior and the open exposure is reserved; there is no separate bond field to disagree with them.","properties":{"junior":{"$ref":"common.schema.json#/$defs/TokenAmount"},"senior":{"$ref":"common.schema.json#/$defs/TokenAmount"},"reserved":{"$ref":"common.schema.json#/$defs/TokenAmount","description":"Encumbered by open commitments; the coverage gate is junior + senior - reserved >= price"},"terms":{"type":"object","additionalProperties":false,"required":["capitalChargeRateBps","capitalChargeToPoolRateBps","firstLossShareBps","noticePeriodSec"],"description":"What backers deposit under. Its keccak256 over RFC 8785 canonical JSON is poolTermsHash.","properties":{"capitalChargeRateBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Quoted capital charge in basis points of price (moved from fee in v0.5)"},"capitalChargeToPoolRateBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Share of the capital charge paid to the pool pro rata, in basis points (from Phase 4)"},"firstLossShareBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Junior's minimum share of the pool, in basis points; at least the rulebook's firstLossShareMinBps"},"noticePeriodSec":{"type":"integer","minimum":0,"description":"Withdrawal notice for backers"}}}}},"poolTermsHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256 of the RFC 8785 canonical JSON of pool.terms; a backer's deposit binds it"},"registration":{"type":"object","additionalProperties":false,"required":["keyId","bodyHash","issuedAt","nonce","expiresAt","signature"],"description":"The adjudicator's signature over this record (ADR-0030): with the record's address, encryptionPublicKey, policyHash, registry.hash, fee.min and poolTermsHash, these fields are the AdjudicatorRegistration message (messages.schema.json) it signed. Absent on an unsigned record, such as a SimChain genesis record.","properties":{"keyId":{"$ref":"common.schema.json#/$defs/Ident"},"bodyHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256 of the RFC 8785 JSON of this record without `registration`, with `pool` holding only `terms`"},"issuedAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}}}};
 const schema2 = {"type":"string","pattern":"^0x[0-9a-fA-F]{40}$"};
 const schema3 = {"type":"string","pattern":"^[A-Za-z0-9_-]+$"};
 const schema4 = {"type":"object","additionalProperties":false,"required":["numerator","denominator"],"description":"An exact ratio such as 2/3 (ADR-0022). Where a fraction is a supermajority, parsers also require numerator <= denominator and 2 x numerator > denominator.","properties":{"numerator":{"type":"integer","minimum":0},"denominator":{"type":"integer","minimum":1,"maximum":100}}};
@@ -142,7 +142,7 @@ validate2.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 
 function validate0(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
-/*# sourceURL="https://holdback.dev/schemas/v0.10/adjudicator.schema.json" */;
+/*# sourceURL="https://holdback.dev/schemas/v0.11/adjudicator.schema.json" */;
 let vErrors = null;
 let errors = 0;
 const evaluated0 = validate0.evaluated;
@@ -1938,7 +1938,7 @@ return errors === 0;
 validate0.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 exports.agent = validate7;
-const schema29 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.10/agent.schema.json","title":"Agent registration","type":"object","required":["address","clubId","memberId","principal","scope","mandateHash","status","registeredAt"],"additionalProperties":false,"properties":{"address":{"$ref":"common.schema.json#/$defs/Address"},"clubId":{"$ref":"common.schema.json#/$defs/ClubId"},"memberId":{"type":"string","maxLength":120,"x-holdback-untrusted":true},"principal":{"$ref":"common.schema.json#/$defs/Address"},"scope":{"$ref":"common.schema.json#/$defs/Scope"},"encryptionPublicKey":{"$ref":"common.schema.json#/$defs/Base64Url","description":"X25519 public key for receiving content keys"},"mandateHash":{"$ref":"common.schema.json#/$defs/Hex32"},"status":{"enum":["active","revoked"]},"registeredAt":{"$ref":"common.schema.json#/$defs/Timestamp"}}};
+const schema29 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.11/agent.schema.json","title":"Agent registration","type":"object","required":["address","clubId","memberId","principal","scope","mandateHash","status","registeredAt"],"additionalProperties":false,"properties":{"address":{"$ref":"common.schema.json#/$defs/Address"},"clubId":{"$ref":"common.schema.json#/$defs/ClubId"},"memberId":{"type":"string","maxLength":120,"x-holdback-untrusted":true},"principal":{"$ref":"common.schema.json#/$defs/Address"},"scope":{"$ref":"common.schema.json#/$defs/Scope"},"encryptionPublicKey":{"$ref":"common.schema.json#/$defs/Base64Url","description":"X25519 public key for receiving content keys"},"mandateHash":{"$ref":"common.schema.json#/$defs/Hex32"},"status":{"enum":["active","revoked"]},"registeredAt":{"$ref":"common.schema.json#/$defs/Timestamp"}}};
 const schema31 = {"type":"string","pattern":"^[a-z0-9-]{3,64}$"};
 const pattern16 = new RegExp("^[a-z0-9-]{3,64}$", "u");
 const schema33 = {"type":"object","required":["roles","maxPerCommitment","maxDaily","expiresAt"],"additionalProperties":false,"properties":{"roles":{"type":"array","minItems":1,"uniqueItems":true,"items":{"enum":["buyer","seller"]}},"maxPerCommitment":{"$ref":"#/$defs/TokenAmount"},"maxDaily":{"$ref":"#/$defs/TokenAmount"},"categories":{"type":"array","items":{"type":"string","maxLength":64,"x-holdback-untrusted":true}},"expiresAt":{"$ref":"#/$defs/Timestamp"}}};
@@ -2276,7 +2276,7 @@ validate8.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 
 function validate7(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
-/*# sourceURL="https://holdback.dev/schemas/v0.10/agent.schema.json" */;
+/*# sourceURL="https://holdback.dev/schemas/v0.11/agent.schema.json" */;
 let vErrors = null;
 let errors = 0;
 const evaluated0 = validate7.evaluated;
@@ -2573,7 +2573,7 @@ return errors === 0;
 validate7.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 exports.appeal = validate13;
-const schema40 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.10/appeal.schema.json","title":"Appeal","type":"object","required":["commitmentId","appellant","appellantAddress","grounds","bond","filedAt","signature"],"additionalProperties":false,"properties":{"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"appellant":{"enum":["buyer","seller"]},"appellantAddress":{"$ref":"common.schema.json#/$defs/Address"},"grounds":{"type":"string","maxLength":2000,"x-holdback-untrusted":true},"bond":{"$ref":"common.schema.json#/$defs/TokenAmount"},"filedAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
+const schema40 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.11/appeal.schema.json","title":"Appeal","type":"object","required":["commitmentId","appellant","appellantAddress","grounds","bond","filedAt","signature"],"additionalProperties":false,"properties":{"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"appellant":{"enum":["buyer","seller"]},"appellantAddress":{"$ref":"common.schema.json#/$defs/Address"},"grounds":{"type":"string","maxLength":2000,"x-holdback-untrusted":true},"bond":{"$ref":"common.schema.json#/$defs/TokenAmount"},"filedAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
 
 function validate14(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -2678,7 +2678,7 @@ validate14.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 
 function validate13(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
-/*# sourceURL="https://holdback.dev/schemas/v0.10/appeal.schema.json" */;
+/*# sourceURL="https://holdback.dev/schemas/v0.11/appeal.schema.json" */;
 let vErrors = null;
 let errors = 0;
 const evaluated0 = validate13.evaluated;
@@ -2913,7 +2913,7 @@ return errors === 0;
 validate13.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 exports.club = validate16;
-const schema47 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.10/club.schema.json","title":"Club and rulebook","type":"object","required":["id","name","operator","rulebook","rulebookHash"],"additionalProperties":false,"properties":{"id":{"type":"string","pattern":"^[a-z0-9-]{3,64}$"},"name":{"type":"string","maxLength":120,"x-holdback-untrusted":true},"operator":{"$ref":"common.schema.json#/$defs/Address"},"rulebook":{"type":"object","additionalProperties":false,"required":["version","open","minWindowsSec","windowCoverageRatioBps","appealBondRateBps","sealedChecksMaxWeightBps","maxSubmissions","defaultOutcome","allowedSettlementModes","allowedTokens","panelPolicyMin","appealFee","firstLossShareMinBps","bondNoticePeriodMinSec","randomness","minInspectionWindowSec","disputeBond","mutualSettlement","disclosureMin","identityModes"],"properties":{"version":{"type":"string","pattern":"^[0-9]+\\.[0-9]+$"},"open":{"type":"boolean","description":"If true, no membership is required"},"documentUri":{"type":"string","format":"uri","x-holdback-untrusted":true,"maxLength":2048},"minWindowsSec":{"type":"object","additionalProperties":false,"required":["judge","fallback","appealWindow","appealDecide"],"properties":{"judge":{"type":"integer","minimum":1},"fallback":{"type":"integer","minimum":1},"appealWindow":{"type":"integer","minimum":1},"appealDecide":{"type":"integer","minimum":1}}},"windowCoverageRatioBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Minimum bond share of open exposure for settle_after_window commitments; guaranteed commitments always need 100% (ADR-0007)"},"appealBondRateBps":{"$ref":"common.schema.json#/$defs/Bps"},"sealedChecksMaxWeightBps":{"type":"integer","minimum":0,"maximum":3000,"description":"Most weight sealed checks may carry, in basis points (at most 3000)"},"maxSubmissions":{"type":"integer","minimum":1,"maximum":3},"defaultOutcome":{"type":"object","additionalProperties":false,"required":["judged"],"description":"Per settlement mode (ADR-0015). judged applies to guaranteed_on_decision and settle_after_window.","properties":{"judged":{"type":"object","additionalProperties":false,"required":["refundBuyer","sellerCompensationRateBps"],"properties":{"refundBuyer":{"const":true},"sellerCompensationRateBps":{"$ref":"common.schema.json#/$defs/Bps"}}},"optimistic":{"type":"object","additionalProperties":false,"required":["release","buyerCompensationRateBps"],"properties":{"release":{"const":true,"description":"Silence resolves to release to the seller, the tacit-acceptance baseline"},"buyerCompensationRateBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Paid to the buyer from a defaulting adjudicator's reserved bond, in basis points of price"}}}}},"allowedSettlementModes":{"type":"array","minItems":1,"items":{"$ref":"common.schema.json#/$defs/SettlementMode"}},"allowedTokens":{"type":"array","minItems":1,"items":{"$ref":"common.schema.json#/$defs/TokenId"}},"panelPolicyMin":{"type":"object","additionalProperties":false,"required":["panelSize","appealPanelSize","minFamilies"],"properties":{"panelSize":{"type":"integer","minimum":3},"appealPanelSize":{"type":"integer","minimum":5},"minFamilies":{"type":"integer","minimum":2}}},"appealFee":{"$ref":"common.schema.json#/$defs/TokenAmount","description":"Paid by an appellant to the appeal adjudicator"},"firstLossShareMinBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Minimum junior share of an adjudicator's pool, in basis points (ADR-0014); default 1000"},"bondNoticePeriodMinSec":{"type":"integer","minimum":0,"description":"Minimum withdrawal notice for backers; default one appeal cycle"},"randomness":{"type":"object","additionalProperties":false,"required":["source"],"description":"Panel seed source for fallback and appeal decisions (ADR-0018)","properties":{"source":{"$ref":"common.schema.json#/$defs/RandomnessSource"},"chainHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"drand chain hash; required for drand-quicknet"}},"if":{"properties":{"source":{"const":"drand-quicknet"}},"type":"object"},"then":{"required":["chainHash"],"type":"object","properties":{"chainHash":{}}}},"minInspectionWindowSec":{"type":"integer","minimum":0,"description":"Optimistic mode: deliverBy plus this is at most disputeBy"},"disputeBond":{"$ref":"common.schema.json#/$defs/TokenAmount","description":"Optimistic mode: posted by a disputing buyer, paid to the seller if the dispute fails"},"mutualSettlement":{"type":"object","additionalProperties":false,"required":["allowed","adjudicatorFeeShareAfterDeliveryBps","payoutsTo"],"description":"Whether buyer and seller may close a commitment by co-signed agreement (ADR-0019)","properties":{"allowed":{"type":"boolean"},"adjudicatorFeeShareAfterDeliveryBps":{"type":"integer","minimum":0,"maximum":10000,"description":"Share of the held adjudicator fee paid to the sitting adjudicator when the parties settle after delivery, in basis points (10000 = all); before delivery the fee returns to the buyer. Phase 1 requires 0 (ADR-0019)."},"payoutsTo":{"enum":["parties","any"],"description":"parties: payouts may name only the buyer and the seller. any: any addresses both parties sign for, such as another escrow or an outside arbiter (D23). A regulated club sets parties."}}},"disclosureMin":{"$ref":"common.schema.json#/$defs/DisclosureLevel","description":"Lowest disclosure level a commitment under this rulebook may choose (ADR-0020)"},"identityModes":{"type":"array","minItems":1,"uniqueItems":true,"items":{"enum":["long-term","pseudonymous"]},"description":"Signing identities parties may use: one long-term key, or a pseudonymous one-time key per commitment derived from a long-term meta-address (ADR-0020 §7). Phase 1 admits long-term only."}},"if":{"properties":{"allowedSettlementModes":{"contains":{"const":"optimistic"},"type":"array"}},"required":["allowedSettlementModes"],"type":"object"},"then":{"properties":{"defaultOutcome":{"required":["optimistic"],"type":"object","properties":{"optimistic":{}}}},"type":"object"}},"rulebookHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256 of the RFC 8785 canonical JSON of rulebook"}}};
+const schema47 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.11/club.schema.json","title":"Club and rulebook","type":"object","required":["id","name","operator","rulebook","rulebookHash"],"additionalProperties":false,"properties":{"id":{"type":"string","pattern":"^[a-z0-9-]{3,64}$"},"name":{"type":"string","maxLength":120,"x-holdback-untrusted":true},"operator":{"$ref":"common.schema.json#/$defs/Address"},"rulebook":{"type":"object","additionalProperties":false,"required":["version","open","minWindowsSec","windowCoverageRatioBps","appealBondRateBps","sealedChecksMaxWeightBps","maxSubmissions","defaultOutcome","allowedSettlementModes","allowedTokens","panelPolicyMin","appealFee","firstLossShareMinBps","bondNoticePeriodMinSec","randomness","minInspectionWindowSec","disputeBond","mutualSettlement","disclosureMin","identityModes"],"properties":{"version":{"type":"string","pattern":"^[0-9]+\\.[0-9]+$"},"open":{"type":"boolean","description":"If true, no membership is required"},"documentUri":{"type":"string","format":"uri","x-holdback-untrusted":true,"maxLength":2048},"minWindowsSec":{"type":"object","additionalProperties":false,"required":["judge","fallback","appealWindow","appealDecide"],"properties":{"judge":{"type":"integer","minimum":1},"fallback":{"type":"integer","minimum":1},"appealWindow":{"type":"integer","minimum":0,"description":"0 lets a commitment waive party appeals with an appeal window of 0, as a phase-one deployment requires (ADR-0033 §2b)"},"appealDecide":{"type":"integer","minimum":1}}},"windowCoverageRatioBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Minimum bond share of open exposure for settle_after_window commitments; guaranteed commitments always need 100% (ADR-0007)"},"appealBondRateBps":{"$ref":"common.schema.json#/$defs/Bps"},"sealedChecksMaxWeightBps":{"type":"integer","minimum":0,"maximum":3000,"description":"Most weight sealed checks may carry, in basis points (at most 3000)"},"maxSubmissions":{"type":"integer","minimum":1,"maximum":3},"defaultOutcome":{"type":"object","additionalProperties":false,"required":["judged"],"description":"Per settlement mode (ADR-0015). judged applies to guaranteed_on_decision and settle_after_window.","properties":{"judged":{"type":"object","additionalProperties":false,"required":["refundBuyer","sellerCompensationRateBps"],"properties":{"refundBuyer":{"const":true},"sellerCompensationRateBps":{"$ref":"common.schema.json#/$defs/Bps"}}},"optimistic":{"type":"object","additionalProperties":false,"required":["release","buyerCompensationRateBps"],"properties":{"release":{"const":true,"description":"Silence resolves to release to the seller, the tacit-acceptance baseline"},"buyerCompensationRateBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Paid to the buyer from a defaulting adjudicator's reserved bond, in basis points of price"}}}}},"allowedSettlementModes":{"type":"array","minItems":1,"items":{"$ref":"common.schema.json#/$defs/SettlementMode"}},"allowedTokens":{"type":"array","minItems":1,"items":{"$ref":"common.schema.json#/$defs/TokenId"}},"panelPolicyMin":{"type":"object","additionalProperties":false,"required":["panelSize","appealPanelSize","minFamilies"],"properties":{"panelSize":{"type":"integer","minimum":3},"appealPanelSize":{"type":"integer","minimum":5},"minFamilies":{"type":"integer","minimum":2}}},"appealFee":{"$ref":"common.schema.json#/$defs/TokenAmount","description":"Paid by an appellant to the appeal adjudicator"},"firstLossShareMinBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Minimum junior share of an adjudicator's pool, in basis points (ADR-0014); default 1000"},"bondNoticePeriodMinSec":{"type":"integer","minimum":0,"description":"Minimum withdrawal notice for backers; default one appeal cycle"},"randomness":{"type":"object","additionalProperties":false,"required":["source"],"description":"Panel seed source for fallback and appeal decisions (ADR-0018)","properties":{"source":{"$ref":"common.schema.json#/$defs/RandomnessSource"},"chainHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"drand chain hash; required for drand-quicknet"}},"if":{"properties":{"source":{"const":"drand-quicknet"}},"type":"object"},"then":{"required":["chainHash"],"type":"object","properties":{"chainHash":{}}}},"minInspectionWindowSec":{"type":"integer","minimum":0,"description":"Optimistic mode: deliverBy plus this is at most disputeBy"},"disputeBond":{"$ref":"common.schema.json#/$defs/TokenAmount","description":"Optimistic mode: posted by a disputing buyer, paid to the seller if the dispute fails"},"mutualSettlement":{"type":"object","additionalProperties":false,"required":["allowed","adjudicatorFeeShareAfterDeliveryBps","payoutsTo"],"description":"Whether buyer and seller may close a commitment by co-signed agreement (ADR-0019)","properties":{"allowed":{"type":"boolean"},"adjudicatorFeeShareAfterDeliveryBps":{"type":"integer","minimum":0,"maximum":10000,"description":"Share of the held adjudicator fee paid to the sitting adjudicator when the parties settle after delivery, in basis points (10000 = all); before delivery the fee returns to the buyer. Phase 1 requires 0 (ADR-0019)."},"payoutsTo":{"enum":["parties","any"],"description":"parties: payouts may name only the buyer's payment address and the seller's payout address (ADR-0033). any: any addresses both parties sign for, such as another escrow or an outside arbiter (D23). No rulebook field limits which addresses those two are: a party chooses its own, and membership and mandates bind the signing addresses only."}}},"disclosureMin":{"$ref":"common.schema.json#/$defs/DisclosureLevel","description":"Lowest disclosure level a commitment under this rulebook may choose (ADR-0020)"},"identityModes":{"type":"array","minItems":1,"uniqueItems":true,"items":{"enum":["long-term","pseudonymous"]},"description":"Signing identities parties may use: one long-term key, or a pseudonymous one-time key per commitment derived from a long-term meta-address (ADR-0020 §7). Phase 1 admits long-term only."}},"if":{"properties":{"allowedSettlementModes":{"contains":{"const":"optimistic"},"type":"array"}},"required":["allowedSettlementModes"],"type":"object"},"then":{"properties":{"defaultOutcome":{"required":["optimistic"],"type":"object","properties":{"optimistic":{}}}},"type":"object"}},"rulebookHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256 of the RFC 8785 canonical JSON of rulebook"}}};
 const schema53 = {"enum":["guaranteed_on_decision","settle_after_window","optimistic"]};
 const schema58 = {"enum":["sim","drand-quicknet","prevrandao"],"description":"Where fallback and appeal panel seeds come from (ADR-0018). Phase 1 admits sim only."};
 const pattern29 = new RegExp("^[0-9]+\\.[0-9]+$", "u");
@@ -3021,7 +3021,7 @@ validate17.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 
 function validate16(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
-/*# sourceURL="https://holdback.dev/schemas/v0.10/club.schema.json" */;
+/*# sourceURL="https://holdback.dev/schemas/v0.11/club.schema.json" */;
 let vErrors = null;
 let errors = 0;
 const evaluated0 = validate16.evaluated;
@@ -3493,8 +3493,8 @@ return false;
 const _errs39 = errors;
 if(errors === _errs38){
 if((typeof data13 == "number") && (isFinite(data13))){
-if(data13 < 1 || isNaN(data13)){
-validate16.errors = [{instancePath:instancePath+"/rulebook/minWindowsSec/appealWindow",schemaPath:"#/properties/rulebook/properties/minWindowsSec/properties/appealWindow/minimum",keyword:"minimum",params:{comparison: ">=", limit: 1},message:"must be >= 1"}];
+if(data13 < 0 || isNaN(data13)){
+validate16.errors = [{instancePath:instancePath+"/rulebook/minWindowsSec/appealWindow",schemaPath:"#/properties/rulebook/properties/minWindowsSec/properties/appealWindow/minimum",keyword:"minimum",params:{comparison: ">=", limit: 0},message:"must be >= 0"}];
 return false;
 }
 else {
@@ -4729,7 +4729,7 @@ return errors === 0;
 validate16.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 exports["commitment-state"] = validate20;
-const schema62 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.10/commitment-state.schema.json","title":"Commitment state (read model)","type":"object","required":["commitmentId","escrowState","appealState","attempt","deadlines","lastEventSeq","updatedAt"],"additionalProperties":false,"properties":{"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"escrowState":{"enum":["Offered","AcceptedByAdjudicator","Agreed","Held","Delivered","Disputed","FallbackJudging","Escalated","Released","Refunded","Settled","Defaulted","Expired"],"description":"Where the money is (ADR-0016)"},"appealState":{"enum":["none","open","upheld","overturned","expired"],"description":"Defined after a first-instance decision; an overturn moves bond money, not escrow money"},"attempt":{"type":"integer","minimum":0,"maximum":3},"deliveryHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"The posted delivery's EIP-712 struct hash: the hash every decision and early accept must name (ADR-0029). Present in Delivered, FallbackJudging and Escalated, and after a decision, an early accept or a mutual settlement that named it; absent before a delivery, in Defaulted and after a default outcome or a reclaim (no signature named it; the rules contract's deliveryHashOf still holds it on chain). Compare it at two operators before signing"},"hold":{"type":"object","additionalProperties":false,"required":["amount","railRef"],"properties":{"amount":{"$ref":"common.schema.json#/$defs/TokenAmount"},"railRef":{"type":"string","x-holdback-untrusted":true,"maxLength":200}}},"deadlines":{"type":"object","additionalProperties":{"$ref":"common.schema.json#/$defs/Timestamp"}},"balances":{"type":"object","propertyNames":{"pattern":"^0x[0-9a-fA-F]{40}$"},"additionalProperties":{"$ref":"common.schema.json#/$defs/TokenAmount"}},"settledAt":{"oneOf":[{"$ref":"common.schema.json#/$defs/Timestamp"},{"type":"null"}],"description":"When money moved to its payee; irrevocable for that payee (D20). Null or absent before then. Not signed."},"finalAt":{"oneOf":[{"$ref":"common.schema.json#/$defs/Timestamp"},{"type":"null"}],"description":"When no protocol step can change who got what, for example after the appeal window closes (D20). Null until that is true. Not signed."},"lastEventSeq":{"type":"integer","minimum":0},"updatedAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"settled":{"type":"object","additionalProperties":false,"required":["payouts","keyReleased"],"properties":{"payouts":{"$ref":"common.schema.json#/$defs/Payouts"},"keyReleased":{"type":"boolean"}},"description":"What a mutual settlement paid, present only once one closed the commitment (ADR-0019, D23). The adjudication fee returned to the buyer is derived from the terms, not repeated here."}},"allOf":[{"if":{"type":"object","properties":{"escrowState":{"const":"Settled"}},"required":["escrowState"]},"then":{"type":"object","required":["settled"],"properties":{"settled":{}}},"else":{"type":"object","not":{"type":"object","required":["settled"],"properties":{"settled":{}}}}}]};
+const schema62 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.11/commitment-state.schema.json","title":"Commitment state (read model)","type":"object","required":["commitmentId","escrowState","appealState","attempt","deadlines","lastEventSeq","updatedAt"],"additionalProperties":false,"properties":{"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"escrowState":{"enum":["Offered","AcceptedByAdjudicator","Agreed","Held","Delivered","Disputed","FallbackJudging","Escalated","Released","Refunded","Settled","Defaulted","Expired"],"description":"Where the money is (ADR-0016)"},"appealState":{"enum":["none","open","upheld","overturned","expired"],"description":"Defined after a first-instance decision; an overturn moves bond money, not escrow money"},"attempt":{"type":"integer","minimum":0,"maximum":3},"deliveryHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"The posted delivery's EIP-712 struct hash: the hash every decision and early accept must name (ADR-0029). Present in Delivered, FallbackJudging and Escalated, and after a decision, an early accept or a mutual settlement that named it; absent before a delivery, in Defaulted and after a default outcome or a reclaim (no signature named it; the rules contract's deliveryHashOf still holds it on chain). Compare it at two operators before signing"},"hold":{"type":"object","additionalProperties":false,"required":["amount","railRef"],"properties":{"amount":{"$ref":"common.schema.json#/$defs/TokenAmount"},"railRef":{"type":"string","x-holdback-untrusted":true,"maxLength":200}}},"deadlines":{"type":"object","additionalProperties":{"$ref":"common.schema.json#/$defs/Timestamp"}},"balances":{"type":"object","propertyNames":{"pattern":"^0x[0-9a-fA-F]{40}$"},"additionalProperties":{"$ref":"common.schema.json#/$defs/TokenAmount"}},"settledAt":{"oneOf":[{"$ref":"common.schema.json#/$defs/Timestamp"},{"type":"null"}],"description":"When money moved to its payee; irrevocable for that payee (D20). Null or absent before then. Not signed."},"finalAt":{"oneOf":[{"$ref":"common.schema.json#/$defs/Timestamp"},{"type":"null"}],"description":"When no protocol step can change who got what, for example after the appeal window closes (D20). Null until that is true. Not signed."},"lastEventSeq":{"type":"integer","minimum":0},"updatedAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"settled":{"type":"object","additionalProperties":false,"required":["payouts","keyReleased"],"properties":{"payouts":{"$ref":"common.schema.json#/$defs/Payouts"},"keyReleased":{"type":"boolean"}},"description":"What a mutual settlement paid, present only once one closed the commitment (ADR-0019, D23). The adjudication fee returned to the buyer is derived from the terms, not repeated here."}},"allOf":[{"if":{"type":"object","properties":{"escrowState":{"const":"Settled"}},"required":["escrowState"]},"then":{"type":"object","required":["settled"],"properties":{"settled":{}}},"else":{"type":"object","not":{"type":"object","required":["settled"],"properties":{"settled":{}}}}}]};
 
 function validate21(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -5033,7 +5033,7 @@ validate24.evaluated = {"items":true,"dynamicProps":false,"dynamicItems":false};
 
 
 function validate20(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
-/*# sourceURL="https://holdback.dev/schemas/v0.10/commitment-state.schema.json" */;
+/*# sourceURL="https://holdback.dev/schemas/v0.11/commitment-state.schema.json" */;
 let vErrors = null;
 let errors = 0;
 const evaluated0 = validate20.evaluated;
@@ -5947,12 +5947,12 @@ return errors === 0;
 validate20.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 exports.commitment = validate29;
-const schema74 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.10/commitment.schema.json","title":"Commitment (terms + EIP-712 signatures)","type":"object","required":["schemaVersion","id","clubId","rulebookHash","buyer","seller","price","adjudication","timing","settlement","remedy","disclosure","buyerEncryptionPublicKey","nonce","createdAt","signatures"],"additionalProperties":false,"description":"Two wire forms with one ID (ADR-0024): at disclosure level public the bodies travel in the clear as deliverable and acceptance; at private and judgment they travel only as privateTerms ciphertext, whose hashes are the same deliverableHash and acceptanceHash, so operators never see them. A party that opens privateTerms holds the plaintext form of the same commitment.","if":{"type":"object","required":["disclosure"],"properties":{"disclosure":{"type":"object","required":["level"],"properties":{"level":{"const":"public"}}}}},"then":{"type":"object","required":["deliverable","acceptance"],"properties":{"deliverable":{},"acceptance":{}},"not":{"type":"object","required":["privateTerms"],"properties":{"privateTerms":{}}}},"else":{"type":"object","required":["privateTerms"],"properties":{"privateTerms":{},"deliverable":false,"acceptance":false}},"properties":{"schemaVersion":{"const":"0.7","description":"The signed encoding and EIP-712 domain version these terms are settled under (0.7 since schema v0.9, ADR-0029)"},"id":{"$ref":"common.schema.json#/$defs/Hex32","description":"EIP-712 struct hash of the terms: everything except id, signatures and adjudicatorAcceptance (ADR-0016)"},"clubId":{"$ref":"common.schema.json#/$defs/ClubId"},"rulebookHash":{"$ref":"common.schema.json#/$defs/Hex32"},"buyer":{"$ref":"common.schema.json#/$defs/Address"},"seller":{"$ref":"common.schema.json#/$defs/Address"},"deliverable":{"type":"object","additionalProperties":false,"required":["kind","description","format"],"properties":{"kind":{"enum":["dataset","document","other"]},"description":{"type":"string","maxLength":4000,"x-holdback-untrusted":true},"format":{"enum":["text/csv","application/json","text/plain","text/markdown"]},"inputs":{"type":"array","items":{"type":"object","required":["uri","sha256"],"additionalProperties":false,"properties":{"uri":{"type":"string","format":"uri","x-holdback-untrusted":true,"maxLength":2048},"sha256":{"$ref":"common.schema.json#/$defs/Sha256"}}}},"salt":{"$ref":"common.schema.json#/$defs/Hex32","description":"Random 32 bytes so nobody can confirm a guessable body against deliverableHash (ADR-0024 §2)"},"notes":{"type":"string","maxLength":4000,"x-holdback-untrusted":true,"description":"Free text the seller adds to the deliverable body; bound by the hash like the rest of it"},"sellerEncryptionPublicKey":{"$ref":"common.schema.json#/$defs/Base64Url","description":"The seller's per-deal x25519 key (ADR-0024 §6), bound by deliverableHash; the buyer and primary verify it before signing"}}},"acceptance":{"type":"object","additionalProperties":false,"required":["deterministicChecks","rubric"],"properties":{"deterministicChecks":{"type":"array","maxItems":20,"items":{"$ref":"#/$defs/DeterministicCheck"}},"rubric":{"type":"object","additionalProperties":false,"required":["criteria","passThreshold"],"properties":{"criteria":{"type":"array","maxItems":12,"items":{"$ref":"#/$defs/Criterion"}},"passThreshold":{"type":"integer","minimum":0,"maximum":400,"description":"Weighted score a delivery needs, in hundredths of a rubric point (300 = 3.00)"}}},"sealedChecks":{"type":"object","additionalProperties":false,"required":["count","commitment","weightBps"],"properties":{"count":{"type":"integer","minimum":0,"maximum":10},"commitment":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256(canonical checks JSON || salt)"},"weightBps":{"type":"integer","minimum":0,"maximum":3000,"description":"Weight of the sealed checks, in basis points (at most 3000)"}}},"salt":{"$ref":"common.schema.json#/$defs/Hex32","description":"Random 32 bytes so nobody can confirm a guessable body (a template rubric) against acceptanceHash (ADR-0024 §2)"}}},"price":{"$ref":"common.schema.json#/$defs/TokenAmount"},"adjudication":{"type":"object","additionalProperties":false,"required":["adjudicator","fallbackAdjudicator","appealAdjudicator","policyId","fee","registryHash","policyHash"],"properties":{"adjudicator":{"$ref":"common.schema.json#/$defs/Address"},"fallbackAdjudicator":{"$ref":"common.schema.json#/$defs/Address"},"appealAdjudicator":{"$ref":"common.schema.json#/$defs/Address"},"policyId":{"type":"string","description":"Human-readable label for the policy; policyHash is what binds","x-holdback-untrusted":true,"maxLength":120},"fee":{"$ref":"common.schema.json#/$defs/TokenAmount"},"registryHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256 of the canonical judge registry the panel is drawn from, bound at agreement (ADR-0006)"},"policyHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256 of the RFC 8785 canonical JSON of the primary adjudicator's policy object (adjudicator.schema.json), bound at agreement (ADR-0006)"}}},"timing":{"type":"object","additionalProperties":false,"required":["offerExpiresAt","fundBy","deliverBy","judgeBy","fallbackBy","appealWindowSec","appealDecideSec","maxSubmissions"],"properties":{"offerExpiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"fundBy":{"$ref":"common.schema.json#/$defs/Timestamp"},"deliverBy":{"$ref":"common.schema.json#/$defs/Timestamp"},"judgeBy":{"$ref":"common.schema.json#/$defs/Timestamp"},"fallbackBy":{"$ref":"common.schema.json#/$defs/Timestamp"},"appealWindowSec":{"type":"integer","minimum":1},"appealDecideSec":{"type":"integer","minimum":1},"maxSubmissions":{"type":"integer","minimum":1,"maximum":3},"disputeBy":{"$ref":"common.schema.json#/$defs/Timestamp","description":"Optimistic mode only: the buyer may dispute until this time; silence after it is acceptance (ADR-0015)"},"disputeJudgeSec":{"type":"integer","minimum":1,"description":"Optimistic mode only: seconds from dispute open for the primary to decide"},"disputeFallbackSec":{"type":"integer","minimum":1,"description":"Optimistic mode only: seconds from dispute open for the fallback to decide"}}},"settlement":{"type":"object","additionalProperties":false,"required":["mode","token"],"properties":{"mode":{"$ref":"common.schema.json#/$defs/SettlementMode"},"token":{"$ref":"common.schema.json#/$defs/TokenId"}}},"remedy":{"type":"object","additionalProperties":false,"required":["onReject"],"properties":{"onReject":{"const":"full_refund"}}},"buyerEncryptionPublicKey":{"$ref":"common.schema.json#/$defs/Base64Url"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"createdAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signatures":{"type":"object","additionalProperties":false,"required":["seller"],"properties":{"seller":{"$ref":"common.schema.json#/$defs/Signature"},"buyer":{"$ref":"common.schema.json#/$defs/Signature"}}},"adjudicatorAcceptance":{"$ref":"messages.schema.json#/$defs/AdjudicatorAcceptance","description":"The primary adjudicator's signed acceptance, outside the ID. Required before funding (ADR-0016)"},"disclosure":{"type":"object","additionalProperties":false,"required":["level"],"description":"Signed term: who may read the terms and records (ADR-0020)","properties":{"level":{"$ref":"common.schema.json#/$defs/DisclosureLevel"}}},"privateTerms":{"$ref":"common.schema.json#/$defs/PrivateTerms","description":"The deliverable and acceptance bodies as ciphertext (ADR-0024 §2): required at private and judgment, refused at public. Outside the ID, like the signatures; the ID binds the hashes."}},"$defs":{"DeterministicCheck":{"oneOf":[{"type":"object","additionalProperties":false,"required":["id","type","required","columns"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"csv_columns_exact"},"columns":{"type":"array","minItems":1,"items":{"type":"string","x-holdback-untrusted":true,"maxLength":128}}}},{"type":"object","additionalProperties":false,"required":["id","type","required","min","max"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"row_count_range"},"min":{"type":"integer","minimum":0},"max":{"type":"integer","minimum":0}}},{"type":"object","additionalProperties":false,"required":["id","type","required","columns"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"unique_key"},"columns":{"type":"array","minItems":1,"items":{"type":"string","x-holdback-untrusted":true,"maxLength":128}}}},{"type":"object","additionalProperties":false,"required":["id","type","required","column","maxBps"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"null_rate_max"},"column":{"type":"string","x-holdback-untrusted":true,"maxLength":128},"maxBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Most null cells allowed in the column, in basis points of rows"}}},{"type":"object","additionalProperties":false,"required":["id","type","required","column","pattern","minBps"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"regex_match_rate_min"},"column":{"type":"string","x-holdback-untrusted":true,"maxLength":128},"pattern":{"type":"string","maxLength":200,"x-holdback-untrusted":true},"minBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Least share of rows that must match, in basis points"}}},{"type":"object","additionalProperties":false,"required":["id","type","required","column"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"iso8601_date_column"},"column":{"type":"string","x-holdback-untrusted":true,"maxLength":128}}},{"type":"object","additionalProperties":false,"required":["id","type","required","schema"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"json_schema"},"schema":{"type":"object"}}},{"type":"object","additionalProperties":false,"required":["id","type","required","reference","keyColumn","minBps"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"reference_row_match_min"},"reference":{"type":"object","required":["uri","sha256"],"properties":{"uri":{"type":"string","format":"uri","x-holdback-untrusted":true,"maxLength":2048},"sha256":{"$ref":"common.schema.json#/$defs/Sha256"}}},"keyColumn":{"type":"string","x-holdback-untrusted":true,"maxLength":128},"minBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Least share of rows that must match, in basis points"}}},{"type":"object","additionalProperties":false,"required":["id","type","required","max"],"description":"Counts invisible characters in the raw delivered bytes, before any normalization, and fails when a count exceeds its maximum (ADR-0021)","properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"hidden_characters_max"},"max":{"type":"object","additionalProperties":false,"minProperties":1,"description":"At least one maximum. Classes: Unicode tag characters (U+E0000 to U+E007F), bidirectional controls, variation selectors, and other default-ignorable or zero-width code points. total bounds their sum.","properties":{"tag":{"type":"integer","minimum":0},"bidi":{"type":"integer","minimum":0},"variationSelector":{"type":"integer","minimum":0},"otherIgnorable":{"type":"integer","minimum":0},"total":{"type":"integer","minimum":0}}}}}]},"Criterion":{"type":"object","additionalProperties":false,"required":["id","description","weight","anchors"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"description":{"type":"string","maxLength":500,"x-holdback-untrusted":true},"weight":{"type":"integer","minimum":1,"maximum":10000,"description":"Relative weight among the rubric's criteria (an integer; only ratios matter)"},"anchors":{"type":"object","additionalProperties":false,"required":["0","2","4"],"properties":{"0":{"type":"string","maxLength":300,"x-holdback-untrusted":true},"1":{"type":"string","maxLength":300,"x-holdback-untrusted":true},"2":{"type":"string","maxLength":300,"x-holdback-untrusted":true},"3":{"type":"string","maxLength":300,"x-holdback-untrusted":true},"4":{"type":"string","maxLength":300,"x-holdback-untrusted":true}}}}}},"allOf":[{"if":{"properties":{"settlement":{"properties":{"mode":{"const":"optimistic"}},"type":"object"}},"type":"object"},"then":{"properties":{"timing":{"required":["disputeBy","disputeJudgeSec","disputeFallbackSec"],"type":"object","properties":{"disputeBy":{},"disputeJudgeSec":{},"disputeFallbackSec":{}}}},"type":"object"},"else":{"properties":{"timing":{"not":{"anyOf":[{"required":["disputeBy"],"type":"object","properties":{"disputeBy":{}}},{"required":["disputeJudgeSec"],"type":"object","properties":{"disputeJudgeSec":{}}},{"required":["disputeFallbackSec"],"type":"object","properties":{"disputeFallbackSec":{}}}]}}},"type":"object"}}]};
-const schema80 = {"type":"string","pattern":"^sha256:[0-9a-f]{64}$","description":"SHA-256 of artifact bytes"};
-const schema88 = {"type":"object","additionalProperties":false,"required":["id","description","weight","anchors"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"description":{"type":"string","maxLength":500,"x-holdback-untrusted":true},"weight":{"type":"integer","minimum":1,"maximum":10000,"description":"Relative weight among the rubric's criteria (an integer; only ratios matter)"},"anchors":{"type":"object","additionalProperties":false,"required":["0","2","4"],"properties":{"0":{"type":"string","maxLength":300,"x-holdback-untrusted":true},"1":{"type":"string","maxLength":300,"x-holdback-untrusted":true},"2":{"type":"string","maxLength":300,"x-holdback-untrusted":true},"3":{"type":"string","maxLength":300,"x-holdback-untrusted":true},"4":{"type":"string","maxLength":300,"x-holdback-untrusted":true}}}}};
-const pattern47 = new RegExp("^sha256:[0-9a-f]{64}$", "u");
-const pattern50 = new RegExp("^[a-z0-9_-]{1,40}$", "u");
-const schema83 = {"oneOf":[{"type":"object","additionalProperties":false,"required":["id","type","required","columns"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"csv_columns_exact"},"columns":{"type":"array","minItems":1,"items":{"type":"string","x-holdback-untrusted":true,"maxLength":128}}}},{"type":"object","additionalProperties":false,"required":["id","type","required","min","max"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"row_count_range"},"min":{"type":"integer","minimum":0},"max":{"type":"integer","minimum":0}}},{"type":"object","additionalProperties":false,"required":["id","type","required","columns"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"unique_key"},"columns":{"type":"array","minItems":1,"items":{"type":"string","x-holdback-untrusted":true,"maxLength":128}}}},{"type":"object","additionalProperties":false,"required":["id","type","required","column","maxBps"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"null_rate_max"},"column":{"type":"string","x-holdback-untrusted":true,"maxLength":128},"maxBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Most null cells allowed in the column, in basis points of rows"}}},{"type":"object","additionalProperties":false,"required":["id","type","required","column","pattern","minBps"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"regex_match_rate_min"},"column":{"type":"string","x-holdback-untrusted":true,"maxLength":128},"pattern":{"type":"string","maxLength":200,"x-holdback-untrusted":true},"minBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Least share of rows that must match, in basis points"}}},{"type":"object","additionalProperties":false,"required":["id","type","required","column"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"iso8601_date_column"},"column":{"type":"string","x-holdback-untrusted":true,"maxLength":128}}},{"type":"object","additionalProperties":false,"required":["id","type","required","schema"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"json_schema"},"schema":{"type":"object"}}},{"type":"object","additionalProperties":false,"required":["id","type","required","reference","keyColumn","minBps"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"reference_row_match_min"},"reference":{"type":"object","required":["uri","sha256"],"properties":{"uri":{"type":"string","format":"uri","x-holdback-untrusted":true,"maxLength":2048},"sha256":{"$ref":"common.schema.json#/$defs/Sha256"}}},"keyColumn":{"type":"string","x-holdback-untrusted":true,"maxLength":128},"minBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Least share of rows that must match, in basis points"}}},{"type":"object","additionalProperties":false,"required":["id","type","required","max"],"description":"Counts invisible characters in the raw delivered bytes, before any normalization, and fails when a count exceeds its maximum (ADR-0021)","properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"hidden_characters_max"},"max":{"type":"object","additionalProperties":false,"minProperties":1,"description":"At least one maximum. Classes: Unicode tag characters (U+E0000 to U+E007F), bidirectional controls, variation selectors, and other default-ignorable or zero-width code points. total bounds their sum.","properties":{"tag":{"type":"integer","minimum":0},"bidi":{"type":"integer","minimum":0},"variationSelector":{"type":"integer","minimum":0},"otherIgnorable":{"type":"integer","minimum":0},"total":{"type":"integer","minimum":0}}}}}]};
+const schema74 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.11/commitment.schema.json","title":"Commitment (terms + EIP-712 signatures)","type":"object","required":["schemaVersion","id","clubId","rulebookHash","buyer","seller","buyerPaymentAddress","sellerPayoutAddress","price","adjudication","timing","settlement","remedy","disclosure","buyerEncryptionPublicKey","nonce","createdAt","signatures"],"additionalProperties":false,"description":"Two wire forms with one ID (ADR-0024): at disclosure level public the bodies travel in the clear as deliverable and acceptance; at private and judgment they travel only as privateTerms ciphertext, whose hashes are the same deliverableHash and acceptanceHash, so operators never see them. A party that opens privateTerms holds the plaintext form of the same commitment.","if":{"type":"object","required":["disclosure"],"properties":{"disclosure":{"type":"object","required":["level"],"properties":{"level":{"const":"public"}}}}},"then":{"type":"object","required":["deliverable","acceptance"],"properties":{"deliverable":{},"acceptance":{}},"not":{"type":"object","required":["privateTerms"],"properties":{"privateTerms":{}}}},"else":{"type":"object","required":["privateTerms"],"properties":{"privateTerms":{},"deliverable":false,"acceptance":false}},"properties":{"schemaVersion":{"const":"0.8","description":"The signed encoding and EIP-712 domain version these terms are settled under (0.8 since schema v0.11, ADR-0033)"},"id":{"$ref":"common.schema.json#/$defs/Hex32","description":"EIP-712 struct hash of the terms: everything except id, signatures and adjudicatorAcceptance (ADR-0016)"},"clubId":{"$ref":"common.schema.json#/$defs/ClubId"},"rulebookHash":{"$ref":"common.schema.json#/$defs/Hex32"},"buyer":{"$ref":"common.schema.json#/$defs/Address"},"seller":{"$ref":"common.schema.json#/$defs/Address"},"buyerPaymentAddress":{"$ref":"common.schema.json#/$defs/Address","description":"Funds the hold (it signs the funding authorization and the operator fee) and receives every refund: the escrow's payer (ADR-0033). May equal buyer; tooling defaults to it. buyer stays the address that agrees, accepts early and settles"},"sellerPayoutAddress":{"$ref":"common.schema.json#/$defs/Address","description":"Receives every payment to the seller: the escrow's receiver (ADR-0033). May equal seller; tooling defaults to it. seller stays the address that signs the terms, the delivery and a settlement"},"deliverable":{"type":"object","additionalProperties":false,"required":["kind","description","format"],"properties":{"kind":{"enum":["dataset","document","other"]},"description":{"type":"string","maxLength":4000,"x-holdback-untrusted":true},"format":{"enum":["text/csv","application/json","text/plain","text/markdown"]},"inputs":{"type":"array","items":{"type":"object","required":["uri","sha256"],"additionalProperties":false,"properties":{"uri":{"type":"string","format":"uri","x-holdback-untrusted":true,"maxLength":2048},"sha256":{"$ref":"common.schema.json#/$defs/Sha256"}}}},"salt":{"$ref":"common.schema.json#/$defs/Hex32","description":"Random 32 bytes so nobody can confirm a guessable body against deliverableHash (ADR-0024 §2)"},"notes":{"type":"string","maxLength":4000,"x-holdback-untrusted":true,"description":"Free text the seller adds to the deliverable body; bound by the hash like the rest of it"},"sellerEncryptionPublicKey":{"$ref":"common.schema.json#/$defs/Base64Url","description":"The seller's per-deal x25519 key (ADR-0024 §6), bound by deliverableHash; the buyer and primary verify it before signing"}}},"acceptance":{"type":"object","additionalProperties":false,"required":["deterministicChecks","rubric"],"properties":{"deterministicChecks":{"type":"array","maxItems":20,"items":{"$ref":"#/$defs/DeterministicCheck"}},"rubric":{"type":"object","additionalProperties":false,"required":["criteria","passThreshold"],"properties":{"criteria":{"type":"array","maxItems":12,"items":{"$ref":"#/$defs/Criterion"}},"passThreshold":{"type":"integer","minimum":0,"maximum":400,"description":"Weighted score a delivery needs, in hundredths of a rubric point (300 = 3.00)"}}},"sealedChecks":{"type":"object","additionalProperties":false,"required":["count","commitment","weightBps"],"properties":{"count":{"type":"integer","minimum":0,"maximum":10},"commitment":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256(canonical checks JSON || salt)"},"weightBps":{"type":"integer","minimum":0,"maximum":3000,"description":"Weight of the sealed checks, in basis points (at most 3000)"}}},"salt":{"$ref":"common.schema.json#/$defs/Hex32","description":"Random 32 bytes so nobody can confirm a guessable body (a template rubric) against acceptanceHash (ADR-0024 §2)"}}},"price":{"$ref":"common.schema.json#/$defs/TokenAmount"},"adjudication":{"type":"object","additionalProperties":false,"required":["adjudicator","fallbackAdjudicator","appealAdjudicator","policyId","fee","registryHash","policyHash"],"properties":{"adjudicator":{"$ref":"common.schema.json#/$defs/Address"},"fallbackAdjudicator":{"$ref":"common.schema.json#/$defs/Address"},"appealAdjudicator":{"$ref":"common.schema.json#/$defs/Address"},"policyId":{"type":"string","description":"Human-readable label for the policy; policyHash is what binds","x-holdback-untrusted":true,"maxLength":120},"fee":{"$ref":"common.schema.json#/$defs/TokenAmount"},"registryHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256 of the canonical judge registry the panel is drawn from, bound at agreement (ADR-0006)"},"policyHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256 of the RFC 8785 canonical JSON of the primary adjudicator's policy object (adjudicator.schema.json), bound at agreement (ADR-0006)"}}},"timing":{"type":"object","additionalProperties":false,"required":["offerExpiresAt","fundBy","deliverBy","judgeBy","fallbackBy","appealWindowSec","appealDecideSec","maxSubmissions"],"properties":{"offerExpiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"fundBy":{"$ref":"common.schema.json#/$defs/Timestamp"},"deliverBy":{"$ref":"common.schema.json#/$defs/Timestamp"},"judgeBy":{"$ref":"common.schema.json#/$defs/Timestamp"},"fallbackBy":{"$ref":"common.schema.json#/$defs/Timestamp"},"appealWindowSec":{"type":"integer","minimum":0,"description":"Seconds for a party appeal after a first-instance decision. A phase-one deployment has no party appeal and requires 0 (ADR-0033 §2b); the full protocol (SimChain) takes any value at or above the rulebook's minWindowsSec.appealWindow"},"appealDecideSec":{"type":"integer","minimum":1},"maxSubmissions":{"type":"integer","minimum":1,"maximum":3},"disputeBy":{"$ref":"common.schema.json#/$defs/Timestamp","description":"Optimistic mode only: the buyer may dispute until this time; silence after it is acceptance (ADR-0015)"},"disputeJudgeSec":{"type":"integer","minimum":1,"description":"Optimistic mode only: seconds from dispute open for the primary to decide"},"disputeFallbackSec":{"type":"integer","minimum":1,"description":"Optimistic mode only: seconds from dispute open for the fallback to decide"}}},"settlement":{"type":"object","additionalProperties":false,"required":["mode","token"],"properties":{"mode":{"$ref":"common.schema.json#/$defs/SettlementMode"},"token":{"$ref":"common.schema.json#/$defs/TokenId"}}},"remedy":{"type":"object","additionalProperties":false,"required":["onReject"],"properties":{"onReject":{"const":"full_refund"}}},"buyerEncryptionPublicKey":{"$ref":"common.schema.json#/$defs/Base64Url"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"createdAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signatures":{"type":"object","additionalProperties":false,"required":["seller"],"properties":{"seller":{"$ref":"common.schema.json#/$defs/Signature"},"buyer":{"$ref":"common.schema.json#/$defs/Signature"}}},"adjudicatorAcceptance":{"$ref":"messages.schema.json#/$defs/AdjudicatorAcceptance","description":"The primary adjudicator's signed acceptance, outside the ID. Required before funding (ADR-0016)"},"disclosure":{"type":"object","additionalProperties":false,"required":["level"],"description":"Signed term: who may read the terms and records (ADR-0020)","properties":{"level":{"$ref":"common.schema.json#/$defs/DisclosureLevel"}}},"privateTerms":{"$ref":"common.schema.json#/$defs/PrivateTerms","description":"The deliverable and acceptance bodies as ciphertext (ADR-0024 §2): required at private and judgment, refused at public. Outside the ID, like the signatures; the ID binds the hashes."}},"$defs":{"DeterministicCheck":{"oneOf":[{"type":"object","additionalProperties":false,"required":["id","type","required","columns"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"csv_columns_exact"},"columns":{"type":"array","minItems":1,"items":{"type":"string","x-holdback-untrusted":true,"maxLength":128}}}},{"type":"object","additionalProperties":false,"required":["id","type","required","min","max"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"row_count_range"},"min":{"type":"integer","minimum":0},"max":{"type":"integer","minimum":0}}},{"type":"object","additionalProperties":false,"required":["id","type","required","columns"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"unique_key"},"columns":{"type":"array","minItems":1,"items":{"type":"string","x-holdback-untrusted":true,"maxLength":128}}}},{"type":"object","additionalProperties":false,"required":["id","type","required","column","maxBps"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"null_rate_max"},"column":{"type":"string","x-holdback-untrusted":true,"maxLength":128},"maxBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Most null cells allowed in the column, in basis points of rows"}}},{"type":"object","additionalProperties":false,"required":["id","type","required","column","pattern","minBps"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"regex_match_rate_min"},"column":{"type":"string","x-holdback-untrusted":true,"maxLength":128},"pattern":{"type":"string","maxLength":200,"x-holdback-untrusted":true},"minBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Least share of rows that must match, in basis points"}}},{"type":"object","additionalProperties":false,"required":["id","type","required","column"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"iso8601_date_column"},"column":{"type":"string","x-holdback-untrusted":true,"maxLength":128}}},{"type":"object","additionalProperties":false,"required":["id","type","required","schema"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"json_schema"},"schema":{"type":"object"}}},{"type":"object","additionalProperties":false,"required":["id","type","required","reference","keyColumn","minBps"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"reference_row_match_min"},"reference":{"type":"object","required":["uri","sha256"],"properties":{"uri":{"type":"string","format":"uri","x-holdback-untrusted":true,"maxLength":2048},"sha256":{"$ref":"common.schema.json#/$defs/Sha256"}}},"keyColumn":{"type":"string","x-holdback-untrusted":true,"maxLength":128},"minBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Least share of rows that must match, in basis points"}}},{"type":"object","additionalProperties":false,"required":["id","type","required","max"],"description":"Counts invisible characters in the raw delivered bytes, before any normalization, and fails when a count exceeds its maximum (ADR-0021)","properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"hidden_characters_max"},"max":{"type":"object","additionalProperties":false,"minProperties":1,"description":"At least one maximum. Classes: Unicode tag characters (U+E0000 to U+E007F), bidirectional controls, variation selectors, and other default-ignorable or zero-width code points. total bounds their sum.","properties":{"tag":{"type":"integer","minimum":0},"bidi":{"type":"integer","minimum":0},"variationSelector":{"type":"integer","minimum":0},"otherIgnorable":{"type":"integer","minimum":0},"total":{"type":"integer","minimum":0}}}}}]},"Criterion":{"type":"object","additionalProperties":false,"required":["id","description","weight","anchors"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"description":{"type":"string","maxLength":500,"x-holdback-untrusted":true},"weight":{"type":"integer","minimum":1,"maximum":10000,"description":"Relative weight among the rubric's criteria (an integer; only ratios matter)"},"anchors":{"type":"object","additionalProperties":false,"required":["0","2","4"],"properties":{"0":{"type":"string","maxLength":300,"x-holdback-untrusted":true},"1":{"type":"string","maxLength":300,"x-holdback-untrusted":true},"2":{"type":"string","maxLength":300,"x-holdback-untrusted":true},"3":{"type":"string","maxLength":300,"x-holdback-untrusted":true},"4":{"type":"string","maxLength":300,"x-holdback-untrusted":true}}}}}},"allOf":[{"if":{"properties":{"settlement":{"properties":{"mode":{"const":"optimistic"}},"type":"object"}},"type":"object"},"then":{"properties":{"timing":{"required":["disputeBy","disputeJudgeSec","disputeFallbackSec"],"type":"object","properties":{"disputeBy":{},"disputeJudgeSec":{},"disputeFallbackSec":{}}}},"type":"object"},"else":{"properties":{"timing":{"not":{"anyOf":[{"required":["disputeBy"],"type":"object","properties":{"disputeBy":{}}},{"required":["disputeJudgeSec"],"type":"object","properties":{"disputeJudgeSec":{}}},{"required":["disputeFallbackSec"],"type":"object","properties":{"disputeFallbackSec":{}}}]}}},"type":"object"}}]};
+const schema82 = {"type":"string","pattern":"^sha256:[0-9a-f]{64}$","description":"SHA-256 of artifact bytes"};
+const schema90 = {"type":"object","additionalProperties":false,"required":["id","description","weight","anchors"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"description":{"type":"string","maxLength":500,"x-holdback-untrusted":true},"weight":{"type":"integer","minimum":1,"maximum":10000,"description":"Relative weight among the rubric's criteria (an integer; only ratios matter)"},"anchors":{"type":"object","additionalProperties":false,"required":["0","2","4"],"properties":{"0":{"type":"string","maxLength":300,"x-holdback-untrusted":true},"1":{"type":"string","maxLength":300,"x-holdback-untrusted":true},"2":{"type":"string","maxLength":300,"x-holdback-untrusted":true},"3":{"type":"string","maxLength":300,"x-holdback-untrusted":true},"4":{"type":"string","maxLength":300,"x-holdback-untrusted":true}}}}};
+const pattern49 = new RegExp("^sha256:[0-9a-f]{64}$", "u");
+const pattern52 = new RegExp("^[a-z0-9_-]{1,40}$", "u");
+const schema85 = {"oneOf":[{"type":"object","additionalProperties":false,"required":["id","type","required","columns"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"csv_columns_exact"},"columns":{"type":"array","minItems":1,"items":{"type":"string","x-holdback-untrusted":true,"maxLength":128}}}},{"type":"object","additionalProperties":false,"required":["id","type","required","min","max"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"row_count_range"},"min":{"type":"integer","minimum":0},"max":{"type":"integer","minimum":0}}},{"type":"object","additionalProperties":false,"required":["id","type","required","columns"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"unique_key"},"columns":{"type":"array","minItems":1,"items":{"type":"string","x-holdback-untrusted":true,"maxLength":128}}}},{"type":"object","additionalProperties":false,"required":["id","type","required","column","maxBps"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"null_rate_max"},"column":{"type":"string","x-holdback-untrusted":true,"maxLength":128},"maxBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Most null cells allowed in the column, in basis points of rows"}}},{"type":"object","additionalProperties":false,"required":["id","type","required","column","pattern","minBps"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"regex_match_rate_min"},"column":{"type":"string","x-holdback-untrusted":true,"maxLength":128},"pattern":{"type":"string","maxLength":200,"x-holdback-untrusted":true},"minBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Least share of rows that must match, in basis points"}}},{"type":"object","additionalProperties":false,"required":["id","type","required","column"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"iso8601_date_column"},"column":{"type":"string","x-holdback-untrusted":true,"maxLength":128}}},{"type":"object","additionalProperties":false,"required":["id","type","required","schema"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"json_schema"},"schema":{"type":"object"}}},{"type":"object","additionalProperties":false,"required":["id","type","required","reference","keyColumn","minBps"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"reference_row_match_min"},"reference":{"type":"object","required":["uri","sha256"],"properties":{"uri":{"type":"string","format":"uri","x-holdback-untrusted":true,"maxLength":2048},"sha256":{"$ref":"common.schema.json#/$defs/Sha256"}}},"keyColumn":{"type":"string","x-holdback-untrusted":true,"maxLength":128},"minBps":{"$ref":"common.schema.json#/$defs/Bps","description":"Least share of rows that must match, in basis points"}}},{"type":"object","additionalProperties":false,"required":["id","type","required","max"],"description":"Counts invisible characters in the raw delivered bytes, before any normalization, and fails when a count exceeds its maximum (ADR-0021)","properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"type":{"const":"hidden_characters_max"},"max":{"type":"object","additionalProperties":false,"minProperties":1,"description":"At least one maximum. Classes: Unicode tag characters (U+E0000 to U+E007F), bidirectional controls, variation selectors, and other default-ignorable or zero-width code points. total bounds their sum.","properties":{"tag":{"type":"integer","minimum":0},"bidi":{"type":"integer","minimum":0},"variationSelector":{"type":"integer","minimum":0},"otherIgnorable":{"type":"integer","minimum":0},"total":{"type":"integer","minimum":0}}}}}]};
 
 function validate30(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -6004,7 +6004,7 @@ const _errs4 = errors;
 const _errs5 = errors;
 if(errors === _errs4){
 if(typeof data0 === "string"){
-if(!pattern50.test(data0)){
+if(!pattern52.test(data0)){
 const err2 = {instancePath:instancePath+"/id",schemaPath:"#/oneOf/0/properties/id/pattern",keyword:"pattern",params:{pattern: "^[a-z0-9_-]{1,40}$"},message:"must match pattern \""+"^[a-z0-9_-]{1,40}$"+"\""};
 if(vErrors === null){
 vErrors = [err2];
@@ -6224,7 +6224,7 @@ const _errs17 = errors;
 const _errs18 = errors;
 if(errors === _errs17){
 if(typeof data5 === "string"){
-if(!pattern50.test(data5)){
+if(!pattern52.test(data5)){
 const err13 = {instancePath:instancePath+"/id",schemaPath:"#/oneOf/1/properties/id/pattern",keyword:"pattern",params:{pattern: "^[a-z0-9_-]{1,40}$"},message:"must match pattern \""+"^[a-z0-9_-]{1,40}$"+"\""};
 if(vErrors === null){
 vErrors = [err13];
@@ -6448,7 +6448,7 @@ const _errs29 = errors;
 const _errs30 = errors;
 if(errors === _errs29){
 if(typeof data10 === "string"){
-if(!pattern50.test(data10)){
+if(!pattern52.test(data10)){
 const err24 = {instancePath:instancePath+"/id",schemaPath:"#/oneOf/2/properties/id/pattern",keyword:"pattern",params:{pattern: "^[a-z0-9_-]{1,40}$"},message:"must match pattern \""+"^[a-z0-9_-]{1,40}$"+"\""};
 if(vErrors === null){
 vErrors = [err24];
@@ -6675,7 +6675,7 @@ const _errs42 = errors;
 const _errs43 = errors;
 if(errors === _errs42){
 if(typeof data15 === "string"){
-if(!pattern50.test(data15)){
+if(!pattern52.test(data15)){
 const err35 = {instancePath:instancePath+"/id",schemaPath:"#/oneOf/3/properties/id/pattern",keyword:"pattern",params:{pattern: "^[a-z0-9_-]{1,40}$"},message:"must match pattern \""+"^[a-z0-9_-]{1,40}$"+"\""};
 if(vErrors === null){
 vErrors = [err35];
@@ -6916,7 +6916,7 @@ const _errs56 = errors;
 const _errs57 = errors;
 if(errors === _errs56){
 if(typeof data20 === "string"){
-if(!pattern50.test(data20)){
+if(!pattern52.test(data20)){
 const err47 = {instancePath:instancePath+"/id",schemaPath:"#/oneOf/4/properties/id/pattern",keyword:"pattern",params:{pattern: "^[a-z0-9_-]{1,40}$"},message:"must match pattern \""+"^[a-z0-9_-]{1,40}$"+"\""};
 if(vErrors === null){
 vErrors = [err47];
@@ -7197,7 +7197,7 @@ const _errs73 = errors;
 const _errs74 = errors;
 if(errors === _errs73){
 if(typeof data26 === "string"){
-if(!pattern50.test(data26)){
+if(!pattern52.test(data26)){
 const err61 = {instancePath:instancePath+"/id",schemaPath:"#/oneOf/5/properties/id/pattern",keyword:"pattern",params:{pattern: "^[a-z0-9_-]{1,40}$"},message:"must match pattern \""+"^[a-z0-9_-]{1,40}$"+"\""};
 if(vErrors === null){
 vErrors = [err61];
@@ -7383,7 +7383,7 @@ const _errs84 = errors;
 const _errs85 = errors;
 if(errors === _errs84){
 if(typeof data30 === "string"){
-if(!pattern50.test(data30)){
+if(!pattern52.test(data30)){
 const err70 = {instancePath:instancePath+"/id",schemaPath:"#/oneOf/6/properties/id/pattern",keyword:"pattern",params:{pattern: "^[a-z0-9_-]{1,40}$"},message:"must match pattern \""+"^[a-z0-9_-]{1,40}$"+"\""};
 if(vErrors === null){
 vErrors = [err70];
@@ -7552,7 +7552,7 @@ const _errs94 = errors;
 const _errs95 = errors;
 if(errors === _errs94){
 if(typeof data34 === "string"){
-if(!pattern50.test(data34)){
+if(!pattern52.test(data34)){
 const err78 = {instancePath:instancePath+"/id",schemaPath:"#/oneOf/7/properties/id/pattern",keyword:"pattern",params:{pattern: "^[a-z0-9_-]{1,40}$"},message:"must match pattern \""+"^[a-z0-9_-]{1,40}$"+"\""};
 if(vErrors === null){
 vErrors = [err78];
@@ -7709,7 +7709,7 @@ const _errs105 = errors;
 const _errs106 = errors;
 if(errors === _errs105){
 if(typeof data39 === "string"){
-if(!pattern47.test(data39)){
+if(!pattern49.test(data39)){
 const err86 = {instancePath:instancePath+"/reference/sha256",schemaPath:"common.schema.json#/$defs/Sha256/pattern",keyword:"pattern",params:{pattern: "^sha256:[0-9a-f]{64}$"},message:"must match pattern \""+"^sha256:[0-9a-f]{64}$"+"\""};
 if(vErrors === null){
 vErrors = [err86];
@@ -7932,7 +7932,7 @@ const _errs116 = errors;
 const _errs117 = errors;
 if(errors === _errs116){
 if(typeof data42 === "string"){
-if(!pattern50.test(data42)){
+if(!pattern52.test(data42)){
 const err97 = {instancePath:instancePath+"/id",schemaPath:"#/oneOf/8/properties/id/pattern",keyword:"pattern",params:{pattern: "^[a-z0-9_-]{1,40}$"},message:"must match pattern \""+"^[a-z0-9_-]{1,40}$"+"\""};
 if(vErrors === null){
 vErrors = [err97];
@@ -8432,7 +8432,7 @@ return errors === 0;
 }
 validate32.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema124 = {"type":"object","description":"Primary adjudicator consents and reserves bond before funding (ADR-0016)","additionalProperties":false,"required":["type","commitmentId","adjudicator","seedCommitment","policyHash","registryHash","fee","bondReserved","nonce","expiresAt","signature"],"properties":{"type":{"const":"AdjudicatorAcceptance"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"adjudicator":{"$ref":"common.schema.json#/$defs/Address"},"seedCommitment":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256(seed); the seed is revealed in the Decision"},"policyHash":{"$ref":"common.schema.json#/$defs/Hex32"},"registryHash":{"$ref":"common.schema.json#/$defs/Hex32"},"fee":{"$ref":"common.schema.json#/$defs/TokenAmount"},"bondReserved":{"$ref":"common.schema.json#/$defs/TokenAmount"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
+const schema126 = {"type":"object","description":"Primary adjudicator consents and reserves bond before funding (ADR-0016)","additionalProperties":false,"required":["type","commitmentId","adjudicator","seedCommitment","policyHash","registryHash","fee","bondReserved","nonce","expiresAt","signature"],"properties":{"type":{"const":"AdjudicatorAcceptance"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"adjudicator":{"$ref":"common.schema.json#/$defs/Address"},"seedCommitment":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256(seed); the seed is revealed in the Decision"},"policyHash":{"$ref":"common.schema.json#/$defs/Hex32"},"registryHash":{"$ref":"common.schema.json#/$defs/Hex32"},"fee":{"$ref":"common.schema.json#/$defs/TokenAmount"},"bondReserved":{"$ref":"common.schema.json#/$defs/TokenAmount"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
 
 function validate41(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -8557,7 +8557,7 @@ return false;
 else {
 const _errs1 = errors;
 for(const key0 in data){
-if(!(func0.call(schema124.properties, key0))){
+if(!(func0.call(schema126.properties, key0))){
 validate86.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"}];
 return false;
 break;
@@ -8881,10 +8881,10 @@ return errors === 0;
 }
 validate86.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema268 = {"type":"object","additionalProperties":false,"required":["deliverable","acceptance"],"description":"The two terms bodies as ciphertext, under separate keys so that judgment-level publication can disclose the acceptance while the deliverable stays private (ADR-0024 §2). Sealed to the buyer and the primary adjudicator at offer.","properties":{"deliverable":{"$ref":"#/$defs/PrivatePart"},"acceptance":{"$ref":"#/$defs/PrivatePart"}}};
-const schema269 = {"type":"object","additionalProperties":false,"required":["hash","ciphertext","envelopes"],"description":"One encrypted terms body (ADR-0024 §2). The plaintext is the RFC 8785 JSON of the body (UTF-8) and hash is its keccak256, the value the terms bind as deliverableHash or acceptanceHash. Encrypted with AES-256-GCM under its own 32-byte key with AAD = the commitment ID (32 bytes) followed by the part name (\"deliverable\" or \"acceptance\", UTF-8); ciphertext is iv (12 bytes) || ciphertext || tag (16 bytes), base64url. Each envelope seals that key (x25519-xsalsa20poly1305) to one reader.","properties":{"hash":{"$ref":"#/$defs/Hex32"},"ciphertext":{"type":"string","pattern":"^[A-Za-z0-9_-]+$","maxLength":1400000},"envelopes":{"type":"array","minItems":1,"maxItems":16,"items":{"$ref":"#/$defs/EncryptedKey"}}}};
-const schema165 = {"type":"object","additionalProperties":false,"required":["recipient","scheme","ciphertext"],"properties":{"recipient":{"$ref":"#/$defs/Address"},"scheme":{"const":"x25519-xsalsa20poly1305"},"ciphertext":{"$ref":"#/$defs/Base64Url"},"unlock":{"$ref":"#/$defs/KeyUnlock"}}};
-const schema168 = {"type":"object","additionalProperties":false,"required":["kind"],"description":"When a recipient may open an encrypted key: at once, or once a beacon round is published (ADR-0020)","properties":{"kind":{"enum":["none","beacon-round"]},"round":{"type":"integer","minimum":0}},"if":{"type":"object","properties":{"kind":{"const":"beacon-round"}},"required":["kind"]},"then":{"type":"object","required":["round"],"properties":{"round":{}}},"else":{"type":"object","not":{"type":"object","required":["round"],"properties":{"round":{}}}}};
+const schema270 = {"type":"object","additionalProperties":false,"required":["deliverable","acceptance"],"description":"The two terms bodies as ciphertext, under separate keys so that judgment-level publication can disclose the acceptance while the deliverable stays private (ADR-0024 §2). Sealed to the buyer and the primary adjudicator at offer.","properties":{"deliverable":{"$ref":"#/$defs/PrivatePart"},"acceptance":{"$ref":"#/$defs/PrivatePart"}}};
+const schema271 = {"type":"object","additionalProperties":false,"required":["hash","ciphertext","envelopes"],"description":"One encrypted terms body (ADR-0024 §2). The plaintext is the RFC 8785 JSON of the body (UTF-8) and hash is its keccak256, the value the terms bind as deliverableHash or acceptanceHash. Encrypted with AES-256-GCM under its own 32-byte key with AAD = the commitment ID (32 bytes) followed by the part name (\"deliverable\" or \"acceptance\", UTF-8); ciphertext is iv (12 bytes) || ciphertext || tag (16 bytes), base64url. Each envelope seals that key (x25519-xsalsa20poly1305) to one reader.","properties":{"hash":{"$ref":"#/$defs/Hex32"},"ciphertext":{"type":"string","pattern":"^[A-Za-z0-9_-]+$","maxLength":1400000},"envelopes":{"type":"array","minItems":1,"maxItems":16,"items":{"$ref":"#/$defs/EncryptedKey"}}}};
+const schema167 = {"type":"object","additionalProperties":false,"required":["recipient","scheme","ciphertext"],"properties":{"recipient":{"$ref":"#/$defs/Address"},"scheme":{"const":"x25519-xsalsa20poly1305"},"ciphertext":{"$ref":"#/$defs/Base64Url"},"unlock":{"$ref":"#/$defs/KeyUnlock"}}};
+const schema170 = {"type":"object","additionalProperties":false,"required":["kind"],"description":"When a recipient may open an encrypted key: at once, or once a beacon round is published (ADR-0020)","properties":{"kind":{"enum":["none","beacon-round"]},"round":{"type":"integer","minimum":0}},"if":{"type":"object","properties":{"kind":{"const":"beacon-round"}},"required":["kind"]},"then":{"type":"object","required":["round"],"properties":{"round":{}}},"else":{"type":"object","not":{"type":"object","required":["round"],"properties":{"round":{}}}}};
 
 function validate92(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -9190,9 +9190,9 @@ if(_errs23 === errors){
 if(data3.kind !== undefined){
 let data5 = data3.kind;
 const _errs24 = errors;
-const vSchema0 = schema168.properties.kind.enum;
+const vSchema0 = schema170.properties.kind.enum;
 if(!((data5 === "none") || (data5 === "beacon-round"))){
-validate92.errors = [{instancePath:instancePath+"/unlock/kind",schemaPath:"#/$defs/KeyUnlock/properties/kind/enum",keyword:"enum",params:{allowedValues: schema168.properties.kind.enum},message:"must be equal to one of the allowed values"}];
+validate92.errors = [{instancePath:instancePath+"/unlock/kind",schemaPath:"#/$defs/KeyUnlock/properties/kind/enum",keyword:"enum",params:{allowedValues: schema170.properties.kind.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
@@ -9508,7 +9508,7 @@ validate90.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 
 function validate29(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
-/*# sourceURL="https://holdback.dev/schemas/v0.10/commitment.schema.json" */;
+/*# sourceURL="https://holdback.dev/schemas/v0.11/commitment.schema.json" */;
 let vErrors = null;
 let errors = 0;
 const evaluated0 = validate29.evaluated;
@@ -10126,7 +10126,7 @@ else {
 if(errors === 0){
 if(data && typeof data == "object" && !Array.isArray(data)){
 let missing9;
-if(((((((((((((((((data.schemaVersion === undefined) && (missing9 = "schemaVersion")) || ((data.id === undefined) && (missing9 = "id"))) || ((data.clubId === undefined) && (missing9 = "clubId"))) || ((data.rulebookHash === undefined) && (missing9 = "rulebookHash"))) || ((data.buyer === undefined) && (missing9 = "buyer"))) || ((data.seller === undefined) && (missing9 = "seller"))) || ((data.price === undefined) && (missing9 = "price"))) || ((data.adjudication === undefined) && (missing9 = "adjudication"))) || ((data.timing === undefined) && (missing9 = "timing"))) || ((data.settlement === undefined) && (missing9 = "settlement"))) || ((data.remedy === undefined) && (missing9 = "remedy"))) || ((data.disclosure === undefined) && (missing9 = "disclosure"))) || ((data.buyerEncryptionPublicKey === undefined) && (missing9 = "buyerEncryptionPublicKey"))) || ((data.nonce === undefined) && (missing9 = "nonce"))) || ((data.createdAt === undefined) && (missing9 = "createdAt"))) || ((data.signatures === undefined) && (missing9 = "signatures"))){
+if(((((((((((((((((((data.schemaVersion === undefined) && (missing9 = "schemaVersion")) || ((data.id === undefined) && (missing9 = "id"))) || ((data.clubId === undefined) && (missing9 = "clubId"))) || ((data.rulebookHash === undefined) && (missing9 = "rulebookHash"))) || ((data.buyer === undefined) && (missing9 = "buyer"))) || ((data.seller === undefined) && (missing9 = "seller"))) || ((data.buyerPaymentAddress === undefined) && (missing9 = "buyerPaymentAddress"))) || ((data.sellerPayoutAddress === undefined) && (missing9 = "sellerPayoutAddress"))) || ((data.price === undefined) && (missing9 = "price"))) || ((data.adjudication === undefined) && (missing9 = "adjudication"))) || ((data.timing === undefined) && (missing9 = "timing"))) || ((data.settlement === undefined) && (missing9 = "settlement"))) || ((data.remedy === undefined) && (missing9 = "remedy"))) || ((data.disclosure === undefined) && (missing9 = "disclosure"))) || ((data.buyerEncryptionPublicKey === undefined) && (missing9 = "buyerEncryptionPublicKey"))) || ((data.nonce === undefined) && (missing9 = "nonce"))) || ((data.createdAt === undefined) && (missing9 = "createdAt"))) || ((data.signatures === undefined) && (missing9 = "signatures"))){
 validate29.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing9},message:"must have required property '"+missing9+"'"}];
 return false;
 }
@@ -10143,8 +10143,8 @@ if(_errs37 === errors){
 if(data.schemaVersion !== undefined){
 let data8 = data.schemaVersion;
 const _errs38 = errors;
-if("0.7" !== data8){
-validate29.errors = [{instancePath:instancePath+"/schemaVersion",schemaPath:"#/properties/schemaVersion/const",keyword:"const",params:{allowedValue: "0.7"},message:"must be equal to constant"}];
+if("0.8" !== data8){
+validate29.errors = [{instancePath:instancePath+"/schemaVersion",schemaPath:"#/properties/schemaVersion/const",keyword:"const",params:{allowedValue: "0.8"},message:"must be equal to constant"}];
 return false;
 }
 else {
@@ -10307,53 +10307,113 @@ else {
 var valid13 = true;
 }
 if(valid13){
-if(data.deliverable !== undefined){
-let data14 = data.deliverable;
+if(data.buyerPaymentAddress !== undefined){
+let data14 = data.buyerPaymentAddress;
 const _errs54 = errors;
 const _errs55 = errors;
-if(errors === _errs54){
-if(data14 && typeof data14 == "object" && !Array.isArray(data14)){
+const _errs56 = errors;
+if(errors === _errs55){
+if(typeof data14 === "string"){
+if(!pattern0.test(data14)){
+validate29.errors = [{instancePath:instancePath+"/buyerPaymentAddress",schemaPath:"common.schema.json#/$defs/Address/pattern",keyword:"pattern",params:{pattern: "^0x[0-9a-fA-F]{40}$"},message:"must match pattern \""+"^0x[0-9a-fA-F]{40}$"+"\""}];
+return false;
+}
+else {
+}
+}
+else {
+validate29.errors = [{instancePath:instancePath+"/buyerPaymentAddress",schemaPath:"common.schema.json#/$defs/Address/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+if(errors === _errs55){
+}
+}
+var valid19 = _errs55 === errors;
+if(valid19){
+}
+var valid13 = _errs54 === errors;
+}
+else {
+var valid13 = true;
+}
+if(valid13){
+if(data.sellerPayoutAddress !== undefined){
+let data15 = data.sellerPayoutAddress;
+const _errs57 = errors;
+const _errs58 = errors;
+const _errs59 = errors;
+if(errors === _errs58){
+if(typeof data15 === "string"){
+if(!pattern0.test(data15)){
+validate29.errors = [{instancePath:instancePath+"/sellerPayoutAddress",schemaPath:"common.schema.json#/$defs/Address/pattern",keyword:"pattern",params:{pattern: "^0x[0-9a-fA-F]{40}$"},message:"must match pattern \""+"^0x[0-9a-fA-F]{40}$"+"\""}];
+return false;
+}
+else {
+}
+}
+else {
+validate29.errors = [{instancePath:instancePath+"/sellerPayoutAddress",schemaPath:"common.schema.json#/$defs/Address/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+if(errors === _errs58){
+}
+}
+var valid20 = _errs58 === errors;
+if(valid20){
+}
+var valid13 = _errs57 === errors;
+}
+else {
+var valid13 = true;
+}
+if(valid13){
+if(data.deliverable !== undefined){
+let data16 = data.deliverable;
+const _errs60 = errors;
+const _errs61 = errors;
+if(errors === _errs60){
+if(data16 && typeof data16 == "object" && !Array.isArray(data16)){
 let missing10;
-if((((data14.kind === undefined) && (missing10 = "kind")) || ((data14.description === undefined) && (missing10 = "description"))) || ((data14.format === undefined) && (missing10 = "format"))){
+if((((data16.kind === undefined) && (missing10 = "kind")) || ((data16.description === undefined) && (missing10 = "description"))) || ((data16.format === undefined) && (missing10 = "format"))){
 validate29.errors = [{instancePath:instancePath+"/deliverable",schemaPath:"#/properties/deliverable/required",keyword:"required",params:{missingProperty: missing10},message:"must have required property '"+missing10+"'"}];
 return false;
 }
 else {
-const _errs56 = errors;
-for(const key1 in data14){
+const _errs62 = errors;
+for(const key1 in data16){
 if(!(((((((key1 === "kind") || (key1 === "description")) || (key1 === "format")) || (key1 === "inputs")) || (key1 === "salt")) || (key1 === "notes")) || (key1 === "sellerEncryptionPublicKey"))){
 validate29.errors = [{instancePath:instancePath+"/deliverable",schemaPath:"#/properties/deliverable/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key1},message:"must NOT have additional properties"}];
 return false;
 break;
 }
 }
-if(_errs56 === errors){
-if(data14.kind !== undefined){
-let data15 = data14.kind;
-const _errs57 = errors;
+if(_errs62 === errors){
+if(data16.kind !== undefined){
+let data17 = data16.kind;
+const _errs63 = errors;
 const vSchema0 = schema74.properties.deliverable.properties.kind.enum;
-if(!(((data15 === "dataset") || (data15 === "document")) || (data15 === "other"))){
+if(!(((data17 === "dataset") || (data17 === "document")) || (data17 === "other"))){
 validate29.errors = [{instancePath:instancePath+"/deliverable/kind",schemaPath:"#/properties/deliverable/properties/kind/enum",keyword:"enum",params:{allowedValues: schema74.properties.deliverable.properties.kind.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
 }
-if(errors === _errs57){
+if(errors === _errs63){
 }
-var valid19 = _errs57 === errors;
+var valid21 = _errs63 === errors;
 }
 else {
-var valid19 = true;
+var valid21 = true;
 }
-if(valid19){
-if(data14.description !== undefined){
-let data16 = data14.description;
-const _errs58 = errors;
-const _errs59 = errors;
-const _errs60 = errors;
-if(errors === _errs58){
-if(typeof data16 === "string"){
-if(func1(data16) > 4000){
+if(valid21){
+if(data16.description !== undefined){
+let data18 = data16.description;
+const _errs64 = errors;
+const _errs65 = errors;
+const _errs66 = errors;
+if(errors === _errs64){
+if(typeof data18 === "string"){
+if(func1(data18) > 4000){
 validate29.errors = [{instancePath:instancePath+"/deliverable/description",schemaPath:"#/properties/deliverable/properties/description/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"}];
 return false;
 }
@@ -10364,78 +10424,78 @@ else {
 validate29.errors = [{instancePath:instancePath+"/deliverable/description",schemaPath:"#/properties/deliverable/properties/description/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs58){
+if(errors === _errs64){
 }
 }
-var valid19 = _errs58 === errors;
+var valid21 = _errs64 === errors;
 }
 else {
-var valid19 = true;
+var valid21 = true;
 }
-if(valid19){
-if(data14.format !== undefined){
-let data17 = data14.format;
-const _errs61 = errors;
+if(valid21){
+if(data16.format !== undefined){
+let data19 = data16.format;
+const _errs67 = errors;
 const vSchema1 = schema74.properties.deliverable.properties.format.enum;
-if(!((((data17 === "text/csv") || (data17 === "application/json")) || (data17 === "text/plain")) || (data17 === "text/markdown"))){
+if(!((((data19 === "text/csv") || (data19 === "application/json")) || (data19 === "text/plain")) || (data19 === "text/markdown"))){
 validate29.errors = [{instancePath:instancePath+"/deliverable/format",schemaPath:"#/properties/deliverable/properties/format/enum",keyword:"enum",params:{allowedValues: schema74.properties.deliverable.properties.format.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
 }
-if(errors === _errs61){
+if(errors === _errs67){
 }
-var valid19 = _errs61 === errors;
+var valid21 = _errs67 === errors;
 }
 else {
-var valid19 = true;
+var valid21 = true;
 }
-if(valid19){
-if(data14.inputs !== undefined){
-let data18 = data14.inputs;
-const _errs62 = errors;
-const _errs63 = errors;
-if(errors === _errs62){
-if(Array.isArray(data18)){
-var valid20 = true;
-const len0 = data18.length;
+if(valid21){
+if(data16.inputs !== undefined){
+let data20 = data16.inputs;
+const _errs68 = errors;
+const _errs69 = errors;
+if(errors === _errs68){
+if(Array.isArray(data20)){
+var valid22 = true;
+const len0 = data20.length;
 for(let i0=0; i0<len0; i0++){
-let data19 = data18[i0];
-const _errs64 = errors;
-const _errs65 = errors;
-if(errors === _errs64){
-if(data19 && typeof data19 == "object" && !Array.isArray(data19)){
+let data21 = data20[i0];
+const _errs70 = errors;
+const _errs71 = errors;
+if(errors === _errs70){
+if(data21 && typeof data21 == "object" && !Array.isArray(data21)){
 let missing11;
-if(((data19.uri === undefined) && (missing11 = "uri")) || ((data19.sha256 === undefined) && (missing11 = "sha256"))){
+if(((data21.uri === undefined) && (missing11 = "uri")) || ((data21.sha256 === undefined) && (missing11 = "sha256"))){
 validate29.errors = [{instancePath:instancePath+"/deliverable/inputs/" + i0,schemaPath:"#/properties/deliverable/properties/inputs/items/required",keyword:"required",params:{missingProperty: missing11},message:"must have required property '"+missing11+"'"}];
 return false;
 }
 else {
-const _errs66 = errors;
-for(const key2 in data19){
+const _errs72 = errors;
+for(const key2 in data21){
 if(!((key2 === "uri") || (key2 === "sha256"))){
 validate29.errors = [{instancePath:instancePath+"/deliverable/inputs/" + i0,schemaPath:"#/properties/deliverable/properties/inputs/items/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key2},message:"must NOT have additional properties"}];
 return false;
 break;
 }
 }
-if(_errs66 === errors){
-if(data19.uri !== undefined){
-let data20 = data19.uri;
-const _errs67 = errors;
-const _errs68 = errors;
-const _errs69 = errors;
-if(errors === _errs67){
-if((typeof data20 == "number") && (isFinite(data20))){
+if(_errs72 === errors){
+if(data21.uri !== undefined){
+let data22 = data21.uri;
+const _errs73 = errors;
+const _errs74 = errors;
+const _errs75 = errors;
+if(errors === _errs73){
+if((typeof data22 == "number") && (isFinite(data22))){
 }
-if(errors === _errs67){
-if(typeof data20 === "string"){
-if(func1(data20) > 2048){
+if(errors === _errs73){
+if(typeof data22 === "string"){
+if(func1(data22) > 2048){
 validate29.errors = [{instancePath:instancePath+"/deliverable/inputs/" + i0+"/uri",schemaPath:"#/properties/deliverable/properties/inputs/items/properties/uri/maxLength",keyword:"maxLength",params:{limit: 2048},message:"must NOT have more than 2048 characters"}];
 return false;
 }
 else {
-if(!(formats0(data20))){
+if(!(formats0(data22))){
 validate29.errors = [{instancePath:instancePath+"/deliverable/inputs/" + i0+"/uri",schemaPath:"#/properties/deliverable/properties/inputs/items/properties/uri/format",keyword:"format",params:{format: "uri"},message:"must match format \""+"uri"+"\""}];
 return false;
 }
@@ -10447,24 +10507,24 @@ else {
 validate29.errors = [{instancePath:instancePath+"/deliverable/inputs/" + i0+"/uri",schemaPath:"#/properties/deliverable/properties/inputs/items/properties/uri/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs67){
+if(errors === _errs73){
 }
 }
 }
-var valid21 = _errs67 === errors;
+var valid23 = _errs73 === errors;
 }
 else {
-var valid21 = true;
+var valid23 = true;
 }
-if(valid21){
-if(data19.sha256 !== undefined){
-let data21 = data19.sha256;
-const _errs70 = errors;
-const _errs71 = errors;
-const _errs72 = errors;
-if(errors === _errs71){
-if(typeof data21 === "string"){
-if(!pattern47.test(data21)){
+if(valid23){
+if(data21.sha256 !== undefined){
+let data23 = data21.sha256;
+const _errs76 = errors;
+const _errs77 = errors;
+const _errs78 = errors;
+if(errors === _errs77){
+if(typeof data23 === "string"){
+if(!pattern49.test(data23)){
 validate29.errors = [{instancePath:instancePath+"/deliverable/inputs/" + i0+"/sha256",schemaPath:"common.schema.json#/$defs/Sha256/pattern",keyword:"pattern",params:{pattern: "^sha256:[0-9a-f]{64}$"},message:"must match pattern \""+"^sha256:[0-9a-f]{64}$"+"\""}];
 return false;
 }
@@ -10475,18 +10535,18 @@ else {
 validate29.errors = [{instancePath:instancePath+"/deliverable/inputs/" + i0+"/sha256",schemaPath:"common.schema.json#/$defs/Sha256/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs71){
+if(errors === _errs77){
 }
 }
-var valid22 = _errs71 === errors;
-if(valid22){
+var valid24 = _errs77 === errors;
+if(valid24){
 }
-var valid21 = _errs70 === errors;
+var valid23 = _errs76 === errors;
 }
 else {
-var valid21 = true;
+var valid23 = true;
 }
-if(valid21){
+if(valid23){
 }
 }
 }
@@ -10496,38 +10556,38 @@ else {
 validate29.errors = [{instancePath:instancePath+"/deliverable/inputs/" + i0,schemaPath:"#/properties/deliverable/properties/inputs/items/type",keyword:"type",params:{type: "object"},message:"must be object"}];
 return false;
 }
-if(errors === _errs64){
+if(errors === _errs70){
 }
 }
-var valid20 = _errs64 === errors;
-if(!valid20){
+var valid22 = _errs70 === errors;
+if(!valid22){
 break;
 }
 }
-if(valid20){
+if(valid22){
 }
 }
 else {
 validate29.errors = [{instancePath:instancePath+"/deliverable/inputs",schemaPath:"#/properties/deliverable/properties/inputs/type",keyword:"type",params:{type: "array"},message:"must be array"}];
 return false;
 }
-if(errors === _errs62){
+if(errors === _errs68){
 }
 }
-var valid19 = _errs62 === errors;
+var valid21 = _errs68 === errors;
 }
 else {
-var valid19 = true;
+var valid21 = true;
 }
-if(valid19){
-if(data14.salt !== undefined){
-let data22 = data14.salt;
-const _errs73 = errors;
-const _errs74 = errors;
-const _errs75 = errors;
-if(errors === _errs74){
-if(typeof data22 === "string"){
-if(!pattern2.test(data22)){
+if(valid21){
+if(data16.salt !== undefined){
+let data24 = data16.salt;
+const _errs79 = errors;
+const _errs80 = errors;
+const _errs81 = errors;
+if(errors === _errs80){
+if(typeof data24 === "string"){
+if(!pattern2.test(data24)){
 validate29.errors = [{instancePath:instancePath+"/deliverable/salt",schemaPath:"common.schema.json#/$defs/Hex32/pattern",keyword:"pattern",params:{pattern: "^0x[0-9a-f]{64}$"},message:"must match pattern \""+"^0x[0-9a-f]{64}$"+"\""}];
 return false;
 }
@@ -10538,26 +10598,26 @@ else {
 validate29.errors = [{instancePath:instancePath+"/deliverable/salt",schemaPath:"common.schema.json#/$defs/Hex32/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs74){
+if(errors === _errs80){
 }
 }
-var valid23 = _errs74 === errors;
-if(valid23){
+var valid25 = _errs80 === errors;
+if(valid25){
 }
-var valid19 = _errs73 === errors;
+var valid21 = _errs79 === errors;
 }
 else {
-var valid19 = true;
+var valid21 = true;
 }
-if(valid19){
-if(data14.notes !== undefined){
-let data23 = data14.notes;
-const _errs76 = errors;
-const _errs77 = errors;
-const _errs78 = errors;
-if(errors === _errs76){
-if(typeof data23 === "string"){
-if(func1(data23) > 4000){
+if(valid21){
+if(data16.notes !== undefined){
+let data25 = data16.notes;
+const _errs82 = errors;
+const _errs83 = errors;
+const _errs84 = errors;
+if(errors === _errs82){
+if(typeof data25 === "string"){
+if(func1(data25) > 4000){
 validate29.errors = [{instancePath:instancePath+"/deliverable/notes",schemaPath:"#/properties/deliverable/properties/notes/maxLength",keyword:"maxLength",params:{limit: 4000},message:"must NOT have more than 4000 characters"}];
 return false;
 }
@@ -10568,23 +10628,23 @@ else {
 validate29.errors = [{instancePath:instancePath+"/deliverable/notes",schemaPath:"#/properties/deliverable/properties/notes/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs76){
+if(errors === _errs82){
 }
 }
-var valid19 = _errs76 === errors;
+var valid21 = _errs82 === errors;
 }
 else {
-var valid19 = true;
+var valid21 = true;
 }
-if(valid19){
-if(data14.sellerEncryptionPublicKey !== undefined){
-let data24 = data14.sellerEncryptionPublicKey;
-const _errs79 = errors;
-const _errs80 = errors;
-const _errs81 = errors;
-if(errors === _errs80){
-if(typeof data24 === "string"){
-if(!pattern1.test(data24)){
+if(valid21){
+if(data16.sellerEncryptionPublicKey !== undefined){
+let data26 = data16.sellerEncryptionPublicKey;
+const _errs85 = errors;
+const _errs86 = errors;
+const _errs87 = errors;
+if(errors === _errs86){
+if(typeof data26 === "string"){
+if(!pattern1.test(data26)){
 validate29.errors = [{instancePath:instancePath+"/deliverable/sellerEncryptionPublicKey",schemaPath:"common.schema.json#/$defs/Base64Url/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""}];
 return false;
 }
@@ -10595,18 +10655,18 @@ else {
 validate29.errors = [{instancePath:instancePath+"/deliverable/sellerEncryptionPublicKey",schemaPath:"common.schema.json#/$defs/Base64Url/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs80){
+if(errors === _errs86){
 }
 }
-var valid24 = _errs80 === errors;
-if(valid24){
+var valid26 = _errs86 === errors;
+if(valid26){
 }
-var valid19 = _errs79 === errors;
+var valid21 = _errs85 === errors;
 }
 else {
-var valid19 = true;
+var valid21 = true;
 }
-if(valid19){
+if(valid21){
 }
 }
 }
@@ -10621,65 +10681,65 @@ else {
 validate29.errors = [{instancePath:instancePath+"/deliverable",schemaPath:"#/properties/deliverable/type",keyword:"type",params:{type: "object"},message:"must be object"}];
 return false;
 }
-if(errors === _errs54){
+if(errors === _errs60){
 }
 }
-var valid13 = _errs54 === errors;
+var valid13 = _errs60 === errors;
 }
 else {
 var valid13 = true;
 }
 if(valid13){
 if(data.acceptance !== undefined){
-let data25 = data.acceptance;
-const _errs82 = errors;
-const _errs83 = errors;
-if(errors === _errs82){
-if(data25 && typeof data25 == "object" && !Array.isArray(data25)){
+let data27 = data.acceptance;
+const _errs88 = errors;
+const _errs89 = errors;
+if(errors === _errs88){
+if(data27 && typeof data27 == "object" && !Array.isArray(data27)){
 let missing12;
-if(((data25.deterministicChecks === undefined) && (missing12 = "deterministicChecks")) || ((data25.rubric === undefined) && (missing12 = "rubric"))){
+if(((data27.deterministicChecks === undefined) && (missing12 = "deterministicChecks")) || ((data27.rubric === undefined) && (missing12 = "rubric"))){
 validate29.errors = [{instancePath:instancePath+"/acceptance",schemaPath:"#/properties/acceptance/required",keyword:"required",params:{missingProperty: missing12},message:"must have required property '"+missing12+"'"}];
 return false;
 }
 else {
-const _errs84 = errors;
-for(const key3 in data25){
+const _errs90 = errors;
+for(const key3 in data27){
 if(!((((key3 === "deterministicChecks") || (key3 === "rubric")) || (key3 === "sealedChecks")) || (key3 === "salt"))){
 validate29.errors = [{instancePath:instancePath+"/acceptance",schemaPath:"#/properties/acceptance/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key3},message:"must NOT have additional properties"}];
 return false;
 break;
 }
 }
-if(_errs84 === errors){
-if(data25.deterministicChecks !== undefined){
-let data26 = data25.deterministicChecks;
-const _errs85 = errors;
-const _errs86 = errors;
-if(errors === _errs85){
-if(Array.isArray(data26)){
-if(data26.length > 20){
+if(_errs90 === errors){
+if(data27.deterministicChecks !== undefined){
+let data28 = data27.deterministicChecks;
+const _errs91 = errors;
+const _errs92 = errors;
+if(errors === _errs91){
+if(Array.isArray(data28)){
+if(data28.length > 20){
 validate29.errors = [{instancePath:instancePath+"/acceptance/deterministicChecks",schemaPath:"#/properties/acceptance/properties/deterministicChecks/maxItems",keyword:"maxItems",params:{limit: 20},message:"must NOT have more than 20 items"}];
 return false;
 }
 else {
-var valid26 = true;
-const len1 = data26.length;
+var valid28 = true;
+const len1 = data28.length;
 for(let i1=0; i1<len1; i1++){
-let data27 = data26[i1];
-const _errs87 = errors;
-if(!(validate30(data27, {instancePath:instancePath+"/acceptance/deterministicChecks/" + i1,parentData:data26,parentDataProperty:i1,rootData,dynamicAnchors}))){
+let data29 = data28[i1];
+const _errs93 = errors;
+if(!(validate30(data29, {instancePath:instancePath+"/acceptance/deterministicChecks/" + i1,parentData:data28,parentDataProperty:i1,rootData,dynamicAnchors}))){
 vErrors = vErrors === null ? validate30.errors : vErrors.concat(validate30.errors);
 errors = vErrors.length;
 }
 else {
 var props2 = validate30.evaluated.props;
 }
-var valid26 = _errs87 === errors;
-if(!valid26){
+var valid28 = _errs93 === errors;
+if(!valid28){
 break;
 }
 }
-if(valid26){
+if(valid28){
 }
 }
 }
@@ -10687,78 +10747,78 @@ else {
 validate29.errors = [{instancePath:instancePath+"/acceptance/deterministicChecks",schemaPath:"#/properties/acceptance/properties/deterministicChecks/type",keyword:"type",params:{type: "array"},message:"must be array"}];
 return false;
 }
-if(errors === _errs85){
+if(errors === _errs91){
 }
 }
-var valid25 = _errs85 === errors;
+var valid27 = _errs91 === errors;
 }
 else {
-var valid25 = true;
+var valid27 = true;
 }
-if(valid25){
-if(data25.rubric !== undefined){
-let data28 = data25.rubric;
-const _errs88 = errors;
-const _errs89 = errors;
-if(errors === _errs88){
-if(data28 && typeof data28 == "object" && !Array.isArray(data28)){
+if(valid27){
+if(data27.rubric !== undefined){
+let data30 = data27.rubric;
+const _errs94 = errors;
+const _errs95 = errors;
+if(errors === _errs94){
+if(data30 && typeof data30 == "object" && !Array.isArray(data30)){
 let missing13;
-if(((data28.criteria === undefined) && (missing13 = "criteria")) || ((data28.passThreshold === undefined) && (missing13 = "passThreshold"))){
+if(((data30.criteria === undefined) && (missing13 = "criteria")) || ((data30.passThreshold === undefined) && (missing13 = "passThreshold"))){
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric",schemaPath:"#/properties/acceptance/properties/rubric/required",keyword:"required",params:{missingProperty: missing13},message:"must have required property '"+missing13+"'"}];
 return false;
 }
 else {
-const _errs90 = errors;
-for(const key4 in data28){
+const _errs96 = errors;
+for(const key4 in data30){
 if(!((key4 === "criteria") || (key4 === "passThreshold"))){
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric",schemaPath:"#/properties/acceptance/properties/rubric/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key4},message:"must NOT have additional properties"}];
 return false;
 break;
 }
 }
-if(_errs90 === errors){
-if(data28.criteria !== undefined){
-let data29 = data28.criteria;
-const _errs91 = errors;
-const _errs92 = errors;
-if(errors === _errs91){
-if(Array.isArray(data29)){
-if(data29.length > 12){
+if(_errs96 === errors){
+if(data30.criteria !== undefined){
+let data31 = data30.criteria;
+const _errs97 = errors;
+const _errs98 = errors;
+if(errors === _errs97){
+if(Array.isArray(data31)){
+if(data31.length > 12){
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria",schemaPath:"#/properties/acceptance/properties/rubric/properties/criteria/maxItems",keyword:"maxItems",params:{limit: 12},message:"must NOT have more than 12 items"}];
 return false;
 }
 else {
-var valid28 = true;
-const len2 = data29.length;
+var valid30 = true;
+const len2 = data31.length;
 for(let i2=0; i2<len2; i2++){
-let data30 = data29[i2];
-const _errs93 = errors;
-const _errs94 = errors;
-const _errs95 = errors;
-if(errors === _errs94){
-if(data30 && typeof data30 == "object" && !Array.isArray(data30)){
+let data32 = data31[i2];
+const _errs99 = errors;
+const _errs100 = errors;
+const _errs101 = errors;
+if(errors === _errs100){
+if(data32 && typeof data32 == "object" && !Array.isArray(data32)){
 let missing14;
-if(((((data30.id === undefined) && (missing14 = "id")) || ((data30.description === undefined) && (missing14 = "description"))) || ((data30.weight === undefined) && (missing14 = "weight"))) || ((data30.anchors === undefined) && (missing14 = "anchors"))){
+if(((((data32.id === undefined) && (missing14 = "id")) || ((data32.description === undefined) && (missing14 = "description"))) || ((data32.weight === undefined) && (missing14 = "weight"))) || ((data32.anchors === undefined) && (missing14 = "anchors"))){
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria/" + i2,schemaPath:"#/$defs/Criterion/required",keyword:"required",params:{missingProperty: missing14},message:"must have required property '"+missing14+"'"}];
 return false;
 }
 else {
-const _errs96 = errors;
-for(const key5 in data30){
+const _errs102 = errors;
+for(const key5 in data32){
 if(!((((key5 === "id") || (key5 === "description")) || (key5 === "weight")) || (key5 === "anchors"))){
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria/" + i2,schemaPath:"#/$defs/Criterion/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key5},message:"must NOT have additional properties"}];
 return false;
 break;
 }
 }
-if(_errs96 === errors){
-if(data30.id !== undefined){
-let data31 = data30.id;
-const _errs97 = errors;
-const _errs98 = errors;
-if(errors === _errs97){
-if(typeof data31 === "string"){
-if(!pattern50.test(data31)){
+if(_errs102 === errors){
+if(data32.id !== undefined){
+let data33 = data32.id;
+const _errs103 = errors;
+const _errs104 = errors;
+if(errors === _errs103){
+if(typeof data33 === "string"){
+if(!pattern52.test(data33)){
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria/" + i2+"/id",schemaPath:"#/$defs/Criterion/properties/id/pattern",keyword:"pattern",params:{pattern: "^[a-z0-9_-]{1,40}$"},message:"must match pattern \""+"^[a-z0-9_-]{1,40}$"+"\""}];
 return false;
 }
@@ -10769,23 +10829,23 @@ else {
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria/" + i2+"/id",schemaPath:"#/$defs/Criterion/properties/id/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs97){
+if(errors === _errs103){
 }
 }
-var valid30 = _errs97 === errors;
+var valid32 = _errs103 === errors;
 }
 else {
-var valid30 = true;
+var valid32 = true;
 }
-if(valid30){
-if(data30.description !== undefined){
-let data32 = data30.description;
-const _errs99 = errors;
-const _errs100 = errors;
-const _errs101 = errors;
-if(errors === _errs99){
-if(typeof data32 === "string"){
-if(func1(data32) > 500){
+if(valid32){
+if(data32.description !== undefined){
+let data34 = data32.description;
+const _errs105 = errors;
+const _errs106 = errors;
+const _errs107 = errors;
+if(errors === _errs105){
+if(typeof data34 === "string"){
+if(func1(data34) > 500){
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria/" + i2+"/description",schemaPath:"#/$defs/Criterion/properties/description/maxLength",keyword:"maxLength",params:{limit: 500},message:"must NOT have more than 500 characters"}];
 return false;
 }
@@ -10796,31 +10856,31 @@ else {
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria/" + i2+"/description",schemaPath:"#/$defs/Criterion/properties/description/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs99){
+if(errors === _errs105){
 }
 }
-var valid30 = _errs99 === errors;
+var valid32 = _errs105 === errors;
 }
 else {
-var valid30 = true;
+var valid32 = true;
 }
-if(valid30){
-if(data30.weight !== undefined){
-let data33 = data30.weight;
-const _errs102 = errors;
-if(!(((typeof data33 == "number") && (!(data33 % 1) && !isNaN(data33))) && (isFinite(data33)))){
+if(valid32){
+if(data32.weight !== undefined){
+let data35 = data32.weight;
+const _errs108 = errors;
+if(!(((typeof data35 == "number") && (!(data35 % 1) && !isNaN(data35))) && (isFinite(data35)))){
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria/" + i2+"/weight",schemaPath:"#/$defs/Criterion/properties/weight/type",keyword:"type",params:{type: "integer"},message:"must be integer"}];
 return false;
 }
-const _errs103 = errors;
-if(errors === _errs102){
-if((typeof data33 == "number") && (isFinite(data33))){
-if(data33 > 10000 || isNaN(data33)){
+const _errs109 = errors;
+if(errors === _errs108){
+if((typeof data35 == "number") && (isFinite(data35))){
+if(data35 > 10000 || isNaN(data35)){
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria/" + i2+"/weight",schemaPath:"#/$defs/Criterion/properties/weight/maximum",keyword:"maximum",params:{comparison: "<=", limit: 10000},message:"must be <= 10000"}];
 return false;
 }
 else {
-if(data33 < 1 || isNaN(data33)){
+if(data35 < 1 || isNaN(data35)){
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria/" + i2+"/weight",schemaPath:"#/$defs/Criterion/properties/weight/minimum",keyword:"minimum",params:{comparison: ">=", limit: 1},message:"must be >= 1"}];
 return false;
 }
@@ -10828,44 +10888,44 @@ else {
 }
 }
 }
-if(errors === _errs102){
+if(errors === _errs108){
 }
 }
-var valid30 = _errs102 === errors;
+var valid32 = _errs108 === errors;
 }
 else {
-var valid30 = true;
+var valid32 = true;
 }
-if(valid30){
-if(data30.anchors !== undefined){
-let data34 = data30.anchors;
-const _errs104 = errors;
-const _errs105 = errors;
-if(errors === _errs104){
-if(data34 && typeof data34 == "object" && !Array.isArray(data34)){
+if(valid32){
+if(data32.anchors !== undefined){
+let data36 = data32.anchors;
+const _errs110 = errors;
+const _errs111 = errors;
+if(errors === _errs110){
+if(data36 && typeof data36 == "object" && !Array.isArray(data36)){
 let missing15;
-if((((data34["0"] === undefined) && (missing15 = "0")) || ((data34["2"] === undefined) && (missing15 = "2"))) || ((data34["4"] === undefined) && (missing15 = "4"))){
+if((((data36["0"] === undefined) && (missing15 = "0")) || ((data36["2"] === undefined) && (missing15 = "2"))) || ((data36["4"] === undefined) && (missing15 = "4"))){
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria/" + i2+"/anchors",schemaPath:"#/$defs/Criterion/properties/anchors/required",keyword:"required",params:{missingProperty: missing15},message:"must have required property '"+missing15+"'"}];
 return false;
 }
 else {
-const _errs106 = errors;
-for(const key6 in data34){
+const _errs112 = errors;
+for(const key6 in data36){
 if(!(((((key6 === "0") || (key6 === "1")) || (key6 === "2")) || (key6 === "3")) || (key6 === "4"))){
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria/" + i2+"/anchors",schemaPath:"#/$defs/Criterion/properties/anchors/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key6},message:"must NOT have additional properties"}];
 return false;
 break;
 }
 }
-if(_errs106 === errors){
-if(data34["0"] !== undefined){
-let data35 = data34["0"];
-const _errs107 = errors;
-const _errs108 = errors;
-const _errs109 = errors;
-if(errors === _errs107){
-if(typeof data35 === "string"){
-if(func1(data35) > 300){
+if(_errs112 === errors){
+if(data36["0"] !== undefined){
+let data37 = data36["0"];
+const _errs113 = errors;
+const _errs114 = errors;
+const _errs115 = errors;
+if(errors === _errs113){
+if(typeof data37 === "string"){
+if(func1(data37) > 300){
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria/" + i2+"/anchors/0",schemaPath:"#/$defs/Criterion/properties/anchors/properties/0/maxLength",keyword:"maxLength",params:{limit: 300},message:"must NOT have more than 300 characters"}];
 return false;
 }
@@ -10876,23 +10936,23 @@ else {
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria/" + i2+"/anchors/0",schemaPath:"#/$defs/Criterion/properties/anchors/properties/0/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs107){
+if(errors === _errs113){
 }
 }
-var valid31 = _errs107 === errors;
+var valid33 = _errs113 === errors;
 }
 else {
-var valid31 = true;
+var valid33 = true;
 }
-if(valid31){
-if(data34["1"] !== undefined){
-let data36 = data34["1"];
-const _errs110 = errors;
-const _errs111 = errors;
-const _errs112 = errors;
-if(errors === _errs110){
-if(typeof data36 === "string"){
-if(func1(data36) > 300){
+if(valid33){
+if(data36["1"] !== undefined){
+let data38 = data36["1"];
+const _errs116 = errors;
+const _errs117 = errors;
+const _errs118 = errors;
+if(errors === _errs116){
+if(typeof data38 === "string"){
+if(func1(data38) > 300){
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria/" + i2+"/anchors/1",schemaPath:"#/$defs/Criterion/properties/anchors/properties/1/maxLength",keyword:"maxLength",params:{limit: 300},message:"must NOT have more than 300 characters"}];
 return false;
 }
@@ -10903,23 +10963,23 @@ else {
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria/" + i2+"/anchors/1",schemaPath:"#/$defs/Criterion/properties/anchors/properties/1/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs110){
+if(errors === _errs116){
 }
 }
-var valid31 = _errs110 === errors;
+var valid33 = _errs116 === errors;
 }
 else {
-var valid31 = true;
+var valid33 = true;
 }
-if(valid31){
-if(data34["2"] !== undefined){
-let data37 = data34["2"];
-const _errs113 = errors;
-const _errs114 = errors;
-const _errs115 = errors;
-if(errors === _errs113){
-if(typeof data37 === "string"){
-if(func1(data37) > 300){
+if(valid33){
+if(data36["2"] !== undefined){
+let data39 = data36["2"];
+const _errs119 = errors;
+const _errs120 = errors;
+const _errs121 = errors;
+if(errors === _errs119){
+if(typeof data39 === "string"){
+if(func1(data39) > 300){
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria/" + i2+"/anchors/2",schemaPath:"#/$defs/Criterion/properties/anchors/properties/2/maxLength",keyword:"maxLength",params:{limit: 300},message:"must NOT have more than 300 characters"}];
 return false;
 }
@@ -10930,23 +10990,23 @@ else {
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria/" + i2+"/anchors/2",schemaPath:"#/$defs/Criterion/properties/anchors/properties/2/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs113){
+if(errors === _errs119){
 }
 }
-var valid31 = _errs113 === errors;
+var valid33 = _errs119 === errors;
 }
 else {
-var valid31 = true;
+var valid33 = true;
 }
-if(valid31){
-if(data34["3"] !== undefined){
-let data38 = data34["3"];
-const _errs116 = errors;
-const _errs117 = errors;
-const _errs118 = errors;
-if(errors === _errs116){
-if(typeof data38 === "string"){
-if(func1(data38) > 300){
+if(valid33){
+if(data36["3"] !== undefined){
+let data40 = data36["3"];
+const _errs122 = errors;
+const _errs123 = errors;
+const _errs124 = errors;
+if(errors === _errs122){
+if(typeof data40 === "string"){
+if(func1(data40) > 300){
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria/" + i2+"/anchors/3",schemaPath:"#/$defs/Criterion/properties/anchors/properties/3/maxLength",keyword:"maxLength",params:{limit: 300},message:"must NOT have more than 300 characters"}];
 return false;
 }
@@ -10957,23 +11017,23 @@ else {
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria/" + i2+"/anchors/3",schemaPath:"#/$defs/Criterion/properties/anchors/properties/3/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs116){
+if(errors === _errs122){
 }
 }
-var valid31 = _errs116 === errors;
+var valid33 = _errs122 === errors;
 }
 else {
-var valid31 = true;
+var valid33 = true;
 }
-if(valid31){
-if(data34["4"] !== undefined){
-let data39 = data34["4"];
-const _errs119 = errors;
-const _errs120 = errors;
-const _errs121 = errors;
-if(errors === _errs119){
-if(typeof data39 === "string"){
-if(func1(data39) > 300){
+if(valid33){
+if(data36["4"] !== undefined){
+let data41 = data36["4"];
+const _errs125 = errors;
+const _errs126 = errors;
+const _errs127 = errors;
+if(errors === _errs125){
+if(typeof data41 === "string"){
+if(func1(data41) > 300){
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria/" + i2+"/anchors/4",schemaPath:"#/$defs/Criterion/properties/anchors/properties/4/maxLength",keyword:"maxLength",params:{limit: 300},message:"must NOT have more than 300 characters"}];
 return false;
 }
@@ -10984,15 +11044,15 @@ else {
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria/" + i2+"/anchors/4",schemaPath:"#/$defs/Criterion/properties/anchors/properties/4/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs119){
+if(errors === _errs125){
 }
 }
-var valid31 = _errs119 === errors;
+var valid33 = _errs125 === errors;
 }
 else {
-var valid31 = true;
+var valid33 = true;
 }
-if(valid31){
+if(valid33){
 }
 }
 }
@@ -11005,15 +11065,15 @@ else {
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria/" + i2+"/anchors",schemaPath:"#/$defs/Criterion/properties/anchors/type",keyword:"type",params:{type: "object"},message:"must be object"}];
 return false;
 }
-if(errors === _errs104){
+if(errors === _errs110){
 }
 }
-var valid30 = _errs104 === errors;
+var valid32 = _errs110 === errors;
 }
 else {
-var valid30 = true;
+var valid32 = true;
 }
-if(valid30){
+if(valid32){
 }
 }
 }
@@ -11025,18 +11085,18 @@ else {
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria/" + i2,schemaPath:"#/$defs/Criterion/type",keyword:"type",params:{type: "object"},message:"must be object"}];
 return false;
 }
-if(errors === _errs94){
+if(errors === _errs100){
 }
 }
-var valid29 = _errs94 === errors;
-if(valid29){
+var valid31 = _errs100 === errors;
+if(valid31){
 }
-var valid28 = _errs93 === errors;
-if(!valid28){
+var valid30 = _errs99 === errors;
+if(!valid30){
 break;
 }
 }
-if(valid28){
+if(valid30){
 }
 }
 }
@@ -11044,31 +11104,31 @@ else {
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/criteria",schemaPath:"#/properties/acceptance/properties/rubric/properties/criteria/type",keyword:"type",params:{type: "array"},message:"must be array"}];
 return false;
 }
-if(errors === _errs91){
+if(errors === _errs97){
 }
 }
-var valid27 = _errs91 === errors;
+var valid29 = _errs97 === errors;
 }
 else {
-var valid27 = true;
+var valid29 = true;
 }
-if(valid27){
-if(data28.passThreshold !== undefined){
-let data40 = data28.passThreshold;
-const _errs122 = errors;
-if(!(((typeof data40 == "number") && (!(data40 % 1) && !isNaN(data40))) && (isFinite(data40)))){
+if(valid29){
+if(data30.passThreshold !== undefined){
+let data42 = data30.passThreshold;
+const _errs128 = errors;
+if(!(((typeof data42 == "number") && (!(data42 % 1) && !isNaN(data42))) && (isFinite(data42)))){
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/passThreshold",schemaPath:"#/properties/acceptance/properties/rubric/properties/passThreshold/type",keyword:"type",params:{type: "integer"},message:"must be integer"}];
 return false;
 }
-const _errs123 = errors;
-if(errors === _errs122){
-if((typeof data40 == "number") && (isFinite(data40))){
-if(data40 > 400 || isNaN(data40)){
+const _errs129 = errors;
+if(errors === _errs128){
+if((typeof data42 == "number") && (isFinite(data42))){
+if(data42 > 400 || isNaN(data42)){
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/passThreshold",schemaPath:"#/properties/acceptance/properties/rubric/properties/passThreshold/maximum",keyword:"maximum",params:{comparison: "<=", limit: 400},message:"must be <= 400"}];
 return false;
 }
 else {
-if(data40 < 0 || isNaN(data40)){
+if(data42 < 0 || isNaN(data42)){
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric/passThreshold",schemaPath:"#/properties/acceptance/properties/rubric/properties/passThreshold/minimum",keyword:"minimum",params:{comparison: ">=", limit: 0},message:"must be >= 0"}];
 return false;
 }
@@ -11076,15 +11136,15 @@ else {
 }
 }
 }
-if(errors === _errs122){
+if(errors === _errs128){
 }
 }
-var valid27 = _errs122 === errors;
+var valid29 = _errs128 === errors;
 }
 else {
-var valid27 = true;
+var valid29 = true;
 }
-if(valid27){
+if(valid29){
 }
 }
 }
@@ -11094,52 +11154,52 @@ else {
 validate29.errors = [{instancePath:instancePath+"/acceptance/rubric",schemaPath:"#/properties/acceptance/properties/rubric/type",keyword:"type",params:{type: "object"},message:"must be object"}];
 return false;
 }
-if(errors === _errs88){
+if(errors === _errs94){
 }
 }
-var valid25 = _errs88 === errors;
+var valid27 = _errs94 === errors;
 }
 else {
-var valid25 = true;
+var valid27 = true;
 }
-if(valid25){
-if(data25.sealedChecks !== undefined){
-let data41 = data25.sealedChecks;
-const _errs124 = errors;
-const _errs125 = errors;
-if(errors === _errs124){
-if(data41 && typeof data41 == "object" && !Array.isArray(data41)){
+if(valid27){
+if(data27.sealedChecks !== undefined){
+let data43 = data27.sealedChecks;
+const _errs130 = errors;
+const _errs131 = errors;
+if(errors === _errs130){
+if(data43 && typeof data43 == "object" && !Array.isArray(data43)){
 let missing16;
-if((((data41.count === undefined) && (missing16 = "count")) || ((data41.commitment === undefined) && (missing16 = "commitment"))) || ((data41.weightBps === undefined) && (missing16 = "weightBps"))){
+if((((data43.count === undefined) && (missing16 = "count")) || ((data43.commitment === undefined) && (missing16 = "commitment"))) || ((data43.weightBps === undefined) && (missing16 = "weightBps"))){
 validate29.errors = [{instancePath:instancePath+"/acceptance/sealedChecks",schemaPath:"#/properties/acceptance/properties/sealedChecks/required",keyword:"required",params:{missingProperty: missing16},message:"must have required property '"+missing16+"'"}];
 return false;
 }
 else {
-const _errs126 = errors;
-for(const key7 in data41){
+const _errs132 = errors;
+for(const key7 in data43){
 if(!(((key7 === "count") || (key7 === "commitment")) || (key7 === "weightBps"))){
 validate29.errors = [{instancePath:instancePath+"/acceptance/sealedChecks",schemaPath:"#/properties/acceptance/properties/sealedChecks/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key7},message:"must NOT have additional properties"}];
 return false;
 break;
 }
 }
-if(_errs126 === errors){
-if(data41.count !== undefined){
-let data42 = data41.count;
-const _errs127 = errors;
-if(!(((typeof data42 == "number") && (!(data42 % 1) && !isNaN(data42))) && (isFinite(data42)))){
+if(_errs132 === errors){
+if(data43.count !== undefined){
+let data44 = data43.count;
+const _errs133 = errors;
+if(!(((typeof data44 == "number") && (!(data44 % 1) && !isNaN(data44))) && (isFinite(data44)))){
 validate29.errors = [{instancePath:instancePath+"/acceptance/sealedChecks/count",schemaPath:"#/properties/acceptance/properties/sealedChecks/properties/count/type",keyword:"type",params:{type: "integer"},message:"must be integer"}];
 return false;
 }
-const _errs128 = errors;
-if(errors === _errs127){
-if((typeof data42 == "number") && (isFinite(data42))){
-if(data42 > 10 || isNaN(data42)){
+const _errs134 = errors;
+if(errors === _errs133){
+if((typeof data44 == "number") && (isFinite(data44))){
+if(data44 > 10 || isNaN(data44)){
 validate29.errors = [{instancePath:instancePath+"/acceptance/sealedChecks/count",schemaPath:"#/properties/acceptance/properties/sealedChecks/properties/count/maximum",keyword:"maximum",params:{comparison: "<=", limit: 10},message:"must be <= 10"}];
 return false;
 }
 else {
-if(data42 < 0 || isNaN(data42)){
+if(data44 < 0 || isNaN(data44)){
 validate29.errors = [{instancePath:instancePath+"/acceptance/sealedChecks/count",schemaPath:"#/properties/acceptance/properties/sealedChecks/properties/count/minimum",keyword:"minimum",params:{comparison: ">=", limit: 0},message:"must be >= 0"}];
 return false;
 }
@@ -11147,23 +11207,23 @@ else {
 }
 }
 }
-if(errors === _errs127){
+if(errors === _errs133){
 }
 }
-var valid32 = _errs127 === errors;
+var valid34 = _errs133 === errors;
 }
 else {
-var valid32 = true;
+var valid34 = true;
 }
-if(valid32){
-if(data41.commitment !== undefined){
-let data43 = data41.commitment;
-const _errs129 = errors;
-const _errs130 = errors;
-const _errs131 = errors;
-if(errors === _errs130){
-if(typeof data43 === "string"){
-if(!pattern2.test(data43)){
+if(valid34){
+if(data43.commitment !== undefined){
+let data45 = data43.commitment;
+const _errs135 = errors;
+const _errs136 = errors;
+const _errs137 = errors;
+if(errors === _errs136){
+if(typeof data45 === "string"){
+if(!pattern2.test(data45)){
 validate29.errors = [{instancePath:instancePath+"/acceptance/sealedChecks/commitment",schemaPath:"common.schema.json#/$defs/Hex32/pattern",keyword:"pattern",params:{pattern: "^0x[0-9a-f]{64}$"},message:"must match pattern \""+"^0x[0-9a-f]{64}$"+"\""}];
 return false;
 }
@@ -11174,34 +11234,34 @@ else {
 validate29.errors = [{instancePath:instancePath+"/acceptance/sealedChecks/commitment",schemaPath:"common.schema.json#/$defs/Hex32/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs130){
+if(errors === _errs136){
 }
 }
-var valid33 = _errs130 === errors;
-if(valid33){
+var valid35 = _errs136 === errors;
+if(valid35){
 }
-var valid32 = _errs129 === errors;
+var valid34 = _errs135 === errors;
 }
 else {
-var valid32 = true;
+var valid34 = true;
 }
-if(valid32){
-if(data41.weightBps !== undefined){
-let data44 = data41.weightBps;
-const _errs132 = errors;
-if(!(((typeof data44 == "number") && (!(data44 % 1) && !isNaN(data44))) && (isFinite(data44)))){
+if(valid34){
+if(data43.weightBps !== undefined){
+let data46 = data43.weightBps;
+const _errs138 = errors;
+if(!(((typeof data46 == "number") && (!(data46 % 1) && !isNaN(data46))) && (isFinite(data46)))){
 validate29.errors = [{instancePath:instancePath+"/acceptance/sealedChecks/weightBps",schemaPath:"#/properties/acceptance/properties/sealedChecks/properties/weightBps/type",keyword:"type",params:{type: "integer"},message:"must be integer"}];
 return false;
 }
-const _errs133 = errors;
-if(errors === _errs132){
-if((typeof data44 == "number") && (isFinite(data44))){
-if(data44 > 3000 || isNaN(data44)){
+const _errs139 = errors;
+if(errors === _errs138){
+if((typeof data46 == "number") && (isFinite(data46))){
+if(data46 > 3000 || isNaN(data46)){
 validate29.errors = [{instancePath:instancePath+"/acceptance/sealedChecks/weightBps",schemaPath:"#/properties/acceptance/properties/sealedChecks/properties/weightBps/maximum",keyword:"maximum",params:{comparison: "<=", limit: 3000},message:"must be <= 3000"}];
 return false;
 }
 else {
-if(data44 < 0 || isNaN(data44)){
+if(data46 < 0 || isNaN(data46)){
 validate29.errors = [{instancePath:instancePath+"/acceptance/sealedChecks/weightBps",schemaPath:"#/properties/acceptance/properties/sealedChecks/properties/weightBps/minimum",keyword:"minimum",params:{comparison: ">=", limit: 0},message:"must be >= 0"}];
 return false;
 }
@@ -11209,15 +11269,15 @@ else {
 }
 }
 }
-if(errors === _errs132){
+if(errors === _errs138){
 }
 }
-var valid32 = _errs132 === errors;
+var valid34 = _errs138 === errors;
 }
 else {
-var valid32 = true;
+var valid34 = true;
 }
-if(valid32){
+if(valid34){
 }
 }
 }
@@ -11228,23 +11288,23 @@ else {
 validate29.errors = [{instancePath:instancePath+"/acceptance/sealedChecks",schemaPath:"#/properties/acceptance/properties/sealedChecks/type",keyword:"type",params:{type: "object"},message:"must be object"}];
 return false;
 }
-if(errors === _errs124){
+if(errors === _errs130){
 }
 }
-var valid25 = _errs124 === errors;
+var valid27 = _errs130 === errors;
 }
 else {
-var valid25 = true;
+var valid27 = true;
 }
-if(valid25){
-if(data25.salt !== undefined){
-let data45 = data25.salt;
-const _errs134 = errors;
-const _errs135 = errors;
-const _errs136 = errors;
-if(errors === _errs135){
-if(typeof data45 === "string"){
-if(!pattern2.test(data45)){
+if(valid27){
+if(data27.salt !== undefined){
+let data47 = data27.salt;
+const _errs140 = errors;
+const _errs141 = errors;
+const _errs142 = errors;
+if(errors === _errs141){
+if(typeof data47 === "string"){
+if(!pattern2.test(data47)){
 validate29.errors = [{instancePath:instancePath+"/acceptance/salt",schemaPath:"common.schema.json#/$defs/Hex32/pattern",keyword:"pattern",params:{pattern: "^0x[0-9a-f]{64}$"},message:"must match pattern \""+"^0x[0-9a-f]{64}$"+"\""}];
 return false;
 }
@@ -11255,18 +11315,18 @@ else {
 validate29.errors = [{instancePath:instancePath+"/acceptance/salt",schemaPath:"common.schema.json#/$defs/Hex32/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs135){
+if(errors === _errs141){
 }
 }
-var valid34 = _errs135 === errors;
-if(valid34){
+var valid36 = _errs141 === errors;
+if(valid36){
 }
-var valid25 = _errs134 === errors;
+var valid27 = _errs140 === errors;
 }
 else {
-var valid25 = true;
+var valid27 = true;
 }
-if(valid25){
+if(valid27){
 }
 }
 }
@@ -11278,59 +11338,59 @@ else {
 validate29.errors = [{instancePath:instancePath+"/acceptance",schemaPath:"#/properties/acceptance/type",keyword:"type",params:{type: "object"},message:"must be object"}];
 return false;
 }
-if(errors === _errs82){
+if(errors === _errs88){
 }
 }
-var valid13 = _errs82 === errors;
+var valid13 = _errs88 === errors;
 }
 else {
 var valid13 = true;
 }
 if(valid13){
 if(data.price !== undefined){
-let data46 = data.price;
-const _errs137 = errors;
-if(!(validate32(data46, {instancePath:instancePath+"/price",parentData:data,parentDataProperty:"price",rootData,dynamicAnchors}))){
+let data48 = data.price;
+const _errs143 = errors;
+if(!(validate32(data48, {instancePath:instancePath+"/price",parentData:data,parentDataProperty:"price",rootData,dynamicAnchors}))){
 vErrors = vErrors === null ? validate32.errors : vErrors.concat(validate32.errors);
 errors = vErrors.length;
 }
 else {
 }
-var valid13 = _errs137 === errors;
+var valid13 = _errs143 === errors;
 }
 else {
 var valid13 = true;
 }
 if(valid13){
 if(data.adjudication !== undefined){
-let data47 = data.adjudication;
-const _errs138 = errors;
-const _errs139 = errors;
-if(errors === _errs138){
-if(data47 && typeof data47 == "object" && !Array.isArray(data47)){
+let data49 = data.adjudication;
+const _errs144 = errors;
+const _errs145 = errors;
+if(errors === _errs144){
+if(data49 && typeof data49 == "object" && !Array.isArray(data49)){
 let missing17;
-if((((((((data47.adjudicator === undefined) && (missing17 = "adjudicator")) || ((data47.fallbackAdjudicator === undefined) && (missing17 = "fallbackAdjudicator"))) || ((data47.appealAdjudicator === undefined) && (missing17 = "appealAdjudicator"))) || ((data47.policyId === undefined) && (missing17 = "policyId"))) || ((data47.fee === undefined) && (missing17 = "fee"))) || ((data47.registryHash === undefined) && (missing17 = "registryHash"))) || ((data47.policyHash === undefined) && (missing17 = "policyHash"))){
+if((((((((data49.adjudicator === undefined) && (missing17 = "adjudicator")) || ((data49.fallbackAdjudicator === undefined) && (missing17 = "fallbackAdjudicator"))) || ((data49.appealAdjudicator === undefined) && (missing17 = "appealAdjudicator"))) || ((data49.policyId === undefined) && (missing17 = "policyId"))) || ((data49.fee === undefined) && (missing17 = "fee"))) || ((data49.registryHash === undefined) && (missing17 = "registryHash"))) || ((data49.policyHash === undefined) && (missing17 = "policyHash"))){
 validate29.errors = [{instancePath:instancePath+"/adjudication",schemaPath:"#/properties/adjudication/required",keyword:"required",params:{missingProperty: missing17},message:"must have required property '"+missing17+"'"}];
 return false;
 }
 else {
-const _errs140 = errors;
-for(const key8 in data47){
+const _errs146 = errors;
+for(const key8 in data49){
 if(!(((((((key8 === "adjudicator") || (key8 === "fallbackAdjudicator")) || (key8 === "appealAdjudicator")) || (key8 === "policyId")) || (key8 === "fee")) || (key8 === "registryHash")) || (key8 === "policyHash"))){
 validate29.errors = [{instancePath:instancePath+"/adjudication",schemaPath:"#/properties/adjudication/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key8},message:"must NOT have additional properties"}];
 return false;
 break;
 }
 }
-if(_errs140 === errors){
-if(data47.adjudicator !== undefined){
-let data48 = data47.adjudicator;
-const _errs141 = errors;
-const _errs142 = errors;
-const _errs143 = errors;
-if(errors === _errs142){
-if(typeof data48 === "string"){
-if(!pattern0.test(data48)){
+if(_errs146 === errors){
+if(data49.adjudicator !== undefined){
+let data50 = data49.adjudicator;
+const _errs147 = errors;
+const _errs148 = errors;
+const _errs149 = errors;
+if(errors === _errs148){
+if(typeof data50 === "string"){
+if(!pattern0.test(data50)){
 validate29.errors = [{instancePath:instancePath+"/adjudication/adjudicator",schemaPath:"common.schema.json#/$defs/Address/pattern",keyword:"pattern",params:{pattern: "^0x[0-9a-fA-F]{40}$"},message:"must match pattern \""+"^0x[0-9a-fA-F]{40}$"+"\""}];
 return false;
 }
@@ -11341,26 +11401,26 @@ else {
 validate29.errors = [{instancePath:instancePath+"/adjudication/adjudicator",schemaPath:"common.schema.json#/$defs/Address/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs142){
+if(errors === _errs148){
 }
 }
-var valid36 = _errs142 === errors;
-if(valid36){
+var valid38 = _errs148 === errors;
+if(valid38){
 }
-var valid35 = _errs141 === errors;
+var valid37 = _errs147 === errors;
 }
 else {
-var valid35 = true;
+var valid37 = true;
 }
-if(valid35){
-if(data47.fallbackAdjudicator !== undefined){
-let data49 = data47.fallbackAdjudicator;
-const _errs144 = errors;
-const _errs145 = errors;
-const _errs146 = errors;
-if(errors === _errs145){
-if(typeof data49 === "string"){
-if(!pattern0.test(data49)){
+if(valid37){
+if(data49.fallbackAdjudicator !== undefined){
+let data51 = data49.fallbackAdjudicator;
+const _errs150 = errors;
+const _errs151 = errors;
+const _errs152 = errors;
+if(errors === _errs151){
+if(typeof data51 === "string"){
+if(!pattern0.test(data51)){
 validate29.errors = [{instancePath:instancePath+"/adjudication/fallbackAdjudicator",schemaPath:"common.schema.json#/$defs/Address/pattern",keyword:"pattern",params:{pattern: "^0x[0-9a-fA-F]{40}$"},message:"must match pattern \""+"^0x[0-9a-fA-F]{40}$"+"\""}];
 return false;
 }
@@ -11371,26 +11431,26 @@ else {
 validate29.errors = [{instancePath:instancePath+"/adjudication/fallbackAdjudicator",schemaPath:"common.schema.json#/$defs/Address/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs145){
+if(errors === _errs151){
 }
 }
-var valid37 = _errs145 === errors;
-if(valid37){
+var valid39 = _errs151 === errors;
+if(valid39){
 }
-var valid35 = _errs144 === errors;
+var valid37 = _errs150 === errors;
 }
 else {
-var valid35 = true;
+var valid37 = true;
 }
-if(valid35){
-if(data47.appealAdjudicator !== undefined){
-let data50 = data47.appealAdjudicator;
-const _errs147 = errors;
-const _errs148 = errors;
-const _errs149 = errors;
-if(errors === _errs148){
-if(typeof data50 === "string"){
-if(!pattern0.test(data50)){
+if(valid37){
+if(data49.appealAdjudicator !== undefined){
+let data52 = data49.appealAdjudicator;
+const _errs153 = errors;
+const _errs154 = errors;
+const _errs155 = errors;
+if(errors === _errs154){
+if(typeof data52 === "string"){
+if(!pattern0.test(data52)){
 validate29.errors = [{instancePath:instancePath+"/adjudication/appealAdjudicator",schemaPath:"common.schema.json#/$defs/Address/pattern",keyword:"pattern",params:{pattern: "^0x[0-9a-fA-F]{40}$"},message:"must match pattern \""+"^0x[0-9a-fA-F]{40}$"+"\""}];
 return false;
 }
@@ -11401,26 +11461,26 @@ else {
 validate29.errors = [{instancePath:instancePath+"/adjudication/appealAdjudicator",schemaPath:"common.schema.json#/$defs/Address/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs148){
+if(errors === _errs154){
 }
 }
-var valid38 = _errs148 === errors;
-if(valid38){
+var valid40 = _errs154 === errors;
+if(valid40){
 }
-var valid35 = _errs147 === errors;
+var valid37 = _errs153 === errors;
 }
 else {
-var valid35 = true;
+var valid37 = true;
 }
-if(valid35){
-if(data47.policyId !== undefined){
-let data51 = data47.policyId;
-const _errs150 = errors;
-const _errs151 = errors;
-const _errs152 = errors;
-if(errors === _errs150){
-if(typeof data51 === "string"){
-if(func1(data51) > 120){
+if(valid37){
+if(data49.policyId !== undefined){
+let data53 = data49.policyId;
+const _errs156 = errors;
+const _errs157 = errors;
+const _errs158 = errors;
+if(errors === _errs156){
+if(typeof data53 === "string"){
+if(func1(data53) > 120){
 validate29.errors = [{instancePath:instancePath+"/adjudication/policyId",schemaPath:"#/properties/adjudication/properties/policyId/maxLength",keyword:"maxLength",params:{limit: 120},message:"must NOT have more than 120 characters"}];
 return false;
 }
@@ -11431,38 +11491,38 @@ else {
 validate29.errors = [{instancePath:instancePath+"/adjudication/policyId",schemaPath:"#/properties/adjudication/properties/policyId/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs150){
+if(errors === _errs156){
 }
 }
-var valid35 = _errs150 === errors;
+var valid37 = _errs156 === errors;
 }
 else {
-var valid35 = true;
+var valid37 = true;
 }
-if(valid35){
-if(data47.fee !== undefined){
-let data52 = data47.fee;
-const _errs153 = errors;
-if(!(validate32(data52, {instancePath:instancePath+"/adjudication/fee",parentData:data47,parentDataProperty:"fee",rootData,dynamicAnchors}))){
+if(valid37){
+if(data49.fee !== undefined){
+let data54 = data49.fee;
+const _errs159 = errors;
+if(!(validate32(data54, {instancePath:instancePath+"/adjudication/fee",parentData:data49,parentDataProperty:"fee",rootData,dynamicAnchors}))){
 vErrors = vErrors === null ? validate32.errors : vErrors.concat(validate32.errors);
 errors = vErrors.length;
 }
 else {
 }
-var valid35 = _errs153 === errors;
+var valid37 = _errs159 === errors;
 }
 else {
-var valid35 = true;
+var valid37 = true;
 }
-if(valid35){
-if(data47.registryHash !== undefined){
-let data53 = data47.registryHash;
-const _errs154 = errors;
-const _errs155 = errors;
-const _errs156 = errors;
-if(errors === _errs155){
-if(typeof data53 === "string"){
-if(!pattern2.test(data53)){
+if(valid37){
+if(data49.registryHash !== undefined){
+let data55 = data49.registryHash;
+const _errs160 = errors;
+const _errs161 = errors;
+const _errs162 = errors;
+if(errors === _errs161){
+if(typeof data55 === "string"){
+if(!pattern2.test(data55)){
 validate29.errors = [{instancePath:instancePath+"/adjudication/registryHash",schemaPath:"common.schema.json#/$defs/Hex32/pattern",keyword:"pattern",params:{pattern: "^0x[0-9a-f]{64}$"},message:"must match pattern \""+"^0x[0-9a-f]{64}$"+"\""}];
 return false;
 }
@@ -11473,26 +11533,26 @@ else {
 validate29.errors = [{instancePath:instancePath+"/adjudication/registryHash",schemaPath:"common.schema.json#/$defs/Hex32/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs155){
+if(errors === _errs161){
 }
 }
-var valid39 = _errs155 === errors;
-if(valid39){
+var valid41 = _errs161 === errors;
+if(valid41){
 }
-var valid35 = _errs154 === errors;
+var valid37 = _errs160 === errors;
 }
 else {
-var valid35 = true;
+var valid37 = true;
 }
-if(valid35){
-if(data47.policyHash !== undefined){
-let data54 = data47.policyHash;
-const _errs157 = errors;
-const _errs158 = errors;
-const _errs159 = errors;
-if(errors === _errs158){
-if(typeof data54 === "string"){
-if(!pattern2.test(data54)){
+if(valid37){
+if(data49.policyHash !== undefined){
+let data56 = data49.policyHash;
+const _errs163 = errors;
+const _errs164 = errors;
+const _errs165 = errors;
+if(errors === _errs164){
+if(typeof data56 === "string"){
+if(!pattern2.test(data56)){
 validate29.errors = [{instancePath:instancePath+"/adjudication/policyHash",schemaPath:"common.schema.json#/$defs/Hex32/pattern",keyword:"pattern",params:{pattern: "^0x[0-9a-f]{64}$"},message:"must match pattern \""+"^0x[0-9a-f]{64}$"+"\""}];
 return false;
 }
@@ -11503,18 +11563,18 @@ else {
 validate29.errors = [{instancePath:instancePath+"/adjudication/policyHash",schemaPath:"common.schema.json#/$defs/Hex32/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs158){
+if(errors === _errs164){
 }
 }
-var valid40 = _errs158 === errors;
-if(valid40){
+var valid42 = _errs164 === errors;
+if(valid42){
 }
-var valid35 = _errs157 === errors;
+var valid37 = _errs163 === errors;
 }
 else {
-var valid35 = true;
+var valid37 = true;
 }
-if(valid35){
+if(valid37){
 }
 }
 }
@@ -11529,47 +11589,47 @@ else {
 validate29.errors = [{instancePath:instancePath+"/adjudication",schemaPath:"#/properties/adjudication/type",keyword:"type",params:{type: "object"},message:"must be object"}];
 return false;
 }
-if(errors === _errs138){
+if(errors === _errs144){
 }
 }
-var valid13 = _errs138 === errors;
+var valid13 = _errs144 === errors;
 }
 else {
 var valid13 = true;
 }
 if(valid13){
 if(data.timing !== undefined){
-let data55 = data.timing;
-const _errs160 = errors;
-const _errs161 = errors;
-if(errors === _errs160){
-if(data55 && typeof data55 == "object" && !Array.isArray(data55)){
+let data57 = data.timing;
+const _errs166 = errors;
+const _errs167 = errors;
+if(errors === _errs166){
+if(data57 && typeof data57 == "object" && !Array.isArray(data57)){
 let missing18;
-if(((((((((data55.offerExpiresAt === undefined) && (missing18 = "offerExpiresAt")) || ((data55.fundBy === undefined) && (missing18 = "fundBy"))) || ((data55.deliverBy === undefined) && (missing18 = "deliverBy"))) || ((data55.judgeBy === undefined) && (missing18 = "judgeBy"))) || ((data55.fallbackBy === undefined) && (missing18 = "fallbackBy"))) || ((data55.appealWindowSec === undefined) && (missing18 = "appealWindowSec"))) || ((data55.appealDecideSec === undefined) && (missing18 = "appealDecideSec"))) || ((data55.maxSubmissions === undefined) && (missing18 = "maxSubmissions"))){
+if(((((((((data57.offerExpiresAt === undefined) && (missing18 = "offerExpiresAt")) || ((data57.fundBy === undefined) && (missing18 = "fundBy"))) || ((data57.deliverBy === undefined) && (missing18 = "deliverBy"))) || ((data57.judgeBy === undefined) && (missing18 = "judgeBy"))) || ((data57.fallbackBy === undefined) && (missing18 = "fallbackBy"))) || ((data57.appealWindowSec === undefined) && (missing18 = "appealWindowSec"))) || ((data57.appealDecideSec === undefined) && (missing18 = "appealDecideSec"))) || ((data57.maxSubmissions === undefined) && (missing18 = "maxSubmissions"))){
 validate29.errors = [{instancePath:instancePath+"/timing",schemaPath:"#/properties/timing/required",keyword:"required",params:{missingProperty: missing18},message:"must have required property '"+missing18+"'"}];
 return false;
 }
 else {
-const _errs162 = errors;
-for(const key9 in data55){
+const _errs168 = errors;
+for(const key9 in data57){
 if(!(func0.call(schema74.properties.timing.properties, key9))){
 validate29.errors = [{instancePath:instancePath+"/timing",schemaPath:"#/properties/timing/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key9},message:"must NOT have additional properties"}];
 return false;
 break;
 }
 }
-if(_errs162 === errors){
-if(data55.offerExpiresAt !== undefined){
-let data56 = data55.offerExpiresAt;
-const _errs163 = errors;
-const _errs164 = errors;
-const _errs165 = errors;
-if(errors === _errs164){
-if((typeof data56 == "number") && (isFinite(data56))){
+if(_errs168 === errors){
+if(data57.offerExpiresAt !== undefined){
+let data58 = data57.offerExpiresAt;
+const _errs169 = errors;
+const _errs170 = errors;
+const _errs171 = errors;
+if(errors === _errs170){
+if((typeof data58 == "number") && (isFinite(data58))){
 }
-if(errors === _errs164){
-if(typeof data56 === "string"){
-if(!(formats2.validate(data56))){
+if(errors === _errs170){
+if(typeof data58 === "string"){
+if(!(formats2.validate(data58))){
 validate29.errors = [{instancePath:instancePath+"/timing/offerExpiresAt",schemaPath:"common.schema.json#/$defs/Timestamp/format",keyword:"format",params:{format: "date-time"},message:"must match format \""+"date-time"+"\""}];
 return false;
 }
@@ -11580,30 +11640,30 @@ else {
 validate29.errors = [{instancePath:instancePath+"/timing/offerExpiresAt",schemaPath:"common.schema.json#/$defs/Timestamp/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs164){
+if(errors === _errs170){
 }
 }
 }
-var valid42 = _errs164 === errors;
-if(valid42){
+var valid44 = _errs170 === errors;
+if(valid44){
 }
-var valid41 = _errs163 === errors;
+var valid43 = _errs169 === errors;
 }
 else {
-var valid41 = true;
+var valid43 = true;
 }
-if(valid41){
-if(data55.fundBy !== undefined){
-let data57 = data55.fundBy;
-const _errs166 = errors;
-const _errs167 = errors;
-const _errs168 = errors;
-if(errors === _errs167){
-if((typeof data57 == "number") && (isFinite(data57))){
+if(valid43){
+if(data57.fundBy !== undefined){
+let data59 = data57.fundBy;
+const _errs172 = errors;
+const _errs173 = errors;
+const _errs174 = errors;
+if(errors === _errs173){
+if((typeof data59 == "number") && (isFinite(data59))){
 }
-if(errors === _errs167){
-if(typeof data57 === "string"){
-if(!(formats2.validate(data57))){
+if(errors === _errs173){
+if(typeof data59 === "string"){
+if(!(formats2.validate(data59))){
 validate29.errors = [{instancePath:instancePath+"/timing/fundBy",schemaPath:"common.schema.json#/$defs/Timestamp/format",keyword:"format",params:{format: "date-time"},message:"must match format \""+"date-time"+"\""}];
 return false;
 }
@@ -11614,30 +11674,30 @@ else {
 validate29.errors = [{instancePath:instancePath+"/timing/fundBy",schemaPath:"common.schema.json#/$defs/Timestamp/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs167){
+if(errors === _errs173){
 }
 }
 }
-var valid43 = _errs167 === errors;
-if(valid43){
+var valid45 = _errs173 === errors;
+if(valid45){
 }
-var valid41 = _errs166 === errors;
+var valid43 = _errs172 === errors;
 }
 else {
-var valid41 = true;
+var valid43 = true;
 }
-if(valid41){
-if(data55.deliverBy !== undefined){
-let data58 = data55.deliverBy;
-const _errs169 = errors;
-const _errs170 = errors;
-const _errs171 = errors;
-if(errors === _errs170){
-if((typeof data58 == "number") && (isFinite(data58))){
+if(valid43){
+if(data57.deliverBy !== undefined){
+let data60 = data57.deliverBy;
+const _errs175 = errors;
+const _errs176 = errors;
+const _errs177 = errors;
+if(errors === _errs176){
+if((typeof data60 == "number") && (isFinite(data60))){
 }
-if(errors === _errs170){
-if(typeof data58 === "string"){
-if(!(formats2.validate(data58))){
+if(errors === _errs176){
+if(typeof data60 === "string"){
+if(!(formats2.validate(data60))){
 validate29.errors = [{instancePath:instancePath+"/timing/deliverBy",schemaPath:"common.schema.json#/$defs/Timestamp/format",keyword:"format",params:{format: "date-time"},message:"must match format \""+"date-time"+"\""}];
 return false;
 }
@@ -11648,30 +11708,30 @@ else {
 validate29.errors = [{instancePath:instancePath+"/timing/deliverBy",schemaPath:"common.schema.json#/$defs/Timestamp/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs170){
+if(errors === _errs176){
 }
 }
 }
-var valid44 = _errs170 === errors;
-if(valid44){
+var valid46 = _errs176 === errors;
+if(valid46){
 }
-var valid41 = _errs169 === errors;
+var valid43 = _errs175 === errors;
 }
 else {
-var valid41 = true;
+var valid43 = true;
 }
-if(valid41){
-if(data55.judgeBy !== undefined){
-let data59 = data55.judgeBy;
-const _errs172 = errors;
-const _errs173 = errors;
-const _errs174 = errors;
-if(errors === _errs173){
-if((typeof data59 == "number") && (isFinite(data59))){
+if(valid43){
+if(data57.judgeBy !== undefined){
+let data61 = data57.judgeBy;
+const _errs178 = errors;
+const _errs179 = errors;
+const _errs180 = errors;
+if(errors === _errs179){
+if((typeof data61 == "number") && (isFinite(data61))){
 }
-if(errors === _errs173){
-if(typeof data59 === "string"){
-if(!(formats2.validate(data59))){
+if(errors === _errs179){
+if(typeof data61 === "string"){
+if(!(formats2.validate(data61))){
 validate29.errors = [{instancePath:instancePath+"/timing/judgeBy",schemaPath:"common.schema.json#/$defs/Timestamp/format",keyword:"format",params:{format: "date-time"},message:"must match format \""+"date-time"+"\""}];
 return false;
 }
@@ -11682,30 +11742,30 @@ else {
 validate29.errors = [{instancePath:instancePath+"/timing/judgeBy",schemaPath:"common.schema.json#/$defs/Timestamp/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs173){
+if(errors === _errs179){
 }
 }
 }
-var valid45 = _errs173 === errors;
-if(valid45){
+var valid47 = _errs179 === errors;
+if(valid47){
 }
-var valid41 = _errs172 === errors;
+var valid43 = _errs178 === errors;
 }
 else {
-var valid41 = true;
+var valid43 = true;
 }
-if(valid41){
-if(data55.fallbackBy !== undefined){
-let data60 = data55.fallbackBy;
-const _errs175 = errors;
-const _errs176 = errors;
-const _errs177 = errors;
-if(errors === _errs176){
-if((typeof data60 == "number") && (isFinite(data60))){
+if(valid43){
+if(data57.fallbackBy !== undefined){
+let data62 = data57.fallbackBy;
+const _errs181 = errors;
+const _errs182 = errors;
+const _errs183 = errors;
+if(errors === _errs182){
+if((typeof data62 == "number") && (isFinite(data62))){
 }
-if(errors === _errs176){
-if(typeof data60 === "string"){
-if(!(formats2.validate(data60))){
+if(errors === _errs182){
+if(typeof data62 === "string"){
+if(!(formats2.validate(data62))){
 validate29.errors = [{instancePath:instancePath+"/timing/fallbackBy",schemaPath:"common.schema.json#/$defs/Timestamp/format",keyword:"format",params:{format: "date-time"},message:"must match format \""+"date-time"+"\""}];
 return false;
 }
@@ -11716,87 +11776,87 @@ else {
 validate29.errors = [{instancePath:instancePath+"/timing/fallbackBy",schemaPath:"common.schema.json#/$defs/Timestamp/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs176){
+if(errors === _errs182){
 }
 }
 }
-var valid46 = _errs176 === errors;
-if(valid46){
+var valid48 = _errs182 === errors;
+if(valid48){
 }
-var valid41 = _errs175 === errors;
+var valid43 = _errs181 === errors;
 }
 else {
-var valid41 = true;
+var valid43 = true;
 }
-if(valid41){
-if(data55.appealWindowSec !== undefined){
-let data61 = data55.appealWindowSec;
-const _errs178 = errors;
-if(!(((typeof data61 == "number") && (!(data61 % 1) && !isNaN(data61))) && (isFinite(data61)))){
+if(valid43){
+if(data57.appealWindowSec !== undefined){
+let data63 = data57.appealWindowSec;
+const _errs184 = errors;
+if(!(((typeof data63 == "number") && (!(data63 % 1) && !isNaN(data63))) && (isFinite(data63)))){
 validate29.errors = [{instancePath:instancePath+"/timing/appealWindowSec",schemaPath:"#/properties/timing/properties/appealWindowSec/type",keyword:"type",params:{type: "integer"},message:"must be integer"}];
 return false;
 }
-const _errs179 = errors;
-if(errors === _errs178){
-if((typeof data61 == "number") && (isFinite(data61))){
-if(data61 < 1 || isNaN(data61)){
-validate29.errors = [{instancePath:instancePath+"/timing/appealWindowSec",schemaPath:"#/properties/timing/properties/appealWindowSec/minimum",keyword:"minimum",params:{comparison: ">=", limit: 1},message:"must be >= 1"}];
+const _errs185 = errors;
+if(errors === _errs184){
+if((typeof data63 == "number") && (isFinite(data63))){
+if(data63 < 0 || isNaN(data63)){
+validate29.errors = [{instancePath:instancePath+"/timing/appealWindowSec",schemaPath:"#/properties/timing/properties/appealWindowSec/minimum",keyword:"minimum",params:{comparison: ">=", limit: 0},message:"must be >= 0"}];
 return false;
 }
 else {
 }
 }
-if(errors === _errs178){
+if(errors === _errs184){
 }
 }
-var valid41 = _errs178 === errors;
+var valid43 = _errs184 === errors;
 }
 else {
-var valid41 = true;
+var valid43 = true;
 }
-if(valid41){
-if(data55.appealDecideSec !== undefined){
-let data62 = data55.appealDecideSec;
-const _errs180 = errors;
-if(!(((typeof data62 == "number") && (!(data62 % 1) && !isNaN(data62))) && (isFinite(data62)))){
+if(valid43){
+if(data57.appealDecideSec !== undefined){
+let data64 = data57.appealDecideSec;
+const _errs186 = errors;
+if(!(((typeof data64 == "number") && (!(data64 % 1) && !isNaN(data64))) && (isFinite(data64)))){
 validate29.errors = [{instancePath:instancePath+"/timing/appealDecideSec",schemaPath:"#/properties/timing/properties/appealDecideSec/type",keyword:"type",params:{type: "integer"},message:"must be integer"}];
 return false;
 }
-const _errs181 = errors;
-if(errors === _errs180){
-if((typeof data62 == "number") && (isFinite(data62))){
-if(data62 < 1 || isNaN(data62)){
+const _errs187 = errors;
+if(errors === _errs186){
+if((typeof data64 == "number") && (isFinite(data64))){
+if(data64 < 1 || isNaN(data64)){
 validate29.errors = [{instancePath:instancePath+"/timing/appealDecideSec",schemaPath:"#/properties/timing/properties/appealDecideSec/minimum",keyword:"minimum",params:{comparison: ">=", limit: 1},message:"must be >= 1"}];
 return false;
 }
 else {
 }
 }
-if(errors === _errs180){
+if(errors === _errs186){
 }
 }
-var valid41 = _errs180 === errors;
+var valid43 = _errs186 === errors;
 }
 else {
-var valid41 = true;
+var valid43 = true;
 }
-if(valid41){
-if(data55.maxSubmissions !== undefined){
-let data63 = data55.maxSubmissions;
-const _errs182 = errors;
-if(!(((typeof data63 == "number") && (!(data63 % 1) && !isNaN(data63))) && (isFinite(data63)))){
+if(valid43){
+if(data57.maxSubmissions !== undefined){
+let data65 = data57.maxSubmissions;
+const _errs188 = errors;
+if(!(((typeof data65 == "number") && (!(data65 % 1) && !isNaN(data65))) && (isFinite(data65)))){
 validate29.errors = [{instancePath:instancePath+"/timing/maxSubmissions",schemaPath:"#/properties/timing/properties/maxSubmissions/type",keyword:"type",params:{type: "integer"},message:"must be integer"}];
 return false;
 }
-const _errs183 = errors;
-if(errors === _errs182){
-if((typeof data63 == "number") && (isFinite(data63))){
-if(data63 > 3 || isNaN(data63)){
+const _errs189 = errors;
+if(errors === _errs188){
+if((typeof data65 == "number") && (isFinite(data65))){
+if(data65 > 3 || isNaN(data65)){
 validate29.errors = [{instancePath:instancePath+"/timing/maxSubmissions",schemaPath:"#/properties/timing/properties/maxSubmissions/maximum",keyword:"maximum",params:{comparison: "<=", limit: 3},message:"must be <= 3"}];
 return false;
 }
 else {
-if(data63 < 1 || isNaN(data63)){
+if(data65 < 1 || isNaN(data65)){
 validate29.errors = [{instancePath:instancePath+"/timing/maxSubmissions",schemaPath:"#/properties/timing/properties/maxSubmissions/minimum",keyword:"minimum",params:{comparison: ">=", limit: 1},message:"must be >= 1"}];
 return false;
 }
@@ -11804,26 +11864,26 @@ else {
 }
 }
 }
-if(errors === _errs182){
+if(errors === _errs188){
 }
 }
-var valid41 = _errs182 === errors;
+var valid43 = _errs188 === errors;
 }
 else {
-var valid41 = true;
+var valid43 = true;
 }
-if(valid41){
-if(data55.disputeBy !== undefined){
-let data64 = data55.disputeBy;
-const _errs184 = errors;
-const _errs185 = errors;
-const _errs186 = errors;
-if(errors === _errs185){
-if((typeof data64 == "number") && (isFinite(data64))){
+if(valid43){
+if(data57.disputeBy !== undefined){
+let data66 = data57.disputeBy;
+const _errs190 = errors;
+const _errs191 = errors;
+const _errs192 = errors;
+if(errors === _errs191){
+if((typeof data66 == "number") && (isFinite(data66))){
 }
-if(errors === _errs185){
-if(typeof data64 === "string"){
-if(!(formats2.validate(data64))){
+if(errors === _errs191){
+if(typeof data66 === "string"){
+if(!(formats2.validate(data66))){
 validate29.errors = [{instancePath:instancePath+"/timing/disputeBy",schemaPath:"common.schema.json#/$defs/Timestamp/format",keyword:"format",params:{format: "date-time"},message:"must match format \""+"date-time"+"\""}];
 return false;
 }
@@ -11834,71 +11894,71 @@ else {
 validate29.errors = [{instancePath:instancePath+"/timing/disputeBy",schemaPath:"common.schema.json#/$defs/Timestamp/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs185){
+if(errors === _errs191){
 }
 }
 }
-var valid47 = _errs185 === errors;
-if(valid47){
+var valid49 = _errs191 === errors;
+if(valid49){
 }
-var valid41 = _errs184 === errors;
+var valid43 = _errs190 === errors;
 }
 else {
-var valid41 = true;
+var valid43 = true;
 }
-if(valid41){
-if(data55.disputeJudgeSec !== undefined){
-let data65 = data55.disputeJudgeSec;
-const _errs187 = errors;
-if(!(((typeof data65 == "number") && (!(data65 % 1) && !isNaN(data65))) && (isFinite(data65)))){
+if(valid43){
+if(data57.disputeJudgeSec !== undefined){
+let data67 = data57.disputeJudgeSec;
+const _errs193 = errors;
+if(!(((typeof data67 == "number") && (!(data67 % 1) && !isNaN(data67))) && (isFinite(data67)))){
 validate29.errors = [{instancePath:instancePath+"/timing/disputeJudgeSec",schemaPath:"#/properties/timing/properties/disputeJudgeSec/type",keyword:"type",params:{type: "integer"},message:"must be integer"}];
 return false;
 }
-const _errs188 = errors;
-if(errors === _errs187){
-if((typeof data65 == "number") && (isFinite(data65))){
-if(data65 < 1 || isNaN(data65)){
+const _errs194 = errors;
+if(errors === _errs193){
+if((typeof data67 == "number") && (isFinite(data67))){
+if(data67 < 1 || isNaN(data67)){
 validate29.errors = [{instancePath:instancePath+"/timing/disputeJudgeSec",schemaPath:"#/properties/timing/properties/disputeJudgeSec/minimum",keyword:"minimum",params:{comparison: ">=", limit: 1},message:"must be >= 1"}];
 return false;
 }
 else {
 }
 }
-if(errors === _errs187){
+if(errors === _errs193){
 }
 }
-var valid41 = _errs187 === errors;
+var valid43 = _errs193 === errors;
 }
 else {
-var valid41 = true;
+var valid43 = true;
 }
-if(valid41){
-if(data55.disputeFallbackSec !== undefined){
-let data66 = data55.disputeFallbackSec;
-const _errs189 = errors;
-if(!(((typeof data66 == "number") && (!(data66 % 1) && !isNaN(data66))) && (isFinite(data66)))){
+if(valid43){
+if(data57.disputeFallbackSec !== undefined){
+let data68 = data57.disputeFallbackSec;
+const _errs195 = errors;
+if(!(((typeof data68 == "number") && (!(data68 % 1) && !isNaN(data68))) && (isFinite(data68)))){
 validate29.errors = [{instancePath:instancePath+"/timing/disputeFallbackSec",schemaPath:"#/properties/timing/properties/disputeFallbackSec/type",keyword:"type",params:{type: "integer"},message:"must be integer"}];
 return false;
 }
-const _errs190 = errors;
-if(errors === _errs189){
-if((typeof data66 == "number") && (isFinite(data66))){
-if(data66 < 1 || isNaN(data66)){
+const _errs196 = errors;
+if(errors === _errs195){
+if((typeof data68 == "number") && (isFinite(data68))){
+if(data68 < 1 || isNaN(data68)){
 validate29.errors = [{instancePath:instancePath+"/timing/disputeFallbackSec",schemaPath:"#/properties/timing/properties/disputeFallbackSec/minimum",keyword:"minimum",params:{comparison: ">=", limit: 1},message:"must be >= 1"}];
 return false;
 }
 else {
 }
 }
-if(errors === _errs189){
+if(errors === _errs195){
 }
 }
-var valid41 = _errs189 === errors;
+var valid43 = _errs195 === errors;
 }
 else {
-var valid41 = true;
+var valid43 = true;
 }
-if(valid41){
+if(valid43){
 }
 }
 }
@@ -11917,66 +11977,66 @@ else {
 validate29.errors = [{instancePath:instancePath+"/timing",schemaPath:"#/properties/timing/type",keyword:"type",params:{type: "object"},message:"must be object"}];
 return false;
 }
-if(errors === _errs160){
+if(errors === _errs166){
 }
 }
-var valid13 = _errs160 === errors;
+var valid13 = _errs166 === errors;
 }
 else {
 var valid13 = true;
 }
 if(valid13){
 if(data.settlement !== undefined){
-let data67 = data.settlement;
-const _errs191 = errors;
-const _errs192 = errors;
-if(errors === _errs191){
-if(data67 && typeof data67 == "object" && !Array.isArray(data67)){
+let data69 = data.settlement;
+const _errs197 = errors;
+const _errs198 = errors;
+if(errors === _errs197){
+if(data69 && typeof data69 == "object" && !Array.isArray(data69)){
 let missing19;
-if(((data67.mode === undefined) && (missing19 = "mode")) || ((data67.token === undefined) && (missing19 = "token"))){
+if(((data69.mode === undefined) && (missing19 = "mode")) || ((data69.token === undefined) && (missing19 = "token"))){
 validate29.errors = [{instancePath:instancePath+"/settlement",schemaPath:"#/properties/settlement/required",keyword:"required",params:{missingProperty: missing19},message:"must have required property '"+missing19+"'"}];
 return false;
 }
 else {
-const _errs193 = errors;
-for(const key10 in data67){
+const _errs199 = errors;
+for(const key10 in data69){
 if(!((key10 === "mode") || (key10 === "token"))){
 validate29.errors = [{instancePath:instancePath+"/settlement",schemaPath:"#/properties/settlement/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key10},message:"must NOT have additional properties"}];
 return false;
 break;
 }
 }
-if(_errs193 === errors){
-if(data67.mode !== undefined){
-let data68 = data67.mode;
-const _errs194 = errors;
-const _errs195 = errors;
+if(_errs199 === errors){
+if(data69.mode !== undefined){
+let data70 = data69.mode;
+const _errs200 = errors;
+const _errs201 = errors;
 const vSchema2 = schema53.enum;
-if(!(((data68 === "guaranteed_on_decision") || (data68 === "settle_after_window")) || (data68 === "optimistic"))){
+if(!(((data70 === "guaranteed_on_decision") || (data70 === "settle_after_window")) || (data70 === "optimistic"))){
 validate29.errors = [{instancePath:instancePath+"/settlement/mode",schemaPath:"common.schema.json#/$defs/SettlementMode/enum",keyword:"enum",params:{allowedValues: schema53.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
 }
-if(errors === _errs195){
+if(errors === _errs201){
 }
-var valid49 = _errs195 === errors;
-if(valid49){
+var valid51 = _errs201 === errors;
+if(valid51){
 }
-var valid48 = _errs194 === errors;
+var valid50 = _errs200 === errors;
 }
 else {
-var valid48 = true;
+var valid50 = true;
 }
-if(valid48){
-if(data67.token !== undefined){
-let data69 = data67.token;
-const _errs196 = errors;
-const _errs197 = errors;
-const _errs198 = errors;
-if(errors === _errs197){
-if(typeof data69 === "string"){
-if(!pattern8.test(data69)){
+if(valid50){
+if(data69.token !== undefined){
+let data71 = data69.token;
+const _errs202 = errors;
+const _errs203 = errors;
+const _errs204 = errors;
+if(errors === _errs203){
+if(typeof data71 === "string"){
+if(!pattern8.test(data71)){
 validate29.errors = [{instancePath:instancePath+"/settlement/token",schemaPath:"common.schema.json#/$defs/TokenId/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9._:-]{1,64}$"},message:"must match pattern \""+"^[A-Za-z0-9._:-]{1,64}$"+"\""}];
 return false;
 }
@@ -11987,18 +12047,18 @@ else {
 validate29.errors = [{instancePath:instancePath+"/settlement/token",schemaPath:"common.schema.json#/$defs/TokenId/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs197){
+if(errors === _errs203){
 }
 }
-var valid50 = _errs197 === errors;
-if(valid50){
+var valid52 = _errs203 === errors;
+if(valid52){
 }
-var valid48 = _errs196 === errors;
+var valid50 = _errs202 === errors;
 }
 else {
-var valid48 = true;
+var valid50 = true;
 }
-if(valid48){
+if(valid50){
 }
 }
 }
@@ -12008,53 +12068,53 @@ else {
 validate29.errors = [{instancePath:instancePath+"/settlement",schemaPath:"#/properties/settlement/type",keyword:"type",params:{type: "object"},message:"must be object"}];
 return false;
 }
-if(errors === _errs191){
+if(errors === _errs197){
 }
 }
-var valid13 = _errs191 === errors;
+var valid13 = _errs197 === errors;
 }
 else {
 var valid13 = true;
 }
 if(valid13){
 if(data.remedy !== undefined){
-let data70 = data.remedy;
-const _errs199 = errors;
-const _errs200 = errors;
-if(errors === _errs199){
-if(data70 && typeof data70 == "object" && !Array.isArray(data70)){
+let data72 = data.remedy;
+const _errs205 = errors;
+const _errs206 = errors;
+if(errors === _errs205){
+if(data72 && typeof data72 == "object" && !Array.isArray(data72)){
 let missing20;
-if((data70.onReject === undefined) && (missing20 = "onReject")){
+if((data72.onReject === undefined) && (missing20 = "onReject")){
 validate29.errors = [{instancePath:instancePath+"/remedy",schemaPath:"#/properties/remedy/required",keyword:"required",params:{missingProperty: missing20},message:"must have required property '"+missing20+"'"}];
 return false;
 }
 else {
-const _errs201 = errors;
-for(const key11 in data70){
+const _errs207 = errors;
+for(const key11 in data72){
 if(!(key11 === "onReject")){
 validate29.errors = [{instancePath:instancePath+"/remedy",schemaPath:"#/properties/remedy/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key11},message:"must NOT have additional properties"}];
 return false;
 break;
 }
 }
-if(_errs201 === errors){
-if(data70.onReject !== undefined){
-let data71 = data70.onReject;
-const _errs202 = errors;
-if("full_refund" !== data71){
+if(_errs207 === errors){
+if(data72.onReject !== undefined){
+let data73 = data72.onReject;
+const _errs208 = errors;
+if("full_refund" !== data73){
 validate29.errors = [{instancePath:instancePath+"/remedy/onReject",schemaPath:"#/properties/remedy/properties/onReject/const",keyword:"const",params:{allowedValue: "full_refund"},message:"must be equal to constant"}];
 return false;
 }
 else {
 }
-if(errors === _errs202){
+if(errors === _errs208){
 }
-var valid51 = _errs202 === errors;
+var valid53 = _errs208 === errors;
 }
 else {
-var valid51 = true;
+var valid53 = true;
 }
-if(valid51){
+if(valid53){
 }
 }
 }
@@ -12063,23 +12123,23 @@ else {
 validate29.errors = [{instancePath:instancePath+"/remedy",schemaPath:"#/properties/remedy/type",keyword:"type",params:{type: "object"},message:"must be object"}];
 return false;
 }
-if(errors === _errs199){
+if(errors === _errs205){
 }
 }
-var valid13 = _errs199 === errors;
+var valid13 = _errs205 === errors;
 }
 else {
 var valid13 = true;
 }
 if(valid13){
 if(data.buyerEncryptionPublicKey !== undefined){
-let data72 = data.buyerEncryptionPublicKey;
-const _errs203 = errors;
-const _errs204 = errors;
-const _errs205 = errors;
-if(errors === _errs204){
-if(typeof data72 === "string"){
-if(!pattern1.test(data72)){
+let data74 = data.buyerEncryptionPublicKey;
+const _errs209 = errors;
+const _errs210 = errors;
+const _errs211 = errors;
+if(errors === _errs210){
+if(typeof data74 === "string"){
+if(!pattern1.test(data74)){
 validate29.errors = [{instancePath:instancePath+"/buyerEncryptionPublicKey",schemaPath:"common.schema.json#/$defs/Base64Url/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]+$"},message:"must match pattern \""+"^[A-Za-z0-9_-]+$"+"\""}];
 return false;
 }
@@ -12090,71 +12150,7 @@ else {
 validate29.errors = [{instancePath:instancePath+"/buyerEncryptionPublicKey",schemaPath:"common.schema.json#/$defs/Base64Url/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs204){
-}
-}
-var valid52 = _errs204 === errors;
-if(valid52){
-}
-var valid13 = _errs203 === errors;
-}
-else {
-var valid13 = true;
-}
-if(valid13){
-if(data.nonce !== undefined){
-let data73 = data.nonce;
-const _errs206 = errors;
-const _errs207 = errors;
-const _errs208 = errors;
-if(errors === _errs207){
-if(typeof data73 === "string"){
-if(!pattern2.test(data73)){
-validate29.errors = [{instancePath:instancePath+"/nonce",schemaPath:"common.schema.json#/$defs/Hex32/pattern",keyword:"pattern",params:{pattern: "^0x[0-9a-f]{64}$"},message:"must match pattern \""+"^0x[0-9a-f]{64}$"+"\""}];
-return false;
-}
-else {
-}
-}
-else {
-validate29.errors = [{instancePath:instancePath+"/nonce",schemaPath:"common.schema.json#/$defs/Hex32/type",keyword:"type",params:{type: "string"},message:"must be string"}];
-return false;
-}
-if(errors === _errs207){
-}
-}
-var valid53 = _errs207 === errors;
-if(valid53){
-}
-var valid13 = _errs206 === errors;
-}
-else {
-var valid13 = true;
-}
-if(valid13){
-if(data.createdAt !== undefined){
-let data74 = data.createdAt;
-const _errs209 = errors;
-const _errs210 = errors;
-const _errs211 = errors;
 if(errors === _errs210){
-if((typeof data74 == "number") && (isFinite(data74))){
-}
-if(errors === _errs210){
-if(typeof data74 === "string"){
-if(!(formats2.validate(data74))){
-validate29.errors = [{instancePath:instancePath+"/createdAt",schemaPath:"common.schema.json#/$defs/Timestamp/format",keyword:"format",params:{format: "date-time"},message:"must match format \""+"date-time"+"\""}];
-return false;
-}
-else {
-}
-}
-else {
-validate29.errors = [{instancePath:instancePath+"/createdAt",schemaPath:"common.schema.json#/$defs/Timestamp/type",keyword:"type",params:{type: "string"},message:"must be string"}];
-return false;
-}
-if(errors === _errs210){
-}
 }
 }
 var valid54 = _errs210 === errors;
@@ -12166,35 +12162,99 @@ else {
 var valid13 = true;
 }
 if(valid13){
-if(data.signatures !== undefined){
-let data75 = data.signatures;
+if(data.nonce !== undefined){
+let data75 = data.nonce;
 const _errs212 = errors;
 const _errs213 = errors;
-if(errors === _errs212){
-if(data75 && typeof data75 == "object" && !Array.isArray(data75)){
+const _errs214 = errors;
+if(errors === _errs213){
+if(typeof data75 === "string"){
+if(!pattern2.test(data75)){
+validate29.errors = [{instancePath:instancePath+"/nonce",schemaPath:"common.schema.json#/$defs/Hex32/pattern",keyword:"pattern",params:{pattern: "^0x[0-9a-f]{64}$"},message:"must match pattern \""+"^0x[0-9a-f]{64}$"+"\""}];
+return false;
+}
+else {
+}
+}
+else {
+validate29.errors = [{instancePath:instancePath+"/nonce",schemaPath:"common.schema.json#/$defs/Hex32/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+if(errors === _errs213){
+}
+}
+var valid55 = _errs213 === errors;
+if(valid55){
+}
+var valid13 = _errs212 === errors;
+}
+else {
+var valid13 = true;
+}
+if(valid13){
+if(data.createdAt !== undefined){
+let data76 = data.createdAt;
+const _errs215 = errors;
+const _errs216 = errors;
+const _errs217 = errors;
+if(errors === _errs216){
+if((typeof data76 == "number") && (isFinite(data76))){
+}
+if(errors === _errs216){
+if(typeof data76 === "string"){
+if(!(formats2.validate(data76))){
+validate29.errors = [{instancePath:instancePath+"/createdAt",schemaPath:"common.schema.json#/$defs/Timestamp/format",keyword:"format",params:{format: "date-time"},message:"must match format \""+"date-time"+"\""}];
+return false;
+}
+else {
+}
+}
+else {
+validate29.errors = [{instancePath:instancePath+"/createdAt",schemaPath:"common.schema.json#/$defs/Timestamp/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+if(errors === _errs216){
+}
+}
+}
+var valid56 = _errs216 === errors;
+if(valid56){
+}
+var valid13 = _errs215 === errors;
+}
+else {
+var valid13 = true;
+}
+if(valid13){
+if(data.signatures !== undefined){
+let data77 = data.signatures;
+const _errs218 = errors;
+const _errs219 = errors;
+if(errors === _errs218){
+if(data77 && typeof data77 == "object" && !Array.isArray(data77)){
 let missing21;
-if((data75.seller === undefined) && (missing21 = "seller")){
+if((data77.seller === undefined) && (missing21 = "seller")){
 validate29.errors = [{instancePath:instancePath+"/signatures",schemaPath:"#/properties/signatures/required",keyword:"required",params:{missingProperty: missing21},message:"must have required property '"+missing21+"'"}];
 return false;
 }
 else {
-const _errs214 = errors;
-for(const key12 in data75){
+const _errs220 = errors;
+for(const key12 in data77){
 if(!((key12 === "seller") || (key12 === "buyer"))){
 validate29.errors = [{instancePath:instancePath+"/signatures",schemaPath:"#/properties/signatures/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key12},message:"must NOT have additional properties"}];
 return false;
 break;
 }
 }
-if(_errs214 === errors){
-if(data75.seller !== undefined){
-let data76 = data75.seller;
-const _errs215 = errors;
-const _errs216 = errors;
-const _errs217 = errors;
-if(errors === _errs216){
-if(typeof data76 === "string"){
-if(!pattern14.test(data76)){
+if(_errs220 === errors){
+if(data77.seller !== undefined){
+let data78 = data77.seller;
+const _errs221 = errors;
+const _errs222 = errors;
+const _errs223 = errors;
+if(errors === _errs222){
+if(typeof data78 === "string"){
+if(!pattern14.test(data78)){
 validate29.errors = [{instancePath:instancePath+"/signatures/seller",schemaPath:"common.schema.json#/$defs/Signature/pattern",keyword:"pattern",params:{pattern: "^0x[0-9a-f]{130}$"},message:"must match pattern \""+"^0x[0-9a-f]{130}$"+"\""}];
 return false;
 }
@@ -12205,26 +12265,26 @@ else {
 validate29.errors = [{instancePath:instancePath+"/signatures/seller",schemaPath:"common.schema.json#/$defs/Signature/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs216){
+if(errors === _errs222){
 }
 }
-var valid56 = _errs216 === errors;
-if(valid56){
+var valid58 = _errs222 === errors;
+if(valid58){
 }
-var valid55 = _errs215 === errors;
+var valid57 = _errs221 === errors;
 }
 else {
-var valid55 = true;
+var valid57 = true;
 }
-if(valid55){
-if(data75.buyer !== undefined){
-let data77 = data75.buyer;
-const _errs218 = errors;
-const _errs219 = errors;
-const _errs220 = errors;
-if(errors === _errs219){
-if(typeof data77 === "string"){
-if(!pattern14.test(data77)){
+if(valid57){
+if(data77.buyer !== undefined){
+let data79 = data77.buyer;
+const _errs224 = errors;
+const _errs225 = errors;
+const _errs226 = errors;
+if(errors === _errs225){
+if(typeof data79 === "string"){
+if(!pattern14.test(data79)){
 validate29.errors = [{instancePath:instancePath+"/signatures/buyer",schemaPath:"common.schema.json#/$defs/Signature/pattern",keyword:"pattern",params:{pattern: "^0x[0-9a-f]{130}$"},message:"must match pattern \""+"^0x[0-9a-f]{130}$"+"\""}];
 return false;
 }
@@ -12235,18 +12295,18 @@ else {
 validate29.errors = [{instancePath:instancePath+"/signatures/buyer",schemaPath:"common.schema.json#/$defs/Signature/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(errors === _errs219){
+if(errors === _errs225){
 }
 }
-var valid57 = _errs219 === errors;
-if(valid57){
+var valid59 = _errs225 === errors;
+if(valid59){
 }
-var valid55 = _errs218 === errors;
+var valid57 = _errs224 === errors;
 }
 else {
-var valid55 = true;
+var valid57 = true;
 }
-if(valid55){
+if(valid57){
 }
 }
 }
@@ -12256,95 +12316,20 @@ else {
 validate29.errors = [{instancePath:instancePath+"/signatures",schemaPath:"#/properties/signatures/type",keyword:"type",params:{type: "object"},message:"must be object"}];
 return false;
 }
-if(errors === _errs212){
+if(errors === _errs218){
 }
 }
-var valid13 = _errs212 === errors;
+var valid13 = _errs218 === errors;
 }
 else {
 var valid13 = true;
 }
 if(valid13){
 if(data.adjudicatorAcceptance !== undefined){
-let data78 = data.adjudicatorAcceptance;
-const _errs221 = errors;
-if(!(validate86(data78, {instancePath:instancePath+"/adjudicatorAcceptance",parentData:data,parentDataProperty:"adjudicatorAcceptance",rootData,dynamicAnchors}))){
-vErrors = vErrors === null ? validate86.errors : vErrors.concat(validate86.errors);
-errors = vErrors.length;
-}
-else {
-}
-var valid13 = _errs221 === errors;
-}
-else {
-var valid13 = true;
-}
-if(valid13){
-if(data.disclosure !== undefined){
-let data79 = data.disclosure;
-const _errs222 = errors;
-const _errs223 = errors;
-if(errors === _errs222){
-if(data79 && typeof data79 == "object" && !Array.isArray(data79)){
-let missing22;
-if((data79.level === undefined) && (missing22 = "level")){
-validate29.errors = [{instancePath:instancePath+"/disclosure",schemaPath:"#/properties/disclosure/required",keyword:"required",params:{missingProperty: missing22},message:"must have required property '"+missing22+"'"}];
-return false;
-}
-else {
-const _errs224 = errors;
-for(const key13 in data79){
-if(!(key13 === "level")){
-validate29.errors = [{instancePath:instancePath+"/disclosure",schemaPath:"#/properties/disclosure/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key13},message:"must NOT have additional properties"}];
-return false;
-break;
-}
-}
-if(_errs224 === errors){
-if(data79.level !== undefined){
-let data80 = data79.level;
-const _errs225 = errors;
-const _errs226 = errors;
-const vSchema3 = schema10.enum;
-if(!(((data80 === "private") || (data80 === "judgment")) || (data80 === "public"))){
-validate29.errors = [{instancePath:instancePath+"/disclosure/level",schemaPath:"common.schema.json#/$defs/DisclosureLevel/enum",keyword:"enum",params:{allowedValues: schema10.enum},message:"must be equal to one of the allowed values"}];
-return false;
-}
-else {
-}
-if(errors === _errs226){
-}
-var valid59 = _errs226 === errors;
-if(valid59){
-}
-var valid58 = _errs225 === errors;
-}
-else {
-var valid58 = true;
-}
-if(valid58){
-}
-}
-}
-}
-else {
-validate29.errors = [{instancePath:instancePath+"/disclosure",schemaPath:"#/properties/disclosure/type",keyword:"type",params:{type: "object"},message:"must be object"}];
-return false;
-}
-if(errors === _errs222){
-}
-}
-var valid13 = _errs222 === errors;
-}
-else {
-var valid13 = true;
-}
-if(valid13){
-if(data.privateTerms !== undefined){
-let data81 = data.privateTerms;
+let data80 = data.adjudicatorAcceptance;
 const _errs227 = errors;
-if(!(validate90(data81, {instancePath:instancePath+"/privateTerms",parentData:data,parentDataProperty:"privateTerms",rootData,dynamicAnchors}))){
-vErrors = vErrors === null ? validate90.errors : vErrors.concat(validate90.errors);
+if(!(validate86(data80, {instancePath:instancePath+"/adjudicatorAcceptance",parentData:data,parentDataProperty:"adjudicatorAcceptance",rootData,dynamicAnchors}))){
+vErrors = vErrors === null ? validate86.errors : vErrors.concat(validate86.errors);
 errors = vErrors.length;
 }
 else {
@@ -12355,6 +12340,83 @@ else {
 var valid13 = true;
 }
 if(valid13){
+if(data.disclosure !== undefined){
+let data81 = data.disclosure;
+const _errs228 = errors;
+const _errs229 = errors;
+if(errors === _errs228){
+if(data81 && typeof data81 == "object" && !Array.isArray(data81)){
+let missing22;
+if((data81.level === undefined) && (missing22 = "level")){
+validate29.errors = [{instancePath:instancePath+"/disclosure",schemaPath:"#/properties/disclosure/required",keyword:"required",params:{missingProperty: missing22},message:"must have required property '"+missing22+"'"}];
+return false;
+}
+else {
+const _errs230 = errors;
+for(const key13 in data81){
+if(!(key13 === "level")){
+validate29.errors = [{instancePath:instancePath+"/disclosure",schemaPath:"#/properties/disclosure/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key13},message:"must NOT have additional properties"}];
+return false;
+break;
+}
+}
+if(_errs230 === errors){
+if(data81.level !== undefined){
+let data82 = data81.level;
+const _errs231 = errors;
+const _errs232 = errors;
+const vSchema3 = schema10.enum;
+if(!(((data82 === "private") || (data82 === "judgment")) || (data82 === "public"))){
+validate29.errors = [{instancePath:instancePath+"/disclosure/level",schemaPath:"common.schema.json#/$defs/DisclosureLevel/enum",keyword:"enum",params:{allowedValues: schema10.enum},message:"must be equal to one of the allowed values"}];
+return false;
+}
+else {
+}
+if(errors === _errs232){
+}
+var valid61 = _errs232 === errors;
+if(valid61){
+}
+var valid60 = _errs231 === errors;
+}
+else {
+var valid60 = true;
+}
+if(valid60){
+}
+}
+}
+}
+else {
+validate29.errors = [{instancePath:instancePath+"/disclosure",schemaPath:"#/properties/disclosure/type",keyword:"type",params:{type: "object"},message:"must be object"}];
+return false;
+}
+if(errors === _errs228){
+}
+}
+var valid13 = _errs228 === errors;
+}
+else {
+var valid13 = true;
+}
+if(valid13){
+if(data.privateTerms !== undefined){
+let data83 = data.privateTerms;
+const _errs233 = errors;
+if(!(validate90(data83, {instancePath:instancePath+"/privateTerms",parentData:data,parentDataProperty:"privateTerms",rootData,dynamicAnchors}))){
+vErrors = vErrors === null ? validate90.errors : vErrors.concat(validate90.errors);
+errors = vErrors.length;
+}
+else {
+}
+var valid13 = _errs233 === errors;
+}
+else {
+var valid13 = true;
+}
+if(valid13){
+}
+}
 }
 }
 }
@@ -12391,17 +12453,17 @@ return errors === 0;
 validate29.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 exports.common = validate1;
-const schema1 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.10/common.schema.json","title":"Common definitions","$defs":{"Address":{"type":"string","pattern":"^0x[0-9a-fA-F]{40}$"},"Hex32":{"type":"string","pattern":"^0x[0-9a-f]{64}$","description":"32-byte value (keccak256 hash, EIP-712 struct hash, seed, nonce); lowercase, so each value has one spelling"},"Signature":{"type":"string","pattern":"^0x[0-9a-f]{130}$","description":"65-byte secp256k1 signature over EIP-712 typed data; lowercase"},"Sha256":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$","description":"SHA-256 of artifact bytes"},"Timestamp":{"type":"string","format":"date-time"},"Base64Url":{"type":"string","pattern":"^[A-Za-z0-9_-]+$"},"TokenAmount":{"type":"object","required":["token","amount"],"additionalProperties":false,"properties":{"token":{"$ref":"#/$defs/TokenId"},"amount":{"type":"string","pattern":"^(0|[1-9][0-9]{0,77})$","description":"Base units as a decimal string"}}},"SettlementMode":{"enum":["guaranteed_on_decision","settle_after_window","optimistic"]},"Scope":{"type":"object","required":["roles","maxPerCommitment","maxDaily","expiresAt"],"additionalProperties":false,"properties":{"roles":{"type":"array","minItems":1,"uniqueItems":true,"items":{"enum":["buyer","seller"]}},"maxPerCommitment":{"$ref":"#/$defs/TokenAmount"},"maxDaily":{"$ref":"#/$defs/TokenAmount"},"categories":{"type":"array","items":{"type":"string","maxLength":64,"x-holdback-untrusted":true}},"expiresAt":{"$ref":"#/$defs/Timestamp"}}},"RandomnessSource":{"enum":["sim","drand-quicknet","prevrandao"],"description":"Where fallback and appeal panel seeds come from (ADR-0018). Phase 1 admits sim only."},"DisclosureLevel":{"enum":["private","judgment","public"],"description":"Who may read a commitment's terms and records (ADR-0020). Default private (ADR-0024): the recipe and SDK choose it unless the parties pick another. At private and judgment the terms bodies travel as privateTerms ciphertext.","default":"private"},"KeyUnlock":{"type":"object","additionalProperties":false,"required":["kind"],"description":"When a recipient may open an encrypted key: at once, or once a beacon round is published (ADR-0020)","properties":{"kind":{"enum":["none","beacon-round"]},"round":{"type":"integer","minimum":0}},"if":{"type":"object","properties":{"kind":{"const":"beacon-round"}},"required":["kind"]},"then":{"type":"object","required":["round"],"properties":{"round":{}}},"else":{"type":"object","not":{"type":"object","required":["round"],"properties":{"round":{}}}}},"EncryptedKey":{"type":"object","additionalProperties":false,"required":["recipient","scheme","ciphertext"],"properties":{"recipient":{"$ref":"#/$defs/Address"},"scheme":{"const":"x25519-xsalsa20poly1305"},"ciphertext":{"$ref":"#/$defs/Base64Url"},"unlock":{"$ref":"#/$defs/KeyUnlock"}}},"PrivateBody":{"type":"object","additionalProperties":false,"required":["hash","envelopes"],"description":"A body kept off the public record: its keccak256 and the key envelopes for the parties allowed to read it (ADR-0020)","properties":{"hash":{"$ref":"#/$defs/Hex32"},"envelopes":{"type":"array","minItems":1,"items":{"$ref":"#/$defs/EncryptedKey"}}}},"PrivatePart":{"type":"object","additionalProperties":false,"required":["hash","ciphertext","envelopes"],"description":"One encrypted terms body (ADR-0024 §2). The plaintext is the RFC 8785 JSON of the body (UTF-8) and hash is its keccak256, the value the terms bind as deliverableHash or acceptanceHash. Encrypted with AES-256-GCM under its own 32-byte key with AAD = the commitment ID (32 bytes) followed by the part name (\"deliverable\" or \"acceptance\", UTF-8); ciphertext is iv (12 bytes) || ciphertext || tag (16 bytes), base64url. Each envelope seals that key (x25519-xsalsa20poly1305) to one reader.","properties":{"hash":{"$ref":"#/$defs/Hex32"},"ciphertext":{"type":"string","pattern":"^[A-Za-z0-9_-]+$","maxLength":1400000},"envelopes":{"type":"array","minItems":1,"maxItems":16,"items":{"$ref":"#/$defs/EncryptedKey"}}}},"PrivateTerms":{"type":"object","additionalProperties":false,"required":["deliverable","acceptance"],"description":"The two terms bodies as ciphertext, under separate keys so that judgment-level publication can disclose the acceptance while the deliverable stays private (ADR-0024 §2). Sealed to the buyer and the primary adjudicator at offer.","properties":{"deliverable":{"$ref":"#/$defs/PrivatePart"},"acceptance":{"$ref":"#/$defs/PrivatePart"}}},"ClubId":{"type":"string","pattern":"^[a-z0-9-]{3,64}$"},"TokenId":{"type":"string","pattern":"^[A-Za-z0-9._:-]{1,64}$","description":"Token identifier, e.g. tUSD on SimChain or an ERC-20 address on a chain"},"Ident":{"type":"string","pattern":"^[A-Za-z0-9._:/@-]{1,128}$","description":"An identifier chosen by a protocol actor: a judge, provider, family, model or version label. Constrained, so it cannot carry prose."},"Bps":{"type":"integer","minimum":0,"maximum":10000,"description":"Basis points: an integer share where 10000 is all (ADR-0022)"},"Fraction":{"type":"object","additionalProperties":false,"required":["numerator","denominator"],"description":"An exact ratio such as 2/3 (ADR-0022). Where a fraction is a supermajority, parsers also require numerator <= denominator and 2 x numerator > denominator.","properties":{"numerator":{"type":"integer","minimum":0},"denominator":{"type":"integer","minimum":1,"maximum":100}}},"Payout":{"type":"object","description":"One recipient of a mutual settlement and the amount it receives, in the price token (D23)","additionalProperties":false,"required":["to","amount"],"properties":{"to":{"$ref":"#/$defs/Address","description":"Any address both parties sign for: a party, another escrow, an arbiter"},"amount":{"allOf":[{"$ref":"#/$defs/TokenAmount"},{"type":"object","properties":{"amount":{"type":"string","pattern":"^[1-9][0-9]{0,77}$"}}}],"description":"Above zero"}}},"Payouts":{"type":"array","description":"One to eight payouts. Their sum must equal the price and every amount must be in the price token; the core parser refuses a recipient named twice (D23)","minItems":1,"maxItems":8,"items":{"$ref":"#/$defs/Payout"}}}};
+const schema1 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.11/common.schema.json","title":"Common definitions","$defs":{"Address":{"type":"string","pattern":"^0x[0-9a-fA-F]{40}$"},"Hex32":{"type":"string","pattern":"^0x[0-9a-f]{64}$","description":"32-byte value (keccak256 hash, EIP-712 struct hash, seed, nonce); lowercase, so each value has one spelling"},"Signature":{"type":"string","pattern":"^0x[0-9a-f]{130}$","description":"65-byte secp256k1 signature over EIP-712 typed data; lowercase"},"Sha256":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$","description":"SHA-256 of artifact bytes"},"Timestamp":{"type":"string","format":"date-time"},"Base64Url":{"type":"string","pattern":"^[A-Za-z0-9_-]+$"},"TokenAmount":{"type":"object","required":["token","amount"],"additionalProperties":false,"properties":{"token":{"$ref":"#/$defs/TokenId"},"amount":{"type":"string","pattern":"^(0|[1-9][0-9]{0,77})$","description":"Base units as a decimal string"}}},"SettlementMode":{"enum":["guaranteed_on_decision","settle_after_window","optimistic"]},"Scope":{"type":"object","required":["roles","maxPerCommitment","maxDaily","expiresAt"],"additionalProperties":false,"properties":{"roles":{"type":"array","minItems":1,"uniqueItems":true,"items":{"enum":["buyer","seller"]}},"maxPerCommitment":{"$ref":"#/$defs/TokenAmount"},"maxDaily":{"$ref":"#/$defs/TokenAmount"},"categories":{"type":"array","items":{"type":"string","maxLength":64,"x-holdback-untrusted":true}},"expiresAt":{"$ref":"#/$defs/Timestamp"}}},"RandomnessSource":{"enum":["sim","drand-quicknet","prevrandao"],"description":"Where fallback and appeal panel seeds come from (ADR-0018). Phase 1 admits sim only."},"DisclosureLevel":{"enum":["private","judgment","public"],"description":"Who may read a commitment's terms and records (ADR-0020). Default private (ADR-0024): the recipe and SDK choose it unless the parties pick another. At private and judgment the terms bodies travel as privateTerms ciphertext.","default":"private"},"KeyUnlock":{"type":"object","additionalProperties":false,"required":["kind"],"description":"When a recipient may open an encrypted key: at once, or once a beacon round is published (ADR-0020)","properties":{"kind":{"enum":["none","beacon-round"]},"round":{"type":"integer","minimum":0}},"if":{"type":"object","properties":{"kind":{"const":"beacon-round"}},"required":["kind"]},"then":{"type":"object","required":["round"],"properties":{"round":{}}},"else":{"type":"object","not":{"type":"object","required":["round"],"properties":{"round":{}}}}},"EncryptedKey":{"type":"object","additionalProperties":false,"required":["recipient","scheme","ciphertext"],"properties":{"recipient":{"$ref":"#/$defs/Address"},"scheme":{"const":"x25519-xsalsa20poly1305"},"ciphertext":{"$ref":"#/$defs/Base64Url"},"unlock":{"$ref":"#/$defs/KeyUnlock"}}},"PrivateBody":{"type":"object","additionalProperties":false,"required":["hash","envelopes"],"description":"A body kept off the public record: its keccak256 and the key envelopes for the parties allowed to read it (ADR-0020)","properties":{"hash":{"$ref":"#/$defs/Hex32"},"envelopes":{"type":"array","minItems":1,"items":{"$ref":"#/$defs/EncryptedKey"}}}},"PrivatePart":{"type":"object","additionalProperties":false,"required":["hash","ciphertext","envelopes"],"description":"One encrypted terms body (ADR-0024 §2). The plaintext is the RFC 8785 JSON of the body (UTF-8) and hash is its keccak256, the value the terms bind as deliverableHash or acceptanceHash. Encrypted with AES-256-GCM under its own 32-byte key with AAD = the commitment ID (32 bytes) followed by the part name (\"deliverable\" or \"acceptance\", UTF-8); ciphertext is iv (12 bytes) || ciphertext || tag (16 bytes), base64url. Each envelope seals that key (x25519-xsalsa20poly1305) to one reader.","properties":{"hash":{"$ref":"#/$defs/Hex32"},"ciphertext":{"type":"string","pattern":"^[A-Za-z0-9_-]+$","maxLength":1400000},"envelopes":{"type":"array","minItems":1,"maxItems":16,"items":{"$ref":"#/$defs/EncryptedKey"}}}},"PrivateTerms":{"type":"object","additionalProperties":false,"required":["deliverable","acceptance"],"description":"The two terms bodies as ciphertext, under separate keys so that judgment-level publication can disclose the acceptance while the deliverable stays private (ADR-0024 §2). Sealed to the buyer and the primary adjudicator at offer.","properties":{"deliverable":{"$ref":"#/$defs/PrivatePart"},"acceptance":{"$ref":"#/$defs/PrivatePart"}}},"ClubId":{"type":"string","pattern":"^[a-z0-9-]{3,64}$"},"TokenId":{"type":"string","pattern":"^[A-Za-z0-9._:-]{1,64}$","description":"Token identifier, e.g. tUSD on SimChain or an ERC-20 address on a chain"},"Ident":{"type":"string","pattern":"^[A-Za-z0-9._:/@-]{1,128}$","description":"An identifier chosen by a protocol actor: a judge, provider, family, model or version label. Constrained, so it cannot carry prose."},"Bps":{"type":"integer","minimum":0,"maximum":10000,"description":"Basis points: an integer share where 10000 is all (ADR-0022)"},"Fraction":{"type":"object","additionalProperties":false,"required":["numerator","denominator"],"description":"An exact ratio such as 2/3 (ADR-0022). Where a fraction is a supermajority, parsers also require numerator <= denominator and 2 x numerator > denominator.","properties":{"numerator":{"type":"integer","minimum":0},"denominator":{"type":"integer","minimum":1,"maximum":100}}},"Payout":{"type":"object","description":"One recipient of a mutual settlement and the amount it receives, in the price token (D23)","additionalProperties":false,"required":["to","amount"],"properties":{"to":{"$ref":"#/$defs/Address","description":"Any address both parties sign for: a party, another escrow, an arbiter"},"amount":{"allOf":[{"$ref":"#/$defs/TokenAmount"},{"type":"object","properties":{"amount":{"type":"string","pattern":"^[1-9][0-9]{0,77}$"}}}],"description":"Above zero"}}},"Payouts":{"type":"array","description":"One to eight payouts. Their sum must equal the price and every amount must be in the price token; the core parser refuses a recipient named twice (D23)","minItems":1,"maxItems":8,"items":{"$ref":"#/$defs/Payout"}}}};
 
 function validate1(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
-/*# sourceURL="https://holdback.dev/schemas/v0.10/common.schema.json" */;
+/*# sourceURL="https://holdback.dev/schemas/v0.11/common.schema.json" */;
 validate1.errors = null;
 return true;
 }
 validate1.evaluated = {"dynamicProps":false,"dynamicItems":false};
 
 exports.delivery = validate97;
-const schema275 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.10/delivery.schema.json","title":"Delivery (encrypted work + escrowed key)","type":"object","required":["commitmentId","attempt","ciphertext","plaintextSha256","plaintextMime","encryptedKeys","submittedAt","signature"],"additionalProperties":false,"properties":{"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"attempt":{"type":"integer","minimum":1,"maximum":3},"ciphertext":{"type":"object","additionalProperties":false,"required":["uri","sha256","bytes","cipher"],"properties":{"uri":{"type":"string","format":"uri","x-holdback-untrusted":true,"maxLength":2048},"sha256":{"$ref":"common.schema.json#/$defs/Sha256"},"bytes":{"type":"integer","minimum":1,"maximum":10485760},"cipher":{"const":"aes-256-gcm"}}},"plaintextSha256":{"$ref":"common.schema.json#/$defs/Sha256"},"plaintextMime":{"enum":["text/csv","application/json","text/plain","text/markdown"]},"encryptedKeys":{"type":"array","minItems":3,"items":{"$ref":"common.schema.json#/$defs/EncryptedKey"},"description":"The content key encrypted to the primary, fallback and appeal adjudicators, and to the buyer for early acceptance (ADR-0012, ADR-0016)"},"submittedAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
+const schema277 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.11/delivery.schema.json","title":"Delivery (encrypted work + escrowed key)","type":"object","required":["commitmentId","attempt","ciphertext","plaintextSha256","plaintextMime","encryptedKeys","submittedAt","signature"],"additionalProperties":false,"properties":{"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"attempt":{"type":"integer","minimum":1,"maximum":3},"ciphertext":{"type":"object","additionalProperties":false,"required":["uri","sha256","bytes","cipher"],"properties":{"uri":{"type":"string","format":"uri","x-holdback-untrusted":true,"maxLength":2048},"sha256":{"$ref":"common.schema.json#/$defs/Sha256"},"bytes":{"type":"integer","minimum":1,"maximum":10485760},"cipher":{"const":"aes-256-gcm"}}},"plaintextSha256":{"$ref":"common.schema.json#/$defs/Sha256"},"plaintextMime":{"enum":["text/csv","application/json","text/plain","text/markdown"]},"encryptedKeys":{"type":"array","minItems":3,"items":{"$ref":"common.schema.json#/$defs/EncryptedKey"},"description":"The content key encrypted to the primary, fallback and appeal adjudicators, and to the buyer for early acceptance (ADR-0012, ADR-0016)"},"submittedAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
 
 function validate98(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -12707,9 +12769,9 @@ if(_errs23 === errors){
 if(data3.kind !== undefined){
 let data5 = data3.kind;
 const _errs24 = errors;
-const vSchema0 = schema168.properties.kind.enum;
+const vSchema0 = schema170.properties.kind.enum;
 if(!((data5 === "none") || (data5 === "beacon-round"))){
-validate98.errors = [{instancePath:instancePath+"/unlock/kind",schemaPath:"#/$defs/KeyUnlock/properties/kind/enum",keyword:"enum",params:{allowedValues: schema168.properties.kind.enum},message:"must be equal to one of the allowed values"}];
+validate98.errors = [{instancePath:instancePath+"/unlock/kind",schemaPath:"#/$defs/KeyUnlock/properties/kind/enum",keyword:"enum",params:{allowedValues: schema170.properties.kind.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
@@ -12790,7 +12852,7 @@ validate98.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 
 function validate97(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
-/*# sourceURL="https://holdback.dev/schemas/v0.10/delivery.schema.json" */;
+/*# sourceURL="https://holdback.dev/schemas/v0.11/delivery.schema.json" */;
 let vErrors = null;
 let errors = 0;
 const evaluated0 = validate97.evaluated;
@@ -12945,7 +13007,7 @@ const _errs14 = errors;
 const _errs15 = errors;
 if(errors === _errs14){
 if(typeof data4 === "string"){
-if(!pattern47.test(data4)){
+if(!pattern49.test(data4)){
 validate97.errors = [{instancePath:instancePath+"/ciphertext/sha256",schemaPath:"common.schema.json#/$defs/Sha256/pattern",keyword:"pattern",params:{pattern: "^sha256:[0-9a-f]{64}$"},message:"must match pattern \""+"^sha256:[0-9a-f]{64}$"+"\""}];
 return false;
 }
@@ -13044,7 +13106,7 @@ const _errs20 = errors;
 const _errs21 = errors;
 if(errors === _errs20){
 if(typeof data7 === "string"){
-if(!pattern47.test(data7)){
+if(!pattern49.test(data7)){
 validate97.errors = [{instancePath:instancePath+"/plaintextSha256",schemaPath:"common.schema.json#/$defs/Sha256/pattern",keyword:"pattern",params:{pattern: "^sha256:[0-9a-f]{64}$"},message:"must match pattern \""+"^sha256:[0-9a-f]{64}$"+"\""}];
 return false;
 }
@@ -13070,9 +13132,9 @@ if(valid0){
 if(data.plaintextMime !== undefined){
 let data8 = data.plaintextMime;
 const _errs22 = errors;
-const vSchema0 = schema275.properties.plaintextMime.enum;
+const vSchema0 = schema277.properties.plaintextMime.enum;
 if(!((((data8 === "text/csv") || (data8 === "application/json")) || (data8 === "text/plain")) || (data8 === "text/markdown"))){
-validate97.errors = [{instancePath:instancePath+"/plaintextMime",schemaPath:"#/properties/plaintextMime/enum",keyword:"enum",params:{allowedValues: schema275.properties.plaintextMime.enum},message:"must be equal to one of the allowed values"}];
+validate97.errors = [{instancePath:instancePath+"/plaintextMime",schemaPath:"#/properties/plaintextMime/enum",keyword:"enum",params:{allowedValues: schema277.properties.plaintextMime.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
@@ -13217,10 +13279,10 @@ return errors === 0;
 validate97.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 exports.disclosure = validate100;
-const schema285 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.10/disclosure.schema.json","title":"Disclosure keys (POST /v1/commitments/{id}/disclosure)","description":"Publication of a private deal's bodies (ADR-0024 §3). Publish is unchanged and carries no key; the keys travel here. Posted with the co-signed Publish that raises the level, or later by either party once the level allows the part. The operator decrypts each part with its key and checks it against the hash the terms bind before it serves the plaintext; at judgment it serves the acceptance only, at public both bodies.","type":"object","additionalProperties":false,"required":["commitmentId","keys"],"properties":{"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"publish":{"$ref":"messages.schema.json#/$defs/Publish","description":"The co-signed Publish raising the level; absent when the level already allows the keys posted"},"keys":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"acceptanceKey":{"$ref":"#/$defs/BodyKey"},"deliverableKey":{"$ref":"#/$defs/BodyKey"},"recordKeys":{"type":"array","maxItems":16,"description":"Keys of sealed judgment records, by record hash. Reserved: records are sealed in a later slice of T-207","items":{"type":"object","additionalProperties":false,"required":["recordHash","key"],"properties":{"recordHash":{"$ref":"common.schema.json#/$defs/Hex32"},"key":{"$ref":"#/$defs/BodyKey"}}}}}}},"$defs":{"BodyKey":{"type":"string","pattern":"^[A-Za-z0-9_-]{43}$","description":"A 32-byte AES-256-GCM key, base64url without padding"}}};
-const schema294 = {"type":"string","pattern":"^[A-Za-z0-9_-]{43}$","description":"A 32-byte AES-256-GCM key, base64url without padding"};
-const pattern199 = new RegExp("^[A-Za-z0-9_-]{43}$", "u");
-const schema204 = {"type":"object","additionalProperties":false,"description":"Buyer and seller raise a commitment's disclosure level by agreement (ADR-0020). Both sign the identical struct. Raising only: the settlement layer refuses a level below the current one (T-006), which a schema cannot check.","required":["type","commitmentId","level","nonce","expiresAt","buyerSignature","sellerSignature"],"properties":{"type":{"const":"Publish"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"level":{"$ref":"common.schema.json#/$defs/DisclosureLevel"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"buyerSignature":{"$ref":"common.schema.json#/$defs/Signature"},"sellerSignature":{"$ref":"common.schema.json#/$defs/Signature"}}};
+const schema287 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.11/disclosure.schema.json","title":"Disclosure keys (POST /v1/commitments/{id}/disclosure)","description":"Publication of a private deal's bodies (ADR-0024 §3). Publish is unchanged and carries no key; the keys travel here. Posted with the co-signed Publish that raises the level, or later by either party once the level allows the part. The operator decrypts each part with its key and checks it against the hash the terms bind before it serves the plaintext; at judgment it serves the acceptance only, at public both bodies.","type":"object","additionalProperties":false,"required":["commitmentId","keys"],"properties":{"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"publish":{"$ref":"messages.schema.json#/$defs/Publish","description":"The co-signed Publish raising the level; absent when the level already allows the keys posted"},"keys":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"acceptanceKey":{"$ref":"#/$defs/BodyKey"},"deliverableKey":{"$ref":"#/$defs/BodyKey"},"recordKeys":{"type":"array","maxItems":16,"description":"Keys of sealed judgment records, by record hash. Reserved: records are sealed in a later slice of T-207","items":{"type":"object","additionalProperties":false,"required":["recordHash","key"],"properties":{"recordHash":{"$ref":"common.schema.json#/$defs/Hex32"},"key":{"$ref":"#/$defs/BodyKey"}}}}}}},"$defs":{"BodyKey":{"type":"string","pattern":"^[A-Za-z0-9_-]{43}$","description":"A 32-byte AES-256-GCM key, base64url without padding"}}};
+const schema296 = {"type":"string","pattern":"^[A-Za-z0-9_-]{43}$","description":"A 32-byte AES-256-GCM key, base64url without padding"};
+const pattern201 = new RegExp("^[A-Za-z0-9_-]{43}$", "u");
+const schema206 = {"type":"object","additionalProperties":false,"description":"Buyer and seller raise a commitment's disclosure level by agreement (ADR-0020). Both sign the identical struct. Raising only: the settlement layer refuses a level below the current one (T-006), which a schema cannot check.","required":["type","commitmentId","level","nonce","expiresAt","buyerSignature","sellerSignature"],"properties":{"type":{"const":"Publish"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"level":{"$ref":"common.schema.json#/$defs/DisclosureLevel"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"buyerSignature":{"$ref":"common.schema.json#/$defs/Signature"},"sellerSignature":{"$ref":"common.schema.json#/$defs/Signature"}}};
 
 function validate101(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -13467,7 +13529,7 @@ validate101.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false}
 
 
 function validate100(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
-/*# sourceURL="https://holdback.dev/schemas/v0.10/disclosure.schema.json" */;
+/*# sourceURL="https://holdback.dev/schemas/v0.11/disclosure.schema.json" */;
 let vErrors = null;
 let errors = 0;
 const evaluated0 = validate100.evaluated;
@@ -13567,7 +13629,7 @@ const _errs10 = errors;
 const _errs11 = errors;
 if(errors === _errs10){
 if(typeof data3 === "string"){
-if(!pattern199.test(data3)){
+if(!pattern201.test(data3)){
 validate100.errors = [{instancePath:instancePath+"/keys/acceptanceKey",schemaPath:"#/$defs/BodyKey/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]{43}$"},message:"must match pattern \""+"^[A-Za-z0-9_-]{43}$"+"\""}];
 return false;
 }
@@ -13597,7 +13659,7 @@ const _errs13 = errors;
 const _errs14 = errors;
 if(errors === _errs13){
 if(typeof data4 === "string"){
-if(!pattern199.test(data4)){
+if(!pattern201.test(data4)){
 validate100.errors = [{instancePath:instancePath+"/keys/deliverableKey",schemaPath:"#/$defs/BodyKey/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]{43}$"},message:"must match pattern \""+"^[A-Za-z0-9_-]{43}$"+"\""}];
 return false;
 }
@@ -13691,7 +13753,7 @@ const _errs24 = errors;
 const _errs25 = errors;
 if(errors === _errs24){
 if(typeof data8 === "string"){
-if(!pattern199.test(data8)){
+if(!pattern201.test(data8)){
 validate100.errors = [{instancePath:instancePath+"/keys/recordKeys/" + i0+"/key",schemaPath:"#/$defs/BodyKey/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]{43}$"},message:"must match pattern \""+"^[A-Za-z0-9_-]{43}$"+"\""}];
 return false;
 }
@@ -13786,10 +13848,10 @@ return errors === 0;
 validate100.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 exports.event = validate103;
-const schema298 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.10/event.schema.json","title":"Settlement event (hash-chained)","type":"object","required":["seq","type","at","payload","prevHash","hash"],"additionalProperties":false,"properties":{"seq":{"type":"integer","minimum":0},"type":{"enum":["club.registered","agent.registered","agent.revoked","adjudicator.registered","commitment.offered","adjudicator.accepted","member.admitted","member.revoked","commitment.agreed","offer.expired","hold.funded","delivery.submitted","judgment.decided","fallback.triggered","default.triggered","appeal.filed","appeal.decided","appeal.expired","settlement.released","settlement.refunded","settlement.reclaimed","key.released","bond.paid","bond.deposited","bond.withdrawn","bond.slashed","dispute.opened","commitment.settled","fee.operator"]},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"at":{"$ref":"common.schema.json#/$defs/Timestamp"},"actor":{"oneOf":[{"$ref":"common.schema.json#/$defs/Address"},{"const":"anyone"}]},"submittedVia":{"type":"string","description":"Operator id or 'direct'","x-holdback-untrusted":true,"maxLength":64},"payload":{"type":"object","description":"Event body. Offered and agreed events always carry termsHash, judgment and appeal decisions always carry recordHash; the bodies themselves are present only as the disclosure level allows (ADR-0020)"},"prevHash":{"$ref":"common.schema.json#/$defs/Hex32"},"hash":{"$ref":"common.schema.json#/$defs/Hex32"}},"$defs":{"ChainTx":{"type":"object","description":"The chain transaction a settlement event came from. An EVM settlement adds these to the payload of every event it reads from a block; SimChain has no transactions and omits them (v0.9)","properties":{"tx":{"$ref":"common.schema.json#/$defs/Hex32","description":"Transaction hash"},"block":{"type":"string","pattern":"^(0|[1-9][0-9]*)$","description":"Block number, decimal"},"sender":{"$ref":"common.schema.json#/$defs/Address","description":"The account that sent the transaction (a relayer or a party); never the authority for what the event records"},"gasUsed":{"type":"string","pattern":"^(0|[1-9][0-9]*)$","description":"Gas the transaction used, decimal"}}},"BondMovement":{"type":"object","$ref":"#/$defs/ChainTx","unevaluatedProperties":false,"required":["adjudicator","junior","senior"],"description":"Per-tranche amounts moved in or out of an adjudicator's pool (ADR-0014)","properties":{"adjudicator":{"$ref":"common.schema.json#/$defs/Address"},"backer":{"$ref":"common.schema.json#/$defs/Address"},"junior":{"$ref":"common.schema.json#/$defs/TokenAmount"},"senior":{"$ref":"common.schema.json#/$defs/TokenAmount"},"reason":{"enum":["deposit","withdrawal","overturn","default","appeal-upheld"]}}},"SettledSplit":{"type":"object","$ref":"#/$defs/ChainTx","unevaluatedProperties":false,"required":["payouts","keyReleased"],"properties":{"payouts":{"$ref":"common.schema.json#/$defs/Payouts"},"keyReleased":{"type":"boolean"}},"description":"The payouts a mutual settlement applied (ADR-0019, D23)"},"OperatorFeePaid":{"type":"object","$ref":"#/$defs/ChainTx","unevaluatedProperties":false,"required":["from","to","amount"],"description":"ADR-0023: the buyer's operator fee, moved from the buyer to the operator's fee address with the funded agreement, outside the hold; never refunded","properties":{"from":{"$ref":"common.schema.json#/$defs/Address"},"to":{"$ref":"common.schema.json#/$defs/Address"},"amount":{"$ref":"common.schema.json#/$defs/TokenAmount"},"postings":{"type":"array","description":"The ledger postings that moved it, as every settlement event lists them","items":{"type":"object"}}}}},"allOf":[{"if":{"type":"object","properties":{"type":{"const":"fee.operator"}},"required":["type"]},"then":{"type":"object","properties":{"payload":{"$ref":"#/$defs/OperatorFeePaid"}}}},{"if":{"properties":{"type":{"enum":["bond.deposited","bond.withdrawn","bond.slashed"]}},"required":["type"],"type":"object"},"then":{"properties":{"payload":{"$ref":"#/$defs/BondMovement"}},"type":"object"}},{"if":{"type":"object","properties":{"type":{"const":"commitment.settled"}},"required":["type"]},"then":{"type":"object","properties":{"payload":{"$ref":"#/$defs/SettledSplit"}}}},{"if":{"type":"object","properties":{"type":{"enum":["commitment.offered","commitment.agreed"]}},"required":["type"]},"then":{"type":"object","properties":{"payload":{"type":"object","required":["termsHash"],"properties":{"termsHash":{"$ref":"common.schema.json#/$defs/Hex32"}}}}}},{"if":{"type":"object","properties":{"type":{"enum":["judgment.decided","appeal.decided"]}},"required":["type"]},"then":{"type":"object","properties":{"payload":{"type":"object","required":["recordHash"],"properties":{"recordHash":{"$ref":"common.schema.json#/$defs/Hex32"}}}}}}]};
-const schema299 = {"type":"object","$ref":"#/$defs/ChainTx","unevaluatedProperties":false,"required":["from","to","amount"],"description":"ADR-0023: the buyer's operator fee, moved from the buyer to the operator's fee address with the funded agreement, outside the hold; never refunded","properties":{"from":{"$ref":"common.schema.json#/$defs/Address"},"to":{"$ref":"common.schema.json#/$defs/Address"},"amount":{"$ref":"common.schema.json#/$defs/TokenAmount"},"postings":{"type":"array","description":"The ledger postings that moved it, as every settlement event lists them","items":{"type":"object"}}}};
-const schema300 = {"type":"object","description":"The chain transaction a settlement event came from. An EVM settlement adds these to the payload of every event it reads from a block; SimChain has no transactions and omits them (v0.9)","properties":{"tx":{"$ref":"common.schema.json#/$defs/Hex32","description":"Transaction hash"},"block":{"type":"string","pattern":"^(0|[1-9][0-9]*)$","description":"Block number, decimal"},"sender":{"$ref":"common.schema.json#/$defs/Address","description":"The account that sent the transaction (a relayer or a party); never the authority for what the event records"},"gasUsed":{"type":"string","pattern":"^(0|[1-9][0-9]*)$","description":"Gas the transaction used, decimal"}}};
-const pattern204 = new RegExp("^(0|[1-9][0-9]*)$", "u");
+const schema300 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.11/event.schema.json","title":"Settlement event (hash-chained)","type":"object","required":["seq","type","at","payload","prevHash","hash"],"additionalProperties":false,"properties":{"seq":{"type":"integer","minimum":0},"type":{"enum":["club.registered","agent.registered","agent.revoked","adjudicator.registered","commitment.offered","adjudicator.accepted","member.admitted","member.revoked","commitment.agreed","offer.expired","hold.funded","delivery.submitted","judgment.decided","fallback.triggered","default.triggered","appeal.filed","appeal.decided","appeal.expired","settlement.released","settlement.refunded","settlement.reclaimed","key.released","bond.paid","bond.deposited","bond.withdrawn","bond.slashed","dispute.opened","commitment.settled","fee.operator"]},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"at":{"$ref":"common.schema.json#/$defs/Timestamp"},"actor":{"oneOf":[{"$ref":"common.schema.json#/$defs/Address"},{"const":"anyone"}]},"submittedVia":{"type":"string","description":"Operator id or 'direct'","x-holdback-untrusted":true,"maxLength":64},"payload":{"type":"object","description":"Event body. Offered and agreed events always carry termsHash, judgment and appeal decisions always carry recordHash; the bodies themselves are present only as the disclosure level allows (ADR-0020)"},"prevHash":{"$ref":"common.schema.json#/$defs/Hex32"},"hash":{"$ref":"common.schema.json#/$defs/Hex32"}},"$defs":{"ChainTx":{"type":"object","description":"The chain transaction a settlement event came from. An EVM settlement adds these to the payload of every event it reads from a block; SimChain has no transactions and omits them (v0.9)","properties":{"tx":{"$ref":"common.schema.json#/$defs/Hex32","description":"Transaction hash"},"block":{"type":"string","pattern":"^(0|[1-9][0-9]*)$","description":"Block number, decimal"},"sender":{"$ref":"common.schema.json#/$defs/Address","description":"The account that sent the transaction (a relayer or a party); never the authority for what the event records"},"gasUsed":{"type":"string","pattern":"^(0|[1-9][0-9]*)$","description":"Gas the transaction used, decimal"}}},"BondMovement":{"type":"object","$ref":"#/$defs/ChainTx","unevaluatedProperties":false,"required":["adjudicator","junior","senior"],"description":"Per-tranche amounts moved in or out of an adjudicator's pool (ADR-0014)","properties":{"adjudicator":{"$ref":"common.schema.json#/$defs/Address"},"backer":{"$ref":"common.schema.json#/$defs/Address"},"junior":{"$ref":"common.schema.json#/$defs/TokenAmount"},"senior":{"$ref":"common.schema.json#/$defs/TokenAmount"},"reason":{"enum":["deposit","withdrawal","overturn","default","appeal-upheld"]}}},"SettledSplit":{"type":"object","$ref":"#/$defs/ChainTx","unevaluatedProperties":false,"required":["payouts","keyReleased"],"properties":{"payouts":{"$ref":"common.schema.json#/$defs/Payouts"},"keyReleased":{"type":"boolean"}},"description":"The payouts a mutual settlement applied (ADR-0019, D23)"},"OperatorFeePaid":{"type":"object","$ref":"#/$defs/ChainTx","unevaluatedProperties":false,"required":["from","to","amount"],"description":"ADR-0023: the buyer's operator fee, moved from the buyer to the operator's fee address with the funded agreement, outside the hold; never refunded","properties":{"from":{"$ref":"common.schema.json#/$defs/Address"},"to":{"$ref":"common.schema.json#/$defs/Address"},"amount":{"$ref":"common.schema.json#/$defs/TokenAmount"},"postings":{"type":"array","description":"The ledger postings that moved it, as every settlement event lists them","items":{"type":"object"}}}}},"allOf":[{"if":{"type":"object","properties":{"type":{"const":"fee.operator"}},"required":["type"]},"then":{"type":"object","properties":{"payload":{"$ref":"#/$defs/OperatorFeePaid"}}}},{"if":{"properties":{"type":{"enum":["bond.deposited","bond.withdrawn","bond.slashed"]}},"required":["type"],"type":"object"},"then":{"properties":{"payload":{"$ref":"#/$defs/BondMovement"}},"type":"object"}},{"if":{"type":"object","properties":{"type":{"const":"commitment.settled"}},"required":["type"]},"then":{"type":"object","properties":{"payload":{"$ref":"#/$defs/SettledSplit"}}}},{"if":{"type":"object","properties":{"type":{"enum":["commitment.offered","commitment.agreed"]}},"required":["type"]},"then":{"type":"object","properties":{"payload":{"type":"object","required":["termsHash"],"properties":{"termsHash":{"$ref":"common.schema.json#/$defs/Hex32"}}}}}},{"if":{"type":"object","properties":{"type":{"enum":["judgment.decided","appeal.decided"]}},"required":["type"]},"then":{"type":"object","properties":{"payload":{"type":"object","required":["recordHash"],"properties":{"recordHash":{"$ref":"common.schema.json#/$defs/Hex32"}}}}}}]};
+const schema301 = {"type":"object","$ref":"#/$defs/ChainTx","unevaluatedProperties":false,"required":["from","to","amount"],"description":"ADR-0023: the buyer's operator fee, moved from the buyer to the operator's fee address with the funded agreement, outside the hold; never refunded","properties":{"from":{"$ref":"common.schema.json#/$defs/Address"},"to":{"$ref":"common.schema.json#/$defs/Address"},"amount":{"$ref":"common.schema.json#/$defs/TokenAmount"},"postings":{"type":"array","description":"The ledger postings that moved it, as every settlement event lists them","items":{"type":"object"}}}};
+const schema302 = {"type":"object","description":"The chain transaction a settlement event came from. An EVM settlement adds these to the payload of every event it reads from a block; SimChain has no transactions and omits them (v0.9)","properties":{"tx":{"$ref":"common.schema.json#/$defs/Hex32","description":"Transaction hash"},"block":{"type":"string","pattern":"^(0|[1-9][0-9]*)$","description":"Block number, decimal"},"sender":{"$ref":"common.schema.json#/$defs/Address","description":"The account that sent the transaction (a relayer or a party); never the authority for what the event records"},"gasUsed":{"type":"string","pattern":"^(0|[1-9][0-9]*)$","description":"Gas the transaction used, decimal"}}};
+const pattern206 = new RegExp("^(0|[1-9][0-9]*)$", "u");
 
 function validate105(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -13840,7 +13902,7 @@ const _errs4 = errors;
 const _errs5 = errors;
 if(errors === _errs4){
 if(typeof data1 === "string"){
-if(!pattern204.test(data1)){
+if(!pattern206.test(data1)){
 validate105.errors = [{instancePath:instancePath+"/block",schemaPath:"#/properties/block/pattern",keyword:"pattern",params:{pattern: "^(0|[1-9][0-9]*)$"},message:"must match pattern \""+"^(0|[1-9][0-9]*)$"+"\""}];
 return false;
 }
@@ -13896,7 +13958,7 @@ const _errs9 = errors;
 const _errs10 = errors;
 if(errors === _errs9){
 if(typeof data3 === "string"){
-if(!pattern204.test(data3)){
+if(!pattern206.test(data3)){
 validate105.errors = [{instancePath:instancePath+"/gasUsed",schemaPath:"#/properties/gasUsed/pattern",keyword:"pattern",params:{pattern: "^(0|[1-9][0-9]*)$"},message:"must match pattern \""+"^(0|[1-9][0-9]*)$"+"\""}];
 return false;
 }
@@ -14203,7 +14265,7 @@ return errors === 0;
 }
 validate104.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema307 = {"type":"object","$ref":"#/$defs/ChainTx","unevaluatedProperties":false,"required":["adjudicator","junior","senior"],"description":"Per-tranche amounts moved in or out of an adjudicator's pool (ADR-0014)","properties":{"adjudicator":{"$ref":"common.schema.json#/$defs/Address"},"backer":{"$ref":"common.schema.json#/$defs/Address"},"junior":{"$ref":"common.schema.json#/$defs/TokenAmount"},"senior":{"$ref":"common.schema.json#/$defs/TokenAmount"},"reason":{"enum":["deposit","withdrawal","overturn","default","appeal-upheld"]}}};
+const schema309 = {"type":"object","$ref":"#/$defs/ChainTx","unevaluatedProperties":false,"required":["adjudicator","junior","senior"],"description":"Per-tranche amounts moved in or out of an adjudicator's pool (ADR-0014)","properties":{"adjudicator":{"$ref":"common.schema.json#/$defs/Address"},"backer":{"$ref":"common.schema.json#/$defs/Address"},"junior":{"$ref":"common.schema.json#/$defs/TokenAmount"},"senior":{"$ref":"common.schema.json#/$defs/TokenAmount"},"reason":{"enum":["deposit","withdrawal","overturn","default","appeal-upheld"]}}};
 
 function validate110(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -14323,9 +14385,9 @@ if(valid0){
 if(data.reason !== undefined){
 let data4 = data.reason;
 const _errs9 = errors;
-const vSchema0 = schema307.properties.reason.enum;
+const vSchema0 = schema309.properties.reason.enum;
 if(!(((((data4 === "deposit") || (data4 === "withdrawal")) || (data4 === "overturn")) || (data4 === "default")) || (data4 === "appeal-upheld"))){
-validate110.errors = [{instancePath:instancePath+"/reason",schemaPath:"#/properties/reason/enum",keyword:"enum",params:{allowedValues: schema307.properties.reason.enum},message:"must be equal to one of the allowed values"}];
+validate110.errors = [{instancePath:instancePath+"/reason",schemaPath:"#/properties/reason/enum",keyword:"enum",params:{allowedValues: schema309.properties.reason.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
@@ -14367,7 +14429,7 @@ return errors === 0;
 }
 validate110.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema310 = {"type":"object","$ref":"#/$defs/ChainTx","unevaluatedProperties":false,"required":["payouts","keyReleased"],"properties":{"payouts":{"$ref":"common.schema.json#/$defs/Payouts"},"keyReleased":{"type":"boolean"}},"description":"The payouts a mutual settlement applied (ADR-0019, D23)"};
+const schema312 = {"type":"object","$ref":"#/$defs/ChainTx","unevaluatedProperties":false,"required":["payouts","keyReleased"],"properties":{"payouts":{"$ref":"common.schema.json#/$defs/Payouts"},"keyReleased":{"type":"boolean"}},"description":"The payouts a mutual settlement applied (ADR-0019, D23)"};
 
 function validate117(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -14510,7 +14572,7 @@ validate115.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false}
 
 
 function validate103(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
-/*# sourceURL="https://holdback.dev/schemas/v0.10/event.schema.json" */;
+/*# sourceURL="https://holdback.dev/schemas/v0.11/event.schema.json" */;
 let vErrors = null;
 let errors = 0;
 const evaluated0 = validate103.evaluated;
@@ -14666,7 +14728,7 @@ else {
 if(data.type !== undefined){
 let data2 = data.type;
 const _errs13 = errors;
-const vSchema0 = schema298.allOf[1].if.properties.type.enum;
+const vSchema0 = schema300.allOf[1].if.properties.type.enum;
 if(!(((data2 === "bond.deposited") || (data2 === "bond.withdrawn")) || (data2 === "bond.slashed"))){
 const err5 = {};
 if(vErrors === null){
@@ -14931,7 +14993,7 @@ else {
 if(data.type !== undefined){
 let data6 = data.type;
 const _errs29 = errors;
-const vSchema1 = schema298.allOf[3].if.properties.type.enum;
+const vSchema1 = schema300.allOf[3].if.properties.type.enum;
 if(!((data6 === "commitment.offered") || (data6 === "commitment.agreed"))){
 const err13 = {};
 if(vErrors === null){
@@ -15107,7 +15169,7 @@ else {
 if(data.type !== undefined){
 let data9 = data.type;
 const _errs41 = errors;
-const vSchema2 = schema298.allOf[4].if.properties.type.enum;
+const vSchema2 = schema300.allOf[4].if.properties.type.enum;
 if(!((data9 === "judgment.decided") || (data9 === "appeal.decided"))){
 const err17 = {};
 if(vErrors === null){
@@ -15276,7 +15338,7 @@ return false;
 else {
 const _errs49 = errors;
 for(const key0 in data){
-if(!(func0.call(schema298.properties, key0))){
+if(!(func0.call(schema300.properties, key0))){
 validate103.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"}];
 return false;
 break;
@@ -15312,9 +15374,9 @@ if(valid20){
 if(data.type !== undefined){
 let data13 = data.type;
 const _errs52 = errors;
-const vSchema3 = schema298.properties.type.enum;
+const vSchema3 = schema300.properties.type.enum;
 if(!(((((((((((((((((((((((((((((data13 === "club.registered") || (data13 === "agent.registered")) || (data13 === "agent.revoked")) || (data13 === "adjudicator.registered")) || (data13 === "commitment.offered")) || (data13 === "adjudicator.accepted")) || (data13 === "member.admitted")) || (data13 === "member.revoked")) || (data13 === "commitment.agreed")) || (data13 === "offer.expired")) || (data13 === "hold.funded")) || (data13 === "delivery.submitted")) || (data13 === "judgment.decided")) || (data13 === "fallback.triggered")) || (data13 === "default.triggered")) || (data13 === "appeal.filed")) || (data13 === "appeal.decided")) || (data13 === "appeal.expired")) || (data13 === "settlement.released")) || (data13 === "settlement.refunded")) || (data13 === "settlement.reclaimed")) || (data13 === "key.released")) || (data13 === "bond.paid")) || (data13 === "bond.deposited")) || (data13 === "bond.withdrawn")) || (data13 === "bond.slashed")) || (data13 === "dispute.opened")) || (data13 === "commitment.settled")) || (data13 === "fee.operator"))){
-validate103.errors = [{instancePath:instancePath+"/type",schemaPath:"#/properties/type/enum",keyword:"enum",params:{allowedValues: schema298.properties.type.enum},message:"must be equal to one of the allowed values"}];
+validate103.errors = [{instancePath:instancePath+"/type",schemaPath:"#/properties/type/enum",keyword:"enum",params:{allowedValues: schema300.properties.type.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
@@ -15621,10 +15683,10 @@ return errors === 0;
 validate103.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 exports["judge-verdict"] = validate121;
-const schema319 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.10/judge-verdict.schema.json","title":"Judge verdict (enforced on model output)","type":"object","required":["criteria","overall","injectionSuspected","rationale"],"additionalProperties":false,"properties":{"criteria":{"type":"array","maxItems":12,"items":{"type":"object","additionalProperties":false,"required":["id","score","evidence"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"score":{"type":"integer","minimum":0,"maximum":4},"evidence":{"type":"string","maxLength":300,"x-holdback-untrusted":true}}}},"overall":{"enum":["pass","fail","abstain"]},"injectionSuspected":{"type":"boolean"},"injectionEvidence":{"type":"string","maxLength":300,"x-holdback-untrusted":true},"rationale":{"type":"string","maxLength":600,"x-holdback-untrusted":true}}};
+const schema321 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.11/judge-verdict.schema.json","title":"Judge verdict (enforced on model output)","type":"object","required":["criteria","overall","injectionSuspected","rationale"],"additionalProperties":false,"properties":{"criteria":{"type":"array","maxItems":12,"items":{"type":"object","additionalProperties":false,"required":["id","score","evidence"],"properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"score":{"type":"integer","minimum":0,"maximum":4},"evidence":{"type":"string","maxLength":300,"x-holdback-untrusted":true}}}},"overall":{"enum":["pass","fail","abstain"]},"injectionSuspected":{"type":"boolean"},"injectionEvidence":{"type":"string","maxLength":300,"x-holdback-untrusted":true},"rationale":{"type":"string","maxLength":600,"x-holdback-untrusted":true}}};
 
 function validate121(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
-/*# sourceURL="https://holdback.dev/schemas/v0.10/judge-verdict.schema.json" */;
+/*# sourceURL="https://holdback.dev/schemas/v0.11/judge-verdict.schema.json" */;
 let vErrors = null;
 let errors = 0;
 const evaluated0 = validate121.evaluated;
@@ -15692,7 +15754,7 @@ const _errs7 = errors;
 const _errs8 = errors;
 if(errors === _errs7){
 if(typeof data2 === "string"){
-if(!pattern50.test(data2)){
+if(!pattern52.test(data2)){
 validate121.errors = [{instancePath:instancePath+"/criteria/" + i0+"/id",schemaPath:"#/properties/criteria/items/properties/id/pattern",keyword:"pattern",params:{pattern: "^[a-z0-9_-]{1,40}$"},message:"must match pattern \""+"^[a-z0-9_-]{1,40}$"+"\""}];
 return false;
 }
@@ -15809,9 +15871,9 @@ if(valid0){
 if(data.overall !== undefined){
 let data5 = data.overall;
 const _errs14 = errors;
-const vSchema0 = schema319.properties.overall.enum;
+const vSchema0 = schema321.properties.overall.enum;
 if(!(((data5 === "pass") || (data5 === "fail")) || (data5 === "abstain"))){
-validate121.errors = [{instancePath:instancePath+"/overall",schemaPath:"#/properties/overall/enum",keyword:"enum",params:{allowedValues: schema319.properties.overall.enum},message:"must be equal to one of the allowed values"}];
+validate121.errors = [{instancePath:instancePath+"/overall",schemaPath:"#/properties/overall/enum",keyword:"enum",params:{allowedValues: schema321.properties.overall.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
@@ -15915,10 +15977,10 @@ return errors === 0;
 validate121.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 exports.judgment = validate122;
-const schema320 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.10/judgment.schema.json","title":"Judgment record","type":"object","required":["commitmentId","attempt","deliveryHash","adjudicator","role","intake","deterministic","screen","panel","aggregate","recordHash","decidedAt","signature"],"additionalProperties":false,"properties":{"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"attempt":{"type":"integer","minimum":1,"maximum":3},"deliveryHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"EIP-712 struct hash of the seller-signed delivery judged. recordHash covers it, so the decision's judgmentRecordHash binds it; it equals the decision's deliveryHash (ADR-0029)"},"adjudicator":{"$ref":"common.schema.json#/$defs/Address"},"role":{"enum":["primary","fallback","appeal"]},"intake":{"type":"object","additionalProperties":false,"required":["plaintextHashVerified","mime","bytes","normalized"],"properties":{"plaintextHashVerified":{"type":"boolean"},"mime":{"type":"string","pattern":"^[a-z]+/[a-z0-9.+-]{1,100}$"},"bytes":{"type":"integer","minimum":0},"normalized":{"type":"boolean"}}},"deterministic":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["checkId","required","passed"],"properties":{"checkId":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"passed":{"type":"boolean"},"detail":{"type":"string","maxLength":300,"x-holdback-untrusted":true}}}},"screen":{"type":"object","additionalProperties":false,"required":["flagged","signals"],"properties":{"flagged":{"type":"boolean"},"signals":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"enum":["instruction_phrase","encoded_run","unicode_tags","zero_width","canary_echo","classifier","nfkc_changed","variation_selector_run","mixed_script","hidden_characters"],"description":"Closed set (ADR-0021): instruction_phrase, encoded_run, unicode_tags, zero_width, canary_echo, classifier, nfkc_changed, variation_selector_run, mixed_script, hidden_characters"},"detail":{"type":"string","maxLength":300,"x-holdback-untrusted":true}}}}}},"panel":{"type":"object","additionalProperties":false,"required":["ran","policyId","policyHash","members","seedSource"],"properties":{"ran":{"type":"boolean"},"policyId":{"type":"string","x-holdback-untrusted":true,"maxLength":120},"policyHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"Must equal the commitment's adjudication.policyHash"},"seedCommitment":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256(seed) from the primary's acceptance; commit-reveal panels only"},"seed":{"$ref":"common.schema.json#/$defs/Hex32"},"members":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["judgeId","provider","family","model","promptTemplateHash","inputHash","rubricHash","status"],"properties":{"judgeId":{"$ref":"common.schema.json#/$defs/Ident"},"provider":{"$ref":"common.schema.json#/$defs/Ident"},"family":{"$ref":"common.schema.json#/$defs/Ident"},"model":{"type":"string","pattern":"^[A-Za-z0-9._:/@-]{1,128}$","not":{"type":"string","pattern":"[Ll][Aa][Tt][Ee][Ss][Tt]"},"description":"Pinned model ID; floating aliases such as 'latest' are rejected"},"promptTemplateHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"SHA-256 of the fixed template; must match the policy bound by policyHash"},"inputHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"SHA-256 of the full rendered prompt (template plus spec, seeded criteria order and spotlighted deliverable data). Recomputable by anyone holding the plaintext"},"rubricHash":{"$ref":"common.schema.json#/$defs/Hex32"},"latencyMs":{"type":"integer","minimum":0},"status":{"enum":["ok","abstain","timeout","error","recorded"]},"verdict":{"$ref":"judge-verdict.schema.json"}}}},"seedSource":{"enum":["commit-reveal","beacon"],"description":"commit-reveal for the primary; beacon for fallback and appeal panels (ADR-0018)"},"beaconRound":{"type":"integer","minimum":0}},"allOf":[{"if":{"properties":{"seedSource":{"const":"commit-reveal"}},"type":"object","required":["seedSource"]},"then":{"required":["seedCommitment"],"type":"object","properties":{"seedCommitment":{}}}},{"if":{"properties":{"seedSource":{"const":"beacon"}},"type":"object","required":["seedSource"]},"then":{"required":["beaconRound"],"type":"object","properties":{"beaconRound":{}}}}]},"aggregate":{"type":"object","additionalProperties":false,"required":["decision","reasons"],"properties":{"decision":{"enum":["accept","reject","escalate"]},"weightedScore":{"type":["integer","null"],"minimum":0,"maximum":400,"description":"Mean weighted score in hundredths of a rubric point, or null when no verdict was valid"},"passCount":{"type":"integer","minimum":0,"description":"Valid verdicts that passed"},"failCount":{"type":"integer","minimum":0,"description":"Valid verdicts that failed"},"validCount":{"type":"integer","minimum":0,"description":"Valid verdicts"},"passFamilies":{"type":"array","items":{"$ref":"common.schema.json#/$defs/Ident"}},"reasons":{"type":"array","minItems":1,"items":{"type":"string","maxLength":200,"x-holdback-untrusted":true}}}},"recordUri":{"type":"string","format":"uri","x-holdback-untrusted":true,"maxLength":2048},"recordHash":{"$ref":"common.schema.json#/$defs/Hex32"},"decidedAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"},"privateRecord":{"$ref":"common.schema.json#/$defs/PrivateBody","description":"The full record kept off the public log when disclosure is private (ADR-0020)"}}};
-const pattern223 = new RegExp("^[a-z]+/[a-z0-9.+-]{1,100}$", "u");
-const pattern231 = new RegExp("[Ll][Aa][Tt][Ee][Ss][Tt]", "u");
-const schema338 = {"type":"object","additionalProperties":false,"required":["hash","envelopes"],"description":"A body kept off the public record: its keccak256 and the key envelopes for the parties allowed to read it (ADR-0020)","properties":{"hash":{"$ref":"#/$defs/Hex32"},"envelopes":{"type":"array","minItems":1,"items":{"$ref":"#/$defs/EncryptedKey"}}}};
+const schema322 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.11/judgment.schema.json","title":"Judgment record","type":"object","required":["commitmentId","attempt","deliveryHash","adjudicator","role","intake","deterministic","screen","panel","aggregate","recordHash","decidedAt","signature"],"additionalProperties":false,"properties":{"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"attempt":{"type":"integer","minimum":1,"maximum":3},"deliveryHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"EIP-712 struct hash of the seller-signed delivery judged. recordHash covers it, so the decision's judgmentRecordHash binds it; it equals the decision's deliveryHash (ADR-0029)"},"adjudicator":{"$ref":"common.schema.json#/$defs/Address"},"role":{"enum":["primary","fallback","appeal"]},"intake":{"type":"object","additionalProperties":false,"required":["plaintextHashVerified","mime","bytes","normalized"],"properties":{"plaintextHashVerified":{"type":"boolean"},"mime":{"type":"string","pattern":"^[a-z]+/[a-z0-9.+-]{1,100}$"},"bytes":{"type":"integer","minimum":0},"normalized":{"type":"boolean"}}},"deterministic":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["checkId","required","passed"],"properties":{"checkId":{"type":"string","pattern":"^[a-z0-9_-]{1,40}$"},"required":{"type":"boolean"},"passed":{"type":"boolean"},"detail":{"type":"string","maxLength":300,"x-holdback-untrusted":true}}}},"screen":{"type":"object","additionalProperties":false,"required":["flagged","signals"],"properties":{"flagged":{"type":"boolean"},"signals":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"enum":["instruction_phrase","encoded_run","unicode_tags","zero_width","canary_echo","classifier","nfkc_changed","variation_selector_run","mixed_script","hidden_characters"],"description":"Closed set (ADR-0021): instruction_phrase, encoded_run, unicode_tags, zero_width, canary_echo, classifier, nfkc_changed, variation_selector_run, mixed_script, hidden_characters"},"detail":{"type":"string","maxLength":300,"x-holdback-untrusted":true}}}}}},"panel":{"type":"object","additionalProperties":false,"required":["ran","policyId","policyHash","members","seedSource"],"properties":{"ran":{"type":"boolean"},"policyId":{"type":"string","x-holdback-untrusted":true,"maxLength":120},"policyHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"Must equal the commitment's adjudication.policyHash"},"seedCommitment":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256(seed) from the primary's acceptance; commit-reveal panels only"},"seed":{"$ref":"common.schema.json#/$defs/Hex32"},"members":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["judgeId","provider","family","model","promptTemplateHash","inputHash","rubricHash","status"],"properties":{"judgeId":{"$ref":"common.schema.json#/$defs/Ident"},"provider":{"$ref":"common.schema.json#/$defs/Ident"},"family":{"$ref":"common.schema.json#/$defs/Ident"},"model":{"type":"string","pattern":"^[A-Za-z0-9._:/@-]{1,128}$","not":{"type":"string","pattern":"[Ll][Aa][Tt][Ee][Ss][Tt]"},"description":"Pinned model ID; floating aliases such as 'latest' are rejected"},"promptTemplateHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"SHA-256 of the fixed template; must match the policy bound by policyHash"},"inputHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"SHA-256 of the full rendered prompt (template plus spec, seeded criteria order and spotlighted deliverable data). Recomputable by anyone holding the plaintext"},"rubricHash":{"$ref":"common.schema.json#/$defs/Hex32"},"latencyMs":{"type":"integer","minimum":0},"status":{"enum":["ok","abstain","timeout","error","recorded"]},"verdict":{"$ref":"judge-verdict.schema.json"}}}},"seedSource":{"enum":["commit-reveal","beacon"],"description":"commit-reveal for the primary; beacon for fallback and appeal panels (ADR-0018)"},"beaconRound":{"type":"integer","minimum":0}},"allOf":[{"if":{"properties":{"seedSource":{"const":"commit-reveal"}},"type":"object","required":["seedSource"]},"then":{"required":["seedCommitment"],"type":"object","properties":{"seedCommitment":{}}}},{"if":{"properties":{"seedSource":{"const":"beacon"}},"type":"object","required":["seedSource"]},"then":{"required":["beaconRound"],"type":"object","properties":{"beaconRound":{}}}}]},"aggregate":{"type":"object","additionalProperties":false,"required":["decision","reasons"],"properties":{"decision":{"enum":["accept","reject","escalate"]},"weightedScore":{"type":["integer","null"],"minimum":0,"maximum":400,"description":"Mean weighted score in hundredths of a rubric point, or null when no verdict was valid"},"passCount":{"type":"integer","minimum":0,"description":"Valid verdicts that passed"},"failCount":{"type":"integer","minimum":0,"description":"Valid verdicts that failed"},"validCount":{"type":"integer","minimum":0,"description":"Valid verdicts"},"passFamilies":{"type":"array","items":{"$ref":"common.schema.json#/$defs/Ident"}},"reasons":{"type":"array","minItems":1,"items":{"type":"string","maxLength":200,"x-holdback-untrusted":true}}}},"recordUri":{"type":"string","format":"uri","x-holdback-untrusted":true,"maxLength":2048},"recordHash":{"$ref":"common.schema.json#/$defs/Hex32"},"decidedAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"},"privateRecord":{"$ref":"common.schema.json#/$defs/PrivateBody","description":"The full record kept off the public log when disclosure is private (ADR-0020)"}}};
+const pattern225 = new RegExp("^[a-z]+/[a-z0-9.+-]{1,100}$", "u");
+const pattern233 = new RegExp("[Ll][Aa][Tt][Ee][Ss][Tt]", "u");
+const schema340 = {"type":"object","additionalProperties":false,"required":["hash","envelopes"],"description":"A body kept off the public record: its keccak256 and the key envelopes for the parties allowed to read it (ADR-0020)","properties":{"hash":{"$ref":"#/$defs/Hex32"},"envelopes":{"type":"array","minItems":1,"items":{"$ref":"#/$defs/EncryptedKey"}}}};
 
 function validate123(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -16041,7 +16103,7 @@ validate123.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false}
 
 
 function validate122(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
-/*# sourceURL="https://holdback.dev/schemas/v0.10/judgment.schema.json" */;
+/*# sourceURL="https://holdback.dev/schemas/v0.11/judgment.schema.json" */;
 let vErrors = null;
 let errors = 0;
 const evaluated0 = validate122.evaluated;
@@ -16062,7 +16124,7 @@ return false;
 else {
 const _errs1 = errors;
 for(const key0 in data){
-if(!(func0.call(schema320.properties, key0))){
+if(!(func0.call(schema322.properties, key0))){
 validate122.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"}];
 return false;
 break;
@@ -16194,9 +16256,9 @@ if(valid0){
 if(data.role !== undefined){
 let data4 = data.role;
 const _errs13 = errors;
-const vSchema0 = schema320.properties.role.enum;
+const vSchema0 = schema322.properties.role.enum;
 if(!(((data4 === "primary") || (data4 === "fallback")) || (data4 === "appeal"))){
-validate122.errors = [{instancePath:instancePath+"/role",schemaPath:"#/properties/role/enum",keyword:"enum",params:{allowedValues: schema320.properties.role.enum},message:"must be equal to one of the allowed values"}];
+validate122.errors = [{instancePath:instancePath+"/role",schemaPath:"#/properties/role/enum",keyword:"enum",params:{allowedValues: schema322.properties.role.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
@@ -16252,7 +16314,7 @@ const _errs19 = errors;
 const _errs20 = errors;
 if(errors === _errs19){
 if(typeof data7 === "string"){
-if(!pattern223.test(data7)){
+if(!pattern225.test(data7)){
 validate122.errors = [{instancePath:instancePath+"/intake/mime",schemaPath:"#/properties/intake/properties/mime/pattern",keyword:"pattern",params:{pattern: "^[a-z]+/[a-z0-9.+-]{1,100}$"},message:"must match pattern \""+"^[a-z]+/[a-z0-9.+-]{1,100}$"+"\""}];
 return false;
 }
@@ -16369,7 +16431,7 @@ const _errs30 = errors;
 const _errs31 = errors;
 if(errors === _errs30){
 if(typeof data12 === "string"){
-if(!pattern50.test(data12)){
+if(!pattern52.test(data12)){
 validate122.errors = [{instancePath:instancePath+"/deterministic/" + i0+"/checkId",schemaPath:"#/properties/deterministic/items/properties/checkId/pattern",keyword:"pattern",params:{pattern: "^[a-z0-9_-]{1,40}$"},message:"must match pattern \""+"^[a-z0-9_-]{1,40}$"+"\""}];
 return false;
 }
@@ -16552,9 +16614,9 @@ if(_errs48 === errors){
 if(data19.kind !== undefined){
 let data20 = data19.kind;
 const _errs49 = errors;
-const vSchema1 = schema320.properties.screen.properties.signals.items.properties.kind.enum;
+const vSchema1 = schema322.properties.screen.properties.signals.items.properties.kind.enum;
 if(!((((((((((data20 === "instruction_phrase") || (data20 === "encoded_run")) || (data20 === "unicode_tags")) || (data20 === "zero_width")) || (data20 === "canary_echo")) || (data20 === "classifier")) || (data20 === "nfkc_changed")) || (data20 === "variation_selector_run")) || (data20 === "mixed_script")) || (data20 === "hidden_characters"))){
-validate122.errors = [{instancePath:instancePath+"/screen/signals/" + i1+"/kind",schemaPath:"#/properties/screen/properties/signals/items/properties/kind/enum",keyword:"enum",params:{allowedValues: schema320.properties.screen.properties.signals.items.properties.kind.enum},message:"must be equal to one of the allowed values"}];
+validate122.errors = [{instancePath:instancePath+"/screen/signals/" + i1+"/kind",schemaPath:"#/properties/screen/properties/signals/items/properties/kind/enum",keyword:"enum",params:{allowedValues: schema322.properties.screen.properties.signals.items.properties.kind.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
@@ -17060,7 +17122,7 @@ return false;
 else {
 const _errs88 = errors;
 for(const key6 in data31){
-if(!(func0.call(schema320.properties.panel.properties.members.items.properties, key6))){
+if(!(func0.call(schema322.properties.panel.properties.members.items.properties, key6))){
 validate122.errors = [{instancePath:instancePath+"/panel/members/" + i2,schemaPath:"#/properties/panel/properties/members/items/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key6},message:"must NOT have additional properties"}];
 return false;
 break;
@@ -17166,7 +17228,7 @@ const _errs101 = errors;
 const _errs102 = errors;
 if(errors === _errs101){
 if(typeof data35 === "string"){
-if(!pattern231.test(data35)){
+if(!pattern233.test(data35)){
 const err8 = {};
 if(vErrors === null){
 vErrors = [err8];
@@ -17349,9 +17411,9 @@ if(valid20){
 if(data31.status !== undefined){
 let data40 = data31.status;
 const _errs114 = errors;
-const vSchema2 = schema320.properties.panel.properties.members.items.properties.status.enum;
+const vSchema2 = schema322.properties.panel.properties.members.items.properties.status.enum;
 if(!(((((data40 === "ok") || (data40 === "abstain")) || (data40 === "timeout")) || (data40 === "error")) || (data40 === "recorded"))){
-validate122.errors = [{instancePath:instancePath+"/panel/members/" + i2+"/status",schemaPath:"#/properties/panel/properties/members/items/properties/status/enum",keyword:"enum",params:{allowedValues: schema320.properties.panel.properties.members.items.properties.status.enum},message:"must be equal to one of the allowed values"}];
+validate122.errors = [{instancePath:instancePath+"/panel/members/" + i2+"/status",schemaPath:"#/properties/panel/properties/members/items/properties/status/enum",keyword:"enum",params:{allowedValues: schema322.properties.panel.properties.members.items.properties.status.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
@@ -17426,7 +17488,7 @@ const _errs124 = errors;
 const _errs125 = errors;
 if(errors === _errs124){
 if(typeof data44 === "string"){
-if(!pattern50.test(data44)){
+if(!pattern52.test(data44)){
 validate122.errors = [{instancePath:instancePath+"/panel/members/" + i2+"/verdict/criteria/" + i3+"/id",schemaPath:"judge-verdict.schema.json/properties/criteria/items/properties/id/pattern",keyword:"pattern",params:{pattern: "^[a-z0-9_-]{1,40}$"},message:"must match pattern \""+"^[a-z0-9_-]{1,40}$"+"\""}];
 return false;
 }
@@ -17543,9 +17605,9 @@ if(valid29){
 if(data41.overall !== undefined){
 let data47 = data41.overall;
 const _errs131 = errors;
-const vSchema3 = schema319.properties.overall.enum;
+const vSchema3 = schema321.properties.overall.enum;
 if(!(((data47 === "pass") || (data47 === "fail")) || (data47 === "abstain"))){
-validate122.errors = [{instancePath:instancePath+"/panel/members/" + i2+"/verdict/overall",schemaPath:"judge-verdict.schema.json/properties/overall/enum",keyword:"enum",params:{allowedValues: schema319.properties.overall.enum},message:"must be equal to one of the allowed values"}];
+validate122.errors = [{instancePath:instancePath+"/panel/members/" + i2+"/verdict/overall",schemaPath:"judge-verdict.schema.json/properties/overall/enum",keyword:"enum",params:{allowedValues: schema321.properties.overall.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
@@ -17696,9 +17758,9 @@ if(valid15){
 if(data22.seedSource !== undefined){
 let data51 = data22.seedSource;
 const _errs140 = errors;
-const vSchema4 = schema320.properties.panel.properties.seedSource.enum;
+const vSchema4 = schema322.properties.panel.properties.seedSource.enum;
 if(!((data51 === "commit-reveal") || (data51 === "beacon"))){
-validate122.errors = [{instancePath:instancePath+"/panel/seedSource",schemaPath:"#/properties/panel/properties/seedSource/enum",keyword:"enum",params:{allowedValues: schema320.properties.panel.properties.seedSource.enum},message:"must be equal to one of the allowed values"}];
+validate122.errors = [{instancePath:instancePath+"/panel/seedSource",schemaPath:"#/properties/panel/properties/seedSource/enum",keyword:"enum",params:{allowedValues: schema322.properties.panel.properties.seedSource.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
@@ -17785,9 +17847,9 @@ if(_errs145 === errors){
 if(data53.decision !== undefined){
 let data54 = data53.decision;
 const _errs146 = errors;
-const vSchema5 = schema320.properties.aggregate.properties.decision.enum;
+const vSchema5 = schema322.properties.aggregate.properties.decision.enum;
 if(!(((data54 === "accept") || (data54 === "reject")) || (data54 === "escalate"))){
-validate122.errors = [{instancePath:instancePath+"/aggregate/decision",schemaPath:"#/properties/aggregate/properties/decision/enum",keyword:"enum",params:{allowedValues: schema320.properties.aggregate.properties.decision.enum},message:"must be equal to one of the allowed values"}];
+validate122.errors = [{instancePath:instancePath+"/aggregate/decision",schemaPath:"#/properties/aggregate/properties/decision/enum",keyword:"enum",params:{allowedValues: schema322.properties.aggregate.properties.decision.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
@@ -17804,7 +17866,7 @@ if(data53.weightedScore !== undefined){
 let data55 = data53.weightedScore;
 const _errs147 = errors;
 if((!(((typeof data55 == "number") && (!(data55 % 1) && !isNaN(data55))) && (isFinite(data55)))) && (data55 !== null)){
-validate122.errors = [{instancePath:instancePath+"/aggregate/weightedScore",schemaPath:"#/properties/aggregate/properties/weightedScore/type",keyword:"type",params:{type: schema320.properties.aggregate.properties.weightedScore.type},message:"must be integer,null"}];
+validate122.errors = [{instancePath:instancePath+"/aggregate/weightedScore",schemaPath:"#/properties/aggregate/properties/weightedScore/type",keyword:"type",params:{type: schema322.properties.aggregate.properties.weightedScore.type},message:"must be integer,null"}];
 return false;
 }
 const _errs148 = errors;
@@ -18219,7 +18281,7 @@ return errors === 0;
 validate122.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 exports.mandate = validate126;
-const schema340 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.10/mandate.schema.json","title":"Mandate (principal-signed agent scope)","type":"object","required":["principal","agent","clubId","scope","nonce","issuedAt","signature"],"additionalProperties":false,"properties":{"principal":{"$ref":"common.schema.json#/$defs/Address"},"agent":{"$ref":"common.schema.json#/$defs/Address"},"clubId":{"$ref":"common.schema.json#/$defs/ClubId"},"scope":{"$ref":"common.schema.json#/$defs/Scope"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"issuedAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
+const schema342 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.11/mandate.schema.json","title":"Mandate (principal-signed agent scope)","type":"object","required":["principal","agent","clubId","scope","nonce","issuedAt","signature"],"additionalProperties":false,"properties":{"principal":{"$ref":"common.schema.json#/$defs/Address"},"agent":{"$ref":"common.schema.json#/$defs/Address"},"clubId":{"$ref":"common.schema.json#/$defs/ClubId"},"scope":{"$ref":"common.schema.json#/$defs/Scope"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"issuedAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
 
 function validate127(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -18451,7 +18513,7 @@ validate127.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false}
 
 
 function validate126(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
-/*# sourceURL="https://holdback.dev/schemas/v0.10/mandate.schema.json" */;
+/*# sourceURL="https://holdback.dev/schemas/v0.11/mandate.schema.json" */;
 let vErrors = null;
 let errors = 0;
 const evaluated0 = validate126.evaluated;
@@ -18701,8 +18763,8 @@ return errors === 0;
 validate126.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 exports.messages = validate35;
-const schema111 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.10/messages.schema.json","title":"Signed protocol messages (EIP-712)","description":"Every state-changing message other than Delivery and Appeal. Each carries its EIP-712 domain implicitly: name Holdback, version 0.7, chainId, verifyingContract (ADR-0016, ADR-0029).","oneOf":[{"$ref":"#/$defs/Offer"},{"$ref":"#/$defs/Agree"},{"$ref":"#/$defs/AdjudicatorAcceptance"},{"$ref":"#/$defs/FundingAuthorization"},{"$ref":"#/$defs/EarlyAccept"},{"$ref":"#/$defs/Decision"},{"$ref":"#/$defs/AgentRevocation"},{"$ref":"#/$defs/MemberAdmission"},{"$ref":"#/$defs/MemberRevocation"},{"$ref":"#/$defs/Dispute"},{"$ref":"#/$defs/MutualSettlement"},{"$ref":"#/$defs/Publish"},{"$ref":"#/$defs/TransferAuthorization"},{"$ref":"#/$defs/ReadToken"},{"$ref":"#/$defs/Delegation"},{"$ref":"#/$defs/KeyRegistration"},{"$ref":"#/$defs/AdjudicatorRegistration"}],"$defs":{"Offer":{"type":"object","description":"Seller's signature over the commitment terms","additionalProperties":false,"required":["type","commitmentId","seller","nonce","expiresAt","signature"],"properties":{"type":{"const":"Offer"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"seller":{"$ref":"common.schema.json#/$defs/Address"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"Agree":{"type":"object","description":"Buyer's signature over the identical terms","additionalProperties":false,"required":["type","commitmentId","buyer","nonce","expiresAt","signature"],"properties":{"type":{"const":"Agree"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"buyer":{"$ref":"common.schema.json#/$defs/Address"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"AdjudicatorAcceptance":{"type":"object","description":"Primary adjudicator consents and reserves bond before funding (ADR-0016)","additionalProperties":false,"required":["type","commitmentId","adjudicator","seedCommitment","policyHash","registryHash","fee","bondReserved","nonce","expiresAt","signature"],"properties":{"type":{"const":"AdjudicatorAcceptance"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"adjudicator":{"$ref":"common.schema.json#/$defs/Address"},"seedCommitment":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256(seed); the seed is revealed in the Decision"},"policyHash":{"$ref":"common.schema.json#/$defs/Hex32"},"registryHash":{"$ref":"common.schema.json#/$defs/Hex32"},"fee":{"$ref":"common.schema.json#/$defs/TokenAmount"},"bondReserved":{"$ref":"common.schema.json#/$defs/TokenAmount"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"FundingAuthorization":{"type":"object","description":"Buyer's transfer authorization; any relayer may submit it","additionalProperties":false,"required":["type","scheme","commitmentId","from","value","token","validAfter","validBefore","nonce","expiresAt","signature"],"properties":{"type":{"const":"FundingAuthorization"},"scheme":{"enum":["erc3009","permit2"]},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"from":{"$ref":"common.schema.json#/$defs/Address"},"value":{"type":"string","pattern":"^[0-9]+$","description":"Base units, decimal string"},"token":{"$ref":"common.schema.json#/$defs/TokenId"},"validAfter":{"$ref":"common.schema.json#/$defs/Timestamp"},"validBefore":{"$ref":"common.schema.json#/$defs/Timestamp"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"TransferAuthorization":{"type":"object","description":"ADR-0023: the buyer's transfer of an operator fee to the relaying operator's published fee address, sent in the agree body as operatorFee and applied by the settlement layer in the same step as the agreement and the funding, outside the hold. Never refunded","additionalProperties":false,"required":["type","scheme","purpose","commitmentId","from","to","value","token","validAfter","validBefore","nonce","expiresAt","signature"],"properties":{"type":{"const":"TransferAuthorization"},"scheme":{"enum":["erc3009"]},"purpose":{"const":"operator_fee"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"from":{"$ref":"common.schema.json#/$defs/Address"},"to":{"$ref":"common.schema.json#/$defs/Address"},"value":{"type":"string","pattern":"^(0|[1-9][0-9]{0,77})$","description":"Base units, decimal string"},"token":{"$ref":"common.schema.json#/$defs/TokenId"},"validAfter":{"$ref":"common.schema.json#/$defs/Timestamp"},"validBefore":{"$ref":"common.schema.json#/$defs/Timestamp"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"EarlyAccept":{"type":"object","description":"Buyer accepts a delivery before any decision; releases payment and the seller-supplied key for the buyer","additionalProperties":false,"required":["type","commitmentId","buyer","attempt","deliveryHash","nonce","expiresAt","signature"],"properties":{"type":{"const":"EarlyAccept"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"buyer":{"$ref":"common.schema.json#/$defs/Address"},"attempt":{"type":"integer","minimum":1},"deliveryHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"EIP-712 struct hash of the delivery the buyer opened, without its signature. Settlement refuses an early accept relayed with any other delivery (ADR-0029)"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"Decision":{"type":"object","description":"An adjudicator's signed decision; the settlement layer checks seed, policy and registry before applying it","additionalProperties":false,"required":["type","commitmentId","attempt","deliveryHash","adjudicator","role","outcome","seed","policyHash","registryHash","judgmentRecordHash","nonce","expiresAt","signature"],"properties":{"type":{"const":"Decision"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"attempt":{"type":"integer","minimum":1},"deliveryHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"EIP-712 struct hash of the delivery judged, without its signature: the posted delivery. Settlement refuses a decision that names any other, at every role (ADR-0029)"},"adjudicator":{"$ref":"common.schema.json#/$defs/Address"},"role":{"enum":["primary","fallback","appeal"]},"outcome":{"enum":["accept","reject","escalate"]},"seed":{"$ref":"common.schema.json#/$defs/Hex32","description":"The panel seed for the decider's role (ADR-0018): the primary reveals the preimage of its acceptance's seedCommitment; fallback and appeal decisions use the beacon seed for the round fixed by judgeBy, the escalation or the appeal filing"},"policyHash":{"$ref":"common.schema.json#/$defs/Hex32"},"registryHash":{"$ref":"common.schema.json#/$defs/Hex32"},"judgmentRecordHash":{"$ref":"common.schema.json#/$defs/Hex32"},"keyForBuyer":{"type":"object","additionalProperties":false,"required":["scheme","ciphertext"],"properties":{"scheme":{"const":"x25519-xsalsa20poly1305"},"ciphertext":{"$ref":"common.schema.json#/$defs/Base64Url"}}},"appealGround":{"enum":["wrong-outcome","missing-or-wrong-key","policy-or-panel-violation","mislabeled-model"],"description":"Appeal decisions only"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"},"beacon":{"type":"object","additionalProperties":false,"required":["source","round","value"],"description":"Beacon proof for a fallback or appeal panel seed. On SimChain the beacon is a settlement-layer fact; other sources carry the round's signature.","properties":{"source":{"$ref":"common.schema.json#/$defs/RandomnessSource"},"round":{"type":"integer","minimum":0},"value":{"$ref":"common.schema.json#/$defs/Hex32"},"signature":{"type":"string","pattern":"^0x([0-9a-f]{2}){1,256}$","description":"The beacon's signature over the round (e.g. a 48-byte BLS signature for drand quicknet); lowercase, whole bytes"}},"if":{"type":"object","properties":{"source":{"const":"sim"}},"required":["source"]},"else":{"required":["signature"],"type":"object","properties":{"signature":{}}},"then":{"type":"object","not":{"type":"object","required":["signature"],"properties":{"signature":{}}}}},"encryptedKeys":{"type":"array","minItems":1,"items":{"$ref":"common.schema.json#/$defs/EncryptedKey"},"description":"On escalate: the content key encrypted to the appeal adjudicator (ADR-0020); only on escalate"}},"allOf":[{"if":{"type":"object","properties":{"outcome":{"const":"escalate"}},"required":["outcome"]},"then":{"type":"object","required":["encryptedKeys"],"properties":{"encryptedKeys":{}}},"else":{"type":"object","not":{"type":"object","required":["encryptedKeys"],"properties":{"encryptedKeys":{}}}}}]},"AgentRevocation":{"type":"object","description":"Principal revokes an agent; blocks new commitments only","additionalProperties":false,"required":["type","agent","principal","nonce","expiresAt","signature"],"properties":{"type":{"const":"AgentRevocation"},"agent":{"$ref":"common.schema.json#/$defs/Address"},"principal":{"$ref":"common.schema.json#/$defs/Address"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"MemberAdmission":{"type":"object","description":"Club operator admits a member principal","additionalProperties":false,"required":["type","clubId","member","operator","validUntil","nonce","expiresAt","signature"],"properties":{"type":{"const":"MemberAdmission"},"clubId":{"$ref":"common.schema.json#/$defs/ClubId"},"member":{"$ref":"common.schema.json#/$defs/Address"},"operator":{"$ref":"common.schema.json#/$defs/Address"},"validUntil":{"$ref":"common.schema.json#/$defs/Timestamp"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"MemberRevocation":{"type":"object","description":"Club operator removes a member; blocks new commitments only","additionalProperties":false,"required":["type","clubId","member","operator","nonce","expiresAt","signature"],"properties":{"type":{"const":"MemberRevocation"},"clubId":{"$ref":"common.schema.json#/$defs/ClubId"},"member":{"$ref":"common.schema.json#/$defs/Address"},"operator":{"$ref":"common.schema.json#/$defs/Address"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"Dispute":{"type":"object","description":"Optimistic mode: the buyer disputes a delivery before disputeBy, posting the dispute bond and the adjudication fee (ADR-0015)","additionalProperties":false,"required":["type","commitmentId","buyer","attempt","grounds","bond","fee","encryptedKeys","nonce","expiresAt","signature"],"properties":{"type":{"const":"Dispute"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"buyer":{"$ref":"common.schema.json#/$defs/Address"},"attempt":{"type":"integer","minimum":1},"grounds":{"type":"string","maxLength":2000,"x-holdback-untrusted":true},"bond":{"$ref":"common.schema.json#/$defs/TokenAmount"},"fee":{"$ref":"common.schema.json#/$defs/TokenAmount"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"},"encryptedKeys":{"type":"array","minItems":3,"items":{"$ref":"common.schema.json#/$defs/EncryptedKey"},"description":"The content key encrypted to the primary, fallback and appeal adjudicators, so at least three (ADR-0020)"}}},"MutualSettlement":{"type":"object","description":"Buyer and seller close a commitment by agreement (ADR-0019, amended by D23). Both sign the identical struct: everything except the two signatures. The held price goes to the payouts; the adjudication fee returns to the buyer.","additionalProperties":false,"required":["type","commitmentId","deliveryHash","payouts","releaseKey","nonce","expiresAt","buyerSignature","sellerSignature"],"properties":{"type":{"const":"MutualSettlement"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"deliveryHash":{"oneOf":[{"$ref":"common.schema.json#/$defs/Hex32"},{"type":"null"}],"description":"EIP-712 struct hash of the delivery being settled, or null before any delivery"},"payouts":{"$ref":"common.schema.json#/$defs/Payouts","description":"Who receives the held price and how much. Any addresses both parties sign for, unless the rulebook restricts payouts to the parties"},"releaseKey":{"type":"boolean","description":"Whether the seller-supplied key is released to the buyer with the payment; must be false when deliveryHash is null (ADR-0019)"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"buyerSignature":{"$ref":"common.schema.json#/$defs/Signature"},"sellerSignature":{"$ref":"common.schema.json#/$defs/Signature"}},"if":{"type":"object","properties":{"deliveryHash":{"type":"null"}},"required":["deliveryHash"]},"then":{"type":"object","properties":{"releaseKey":{"const":false}},"required":["releaseKey"]}},"Publish":{"type":"object","additionalProperties":false,"description":"Buyer and seller raise a commitment's disclosure level by agreement (ADR-0020). Both sign the identical struct. Raising only: the settlement layer refuses a level below the current one (T-006), which a schema cannot check.","required":["type","commitmentId","level","nonce","expiresAt","buyerSignature","sellerSignature"],"properties":{"type":{"const":"Publish"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"level":{"$ref":"common.schema.json#/$defs/DisclosureLevel"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"buyerSignature":{"$ref":"common.schema.json#/$defs/Signature"},"sellerSignature":{"$ref":"common.schema.json#/$defs/Signature"}}},"ReadToken":{"type":"object","additionalProperties":false,"description":"Authenticates a private read (ADR-0024 §3), sent as `Authorization: Holdback-ReadToken <base64url of this JSON>`. Signed by a party (its per-deal key) or an involved adjudicator. audience, when present, is the operator's receipt-signer address, so another operator refuses the token. A zero commitmentId scopes list reads to the viewer's deals. The viewer picks the expiry (D31). Changes no state.","required":["type","viewer","commitmentId","nonce","expiresAt","signature"],"properties":{"type":{"const":"ReadToken"},"viewer":{"$ref":"common.schema.json#/$defs/Address"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"audience":{"$ref":"common.schema.json#/$defs/Address"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"Delegation":{"type":"object","additionalProperties":false,"description":"A per-deal key certificate (ADR-0024 §7), signed by the agent's long-term key: dealKey signs this one deal and dealEncryptionKey receives its envelopes, within scope, for principal in clubId. The seller sends it to the primary with the offer and both parties exchange theirs before agree; the counterparty and the adjudicator check it, settlement does not. Revealing it ties one deal to its principal (evidence, D26). Changes no state.","required":["type","principal","agent","dealKey","dealEncryptionKey","clubId","scope","nonce","expiresAt","signature"],"properties":{"type":{"const":"Delegation"},"principal":{"$ref":"common.schema.json#/$defs/Address"},"agent":{"$ref":"common.schema.json#/$defs/Address","description":"The long-term agent key that signs this certificate, as named in the principal's mandate"},"dealKey":{"$ref":"common.schema.json#/$defs/Address","description":"The one-time signing address that appears as buyer or seller in the terms"},"dealEncryptionKey":{"$ref":"common.schema.json#/$defs/Base64Url","description":"The one-time x25519 key: buyerEncryptionPublicKey or deliverable.sellerEncryptionPublicKey in the terms"},"clubId":{"$ref":"common.schema.json#/$defs/ClubId"},"scope":{"$ref":"common.schema.json#/$defs/Scope"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"KeyRegistration":{"type":"object","additionalProperties":false,"deprecated":true,"description":"Deprecated in v0.10: AdjudicatorRegistration carries the key (ADR-0030); operators take only that, and the next breaking version removes this message. An adjudicator's self-signed encryption key (ADR-0024 §6). Changes no state.","required":["type","adjudicator","encryptionPublicKey","keyId","nonce","expiresAt","signature"],"properties":{"type":{"const":"KeyRegistration"},"adjudicator":{"$ref":"common.schema.json#/$defs/Address"},"encryptionPublicKey":{"$ref":"common.schema.json#/$defs/Base64Url"},"keyId":{"$ref":"common.schema.json#/$defs/Ident"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"AdjudicatorRegistration":{"type":"object","additionalProperties":false,"description":"An adjudicator's self-signed registration (ADR-0030): its key, the hashes a commitment binds, its minimum fee and its pool terms, and bodyHash over the rest of its record. Served with the record as its `registration` envelope (adjudicator.schema.json); a reader rebuilds this message from the record. A later issuedAt replaces the served one. Changes no settlement state.","required":["type","adjudicator","encryptionPublicKey","keyId","policyHash","registryHash","fee","poolTermsHash","bodyHash","issuedAt","nonce","expiresAt","signature"],"properties":{"type":{"const":"AdjudicatorRegistration"},"adjudicator":{"$ref":"common.schema.json#/$defs/Address","description":"The record's address: the key every acceptance and decision of this adjudicator is checked against"},"encryptionPublicKey":{"$ref":"common.schema.json#/$defs/Base64Url","description":"The x25519 key sellers seal content keys to"},"keyId":{"$ref":"common.schema.json#/$defs/Ident","description":"Names the encryption key; a rotation is a new registration with a new keyId"},"policyHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"The record's policyHash"},"registryHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"The record's registry.hash"},"fee":{"$ref":"common.schema.json#/$defs/TokenAmount","description":"The record's fee.min"},"poolTermsHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"The record's poolTermsHash"},"bodyHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256 of the RFC 8785 JSON of the registered record: the record without `registration`, with `pool` holding only `terms`"},"issuedAt":{"$ref":"common.schema.json#/$defs/Timestamp","description":"Orders this address's registrations: operators serve the latest and refuse an older one"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}}}};
-const schema112 = {"type":"object","description":"Seller's signature over the commitment terms","additionalProperties":false,"required":["type","commitmentId","seller","nonce","expiresAt","signature"],"properties":{"type":{"const":"Offer"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"seller":{"$ref":"common.schema.json#/$defs/Address"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
+const schema113 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.11/messages.schema.json","title":"Signed protocol messages (EIP-712)","description":"Every state-changing message other than Delivery and Appeal. Each carries its EIP-712 domain implicitly: name Holdback, version 0.8, chainId, verifyingContract (ADR-0016, ADR-0029, ADR-0033).","oneOf":[{"$ref":"#/$defs/Offer"},{"$ref":"#/$defs/Agree"},{"$ref":"#/$defs/AdjudicatorAcceptance"},{"$ref":"#/$defs/FundingAuthorization"},{"$ref":"#/$defs/EarlyAccept"},{"$ref":"#/$defs/Decision"},{"$ref":"#/$defs/AgentRevocation"},{"$ref":"#/$defs/MemberAdmission"},{"$ref":"#/$defs/MemberRevocation"},{"$ref":"#/$defs/Dispute"},{"$ref":"#/$defs/MutualSettlement"},{"$ref":"#/$defs/Publish"},{"$ref":"#/$defs/TransferAuthorization"},{"$ref":"#/$defs/ReadToken"},{"$ref":"#/$defs/Delegation"},{"$ref":"#/$defs/KeyRegistration"},{"$ref":"#/$defs/AdjudicatorRegistration"}],"$defs":{"Offer":{"type":"object","description":"Seller's signature over the commitment terms","additionalProperties":false,"required":["type","commitmentId","seller","nonce","expiresAt","signature"],"properties":{"type":{"const":"Offer"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"seller":{"$ref":"common.schema.json#/$defs/Address"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"Agree":{"type":"object","description":"Buyer's signature over the identical terms","additionalProperties":false,"required":["type","commitmentId","buyer","nonce","expiresAt","signature"],"properties":{"type":{"const":"Agree"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"buyer":{"$ref":"common.schema.json#/$defs/Address"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"AdjudicatorAcceptance":{"type":"object","description":"Primary adjudicator consents and reserves bond before funding (ADR-0016)","additionalProperties":false,"required":["type","commitmentId","adjudicator","seedCommitment","policyHash","registryHash","fee","bondReserved","nonce","expiresAt","signature"],"properties":{"type":{"const":"AdjudicatorAcceptance"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"adjudicator":{"$ref":"common.schema.json#/$defs/Address"},"seedCommitment":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256(seed); the seed is revealed in the Decision"},"policyHash":{"$ref":"common.schema.json#/$defs/Hex32"},"registryHash":{"$ref":"common.schema.json#/$defs/Hex32"},"fee":{"$ref":"common.schema.json#/$defs/TokenAmount"},"bondReserved":{"$ref":"common.schema.json#/$defs/TokenAmount"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"FundingAuthorization":{"type":"object","description":"The buyer's payment address's transfer authorization for the hold; any relayer may submit it","additionalProperties":false,"required":["type","scheme","commitmentId","from","value","token","validAfter","validBefore","nonce","expiresAt","signature"],"properties":{"type":{"const":"FundingAuthorization"},"scheme":{"enum":["erc3009","permit2"]},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"from":{"$ref":"common.schema.json#/$defs/Address","description":"The buyer's payment address, the commitment's buyerPaymentAddress (ADR-0033)"},"value":{"type":"string","pattern":"^[0-9]+$","description":"Base units, decimal string"},"token":{"$ref":"common.schema.json#/$defs/TokenId"},"validAfter":{"$ref":"common.schema.json#/$defs/Timestamp"},"validBefore":{"$ref":"common.schema.json#/$defs/Timestamp"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"TransferAuthorization":{"type":"object","description":"ADR-0023: the buyer's payment address's transfer of an operator fee to the relaying operator's published fee address, sent in the agree body as operatorFee and applied by the settlement layer in the same step as the agreement and the funding, outside the hold. Never refunded","additionalProperties":false,"required":["type","scheme","purpose","commitmentId","from","to","value","token","validAfter","validBefore","nonce","expiresAt","signature"],"properties":{"type":{"const":"TransferAuthorization"},"scheme":{"enum":["erc3009"]},"purpose":{"const":"operator_fee"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"from":{"$ref":"common.schema.json#/$defs/Address","description":"The buyer's payment address, the commitment's buyerPaymentAddress (ADR-0033)"},"to":{"$ref":"common.schema.json#/$defs/Address"},"value":{"type":"string","pattern":"^(0|[1-9][0-9]{0,77})$","description":"Base units, decimal string"},"token":{"$ref":"common.schema.json#/$defs/TokenId"},"validAfter":{"$ref":"common.schema.json#/$defs/Timestamp"},"validBefore":{"$ref":"common.schema.json#/$defs/Timestamp"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"EarlyAccept":{"type":"object","description":"Buyer accepts a delivery before any decision; releases payment and the seller-supplied key for the buyer","additionalProperties":false,"required":["type","commitmentId","buyer","attempt","deliveryHash","nonce","expiresAt","signature"],"properties":{"type":{"const":"EarlyAccept"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"buyer":{"$ref":"common.schema.json#/$defs/Address"},"attempt":{"type":"integer","minimum":1},"deliveryHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"EIP-712 struct hash of the delivery the buyer opened, without its signature. Settlement refuses an early accept relayed with any other delivery (ADR-0029)"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"Decision":{"type":"object","description":"An adjudicator's signed decision; the settlement layer checks seed, policy and registry before applying it","additionalProperties":false,"required":["type","commitmentId","attempt","deliveryHash","adjudicator","role","outcome","seed","policyHash","registryHash","judgmentRecordHash","nonce","expiresAt","signature"],"properties":{"type":{"const":"Decision"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"attempt":{"type":"integer","minimum":1},"deliveryHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"EIP-712 struct hash of the delivery judged, without its signature: the posted delivery. Settlement refuses a decision that names any other, at every role (ADR-0029)"},"adjudicator":{"$ref":"common.schema.json#/$defs/Address"},"role":{"enum":["primary","fallback","appeal"]},"outcome":{"enum":["accept","reject","escalate"]},"seed":{"$ref":"common.schema.json#/$defs/Hex32","description":"The panel seed for the decider's role (ADR-0018): the primary reveals the preimage of its acceptance's seedCommitment; fallback and appeal decisions use the beacon seed for the round fixed by judgeBy, the escalation or the appeal filing"},"policyHash":{"$ref":"common.schema.json#/$defs/Hex32"},"registryHash":{"$ref":"common.schema.json#/$defs/Hex32"},"judgmentRecordHash":{"$ref":"common.schema.json#/$defs/Hex32"},"keyForBuyer":{"type":"object","additionalProperties":false,"required":["scheme","ciphertext"],"properties":{"scheme":{"const":"x25519-xsalsa20poly1305"},"ciphertext":{"$ref":"common.schema.json#/$defs/Base64Url"}}},"appealGround":{"enum":["wrong-outcome","missing-or-wrong-key","policy-or-panel-violation","mislabeled-model"],"description":"Appeal decisions only"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"},"beacon":{"type":"object","additionalProperties":false,"required":["source","round","value"],"description":"Beacon proof for a fallback or appeal panel seed. On SimChain the beacon is a settlement-layer fact; other sources carry the round's signature.","properties":{"source":{"$ref":"common.schema.json#/$defs/RandomnessSource"},"round":{"type":"integer","minimum":0},"value":{"$ref":"common.schema.json#/$defs/Hex32"},"signature":{"type":"string","pattern":"^0x([0-9a-f]{2}){1,256}$","description":"The beacon's signature over the round (e.g. a 48-byte BLS signature for drand quicknet); lowercase, whole bytes"}},"if":{"type":"object","properties":{"source":{"const":"sim"}},"required":["source"]},"else":{"required":["signature"],"type":"object","properties":{"signature":{}}},"then":{"type":"object","not":{"type":"object","required":["signature"],"properties":{"signature":{}}}}},"encryptedKeys":{"type":"array","minItems":1,"items":{"$ref":"common.schema.json#/$defs/EncryptedKey"},"description":"On escalate: the content key encrypted to the appeal adjudicator (ADR-0020); only on escalate"}},"allOf":[{"if":{"type":"object","properties":{"outcome":{"const":"escalate"}},"required":["outcome"]},"then":{"type":"object","required":["encryptedKeys"],"properties":{"encryptedKeys":{}}},"else":{"type":"object","not":{"type":"object","required":["encryptedKeys"],"properties":{"encryptedKeys":{}}}}}]},"AgentRevocation":{"type":"object","description":"Principal revokes an agent; blocks new commitments only","additionalProperties":false,"required":["type","agent","principal","nonce","expiresAt","signature"],"properties":{"type":{"const":"AgentRevocation"},"agent":{"$ref":"common.schema.json#/$defs/Address"},"principal":{"$ref":"common.schema.json#/$defs/Address"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"MemberAdmission":{"type":"object","description":"Club operator admits a member principal","additionalProperties":false,"required":["type","clubId","member","operator","validUntil","nonce","expiresAt","signature"],"properties":{"type":{"const":"MemberAdmission"},"clubId":{"$ref":"common.schema.json#/$defs/ClubId"},"member":{"$ref":"common.schema.json#/$defs/Address"},"operator":{"$ref":"common.schema.json#/$defs/Address"},"validUntil":{"$ref":"common.schema.json#/$defs/Timestamp"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"MemberRevocation":{"type":"object","description":"Club operator removes a member; blocks new commitments only","additionalProperties":false,"required":["type","clubId","member","operator","nonce","expiresAt","signature"],"properties":{"type":{"const":"MemberRevocation"},"clubId":{"$ref":"common.schema.json#/$defs/ClubId"},"member":{"$ref":"common.schema.json#/$defs/Address"},"operator":{"$ref":"common.schema.json#/$defs/Address"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"Dispute":{"type":"object","description":"Optimistic mode: the buyer disputes a delivery before disputeBy, posting the dispute bond and the adjudication fee (ADR-0015)","additionalProperties":false,"required":["type","commitmentId","buyer","attempt","grounds","bond","fee","encryptedKeys","nonce","expiresAt","signature"],"properties":{"type":{"const":"Dispute"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"buyer":{"$ref":"common.schema.json#/$defs/Address"},"attempt":{"type":"integer","minimum":1},"grounds":{"type":"string","maxLength":2000,"x-holdback-untrusted":true},"bond":{"$ref":"common.schema.json#/$defs/TokenAmount"},"fee":{"$ref":"common.schema.json#/$defs/TokenAmount"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"},"encryptedKeys":{"type":"array","minItems":3,"items":{"$ref":"common.schema.json#/$defs/EncryptedKey"},"description":"The content key encrypted to the primary, fallback and appeal adjudicators, so at least three (ADR-0020)"}}},"MutualSettlement":{"type":"object","description":"Buyer and seller close a commitment by agreement (ADR-0019, amended by D23). Both sign the identical struct: everything except the two signatures. The held price goes to the payouts; the adjudication fee returns to the buyer.","additionalProperties":false,"required":["type","commitmentId","deliveryHash","payouts","releaseKey","nonce","expiresAt","buyerSignature","sellerSignature"],"properties":{"type":{"const":"MutualSettlement"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"deliveryHash":{"oneOf":[{"$ref":"common.schema.json#/$defs/Hex32"},{"type":"null"}],"description":"EIP-712 struct hash of the delivery being settled, or null before any delivery"},"payouts":{"$ref":"common.schema.json#/$defs/Payouts","description":"Who receives the held price and how much. Any addresses both parties sign for, unless the rulebook restricts payouts to the parties"},"releaseKey":{"type":"boolean","description":"Whether the seller-supplied key is released to the buyer with the payment; must be false when deliveryHash is null (ADR-0019)"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"buyerSignature":{"$ref":"common.schema.json#/$defs/Signature"},"sellerSignature":{"$ref":"common.schema.json#/$defs/Signature"}},"if":{"type":"object","properties":{"deliveryHash":{"type":"null"}},"required":["deliveryHash"]},"then":{"type":"object","properties":{"releaseKey":{"const":false}},"required":["releaseKey"]}},"Publish":{"type":"object","additionalProperties":false,"description":"Buyer and seller raise a commitment's disclosure level by agreement (ADR-0020). Both sign the identical struct. Raising only: the settlement layer refuses a level below the current one (T-006), which a schema cannot check.","required":["type","commitmentId","level","nonce","expiresAt","buyerSignature","sellerSignature"],"properties":{"type":{"const":"Publish"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"level":{"$ref":"common.schema.json#/$defs/DisclosureLevel"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"buyerSignature":{"$ref":"common.schema.json#/$defs/Signature"},"sellerSignature":{"$ref":"common.schema.json#/$defs/Signature"}}},"ReadToken":{"type":"object","additionalProperties":false,"description":"Authenticates a private read (ADR-0024 §3), sent as `Authorization: Holdback-ReadToken <base64url of this JSON>`. Signed by a party (its per-deal key) or an involved adjudicator. audience, when present, is the operator's receipt-signer address, so another operator refuses the token. A zero commitmentId scopes list reads to the viewer's deals. The viewer picks the expiry (D31). Changes no state.","required":["type","viewer","commitmentId","nonce","expiresAt","signature"],"properties":{"type":{"const":"ReadToken"},"viewer":{"$ref":"common.schema.json#/$defs/Address"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"audience":{"$ref":"common.schema.json#/$defs/Address"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"Delegation":{"type":"object","additionalProperties":false,"description":"A per-deal key certificate (ADR-0024 §7), signed by the agent's long-term key: dealKey signs this one deal and dealEncryptionKey receives its envelopes, within scope, for principal in clubId. The seller sends it to the primary with the offer and both parties exchange theirs before agree; the counterparty and the adjudicator check it, settlement does not. Revealing it ties one deal to its principal (evidence, D26). Changes no state.","required":["type","principal","agent","dealKey","dealEncryptionKey","clubId","scope","nonce","expiresAt","signature"],"properties":{"type":{"const":"Delegation"},"principal":{"$ref":"common.schema.json#/$defs/Address"},"agent":{"$ref":"common.schema.json#/$defs/Address","description":"The long-term agent key that signs this certificate, as named in the principal's mandate"},"dealKey":{"$ref":"common.schema.json#/$defs/Address","description":"The one-time signing address that appears as buyer or seller in the terms"},"dealEncryptionKey":{"$ref":"common.schema.json#/$defs/Base64Url","description":"The one-time x25519 key: buyerEncryptionPublicKey or deliverable.sellerEncryptionPublicKey in the terms"},"clubId":{"$ref":"common.schema.json#/$defs/ClubId"},"scope":{"$ref":"common.schema.json#/$defs/Scope"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"KeyRegistration":{"type":"object","additionalProperties":false,"deprecated":true,"description":"Deprecated in v0.10: AdjudicatorRegistration carries the key (ADR-0030); operators take only that, and the next breaking version removes this message. An adjudicator's self-signed encryption key (ADR-0024 §6). Changes no state.","required":["type","adjudicator","encryptionPublicKey","keyId","nonce","expiresAt","signature"],"properties":{"type":{"const":"KeyRegistration"},"adjudicator":{"$ref":"common.schema.json#/$defs/Address"},"encryptionPublicKey":{"$ref":"common.schema.json#/$defs/Base64Url"},"keyId":{"$ref":"common.schema.json#/$defs/Ident"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}},"AdjudicatorRegistration":{"type":"object","additionalProperties":false,"description":"An adjudicator's self-signed registration (ADR-0030): its key, the hashes a commitment binds, its minimum fee and its pool terms, and bodyHash over the rest of its record. Served with the record as its `registration` envelope (adjudicator.schema.json); a reader rebuilds this message from the record. A later issuedAt replaces the served one. Changes no settlement state.","required":["type","adjudicator","encryptionPublicKey","keyId","policyHash","registryHash","fee","poolTermsHash","bodyHash","issuedAt","nonce","expiresAt","signature"],"properties":{"type":{"const":"AdjudicatorRegistration"},"adjudicator":{"$ref":"common.schema.json#/$defs/Address","description":"The record's address: the key every acceptance and decision of this adjudicator is checked against"},"encryptionPublicKey":{"$ref":"common.schema.json#/$defs/Base64Url","description":"The x25519 key sellers seal content keys to"},"keyId":{"$ref":"common.schema.json#/$defs/Ident","description":"Names the encryption key; a rotation is a new registration with a new keyId"},"policyHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"The record's policyHash"},"registryHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"The record's registry.hash"},"fee":{"$ref":"common.schema.json#/$defs/TokenAmount","description":"The record's fee.min"},"poolTermsHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"The record's poolTermsHash"},"bodyHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256 of the RFC 8785 JSON of the registered record: the record without `registration`, with `pool` holding only `terms`"},"issuedAt":{"$ref":"common.schema.json#/$defs/Timestamp","description":"Orders this address's registrations: operators serve the latest and refuse an older one"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}}}};
+const schema114 = {"type":"object","description":"Seller's signature over the commitment terms","additionalProperties":false,"required":["type","commitmentId","seller","nonce","expiresAt","signature"],"properties":{"type":{"const":"Offer"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"seller":{"$ref":"common.schema.json#/$defs/Address"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
 
 function validate36(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -18924,7 +18986,7 @@ return errors === 0;
 }
 validate36.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema118 = {"type":"object","description":"Buyer's signature over the identical terms","additionalProperties":false,"required":["type","commitmentId","buyer","nonce","expiresAt","signature"],"properties":{"type":{"const":"Agree"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"buyer":{"$ref":"common.schema.json#/$defs/Address"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
+const schema120 = {"type":"object","description":"Buyer's signature over the identical terms","additionalProperties":false,"required":["type","commitmentId","buyer","nonce","expiresAt","signature"],"properties":{"type":{"const":"Agree"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"buyer":{"$ref":"common.schema.json#/$defs/Address"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
 
 function validate38(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -19168,7 +19230,7 @@ return false;
 else {
 const _errs1 = errors;
 for(const key0 in data){
-if(!(func0.call(schema124.properties, key0))){
+if(!(func0.call(schema126.properties, key0))){
 validate40.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"}];
 return false;
 break;
@@ -19492,8 +19554,8 @@ return errors === 0;
 }
 validate40.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema135 = {"type":"object","description":"Buyer's transfer authorization; any relayer may submit it","additionalProperties":false,"required":["type","scheme","commitmentId","from","value","token","validAfter","validBefore","nonce","expiresAt","signature"],"properties":{"type":{"const":"FundingAuthorization"},"scheme":{"enum":["erc3009","permit2"]},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"from":{"$ref":"common.schema.json#/$defs/Address"},"value":{"type":"string","pattern":"^[0-9]+$","description":"Base units, decimal string"},"token":{"$ref":"common.schema.json#/$defs/TokenId"},"validAfter":{"$ref":"common.schema.json#/$defs/Timestamp"},"validBefore":{"$ref":"common.schema.json#/$defs/Timestamp"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
-const pattern94 = new RegExp("^[0-9]+$", "u");
+const schema137 = {"type":"object","description":"The buyer's payment address's transfer authorization for the hold; any relayer may submit it","additionalProperties":false,"required":["type","scheme","commitmentId","from","value","token","validAfter","validBefore","nonce","expiresAt","signature"],"properties":{"type":{"const":"FundingAuthorization"},"scheme":{"enum":["erc3009","permit2"]},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"from":{"$ref":"common.schema.json#/$defs/Address","description":"The buyer's payment address, the commitment's buyerPaymentAddress (ADR-0033)"},"value":{"type":"string","pattern":"^[0-9]+$","description":"Base units, decimal string"},"token":{"$ref":"common.schema.json#/$defs/TokenId"},"validAfter":{"$ref":"common.schema.json#/$defs/Timestamp"},"validBefore":{"$ref":"common.schema.json#/$defs/Timestamp"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
+const pattern96 = new RegExp("^[0-9]+$", "u");
 
 function validate45(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -19516,7 +19578,7 @@ return false;
 else {
 const _errs1 = errors;
 for(const key0 in data){
-if(!(func0.call(schema135.properties, key0))){
+if(!(func0.call(schema137.properties, key0))){
 validate45.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"}];
 return false;
 break;
@@ -19543,9 +19605,9 @@ if(valid0){
 if(data.scheme !== undefined){
 let data1 = data.scheme;
 const _errs3 = errors;
-const vSchema0 = schema135.properties.scheme.enum;
+const vSchema0 = schema137.properties.scheme.enum;
 if(!((data1 === "erc3009") || (data1 === "permit2"))){
-validate45.errors = [{instancePath:instancePath+"/scheme",schemaPath:"#/properties/scheme/enum",keyword:"enum",params:{allowedValues: schema135.properties.scheme.enum},message:"must be equal to one of the allowed values"}];
+validate45.errors = [{instancePath:instancePath+"/scheme",schemaPath:"#/properties/scheme/enum",keyword:"enum",params:{allowedValues: schema137.properties.scheme.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
@@ -19624,7 +19686,7 @@ const _errs10 = errors;
 const _errs11 = errors;
 if(errors === _errs10){
 if(typeof data4 === "string"){
-if(!pattern94.test(data4)){
+if(!pattern96.test(data4)){
 validate45.errors = [{instancePath:instancePath+"/value",schemaPath:"#/properties/value/pattern",keyword:"pattern",params:{pattern: "^[0-9]+$"},message:"must match pattern \""+"^[0-9]+$"+"\""}];
 return false;
 }
@@ -19862,7 +19924,7 @@ return errors === 0;
 }
 validate45.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema144 = {"type":"object","description":"Buyer accepts a delivery before any decision; releases payment and the seller-supplied key for the buyer","additionalProperties":false,"required":["type","commitmentId","buyer","attempt","deliveryHash","nonce","expiresAt","signature"],"properties":{"type":{"const":"EarlyAccept"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"buyer":{"$ref":"common.schema.json#/$defs/Address"},"attempt":{"type":"integer","minimum":1},"deliveryHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"EIP-712 struct hash of the delivery the buyer opened, without its signature. Settlement refuses an early accept relayed with any other delivery (ADR-0029)"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
+const schema146 = {"type":"object","description":"Buyer accepts a delivery before any decision; releases payment and the seller-supplied key for the buyer","additionalProperties":false,"required":["type","commitmentId","buyer","attempt","deliveryHash","nonce","expiresAt","signature"],"properties":{"type":{"const":"EarlyAccept"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"buyer":{"$ref":"common.schema.json#/$defs/Address"},"attempt":{"type":"integer","minimum":1},"deliveryHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"EIP-712 struct hash of the delivery the buyer opened, without its signature. Settlement refuses an early accept relayed with any other delivery (ADR-0029)"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
 
 function validate47(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -20142,8 +20204,8 @@ return errors === 0;
 }
 validate47.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema151 = {"type":"object","description":"An adjudicator's signed decision; the settlement layer checks seed, policy and registry before applying it","additionalProperties":false,"required":["type","commitmentId","attempt","deliveryHash","adjudicator","role","outcome","seed","policyHash","registryHash","judgmentRecordHash","nonce","expiresAt","signature"],"properties":{"type":{"const":"Decision"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"attempt":{"type":"integer","minimum":1},"deliveryHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"EIP-712 struct hash of the delivery judged, without its signature: the posted delivery. Settlement refuses a decision that names any other, at every role (ADR-0029)"},"adjudicator":{"$ref":"common.schema.json#/$defs/Address"},"role":{"enum":["primary","fallback","appeal"]},"outcome":{"enum":["accept","reject","escalate"]},"seed":{"$ref":"common.schema.json#/$defs/Hex32","description":"The panel seed for the decider's role (ADR-0018): the primary reveals the preimage of its acceptance's seedCommitment; fallback and appeal decisions use the beacon seed for the round fixed by judgeBy, the escalation or the appeal filing"},"policyHash":{"$ref":"common.schema.json#/$defs/Hex32"},"registryHash":{"$ref":"common.schema.json#/$defs/Hex32"},"judgmentRecordHash":{"$ref":"common.schema.json#/$defs/Hex32"},"keyForBuyer":{"type":"object","additionalProperties":false,"required":["scheme","ciphertext"],"properties":{"scheme":{"const":"x25519-xsalsa20poly1305"},"ciphertext":{"$ref":"common.schema.json#/$defs/Base64Url"}}},"appealGround":{"enum":["wrong-outcome","missing-or-wrong-key","policy-or-panel-violation","mislabeled-model"],"description":"Appeal decisions only"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"},"beacon":{"type":"object","additionalProperties":false,"required":["source","round","value"],"description":"Beacon proof for a fallback or appeal panel seed. On SimChain the beacon is a settlement-layer fact; other sources carry the round's signature.","properties":{"source":{"$ref":"common.schema.json#/$defs/RandomnessSource"},"round":{"type":"integer","minimum":0},"value":{"$ref":"common.schema.json#/$defs/Hex32"},"signature":{"type":"string","pattern":"^0x([0-9a-f]{2}){1,256}$","description":"The beacon's signature over the round (e.g. a 48-byte BLS signature for drand quicknet); lowercase, whole bytes"}},"if":{"type":"object","properties":{"source":{"const":"sim"}},"required":["source"]},"else":{"required":["signature"],"type":"object","properties":{"signature":{}}},"then":{"type":"object","not":{"type":"object","required":["signature"],"properties":{"signature":{}}}}},"encryptedKeys":{"type":"array","minItems":1,"items":{"$ref":"common.schema.json#/$defs/EncryptedKey"},"description":"On escalate: the content key encrypted to the appeal adjudicator (ADR-0020); only on escalate"}},"allOf":[{"if":{"type":"object","properties":{"outcome":{"const":"escalate"}},"required":["outcome"]},"then":{"type":"object","required":["encryptedKeys"],"properties":{"encryptedKeys":{}}},"else":{"type":"object","not":{"type":"object","required":["encryptedKeys"],"properties":{"encryptedKeys":{}}}}}]};
-const pattern114 = new RegExp("^0x([0-9a-f]{2}){1,256}$", "u");
+const schema153 = {"type":"object","description":"An adjudicator's signed decision; the settlement layer checks seed, policy and registry before applying it","additionalProperties":false,"required":["type","commitmentId","attempt","deliveryHash","adjudicator","role","outcome","seed","policyHash","registryHash","judgmentRecordHash","nonce","expiresAt","signature"],"properties":{"type":{"const":"Decision"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"attempt":{"type":"integer","minimum":1},"deliveryHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"EIP-712 struct hash of the delivery judged, without its signature: the posted delivery. Settlement refuses a decision that names any other, at every role (ADR-0029)"},"adjudicator":{"$ref":"common.schema.json#/$defs/Address"},"role":{"enum":["primary","fallback","appeal"]},"outcome":{"enum":["accept","reject","escalate"]},"seed":{"$ref":"common.schema.json#/$defs/Hex32","description":"The panel seed for the decider's role (ADR-0018): the primary reveals the preimage of its acceptance's seedCommitment; fallback and appeal decisions use the beacon seed for the round fixed by judgeBy, the escalation or the appeal filing"},"policyHash":{"$ref":"common.schema.json#/$defs/Hex32"},"registryHash":{"$ref":"common.schema.json#/$defs/Hex32"},"judgmentRecordHash":{"$ref":"common.schema.json#/$defs/Hex32"},"keyForBuyer":{"type":"object","additionalProperties":false,"required":["scheme","ciphertext"],"properties":{"scheme":{"const":"x25519-xsalsa20poly1305"},"ciphertext":{"$ref":"common.schema.json#/$defs/Base64Url"}}},"appealGround":{"enum":["wrong-outcome","missing-or-wrong-key","policy-or-panel-violation","mislabeled-model"],"description":"Appeal decisions only"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"},"beacon":{"type":"object","additionalProperties":false,"required":["source","round","value"],"description":"Beacon proof for a fallback or appeal panel seed. On SimChain the beacon is a settlement-layer fact; other sources carry the round's signature.","properties":{"source":{"$ref":"common.schema.json#/$defs/RandomnessSource"},"round":{"type":"integer","minimum":0},"value":{"$ref":"common.schema.json#/$defs/Hex32"},"signature":{"type":"string","pattern":"^0x([0-9a-f]{2}){1,256}$","description":"The beacon's signature over the round (e.g. a 48-byte BLS signature for drand quicknet); lowercase, whole bytes"}},"if":{"type":"object","properties":{"source":{"const":"sim"}},"required":["source"]},"else":{"required":["signature"],"type":"object","properties":{"signature":{}}},"then":{"type":"object","not":{"type":"object","required":["signature"],"properties":{"signature":{}}}}},"encryptedKeys":{"type":"array","minItems":1,"items":{"$ref":"common.schema.json#/$defs/EncryptedKey"},"description":"On escalate: the content key encrypted to the appeal adjudicator (ADR-0020); only on escalate"}},"allOf":[{"if":{"type":"object","properties":{"outcome":{"const":"escalate"}},"required":["outcome"]},"then":{"type":"object","required":["encryptedKeys"],"properties":{"encryptedKeys":{}}},"else":{"type":"object","not":{"type":"object","required":["encryptedKeys"],"properties":{"encryptedKeys":{}}}}}]};
+const pattern116 = new RegExp("^0x([0-9a-f]{2}){1,256}$", "u");
 
 function validate50(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -20449,9 +20511,9 @@ if(_errs23 === errors){
 if(data3.kind !== undefined){
 let data5 = data3.kind;
 const _errs24 = errors;
-const vSchema0 = schema168.properties.kind.enum;
+const vSchema0 = schema170.properties.kind.enum;
 if(!((data5 === "none") || (data5 === "beacon-round"))){
-validate50.errors = [{instancePath:instancePath+"/unlock/kind",schemaPath:"#/$defs/KeyUnlock/properties/kind/enum",keyword:"enum",params:{allowedValues: schema168.properties.kind.enum},message:"must be equal to one of the allowed values"}];
+validate50.errors = [{instancePath:instancePath+"/unlock/kind",schemaPath:"#/$defs/KeyUnlock/properties/kind/enum",keyword:"enum",params:{allowedValues: schema170.properties.kind.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
@@ -20732,7 +20794,7 @@ return false;
 else {
 const _errs13 = errors;
 for(const key0 in data){
-if(!(func0.call(schema151.properties, key0))){
+if(!(func0.call(schema153.properties, key0))){
 validate49.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"}];
 return false;
 break;
@@ -20875,9 +20937,9 @@ if(valid4){
 if(data.role !== undefined){
 let data6 = data.role;
 const _errs26 = errors;
-const vSchema0 = schema151.properties.role.enum;
+const vSchema0 = schema153.properties.role.enum;
 if(!(((data6 === "primary") || (data6 === "fallback")) || (data6 === "appeal"))){
-validate49.errors = [{instancePath:instancePath+"/role",schemaPath:"#/properties/role/enum",keyword:"enum",params:{allowedValues: schema151.properties.role.enum},message:"must be equal to one of the allowed values"}];
+validate49.errors = [{instancePath:instancePath+"/role",schemaPath:"#/properties/role/enum",keyword:"enum",params:{allowedValues: schema153.properties.role.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
@@ -20893,9 +20955,9 @@ if(valid4){
 if(data.outcome !== undefined){
 let data7 = data.outcome;
 const _errs27 = errors;
-const vSchema1 = schema151.properties.outcome.enum;
+const vSchema1 = schema153.properties.outcome.enum;
 if(!(((data7 === "accept") || (data7 === "reject")) || (data7 === "escalate"))){
-validate49.errors = [{instancePath:instancePath+"/outcome",schemaPath:"#/properties/outcome/enum",keyword:"enum",params:{allowedValues: schema151.properties.outcome.enum},message:"must be equal to one of the allowed values"}];
+validate49.errors = [{instancePath:instancePath+"/outcome",schemaPath:"#/properties/outcome/enum",keyword:"enum",params:{allowedValues: schema153.properties.outcome.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
@@ -21117,9 +21179,9 @@ if(valid4){
 if(data.appealGround !== undefined){
 let data15 = data.appealGround;
 const _errs47 = errors;
-const vSchema2 = schema151.properties.appealGround.enum;
+const vSchema2 = schema153.properties.appealGround.enum;
 if(!((((data15 === "wrong-outcome") || (data15 === "missing-or-wrong-key")) || (data15 === "policy-or-panel-violation")) || (data15 === "mislabeled-model"))){
-validate49.errors = [{instancePath:instancePath+"/appealGround",schemaPath:"#/properties/appealGround/enum",keyword:"enum",params:{allowedValues: schema151.properties.appealGround.enum},message:"must be equal to one of the allowed values"}];
+validate49.errors = [{instancePath:instancePath+"/appealGround",schemaPath:"#/properties/appealGround/enum",keyword:"enum",params:{allowedValues: schema153.properties.appealGround.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
@@ -21505,7 +21567,7 @@ const _errs78 = errors;
 const _errs79 = errors;
 if(errors === _errs78){
 if(typeof data24 === "string"){
-if(!pattern114.test(data24)){
+if(!pattern116.test(data24)){
 validate49.errors = [{instancePath:instancePath+"/beacon/signature",schemaPath:"#/properties/beacon/properties/signature/pattern",keyword:"pattern",params:{pattern: "^0x([0-9a-f]{2}){1,256}$"},message:"must match pattern \""+"^0x([0-9a-f]{2}){1,256}$"+"\""}];
 return false;
 }
@@ -21622,7 +21684,7 @@ return errors === 0;
 }
 validate49.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema169 = {"type":"object","description":"Principal revokes an agent; blocks new commitments only","additionalProperties":false,"required":["type","agent","principal","nonce","expiresAt","signature"],"properties":{"type":{"const":"AgentRevocation"},"agent":{"$ref":"common.schema.json#/$defs/Address"},"principal":{"$ref":"common.schema.json#/$defs/Address"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
+const schema171 = {"type":"object","description":"Principal revokes an agent; blocks new commitments only","additionalProperties":false,"required":["type","agent","principal","nonce","expiresAt","signature"],"properties":{"type":{"const":"AgentRevocation"},"agent":{"$ref":"common.schema.json#/$defs/Address"},"principal":{"$ref":"common.schema.json#/$defs/Address"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
 
 function validate53(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -21844,7 +21906,7 @@ return errors === 0;
 }
 validate53.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema175 = {"type":"object","description":"Club operator admits a member principal","additionalProperties":false,"required":["type","clubId","member","operator","validUntil","nonce","expiresAt","signature"],"properties":{"type":{"const":"MemberAdmission"},"clubId":{"$ref":"common.schema.json#/$defs/ClubId"},"member":{"$ref":"common.schema.json#/$defs/Address"},"operator":{"$ref":"common.schema.json#/$defs/Address"},"validUntil":{"$ref":"common.schema.json#/$defs/Timestamp"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
+const schema177 = {"type":"object","description":"Club operator admits a member principal","additionalProperties":false,"required":["type","clubId","member","operator","validUntil","nonce","expiresAt","signature"],"properties":{"type":{"const":"MemberAdmission"},"clubId":{"$ref":"common.schema.json#/$defs/ClubId"},"member":{"$ref":"common.schema.json#/$defs/Address"},"operator":{"$ref":"common.schema.json#/$defs/Address"},"validUntil":{"$ref":"common.schema.json#/$defs/Timestamp"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
 
 function validate55(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -22132,7 +22194,7 @@ return errors === 0;
 }
 validate55.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema183 = {"type":"object","description":"Club operator removes a member; blocks new commitments only","additionalProperties":false,"required":["type","clubId","member","operator","nonce","expiresAt","signature"],"properties":{"type":{"const":"MemberRevocation"},"clubId":{"$ref":"common.schema.json#/$defs/ClubId"},"member":{"$ref":"common.schema.json#/$defs/Address"},"operator":{"$ref":"common.schema.json#/$defs/Address"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
+const schema185 = {"type":"object","description":"Club operator removes a member; blocks new commitments only","additionalProperties":false,"required":["type","clubId","member","operator","nonce","expiresAt","signature"],"properties":{"type":{"const":"MemberRevocation"},"clubId":{"$ref":"common.schema.json#/$defs/ClubId"},"member":{"$ref":"common.schema.json#/$defs/Address"},"operator":{"$ref":"common.schema.json#/$defs/Address"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
 
 function validate57(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -22385,7 +22447,7 @@ return errors === 0;
 }
 validate57.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema190 = {"type":"object","description":"Optimistic mode: the buyer disputes a delivery before disputeBy, posting the dispute bond and the adjudication fee (ADR-0015)","additionalProperties":false,"required":["type","commitmentId","buyer","attempt","grounds","bond","fee","encryptedKeys","nonce","expiresAt","signature"],"properties":{"type":{"const":"Dispute"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"buyer":{"$ref":"common.schema.json#/$defs/Address"},"attempt":{"type":"integer","minimum":1},"grounds":{"type":"string","maxLength":2000,"x-holdback-untrusted":true},"bond":{"$ref":"common.schema.json#/$defs/TokenAmount"},"fee":{"$ref":"common.schema.json#/$defs/TokenAmount"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"},"encryptedKeys":{"type":"array","minItems":3,"items":{"$ref":"common.schema.json#/$defs/EncryptedKey"},"description":"The content key encrypted to the primary, fallback and appeal adjudicators, so at least three (ADR-0020)"}}};
+const schema192 = {"type":"object","description":"Optimistic mode: the buyer disputes a delivery before disputeBy, posting the dispute bond and the adjudication fee (ADR-0015)","additionalProperties":false,"required":["type","commitmentId","buyer","attempt","grounds","bond","fee","encryptedKeys","nonce","expiresAt","signature"],"properties":{"type":{"const":"Dispute"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"buyer":{"$ref":"common.schema.json#/$defs/Address"},"attempt":{"type":"integer","minimum":1},"grounds":{"type":"string","maxLength":2000,"x-holdback-untrusted":true},"bond":{"$ref":"common.schema.json#/$defs/TokenAmount"},"fee":{"$ref":"common.schema.json#/$defs/TokenAmount"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"},"encryptedKeys":{"type":"array","minItems":3,"items":{"$ref":"common.schema.json#/$defs/EncryptedKey"},"description":"The content key encrypted to the primary, fallback and appeal adjudicators, so at least three (ADR-0020)"}}};
 
 function validate59(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -22408,7 +22470,7 @@ return false;
 else {
 const _errs1 = errors;
 for(const key0 in data){
-if(!(func0.call(schema190.properties, key0))){
+if(!(func0.call(schema192.properties, key0))){
 validate59.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"}];
 return false;
 break;
@@ -22739,7 +22801,7 @@ return errors === 0;
 }
 validate59.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema196 = {"type":"object","description":"Buyer and seller close a commitment by agreement (ADR-0019, amended by D23). Both sign the identical struct: everything except the two signatures. The held price goes to the payouts; the adjudication fee returns to the buyer.","additionalProperties":false,"required":["type","commitmentId","deliveryHash","payouts","releaseKey","nonce","expiresAt","buyerSignature","sellerSignature"],"properties":{"type":{"const":"MutualSettlement"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"deliveryHash":{"oneOf":[{"$ref":"common.schema.json#/$defs/Hex32"},{"type":"null"}],"description":"EIP-712 struct hash of the delivery being settled, or null before any delivery"},"payouts":{"$ref":"common.schema.json#/$defs/Payouts","description":"Who receives the held price and how much. Any addresses both parties sign for, unless the rulebook restricts payouts to the parties"},"releaseKey":{"type":"boolean","description":"Whether the seller-supplied key is released to the buyer with the payment; must be false when deliveryHash is null (ADR-0019)"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"buyerSignature":{"$ref":"common.schema.json#/$defs/Signature"},"sellerSignature":{"$ref":"common.schema.json#/$defs/Signature"}},"if":{"type":"object","properties":{"deliveryHash":{"type":"null"}},"required":["deliveryHash"]},"then":{"type":"object","properties":{"releaseKey":{"const":false}},"required":["releaseKey"]}};
+const schema198 = {"type":"object","description":"Buyer and seller close a commitment by agreement (ADR-0019, amended by D23). Both sign the identical struct: everything except the two signatures. The held price goes to the payouts; the adjudication fee returns to the buyer.","additionalProperties":false,"required":["type","commitmentId","deliveryHash","payouts","releaseKey","nonce","expiresAt","buyerSignature","sellerSignature"],"properties":{"type":{"const":"MutualSettlement"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"deliveryHash":{"oneOf":[{"$ref":"common.schema.json#/$defs/Hex32"},{"type":"null"}],"description":"EIP-712 struct hash of the delivery being settled, or null before any delivery"},"payouts":{"$ref":"common.schema.json#/$defs/Payouts","description":"Who receives the held price and how much. Any addresses both parties sign for, unless the rulebook restricts payouts to the parties"},"releaseKey":{"type":"boolean","description":"Whether the seller-supplied key is released to the buyer with the payment; must be false when deliveryHash is null (ADR-0019)"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"buyerSignature":{"$ref":"common.schema.json#/$defs/Signature"},"sellerSignature":{"$ref":"common.schema.json#/$defs/Signature"}},"if":{"type":"object","properties":{"deliveryHash":{"type":"null"}},"required":["deliveryHash"]},"then":{"type":"object","properties":{"releaseKey":{"const":false}},"required":["releaseKey"]}};
 
 function validate65(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -22945,7 +23007,7 @@ return false;
 else {
 const _errs9 = errors;
 for(const key0 in data){
-if(!(func0.call(schema196.properties, key0))){
+if(!(func0.call(schema198.properties, key0))){
 validate64.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"}];
 return false;
 break;
@@ -23523,7 +23585,7 @@ return errors === 0;
 }
 validate69.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema211 = {"type":"object","description":"ADR-0023: the buyer's transfer of an operator fee to the relaying operator's published fee address, sent in the agree body as operatorFee and applied by the settlement layer in the same step as the agreement and the funding, outside the hold. Never refunded","additionalProperties":false,"required":["type","scheme","purpose","commitmentId","from","to","value","token","validAfter","validBefore","nonce","expiresAt","signature"],"properties":{"type":{"const":"TransferAuthorization"},"scheme":{"enum":["erc3009"]},"purpose":{"const":"operator_fee"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"from":{"$ref":"common.schema.json#/$defs/Address"},"to":{"$ref":"common.schema.json#/$defs/Address"},"value":{"type":"string","pattern":"^(0|[1-9][0-9]{0,77})$","description":"Base units, decimal string"},"token":{"$ref":"common.schema.json#/$defs/TokenId"},"validAfter":{"$ref":"common.schema.json#/$defs/Timestamp"},"validBefore":{"$ref":"common.schema.json#/$defs/Timestamp"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
+const schema213 = {"type":"object","description":"ADR-0023: the buyer's payment address's transfer of an operator fee to the relaying operator's published fee address, sent in the agree body as operatorFee and applied by the settlement layer in the same step as the agreement and the funding, outside the hold. Never refunded","additionalProperties":false,"required":["type","scheme","purpose","commitmentId","from","to","value","token","validAfter","validBefore","nonce","expiresAt","signature"],"properties":{"type":{"const":"TransferAuthorization"},"scheme":{"enum":["erc3009"]},"purpose":{"const":"operator_fee"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"from":{"$ref":"common.schema.json#/$defs/Address","description":"The buyer's payment address, the commitment's buyerPaymentAddress (ADR-0033)"},"to":{"$ref":"common.schema.json#/$defs/Address"},"value":{"type":"string","pattern":"^(0|[1-9][0-9]{0,77})$","description":"Base units, decimal string"},"token":{"$ref":"common.schema.json#/$defs/TokenId"},"validAfter":{"$ref":"common.schema.json#/$defs/Timestamp"},"validBefore":{"$ref":"common.schema.json#/$defs/Timestamp"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
 
 function validate71(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -23546,7 +23608,7 @@ return false;
 else {
 const _errs1 = errors;
 for(const key0 in data){
-if(!(func0.call(schema211.properties, key0))){
+if(!(func0.call(schema213.properties, key0))){
 validate71.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"}];
 return false;
 break;
@@ -23573,9 +23635,9 @@ if(valid0){
 if(data.scheme !== undefined){
 let data1 = data.scheme;
 const _errs3 = errors;
-const vSchema0 = schema211.properties.scheme.enum;
+const vSchema0 = schema213.properties.scheme.enum;
 if(!(data1 === "erc3009")){
-validate71.errors = [{instancePath:instancePath+"/scheme",schemaPath:"#/properties/scheme/enum",keyword:"enum",params:{allowedValues: schema211.properties.scheme.enum},message:"must be equal to one of the allowed values"}];
+validate71.errors = [{instancePath:instancePath+"/scheme",schemaPath:"#/properties/scheme/enum",keyword:"enum",params:{allowedValues: schema213.properties.scheme.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
@@ -23941,7 +24003,7 @@ return errors === 0;
 }
 validate71.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema221 = {"type":"object","additionalProperties":false,"description":"Authenticates a private read (ADR-0024 §3), sent as `Authorization: Holdback-ReadToken <base64url of this JSON>`. Signed by a party (its per-deal key) or an involved adjudicator. audience, when present, is the operator's receipt-signer address, so another operator refuses the token. A zero commitmentId scopes list reads to the viewer's deals. The viewer picks the expiry (D31). Changes no state.","required":["type","viewer","commitmentId","nonce","expiresAt","signature"],"properties":{"type":{"const":"ReadToken"},"viewer":{"$ref":"common.schema.json#/$defs/Address"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"audience":{"$ref":"common.schema.json#/$defs/Address"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
+const schema223 = {"type":"object","additionalProperties":false,"description":"Authenticates a private read (ADR-0024 §3), sent as `Authorization: Holdback-ReadToken <base64url of this JSON>`. Signed by a party (its per-deal key) or an involved adjudicator. audience, when present, is the operator's receipt-signer address, so another operator refuses the token. A zero commitmentId scopes list reads to the viewer's deals. The viewer picks the expiry (D31). Changes no state.","required":["type","viewer","commitmentId","nonce","expiresAt","signature"],"properties":{"type":{"const":"ReadToken"},"viewer":{"$ref":"common.schema.json#/$defs/Address"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"audience":{"$ref":"common.schema.json#/$defs/Address"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
 
 function validate73(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -24194,7 +24256,7 @@ return errors === 0;
 }
 validate73.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema228 = {"type":"object","additionalProperties":false,"description":"A per-deal key certificate (ADR-0024 §7), signed by the agent's long-term key: dealKey signs this one deal and dealEncryptionKey receives its envelopes, within scope, for principal in clubId. The seller sends it to the primary with the offer and both parties exchange theirs before agree; the counterparty and the adjudicator check it, settlement does not. Revealing it ties one deal to its principal (evidence, D26). Changes no state.","required":["type","principal","agent","dealKey","dealEncryptionKey","clubId","scope","nonce","expiresAt","signature"],"properties":{"type":{"const":"Delegation"},"principal":{"$ref":"common.schema.json#/$defs/Address"},"agent":{"$ref":"common.schema.json#/$defs/Address","description":"The long-term agent key that signs this certificate, as named in the principal's mandate"},"dealKey":{"$ref":"common.schema.json#/$defs/Address","description":"The one-time signing address that appears as buyer or seller in the terms"},"dealEncryptionKey":{"$ref":"common.schema.json#/$defs/Base64Url","description":"The one-time x25519 key: buyerEncryptionPublicKey or deliverable.sellerEncryptionPublicKey in the terms"},"clubId":{"$ref":"common.schema.json#/$defs/ClubId"},"scope":{"$ref":"common.schema.json#/$defs/Scope"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
+const schema230 = {"type":"object","additionalProperties":false,"description":"A per-deal key certificate (ADR-0024 §7), signed by the agent's long-term key: dealKey signs this one deal and dealEncryptionKey receives its envelopes, within scope, for principal in clubId. The seller sends it to the primary with the offer and both parties exchange theirs before agree; the counterparty and the adjudicator check it, settlement does not. Revealing it ties one deal to its principal (evidence, D26). Changes no state.","required":["type","principal","agent","dealKey","dealEncryptionKey","clubId","scope","nonce","expiresAt","signature"],"properties":{"type":{"const":"Delegation"},"principal":{"$ref":"common.schema.json#/$defs/Address"},"agent":{"$ref":"common.schema.json#/$defs/Address","description":"The long-term agent key that signs this certificate, as named in the principal's mandate"},"dealKey":{"$ref":"common.schema.json#/$defs/Address","description":"The one-time signing address that appears as buyer or seller in the terms"},"dealEncryptionKey":{"$ref":"common.schema.json#/$defs/Base64Url","description":"The one-time x25519 key: buyerEncryptionPublicKey or deliverable.sellerEncryptionPublicKey in the terms"},"clubId":{"$ref":"common.schema.json#/$defs/ClubId"},"scope":{"$ref":"common.schema.json#/$defs/Scope"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
 
 function validate76(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -24446,7 +24508,7 @@ return false;
 else {
 const _errs1 = errors;
 for(const key0 in data){
-if(!(func0.call(schema228.properties, key0))){
+if(!(func0.call(schema230.properties, key0))){
 validate75.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"}];
 return false;
 break;
@@ -24754,7 +24816,7 @@ return errors === 0;
 }
 validate75.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema239 = {"type":"object","additionalProperties":false,"deprecated":true,"description":"Deprecated in v0.10: AdjudicatorRegistration carries the key (ADR-0030); operators take only that, and the next breaking version removes this message. An adjudicator's self-signed encryption key (ADR-0024 §6). Changes no state.","required":["type","adjudicator","encryptionPublicKey","keyId","nonce","expiresAt","signature"],"properties":{"type":{"const":"KeyRegistration"},"adjudicator":{"$ref":"common.schema.json#/$defs/Address"},"encryptionPublicKey":{"$ref":"common.schema.json#/$defs/Base64Url"},"keyId":{"$ref":"common.schema.json#/$defs/Ident"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
+const schema241 = {"type":"object","additionalProperties":false,"deprecated":true,"description":"Deprecated in v0.10: AdjudicatorRegistration carries the key (ADR-0030); operators take only that, and the next breaking version removes this message. An adjudicator's self-signed encryption key (ADR-0024 §6). Changes no state.","required":["type","adjudicator","encryptionPublicKey","keyId","nonce","expiresAt","signature"],"properties":{"type":{"const":"KeyRegistration"},"adjudicator":{"$ref":"common.schema.json#/$defs/Address"},"encryptionPublicKey":{"$ref":"common.schema.json#/$defs/Base64Url"},"keyId":{"$ref":"common.schema.json#/$defs/Ident"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
 
 function validate81(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -25007,7 +25069,7 @@ return errors === 0;
 }
 validate81.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema246 = {"type":"object","additionalProperties":false,"description":"An adjudicator's self-signed registration (ADR-0030): its key, the hashes a commitment binds, its minimum fee and its pool terms, and bodyHash over the rest of its record. Served with the record as its `registration` envelope (adjudicator.schema.json); a reader rebuilds this message from the record. A later issuedAt replaces the served one. Changes no settlement state.","required":["type","adjudicator","encryptionPublicKey","keyId","policyHash","registryHash","fee","poolTermsHash","bodyHash","issuedAt","nonce","expiresAt","signature"],"properties":{"type":{"const":"AdjudicatorRegistration"},"adjudicator":{"$ref":"common.schema.json#/$defs/Address","description":"The record's address: the key every acceptance and decision of this adjudicator is checked against"},"encryptionPublicKey":{"$ref":"common.schema.json#/$defs/Base64Url","description":"The x25519 key sellers seal content keys to"},"keyId":{"$ref":"common.schema.json#/$defs/Ident","description":"Names the encryption key; a rotation is a new registration with a new keyId"},"policyHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"The record's policyHash"},"registryHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"The record's registry.hash"},"fee":{"$ref":"common.schema.json#/$defs/TokenAmount","description":"The record's fee.min"},"poolTermsHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"The record's poolTermsHash"},"bodyHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256 of the RFC 8785 JSON of the registered record: the record without `registration`, with `pool` holding only `terms`"},"issuedAt":{"$ref":"common.schema.json#/$defs/Timestamp","description":"Orders this address's registrations: operators serve the latest and refuse an older one"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
+const schema248 = {"type":"object","additionalProperties":false,"description":"An adjudicator's self-signed registration (ADR-0030): its key, the hashes a commitment binds, its minimum fee and its pool terms, and bodyHash over the rest of its record. Served with the record as its `registration` envelope (adjudicator.schema.json); a reader rebuilds this message from the record. A later issuedAt replaces the served one. Changes no settlement state.","required":["type","adjudicator","encryptionPublicKey","keyId","policyHash","registryHash","fee","poolTermsHash","bodyHash","issuedAt","nonce","expiresAt","signature"],"properties":{"type":{"const":"AdjudicatorRegistration"},"adjudicator":{"$ref":"common.schema.json#/$defs/Address","description":"The record's address: the key every acceptance and decision of this adjudicator is checked against"},"encryptionPublicKey":{"$ref":"common.schema.json#/$defs/Base64Url","description":"The x25519 key sellers seal content keys to"},"keyId":{"$ref":"common.schema.json#/$defs/Ident","description":"Names the encryption key; a rotation is a new registration with a new keyId"},"policyHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"The record's policyHash"},"registryHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"The record's registry.hash"},"fee":{"$ref":"common.schema.json#/$defs/TokenAmount","description":"The record's fee.min"},"poolTermsHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"The record's poolTermsHash"},"bodyHash":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256 of the RFC 8785 JSON of the registered record: the record without `registration`, with `pool` holding only `terms`"},"issuedAt":{"$ref":"common.schema.json#/$defs/Timestamp","description":"Orders this address's registrations: operators serve the latest and refuse an older one"},"nonce":{"$ref":"common.schema.json#/$defs/Hex32"},"expiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
 
 function validate83(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -25030,7 +25092,7 @@ return false;
 else {
 const _errs1 = errors;
 for(const key0 in data){
-if(!(func0.call(schema246.properties, key0))){
+if(!(func0.call(schema248.properties, key0))){
 validate83.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"}];
 return false;
 break;
@@ -25437,7 +25499,7 @@ validate83.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 
 function validate35(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
-/*# sourceURL="https://holdback.dev/schemas/v0.10/messages.schema.json" */;
+/*# sourceURL="https://holdback.dev/schemas/v0.11/messages.schema.json" */;
 let vErrors = null;
 let errors = 0;
 const evaluated0 = validate35.evaluated;
@@ -25831,10 +25893,10 @@ return errors === 0;
 validate35.evaluated = {"dynamicProps":true,"dynamicItems":false};
 
 exports["operator-status"] = validate131;
-const schema349 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.10/operator-status.schema.json","title":"Operator status (GET /v1/status, ADR-0017)","type":"object","additionalProperties":false,"required":["operatorId","receiptSigner","settlement","domain","apiVersion","schemaVersion","head","settlementModes"],"properties":{"operatorId":{"type":"string","minLength":1,"maxLength":64,"x-holdback-untrusted":true},"receiptSigner":{"$ref":"common.schema.json#/$defs/Address"},"settlement":{"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"enum":["sim","chain"]},"chainId":{"type":"string","pattern":"^[1-9][0-9]{0,19}$"}},"if":{"properties":{"kind":{"const":"chain"}},"type":"object"},"then":{"required":["chainId"],"type":"object","properties":{"chainId":{}}}},"domain":{"type":"object","additionalProperties":false,"required":["name","version","chainId","verifyingContract"],"description":"The EIP-712 domain agents sign under for this settlement target","properties":{"name":{"const":"Holdback"},"version":{"type":"string","pattern":"^[0-9]+\\.[0-9]+$"},"chainId":{"type":"string","pattern":"^[1-9][0-9]{0,19}$"},"verifyingContract":{"$ref":"common.schema.json#/$defs/Address"}}},"apiVersion":{"type":"string","pattern":"^v[0-9]+$"},"schemaVersion":{"type":"string","pattern":"^[0-9]+\\.[0-9]+$"},"head":{"type":"object","additionalProperties":false,"required":["eventSeq","lagSec"],"properties":{"eventSeq":{"type":"integer","minimum":0},"lagBlocks":{"type":"integer","minimum":0},"lagSec":{"type":"integer","minimum":0}}},"settlementModes":{"type":"array","minItems":1,"uniqueItems":true,"items":{"$ref":"common.schema.json#/$defs/SettlementMode"}},"fees":{"type":"object","additionalProperties":false,"required":["operator"],"description":"ADR-0023: what this operator charges. Absent: it charges nothing","properties":{"operator":{"$ref":"#/$defs/OperatorFee"}}}},"$defs":{"OperatorFee":{"type":"object","additionalProperties":false,"required":["to","token","bps","min","max","appliesAt","refundable"],"description":"ADR-0023: fee = max(min, ceil(price x bps / 10000)), capped at max when max is not null, in base units of the price token; paid by the buyer to `to` with the funded agreement this operator relays. A schedule in another token than the price charges nothing. Direct submission and other operators charge their own or none","properties":{"to":{"$ref":"common.schema.json#/$defs/Address"},"token":{"$ref":"common.schema.json#/$defs/TokenId"},"bps":{"$ref":"common.schema.json#/$defs/Bps"},"min":{"type":"string","pattern":"^(0|[1-9][0-9]{0,77})$","description":"Base units, decimal string"},"max":{"oneOf":[{"type":"string","pattern":"^(0|[1-9][0-9]{0,77})$"},{"type":"null"}],"description":"Base units, decimal string, or null for no cap"},"appliesAt":{"const":"agree-and-fund"},"refundable":{"const":false}}}}};
-const pattern247 = new RegExp("^[1-9][0-9]{0,19}$", "u");
-const pattern251 = new RegExp("^v[0-9]+$", "u");
-const schema353 = {"type":"object","additionalProperties":false,"required":["to","token","bps","min","max","appliesAt","refundable"],"description":"ADR-0023: fee = max(min, ceil(price x bps / 10000)), capped at max when max is not null, in base units of the price token; paid by the buyer to `to` with the funded agreement this operator relays. A schedule in another token than the price charges nothing. Direct submission and other operators charge their own or none","properties":{"to":{"$ref":"common.schema.json#/$defs/Address"},"token":{"$ref":"common.schema.json#/$defs/TokenId"},"bps":{"$ref":"common.schema.json#/$defs/Bps"},"min":{"type":"string","pattern":"^(0|[1-9][0-9]{0,77})$","description":"Base units, decimal string"},"max":{"oneOf":[{"type":"string","pattern":"^(0|[1-9][0-9]{0,77})$"},{"type":"null"}],"description":"Base units, decimal string, or null for no cap"},"appliesAt":{"const":"agree-and-fund"},"refundable":{"const":false}}};
+const schema351 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.11/operator-status.schema.json","title":"Operator status (GET /v1/status, ADR-0017)","type":"object","additionalProperties":false,"required":["operatorId","receiptSigner","settlement","domain","apiVersion","schemaVersion","head","settlementModes"],"properties":{"operatorId":{"type":"string","minLength":1,"maxLength":64,"x-holdback-untrusted":true},"receiptSigner":{"$ref":"common.schema.json#/$defs/Address"},"settlement":{"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"enum":["sim","chain"]},"chainId":{"type":"string","pattern":"^[1-9][0-9]{0,19}$"}},"if":{"properties":{"kind":{"const":"chain"}},"type":"object"},"then":{"required":["chainId"],"type":"object","properties":{"chainId":{}}}},"domain":{"type":"object","additionalProperties":false,"required":["name","version","chainId","verifyingContract"],"description":"The EIP-712 domain agents sign under for this settlement target","properties":{"name":{"const":"Holdback"},"version":{"type":"string","pattern":"^[0-9]+\\.[0-9]+$"},"chainId":{"type":"string","pattern":"^[1-9][0-9]{0,19}$"},"verifyingContract":{"$ref":"common.schema.json#/$defs/Address"}}},"apiVersion":{"type":"string","pattern":"^v[0-9]+$"},"schemaVersion":{"type":"string","pattern":"^[0-9]+\\.[0-9]+$"},"head":{"type":"object","additionalProperties":false,"required":["eventSeq","lagSec"],"properties":{"eventSeq":{"type":"integer","minimum":0},"lagBlocks":{"type":"integer","minimum":0},"lagSec":{"type":"integer","minimum":0}}},"settlementModes":{"type":"array","minItems":1,"uniqueItems":true,"items":{"$ref":"common.schema.json#/$defs/SettlementMode"}},"fees":{"type":"object","additionalProperties":false,"required":["operator"],"description":"ADR-0023: what this operator charges. Absent: it charges nothing","properties":{"operator":{"$ref":"#/$defs/OperatorFee"}}}},"$defs":{"OperatorFee":{"type":"object","additionalProperties":false,"required":["to","token","bps","min","max","appliesAt","refundable"],"description":"ADR-0023: fee = max(min, ceil(price x bps / 10000)), capped at max when max is not null, in base units of the price token; paid by the buyer to `to` with the funded agreement this operator relays. A schedule in another token than the price charges nothing. Direct submission and other operators charge their own or none","properties":{"to":{"$ref":"common.schema.json#/$defs/Address"},"token":{"$ref":"common.schema.json#/$defs/TokenId"},"bps":{"$ref":"common.schema.json#/$defs/Bps"},"min":{"type":"string","pattern":"^(0|[1-9][0-9]{0,77})$","description":"Base units, decimal string"},"max":{"oneOf":[{"type":"string","pattern":"^(0|[1-9][0-9]{0,77})$"},{"type":"null"}],"description":"Base units, decimal string, or null for no cap"},"appliesAt":{"const":"agree-and-fund"},"refundable":{"const":false}}}}};
+const pattern249 = new RegExp("^[1-9][0-9]{0,19}$", "u");
+const pattern253 = new RegExp("^v[0-9]+$", "u");
+const schema355 = {"type":"object","additionalProperties":false,"required":["to","token","bps","min","max","appliesAt","refundable"],"description":"ADR-0023: fee = max(min, ceil(price x bps / 10000)), capped at max when max is not null, in base units of the price token; paid by the buyer to `to` with the funded agreement this operator relays. A schedule in another token than the price charges nothing. Direct submission and other operators charge their own or none","properties":{"to":{"$ref":"common.schema.json#/$defs/Address"},"token":{"$ref":"common.schema.json#/$defs/TokenId"},"bps":{"$ref":"common.schema.json#/$defs/Bps"},"min":{"type":"string","pattern":"^(0|[1-9][0-9]{0,77})$","description":"Base units, decimal string"},"max":{"oneOf":[{"type":"string","pattern":"^(0|[1-9][0-9]{0,77})$"},{"type":"null"}],"description":"Base units, decimal string, or null for no cap"},"appliesAt":{"const":"agree-and-fund"},"refundable":{"const":false}}};
 
 function validate132(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -26141,7 +26203,7 @@ validate132.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false}
 
 
 function validate131(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
-/*# sourceURL="https://holdback.dev/schemas/v0.10/operator-status.schema.json" */;
+/*# sourceURL="https://holdback.dev/schemas/v0.11/operator-status.schema.json" */;
 let vErrors = null;
 let errors = 0;
 const evaluated0 = validate131.evaluated;
@@ -26162,7 +26224,7 @@ return false;
 else {
 const _errs1 = errors;
 for(const key0 in data){
-if(!(func0.call(schema349.properties, key0))){
+if(!(func0.call(schema351.properties, key0))){
 validate131.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"}];
 return false;
 break;
@@ -26352,9 +26414,9 @@ if(_errs16 === errors){
 if(data2.kind !== undefined){
 let data4 = data2.kind;
 const _errs17 = errors;
-const vSchema0 = schema349.properties.settlement.properties.kind.enum;
+const vSchema0 = schema351.properties.settlement.properties.kind.enum;
 if(!((data4 === "sim") || (data4 === "chain"))){
-validate131.errors = [{instancePath:instancePath+"/settlement/kind",schemaPath:"#/properties/settlement/properties/kind/enum",keyword:"enum",params:{allowedValues: schema349.properties.settlement.properties.kind.enum},message:"must be equal to one of the allowed values"}];
+validate131.errors = [{instancePath:instancePath+"/settlement/kind",schemaPath:"#/properties/settlement/properties/kind/enum",keyword:"enum",params:{allowedValues: schema351.properties.settlement.properties.kind.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
@@ -26373,7 +26435,7 @@ const _errs18 = errors;
 const _errs19 = errors;
 if(errors === _errs18){
 if(typeof data5 === "string"){
-if(!pattern247.test(data5)){
+if(!pattern249.test(data5)){
 validate131.errors = [{instancePath:instancePath+"/settlement/chainId",schemaPath:"#/properties/settlement/properties/chainId/pattern",keyword:"pattern",params:{pattern: "^[1-9][0-9]{0,19}$"},message:"must match pattern \""+"^[1-9][0-9]{0,19}$"+"\""}];
 return false;
 }
@@ -26481,7 +26543,7 @@ const _errs26 = errors;
 const _errs27 = errors;
 if(errors === _errs26){
 if(typeof data9 === "string"){
-if(!pattern247.test(data9)){
+if(!pattern249.test(data9)){
 validate131.errors = [{instancePath:instancePath+"/domain/chainId",schemaPath:"#/properties/domain/properties/chainId/pattern",keyword:"pattern",params:{pattern: "^[1-9][0-9]{0,19}$"},message:"must match pattern \""+"^[1-9][0-9]{0,19}$"+"\""}];
 return false;
 }
@@ -26557,7 +26619,7 @@ const _errs31 = errors;
 const _errs32 = errors;
 if(errors === _errs31){
 if(typeof data11 === "string"){
-if(!pattern251.test(data11)){
+if(!pattern253.test(data11)){
 validate131.errors = [{instancePath:instancePath+"/apiVersion",schemaPath:"#/properties/apiVersion/pattern",keyword:"pattern",params:{pattern: "^v[0-9]+$"},message:"must match pattern \""+"^v[0-9]+$"+"\""}];
 return false;
 }
@@ -26869,11 +26931,11 @@ return errors === 0;
 validate131.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 exports.page = validate134;
-const schema357 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.10/page.schema.json","title":"Page of a collection (ADR-0017)","description":"Every collection endpoint returns this envelope, ordered by event sequence, newest first. Item shapes are given per endpoint in docs/api.md.","type":"object","additionalProperties":false,"required":["items","nextCursor"],"properties":{"items":{"type":"array","maxItems":200},"nextCursor":{"oneOf":[{"type":"string","pattern":"^[A-Za-z0-9_-]{1,512}$","description":"Opaque; pass back as ?cursor="},{"type":"null","description":"End of the data"}]}}};
-const pattern257 = new RegExp("^[A-Za-z0-9_-]{1,512}$", "u");
+const schema359 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.11/page.schema.json","title":"Page of a collection (ADR-0017)","description":"Every collection endpoint returns this envelope, ordered by event sequence, newest first. Item shapes are given per endpoint in docs/api.md.","type":"object","additionalProperties":false,"required":["items","nextCursor"],"properties":{"items":{"type":"array","maxItems":200},"nextCursor":{"oneOf":[{"type":"string","pattern":"^[A-Za-z0-9_-]{1,512}$","description":"Opaque; pass back as ?cursor="},{"type":"null","description":"End of the data"}]}}};
+const pattern259 = new RegExp("^[A-Za-z0-9_-]{1,512}$", "u");
 
 function validate134(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
-/*# sourceURL="https://holdback.dev/schemas/v0.10/page.schema.json" */;
+/*# sourceURL="https://holdback.dev/schemas/v0.11/page.schema.json" */;
 let vErrors = null;
 let errors = 0;
 const evaluated0 = validate134.evaluated;
@@ -26937,7 +26999,7 @@ const _errs6 = errors;
 const _errs7 = errors;
 if(errors === _errs6){
 if(typeof data1 === "string"){
-if(!pattern257.test(data1)){
+if(!pattern259.test(data1)){
 const err0 = {instancePath:instancePath+"/nextCursor",schemaPath:"#/properties/nextCursor/oneOf/0/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]{1,512}$"},message:"must match pattern \""+"^[A-Za-z0-9_-]{1,512}$"+"\""};
 if(vErrors === null){
 vErrors = [err0];
@@ -27042,7 +27104,7 @@ return errors === 0;
 validate134.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 exports.projection = validate135;
-const schema358 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.10/projection.schema.json","title":"Settlement projection (what anyone may read about a private deal)","description":"GET /v1/commitments/{id}/terms without a ReadToken at disclosure level private or judgment (ADR-0024 §3, §8): the fields settlement enforces in the clear and hashes of the rest, enough to check coverage and trigger any timeout. With per-deal keys the addresses name no long-term identity. disclosed carries a body only once its key was published and checked against its hash.","type":"object","additionalProperties":false,"required":["commitmentId","disclosure","buyer","seller","price","adjudication","timing","settlement","hashes"],"properties":{"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"disclosure":{"type":"object","additionalProperties":false,"required":["level"],"properties":{"level":{"$ref":"common.schema.json#/$defs/DisclosureLevel"}}},"buyer":{"$ref":"common.schema.json#/$defs/Address"},"seller":{"$ref":"common.schema.json#/$defs/Address"},"price":{"$ref":"common.schema.json#/$defs/TokenAmount"},"adjudication":{"type":"object","additionalProperties":false,"required":["adjudicator","fallbackAdjudicator","appealAdjudicator","fee"],"properties":{"adjudicator":{"$ref":"common.schema.json#/$defs/Address"},"fallbackAdjudicator":{"$ref":"common.schema.json#/$defs/Address"},"appealAdjudicator":{"$ref":"common.schema.json#/$defs/Address"},"fee":{"$ref":"common.schema.json#/$defs/TokenAmount"}}},"timing":{"$ref":"commitment.schema.json#/properties/timing"},"settlement":{"$ref":"commitment.schema.json#/properties/settlement"},"hashes":{"type":"object","additionalProperties":false,"required":["deliverableHash","acceptanceHash","rulebookHash","registryHash","policyHash"],"properties":{"deliverableHash":{"$ref":"common.schema.json#/$defs/Hex32"},"acceptanceHash":{"$ref":"common.schema.json#/$defs/Hex32"},"rulebookHash":{"$ref":"common.schema.json#/$defs/Hex32"},"registryHash":{"$ref":"common.schema.json#/$defs/Hex32"},"policyHash":{"$ref":"common.schema.json#/$defs/Hex32"}}},"disclosed":{"type":"object","additionalProperties":false,"properties":{"deliverable":{"$ref":"commitment.schema.json#/properties/deliverable"},"acceptance":{"$ref":"commitment.schema.json#/properties/acceptance"}}}}};
+const schema360 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.11/projection.schema.json","title":"Settlement projection (what anyone may read about a private deal)","description":"GET /v1/commitments/{id}/terms without a ReadToken at disclosure level private or judgment (ADR-0024 §3, §8): the fields settlement enforces in the clear and hashes of the rest, enough to check coverage and trigger any timeout. With per-deal keys the addresses name no long-term identity. disclosed carries a body only once its key was published and checked against its hash.","type":"object","additionalProperties":false,"required":["commitmentId","disclosure","buyer","seller","price","adjudication","timing","settlement","hashes"],"properties":{"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32"},"disclosure":{"type":"object","additionalProperties":false,"required":["level"],"properties":{"level":{"$ref":"common.schema.json#/$defs/DisclosureLevel"}}},"buyer":{"$ref":"common.schema.json#/$defs/Address"},"seller":{"$ref":"common.schema.json#/$defs/Address"},"price":{"$ref":"common.schema.json#/$defs/TokenAmount"},"adjudication":{"type":"object","additionalProperties":false,"required":["adjudicator","fallbackAdjudicator","appealAdjudicator","fee"],"properties":{"adjudicator":{"$ref":"common.schema.json#/$defs/Address"},"fallbackAdjudicator":{"$ref":"common.schema.json#/$defs/Address"},"appealAdjudicator":{"$ref":"common.schema.json#/$defs/Address"},"fee":{"$ref":"common.schema.json#/$defs/TokenAmount"}}},"timing":{"$ref":"commitment.schema.json#/properties/timing"},"settlement":{"$ref":"commitment.schema.json#/properties/settlement"},"hashes":{"type":"object","additionalProperties":false,"required":["deliverableHash","acceptanceHash","rulebookHash","registryHash","policyHash"],"properties":{"deliverableHash":{"$ref":"common.schema.json#/$defs/Hex32"},"acceptanceHash":{"$ref":"common.schema.json#/$defs/Hex32"},"rulebookHash":{"$ref":"common.schema.json#/$defs/Hex32"},"registryHash":{"$ref":"common.schema.json#/$defs/Hex32"},"policyHash":{"$ref":"common.schema.json#/$defs/Hex32"}}},"disclosed":{"type":"object","additionalProperties":false,"properties":{"deliverable":{"$ref":"commitment.schema.json#/properties/deliverable"},"acceptance":{"$ref":"commitment.schema.json#/properties/acceptance"}}}}};
 
 function validate136(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -27145,7 +27207,7 @@ return errors === 0;
 }
 validate136.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema368 = {"type":"object","additionalProperties":false,"required":["offerExpiresAt","fundBy","deliverBy","judgeBy","fallbackBy","appealWindowSec","appealDecideSec","maxSubmissions"],"properties":{"offerExpiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"fundBy":{"$ref":"common.schema.json#/$defs/Timestamp"},"deliverBy":{"$ref":"common.schema.json#/$defs/Timestamp"},"judgeBy":{"$ref":"common.schema.json#/$defs/Timestamp"},"fallbackBy":{"$ref":"common.schema.json#/$defs/Timestamp"},"appealWindowSec":{"type":"integer","minimum":1},"appealDecideSec":{"type":"integer","minimum":1},"maxSubmissions":{"type":"integer","minimum":1,"maximum":3},"disputeBy":{"$ref":"common.schema.json#/$defs/Timestamp","description":"Optimistic mode only: the buyer may dispute until this time; silence after it is acceptance (ADR-0015)"},"disputeJudgeSec":{"type":"integer","minimum":1,"description":"Optimistic mode only: seconds from dispute open for the primary to decide"},"disputeFallbackSec":{"type":"integer","minimum":1,"description":"Optimistic mode only: seconds from dispute open for the fallback to decide"}}};
+const schema370 = {"type":"object","additionalProperties":false,"required":["offerExpiresAt","fundBy","deliverBy","judgeBy","fallbackBy","appealWindowSec","appealDecideSec","maxSubmissions"],"properties":{"offerExpiresAt":{"$ref":"common.schema.json#/$defs/Timestamp"},"fundBy":{"$ref":"common.schema.json#/$defs/Timestamp"},"deliverBy":{"$ref":"common.schema.json#/$defs/Timestamp"},"judgeBy":{"$ref":"common.schema.json#/$defs/Timestamp"},"fallbackBy":{"$ref":"common.schema.json#/$defs/Timestamp"},"appealWindowSec":{"type":"integer","minimum":0,"description":"Seconds for a party appeal after a first-instance decision. A phase-one deployment has no party appeal and requires 0 (ADR-0033 §2b); the full protocol (SimChain) takes any value at or above the rulebook's minWindowsSec.appealWindow"},"appealDecideSec":{"type":"integer","minimum":1},"maxSubmissions":{"type":"integer","minimum":1,"maximum":3},"disputeBy":{"$ref":"common.schema.json#/$defs/Timestamp","description":"Optimistic mode only: the buyer may dispute until this time; silence after it is acceptance (ADR-0015)"},"disputeJudgeSec":{"type":"integer","minimum":1,"description":"Optimistic mode only: seconds from dispute open for the primary to decide"},"disputeFallbackSec":{"type":"integer","minimum":1,"description":"Optimistic mode only: seconds from dispute open for the fallback to decide"}}};
 
 function validate139(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -27168,7 +27230,7 @@ return false;
 else {
 const _errs1 = errors;
 for(const key0 in data){
-if(!(func0.call(schema368.properties, key0))){
+if(!(func0.call(schema370.properties, key0))){
 validate139.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"}];
 return false;
 break;
@@ -27355,8 +27417,8 @@ return false;
 const _errs18 = errors;
 if(errors === _errs17){
 if((typeof data5 == "number") && (isFinite(data5))){
-if(data5 < 1 || isNaN(data5)){
-validate139.errors = [{instancePath:instancePath+"/appealWindowSec",schemaPath:"#/properties/appealWindowSec/minimum",keyword:"minimum",params:{comparison: ">=", limit: 1},message:"must be >= 1"}];
+if(data5 < 0 || isNaN(data5)){
+validate139.errors = [{instancePath:instancePath+"/appealWindowSec",schemaPath:"#/properties/appealWindowSec/minimum",keyword:"minimum",params:{comparison: ">=", limit: 0},message:"must be >= 0"}];
 return false;
 }
 else {
@@ -27541,7 +27603,7 @@ return errors === 0;
 }
 validate139.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema375 = {"type":"object","additionalProperties":false,"required":["mode","token"],"properties":{"mode":{"$ref":"common.schema.json#/$defs/SettlementMode"},"token":{"$ref":"common.schema.json#/$defs/TokenId"}}};
+const schema377 = {"type":"object","additionalProperties":false,"required":["mode","token"],"properties":{"mode":{"$ref":"common.schema.json#/$defs/SettlementMode"},"token":{"$ref":"common.schema.json#/$defs/TokenId"}}};
 
 function validate141(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -27640,7 +27702,7 @@ return errors === 0;
 }
 validate141.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema383 = {"type":"object","additionalProperties":false,"required":["kind","description","format"],"properties":{"kind":{"enum":["dataset","document","other"]},"description":{"type":"string","maxLength":4000,"x-holdback-untrusted":true},"format":{"enum":["text/csv","application/json","text/plain","text/markdown"]},"inputs":{"type":"array","items":{"type":"object","required":["uri","sha256"],"additionalProperties":false,"properties":{"uri":{"type":"string","format":"uri","x-holdback-untrusted":true,"maxLength":2048},"sha256":{"$ref":"common.schema.json#/$defs/Sha256"}}}},"salt":{"$ref":"common.schema.json#/$defs/Hex32","description":"Random 32 bytes so nobody can confirm a guessable body against deliverableHash (ADR-0024 §2)"},"notes":{"type":"string","maxLength":4000,"x-holdback-untrusted":true,"description":"Free text the seller adds to the deliverable body; bound by the hash like the rest of it"},"sellerEncryptionPublicKey":{"$ref":"common.schema.json#/$defs/Base64Url","description":"The seller's per-deal x25519 key (ADR-0024 §6), bound by deliverableHash; the buyer and primary verify it before signing"}}};
+const schema385 = {"type":"object","additionalProperties":false,"required":["kind","description","format"],"properties":{"kind":{"enum":["dataset","document","other"]},"description":{"type":"string","maxLength":4000,"x-holdback-untrusted":true},"format":{"enum":["text/csv","application/json","text/plain","text/markdown"]},"inputs":{"type":"array","items":{"type":"object","required":["uri","sha256"],"additionalProperties":false,"properties":{"uri":{"type":"string","format":"uri","x-holdback-untrusted":true,"maxLength":2048},"sha256":{"$ref":"common.schema.json#/$defs/Sha256"}}}},"salt":{"$ref":"common.schema.json#/$defs/Hex32","description":"Random 32 bytes so nobody can confirm a guessable body against deliverableHash (ADR-0024 §2)"},"notes":{"type":"string","maxLength":4000,"x-holdback-untrusted":true,"description":"Free text the seller adds to the deliverable body; bound by the hash like the rest of it"},"sellerEncryptionPublicKey":{"$ref":"common.schema.json#/$defs/Base64Url","description":"The seller's per-deal x25519 key (ADR-0024 §6), bound by deliverableHash; the buyer and primary verify it before signing"}}};
 
 function validate143(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -27673,9 +27735,9 @@ if(_errs1 === errors){
 if(data.kind !== undefined){
 let data0 = data.kind;
 const _errs2 = errors;
-const vSchema0 = schema383.properties.kind.enum;
+const vSchema0 = schema385.properties.kind.enum;
 if(!(((data0 === "dataset") || (data0 === "document")) || (data0 === "other"))){
-validate143.errors = [{instancePath:instancePath+"/kind",schemaPath:"#/properties/kind/enum",keyword:"enum",params:{allowedValues: schema383.properties.kind.enum},message:"must be equal to one of the allowed values"}];
+validate143.errors = [{instancePath:instancePath+"/kind",schemaPath:"#/properties/kind/enum",keyword:"enum",params:{allowedValues: schema385.properties.kind.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
@@ -27718,9 +27780,9 @@ if(valid0){
 if(data.format !== undefined){
 let data2 = data.format;
 const _errs6 = errors;
-const vSchema1 = schema383.properties.format.enum;
+const vSchema1 = schema385.properties.format.enum;
 if(!((((data2 === "text/csv") || (data2 === "application/json")) || (data2 === "text/plain")) || (data2 === "text/markdown"))){
-validate143.errors = [{instancePath:instancePath+"/format",schemaPath:"#/properties/format/enum",keyword:"enum",params:{allowedValues: schema383.properties.format.enum},message:"must be equal to one of the allowed values"}];
+validate143.errors = [{instancePath:instancePath+"/format",schemaPath:"#/properties/format/enum",keyword:"enum",params:{allowedValues: schema385.properties.format.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }
 else {
@@ -27806,7 +27868,7 @@ const _errs16 = errors;
 const _errs17 = errors;
 if(errors === _errs16){
 if(typeof data6 === "string"){
-if(!pattern47.test(data6)){
+if(!pattern49.test(data6)){
 validate143.errors = [{instancePath:instancePath+"/inputs/" + i0+"/sha256",schemaPath:"common.schema.json#/$defs/Sha256/pattern",keyword:"pattern",params:{pattern: "^sha256:[0-9a-f]{64}$"},message:"must match pattern \""+"^sha256:[0-9a-f]{64}$"+"\""}];
 return false;
 }
@@ -27971,7 +28033,7 @@ return errors === 0;
 }
 validate143.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const schema387 = {"type":"object","additionalProperties":false,"required":["deterministicChecks","rubric"],"properties":{"deterministicChecks":{"type":"array","maxItems":20,"items":{"$ref":"#/$defs/DeterministicCheck"}},"rubric":{"type":"object","additionalProperties":false,"required":["criteria","passThreshold"],"properties":{"criteria":{"type":"array","maxItems":12,"items":{"$ref":"#/$defs/Criterion"}},"passThreshold":{"type":"integer","minimum":0,"maximum":400,"description":"Weighted score a delivery needs, in hundredths of a rubric point (300 = 3.00)"}}},"sealedChecks":{"type":"object","additionalProperties":false,"required":["count","commitment","weightBps"],"properties":{"count":{"type":"integer","minimum":0,"maximum":10},"commitment":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256(canonical checks JSON || salt)"},"weightBps":{"type":"integer","minimum":0,"maximum":3000,"description":"Weight of the sealed checks, in basis points (at most 3000)"}}},"salt":{"$ref":"common.schema.json#/$defs/Hex32","description":"Random 32 bytes so nobody can confirm a guessable body (a template rubric) against acceptanceHash (ADR-0024 §2)"}}};
+const schema389 = {"type":"object","additionalProperties":false,"required":["deterministicChecks","rubric"],"properties":{"deterministicChecks":{"type":"array","maxItems":20,"items":{"$ref":"#/$defs/DeterministicCheck"}},"rubric":{"type":"object","additionalProperties":false,"required":["criteria","passThreshold"],"properties":{"criteria":{"type":"array","maxItems":12,"items":{"$ref":"#/$defs/Criterion"}},"passThreshold":{"type":"integer","minimum":0,"maximum":400,"description":"Weighted score a delivery needs, in hundredths of a rubric point (300 = 3.00)"}}},"sealedChecks":{"type":"object","additionalProperties":false,"required":["count","commitment","weightBps"],"properties":{"count":{"type":"integer","minimum":0,"maximum":10},"commitment":{"$ref":"common.schema.json#/$defs/Hex32","description":"keccak256(canonical checks JSON || salt)"},"weightBps":{"type":"integer","minimum":0,"maximum":3000,"description":"Weight of the sealed checks, in basis points (at most 3000)"}}},"salt":{"$ref":"common.schema.json#/$defs/Hex32","description":"Random 32 bytes so nobody can confirm a guessable body (a template rubric) against acceptanceHash (ADR-0024 §2)"}}};
 
 function validate145(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -28108,7 +28170,7 @@ const _errs14 = errors;
 const _errs15 = errors;
 if(errors === _errs14){
 if(typeof data5 === "string"){
-if(!pattern50.test(data5)){
+if(!pattern52.test(data5)){
 validate145.errors = [{instancePath:instancePath+"/rubric/criteria/" + i1+"/id",schemaPath:"#/$defs/Criterion/properties/id/pattern",keyword:"pattern",params:{pattern: "^[a-z0-9_-]{1,40}$"},message:"must match pattern \""+"^[a-z0-9_-]{1,40}$"+"\""}];
 return false;
 }
@@ -28638,7 +28700,7 @@ validate145.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false}
 
 
 function validate135(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
-/*# sourceURL="https://holdback.dev/schemas/v0.10/projection.schema.json" */;
+/*# sourceURL="https://holdback.dev/schemas/v0.11/projection.schema.json" */;
 let vErrors = null;
 let errors = 0;
 const evaluated0 = validate135.evaluated;
@@ -28659,7 +28721,7 @@ return false;
 else {
 const _errs1 = errors;
 for(const key0 in data){
-if(!(func0.call(schema358.properties, key0))){
+if(!(func0.call(schema360.properties, key0))){
 validate135.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"}];
 return false;
 break;
@@ -29287,10 +29349,10 @@ return errors === 0;
 validate135.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 exports.receipt = validate148;
-const schema391 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.10/receipt.schema.json","title":"Operator receipt (ADR-0017)","description":"An operator's EIP-712 signature over an event it relayed or indexed. Verify it with the receipt signer from GET /v1/status and the event hash chain.","type":"object","additionalProperties":false,"required":["operator","eventSeq","eventHash","signature"],"properties":{"operator":{"$ref":"common.schema.json#/$defs/Address","description":"The operator's receipt-signing address"},"eventSeq":{"type":"integer","minimum":0},"eventHash":{"$ref":"common.schema.json#/$defs/Hex32"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32","description":"Absent for events with no commitment, such as bond deposits"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
+const schema393 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://holdback.dev/schemas/v0.11/receipt.schema.json","title":"Operator receipt (ADR-0017)","description":"An operator's EIP-712 signature over an event it relayed or indexed. Verify it with the receipt signer from GET /v1/status and the event hash chain.","type":"object","additionalProperties":false,"required":["operator","eventSeq","eventHash","signature"],"properties":{"operator":{"$ref":"common.schema.json#/$defs/Address","description":"The operator's receipt-signing address"},"eventSeq":{"type":"integer","minimum":0},"eventHash":{"$ref":"common.schema.json#/$defs/Hex32"},"commitmentId":{"$ref":"common.schema.json#/$defs/Hex32","description":"Absent for events with no commitment, such as bond deposits"},"signature":{"$ref":"common.schema.json#/$defs/Signature"}}};
 
 function validate148(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
-/*# sourceURL="https://holdback.dev/schemas/v0.10/receipt.schema.json" */;
+/*# sourceURL="https://holdback.dev/schemas/v0.11/receipt.schema.json" */;
 let vErrors = null;
 let errors = 0;
 const evaluated0 = validate148.evaluated;

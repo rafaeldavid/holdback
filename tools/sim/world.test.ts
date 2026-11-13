@@ -56,7 +56,14 @@ describe('sim:world', () => {
     const r = await example('buy-dataset', a.file.sim);
     expect(r.out).toContain('outcome: Released');
     expect(r.code, r.out).toBe(0);
-    const auditA = await fetchAudit(a.file.coordinator.auditUrl);
+    // T-358: with an appeal window of 0 (the default) an operator closes the appeal window right after the decision;
+    // read the log once that has landed, so the log and the operators' records are of the same final deal. The sim
+    // world runs on SimChain only, which keeps the appeal window (ADR-0031 §8).
+    let auditA = await fetchAudit(a.file.coordinator.auditUrl);
+    for (let i = 0; i < 100 && !auditA.log.some((e) => e.type === 'appeal.expired'); i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      auditA = await fetchAudit(a.file.coordinator.auditUrl);
+    }
     const auditB = await fetchAudit(b.file.coordinator.auditUrl);
     expect(auditA.log.some((e) => e.type === 'settlement.released')).toBe(true);
     expect(auditB.log).toEqual([]);

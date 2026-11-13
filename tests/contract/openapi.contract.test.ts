@@ -242,10 +242,10 @@ describe('HTTP contract: every operator response matches spec/openapi.json', () 
       ],
       ...extraFields,
     });
-    const held = async () => {
+    const held = async (extraFields: J = {}) => {
       const buyer = await sim.fresh();
       const seller = await sim.fresh();
-      const offer = await seller.offer(request(seller, buyer));
+      const offer = await seller.offer(request(seller, buyer, extraFields));
       await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);
       await buyer.agreeAndFund(offer.terms, 30_000_000n);
       return { buyer, seller, id: offer.id, terms: offer.terms };
@@ -278,10 +278,11 @@ describe('HTTP contract: every operator response matches spec/openapi.json', () 
     expect(first.nextCursor).toEqual(expect.any(String));
     await a.buyer.call('GET', `/v1/commitments/${a.id}/events?limit=1&cursor=${first.nextCursor}`);
 
-    // 2. Refund on failed checks, then the seller appeals.
-    const b = await held();
+    // 2. Refund on failed checks, then the seller appeals (the full protocol: the terms name an appeal window).
+    const b = await held({ timing: { appealWindowSec: 300 } });
     await b.seller.deliver(b.terms, new TextEncoder().encode('customer_id,email\n'));
     expect((await b.buyer.waitFor(b.id, ['Released', 'Refunded'])).escrowState).toBe('Refunded');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     const appealed = await signed(await b.seller.call('POST', '/v1/prepare/appeal', { commitmentId: b.id, appellant: b.seller.address }), [b.seller]);
     expect((await b.seller.call('POST', appealed.path, appealed.body)).appealState).not.toBe('none');
 

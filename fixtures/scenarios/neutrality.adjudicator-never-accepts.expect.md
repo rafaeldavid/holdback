@@ -12,10 +12,10 @@ ADR-0016: an adjudicator can refuse a case only before any funds are held. Tidew
 | Prefix | neutrality. (an actor fails: terms-compliant terminal state anyway) |
 | Settlement | SimChain (T-006) driving @holdback/core `step` |
 | Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0xd136…9300 |
-| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
+| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0xd9bc…492d |
 | Buyer | atlas-buyer 0xD340…AA39 |
 | Seller | tidewater-seller 0x91E7…512f |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x3ba5…42c6 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x48a8…ca43 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xa936…9F24 · fallback bench-b 0xf71D…3aba · appeal bench-c 0x2836…7576 |
 | Operators | op-1 · op-2 |
 
@@ -45,7 +45,7 @@ Outages:
 
 ## Receipts and log
 
-- Events 0–1. Chain head 0x4acd…b35e. Replay of 2 SimChain submissions from genesis matches the settlement state.
+- Events 0–1. Chain head 0x946a…d479. Replay of 2 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 1 (rcpt-0001–rcpt-0001). The runner labels them without signing; the operator API signs real receipts.
 - Receipts from op-2: 1 (rcpt-0002–rcpt-0002). The runner labels them without signing; the operator API signs real receipts.
 

@@ -10,7 +10,6 @@ import {
   type Agree,
   type AdjudicatorAcceptance,
   type AnyCommitmentTerms,
-  type Appeal,
   type Decision,
   type Delivery,
   type EarlyAccept,
@@ -58,6 +57,8 @@ export function termsView(t: AnyCommitmentTerms) {
     rulebookHash: t.rulebookHash,
     buyer: getAddress(t.buyer),
     seller: getAddress(t.seller),
+    buyerPaymentAddress: getAddress(t.buyerPaymentAddress),
+    sellerPayoutAddress: getAddress(t.sellerPayoutAddress),
     ...bodyHashes(t),
     token: tokenAddressOf(t),
     price: BigInt(t.price.amount),
@@ -154,11 +155,6 @@ export function decisionView(m: Decision) {
   };
 }
 
-export function appealView(a: Appeal) {
-  const e = enc<{ filedAt: bigint }>({ ...a, type: 'Appeal' } as Parameters<typeof typedDataOf>[0]);
-  return { appellant: a.appellant === 'buyer' ? 0 : 1, groundsHash: str(a.grounds), bond: BigInt(a.bond.amount), filedAt: e.filedAt, signature: a.signature };
-}
-
 export function mutualView(m: MutualSettlement) {
   const e = enc<{ expiresAt: bigint }>({ ...m, type: 'MutualSettlement' } as unknown as Parameters<typeof typedDataOf>[0]);
   return {
@@ -214,8 +210,8 @@ export function paymentInfo(t: TermsView, rules: Address, commitmentId: Hex32, e
   const expiry = Number(t.timing.fallbackBy + t.timing.appealDecideSec + expiryMargin);
   return {
     operator: rules,
-    payer: t.buyer,
-    receiver: t.seller,
+    payer: t.buyerPaymentAddress, // ADR-0033: funds the hold, receives every void
+    receiver: t.sellerPayoutAddress, // ADR-0033: receives every capture net of the fee
     token: t.token,
     maxAmount: t.price + t.fee,
     preApprovalExpiry: Number(t.timing.fundBy),

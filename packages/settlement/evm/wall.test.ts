@@ -16,15 +16,16 @@ class HeldChain implements EvmChain {
   readonly clock = 'wall' as const;
   readonly chainId = 31337;
   readonly expiryMargin = 86_400n;
+  readonly beaconMarginSec = 0;
   readonly tokenDomain = { name: 'Crow Test USDC', version: '1' };
   readonly abis = LIVE_ABIS;
-  readonly deployment = { token: address('a'), escrow: address('e'), erc3009Collector: address('c'), permit2Collector: address('d'), multicall: address('f'), rules: address('b'), bonds: address('9'), beacon: address('8'), fromBlock: 0n };
+  readonly deployment = { token: address('a'), escrow: address('e'), erc3009Collector: address('c'), multicall: address('f'), rules: address('b'), beacon: address('8'), fromBlock: 0n };
   readonly publicClient = {
     readContract: async ({ functionName }: { functionName: string }) => {
       if (functionName === 'DOMAIN_SEPARATOR') return `0x${'11'.repeat(32)}`;
-      if (['balanceOf', 'freeOf', 'bondOf'].includes(functionName)) return PLENTY;
+      if (functionName === 'balanceOf') return PLENTY;
       // Nothing is on chain: every deal is before funding (T-218 reads it when an offer arrives).
-      if (functionName === 'dealOf') return { stage: 0, appeal: 0 };
+      if (functionName === 'dealOf') return { stage: 0 };
       return 0n;
     },
   } as unknown as EvmChain['publicClient'];
@@ -51,7 +52,7 @@ class HeldChain implements EvmChain {
 
 async function settlement(chain: HeldChain) {
   const cast = evmCast();
-  const { genesis, club } = await evmGenesis({ cast, token: chain.deployment.token, chainId: chain.chainId, rules: chain.deployment.rules, start: new Date(WALL).toISOString().replace('.000Z', 'Z'), buyer: PLENTY, bond: PLENTY });
+  const { genesis, club } = await evmGenesis({ cast, token: chain.deployment.token, chainId: chain.chainId, rules: chain.deployment.rules, start: new Date(WALL).toISOString().replace('.000Z', 'Z'), buyer: PLENTY });
   const s = await EvmSettlement.restore(chain, genesis, undefined, () => WALL);
   return { s, cast, club, genesis };
 }

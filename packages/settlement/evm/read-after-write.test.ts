@@ -16,7 +16,7 @@ import type { Genesis } from '../sim/simchain.js';
 import type { Submission } from '../src/interface.js';
 import { RelayRefused } from './chain.js';
 import { EvmSettlement } from './evm-settlement.js';
-import { ensureBond, FUNDING_LANE, LiveChain, type DeploymentFile } from './live.js';
+import { FUNDING_LANE, LiveChain, type DeploymentFile } from './live.js';
 import { ChainSync, type Cursor } from './sync.js';
 import { evmCast, evmGenesis, EvmDeal, testActor } from './testing.js';
 import { anvilAvailable, EvmWorld } from './world.js';
@@ -138,7 +138,6 @@ describe('a pinned contract read asks again when a node answers it has no such b
     permit2Collector: '0x00000000000000000000000000000000000000b4',
     multicall: '0x00000000000000000000000000000000000000b5',
     rules: '0x00000000000000000000000000000000000000b6',
-    bonds: '0x00000000000000000000000000000000000000b7',
     beacon: '0x00000000000000000000000000000000000000b8',
   };
   /** eth_calls for one balanceOf read at a block: once as a caller would, then through the chain's pinned read. */
@@ -190,19 +189,18 @@ describe.skipIf(!ready)(`T-232: reads after a write on a node that trails it${re
       token: { address: d.token, name: anvil.tokenDomain.name, version: anvil.tokenDomain.version, symbol: 'tUSDC', decimals: 6 },
       escrow: d.escrow,
       erc3009Collector: d.erc3009Collector,
-      permit2Collector: d.permit2Collector,
       multicall: d.multicall,
       rules: d.rules,
-      bonds: d.bonds,
       beacon: d.beacon,
       expiryMarginSec: Number(anvil.expiryMargin),
     };
     base = chainOf();
     for (const a of [...base.lanes.map((l) => l.address), ...Object.values(cast).map((a) => a.address)]) await anvil.rpc('anvil_setBalance', [a, '0x56bc75e2d63100000']);
-    ({ genesis, club } = await evmGenesis({ cast, token: lc(d.token), chainId: anvil.chainId, rules: d.rules, start: wholeSecond(wall()), buyer: 0n, bond: 0n }));
+    ({ genesis, club } = await evmGenesis({ cast, token: lc(d.token), chainId: anvil.chainId, rules: d.rules, start: wholeSecond(wall()), buyer: 0n }));
     genesis = { ...genesis, simSeed: `0x${'00'.repeat(32)}` };
-    // Set up on a node that does not trail: the adjudicators' bonds.
-    for (const a of [cast.primary, cast.fallback, cast.appeal]) await ensureBond(base, a.key, 500_000_000_000n, 10n ** 18n);
+    // The one-time startup check of the RPC and the contract (its reads name no block), on a node that does not trail.
+    // The bond setup ran it here before phase one removed the vault (ADR-0031 §8).
+    await base.verify();
   }, 180_000);
   afterAll(async () => {
     await anvil?.stop();
@@ -218,21 +216,6 @@ describe.skipIf(!ready)(`T-232: reads after a write on a node that trails it${re
     const n = await anvil.publicClient.getBlockNumber({ cacheTime: 0 });
     return { block: n.toString(), hash: (await anvil.publicClient.getBlock({ blockNumber: n })).hash! };
   }
-
-  it("a bond deposit right after its approval is estimated at the approval's block (round 1's 3b, on the operators' setup)", async () => {
-    const t = newTrail();
-    const chain = trailing(base, t);
-    const adjudicator = testActor('t232-bonded');
-    const sent = await ensureBond(chain, adjudicator.key, 1_000_000n, 10n ** 17n);
-    // Test ETH, the mint, the approval and the deposit: four transactions, the deposit last.
-    expect(sent).toHaveLength(4);
-    t.on = false;
-    expect(await anvil.publicClient.readContract({ address: deployment.bonds as Address, abi: base.abis.bonds, functionName: 'bondOf', args: [adjudicator.address, deployment.token.address as Address] })).toBe(1_000_000n);
-    // A repeat reads the bond at the deposit's block or later, and sends nothing.
-    t.on = true;
-    expect(await ensureBond(chain, adjudicator.key, 1_000_000n, 10n ** 17n)).toEqual([]);
-    expect(unpinned(t)).toEqual([]);
-  }, 60_000);
 
   it("funds right after the faucet's mint, delivers right after the funding, and answers the release with the seller paid", async () => {
     const t = newTrail();
@@ -276,10 +259,7 @@ describe.skipIf(!ready)(`T-232: reads after a write on a node that trails it${re
       ['dealOf (stage)', (s) => s.stage(`0x${'12'.repeat(32)}`)],
       ['a token balance', (s) => s.tokenBalance(someone.address, true)],
       ['the balances an answer shows', (s) => s.balances([someone.address])],
-      ["an adjudicator's bond", (s) => s.bondOf(cast.primary.address)],
-      ["an adjudicator's free bond (the acceptance's check, bondCover)", (s) => s.freeBond(cast.primary.address)],
-      ['the bond pools the registry serves', (s) => s.refreshPools([cast.primary.address])],
-      ["a lane's test ETH (topUpLanes, ensureBond)", (_s, chain) => chain.ethBalance(someone.address)],
+      ["a lane's test ETH (topUpLanes)", (_s, chain) => chain.ethBalance(someone.address)],
       ["a relay's simulation", (_s, chain) => chain.simulate({ from: cast.buyer.address, to: deployment.token.address as Address, data: encodeFunctionData({ abi: base.abis.token, functionName: 'approve', args: [someone.address, 1n] }) })],
     ];
     it.each(reads)('%s', async (_name, read) => {
@@ -293,6 +273,22 @@ describe.skipIf(!ready)(`T-232: reads after a write on a node that trails it${re
       for (const r of t.reads) expect(r.block !== 'latest' && r.block >= mined.blockNumber, `${r.method} at ${r.block}, the write at ${mined.blockNumber}`).toBe(true);
     }, 30_000);
   });
+
+  // T-349 review: with ensureBond's test gone, nothing showed that an estimate after a send from the same key names a
+  // block with that send in it. A relay that sends twice from one key (an approval, then the call it allows) needs it.
+  it("a relay's estimate right after a send from the same key names a block at or after that send", async () => {
+    const t = newTrail();
+    const chain = trailing(base, t);
+    const spender = testActor('t374-spender');
+    const approve = (v: bigint) => encodeFunctionData({ abi: base.abis.token, functionName: 'approve', args: [spender.address, v] });
+    const mined = await chain.send({ key: cast.buyer.key, to: deployment.token.address as Address, data: approve(7n) });
+    expect(mined.status).toBe('success');
+    t.reads.length = 0;
+    await chain.simulate({ from: cast.buyer.address, to: deployment.token.address as Address, data: approve(8n) });
+    const estimates = t.reads.filter((r) => r.method === 'eth_estimateGas');
+    expect(estimates.length).toBeGreaterThan(0);
+    for (const r of estimates) expect(r.block !== 'latest' && r.block >= mined.blockNumber, `eth_estimateGas at ${r.block}, the send at ${mined.blockNumber}`).toBe(true);
+  }, 30_000);
 
   it('a balance read before a pass applied the chain is not served after it (try.mjs: two operators answer the same balance)', async () => {
     const t = newTrail();

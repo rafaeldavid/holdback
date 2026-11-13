@@ -1,0 +1,41 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 360
+name: two-addresses-settled
+description: >-
+  T-358, ADR-0033. The same four addresses as two-addresses-released. Tidewater delivers; before any decision
+  both signing keys sign one settlement that pays Tidewater's payout account 1400 tUSD and Atlas's treasury
+  600 tUSD and releases the key. The fee returns to the treasury. (A settlement naming a signing key is refused
+  on the phase-one contracts and allowed on SimChain under this club's payoutsTo any, so it is tested in
+  contracts/test/unit/TwoAddresses.t.sol and packages/core/src/state.test.ts, not here.)
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+  buyer_payment: atlas-treasury
+  seller_payout: tidewater-payout
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-treasury: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.csv }
+  - mutual_settle:      { via: op-2, payouts: { tidewater-payout: "1400000000", atlas-treasury: "600000000" }, release_key: true }
+  - verify_key_release: { by: buyer, via: op-2 }
+expect:
+  terminal: Settled
+  balances:
+    atlas-buyer: "0"
+    tidewater-seller: "0"
+    atlas-treasury: "8600000000"
+    tidewater-payout: "1400000000"
+    bench-a: "25000000000"
+    escrow: "0"

@@ -5,18 +5,17 @@
 // test seller you name, keeps its keys in memory and writes no files. Node 20 or later, with npm install viem@2.57.13 tweetnacl@1.0.3.
 
 import nacl from "tweetnacl";
-import { encodeAbiParameters, hashStruct, hashTypedData, keccak256, parseAbiParameters, recoverTypedDataAddress, toBytes } from "viem";
+import { encodeAbiParameters, getAddress, hashStruct, hashTypedData, keccak256, parseAbiParameters, recoverTypedDataAddress, toBytes } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 // examples/deployments.ts
 /**
-* Ethereum Sepolia (chain id 11155111): the EIP-712 domain 0.7 contracts (ADR-0029), deployed 2026-11-04 from the
-* reviewed contracts at 64be1f1. The domain 0.6 deployment that deals opened before then still settle on is in
-* contracts/deployments/sepolia-2026-11-03-domain-0.6.json.
+* Ethereum Sepolia (chain id 11155111): the deployment in contracts/deployments/sepolia.json, from the contracts at
+* 938c3fc. Written by scripts/record-copies.mjs; earlier deployments are the dated records beside it.
 */
 const SEPOLIA = {
 	chainId: 11155111,
-	commit: "64be1f176ab45cca94a2cd398981c2a6664bc98a",
+	commit: "938c3fc6b2797c61a3a53a7b00679fbee1cc2906",
 	compiler: {
 		solc: "0.8.28",
 		viaIR: true,
@@ -25,83 +24,65 @@ const SEPOLIA = {
 		evmVersion: "prague"
 	},
 	deployer: "0x1A4435488eaF1A37d2327d44Fe67e97d83203B64",
-	fromBlock: 12061237,
-	escrow: "0x2d9ad608DE707aC470111B73c693020D9c9342cC",
-	erc3009Collector: "0xA7c26BA572DCe83AB4466379fC8AEE84345888E7",
-	permit2Collector: "0x8d68172322D04c9aE1C42Da4DC859699E06E6C48",
-	permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+	fromBlock: 12123907,
+	deployedAt: "2026-11-13T05:32:12Z",
+	escrow: "0x8ef2b0Bc9304Fd4D506b5410B35Cc1e2D2BB4357",
+	erc3009Collector: "0x959CA9929ea2c47c6390199Ab07639F307c0e3ef",
 	multicall: "0xcA11bde05977b3631167028862bE2a173976CA11",
-	rules: "0xF38287e5C5C1F20c6D03be500EDBF8A244f27cFA",
-	bonds: "0x83F3a2615A2BE9a7DadcA924ed9952ec85749aD1",
-	beacon: "0xBe80ad8Ba4E49bc985ef43caD71740351EE4Cc10",
+	rules: "0x3BE45128565ABBc35DbD4660716b703Ff489f1b4",
+	beacon: "0x1Eca7edB6531231C73fA0eb875816cEBd70c0645",
 	expiryMarginSec: 86400,
+	beaconMarginSec: 29,
 	token: {
-		address: "0x5029787d7E141F2D51788035cc23903652d196B6",
+		address: "0x0b3d947f594B59Fc1Fb7D02E62C6795F8118cA6D",
 		name: "Crow Test USDC",
 		version: "1",
 		symbol: "tUSDC",
 		decimals: 6,
-		domainSeparator: "0x6a0916d68ac92d43cb06305c2c91406949ec695185c34fd06cb0e37f04d731c5",
-		tx: "0xdad17f3fb7e7a99c28ddc9ba4a2353347b00cfef0646a61f73a99a9d6f22ce9c",
-		block: 12061243
+		domainSeparator: "0x7d333ead9877f0a32ed08ff9704f6a4a7f9a2e1430104d0d2a77242e973b17f3",
+		tx: "0x1cb8f915be2a31decf83145546d7eeabc57255e26dce61f541339e333cd592b5",
+		block: 12123911
 	},
 	checks: {
 		creationCodeMatchesBuild: true,
-		permit2CodeHash: "0x96d9f5c3f0fb0423426b7f970186235b7347027f4e5c19c40c412b7d97fc3751",
 		multicallCodeHash: "0xd5c15df687b16f2ff992fc8d767b4216323184a2bbc6ee2f9c398c318e770891",
-		beaconCodeHash: "0x7ff87f8365d5c7ae3ed184771df2a51e5818c2270e61e97241a3acb93d71d3cc",
+		beaconCodeHash: "0xdaf0a431b7ae64f9503671f25293c0ed210a3997590be6e2d82d63a12a005388",
 		beaconRound1000Value: "0xfe290beca10872ef2fb164d2aa4442de4566183ec51c56ff3cd603d930e54fdd",
 		beaconRefusesOutsideG1: true,
 		beaconRefusesAnotherRound: true
 	},
 	contracts: {
 		AuthCaptureEscrow: {
-			address: "0x2d9ad608DE707aC470111B73c693020D9c9342cC",
-			tx: "0xe3229fd3d0e51007472de48ff6dad226706c4465442125a3737239210946d06e",
-			block: 12061237,
+			address: "0x8ef2b0Bc9304Fd4D506b5410B35Cc1e2D2BB4357",
+			tx: "0x64877f781bd84ba308f78e990e96486b5c78325e6a0d098cfe5bf402a3b41d09",
+			block: 12123907,
 			args: [],
-			tokenStoreImplementation: "0x93362F3D46981c13A0f7fFeF44Aad335cd228c34"
+			tokenStoreImplementation: "0x23758f2CF3B46e63b865995AaA42a0a1fEF859c3"
 		},
 		ERC3009PaymentCollector: {
-			address: "0xA7c26BA572DCe83AB4466379fC8AEE84345888E7",
-			tx: "0x58b2175f4534fa14a896dfc545b819cc12c41968246039d4a328668dd6c8d7e4",
-			block: 12061238,
-			args: ["0x2d9ad608DE707aC470111B73c693020D9c9342cC", "0xcA11bde05977b3631167028862bE2a173976CA11"]
-		},
-		Permit2PaymentCollector: {
-			address: "0x8d68172322D04c9aE1C42Da4DC859699E06E6C48",
-			tx: "0xe5412ebab850a18db8cd513375935bde50281341f6d5092a50b2869af0ae78d4",
-			block: 12061239,
-			args: [
-				"0x2d9ad608DE707aC470111B73c693020D9c9342cC",
-				"0x000000000022D473030F116dDEE9F6B43aC78BA3",
-				"0xcA11bde05977b3631167028862bE2a173976CA11"
-			]
+			address: "0x959CA9929ea2c47c6390199Ab07639F307c0e3ef",
+			tx: "0x9597e575869577d55e30aaddbd486e9c0da6c95737528c1a2a08bc6cdc2b93f5",
+			block: 12123908,
+			args: ["0x8ef2b0Bc9304Fd4D506b5410B35Cc1e2D2BB4357", "0xcA11bde05977b3631167028862bE2a173976CA11"]
 		},
 		DrandQuicknetBeacon: {
-			address: "0xBe80ad8Ba4E49bc985ef43caD71740351EE4Cc10",
-			tx: "0x95cc19a85daac20bab87819917cac4f7fcdf880dca8c31d5b771c137d62555c9",
-			block: 12061240,
+			address: "0x1Eca7edB6531231C73fA0eb875816cEBd70c0645",
+			tx: "0x8edd7d0aa0ca7db7c1e096d001f8c3c978a6aee6ee28a12c9b1cad7463c98aee",
+			block: 12123909,
 			args: []
 		},
 		HoldbackRules: {
-			address: "0xF38287e5C5C1F20c6D03be500EDBF8A244f27cFA",
-			tx: "0xacebb2ffe8418c50acdddcb223d6211a0cca647e67a3757f1afbe9e7c8927929",
-			block: 12061242,
+			address: "0x3BE45128565ABBc35DbD4660716b703Ff489f1b4",
+			tx: "0xa1b199ce9198515d17e9fa76e504148ad3f67055f67aa53d63058fc476628f87",
+			block: 12123913,
 			args: [
-				"0x2d9ad608DE707aC470111B73c693020D9c9342cC",
-				"0xA7c26BA572DCe83AB4466379fC8AEE84345888E7",
-				"0x8d68172322D04c9aE1C42Da4DC859699E06E6C48",
+				"0x8ef2b0Bc9304Fd4D506b5410B35Cc1e2D2BB4357",
+				"0x959CA9929ea2c47c6390199Ab07639F307c0e3ef",
 				"86400",
-				"0xBe80ad8Ba4E49bc985ef43caD71740351EE4Cc10"
+				"0x1Eca7edB6531231C73fA0eb875816cEBd70c0645",
+				"0x0b3d947f594B59Fc1Fb7D02E62C6795F8118cA6D",
+				"29"
 			]
-		},
-		HoldbackBonds: {
-			address: "0x83F3a2615A2BE9a7DadcA924ed9952ec85749aD1",
-			tx: "0xacebb2ffe8418c50acdddcb223d6211a0cca647e67a3757f1afbe9e7c8927929",
-			block: 12061242,
-			args: [],
-			createdBy: "HoldbackRules constructor"
 		}
 	}
 };
@@ -110,7 +91,7 @@ const SEPOLIA = {
 /** SimChain's domain, as `pnpm sim` prints it. Configure yours; never take it from an operator. */
 const SIMCHAIN_DOMAIN = {
 	name: "Holdback",
-	version: "0.7",
+	version: "0.8",
 	chainId: 31337,
 	verifyingContract: "0x00000000000000000000000000000000484f4c44"
 };
@@ -125,7 +106,7 @@ function pinOf(d, explorer) {
 	return {
 		domain: {
 			name: "Holdback",
-			version: "0.7",
+			version: "0.8",
 			chainId: d.chainId,
 			verifyingContract: lc(d.rules)
 		},
@@ -183,7 +164,7 @@ const ZERO_ADDRESS = `0x${"0".repeat(40)}`;
 const PAYMENT_INFO_TYPEHASH = keccak256(toBytes("PaymentInfo(address operator,address payer,address receiver,address token,uint120 maxAmount,uint48 preApprovalExpiry,uint48 authorizationExpiry,uint48 refundExpiry,uint16 minFeeBps,uint16 maxFeeBps,address feeReceiver,uint256 salt)"));
 /**
 * The funding nonce on a chain (ADR-0025): CPP's PaymentInfo hash with the payer zeroed. Every field comes from the
-* terms and the pinned deployment (operator = the rules contract, receiver = seller, maxAmount = price + fee,
+* terms and the pinned deployment (operator = the rules contract, receiver = the seller's payout address (ADR-0033), maxAmount = price + fee,
 * preApprovalExpiry = fundBy, both other expiries = fallbackBy + appealDecideSec + margin, salt = commitment ID).
 */
 function fundingNonceOf(t, id, c) {
@@ -193,7 +174,7 @@ function fundingNonceOf(t, id, c) {
 		PAYMENT_INFO_TYPEHASH,
 		c.rules,
 		ZERO_ADDRESS,
-		t.seller,
+		t.sellerPayoutAddress,
 		t.price.token,
 		total,
 		Number(secs(t.timing.fundBy)),
@@ -228,7 +209,7 @@ const f = (name, type) => ({
 	type
 });
 const exp = [f("nonce", "bytes32"), f("expiresAt", "uint64")];
-/** The EIP-712 types of schema 0.10, domain version 0.7 (packages/core/src/eip712.ts), pinned here. */
+/** The EIP-712 types of schema 0.11, domain version 0.8 (packages/core/src/eip712.ts), pinned here. */
 const TYPES = {
 	TokenAmount: [f("token", "string"), f("amount", "uint256")],
 	Adjudication: [
@@ -266,6 +247,8 @@ const TYPES = {
 		f("rulebookHash", "bytes32"),
 		f("buyer", "address"),
 		f("seller", "address"),
+		f("buyerPaymentAddress", "address"),
+		f("sellerPayoutAddress", "address"),
 		f("deliverableHash", "bytes32"),
 		f("acceptanceHash", "bytes32"),
 		f("price", "TokenAmount"),
@@ -433,7 +416,7 @@ const DEFAULT_TIMING = {
 	deliverWithinSec: 86400,
 	judgeWithinSec: 300,
 	fallbackWithinSec: 300,
-	appealWindowSec: 300,
+	appealWindowSec: 0,
 	appealDecideSec: 300
 };
 var Refusal = class extends Error {};
@@ -455,6 +438,14 @@ const HEX32 = /^0x[0-9a-fA-F]{64}$/;
 const freshNonce = () => `0x${Buffer.from(crypto.getRandomValues(/* @__PURE__ */ new Uint8Array(32))).toString("hex")}`;
 /** The agent picks its nonces; the operator must echo exactly the one the agent sent. */
 const own = (mine, theirs, name) => typeof mine !== "string" || !HEX32.test(mine) ? refuse$1(`generate ${name} yourself (32 random bytes) and send it with the prepare request`) : String(theirs).toLowerCase() === mine.toLowerCase() ? mine : refuse$1(`${name} is not the one you sent`);
+/**
+* How far an offer's `createdAt` may sit from settlement-layer time, in seconds: a prepared offer outside it is refused
+* (verifyPrepared), and the buyer signer lists one outside it as a difference to approve (T-390, T-388 H1).
+*/
+const CREATED_AT_BAND = {
+	behindSec: 600,
+	aheadSec: 60
+};
 /** An operator-chosen time must lie within [now - behind, now + ahead] seconds of settlement-layer time. */
 const nearTo = (now) => (ts, behind, ahead, name) => {
 	const d = (Date.parse(ts) - now) / 1e3;
@@ -596,62 +587,93 @@ const typedOf = (primaryType, message, domain) => ({
 	primaryType,
 	message: ENCODE[primaryType](message)
 });
+const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+/**
+* An address as a person may type it: 0x and 40 hex characters, all lowercase, all uppercase, or mixed case with a
+* valid EIP-55 checksum. A mixed-case address whose checksum fails is a typo, and money sent there is lost.
+*/
+const isAddressText = (a) => {
+	if (typeof a !== "string" || !ADDRESS.test(a)) return false;
+	const hex = a.slice(2);
+	return hex === hex.toLowerCase() || hex === hex.toUpperCase() || getAddress(a) === a;
+};
+/**
+* A money address from the party's own request (ADR-0033 §6): the address given, lowercased, or the party's signing
+* address when none is given. Never from an operator's answer.
+*/
+const moneyAddress = (given, signer, field) => {
+	if (given === void 0 || given === null) return signer.toLowerCase();
+	return isAddressText(given) ? given.toLowerCase() : refuse$1(`${field} must be an address: 0x and 40 hex characters, with a valid checksum if in mixed case`);
+};
+/**
+* The public terms an offer request gives, field for field what POST /v1/prepare/offer builds (apps/operator/src/terms.ts),
+* from the agent's own request, the club and adjudicator it read from every operator, settlement-layer time in whole
+* seconds and its own nonce. `request.buyer.paymentAddress` and `request.sellerPayoutAddress` name the money
+* addresses (ADR-0033); each left out is its party's signing address. Pure: verifyPrepared rebuilds a prepared offer
+* with it, and Agent.offerDirect signs and submits it with no prepare call at all.
+*/
+function publicOfferTerms(r, registration, rulebookHash, createdAt, nonce) {
+	const reg = registration;
+	if (jcsHash(reg.policy) !== reg.policyHash) refuse$1("the adjudicator's policyHash does not match its policy");
+	const plus = (ts, s) => iso(Date.parse(ts) + s * 1e3);
+	const timing = {
+		...DEFAULT_TIMING,
+		...r.timing
+	};
+	const deliverBy = plus(createdAt, timing["deliverWithinSec"]), judgeBy = plus(deliverBy, timing["judgeWithinSec"]);
+	return {
+		schemaVersion: "0.8",
+		clubId: r.clubId,
+		rulebookHash,
+		buyer: r.buyer.address.toLowerCase(),
+		seller: r.seller.toLowerCase(),
+		buyerPaymentAddress: moneyAddress(r.buyer.paymentAddress, r.buyer.address, "buyer.paymentAddress"),
+		sellerPayoutAddress: moneyAddress(r.sellerPayoutAddress, r.seller, "sellerPayoutAddress"),
+		deliverable: r.deliverable,
+		acceptance: {
+			deterministicChecks: r.checks ?? [],
+			rubric: r.template === "checks-only" ? {
+				criteria: [],
+				passThreshold: 0
+			} : r.rubric
+		},
+		price: r.price,
+		adjudication: {
+			adjudicator: r.adjudicators.primary,
+			fallbackAdjudicator: r.adjudicators.fallback,
+			appealAdjudicator: r.adjudicators.appeal,
+			policyId: reg.policy.id,
+			fee: r.fee ?? reg.fee.min,
+			registryHash: reg.registry.hash,
+			policyHash: reg.policyHash
+		},
+		timing: {
+			offerExpiresAt: plus(createdAt, timing["offerExpiresInSec"]),
+			fundBy: plus(createdAt, timing["fundWithinSec"]),
+			deliverBy,
+			judgeBy,
+			fallbackBy: plus(judgeBy, timing["fallbackWithinSec"]),
+			appealWindowSec: timing["appealWindowSec"],
+			appealDecideSec: timing["appealDecideSec"],
+			maxSubmissions: 1
+		},
+		settlement: {
+			mode: "guaranteed_on_decision",
+			token: r.price.token
+		},
+		remedy: { onReject: "full_refund" },
+		disclosure: { level: "public" },
+		buyerEncryptionPublicKey: r.buyer.encryptionPublicKey,
+		nonce,
+		createdAt
+	};
+}
 /** Builds the body the agent expects, taking from the operator's proposal only times bounded around `now`. */
 function expected(intent, op, now) {
-	const plus = (ts, s) => iso(Date.parse(ts) + s * 1e3);
 	const near = nearTo(now);
 	if (intent.kind === "offer") {
-		const r = intent.request, reg = intent.registration;
-		if (jcsHash(reg.policy) !== reg.policyHash) refuse$1("the adjudicator's policyHash does not match its policy");
-		const timing = {
-			...DEFAULT_TIMING,
-			...r.timing
-		}, createdAt = near(op.createdAt, 600, 60, "createdAt");
-		const deliverBy = plus(createdAt, timing["deliverWithinSec"]), judgeBy = plus(deliverBy, timing["judgeWithinSec"]);
-		const terms = {
-			schemaVersion: "0.7",
-			clubId: r.clubId,
-			rulebookHash: intent.rulebookHash,
-			buyer: r.buyer.address.toLowerCase(),
-			seller: r.seller.toLowerCase(),
-			deliverable: r.deliverable,
-			acceptance: {
-				deterministicChecks: r.checks ?? [],
-				rubric: r.template === "checks-only" ? {
-					criteria: [],
-					passThreshold: 0
-				} : r.rubric
-			},
-			price: r.price,
-			adjudication: {
-				adjudicator: r.adjudicators.primary,
-				fallbackAdjudicator: r.adjudicators.fallback,
-				appealAdjudicator: r.adjudicators.appeal,
-				policyId: reg.policy.id,
-				fee: r.fee ?? reg.fee.min,
-				registryHash: reg.registry.hash,
-				policyHash: reg.policyHash
-			},
-			timing: {
-				offerExpiresAt: plus(createdAt, timing["offerExpiresInSec"]),
-				fundBy: plus(createdAt, timing["fundWithinSec"]),
-				deliverBy,
-				judgeBy,
-				fallbackBy: plus(judgeBy, timing["fallbackWithinSec"]),
-				appealWindowSec: timing["appealWindowSec"],
-				appealDecideSec: timing["appealDecideSec"],
-				maxSubmissions: 1
-			},
-			settlement: {
-				mode: "guaranteed_on_decision",
-				token: r.price.token
-			},
-			remedy: { onReject: "full_refund" },
-			disclosure: { level: "public" },
-			buyerEncryptionPublicKey: r.buyer.encryptionPublicKey,
-			nonce: own(r.nonce, op.nonce, "nonce"),
-			createdAt
-		};
+		const r = intent.request;
+		const terms = publicOfferTerms(r, intent.registration, intent.rulebookHash, near(op.createdAt, CREATED_AT_BAND.behindSec, CREATED_AT_BAND.aheadSec, "createdAt"), own(r.nonce, op.nonce, "nonce"));
 		return {
 			path: "/v1/commitments",
 			body: {
@@ -671,6 +693,8 @@ function expected(intent, op, now) {
 	if (intent.kind === "agree-and-fund") {
 		if (t.buyer.toLowerCase() !== intent.me.toLowerCase()) refuse$1("the terms name another buyer");
 		if (t.buyerEncryptionPublicKey !== intent.encryptionPublicKey) refuse$1("the terms seal the work to a key you do not hold");
+		const paying = (intent.paymentAddress ?? intent.me).toLowerCase();
+		if (String(t.buyerPaymentAddress).toLowerCase() !== paying) refuse$1(`the terms name ${t.buyerPaymentAddress} as the payment address, not your ${paying}`);
 		const want = intent.expectedPrice;
 		if (want && (typeof want.token !== "string" || typeof want.amount !== "string" || !/^(0|[1-9][0-9]*)$/.test(want.amount))) refuse$1("expectedPrice must be {\"token\", \"amount\"} with amount in base units as a decimal string, e.g. \"25000000\"");
 		if (want && (t.price.token !== want.token || t.price.amount !== want.amount)) refuse$1(`price ${t.price.amount} ${t.price.token} is not the ${want.amount} ${want.token} you agreed`);
@@ -694,7 +718,7 @@ function expected(intent, op, now) {
 			type: "FundingAuthorization",
 			scheme: "erc3009",
 			commitmentId: id,
-			from: t.buyer,
+			from: t.buyerPaymentAddress,
 			value: total.toString(),
 			token: t.price.token,
 			validAfter: c ? "1970-01-01T00:00:00Z" : t.createdAt,
@@ -703,7 +727,7 @@ function expected(intent, op, now) {
 			expiresAt: t.timing.fundBy
 		};
 		const fundTyped = c ? erc3009Typed("ReceiveWithAuthorization", c, {
-			from: t.buyer,
+			from: t.buyerPaymentAddress,
 			to: c.collector,
 			value: total,
 			validAfter: 0n,
@@ -718,7 +742,7 @@ function expected(intent, op, now) {
 		}, {
 			slot: "fund.signature",
 			primaryType: fundTyped ? "ReceiveWithAuthorization" : "FundingAuthorization",
-			signer: t.buyer,
+			signer: t.buyerPaymentAddress,
 			message: fund,
 			...fundTyped ? { typed: fundTyped } : {}
 		}];
@@ -742,7 +766,7 @@ function expected(intent, op, now) {
 			scheme: "erc3009",
 			purpose: "operator_fee",
 			commitmentId: id,
-			from: t.buyer,
+			from: t.buyerPaymentAddress,
 			to: intent.operatorFee.schedule.to,
 			value: due.toString(),
 			token: t.price.token,
@@ -752,7 +776,7 @@ function expected(intent, op, now) {
 			expiresAt: t.timing.fundBy
 		};
 		const feeTyped = c ? erc3009Typed("TransferWithAuthorization", c, {
-			from: t.buyer,
+			from: t.buyerPaymentAddress,
 			to: fee.to,
 			value: due,
 			validAfter: 0n,
@@ -776,7 +800,7 @@ function expected(intent, op, now) {
 			slots: [...slots, {
 				slot: "operatorFee.signature",
 				primaryType: feeTyped ? "TransferWithAuthorization" : "TransferAuthorization",
-				signer: t.buyer,
+				signer: t.buyerPaymentAddress,
 				message: fee,
 				...feeTyped ? { typed: feeTyped } : {}
 			}]
@@ -882,12 +906,18 @@ function expected(intent, op, now) {
 		primaryType: "MutualSettlement",
 		message: m
 	}));
+	if (intent.delivery !== void 0) {
+		if (!intent.releaseKey) refuse$1("a settlement that carries late work releases its key");
+		if (String(intent.delivery?.commitmentId).toLowerCase() !== id.toLowerCase()) refuse$1("the delivery you carry is for another commitment");
+		if (deliveryHashOf(intent.delivery).toLowerCase() !== String(intent.deliveryHash).toLowerCase()) refuse$1("deliveryHash is not the hash of the delivery you carry");
+	}
 	return {
 		path: `/v1/commitments/${id}/settlements`,
 		body: {
 			...m,
 			buyerSignature: null,
-			sellerSignature: null
+			sellerSignature: null,
+			...intent.delivery !== void 0 ? { delivery: intent.delivery } : {}
 		},
 		slots
 	};
@@ -915,6 +945,7 @@ function verifyPrepared(prepared, intent, me, domain, settlementNowMs) {
 	if (where) refuse$1(`${where} differs from what you asked for`);
 	if (!Array.isArray(prepared.sign) || prepared.sign.length !== plan.slots.length) refuse$1(`expected ${plan.slots.length} signature slot(s), got ${prepared.sign?.length}`);
 	const toSign = [];
+	const slots = [];
 	for (const [i, want] of plan.slots.entries()) {
 		const got = prepared.sign[i];
 		if (got.slot !== want.slot || got.typedData?.primaryType !== want.primaryType || got.signer.toLowerCase() !== want.signer.toLowerCase()) refuse$1(`slot ${i} is ${got.slot}/${got.typedData?.primaryType}, expected ${want.slot}/${want.primaryType}`);
@@ -942,11 +973,18 @@ function verifyPrepared(prepared, intent, me, domain, settlementNowMs) {
 			slot: want.slot,
 			typed
 		});
+		slots.push({
+			slot: want.slot,
+			signer: want.signer.toLowerCase(),
+			typed,
+			digest: mine
+		});
 	}
 	return {
 		path: plan.path,
 		body: plan.body,
-		toSign
+		toSign,
+		slots
 	};
 }
 /** The delivery hash the settlement layer records (EIP-712 struct hash of the delivery without its signature). */
@@ -1041,11 +1079,13 @@ function privateOfferTerms(x) {
 	const createdAt = iso(Date.parse(x.createdAt));
 	const deliverBy = plus(createdAt, timing["deliverWithinSec"]), judgeBy = plus(deliverBy, timing["judgeWithinSec"]);
 	return {
-		schemaVersion: "0.7",
+		schemaVersion: "0.8",
 		clubId: x.clubId,
 		rulebookHash: x.rulebookHash,
 		buyer: x.buyer.address.toLowerCase(),
 		seller: x.seller.toLowerCase(),
+		buyerPaymentAddress: moneyAddress(x.buyer.paymentAddress, x.buyer.address, "buyer.paymentAddress"),
+		sellerPayoutAddress: moneyAddress(x.sellerPayoutAddress, x.seller, "sellerPayoutAddress"),
 		deliverable: {
 			...x.deliverable,
 			salt: x.salts.deliverable,
@@ -1218,6 +1258,9 @@ async function verifyDelegation(d, want, domain) {
 // examples/agent.ts
 const b64 = (b) => Buffer.from(b).toString("base64url");
 const bytes = (b) => new Uint8Array(b);
+const refusal = (why) => {
+	throw new Refusal(`refusing to submit: ${why}`);
+};
 const sha = async (b) => `sha256:${Buffer.from(await crypto.subtle.digest("SHA-256", bytes(b))).toString("hex")}`;
 var Agent = class Agent {
 	account;
@@ -1339,6 +1382,28 @@ var Agent = class Agent {
 		};
 	}
 	/**
+	* Seller: the same public offer as `offer`, built here from the request with no prepare call (verify.ts
+	* publicOfferTerms): the club, the primary and settlement-layer time read from every operator, this agent's own
+	* nonce, signed and submitted to POST /v1/commitments. `buyer.paymentAddress` and `sellerPayoutAddress` name the money
+	* addresses (ADR-0033); each left out is its party's signing address.
+	*/
+	async offerDirect(given) {
+		const registration = await this.registration(given.adjudicators.primary);
+		const createdAt = (/* @__PURE__ */ new Date(Math.floor(await this.settlementNow() / 1e3) * 1e3)).toISOString().replace(".000Z", "Z");
+		const terms = publicOfferTerms(given, registration, await this.rulebookHash(given.clubId), createdAt, freshNonce().toLowerCase());
+		const id = commitmentIdOf(terms);
+		const signature = await this.account.signTypedData(typedOf("CommitmentTerms", terms, this.domain));
+		return {
+			id,
+			terms,
+			state: await this.call("POST", "/v1/commitments", {
+				...terms,
+				id,
+				signatures: { seller: signature }
+			})
+		};
+	}
+	/**
 	* The relaying operator's fee schedule (ADR-0023), as every configured operator serves it, or null when they
 	* publish none. They must agree: the public demo's two nodes are one operator with one schedule.
 	*/
@@ -1346,25 +1411,40 @@ var Agent = class Agent {
 	/**
 	* Buyer: agree to the terms it was sent and hold price plus fee, with nonces it picked itself. When the operators
 	* publish a fee, the agent computes it from that schedule and pays it with the agreement; maxTotal covers it too.
+	* One key only: it signs the funding as the terms' payment address. With a payment address apart from this key
+	* (ADR-0033), prepare with prepareAgreeAndFund, have that address sign its slots (buyer-signer.ts writes them as
+	* typed-data files for a wallet), and submit with submitAgreeAndFund.
 	*/
 	async agreeAndFund(terms, maxTotal) {
+		if (String(terms.buyerPaymentAddress).toLowerCase() !== this.address) throw new Error(`the terms name ${terms.buyerPaymentAddress} as the payment address: that address signs the funding and the operator fee, not this agent (${this.address}); use prepareAgreeAndFund and submitAgreeAndFund with its signatures`);
+		const { prepared, intent } = await this.prepareAgreeAndFund(terms, maxTotal);
+		return this.signAndSubmit(prepared, intent);
+	}
+	/**
+	* Buyer: the prepared agreement and funding for `terms`, checked against this agent's intent (verify.ts), with the
+	* typed data of every slot it holds. `paymentAddress` is the buyer's own payment address (default: this agent).
+	* `nonces` repeats a preparation the agent made before, so the funding message stays the one a wallet signed: on
+	* SimChain the agent picks them; on a chain they are fixed by the terms (ADR-0025).
+	*/
+	async prepareAgreeAndFund(terms, maxTotal, o = {}) {
 		const schedule = await this.operatorFeeSchedule();
 		const id = commitmentIdOf(terms);
 		const c = this.chain;
 		const nonces = {
-			agreeNonce: freshNonce(),
-			fundingNonce: c ? fundingNonceOf(terms, id, c) : freshNonce()
+			agreeNonce: o.nonces?.agreeNonce ?? freshNonce(),
+			fundingNonce: c ? fundingNonceOf(terms, id, c) : o.nonces?.fundingNonce ?? freshNonce()
 		};
-		const feeNonce = c ? operatorFeeNonceOf(id) : freshNonce();
+		const feeNonce = c ? operatorFeeNonceOf(id) : o.nonces?.operatorFeeNonce ?? freshNonce();
 		const prepared = await this.call("POST", "/v1/prepare/agree-and-fund", {
 			commitmentId: id,
 			...nonces,
 			...schedule ? { operatorFeeNonce: feeNonce } : {}
 		});
-		return this.signAndSubmit(prepared, {
+		const intent = {
 			kind: "agree-and-fund",
 			terms,
 			me: this.address,
+			...o.paymentAddress ? { paymentAddress: o.paymentAddress } : {},
 			encryptionPublicKey: this.encryptionPublicKey,
 			maxTotal,
 			...nonces,
@@ -1373,7 +1453,42 @@ var Agent = class Agent {
 				nonce: feeNonce
 			} } : {},
 			...c ? { chain: c } : {}
-		});
+		};
+		const { slots } = verifyPrepared(prepared, intent, this.address, this.domain, await this.settlementNow());
+		return {
+			prepared,
+			intent,
+			slots
+		};
+	}
+	/**
+	* Buyer: verifies the prepared funding again, signs this agent's own slot (the agreement), puts in the signatures
+	* another wallet made for the others (`outside`, by slot: `fund.signature`, `operatorFee.signature`), and submits.
+	* Each outside signature must recover to its slot's signer over the typed data this agent built itself, or nothing
+	* is sent. A contract wallet's signature (ERC-1271) does not recover, so this path refuses it.
+	*/
+	async submitAgreeAndFund(prepared, intent, outside) {
+		const v = verifyPrepared(prepared, intent, this.address, this.domain, await this.settlementNow());
+		const put = (body, slot, sig) => {
+			const keys = slot.split(".");
+			keys.slice(0, -1).reduce((o, k) => o[k], body)[keys.at(-1)] = sig;
+		};
+		for (const s of v.slots) {
+			if (s.signer === this.address) continue;
+			const sig = outside[s.slot];
+			if (typeof sig !== "string" || !/^0x[0-9a-fA-F]{130}$/.test(sig)) refusal(`the ${s.slot} slot needs a 65-byte signature by ${s.signer}, as 0x and 130 hex characters`);
+			const v27 = parseInt(sig.slice(130), 16);
+			const normal = v27 === 0 || v27 === 1 ? `${sig.slice(0, 130)}${(v27 + 27).toString(16)}` : sig;
+			const by = (await recoverTypedDataAddress({
+				...s.typed,
+				signature: normal
+			}).catch(() => "")).toLowerCase();
+			if (by !== s.signer) refusal(`the ${s.slot} signature recovers to ${by || "nothing"} over this deal's message, not to ${s.signer}: it was made by another address or over another message (another deal, another amount)`);
+			put(v.body, s.slot, normal);
+		}
+		for (const s of v.toSign) put(v.body, s.slot, await this.account.signTypedData(s.typed));
+		for (const slot of Object.keys(outside)) if (!v.slots.some((s) => s.slot === slot && s.signer !== this.address)) refusal(`there is no ${slot} slot for another signer in this funding`);
+		return this.call("POST", v.path, v.body);
 	}
 	async waitFor(id, states, timeoutMs = 2e4) {
 		for (const end = Date.now() + timeoutMs; Date.now() < end; await new Promise((r) => setTimeout(r, 100))) {
@@ -1674,6 +1789,14 @@ var Agent = class Agent {
 	}
 };
 
+// examples/finality.ts
+/** The finality clause for terms whose appeal window is `appealWindowSec` seconds and whose appeal deadline is `appealBy`. */
+function finality(appealWindowSec, appealBy) {
+	const window = Number(appealWindowSec ?? 0);
+	if (window === 0) return "final at the decision, since the terms have no appeal window";
+	return `final at ${appealBy ?? "the end of the appeal window"}, when the ${window} s appeal window closes, with nobody needing to act`;
+}
+
 // examples/try.ts
 const OPERATORS = (process.env["HOLDBACK_OPERATORS"] || "https://api.crow.direct,https://api2.crow.direct").split(",").map((s) => s.trim().replace(/\/+$/, "")).filter(Boolean);
 const PRICE_UNITS = "25000000";
@@ -1706,13 +1829,21 @@ const CHECKS = [
 const TIMING = {
 	judgeWithinSec: 60,
 	fallbackWithinSec: 60,
-	appealWindowSec: 60,
+	appealWindowSec: 0,
 	appealDecideSec: 60
 };
 const CSV = "customer_id,email\n1,ada@example.com\n2,alan@example.com\n3,grace@example.com\n";
 /** What this script's own seller delivers when asked for a refund: 2 rows, which fail the rows check. */
 const BAD_CSV = "customer_id,email\n1,ada@example.com\n2,alan@example.com\n";
 const args = process.argv.slice(2);
+if (args.some((a) => a === "--help" || a === "-h")) {
+	(args[0] === "--help" || args[0] === "-h" ? console.log : console.error)([
+		"try: runs one test deal on Crow's demo with fresh keys, test tokens only. With --seller it is the buyer and Crow's test seller the other party; without, it plays both sides. --outcome refund asks for a refund.",
+		"usage: node try.mjs [--seller <test seller URL>] [--outcome release|refund]",
+		"example: node try.mjs --seller https://crow.direct/agents/test-seller"
+	].join("\n"));
+	process.exit(args[0] === "--help" || args[0] === "-h" ? 0 : 2);
+}
 const option = (name) => {
 	const i = args.indexOf(name);
 	return i >= 0 ? args[i + 1] : void 0;
@@ -1754,7 +1885,7 @@ const SELLER_WINDOWS = {
 	deliverBy: 3600,
 	judge: 60,
 	fallback: 60,
-	appealWindow: 60,
+	appealWindow: 0,
 	appealDecide: 60
 };
 let step = "start";
@@ -2108,7 +2239,7 @@ async function main() {
 	}
 	step = "final";
 	const party = deal ? "with Crow's test seller as the other party" : SELLER ? "with both sides played here, since the test seller was unavailable" : "with both sides played here";
-	say(`${done.escrowState} in ${Math.round((Date.now() - started) / 1e3)} s ${party}; final at ${done.deadlines?.appealBy ?? "the end of the appeal window"}, when the 60 s appeal window closes, with nobody needing to act`);
+	say(`${done.escrowState} in ${Math.round((Date.now() - started) / 1e3)} s ${party}; ${finality(terms.timing?.appealWindowSec, done.deadlines?.appealBy)}`);
 	step = "done";
 	say(`commitment ${id} ${done.escrowState}`);
 }

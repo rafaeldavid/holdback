@@ -8,7 +8,8 @@ import { concat, hashStruct, keccak256, toBytes, type Hex } from 'viem';
 import { RoundAdjudicator } from './e2e-adjudicator.ts';
 import { termsTuple, type TxRecord } from './e2e-chain.ts';
 import { buyerKeys, buyerOpens, delta, deliver, ensureFunds, eventsOf, finish, fund, get, logsOf, openDeal, reason, refreshBefore, retry, short, shortWindows, sleep, trigger, until, waitPast, Waits, type Deal, type Run } from './e2e-run.ts';
-import { CHECKS, CSV, DATASET, PRICE, bondFreedCheck, expireAppeal, here, lc, paidCheck, requires, settledChecks, type J, type Scenario } from './e2e-scenario-kit.ts';
+import { closeOnSimChain } from './e2e-scenarios-appeal.ts';
+import { CHECKS, CSV, DATASET, PRICE, here, lc, paidCheck, requires, settledChecks, type J, type Scenario } from './e2e-scenario-kit.ts';
 import { ERC3009_TYPES, freshNonce, fundingNonceOf, TYPES, typedOf } from './verify.ts';
 
 /** T-218's target: a direct call shows in the operators' view within one sync pass, 60 s or less. */
@@ -68,7 +69,7 @@ async function directFund(r: Run, deal: Deal): Promise<TxRecord> {
     seller,
     { seedCommitment: acc.seedCommitment, bondReserved: BigInt(acc.bondReserved.amount), nonce: acc.nonce, expiresAt: secs(acc.expiresAt), signature: acc.signature },
     { nonce: agree.nonce, expiresAt: secs(agree.expiresAt), signature: agreeSignature },
-    { method: 0, signature: funding },
+    { signature: funding },
   ]);
   deal.hold = hold;
   deal.sent.push({ step: 'agreeAndFund (direct)', tx });
@@ -211,7 +212,7 @@ export const DIRECT: Scenario[] = [
         const done = await until(r, deal.buyer, deal.id, ['Released', 'Refunded', 'Escalated'], 300_000);
         r.check('direct: the demo primary decides and the deal ends Released', done.escrowState === 'Released', done.escrowState);
         if (done.escrowState === 'Released') r.check('direct: the buyer opens the work with its released key', await buyerOpens(r, deal, CSV), 'decrypted, sha256 checked against the delivery');
-        if (done.deadlines?.appealBy) await expireAppeal(r, deal, done.deadlines.appealBy);
+        await closeOnSimChain(r, deal, done);
         await finish(r, deal);
         const fee = BigInt(deal.terms.adjudication.fee.amount);
         r.check('direct: the seller is paid the price', delta(deal.record, seller) === price, `seller ${round.amount(delta(deal.record, seller))}`);
@@ -223,7 +224,6 @@ export const DIRECT: Scenario[] = [
         r.check('direct: the posted copy joins the delivery with no second deliver transaction', delivers === 1, `${delivers} deliver call(s) among the deal's transactions`);
         settledChecks(r, deal, 'Released');
         paidCheck(r, deal, 'direct: the price reaches the seller on chain', seller, price);
-        bondFreedCheck(r, deal);
       }
 
       // 2. A direct reclaim: scenario 3a sends it from the buyer's key on its second deal, so 8 does not repeat it.
@@ -241,7 +241,7 @@ export const DIRECT: Scenario[] = [
           return false;
         },
       );
-      const primary = await RoundAdjudicator.ready(r, 'adjudicator-1', { bond: price });
+      const primary = await RoundAdjudicator.ready(r, 'adjudicator-1');
       const { fallback, appeal } = round.demo.adjudicators;
       const serving = await primary.serve(r, 'silent');
       try {
@@ -282,7 +282,7 @@ export const DIRECT: Scenario[] = [
         }
         r.check('fallback: the fallback adjudicator decides and the deal ends Released', done.escrowState === 'Released', done.escrowState);
         if (done.escrowState === 'Released') r.check('fallback: the buyer opens the work with its released key', await buyerOpens(r, deal, CSV), 'decrypted, sha256 checked against the delivery');
-        if (done.deadlines?.appealBy) await expireAppeal(r, deal, done.deadlines.appealBy);
+        await closeOnSimChain(r, deal, done);
         await finish(r, deal);
         const decisions = deal.record.transactions.flatMap((t) => t.calls).filter((c) => c.fn === 'decide').map((c) => Number(c.args?.[1]?.role));
         r.check("fallback: the decision on chain is the fallback's", decisions.length === 1 && decisions[0] === 1, `decide roles ${decisions.join(', ') || 'none'} (0 primary, 1 fallback, 2 appeal)`);
@@ -378,7 +378,7 @@ export const DIRECT: Scenario[] = [
       const keys = await buyerKeys(deal);
       r.check("both operators serve the buyer's key", keys.every((n) => n > 0), `the key read serves ${keys.join(' and ')} envelope(s) to the buyer`);
       if (done.escrowState === 'Released') r.check('the buyer opens the work with its released key', await buyerOpens(r, deal, CSV), 'decrypted, sha256 checked against the delivery');
-      if (done.deadlines?.appealBy) await expireAppeal(r, deal, done.deadlines.appealBy);
+      await closeOnSimChain(r, deal, done);
       await finish(r, deal);
       settledChecks(r, deal, 'Released');
       deal.record.notes.push("The lane telemetry (the world's lastRecovery) is not served by the API: read it in holdback-op1's Workers Logs (docs/operations.md, Telemetry).");

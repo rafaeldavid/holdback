@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.10/commitment.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.11/commitment.schema.json",
   "title": "Commitment (terms + EIP-712 signatures)",
   "type": "object",
   "required": [
@@ -10,6 +10,8 @@
     "rulebookHash",
     "buyer",
     "seller",
+    "buyerPaymentAddress",
+    "sellerPayoutAddress",
     "price",
     "adjudication",
     "timing",
@@ -75,8 +77,8 @@
   },
   "properties": {
     "schemaVersion": {
-      "const": "0.7",
-      "description": "The signed encoding and EIP-712 domain version these terms are settled under (0.7 since schema v0.9, ADR-0029)"
+      "const": "0.8",
+      "description": "The signed encoding and EIP-712 domain version these terms are settled under (0.8 since schema v0.11, ADR-0033)"
     },
     "id": {
       "$ref": "common.schema.json#/$defs/Hex32",
@@ -93,6 +95,14 @@
     },
     "seller": {
       "$ref": "common.schema.json#/$defs/Address"
+    },
+    "buyerPaymentAddress": {
+      "$ref": "common.schema.json#/$defs/Address",
+      "description": "Funds the hold (it signs the funding authorization and the operator fee) and receives every refund: the escrow's payer (ADR-0033). May equal buyer; tooling defaults to it. buyer stays the address that agrees, accepts early and settles"
+    },
+    "sellerPayoutAddress": {
+      "$ref": "common.schema.json#/$defs/Address",
+      "description": "Receives every payment to the seller: the escrow's receiver (ADR-0033). May equal seller; tooling defaults to it. seller stays the address that signs the terms, the delivery and a settlement"
     },
     "deliverable": {
       "type": "object",
@@ -306,7 +316,8 @@
         },
         "appealWindowSec": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 0,
+          "description": "Seconds for a party appeal after a first-instance decision. A phase-one deployment has no party appeal and requires 0 (ADR-0033 §2b); the full protocol (SimChain) takes any value at or above the rulebook's minWindowsSec.appealWindow"
         },
         "appealDecideSec": {
           "type": "integer",

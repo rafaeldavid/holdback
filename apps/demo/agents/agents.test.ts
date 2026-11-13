@@ -108,7 +108,7 @@ describe('adjudicator profiles (T-017)', () => {
     expect(views.map((v) => v.name)).toEqual(['Clearfield Adjudication', 'Northgate Review', 'Atrium Appeals', 'Swiftline Verdicts']);
     expect(views.map((v) => v.selected)).toEqual(['primary', 'fallback', 'appeal', 'declined']);
     const [a, , c, s] = views;
-    expect(a!.terms).toMatchObject({ fee: { token: 'tUSD', amount: (50n * TUSD).toString() }, panelSize: 3, minFamilies: 2, threshold: { numerator: 2, denominator: 3 }, appealWindowSec: 300 });
+    expect(a!.terms).toMatchObject({ fee: { token: 'tUSD', amount: (50n * TUSD).toString() }, panelSize: 3, minFamilies: 2, threshold: { numerator: 2, denominator: 3 }, appealWindowSec: 0 });
     // judgeWithinSec, fallbackWithinSec and appealDecideSec from fixtures/terms/clean-customers-2000.yaml.
     expect(a!.terms.deadline).toEqual({ sec: 120, after: 'deliverBy' });
     expect(views[1]!.terms.deadline).toEqual({ sec: 120, after: 'judgeBy' });
@@ -272,9 +272,11 @@ describe('beats 2-4: deliver encrypted, defended judgment, settle, open the work
     expect(await w.balance('tidewater')).toBe(2_000n * TUSD);
     expect(await w.balance('bench-a')).toBe(50n * TUSD);
     expect(r.vias).toEqual([w.operatorUrl('op-1'), w.operatorUrl('op-1'), w.operatorUrl('op-1'), 'direct']);
-    // Clearfield's bond backs its decision through the 300 s appeal window, then anyone can release it.
+    // Clearfield's bond backs its decision through the 300 s appeal window, then anyone can release it. SimChain only:
+    // the phase-one contracts have no bonds and no appeal window (ADR-0031 §8).
     expect(w.chain.pool(w.cast.benchA.address).reserved).toBe(2_000n * TUSD);
     w.advance(301);
+    // SimChain only: the trigger that closes the appeal window.
     const after = await w.sdk().trigger(r.commitmentId, 'appeal_expiry', w.call());
     expect(after.state.finalAt).not.toBeNull();
     expect(w.chain.pool(w.cast.benchA.address).reserved).toBe(0n);

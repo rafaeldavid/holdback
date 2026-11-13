@@ -62,7 +62,7 @@ import {
   TOKEN,
 } from './stub-terms.js';
 
-export type ActorRole = 'buyer' | 'seller' | 'primary' | 'fallback' | 'appeal' | 'operator';
+export type ActorRole = 'buyer' | 'seller' | 'payment' | 'payout' | 'primary' | 'fallback' | 'appeal' | 'operator';
 
 export interface Actor {
   name: string;
@@ -151,6 +151,8 @@ export interface LedgerView {
   releasedByDecision: boolean;
   /** The releasing decision carried the buyer's sealed key. */
   keyForBuyer: boolean;
+  /** Settled by a mutual settlement both parties signed with `releaseKey` (ADR-0019; late work, ADR-0031 SC-5b). */
+  settledWithKey: boolean;
   replayOk: boolean;
   /**
    * With more than one commitment: the escrow left in the commitments that reached a terminal state. Absent,
@@ -170,17 +172,20 @@ export function checkInvariants(v: LedgerView): Invariant[] {
   for (const e of v.events) if (e.type.startsWith('settlement.') || e.type === 'commitment.settled') perCommitment.set(e.commitmentId ?? '', (perCommitment.get(e.commitmentId ?? '') ?? 0) + 1);
   const settled = v.escrowOfSettled ? v.escrowOfSettled.settled : v.finalState !== null && SETTLED_STATES.includes(v.finalState);
   const leftInEscrow = v.escrowOfSettled ? v.escrowOfSettled.amount : (v.balances[ESCROW] ?? 0n);
-  const released = v.events.find((e) => e.type === 'settlement.released');
+  // The paying event: a decision's release, or a mutual settlement that releases the key (T-357 review, L4).
+  const released = v.events.find((e) => e.type === (v.releasedByDecision ? 'settlement.released' : 'commitment.settled'));
   // Envelopes for adjudicators are released too (ADR-0020), so look for a key release in the paying step.
   const key = released && v.events.find((e) => e.type === 'key.released' && e.step === released.step);
+  // A releasing decision must also carry the buyer's sealed key; a settlement's key is the held or carried envelope.
+  const keyCarried = !v.releasedByDecision || v.keyForBuyer;
   const chain = v.events.every((e, i) => e.seq === i && e.prevHash === (i === 0 ? GENESIS : v.events[i - 1]!.hash));
   return [
     { name: 'conservation', ok: total === v.faucetTotal },
     { name: 'no negative balances', ok: values.every((x) => x >= 0n) },
     { name: 'settled once', ok: [...perCommitment.values()].every((n) => n <= 1) },
     settled ? { name: 'escrow empty after settlement', ok: leftInEscrow === 0n } : { name: 'escrow empty after settlement', ok: true, note: 'n/a' },
-    v.releasedByDecision
-      ? { name: 'key released atomically with payment', ok: !!released && !!key && released.step === key.step && v.keyForBuyer }
+    v.releasedByDecision || v.settledWithKey
+      ? { name: 'key released atomically with payment', ok: !!released && !!key && released.step === key.step && keyCarried }
       : { name: 'key released atomically with payment', ok: true, note: 'n/a' },
     { name: 'event hash chain links', ok: chain },
     { name: 'replay matches the settlement state', ok: v.replayOk },
@@ -205,6 +210,7 @@ const TIMEOUTS: Record<TimeoutStep, TimeoutKind> = {
   trigger_default: 'default',
   apply_default_outcome: 'apply_default',
   expire: 'expire_offer',
+  // SimChain only: the phase-one contracts have no appeal window, and the EVM adapter refuses this trigger.
   expire_appeal: 'appeal_expiry',
 };
 
@@ -288,6 +294,9 @@ export class StubSettlement {
     };
     add(parties.buyer, 'buyer');
     add(parties.seller, 'seller');
+    // ADR-0033: a scenario may name the buyer's payment address and the seller's payout address apart.
+    if (parties.buyerPayment) add(parties.buyerPayment, 'payment');
+    if (parties.sellerPayout) add(parties.sellerPayout, 'payout');
     add(adjudicators.primary, 'primary');
     add(adjudicators.fallback, 'fallback');
     add(adjudicators.appeal, 'appeal');
@@ -493,6 +502,11 @@ export class StubSettlement {
     return this.actor(name).address;
   }
 
+  /** The actor whose address funds the hold and receives every refund (ADR-0033): the buyer unless named apart. */
+  private payer(): string {
+    return this.scenario.parties.buyerPayment ?? this.scenario.parties.buyer;
+  }
+
   /** The key that signs for `name` in the current step: its own, unless the step names an impersonating signer. */
   private keyFor(name: string): Hex {
     const signer = this.signerOverride ?? name;
@@ -646,7 +660,7 @@ export class StubSettlement {
       case 'appeal':
         return this.appeal(s.by, s.grounds, s.bond, s.via);
       case 'mutual_settle':
-        return this.mutualSettle(s.payouts, s.releaseKey, s.via);
+        return this.mutualSettle(s.payouts, s.releaseKey, s.via, s.carry, s.names);
       case 'advance_clock':
         this.ctx.clock.advanceSeconds(s.seconds);
         return;
@@ -689,6 +703,8 @@ export class StubSettlement {
           club: this.club!,
           buyer: this.address(this.scenario.parties.buyer),
           seller: this.address(seller),
+          buyerPaymentAddress: this.address(this.payer()),
+          sellerPayoutAddress: this.address(this.scenario.parties.sellerPayout ?? seller),
           adjudicator: this.address(adjudicators.primary),
           fallbackAdjudicator: this.address(adjudicators.fallback),
           appealAdjudicator: this.address(adjudicators.appeal),
@@ -714,11 +730,13 @@ export class StubSettlement {
   private stubTerms(seller: string, now: Timestamp): CommitmentTerms {
     const { adjudicators } = this.scenario;
     return {
-      schemaVersion: '0.7',
+      schemaVersion: '0.8',
       clubId: STUB_CLUB_ID,
       rulebookHash: rulebookHash(STUB_RULEBOOK),
       buyer: this.address(this.scenario.parties.buyer),
       seller: this.address(seller),
+      buyerPaymentAddress: this.address(this.payer()),
+      sellerPayoutAddress: this.address(this.scenario.parties.sellerPayout ?? seller),
       deliverable: STUB_DELIVERABLE,
       acceptance: STUB_ACCEPTANCE,
       price: STUB_PRICE,
@@ -776,7 +794,8 @@ export class StubSettlement {
       policyHash: this.tamperable('wrong_policy_hash', c.terms.adjudication.policyHash),
       registryHash: this.tamperable('wrong_registry_hash', c.terms.adjudication.registryHash),
       fee: c.terms.adjudication.fee,
-      bondReserved: c.terms.price,
+      // The phase-one contracts hold no bond and refuse any other value (ADR-0031 §8); SimChain keeps the price.
+      bondReserved: this.backend.kind === 'local' ? ({ ...c.terms.price, amount: '0' } as typeof c.terms.price) : c.terms.price,
       nonce: this.nonceFor(name, 'msg'),
       expiresAt: c.terms.timing.offerExpiresAt,
     } as const);
@@ -801,6 +820,9 @@ export class StubSettlement {
     const c = this.needCommitment(buyer, 'agree', via);
     if (!c) return;
     const buyerAddress = this.address(buyer);
+    // ADR-0033: the payment address signs the funding; the buyer's signing address signed the agreement.
+    const payer = this.payer();
+    const payerAddress = this.address(payer);
 
     const agree = await this.sign(buyer, { type: 'Agree', commitmentId: c.id, buyer: buyerAddress, nonce: this.nonceFor(buyer, 'msg'), expiresAt: c.terms.timing.offerExpiresAt } as const);
     if (!(await this.submit(buyer, 'agree', via, { kind: 'agree', message: agree }))) return;
@@ -818,26 +840,26 @@ export class StubSettlement {
         type: 'FundingAuthorization',
         scheme: 'erc3009',
         commitmentId: c.id,
-        from: buyerAddress,
+        from: payerAddress,
         value: f.value.toString(),
         token: this.token,
         validAfter: f.validAfter,
         validBefore: f.validBefore,
         nonce: f.nonce,
         expiresAt: c.terms.timing.fundBy,
-        signature: await signDigest({ hash: f.digest, privateKey: this.keyFor(buyer), to: 'hex' }),
+        signature: await signDigest({ hash: f.digest, privateKey: this.keyFor(payer), to: 'hex' }),
       } as const;
     } else {
-      funding = await this.sign(buyer, {
+      funding = await this.sign(payer, {
         type: 'FundingAuthorization',
         scheme: 'erc3009',
         commitmentId: c.id,
-        from: buyerAddress,
+        from: payerAddress,
         value: total.toString(),
         token: TOKEN,
         validAfter: c.terms.createdAt,
         validBefore: c.terms.timing.fundBy,
-        nonce: this.nonceFor(buyer, 'msg'),
+        nonce: this.nonceFor(payer, 'msg'),
         expiresAt: c.terms.timing.fundBy,
       } as const);
     }
@@ -1086,7 +1108,11 @@ export class StubSettlement {
     this.balanceRows.push({ after: this.label('early_accept'), balances: await this.snapshotBalances() });
   }
 
-  /** A party appeals a first-instance decision with the rulebook's bond (or the step's) and the appeal fee. */
+  /**
+   * A party appeals a first-instance decision with the rulebook's bond (or the step's) and the appeal fee. SimChain
+   * only: the phase-one contracts have no party appeal, the EVM adapter refuses it, and the fixtures with this step
+   * are on LOCAL_EXCLUSIONS (ADR-0031 §8).
+   */
   private async appeal(by: 'buyer' | 'seller', grounds: string, bondOverride: string | undefined, via: string): Promise<void> {
     const who = this.scenario.parties[by];
     const call = `appeal (${by})`;
@@ -1097,6 +1123,7 @@ export class StubSettlement {
     const required = (BigInt(c.terms.price.amount) * rate + 9_999n) / 10_000n;
     const body = {
       commitmentId: c.id,
+      // The Appeal message, SimChain only (see above).
       appellant: by,
       appellantAddress: this.address(who),
       grounds,
@@ -1104,27 +1131,39 @@ export class StubSettlement {
       filedAt: wholeSecond(Date.parse(this.ctx.clock.now())),
     };
     const signed = await this.sign(who, { ...body, type: 'Appeal' as const });
+    // SimChain only: on the phase-one contracts the EVM adapter refuses this submission.
     if (!(await this.submit(who, call, via, { kind: 'appeal', appeal: { ...body, signature: signed.signature } }))) return;
     this.receipt(via, 'appeal');
     this.row(who, call, via, 'ok', undefined);
     this.balanceRows.push({ after: this.label('appeal'), balances: await this.snapshotBalances() });
   }
 
-  /** ADR-0019, D23: both parties sign one settlement; the payouts split the price, the fee returns to the buyer. */
-  private async mutualSettle(payouts: Record<string, string>, releaseKey: boolean, via: string): Promise<void> {
+  /**
+   * ADR-0019, D23: both parties sign one settlement; the payouts split the price, the fee returns to the buyer. With
+   * `carry` (late work, ADR-0031 SC-5b), the seller signed a delivery of that file and handed it to the buyer off chain,
+   * never posted; the settlement names it and carries it. `names` signs the hash of a delivery of another file instead,
+   * so the carried delivery is not the one both signed.
+   */
+  private async mutualSettle(payouts: Record<string, string>, releaseKey: boolean, via: string, carry?: string, names?: string): Promise<void> {
     const { buyer, seller } = this.scenario.parties;
-    const call = 'mutual_settle';
-    const c = this.needCommitment(buyer, call, via);
+    const c = this.needCommitment(buyer, 'mutual_settle', via);
     if (!c) return;
+    const call = carry === undefined ? 'mutual_settle' : `mutual_settle (carries the unposted delivery of fixtures/${carry}${names ? `, names fixtures/${names}` : ''})`;
     if (this.offline.has(seller)) {
       this.outages.push({ step: this.stepNo, actor: seller, kind: 'offline' });
       return this.row(seller, call, via, 'offline (no call)');
     }
     const delivered = 'delivery' in c.state ? c.state.delivery : null;
+    let carried: Awaited<ReturnType<typeof this.signedDelivery>> | undefined;
+    let named = delivered ? deliveryHash(delivered) : null;
+    if (carry !== undefined) {
+      carried = await this.signedDelivery(seller, c, carry, false, 1);
+      named = deliveryHash(names === undefined ? carried.message : (await this.signedDelivery(seller, c, names, false, 1)).message);
+    }
     const unsigned = {
       type: 'MutualSettlement' as const,
       commitmentId: c.id,
-      deliveryHash: delivered ? deliveryHash(delivered) : null,
+      deliveryHash: named,
       payouts: Object.entries(payouts).map(([name, amount]) => ({ to: this.address(name), amount: this.money(amount) })),
       releaseKey,
       nonce: this.ctx.rng.hex32(),
@@ -1132,8 +1171,9 @@ export class StubSettlement {
     };
     const buyerSignature = await signMessage(this.keyFor(buyer), this.domain, unsigned);
     const sellerSignature = await signMessage(this.keyFor(seller), this.domain, unsigned);
-    if (!(await this.submit(`${buyer} + ${seller}`, call, via, { kind: 'mutual_settle', message: { ...unsigned, buyerSignature, sellerSignature } }))) return;
-    this.receipt(via, call);
+    if (!(await this.submit(`${buyer} + ${seller}`, call, via, { kind: 'mutual_settle', message: { ...unsigned, buyerSignature, sellerSignature }, ...(carried ? { delivery: carried.message } : {}) }))) return;
+    if (carried) this.delivery = carried; // the buyer holds it, so verify_key_release opens its envelope
+    this.receipt(via, 'mutual_settle');
     this.row(`${buyer} + ${seller}`, call, via, 'ok');
     this.balanceRows.push({ after: this.label(call), balances: await this.snapshotBalances() });
   }
@@ -1237,6 +1277,7 @@ export class StubSettlement {
       finalState: st?.kind ?? null,
       releasedByDecision: st?.kind === 'Released' && st.via.kind !== 'early_accept',
       keyForBuyer: !!this.decision?.keyForBuyer,
+      settledWithKey: st?.kind === 'Settled' && st.keyReleased,
       replayOk: replay.ok,
     });
   }
@@ -1244,7 +1285,8 @@ export class StubSettlement {
   private async result(): Promise<StubRun> {
     const replay = await this.replay();
     const { parties, adjudicators, operators } = this.scenario;
-    const ordered = [parties.buyer, ESCROW, APPEAL_HOLD, parties.seller, adjudicators.primary, adjudicators.fallback, adjudicators.appeal, ...operators];
+    const money = [parties.buyerPayment, parties.sellerPayout].filter((n): n is string => n !== undefined);
+    const ordered = [parties.buyer, ...money, ESCROW, APPEAL_HOLD, parties.seller, adjudicators.primary, adjudicators.fallback, adjudicators.appeal, ...operators];
     const touched = (name: string) => this.balanceRows.some((r) => (r.balances[name] ?? 0n) !== 0n) || name === ESCROW;
     const state = this.state;
     return {

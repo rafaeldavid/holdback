@@ -11,7 +11,8 @@
 import { keccak256, parseAbi, toBytes, type Hex } from 'viem';
 import { STAGES } from './e2e-chain.ts';
 import { buyerKeys, buyerOpens, delta, deliver, eventsOf, finish, fund, get, logsOf, openDeal, reason, retry, short, shortWindows, sleep, trigger, until, waitPast, type Deal, type Run } from './e2e-run.ts';
-import { appeal, checksLine, judgment, lc, paidCheck, PRICE, requires, RUBRIC, settledChecks, TRANSLATION, type J, type Scenario } from './e2e-scenario-kit.ts';
+import { appeal } from './e2e-scenarios-appeal.ts';
+import { checksLine, judgment, lc, paidCheck, PRICE, requires, RUBRIC, settledChecks, TRANSLATION, type J, type Scenario } from './e2e-scenario-kit.ts';
 
 /** 5a's dataset: one row per customer with the account manager's notes. */
 export const NOTES = { kind: 'dataset', description: 'notes.csv, one row per customer with the account notes', format: 'text/csv' };
@@ -47,9 +48,12 @@ const BEACON_ABI = parseAbi(['function roundAt(uint256 t) pure returns (uint64)'
 const OUTCOMES = ['accept', 'reject', 'escalate'] as const;
 const ROLES = ['primary', 'fallback', 'appeal'] as const;
 
-/** The judgment.decided events each operator serves for the deal, as [operator origin, events]. */
+/**
+ * The judgment.decided events each operator serves for the deal, as [operator origin, events]. The appeal adjudicator's
+ * decision on an escalation is one too, with role `appeal`, on SimChain and on a chain alike.
+ */
 async function decisions(deal: Deal): Promise<Array<{ origin: string; events: J[] }>> {
-  return Promise.all(deal.buyer.sources().map(async (api) => ({ origin: new URL(api).origin, events: (await eventsOf(deal.buyer, deal.id, api)).filter((e) => e.type === 'judgment.decided' || e.type === 'appeal.decided') })));
+  return Promise.all(deal.buyer.sources().map(async (api) => ({ origin: new URL(api).origin, events: (await eventsOf(deal.buyer, deal.id, api)).filter((e) => e.type === 'judgment.decided') })));
 }
 const by = (events: J[], who: string) => events.filter((e) => lc(String(e.actor)) === lc(who));
 const decidedLine = (seen: Array<{ origin: string; events: J[] }>) => seen.map((s) => `${s.origin}: ${s.events.map((e) => `${short(String(e.actor))} ${e.payload?.role} ${e.payload?.outcome}`).join(', ') || 'none'}`).join('; ');
@@ -91,14 +95,12 @@ async function appealRecord(deal: Deal, untilIso: string): Promise<J | null> {
 /** The decide calls of the deal's transactions, with their Decision struct (`args[1]`). */
 const decides = (deal: Deal) => deal.record.transactions.flatMap((t) => t.calls.filter((c) => c.fn === 'decide').map((c) => ({ block: t.block, m: c.args?.[1] ?? {} })));
 
-/** On a chain: the primary decided escalate (a Decided log), and the escalation freed its bond (BondReleased). */
+/** On a chain: the primary decided escalate (a Decided log). The phase-one contracts hold no bond (ADR-0031 §8). */
 function escalationOnChain(r: Run, deal: Deal): void {
   const primary = lc(deal.terms.adjudication.adjudicator);
   const decided = logsOf(deal.record, 'Decided');
   const mine = decided.filter((l) => lc(l.args.adjudicator) === primary);
   r.check("the primary's decision on chain is an escalation", mine.length === 1 && ROLES[Number(mine[0]!.args.role)] === 'primary' && OUTCOMES[Number(mine[0]!.args.outcome)] === 'escalate', mine.map((l) => `Decided by ${short(l.args.adjudicator)}: ${ROLES[Number(l.args.role)]} ${OUTCOMES[Number(l.args.outcome)]}`).join('; ') || 'no Decided log names the primary');
-  const freed = logsOf(deal.record, 'BondReleased').filter((l) => lc(l.args.adjudicator) === primary).reduce((s, l) => s + BigInt(l.args.amount), 0n);
-  r.check("the escalation frees the primary's bond", freed === BigInt(deal.terms.price.amount), `BondReleased for ${short(primary)}: ${r.round.amount(freed)}`);
 }
 
 /**
@@ -110,8 +112,10 @@ async function defaultAfterEscalation(r: Run): Promise<void> {
   const [buyer, seller] = [round.address('buyer'), round.address('seller')];
   const { primary, appeal: appealAdj } = round.demo.adjudicators;
   // The appeal adjudicator's window after the escalation, the parties' choice (D31): room to read the beacon and run
-  // the same check again before appealDecideBy.
-  const timing = shortWindows(r, { appealDecideSec: Math.max(round.demo.minWindowSec, 20) });
+  // the same check again before appealDecideBy. Its round is published only after the escalation plus the contract's
+  // BEACON_MARGIN (ADR-0032: 29 s on Sepolia, 0 on anvil), so the window covers the margin as well.
+  const margin = round.chain ? await round.chain.beaconMarginSec() : 0;
+  const timing = shortWindows(r, { appealDecideSec: Math.max(round.demo.minWindowSec, margin + 20) });
   const deal = await openDeal(r, { label: 'checks-only, a check that runs out of its work budget', template: 'checks-only', deliverable: NOTES, checks: BUDGET_CHECKS, price: PRICE, timing }, [buyer, seller, primary, appealAdj]);
   await fund(r, deal);
   await deliver(r, deal, NOTES_CSV);
@@ -246,15 +250,15 @@ async function decidedOnAppeal(r: Run): Promise<void> {
   settledChecks(r, deal, done.escrowState);
   const { chain } = round;
   if (!chain) return;
-  r.check('dealOf shows the appeal closed', deal.record.chain?.appeal === 'closed', `appeal ${deal.record.chain?.appeal}`);
   escalationOnChain(r, deal);
   paidCheck(r, deal, outcome === 'accept' ? 'the price reaches the seller on chain' : 'the price returns to the buyer on chain', outcome === 'accept' ? seller : buyer, price);
   const feePaid = logsOf(deal.record, 'FeePaid');
   r.check('the adjudication fee goes to the appeal adjudicator', feePaid.length === 1 && lc(feePaid[0]!.args.adjudicator) === lc(appealAdj) && BigInt(feePaid[0]!.args.amount) === fee, feePaid.map((l) => `${round.amount(l.args.amount)} to ${short(l.args.adjudicator)}`).join('; ') || 'no FeePaid log');
   const toBuyer = logsOf(deal.record, 'KeyReleased').filter((l) => lc(l.args.recipient) === buyer);
   r.check(outcome === 'accept' ? 'the key reaches the buyer on chain' : 'no KeyReleased log names the buyer', toBuyer.length === (outcome === 'accept' ? 1 : 0), `${toBuyer.length} KeyReleased log(s) to the buyer`);
-  // The appeal adjudicator's seed: the beacon round after the escalation's block (HoldbackRules.decide), proven as the
-  // rulebook's beacon: a 48-byte BLS signature on drand quicknet, an empty proof on the sim beacon (anvil only).
+  // The appeal adjudicator's seed: the first beacon round after the escalation's block time plus the contract's
+  // BEACON_MARGIN (HoldbackRules._escalationRound, ADR-0032: 29 s on Sepolia, 0 on anvil), proven as the rulebook's
+  // beacon: a 48-byte BLS signature on drand quicknet, an empty proof on the sim beacon (anvil only).
   const all = decides(deal);
   const escalation = all.find((d) => ROLES[Number(d.m.role)] === 'primary');
   const final = all.find((d) => ROLES[Number(d.m.role)] === 'appeal');
@@ -263,13 +267,14 @@ async function decidedOnAppeal(r: Run): Promise<void> {
   let ok = false;
   if (escalation && final) {
     const at = (await chain.client.getBlock({ blockNumber: BigInt(escalation.block) })).timestamp;
-    const expected = Number(await chain.client.readContract({ address: chain.deployment.beacon as Hex, abi: BEACON_ABI, functionName: 'roundAt', args: [at] })) + 1;
+    const margin = BigInt(await chain.beaconMarginSec());
+    const expected = Number(await chain.client.readContract({ address: chain.deployment.beacon as Hex, abi: BEACON_ABI, functionName: 'roundAt', args: [at + margin] })) + 1;
     const sigBytes = (String(final.m.beaconSignature ?? '0x').length - 2) / 2;
     const proof = source === 'drand-quicknet' ? sigBytes === 48 : sigBytes === 0;
     ok = Number(final.m.beaconRound) === expected && lc(String(final.m.beaconSourceHash)) === keccak256(toBytes(source)) && proof;
-    detail = `beacon round ${final.m.beaconRound}, the round after the escalation at ${at} s is ${expected}; source ${source}${lc(String(final.m.beaconSourceHash)) === keccak256(toBytes(source)) ? '' : ' (the decision names another)'}; proof ${sigBytes} bytes`;
+    detail = `beacon round ${final.m.beaconRound}, the first round after the escalation at ${at} s + the margin ${margin} s is ${expected}; source ${source}${lc(String(final.m.beaconSourceHash)) === keccak256(toBytes(source)) ? '' : ' (the decision names another)'}; proof ${sigBytes} bytes`;
   }
-  r.check("the appeal decision is seeded from the beacon round after the escalation, proven as the rulebook's beacon", ok, detail);
+  r.check("the appeal decision is seeded from the first beacon round after the escalation plus the margin, proven as the rulebook's beacon", ok, detail);
 }
 
 export const ESCALATION: Scenario[] = [

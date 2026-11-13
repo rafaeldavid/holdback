@@ -14,6 +14,7 @@ export function closing(): Closing {
     finality: [
       'Guaranteed mode (the only mode in this demo): the payee is final at the posting that pays it, at the decision. The commitment is final when the 300 s appeal window passes with no appeal, or at the appeal decision. An overturn pays from the adjudicator\'s bond, never from escrow.',
       'Escalation decision, mutual settlement, early accept, reclaim and default: final at the step; none is appealable.',
+      'This demo settles on SimChain, which keeps the full protocol. The phase-one contracts on Sepolia have no party appeal and no bonds: there the first decision by the primary or the fallback adjudicator is final at once, and an escalation still goes to the appeal adjudicator (ADR-0031).',
       'Protocol finality is not legal finality: courts can still compel the real-world parties.',
     ],
     residualsIntro: 'Four of the 12 residual control points in docs/neutrality.md, the ones an AI lab is likely to ask about first; the other eight are listed there.',

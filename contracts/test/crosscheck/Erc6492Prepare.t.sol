@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Vm} from "forge-std/Vm.sol";
 import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "../unit/Base.sol";
 
@@ -55,7 +56,7 @@ contract PrepareProbe {
 /// The ERC-6492 envelope `(prepareTarget, prepareData, innerSignature) ‖ magic` is not signed by anyone: the buyer
 /// signs only the inner ERC-3009 authorization, and `HoldbackRules` passes `f.signature` through untouched. So any
 /// relayer can attach an arbitrary call that runs with Multicall3 as sender, after the rules contract has written
-/// `Held` and encumbered the primary's bond, and after CPP has recorded the hold, but before any token has moved.
+/// `Held`, and after CPP has recorded the hold, but before any token has moved.
 contract Erc6492PrepareTest is Base {
     bytes32 internal constant MAGIC = 0x6492649264926492649264926492649264926492649264926492649264926492;
     bytes32 internal constant MULTICALL3_CODEHASH = 0xd5c15df687b16f2ff992fc8d767b4216323184a2bbc6ee2f9c398c318e770891;
@@ -101,12 +102,12 @@ contract Erc6492PrepareTest is Base {
         _fundWrapped(t, address(probe), _runProbe());
 
         assertTrue(probe.ok(0), "the prepare call ran");
-        assertEq(probe.stageSeen(), uint8(HoldbackRules.Stage.Held), "rules: Held before any token moved");
+        assertEq(probe.stageSeen(), uint8(IHoldbackRules.Stage.Held), "rules: Held before any token moved");
         assertTrue(probe.collectedSeen(), "CPP: hasCollectedPayment before any token moved");
         assertEq(probe.capturableSeen(), uint120(PRICE + FEE), "CPP: capturable before any token moved");
         assertEq(probe.storeBalanceSeen(), 0, "the token store was empty during the prepare call");
         // The funding itself completed as if nothing had happened.
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Held));
         assertEq(_held(t), PRICE + FEE);
     }
 
@@ -164,14 +165,13 @@ contract Erc6492PrepareTest is Base {
         assertEq(bytes4(probe.ret(0)), REENTRANCY, "early accept hit CPP's transient guard");
         assertEq(bytes4(probe.ret(1)), REENTRANCY, "primary accept hit CPP's transient guard");
         assertEq(bytes4(probe.ret(2)), REENTRANCY, "mutual settlement hit CPP's transient guard");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Held));
         assertEq(_held(t), PRICE + FEE);
         assertEq(usdc.balanceOf(seller), 1_000_000_000, "the seller was not paid");
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), PRICE);
     }
 
-    /// Funding a second deal from inside the first's prepare call writes `Held` and encumbers the primary, then hits
-    /// the guard at `authorize`; the inner call reverts as a whole, so nothing of the second deal survives.
+    /// Funding a second deal from inside the first's prepare call writes `Held`, then hits the guard at `authorize`;
+    /// the inner call reverts as a whole, so nothing of the second deal survives.
     function test_defense_prepareCallFundingAnotherDeal_isRolledBackWhole() public {
         H.Terms memory t1 = _terms();
         H.Terms memory t2 = _terms();
@@ -187,9 +187,8 @@ contract Erc6492PrepareTest is Base {
 
         assertFalse(probe.ok(0));
         assertEq(bytes4(probe.ret(0)), REENTRANCY);
-        assertEq(uint8(_stage(id1)), uint8(HoldbackRules.Stage.Held));
-        assertEq(uint8(_stage(id2)), uint8(HoldbackRules.Stage.None), "deal 2 left no state");
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), PRICE, "only deal 1's bond is encumbered");
+        assertEq(uint8(_stage(id1)), uint8(IHoldbackRules.Stage.Held));
+        assertEq(uint8(_stage(id2)), uint8(IHoldbackRules.Stage.None), "deal 2 left no state");
         assertEq(_held(t1), PRICE + FEE);
     }
 
@@ -208,14 +207,14 @@ contract Erc6492PrepareTest is Base {
         vm.recordLogs();
         _fundWrapped(t, address(rules), abi.encodeCall(HoldbackRules.deliver, (t, dv, dSig)));
 
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Delivered), "delivered inside agreeAndFund");
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Delivered), "delivered inside agreeAndFund");
         assertEq(_held(t), PRICE + FEE);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         uint256 submittedAt = type(uint256).max;
         uint256 authorizedAt = type(uint256).max;
         uint256 usedAt = type(uint256).max;
         for (uint256 i; i < logs.length; ++i) {
-            if (logs[i].topics[0] == HoldbackRules.JobSubmitted.selector) submittedAt = i;
+            if (logs[i].topics[0] == IHoldbackRules.JobSubmitted.selector) submittedAt = i;
             if (logs[i].topics[0] == AuthCaptureEscrow.PaymentAuthorized.selector) authorizedAt = i;
             if (logs[i].topics[0] == keccak256("AuthorizationUsed(address,bytes32)")) usedAt = i;
         }
@@ -223,17 +222,16 @@ contract Erc6492PrepareTest is Base {
         assertLt(submittedAt, usedAt, "JobSubmitted was logged before the buyer's authorization was spent");
     }
 
-    /// With D31 timing (judgeBy at or before the funding time, which the contract accepts), the prepare call takes
-    /// the deal from None to Escalated in one transaction: deliver, trigger the fallback, and relay the fallback's
-    /// signed escalation. The primary's bond is released before CPP has pulled a single token. The deal still
-    /// closes on its normal paths afterwards (here: default after appealDecideSec).
-    function test_attack_prepareCallWithD31Timing_fundsStraightIntoEscalated() public {
+    /// Before SC-5, D31 timing (judgeBy at or before the funding time) let the prepare call take the deal from None to
+    /// Escalated in one transaction: deliver, trigger the fallback, and relay the fallback's signed escalation, before
+    /// CPP had pulled a single token. Such terms put judgeBy before fundBy, so since SC-5 (T-356, ADR-0031 §6) the
+    /// funding is refused before the prepare call runs: nothing it would relay happens, and nothing is held.
+    function test_defense_prepareCallWithD31Timing_refusedBeforeThePrepareCall() public {
         H.Terms memory t = _terms();
-        t.timing.judgeBy = uint64(block.timestamp); // triggerFallback is open at once (now >= judgeBy)
+        t.timing.judgeBy = uint64(block.timestamp); // triggerFallback would be open at once (now >= judgeBy)
         bytes32 id = hx.id(t);
         (H.Delivery memory dv,) = _delivery();
         bytes memory dSig = _deliverySig(id, dv, SELLER_PK);
-        // The fallback's round is roundAt(judgeBy) = now on the sim beacon, so its seed is computable right now.
         H.Decision memory m = _beaconDecision(id, H.ROLE_FALLBACK, H.OUTCOME_ESCALATE, t.timing.judgeBy);
         m = _signDecision(t, id, m, fallbackAdj, FB_PK);
 
@@ -241,21 +239,18 @@ contract Erc6492PrepareTest is Base {
         probe.add(address(rules), abi.encodeCall(HoldbackRules.triggerFallback, (t)));
         probe.add(address(rules), abi.encodeCall(HoldbackRules.decide, (t, m, _noDelivery(), "")));
 
-        _fundWrapped(t, address(probe), _runProbe());
+        H.Funding memory f = _erc3009(t, BUYER_PK);
+        f.signature = _wrap(address(probe), _runProbe(), f.signature);
+        bytes memory ss = _sellerSig(t, SELLER_PK);
+        H.Acceptance memory acc = _acceptance(t, ADJ_PK);
+        H.Agree memory ag = _agree(t, BUYER_PK);
+        vm.prank(relayer);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
+        rules.agreeAndFund(t, ss, acc, ag, f);
 
-        assertTrue(probe.ok(0) && probe.ok(1) && probe.ok(2), "deliver, triggerFallback and escalate all ran");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Escalated), "Escalated at the end of agreeAndFund");
-        assertEq(_held(t), PRICE + FEE, "the hold was still collected");
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), 0, "the primary's bond was released mid-funding");
-        assertEq(bonds.encumberedOf(fallbackAdj, address(usdc)), 0);
-        // Whether the escalation reserves the appeal adjudicator's bond is T-206 M-3's change, not this test's point.
-
-        // Liveness is intact: the escalation defaults after appealDecideSec and the buyer is refunded.
-        vm.warp(block.timestamp + t.timing.appealDecideSec);
-        uint256 b0 = usdc.balanceOf(buyer);
-        rules.triggerDefault(t);
-        assertEq(usdc.balanceOf(buyer), b0 + PRICE + FEE);
-        assertEq(bonds.encumberedOf(appealAdj, address(usdc)), 0);
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.None), "no deal");
+        assertEq(_held(t), 0, "nothing held");
+        assertEq(rules.deliveryHashOf(id), bytes32(0), "the prepare call's delivery never landed");
     }
 
     /// Without the canonical Multicall3 code (the unit fixture's default, and PA-I4's local world), a wrapped
@@ -267,10 +262,10 @@ contract Erc6492PrepareTest is Base {
         bytes memory sellerSig = _sellerSig(t, SELLER_PK);
         H.Acceptance memory acc = _acceptance(t, ADJ_PK);
         H.Agree memory ag = _agree(t, BUYER_PK);
-        H.Funding memory wrapped = H.Funding({method: 0, signature: _wrap(address(probe), _runProbe(), f.signature)});
+        H.Funding memory wrapped = H.Funding({signature: _wrap(address(probe), _runProbe(), f.signature)});
         vm.expectRevert();
         rules.agreeAndFund(t, sellerSig, acc, ag, wrapped);
         bytes32 id = rules.agreeAndFund(t, sellerSig, acc, ag, f);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Held));
     }
 }

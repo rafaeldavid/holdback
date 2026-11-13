@@ -1,8 +1,9 @@
 // The send-timeout command (send-timeout.ts, T-365). Offline: its command line, the commitment-ID check on the terms
 // file, the plan it reads from dealOf for each stage, and the refusals that need no chain. On anvil, as a separate
-// process run as Rafa runs it: each timeout the contracts on main have, with each deal driven to the point where the
-// timeout is due and then closed by this command alone, no operator pass running; every refusal; the dry run; and the
-// neutrality test that a deal still completes when every operator is offline after funding.
+// process run as Rafa runs it: each of the three timeouts the phase-one contracts have (ADR-0031), with each deal
+// driven to the point where the timeout is due and then closed by this command alone, no operator pass running; a
+// reclaim that refunds the buyer's payment address, apart from its signing address (ADR-0033); every refusal; the dry
+// run; and the neutrality test that a deal still completes when every operator is offline after funding.
 //
 // On anvil the deals are opened and funded through the operators' own settlement adapter (EvmSettlement, as
 // packages/settlement/evm/timeouts.test.ts does), because that is how a deal reaches the chain today. No operator pass
@@ -13,7 +14,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { encodeFunctionData, maxUint256, type Hex } from 'viem';
+import { encodeFunctionData, type Hex } from 'viem';
 import { foundry } from 'viem/chains';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ANVIL_SKIP, anvilReady, root } from './e2e-world.ts';
@@ -33,11 +34,13 @@ const ASSET = '0x5029787d7e141f2d51788035cc23903652d196b6';
 
 /** Public terms in the wire form a party holds, with a commitment ID that is their own hash (checked below). */
 const TERMS: J = {
-  schemaVersion: '0.7',
+  schemaVersion: '0.8',
   clubId: 'evm-club',
   rulebookHash: `0x${'11'.repeat(32)}`,
   buyer: '0x1111111111111111111111111111111111111111',
   seller: '0x2222222222222222222222222222222222222222',
+  buyerPaymentAddress: '0x7777777777777777777777777777777777777777',
+  sellerPayoutAddress: '0x8888888888888888888888888888888888888888',
   deliverable: { kind: 'dataset', description: 'A test deal', format: 'text/csv' },
   acceptance: { deterministicChecks: [], rubric: { criteria: [], passThreshold: 0 } },
   price: { token: ASSET, amount: '2000000' },
@@ -50,7 +53,7 @@ const TERMS: J = {
     registryHash: `0x${'22'.repeat(32)}`,
     policyHash: `0x${'33'.repeat(32)}`,
   },
-  timing: { offerExpiresAt: '2026-11-12T10:15:00Z', fundBy: '2026-11-12T10:30:00Z', deliverBy: '2026-11-12T11:00:00Z', judgeBy: '2026-11-12T11:10:00Z', fallbackBy: '2026-11-12T11:20:00Z', appealWindowSec: 300, appealDecideSec: 600, maxSubmissions: 1 },
+  timing: { offerExpiresAt: '2026-11-12T10:15:00Z', fundBy: '2026-11-12T10:30:00Z', deliverBy: '2026-11-12T11:00:00Z', judgeBy: '2026-11-12T11:10:00Z', fallbackBy: '2026-11-12T11:20:00Z', appealWindowSec: 0, appealDecideSec: 600, maxSubmissions: 1 },
   settlement: { mode: 'guaranteed_on_decision', token: ASSET },
   remedy: { onReject: 'full_refund' },
   disclosure: { level: 'public' },
@@ -84,6 +87,12 @@ describe('dealOfTerms: the terms must hash to their own commitment ID', () => {
     expect(() => dealOfTerms({ ...TERMS, id, price: { ...TERMS.price, amount: '2000001' } })).toThrow(Refusal);
     expect(() => dealOfTerms({ ...TERMS, id, timing: { ...TERMS.timing, deliverBy: '2026-11-12T11:00:01Z' } })).toThrow(/but they hash to/);
   });
+  it('binds the two money addresses: moving either one names another commitment ID (ADR-0033)', () => {
+    const id = dealOfTerms(TERMS).id;
+    expect(dealOfTerms({ ...TERMS, buyerPaymentAddress: TERMS.buyer }).id).not.toBe(id);
+    expect(dealOfTerms({ ...TERMS, sellerPayoutAddress: TERMS.seller }).id).not.toBe(id);
+    expect(dealOfTerms(TERMS).tuple).toMatchObject({ buyerPaymentAddress: '0x7777777777777777777777777777777777777777', sellerPayoutAddress: '0x8888888888888888888888888888888888888888' });
+  });
   it('gives the private wire form the same ID and the same tuple as the public form, from privateTerms\' hashes (ADR-0024)', () => {
     const { deliverable, acceptance, ...rest } = TERMS;
     const sealed = { ...rest, privateTerms: { deliverable: { hash: jcsHash(deliverable), ciphertext: 'x' }, acceptance: { hash: jcsHash(acceptance), ciphertext: 'y' } } };
@@ -96,6 +105,9 @@ describe('dealOfTerms: the terms must hash to their own commitment ID', () => {
     expect(() => dealOfTerms(without(TERMS, 'deliverable', 'acceptance'))).toThrow(/neither the deliverable and acceptance bodies nor privateTerms/);
     expect(() => dealOfTerms({ version: 1, address: TERMS.buyer, privateKey: `0x${'99'.repeat(32)}`, checked: { terms: TERMS } })).toThrow('refusing: the terms file holds a key');
     expect(() => dealOfTerms(without(TERMS, 'nonce'))).toThrow('refusing: the terms lack nonce');
+    // ADR-0033: the two money addresses are signed fields, so terms from before them name another commitment.
+    expect(() => dealOfTerms(without(TERMS, 'buyerPaymentAddress', 'sellerPayoutAddress'))).toThrow('refusing: the terms lack buyerPaymentAddress, sellerPayoutAddress');
+    expect(() => dealOfTerms({ ...TERMS, sellerPayoutAddress: 'the seller' })).toThrow("refusing: the terms' sellerPayoutAddress is not an address");
     expect(() => dealOfTerms({ ...TERMS, settlement: { mode: 'settle_after_window', token: TERMS.price.token } })).toThrow(/settle only guaranteed_on_decision/);
     // Either would hash to another commitment on chain than the terms' own ID (review of PR 382).
     const upper = '0x5029787D7E141F2D51788035CC23903652D196B6';
@@ -104,39 +116,33 @@ describe('dealOfTerms: the terms must hash to their own commitment ID', () => {
   });
 });
 
-describe('planTimeout: the one timeout HoldbackRules on main finds due, by stage and chain time', () => {
+describe('planTimeout: the one timeout the phase-one HoldbackRules finds due, by stage and chain time', () => {
   const timing = dealOfTerms(TERMS).timing;
   const t1 = secs('2026-11-12T11:05:00Z');
-  const deal = (stage: string, appeal = 'none'): OnChain => ({ stage, appeal, t1, t2: 0n });
-  /** The plan at chain time `iso`: its kind and the function it names. */
+  const deal = (stage: string): OnChain => ({ stage, t1 });
+  /** The plan at chain time `when`: its kind and the function it names. */
   const at = (d: OnChain, when: bigint) => {
     const p = planTimeout(d, timing, when);
     return p.kind === 'closed' ? 'closed' : `${p.kind} ${p.fn} ${p.at - when}`;
   };
-  it('names each timeout at its deadline: due at the deadline\'s second, waiting the second before', () => {
+  it('names each of the three timeouts at its deadline: due at the deadline\'s second, waiting the second before', () => {
     const cases: Array<[OnChain, string, bigint]> = [
-      [deal('None'), 'expireOffer', secs(TERMS.timing.offerExpiresAt)],
       [deal('Held'), 'reclaim', secs(TERMS.timing.deliverBy)],
       [deal('Delivered'), 'triggerFallback', secs(TERMS.timing.judgeBy)],
       [deal('FallbackJudging'), 'triggerDefault', secs(TERMS.timing.fallbackBy)],
       [deal('Escalated'), 'triggerDefault', t1 + 600n],
-      [deal('Released'), 'expireAppeal', t1 + 300n],
-      [deal('Refunded'), 'expireAppeal', t1 + 300n],
-      [deal('Refunded', 'open'), 'expireAppeal', t1 + 900n],
     ];
     for (const [d, fn, deadline] of cases) {
-      expect(at(d, deadline), `${d.stage} ${d.appeal}`).toBe(`due ${fn} 0`);
-      expect(at(d, deadline - 1n), `${d.stage} ${d.appeal}`).toBe(`wait ${fn} 1`);
+      expect(at(d, deadline), d.stage).toBe(`due ${fn} 0`);
+      expect(at(d, deadline - 1n), d.stage).toBe(`wait ${fn} 1`);
     }
   });
-  it('takes the earlier of offerExpiresAt and fundBy for an unfunded offer, as expireOffer does', () => {
-    const early = dealOfTerms({ ...TERMS, timing: { ...TERMS.timing, fundBy: '2026-11-12T10:10:00Z' } }).timing;
-    expect(planTimeout(deal('None'), early, secs('2026-11-12T10:10:00Z'))).toMatchObject({ kind: 'due', fn: 'expireOffer', deadline: 'fundBy' });
+  it('a refund goes to the buyer\'s payment address (ADR-0033)', () => {
+    expect(planTimeout(deal('Held'), timing, secs(TERMS.timing.deliverBy))).toMatchObject({ kind: 'due', effect: "nothing was delivered: the price and fee go back to the buyer's payment address" });
   });
-  it('finds a deal closed once nothing can move it: settled, expired, or decided with its appeal closed', () => {
-    for (const d of [deal('Settled'), deal('Expired'), ...['upheld', 'overturned', 'expired', 'closed'].flatMap((a) => [deal('Released', a), deal('Refunded', a)])]) {
-      expect(planTimeout(d, timing, t1 + 10n ** 9n).kind, `${d.stage} ${d.appeal}`).toBe('closed');
-    }
+  it('sends nothing for an unfunded offer, which stores nothing on chain (ADR-0031 §7), nor for a decided or settled deal, final when written (§8)', () => {
+    for (const stage of ['None', 'Released', 'Refunded', 'Settled']) expect(planTimeout(deal(stage), timing, t1 + 10n ** 9n).kind, stage).toBe('closed');
+    expect(planTimeout(deal('None'), timing, 0n)).toMatchObject({ kind: 'closed', why: expect.stringContaining('nothing is held on chain') });
   });
 });
 
@@ -147,7 +153,7 @@ describe('sendTimeout: refusals before any chain read', () => {
     writeFileSync(p, typeof v === 'string' ? v : JSON.stringify(v));
     return p;
   };
-  const record = (chainId: number) => ({ chainId, rules: TERMS.buyer, escrow: TERMS.buyer, bonds: TERMS.buyer, multicall: TERMS.buyer, token: { address: TERMS.price.token } });
+  const record = (chainId: number) => ({ chainId, rules: TERMS.buyer, escrow: TERMS.buyer, multicall: TERMS.buyer, token: { address: TERMS.price.token } });
   const run = (o: { terms?: string; deployment: string; rpc?: string; dryRun?: boolean }, env: Record<string, string> = {}) =>
     sendTimeout({ terms: o.terms ?? file('terms.json', TERMS), deployment: o.deployment, rpc: o.rpc ?? 'http://127.0.0.1:9', dryRun: o.dryRun ?? true }, { say: () => {}, env });
   it('refuses a mainnet deployment record by name, before it connects to any RPC', async () => {
@@ -156,8 +162,7 @@ describe('sendTimeout: refusals before any chain read', () => {
   });
   it('refuses a file that is not a deployment record, and a terms file that is not JSON', async () => {
     await expect(run({ deployment: file('not-a-record.json', { chainId: 31337 }) })).rejects.toThrow('has no rules address');
-    const phaseOne = without(record(31337), 'bonds');
-    await expect(run({ deployment: file('phase-one.json', phaseOne) })).rejects.toThrow('has no bonds address; this command serves the contracts on main');
+    await expect(run({ deployment: file('no-escrow.json', without(record(31337), 'escrow')) })).rejects.toThrow('has no escrow address');
     await expect(run({ deployment: file('ok.json', record(31337)), terms: file('bad.json', '{') })).rejects.toThrow('is not JSON');
   });
   it('refuses a real send with no sender key, or a key of the wrong shape, without printing it', async () => {
@@ -166,13 +171,19 @@ describe('sendTimeout: refusals before any chain read', () => {
     const e = await run({ deployment: file('ok.json', record(31337)), dryRun: false }, { TIMEOUT_SENDER_KEY: bad }).catch((x: Error) => x);
     expect(String(e)).toContain('is not a 32-byte hex private key');
     expect(String(e)).not.toContain(bad);
+    // Right shape, out of range: zero is no secp256k1 key, and the refusal must not carry it either (review of T-374).
+    const zero = `0x${'0'.repeat(64)}`;
+    const z = await run({ deployment: file('ok.json', record(31337)), dryRun: false }, { TIMEOUT_SENDER_KEY: zero }).catch((x: Error) => x);
+    expect(String(z)).toContain('is not a valid secp256k1 private key');
+    expect(String(z)).not.toMatch(/got|0x0{64}/);
   });
 });
+
 
 /** anvil's well-known dev key (public; guards no value): the operators' relayer while the deals are opened. */
 const RELAYER: Hex = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d';
 
-describe.skipIf(!anvilReady)(`send-timeout on anvil, with no operator pass running${ANVIL_SKIP}`, () => {
+describe.skipIf(!anvilReady)(`send-timeout on anvil against the phase-one contracts, with no operator pass running${ANVIL_SKIP}`, () => {
   let anvil: J;
   let chain: J;
   let live: J;
@@ -180,11 +191,12 @@ describe.skipIf(!anvilReady)(`send-timeout on anvil, with no operator pass runni
   let genesis: J;
   let club: J;
   let EvmDeal: J;
+  let testActor: J;
   let cast: J;
   let deployment: J;
   let skew = 0;
   const wall = () => Date.now() + skew;
-  const dir = mkdtempSync(join(tmpdir(), 't365-anvil-'));
+  const dir = mkdtempSync(join(tmpdir(), 't374-anvil-'));
   const deploymentFile = () => join(dir, 'deployment.json');
   /** The sender: any funded key, none of the deal's parties or adjudicators (anvil's public test labels). */
   let sender: { key: Hex; address: string };
@@ -195,38 +207,68 @@ describe.skipIf(!anvilReady)(`send-timeout on anvil, with no operator pass runni
     live = await import(pathToFileURL(fromDemo.resolve('@holdback/settlement/live')).href);
     const testing = await import(pathToFileURL(join(root, 'packages/settlement/dist/evm/testing.js')).href);
     EvmDeal = testing.EvmDeal;
+    testActor = testing.testActor;
     cast = testing.evmCast();
-    sender = testing.testActor('t-365/anyone');
+    sender = testActor('t-374/anyone');
     anvil = await evm.EvmWorld.start(root, { blockTimeSec: 1, token: 'test-usdc' });
     const d = anvil.deployment;
+    // A phase-one record: the ERC-3009 collector alone, and no bond vault (ADR-0031 §3 and §8).
     deployment = {
       chainId: anvil.chainId, fromBlock: Number(d.fromBlock),
       token: { address: d.token, name: anvil.tokenDomain.name, version: anvil.tokenDomain.version, symbol: 'tUSDC', decimals: 6 },
-      escrow: d.escrow, erc3009Collector: d.erc3009Collector, permit2Collector: d.permit2Collector, multicall: d.multicall, rules: d.rules, bonds: d.bonds, beacon: d.beacon, expiryMarginSec: Number(anvil.expiryMargin),
+      escrow: d.escrow, erc3009Collector: d.erc3009Collector, multicall: d.multicall, rules: d.rules, beacon: d.beacon, expiryMarginSec: Number(anvil.expiryMargin),
     };
     writeFileSync(deploymentFile(), JSON.stringify(deployment, null, 2));
     chain = new live.LiveChain({ deployment, rpcUrls: [anvil.rpcUrl], relayerKey: RELAYER, pollMs: 100, rebroadcastMs: 10_000, mintBatchMs: 50 });
     for (const a of [...chain.lanes.map((l: J) => l.address), ...Object.values(cast).map((a: J) => a.address), sender.address]) await anvil.rpc('anvil_setBalance', [a, '0x56bc75e2d63100000']);
     const start = new Date(Math.floor(wall() / 1000) * 1000).toISOString().replace('.000Z', 'Z');
-    ({ genesis, club } = await testing.evmGenesis({ cast, token: lc(d.token), chainId: anvil.chainId, rules: d.rules, start, buyer: 0n, bond: 0n }));
+    ({ genesis, club } = await testing.evmGenesis({ cast, token: lc(d.token), chainId: anvil.chainId, rules: d.rules, start, buyer: 0n }));
     genesis = { ...genesis, simSeed: `0x${'00'.repeat(32)}` };
     await chain.mint(cast.buyer.address, 10n ** 12n);
     await chain.mint(cast.seller.address, 10n ** 10n);
-    for (const a of [cast.primary, cast.fallback, cast.appeal]) await live.ensureBond(chain, a.key, 500_000_000_000n, 10n ** 18n);
-    for (const p of [cast.buyer, cast.seller]) await chain.send({ key: p.key, to: d.token, data: encodeFunctionData({ abi: chain.abis.token, functionName: 'approve', args: [d.bonds, maxUint256] }) });
-    s = await live.EvmSettlement.restore(chain, genesis, undefined, wall);
+    s = await live.EvmSettlement.restore(shimmed(chain), genesis, undefined, wall);
   }, 180_000);
   afterAll(async () => {
     await anvil?.stop();
   });
+
+  /**
+   * `base` behind a shim for one anvil 1.0.0 bug (T-217 Decision 11, as packages/settlement/evm/timeouts.test.ts):
+   * anvil cannot estimate a call whose EIP-7623 calldata floor exceeds its execution gas, and answers "gas floor
+   * exceeds the gas limit". On the phase-one contracts the primary's escalation is such a call. The shim answers only
+   * that error, from eth_call, so a revert stays a revert. Only the adapter that opens the deals uses it; this
+   * command's own sends do not.
+   */
+  function shimmed(base: J): J {
+    const client = new Proxy(base.publicClient, {
+      get(target, prop) {
+        if (prop === 'estimateGas') {
+          return async (a: J) => {
+            try {
+              return await target.estimateGas(a);
+            } catch (e) {
+              if (!/gas floor exceeds the gas limit/.test(String((e as Error).message))) throw e;
+              await target.call(a);
+              return 1_000_000n;
+            }
+          };
+        }
+        const v = Reflect.get(target, prop);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    });
+    const c = Object.create(base);
+    Object.defineProperty(c, 'publicClient', { value: client });
+    return c;
+  }
 
   const ok = async (sub: J) => {
     const r = await s.submit(sub, { via: 'op-1' });
     if (!r.ok) throw new Error(`${sub.kind}: ${r.problem.type}: ${r.problem.detail}`);
   };
   /** A deal opened, accepted and funded through the operators' adapter, and delivered through it with `deliver`. */
-  async function funded(tag: string, o: { deliver?: boolean } = {}): Promise<J> {
-    const d = new EvmDeal(s, cast, club, tag);
+  async function funded(tag: string, o: { deliver?: boolean; money?: { payment: J; payout: string } } = {}): Promise<J> {
+    const d = new EvmDeal(s, cast, club, tag, undefined, undefined, o.money);
     await ok(await d.offer());
     await ok(await d.accept());
     await ok(await d.agreeAndFund());
@@ -250,11 +292,10 @@ describe.skipIf(!anvilReady)(`send-timeout on anvil, with no operator pass runni
     }
     throw new Error(`anvil did not reach ${target}`);
   }
-  const STAGE = ['None', 'Held', 'Delivered', 'FallbackJudging', 'Escalated', 'Released', 'Refunded', 'Settled', 'Expired'];
-  const APPEAL = ['none', 'open', 'upheld', 'overturned', 'expired', 'closed'];
+  const STAGE = ['None', 'Held', 'Delivered', 'FallbackJudging', 'Escalated', 'Released', 'Refunded', 'Settled'];
   const dealOf = async (id: Hex) => {
     const r = (await chain.publicClient.readContract({ address: deployment.rules, abi: chain.abis.rules, functionName: 'dealOf', args: [id] })) as J;
-    return `${STAGE[r.stage]} ${APPEAL[r.appeal]}`;
+    return STAGE[r.stage];
   };
   const balance = (a: string): Promise<bigint> => chain.publicClient.readContract({ address: deployment.token.address, abi: chain.abis.token, functionName: 'balanceOf', args: [a] });
   const nonce = (a: string): Promise<number> => chain.publicClient.getTransactionCount({ address: a, blockTag: 'pending' });
@@ -277,52 +318,51 @@ describe.skipIf(!anvilReady)(`send-timeout on anvil, with no operator pass runni
     expect(r.out.toLowerCase()).not.toContain(sender.key.slice(2).toLowerCase());
     return r;
   }
+  const total = (d: J) => BigInt(d.terms.price.amount) + BigInt(d.terms.adjudication.fee.amount);
 
-  it('expireOffer: an offer nobody funded expires once offerExpiresAt passes; before it the command refuses and says when it opens; after it, the deal is closed', async () => {
-    const d = new EvmDeal(s, cast, club, 't-365-offer');
+  it('an unfunded offer has no timeout on chain: the command refuses before and after offerExpiresAt, and sends nothing (ADR-0031 §7)', async () => {
+    const d = new EvmDeal(s, cast, club, 't-374-offer');
     const terms = await termsFile(d);
-    const early = await send(terms);
-    expect(early.code).toBe(1);
-    expect(early.out).toContain(`refusing: no timeout is due for ${d.id}, None on chain 31337`);
-    expect(early.out).toContain(`The next one, expireOffer, opens at offerExpiresAt ${d.terms.timing.offerExpiresAt}`);
-
-    await jump(901);
-    const r = await send(terms);
-    expect(r.code, r.out).toBe(0);
-    expect(r.out).toContain(`${d.id} is None on chain 31337 (rules ${lc(deployment.rules)}): offerExpiresAt passed at ${d.terms.timing.offerExpiresAt}`);
-    expect(r.out).toContain('Due: expireOffer');
-    expect(r.out).toContain(`events JobExpired. ${d.id} is now Expired, appeal none.`);
-    expect(await dealOf(d.id)).toBe('Expired none');
-
-    const again = await send(terms);
-    expect(again.code).toBe(1);
-    expect(again.out).toContain(`refusing: ${d.id} is closed on chain 31337 (rules ${lc(deployment.rules)}): it is Expired: its offer was never funded. No timeout remains`);
+    const senderNonce = await nonce(sender.address);
+    for (const wait of [0, 901]) {
+      if (wait) await jump(wait);
+      const r = await send(terms);
+      expect(r.code).toBe(1);
+      expect(r.out).toContain(`refusing: no timeout remains for ${d.id} on chain 31337 (rules ${lc(deployment.rules)}): it is None: nothing is held on chain`);
+    }
+    expect(await dealOf(d.id)).toBe('None');
+    expect(await nonce(sender.address)).toBe(senderNonce);
   }, 120_000);
 
-  it('reclaim: nothing delivered by deliverBy; the dry run prints the plan and changes nothing, then the send refunds the buyer the price and fee', async () => {
-    const d = await funded('t-365-reclaim');
+  it('reclaim: nothing delivered by deliverBy; the dry run changes nothing, then the send refunds the price and fee to the payment address, not the signing address (ADR-0033)', async () => {
+    const payment = testActor('t-374/payment');
+    const payout = testActor('t-374/payout').address;
+    await chain.mint(payment.address, 10n ** 12n);
+    const d = await funded('t-374-reclaim', { money: { payment, payout } });
+    expect(lc(d.terms.buyerPaymentAddress)).toBe(lc(payment.address));
     const terms = await termsFile(d);
     await jump(3_601);
-    const [buyer, senderNonce] = [await balance(cast.buyer.address), await nonce(sender.address)];
+    const [paid, signer, senderNonce] = [await balance(payment.address), await balance(cast.buyer.address), await nonce(sender.address)];
 
     const dry = await cli(args(terms, { dryRun: true }));
     expect(dry.code, dry.out).toBe(0);
     expect(dry.out).toContain(`${d.id} is Held on chain 31337 (rules ${lc(deployment.rules)}): deliverBy passed at ${d.terms.timing.deliverBy}`);
-    expect(dry.out).toContain('Due: reclaim, which nothing was delivered: the price and fee go back to the buyer.');
+    expect(dry.out).toContain("Due: reclaim, which nothing was delivered: the price and fee go back to the buyer's payment address.");
     expect(dry.out).toContain('dry run: nothing signed or sent');
-    expect(await dealOf(d.id)).toBe('Held none');
+    expect(await dealOf(d.id)).toBe('Held');
     expect(await nonce(sender.address)).toBe(senderNonce);
-    expect(await balance(cast.buyer.address)).toBe(buyer);
 
     const r = await send(terms);
     expect(r.code, r.out).toBe(0);
-    expect(r.out).toContain(`${d.id} is now Refunded, appeal closed.`);
-    expect(await balance(cast.buyer.address)).toBe(buyer + BigInt(d.terms.price.amount) + BigInt(d.terms.adjudication.fee.amount));
+    expect(r.out).toContain(`${d.id} is now Refunded.`);
+    expect(await balance(payment.address)).toBe(paid + total(d));
+    expect(await balance(cast.buyer.address)).toBe(signer);
+    expect(await balance(payout)).toBe(0n);
     expect(await nonce(sender.address)).toBe(senderNonce + 1);
   }, 120_000);
 
   it('triggerFallback: the primary misses judgeBy after a delivery; the fallback adjudicator takes over', async () => {
-    const d = await funded('t-365-fallback', { deliver: true });
+    const d = await funded('t-374-fallback', { deliver: true });
     const terms = await termsFile(d);
     const early = await send(terms);
     expect(early.code).toBe(1);
@@ -331,61 +371,37 @@ describe.skipIf(!anvilReady)(`send-timeout on anvil, with no operator pass runni
     const r = await send(terms);
     expect(r.code, r.out).toBe(0);
     expect(r.out).toContain(`${d.id} is Delivered on chain 31337 (rules ${lc(deployment.rules)}): judgeBy passed at ${d.terms.timing.judgeBy}`);
-    expect(r.out).toContain(`events FallbackTriggered. ${d.id} is now FallbackJudging, appeal none.`);
-    expect(await dealOf(d.id)).toBe('FallbackJudging none');
+    expect(r.out).toContain(`events FallbackTriggered. ${d.id} is now FallbackJudging.`);
+    expect(await dealOf(d.id)).toBe('FallbackJudging');
   }, 120_000);
 
   it('triggerDefault after an escalation: the appeal adjudicator misses appealDecideSec; the price and fee go back to the buyer', async () => {
-    const d = await funded('t-365-escalated', { deliver: true });
+    const d = await funded('t-374-escalated', { deliver: true });
     await ok(await d.decide('primary', 'escalate'));
     const terms = await termsFile(d);
-    await jump(301);
+    const early = await send(terms);
+    expect(early.code).toBe(1);
+    expect(early.out).toMatch(/The next one, triggerDefault, opens at appealDecideBy \(escalated at \S+ \+ appealDecideSec \d+ s\)/);
+    await jump(Number(d.terms.timing.appealDecideSec) + 1);
     const buyer = await balance(cast.buyer.address);
     const r = await send(terms);
     expect(r.code, r.out).toBe(0);
-    expect(r.out).toMatch(new RegExp(`${d.id} is Escalated on chain 31337 \\(rules ${lc(deployment.rules)}\\): appealDecideBy \\(escalated at \\S+ \\+ appealDecideSec 300 s\\) passed`));
+    expect(r.out).toMatch(new RegExp(`${d.id} is Escalated on chain 31337 \\(rules ${lc(deployment.rules)}\\): appealDecideBy \\(escalated at \\S+ \\+ appealDecideSec \\d+ s\\) passed`));
     expect(r.out).toContain('Due: triggerDefault');
-    expect(r.out).toContain(`${d.id} is now Refunded, appeal closed.`);
-    expect(await balance(cast.buyer.address)).toBe(buyer + BigInt(d.terms.price.amount) + BigInt(d.terms.adjudication.fee.amount));
+    expect(r.out).toContain(`${d.id} is now Refunded.`);
+    expect(await balance(cast.buyer.address)).toBe(buyer + total(d));
   }, 120_000);
 
-  it('expireAppeal, window unused: nobody appeals an accept before appealBy; the decision becomes final', async () => {
-    const d = await funded('t-365-appeal-none', { deliver: true });
+  it('a decision is final when written: after an accept the command finds no timeout left (ADR-0031 §8)', async () => {
+    const d = await funded('t-374-decided', { deliver: true });
     await ok(await d.decide('primary', 'accept'));
-    const terms = await termsFile(d);
-    expect(await dealOf(d.id)).toBe('Released none');
-    const early = await send(terms);
-    expect(early.code).toBe(1);
-    expect(early.out).toMatch(/The next one, expireAppeal, opens at appealBy \(decided at \S+ \+ appealWindowSec 300 s\)/);
-    await jump(301);
-    const r = await send(terms);
-    expect(r.code, r.out).toBe(0);
-    expect(r.out).toContain('Due: expireAppeal');
-    expect(r.out).toContain(`events AppealClosed. ${d.id} is now Released, appeal expired.`);
+    const r = await send(await termsFile(d));
+    expect(r.code).toBe(1);
+    expect(r.out).toContain(`refusing: no timeout remains for ${d.id} on chain 31337 (rules ${lc(deployment.rules)}): it is Released: the decision is final`);
   }, 120_000);
 
-  it('expireAppeal, appeal open: the seller appeals a reject and nobody decides it; the appeal expires and the first decision stands', async () => {
-    const d = await funded('t-365-appeal-open', { deliver: true });
-    await ok(await d.decide('primary', 'reject'));
-    await ok(await d.appealBy('seller', 100_000_000n));
-    const terms = await termsFile(d);
-    expect(await dealOf(d.id)).toBe('Refunded open');
-    await jump(301);
-    // The window has closed, but an open appeal waits for its decision deadline as well.
-    const early = await send(terms);
-    expect(early.code).toBe(1);
-    expect(early.out).toMatch(/The next one, expireAppeal, opens at appealDecideBy \(decided at \S+ \+ appealWindowSec 300 s \+ appealDecideSec 300 s\)/);
-    const seller = await balance(cast.seller.address);
-    await jump(300);
-    const r = await send(terms);
-    expect(r.code, r.out).toBe(0);
-    expect(r.out).toContain(`${d.id} is Refunded, appeal open, on chain 31337`);
-    expect(r.out).toContain(`${d.id} is now Refunded, appeal expired.`);
-    expect(await balance(cast.seller.address)).toBe(seller + 100_000_000n);
-  }, 120_000);
-
-  it('neutrality.operators-offline-after-funding: with every operator gone once the deal is funded, the seller delivers to the contract itself, both adjudicators stay silent, and a stranger closes the deal with this command alone: the fallback, then the default refund', async () => {
-    const d = await funded('t-365-neutrality');
+  it('neutrality.operators-offline-after-funding: with every operator gone once the deal is funded, the seller delivers to the contract itself, both adjudicators stay silent, and a stranger closes the deal with this command alone in two runs: the fallback, then the default refund', async () => {
+    const d = await funded('t-374-neutrality');
     const terms = await termsFile(d);
     // Every operator is offline from here: nothing submits through the adapter that opened the deal, and no operator
     // pass ever ran in this suite. The seller posts its signed delivery to HoldbackRules from its own key (ADR-0005).
@@ -394,29 +410,29 @@ describe.skipIf(!anvilReady)(`send-timeout on anvil, with no operator pass runni
     const data = encodeFunctionData({ abi: chain.abis.rules, functionName: 'deliver', args: [live.termsView(d.terms), live.deliveryView(delivery), delivery.signature] });
     const hash = await wallet.sendTransaction({ account: wallet.account, chain: foundry, to: deployment.rules, data, gas: 8_000_000n });
     expect((await anvil.receipt(hash)).status).toBe('success');
-    expect(await dealOf(d.id)).toBe('Delivered none');
+    expect(await dealOf(d.id)).toBe('Delivered');
     const [buyer, parties] = [await balance(cast.buyer.address), [await nonce(cast.buyer.address), await nonce(cast.seller.address)]];
 
     await jump(4_201);
     const fallback = await send(terms);
     expect(fallback.code, fallback.out).toBe(0);
-    expect(fallback.out).toContain(`${d.id} is now FallbackJudging, appeal none.`);
+    expect(fallback.out).toContain(`${d.id} is now FallbackJudging.`);
     await jump(600);
     const def = await send(terms);
     expect(def.code, def.out).toBe(0);
     expect(def.out).toContain(`${d.id} is FallbackJudging on chain 31337 (rules ${lc(deployment.rules)}): fallbackBy passed at ${d.terms.timing.fallbackBy}`);
-    expect(def.out).toContain(`events Defaulted, Refunded. ${d.id} is now Refunded, appeal closed.`);
-    expect(await balance(cast.buyer.address)).toBe(buyer + BigInt(d.terms.price.amount) + BigInt(d.terms.adjudication.fee.amount));
+    expect(def.out).toMatch(new RegExp(`events Defaulted, Refunded\\. ${d.id} is now Refunded\\.`));
+    expect(await balance(cast.buyer.address)).toBe(buyer + total(d));
     // The parties sent nothing after the delivery; only the stranger did.
     expect([await nonce(cast.buyer.address), await nonce(cast.seller.address)]).toEqual(parties);
     const closed = await send(terms);
     expect(closed.code).toBe(1);
-    expect(closed.out).toContain('is closed on chain 31337');
+    expect(closed.out).toContain(`no timeout remains for ${d.id} on chain 31337`);
   }, 120_000);
 
   describe('refusals against the chain', () => {
     /** Terms only: nothing is submitted for them. */
-    const deal = () => new EvmDeal(s, cast, club, `t-365-refusal-${Math.random()}`);
+    const deal = () => new EvmDeal(s, cast, club, `t-374-refusal-${Math.random()}`);
     const record = (over: J) => {
       const p = join(dir, `record-${Math.random().toString(36).slice(2, 8)}.json`);
       writeFileSync(p, JSON.stringify({ ...deployment, ...over }));
@@ -437,15 +453,10 @@ describe.skipIf(!anvilReady)(`send-timeout on anvil, with no operator pass runni
       expect(r.code).toBe(1);
       expect(r.out).toContain(`refusing: the deployment record's rules contract ${sender.address} has no code on chain 31337`);
     });
-    it('refuses a record whose rules contract signs under another domain than the terms', async () => {
-      const r = await cli(args(await termsFile(deal(), (c) => ({ ...without(c, 'id', 'signatures'), schemaVersion: '0.6' })), { dryRun: true }));
+    it('refuses terms signed for the contracts on main (domain 0.7): the phase-one contracts sign under 0.8 (T-358)', async () => {
+      const r = await cli(args(await termsFile(deal(), (c) => ({ ...without(c, 'id', 'signatures'), schemaVersion: '0.7' })), { dryRun: true }));
       expect(r.code).toBe(1);
-      expect(r.out).toContain(`refusing: the rules contract signs under Holdback 0.7, chain 31337, ${lc(deployment.rules)}, and the terms are signed under Holdback 0.6, chain 31337, ${lc(deployment.rules)}`);
-    });
-    it('refuses a record whose HoldbackBonds is not the one the rules contract created, as a record of other contracts would', async () => {
-      const r = await cli(args(await termsFile(deal()), { dryRun: true, deployment: record({ bonds: deployment.escrow }) }));
-      expect(r.code).toBe(1);
-      expect(r.out).toContain(`refusing: the rules contract's HoldbackBonds is ${lc(deployment.bonds)}, and the deployment record names ${lc(deployment.escrow)}`);
+      expect(r.out).toContain(`refusing: the rules contract signs under Holdback 0.8, chain 31337, ${lc(deployment.rules)}, and the terms are signed under Holdback 0.7, chain 31337, ${lc(deployment.rules)}`);
     });
     it('refuses a contract that is not HoldbackRules at the rules address', async () => {
       const r = await cli(args(await termsFile(deal()), { dryRun: true, deployment: record({ rules: deployment.multicall }) }));

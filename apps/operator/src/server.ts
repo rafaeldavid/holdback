@@ -15,6 +15,7 @@ import {
   openPart,
   operatorFeeDue,
   parseAnyCommitment,
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   parseAppeal,
   parseDelivery,
   parseDisclosure,
@@ -28,6 +29,8 @@ import {
   type AnyCommitment,
   type AnyCommitmentTerms,
   type Deliverable,
+  type Delivery,
+  type MutualSettlement,
   type DisclosureLevel,
   type SettlementProjection,
   type CommitmentStateView,
@@ -50,6 +53,7 @@ import { MAX_CIPHERTEXT_BYTES, StoreError, type CiphertextStore } from '@holdbac
 import { ENVELOPE_SPEC } from './envelope-spec.js';
 import { FeedbackDesk, FeedbackError, MAX_REPORT_BYTES, parseReport, type FeedbackOptions, type Report } from './feedback.js';
 import { startupGuards } from './guards.js';
+import { tokenRefusal, type AcceptedToken } from './token.js';
 import { amountText, bondNotices, fallbackBondRefusal, operatorFeeText, prepare, PrepareError, turnNotices, type Erc3009Signing, type PrepareContext } from './prepare.js';
 import { firstStored, hasBond, MAX_REGISTRATION_BYTES, register, RegistrationError, type Bond, type StoredRegistration } from './registrations.js';
 import { IdempotencyStore, fingerprint, type StoredResponse } from './idempotency.js';
@@ -60,7 +64,7 @@ import type { Registry } from './registry.js';
 
 export { statusOf } from './problems.js';
 export const API_VERSION = 'v1';
-export const SCHEMA_VERSION = '0.10';
+export const SCHEMA_VERSION = '0.11';
 const MAX_BODY_BYTES = 1_048_576;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -161,6 +165,13 @@ export interface OperatorOptions {
   fee?: OperatorFeeSchedule;
   /** On an EVM settlement layer: the ERC-3009 messages the buyer signs to fund and to pay the fee (ADR-0025). */
   erc3009?: Erc3009Signing;
+  /** This deployment's own contracts by name, for the money-address warnings of prepare (ADR-0033 §7). Absent: none. */
+  contracts?: ReadonlyArray<{ name: string; address: Address }>;
+  /**
+   * The one token this deployment settles in (the plan's 2c; SC-1). Every route that takes terms refuses another before
+   * it prepares or relays anything, and discovery states it as `token`. Absent: no check, and discovery names none.
+   */
+  token?: AcceptedToken;
   /** Advisory notices this node adds to prepare, write and state answers (NoticeSubject). Absent: none. */
   notices?: (about: NoticeSubject) => readonly string[] | Promise<readonly string[]>;
   /** A demo world's facts for discovery (DemoFacts). Absent: this node is not a demo. */
@@ -291,10 +302,12 @@ function checkShape(op: Operation): void {
       message(op.message, 'Decision');
       return;
     case 'appeal':
+      // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
       parsed(parseAppeal(op.appeal));
       return;
     case 'settle':
       message(op.message, 'MutualSettlement');
+      if (op.delivery) parsed(parseDelivery(op.delivery), 'delivery');
       return;
     case 'trigger':
       return;
@@ -306,7 +319,7 @@ const STORE_CHECK_MS = 2_000;
 
 const MISSING_ID =
   'id is required: the commitment ID is the EIP-712 struct hash (hashStruct, primary type CommitmentTerms) of the terms, without id and signatures. ' +
-  'POST /v1/prepare/offer returns it as commitmentId and in submit.body.id; to compute it yourself, see "Encodings" in https://crow.direct/llms.txt';
+  'POST /v1/prepare/offer returns it as commitmentId and in submit.body.id; to compute it yourself, see "Encodings" in https://crow.direct/ref/signing.txt';
 
 /** `?validateOnly=` is `true`, `false` or absent; anything else is refused rather than run live. */
 function validateOnly(q: URLSearchParams): boolean {
@@ -337,6 +350,7 @@ export const TRIGGER_NEEDS: Record<string, string[]> = {
   fallback: ['Delivered'],
   default: ['FallbackJudging', 'Escalated'],
   apply_default: ['Defaulted'],
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   appeal_expiry: ['Released', 'Refunded'],
   settle: ['Disputed'],
 };
@@ -367,6 +381,7 @@ function signerOf(op: Operation): string | undefined {
     case 'fund':
       return op.message.from;
     case 'appeal':
+      // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
       return op.appeal.appellantAddress;
     default:
       return undefined;
@@ -416,6 +431,7 @@ function deepFreeze<T>(v: T): T {
 }
 const isAddress = (s: string | undefined): s is Address => s !== undefined && /^0x[0-9a-fA-F]{40}$/.test(s);
 /** The events that count as an adjudicator's use (ADR-0030 `observed.lastUsedAt`): an acceptance or a decision. */
+// SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
 const USES = new Set<string>(['adjudicator.accepted', 'judgment.decided', 'appeal.decided']);
 /** A cursor below every listing seq, so the adjudicator list pages oldest first through the newest-first paginate. */
 const LIST_TOP = 999_999_999_999_999;
@@ -438,6 +454,16 @@ export class Operator {
   private readonly desk: FeedbackDesk | undefined;
   /** Public base URL (no trailing slash); startOperator sets it to the listening address when not given. */
   baseUrl: string;
+
+  /**
+   * Every chain settlement runs the phase-one contracts: no bonds and no party appeals (ADR-0031 §8). A SimChain runs them
+   * when its genesis chose the `phase_one` profile (T-378), so the prepare routes refuse locally what the chain refuses.
+   * Otherwise SimChain keeps both.
+   */
+  private get phaseOne(): boolean {
+    const s = this.o.settlement as Settlement & { profile?: string };
+    return s.kind !== 'sim' || s.profile === 'phase_one';
+  }
 
   /** Runs the startup guards: no Operator exists off a test chain or with a live Stripe key. */
   private readonly maxCiphertextBytes: number;
@@ -696,6 +722,13 @@ export class Operator {
     const op = (parsedOp as Extract<typeof parsedOp, { ok: true }>).value;
     if ((op.kind === 'offer' || op.kind === 'hold') && (op.commitment as { id?: unknown }).id === undefined) fail('invalid_terms', MISSING_ID, { field: 'id' });
     checkShape(dryRun ? placeholderSigned(op) : op);
+    if (op.kind === 'settle' && op.delivery) await this.lateDeliveryRule(op.message, op.delivery);
+    // The plan's 2c: terms in another token than this deployment's are refused before any relay, dry runs included.
+    if (op.kind === 'offer' || op.kind === 'hold') {
+      // A hold's body carries the terms under `commitment`; an offer's body is the terms.
+      const otherToken = tokenRefusal(this.o.token, op.commitment, op.kind === 'hold' ? 'commitment.' : '');
+      if (otherToken) fail(otherToken.type, otherToken.detail, { field: otherToken.field! });
+    }
     const signer = signerOf(op);
     const signerBucket = signer ? `w:${lc(signer)}` : undefined;
     if (signerBucket) this.admit(signerBucket, budget);
@@ -719,6 +752,21 @@ export class Operator {
       if (r.status < 300 && signerBucket) this.transfer(client, signerBucket);
       return r;
     });
+  }
+
+  /**
+   * SC-5b (T-357, T-378): a settlement carries a delivery only for the late work, the case it exists for: the settlement
+   * releases the key and names the delivery both signatures cover (core checks its hash and the buyer's envelope again).
+   * A carried delivery is refused here with the field named when the key is not released, when it is for another
+   * commitment, or when a different delivery is posted. When the same delivery was posted since, the body still settles.
+   */
+  private async lateDeliveryRule(m: MutualSettlement, d: Delivery): Promise<void> {
+    if (!m.releaseKey) fail('invalid_terms', 'delivery travels with a settlement only to release its key: leave delivery out when releaseKey is false; the settlement names the delivery by deliveryHash alone', { field: 'delivery' });
+    if (lc(d.commitmentId) !== lc(m.commitmentId)) fail('invalid_terms', `delivery is for ${d.commitmentId}, not ${m.commitmentId}`, { field: 'delivery.commitmentId' });
+    // PR 408 review, Low 2: once the same delivery is posted, the settlement layer uses the posted one and ignores the
+    // carried copy, so the body still settles (D31). Only a body that names another delivery than the posted one is refused.
+    const posted = await this.prepareContext().delivery(m.commitmentId);
+    if (posted && lc(posted.deliveryHash) !== lc(m.deliveryHash ?? '')) fail('invalid_terms', `a delivery is posted for ${m.commitmentId} (${posted.deliveryHash}) and the settlement names ${m.deliveryHash}; prepare the settlement again, naming the posted delivery, and leave delivery out`, { field: 'delivery' });
   }
 
   /**
@@ -806,6 +854,8 @@ export class Operator {
    * operators and direct submission take the same signed messages.
    */
   private async refuseUnpayableFallback(op: Operation): Promise<void> {
+    // ADR-0031 §8 point 6: the phase-one contracts hold no bond, so there is nothing to refuse for.
+    if (this.phaseOne) return;
     const terms = op.kind === 'offer' || op.kind === 'hold' ? op.commitment : op.kind === 'agree' ? await this.prepareContext().commitment(op.message.commitmentId) : undefined;
     if (!terms) return;
     const why = await fallbackBondRefusal(this.prepareContext(), terms);
@@ -842,7 +892,8 @@ export class Operator {
    * may be cold (review of PR 184).
    */
   private async liveBond(a: Address, o: { listing?: boolean } = {}): Promise<Bond | 'unreadable' | undefined> {
-    if (!this.o.registry.pool) return undefined;
+    // Phase one has no bond vault to read (ADR-0031 §8): no bond notice and no bond refusal.
+    if (!this.o.registry.pool || this.phaseOne) return undefined;
     try {
       return await this.o.registry.pool(a, o);
     } catch {
@@ -854,6 +905,7 @@ export class Operator {
    * A bond to list beside a registration: the live read, else this world's own list. A listing read may be refused
    * past the node's read budget (T-221 review), so an unauthenticated page cannot fan out into unbounded chain reads.
    */
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   private async bondOf(a: Address): Promise<Bond | undefined> {
     const live = await this.liveBond(a, { listing: true });
     return (live === 'unreadable' ? undefined : live) ?? this.o.registry.adjudicators().find((x) => lc(x.address) === lc(a))?.bond;
@@ -866,6 +918,7 @@ export class Operator {
   private async listingOf(stored: StoredRegistration): Promise<Record<string, unknown>> {
     const r = stored.record;
     const zero = { token: r.fee.min.token, amount: '0' } as TokenAmount;
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     const read = await this.bondOf(r.address);
     const bond = read ?? { junior: zero, senior: zero, reserved: zero };
     const defaults: Partial<Record<string, Address>> = this.o.registry.defaultAdjudicators ?? {};
@@ -878,7 +931,8 @@ export class Operator {
         registeredAt: stored.registeredAt,
         lastUsedAt: this.lastUsed.get(lc(r.address)) ?? null,
         expired: !(Date.parse(this.settlementNow()) < Date.parse(r.registration.expiresAt)),
-        bond: !read ? 'unknown' : hasBond(bond) ? 'bonded' : 'none',
+        // ADR-0031 §8 point 6: the phase-one contracts hold no bond, so every adjudicator's reads none there.
+        bond: this.phaseOne ? 'none' : !read ? 'unknown' : hasBond(bond) ? 'bonded' : 'none',
         ...(defaultFor.length ? { defaultFor } : {}),
       },
     };
@@ -919,6 +973,9 @@ export class Operator {
     if (p.type !== 'invalid_state') return p.type === 'invalid_terms' ? { ...p, ...(fieldOf(p.detail) ? { field: fieldOf(p.detail)! } : {}) } : p;
     const s = await this.o.settlement.state(commitmentIdOf(op)).catch(() => null);
     if (!s) return p;
+    // ADR-0031 §8: a phase-one appeal is refused in every state, so no state to wait for is named (T-349 review).
+    // A party appeal and its expiry are not in phase one: this is where the phase-one operator refuses them.
+    if (this.phaseOne && (op.kind === 'appeal' || (op.kind === 'trigger' && op.timeout === 'appeal_expiry'))) return { ...p, state: s.escrowState };
     const needs = needsOf(op);
     return { ...p, state: s.escrowState, ...(needs && !needs.includes(s.escrowState) ? { needs } : {}) };
   }
@@ -1080,13 +1137,16 @@ export class Operator {
    */
   private async faucet(ctx: Ctx, raw: unknown): Promise<StoredResponse> {
     const faucet = this.o.registry.faucet ?? fail('not_found', 'this node has no faucet: it does not serve a test network');
-    const b = (raw && typeof raw === 'object' ? raw : {}) as { address?: unknown; amount?: unknown };
+    const b = (raw && typeof raw === 'object' ? raw : {}) as { address?: unknown; amount?: unknown; paymentAddress?: unknown };
     if (!isAddress(b.address as string)) fail('invalid_terms', 'the faucet takes {"address": "0x<40 hex>"}: your own address; make your own keys', { field: 'address' });
     if (b.amount !== undefined && (typeof b.amount !== 'string' || !/^[1-9][0-9]{0,30}$/.test(b.amount))) fail('invalid_terms', 'amount, when given, is base units as a decimal string', { field: 'amount' });
+    // ADR-0033 §5: a per-deal signing key holds no tokens. The tokens go to the payment address, the mandate to `address`.
+    if (b.paymentAddress !== undefined && !isAddress(b.paymentAddress as string)) fail('invalid_terms', 'paymentAddress, when given, is the address that funds your holds ("0x<40 hex>"): the faucet sends the tokens there and the mandate to address', { field: 'paymentAddress' });
     const address = lc(b.address as string) as Address;
-    const r = await faucet(address, { ...(typeof b.amount === 'string' ? { amount: BigInt(b.amount) } : {}), client: this.client(ctx) });
+    const paymentAddress = b.paymentAddress === undefined ? undefined : (lc(b.paymentAddress as string) as Address);
+    const r = await faucet(address, { ...(typeof b.amount === 'string' ? { amount: BigInt(b.amount) } : {}), ...(paymentAddress ? { paymentAddress } : {}), client: this.client(ctx) });
     if (!r.ok) fail(r.problem.type, r.problem.detail, { ...(r.retryAfterSec !== undefined ? { retryAfterSec: r.retryAfterSec } : {}), ...(r.field !== undefined ? { field: r.field } : {}) });
-    return this.ok({ address, ...(r as Extract<typeof r, { ok: true }>).grant });
+    return this.ok({ address, ...(paymentAddress ? { paymentAddress } : {}), ...(r as Extract<typeof r, { ok: true }>).grant });
   }
 
   // Prepare, ciphertext
@@ -1113,6 +1173,7 @@ export class Operator {
       return this.index.get(id)?.events ?? [];
     };
     return {
+      ...(this.phaseOne ? { phaseOne: true } : {}),
       domain: this.domain,
       now: () => reg.now?.() ?? (new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace('.000Z', 'Z') as Timestamp),
       club: (id) => reg.clubs.find((c) => c.id === id),
@@ -1131,6 +1192,10 @@ export class Operator {
       state: (id) => this.o.settlement.state(id),
       ...(this.o.fee ? { operatorFee: this.o.fee } : {}),
       ...(this.o.erc3009 ? { erc3009: this.o.erc3009 } : {}),
+      ...(this.o.contracts ? { contracts: this.o.contracts } : {}),
+      ...(this.o.token ? { token: this.o.token } : {}),
+      // ADR-0032: the floors of the escalation and fallback windows follow from the deployment's beacon margin.
+      beaconMarginSec: this.o.settlement.beaconMarginSec ?? 0,
     };
   }
 
@@ -1354,6 +1419,8 @@ export class Operator {
       ...(this.desk ? { feedback: this.desk.discovery() } : {}),
       // ADR-0030 §4: who this node names for a role an offer leaves out. Naming others is the parties' choice.
       ...(this.o.registry.defaultAdjudicators ? { defaultAdjudicators: { ...this.o.registry.defaultAdjudicators } } : {}),
+      // The plan's 2c: the one token this deployment settles in, the same one every refusal of another token names.
+      ...(this.o.token ? { token: { ...this.o.token } } : {}),
       ...(this.o.demo ? { demo: await this.o.demo() } : {}),
       ...(this.o.notes ? { notes: [...this.o.notes] } : {}),
     };

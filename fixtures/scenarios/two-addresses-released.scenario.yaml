@@ -1,0 +1,41 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 358
+name: two-addresses-released
+description: >-
+  T-358, ADR-0033. Atlas signs with one key and pays from another address, its treasury; Tidewater signs with
+  one key and is paid at another, its payout account. All four addresses differ. The audit-report terms are
+  checks-only, so Bench A accepts with no panel. The treasury funds the hold; the price goes to Tidewater's
+  payout account and the fee to Bench A. Atlas's and Tidewater's signing keys hold nothing at any step.
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/audit-report.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+  buyer_payment: atlas-treasury
+  seller_payout: tidewater-payout
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-treasury: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - deliver:            { by: seller, via: op-1, file: data/audit-report/report.json }
+  - advance_clock:      { seconds: 5 }
+  - judge:              { adjudicator: bench-a }
+  - settle:             { trigger: anyone }
+  - verify_key_release: { by: buyer }
+expect:
+  terminal: Released
+  balances:
+    atlas-buyer: "0"
+    tidewater-seller: "0"
+    atlas-treasury: "8450000000"
+    tidewater-payout: "1500000000"
+    bench-a: "25050000000"

@@ -1,8 +1,9 @@
 // Seller: sell a service that prices by quote through Crow, with no protocol code of your own (T-318).
 // You already run an HTTP API with a quote call, a start call and a result call. This adapter sits beside it:
 //
-//   1. Quote to offer.   A buyer POSTs {buyer, buyerEncryptionPublicKey, scope, options?} to this adapter's /quote.
-//                        The adapter checks the scope and options, asks your API for a price, fills your deal template
+//   1. Quote to offer.   A buyer POSTs {buyer, buyerEncryptionPublicKey, buyerPaymentAddress?, scope, options?} to this
+//                        adapter's /quote (buyerPaymentAddress: where the buyer pays from and is refunded; left out,
+//                        its signing address). The adapter checks the scope and options, asks your API for a price, fills your deal template
 //                        with the scope, applies your terms rules (a window per size band, a check per option: T-330),
 //                        signs an offer that names the buyer, submits it, and answers {commitmentId, price, fees,
 //                        expiresAt}. The buyer reads the commitment by its ID, and compares it with your published
@@ -60,7 +61,8 @@ import { plain } from '@holdback/testkit';
 import { Agent } from './agent.ts';
 import { convertReport, loadReportMapping, ReportNotConverted } from './report-converter.ts';
 import { FilesNotAdded, sellerApiClient, type SellerApiConfig } from './seller-adapter-api.ts';
-import { jcs, knownPins, operatorFeeOf } from './verify.ts';
+import { isAddressText, jcs, knownPins, moneyAddressWarnings, operatorFeeOf } from './verify.ts';
+import { help, helpAsked } from './help.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -163,6 +165,13 @@ export interface SellerAdapterConfig {
   options?: Record<string, OptionRule>;
   /** How a quote's scope and options change its offer's terms: a window per size band, a check per option (T-330). */
   termsRules?: TermsRule[];
+  /**
+   * Where buyers pay you (ADR-0033): every offer names it as `sellerPayoutAddress`, and a release or your share of a
+   * settlement goes there. Left out: your signing address, and the adapter says so in one line at start. A production
+   * seller sets one apart from HOLDBACK_KEY, so the key that signs every day never holds the income. Only this field
+   * sets it: the adapter refuses to sign terms that name another.
+   */
+  payoutAddress?: string;
   /** The club you offer in. Left out: the club the operators' discovery document names (`demo.clubId`). */
   clubId?: string;
   /**
@@ -213,7 +222,7 @@ export const config: SellerAdapterConfig = {
     { when: [{ field: 'options.panel', equals: true }], rubric: true },
   ],
   // 15 minutes to accept, 30 to fund, 7 days to deliver, 2 minutes for each adjudicator, 5 for appeals.
-  timing: { offerExpiresInSec: 900, fundWithinSec: 1800, deliverWithinSec: 604_800, judgeWithinSec: 120, fallbackWithinSec: 120, appealWindowSec: 300, appealDecideSec: 300 },
+  timing: { offerExpiresInSec: 900, fundWithinSec: 1800, deliverWithinSec: 604_800, judgeWithinSec: 120, fallbackWithinSec: 120, appealWindowSec: 0, appealDecideSec: 300 }, // phase one: no party appeal (ADR-0033 §2b)
   journal: 'seller-adapter.journal.json',
   pollMs: 5000,
   // After a refused result, fetch it again every 10 minutes until deliverBy. To be told, and to say when it is fixed:
@@ -227,7 +236,7 @@ export const config: SellerAdapterConfig = {
 // ---- End of the defaults. ----
 
 /** The fields a configuration file may set: every field of the configuration but `log`. */
-const FILE_KEYS = ['port', 'sellerApi', 'template', 'reportMapping', 'scope', 'options', 'termsRules', 'clubId', 'adjudicators', 'mandate', 'timing', 'journal', 'pollMs', 'quoteAuth', 'quoteRateLimit', 'alerts', 'redelivery'];
+const FILE_KEYS = ['port', 'sellerApi', 'template', 'reportMapping', 'scope', 'options', 'termsRules', 'payoutAddress', 'clubId', 'adjudicators', 'mandate', 'timing', 'journal', 'pollMs', 'quoteAuth', 'quoteRateLimit', 'alerts', 'redelivery'];
 /** Options removed in T-331, each with what to do instead. A configuration that still sets one is refused. */
 const REMOVED: Array<[string, (c: J) => boolean, string]> = [
   ['stream', (c) => c?.stream !== undefined, 'the adapter learns of a funded hold by polling every pollMs; remove the field'],
@@ -317,7 +326,7 @@ export function loadConfig(file: string): SellerAdapterConfig {
     journal: f.journal ?? config.journal,
     pollMs: f.pollMs ?? config.pollMs,
     redelivery: f.redelivery ?? config.redelivery,
-    ...pass('clubId'), ...pass('adjudicators'), ...pass('mandate'), ...pass('quoteAuth'), ...pass('quoteRateLimit'), ...pass('alerts'),
+    ...pass('payoutAddress'), ...pass('clubId'), ...pass('adjudicators'), ...pass('mandate'), ...pass('quoteAuth'), ...pass('quoteRateLimit'), ...pass('alerts'),
   } as SellerAdapterConfig;
 }
 
@@ -349,6 +358,12 @@ interface Journal {
   deals: Record<string, Deal>;
   /** Answers by Idempotency-Key, with the hash of the request they answered. */
   quotes: Record<string, { bodyHash: string; answer: J }>;
+  /**
+   * The seller addresses and clubs this journal has seen hold a mandate, as `<address> <clubId>` (T-396). Until it has
+   * seen the one it runs as, a start on the test service asks the faucet first: a fresh address holds none, and
+   * reading it only draws a 404. A journal from before T-396 has no list and asks the faucet first once.
+   */
+  mandatesSeen?: string[];
 }
 
 export interface RunningAdapter {
@@ -437,14 +452,22 @@ function checkPlaceholders(where: string, node: J, scope: Record<string, ScopeRu
   }
 }
 
-function loadTemplate(c: SellerAdapterConfig, token: string): J {
+/**
+ * The template, checked. One token (plan section 2c): a fee that names no token takes the settlement layer's from
+ * discovery, and one that names another is refused at start, naming both, before any offer is made.
+ */
+function loadTemplate(c: SellerAdapterConfig, token: { id: string; symbol: string }): J {
   const template = JSON.parse(readFileSync(c.template, 'utf8'));
   if (!template.deliverable || !Array.isArray(template.checks)) throw new Error(`${c.template} needs "deliverable" and "checks"`);
   checkPlaceholders(c.template, template, c.scope);
   const fee = template.fee;
-  if (fee !== undefined && !(isRecord(fee) && typeof fee.amount === 'string' && BASE_UNITS.test(fee.amount) && String(fee.token).toLowerCase() === token.toLowerCase())) {
-    throw new Error(`${c.template}: fee must be {token, amount} in this settlement layer's token, ${token}, with the amount in base units as a decimal string`);
+  if (fee !== undefined && !(isRecord(fee) && typeof fee.amount === 'string' && BASE_UNITS.test(fee.amount) && (fee.token === undefined || typeof fee.token === 'string'))) {
+    throw new Error(`${c.template}: fee must be {amount} or {token, amount}, with the amount in base units as a decimal string`);
   }
+  if (fee?.token !== undefined && fee.token.toLowerCase() !== token.id.toLowerCase()) {
+    throw new Error(`${c.template}: fee names the token ${plain(fee.token).slice(0, 80)}, and these operators settle in ${token.id} (${token.symbol}) only: name that token, or leave the token out to take it from discovery`);
+  }
+  if (fee !== undefined) template.fee = { token: token.id, amount: fee.amount };
   // `rubric` may be empty (a checks-only deal); `optionalRubric` may not: the panel option would add nothing.
   if (template.rubric !== undefined && !(isRecord(template.rubric) && Array.isArray(template.rubric.criteria))) throw new Error(`${c.template}: rubric must be a rubric, an object with criteria`);
   if (template.optionalRubric !== undefined && !(isRecord(template.optionalRubric) && Array.isArray(template.optionalRubric.criteria) && template.optionalRubric.criteria.length > 0)) throw new Error(`${c.template}: optionalRubric must be a rubric, an object with one or more criteria`);
@@ -724,6 +747,8 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   const operators = (env['HOLDBACK_OPERATORS'] ?? '').split(',').filter(Boolean);
   const { seller, pin, discovered } = await pinnedSeller(operators, env['HOLDBACK_KEY']);
   const token = pin.token; // the one token this settlement layer holds
+  if (c.payoutAddress !== undefined && !isAddressText(c.payoutAddress)) throw new Error('payoutAddress must be an address: 0x and 40 hex characters, with a valid checksum if in mixed case');
+  const payout = (c.payoutAddress ?? seller.address).toLowerCase();
 
   // The club and the adjudicators: the configuration's, or the ones discovery names (T-331).
   const clubId = c.clubId ?? discovered.clubId;
@@ -739,7 +764,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   const adjudicators = { primary: named.primary!, fallback: named.fallback!, appeal: named.appeal! };
   const fromDiscovery = { club: c.clubId === undefined, adjudicators: c.adjudicators === undefined };
   checkRules(c);
-  const template = loadTemplate(c, token.id);
+  const template = loadTemplate(c, token);
   // Your published defaults: what every buyer reads before it asks (GET /defaults). The buyer's signer compares each
   // offer with them and shows its agent what differs (buyer-signer.ts). Placeholders stay as the template has them.
   // The optional rubric is published too: it is what a rule such as the shipped `panel` option adds to an offer.
@@ -783,11 +808,24 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   const at = (ms: number) => new Date(ms).toISOString();
   let warned = 0;
   let faucetAfter = 0; // local time before which the faucet is not asked again, after it refused
+  /** This seller and club, as the journal's `mandatesSeen` lists them. */
+  const seenKey = `${seller.address.toLowerCase()} ${clubId}`;
+  /** Records that this seller holds a mandate in the club, once, so a later start reads it before it asks the faucet. */
+  const seen = () => {
+    if (journal.mandatesSeen?.includes(seenKey)) return;
+    journal.mandatesSeen = [...(journal.mandatesSeen ?? []), seenKey];
+    save();
+  };
   /** Makes sure a mandate covers the next `renewBeforeSec`: reads it, and on the test service asks the faucet. */
   async function checkMandate(now: number): Promise<void> {
     if (mandateUntil - now > renewBeforeMs) return;
-    mandateUntil = await mandateEnd(); // a new one may have come from elsewhere
-    if (mandateUntil - now > renewBeforeMs) return;
+    // On the test service a seller this journal has not seen hold a mandate goes to the faucet first (T-396): the grant
+    // is the mandate, and a read before it finds none. Every other case reads first, as one may have come from elsewhere.
+    if (!(faucet && !journal.mandatesSeen?.includes(seenKey))) {
+      mandateUntil = await mandateEnd();
+      if (mandateUntil > now) seen();
+      if (mandateUntil - now > renewBeforeMs) return;
+    }
     if (!faucet) {
       if (mandateUntil > now) {
         if (warned !== mandateUntil) log(`The seller's mandate in club ${plain(clubId!)} ends ${at(mandateUntil)}: ask the club's principal for a new one.`);
@@ -809,6 +847,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     } catch (e) {
       faucetAfter = Date.now() + 60_000;
       mandateUntil = await mandateEnd();
+      if (mandateUntil > now) seen(); // a seller that holds one reads first from now on, so a refusal does not repeat
       if (mandateUntil > now) return log(`The faucet did not renew the seller's mandate (${plain((e as Error).message)}); the current one ends ${at(mandateUntil)}. The adapter asks again in a minute at the earliest.`);
       throw new Error(`the seller ${seller.address} holds no mandate in club ${clubId}, and the faucet refused: ${plain((e as Error).message)}`);
     }
@@ -825,6 +864,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
       await new Promise((r) => setTimeout(r, 5000));
     }
     if (mandateUntil <= now) throw new Error(`the seller ${seller.address} holds no mandate in club ${clubId}, and the faucet granted none`);
+    seen();
     log(`The seller ${had ? 'renewed its mandate' : 'took a mandate'} in club ${plain(clubId!)} from the test service's faucet, until ${at(mandateUntil)}.`);
   }
   // One check at a time: a quote and a poll that both find the mandate ending ask the faucet once.
@@ -835,10 +875,18 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     return run;
   };
   await ensureMandate(await seller.settlementNow()); // no mandate, no start
+  // ADR-0033 §7: one line on where payments go, and the advisory warnings for an odd payout address. None stops the start.
+  if (c.payoutAddress === undefined) log(`Payout address: not set. Payments go to the signing address ${seller.address}.`);
+  else if (payout === seller.address) log(`Payout address: ${payout}, the signing address itself. Payments go there.`);
+  else log(`Payout address: ${payout}. Payments go there; the signing address ${seller.address} receives none.`);
+  for (const w of moneyAddressWarnings('payout', payout, pin, adjudicators)) log(w);
 
   // ---- 1. Quote to offer ----
-  async function offerFor(buyer: string, buyerEncryptionPublicKey: string, scope: J, options: J): Promise<J> {
+  /** `buyerPaymentAddress`: the address the buyer's quote named, lowercase, or undefined for its signing address. */
+  async function offerFor(buyer: string, buyerEncryptionPublicKey: string, buyerPaymentAddress: string | undefined, scope: J, options: J): Promise<J> {
     refusalFor(c, template, scope, options); // the seller's own exclusions, before its API is asked
+    // ADR-0033 §6: the buyer's money address against the deal's adjudicators and this deployment. Advisory only.
+    for (const w of moneyAddressWarnings('payment', buyerPaymentAddress ?? buyer, pin, adjudicators)) log(`Quote from ${buyer}: ${w}`);
     // The mandate before the price: a seller that cannot offer now costs its API no call. This renews a test
     // mandate that ran out while the adapter waited.
     try {
@@ -881,7 +929,10 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
         template: panel ? 'default' : 'checks-only',
         clubId,
         seller: seller.address,
-        buyer: { address: buyer, encryptionPublicKey: buyerEncryptionPublicKey },
+        // The buyer's payment address as its quote named it, and this seller's payout address from its own
+        // configuration (ADR-0033 §6). Agent.offer rebuilds the prepared terms and refuses any other address in them.
+        buyer: { address: buyer, encryptionPublicKey: buyerEncryptionPublicKey, ...(buyerPaymentAddress && buyerPaymentAddress !== buyer ? { paymentAddress: buyerPaymentAddress } : {}) },
+        ...(payout !== seller.address ? { sellerPayoutAddress: payout } : {}),
         adjudicators,
         price: { token: price.token, amount: price.amount },
         ...(template.fee === undefined ? {} : { fee: { token: template.fee.token, amount: template.fee.amount } }),
@@ -895,6 +946,8 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
       throw new Refused(502, 'offer_failed', 'the seller could not make this offer');
     }
     const { id, terms } = offer;
+    // Agent.offer signed only terms it rebuilt from this request; this says so again where it matters most.
+    if (String(terms.sellerPayoutAddress).toLowerCase() !== payout) throw new Error(`the signed offer ${id} names ${terms.sellerPayoutAddress} as the payout address, not the configured ${payout}`);
     journal.deals[id] = { id, stage: 'offered', terms, scope, ...(options === undefined ? {} : { options }), ...(typeof quoted.quoteId === 'string' ? { quoteId: quoted.quoteId } : {}) };
     save();
     log(`${id} is offered to ${terms.buyer} for ${terms.price.amount} base units of ${plain(terms.price.token)}; the offer expires ${terms.timing.offerExpiresAt}.`);
@@ -910,20 +963,22 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   const inFlight = new Map<string, { bodyHash: string; answer: Promise<J> }>();
   async function quote(req: IncomingMessage): Promise<J> {
     const body = await readJson(req);
-    const { buyer, buyerEncryptionPublicKey, scope, options } = body ?? {};
+    const { buyer, buyerEncryptionPublicKey, buyerPaymentAddress, scope, options } = body ?? {};
     if (typeof buyer !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(buyer)) throw new Refused(400, 'invalid_request', 'buyer must be an address: 0x and 40 hex characters');
+    if (buyerPaymentAddress !== undefined && !isAddressText(buyerPaymentAddress)) throw new Refused(400, 'invalid_request', 'buyerPaymentAddress must be an address: 0x and 40 hex characters, or left out for the buyer\'s own');
+    const paying: string | undefined = buyerPaymentAddress?.toLowerCase();
     if (typeof buyerEncryptionPublicKey !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(buyerEncryptionPublicKey)) throw new Refused(400, 'invalid_request', 'buyerEncryptionPublicKey must be an x25519 public key, base64url, 43 characters');
     const wrong = fieldsError('scope', scope, c.scope) ?? (options === undefined ? null : fieldsError('options', options, c.options ?? {}));
     if (wrong) throw new Refused(400, 'invalid_request', wrong);
     const idempotencyKey = req.headers['idempotency-key'];
-    if (idempotencyKey === undefined) return offerFor(buyer.toLowerCase(), buyerEncryptionPublicKey, scope, options);
+    if (idempotencyKey === undefined) return offerFor(buyer.toLowerCase(), buyerEncryptionPublicKey, paying, scope, options);
     // The same key with the same body replays the answer; with another body it is a conflict.
     if (typeof idempotencyKey !== 'string' || !/^[\x21-\x7e]{1,200}$/.test(idempotencyKey)) throw new Refused(400, 'invalid_request', 'Idempotency-Key must be 1 to 200 printable characters');
-    const bodyHash = createHash('sha256').update(jcs({ buyer: buyer.toLowerCase(), buyerEncryptionPublicKey, scope, ...(options === undefined ? {} : { options }) })).digest('hex');
+    const bodyHash = createHash('sha256').update(jcs({ buyer: buyer.toLowerCase(), buyerEncryptionPublicKey, ...(paying === undefined ? {} : { buyerPaymentAddress: paying }), scope, ...(options === undefined ? {} : { options }) })).digest('hex');
     const seen = journal.quotes[idempotencyKey] ?? inFlight.get(idempotencyKey);
     if (seen && seen.bodyHash !== bodyHash) throw new Refused(409, 'idempotency_conflict', 'this Idempotency-Key was used with another request');
     if (seen) return seen.answer;
-    const answer = offerFor(buyer.toLowerCase(), buyerEncryptionPublicKey, scope, options);
+    const answer = offerFor(buyer.toLowerCase(), buyerEncryptionPublicKey, paying, scope, options);
     inFlight.set(idempotencyKey, { bodyHash, answer });
     try {
       journal.quotes[idempotencyKey] = { bodyHash, answer: await answer };
@@ -1216,8 +1271,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const args = process.argv.slice(2);
   const sim = args.includes('--sim');
   const files = args.filter((a) => a !== '--sim');
+  const asked = helpAsked(args);
+  if (asked !== null) {
+    (asked === 0 ? console.log : console.error)(help('seller-adapter', import.meta.url));
+    process.exit(asked);
+  }
   if (files.length !== 1 || files[0]!.startsWith('--')) {
-    console.error('usage: node examples/seller-adapter.ts <config.json> [--sim]\n  The file names your API (sellerApi) and any setting you change; HOLDBACK_KEY and HOLDBACK_OPERATORS come from the environment. Example: examples/seller-adapter.config.json.');
+    console.error(help('seller-adapter', import.meta.url));
     process.exit(2);
   }
   let adapter: RunningAdapter;

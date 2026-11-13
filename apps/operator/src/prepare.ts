@@ -7,6 +7,8 @@
 // agent can recompute it. Prepare hides
 // nothing (D39): the caller sends every nonce and chooses the disclosure level; the operator derives neither.
 import {
+  deliveryHash,
+  parseDelivery,
   parseCommitment,
   plusSeconds,
   wholeSecond,
@@ -31,6 +33,7 @@ import {
   type CommitmentStateView,
   type CommitmentTerms,
   type DeterministicCheck,
+  type Delivery,
   type EncryptedKey,
   type Hex32,
   type HoldbackDomain,
@@ -42,10 +45,16 @@ import {
   type Timestamp,
   type TokenAmount,
   type UnsignedMessage,
+  validateTiming,
+  APPEAL_WINDOW_PROBLEM,
+  beaconClockOf,
+  ZERO_HOLD_PROBLEM,
+  PHASE_ONE_NO_APPEAL,
 } from '@holdback/core';
 import type { ApiProblem } from './problems.js';
 import { freeBond, hasBond, type Bond } from './registrations.js';
 import { checksOnlyTerms, completeTerms, defaultTerms, type AdjudicatorSlate, type RelativeTiming, type TermsDraft } from './terms.js';
+import { amountTokenRefusal, tokenRefusal, type AcceptedToken } from './token.js';
 import { formatTusd } from './units.js';
 
 export const PREPARE_KINDS = ['offer', 'agree-and-fund', 'delivery', 'early-accept', 'appeal', 'settlement'] as const;
@@ -77,8 +86,13 @@ export interface Prepared {
   notices?: string[];
 }
 
+/** The reason a phase-one settlement gives a party appeal, from core, where it is written once (ADR-0031 §8). */
+export { PHASE_ONE_NO_APPEAL };
+
 /** What preparing needs from the operator's view of the settlement layer. Reads only. */
 export interface PrepareContext {
+  /** True on the phase-one contracts (ADR-0031 §8): no bonds and no party appeals. Absent: the full protocol (SimChain). */
+  phaseOne?: boolean;
   domain: HoldbackDomain;
   now(): Timestamp;
   club(id: string): Club | undefined;
@@ -104,6 +118,15 @@ export interface PrepareContext {
   operatorFee?: OperatorFeeSchedule;
   /** On an EVM settlement layer: what the buyer signs to fund and to pay the operator fee (ADR-0025). */
   erc3009?: Erc3009Signing;
+  /**
+   * This deployment's own contracts, by name (`rules`, `escrow`, `collector`, `token`, `beacon`, `multicall3`): a money
+   * address equal to one gets an advisory notice (ADR-0033 §7). Absent: SimChain, which has none.
+   */
+  contracts?: ReadonlyArray<{ name: string; address: Address }>;
+  /** The one token this deployment settles in (the plan's 2c): terms in another are refused before anything is signed. Absent: no check. */
+  token?: AcceptedToken;
+  /** The rules contract's beacon margin in seconds (ADR-0032), as the settlement layer reports it. Absent: 0. */
+  beaconMarginSec?: number;
 }
 
 /**
@@ -307,12 +330,22 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
   if (template !== 'default' && template !== 'checks-only') bad('template is "default" (checks, then a judge panel on the rubric) or "checks-only"', 'template');
   if (!isAddress(input['seller'])) bad('seller (your address) is required', 'seller');
   const buyer = input['buyer'];
-  if (!isObj(buyer) || !isAddress(buyer['address']) || typeof buyer['encryptionPublicKey'] !== 'string') bad('buyer is {"address", "encryptionPublicKey"}, as the buyer gave them to you', 'buyer');
+  if (!isObj(buyer) || !isAddress(buyer['address']) || typeof buyer['encryptionPublicKey'] !== 'string') bad('buyer is {"address", "encryptionPublicKey", "paymentAddress"?}, as the buyer gave them to you', 'buyer');
+  // ADR-0033 §6: each party names its own money address; absent, the signing address, said in one notice each.
+  if (buyer!['paymentAddress'] !== undefined && !isAddress(buyer!['paymentAddress'])) bad('buyer.paymentAddress, when given, is the address that funds the hold and receives every refund, as the buyer gave it to you', 'buyer.paymentAddress');
+  if (input['sellerPayoutAddress'] !== undefined && !isAddress(input['sellerPayoutAddress'])) bad('sellerPayoutAddress, when given, is the address that receives every payment to you; take it from your own configuration', 'sellerPayoutAddress');
   const { slate, filled } = slateIn(ctx, input['adjudicators']);
   if (typeof input['clubId'] !== 'string') bad('clubId is required (GET /v1/clubs/{id})', 'clubId');
   const club = ctx.club(input['clubId'] as string) ?? bad(`no club ${String(input['clubId'])}`, 'clubId');
   if (!isObj(input['deliverable'])) bad('deliverable is {"kind", "description", "format"}', 'deliverable');
   const nonce = nonceIn(input['nonce'], 'nonce');
+  // The plan's 2c: a price or a fee the caller names in another token is refused first, before any registration is read.
+  // The completed terms are checked again below, for a fee taken from the primary's registration.
+  for (const [k, field] of [['price', 'price.token'], ['fee', 'adjudication.fee.token']] as const) {
+    const a = input[k];
+    const early = isObj(a) && typeof a['token'] === 'string' ? amountTokenRefusal(ctx.token, a as unknown as TokenAmount, field) : null;
+    if (early) throw new PrepareError(early);
+  }
   // ADR-0030 §3: an expired registration stays listed, but no longer speaks for its adjudicator's policy, fee or key.
   const current = async (role: AdjudicatorRole) => {
     const r = (await ctx.registration(slate[role])) ?? notFound(`the ${role} adjudicator ${slate[role]} has no published registration`);
@@ -325,13 +358,19 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
   await current('appeal');
   const base = {
     clubId: club.id,
-    buyer: { address: lc(buyer!['address'] as string) as Address, encryptionPublicKey: buyer!['encryptionPublicKey'] as string },
+    buyer: {
+      address: lc(buyer!['address'] as string) as Address,
+      encryptionPublicKey: buyer!['encryptionPublicKey'] as string,
+      ...(buyer!['paymentAddress'] !== undefined ? { paymentAddress: lc(buyer!['paymentAddress'] as string) as Address } : {}),
+    },
     adjudicators: slate,
     price: amountIn(input['price'], 'price'),
     deliverable: input['deliverable'] as unknown as TermsDraft['deliverable'],
     ...(input['fee'] !== undefined ? { fee: amountIn(input['fee'], 'fee') } : {}),
     ...(input['timing'] !== undefined ? { timing: timingIn(input['timing'])! } : {}),
   };
+  // ADR-0033 §2b: a phase-one deal states an appeal window of 0 (the default); said before the seller signs.
+  if (ctx.phaseOne && (base.timing?.appealWindowSec ?? 0) !== 0) bad(APPEAL_WINDOW_PROBLEM, 'timing.appealWindowSec');
   let draft: TermsDraft;
   try {
     draft =
@@ -345,6 +384,7 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
   const createdAt = givenCreatedAt ?? ctx.now();
   const resolved = {
     seller: lc(input['seller'] as string) as Address,
+    ...(input['sellerPayoutAddress'] !== undefined ? { sellerPayoutAddress: lc(input['sellerPayoutAddress'] as string) as Address } : {}),
     rulebookHash: club.rulebookHash,
     policyId: primary.policy.id,
     policyHash: primary.policyHash,
@@ -353,6 +393,23 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
     createdAt,
   };
   const terms: CommitmentTerms = representable(() => completeTerms(draft, { ...resolved, nonce }));
+  // The plan's 2c: one token per deployment, refused here before the seller signs terms the contract would refuse at funding.
+  const otherToken = tokenRefusal(ctx.token, terms);
+  // A fee the caller left out comes from the primary's registration: say so, so the caller knows where to change it.
+  if (otherToken?.field === 'adjudication.fee.token' && input['fee'] === undefined) {
+    throw new PrepareError({ ...otherToken, detail: `the primary adjudicator ${slate.primary} registers its minimum fee in ${terms.adjudication.fee.token}; ${otherToken.detail.slice(otherToken.detail.indexOf('this deployment settles'))}. Name the fee yourself in fee, or choose a primary that registers its fee in this token`, field: 'adjudicators.primary' });
+  }
+  if (otherToken) throw new PrepareError(otherToken);
+  // ADR-0031 §6 (SC-5, Rafa 2026-11-11): a phase-one deal holds at least one base unit, as price or as fee; the escrow
+  // refuses to hold nothing. Said here, before the seller signs terms no one could fund.
+  if (ctx.phaseOne && BigInt(terms.price.amount) === 0n && BigInt(terms.adjudication.fee.amount) === 0n) bad(ZERO_HOLD_PROBLEM, 'price');
+  // The same for the deadlines (SC-5, review): core refuses them at submission and the contract at funding, unless all
+  // five are in strict order and meet the rulebook's windows. Said here, before the seller signs.
+  if (ctx.phaseOne) {
+    // The phase-one rule above replaces the rulebook's appeal-window minimum, as in core's phase_one profile.
+    const timed = validateTiming(terms.timing, { minWindowsSec: { ...club.rulebook.minWindowsSec, appealWindow: 0 } });
+    if (!timed.ok) bad(timed.error.detail, 'timing');
+  }
   const id = commitmentId(terms);
   // T-221 review: a default this node fills in must be able to run the terms (the outside primary's registry, policy
   // and fee, and the trust rule), or the parties would rely on an adjudicator that will decline its turn.
@@ -364,7 +421,13 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
   }
   const shortfall = await fallbackBondRefusal(ctx, terms);
   if (shortfall) bad(shortfall, 'adjudicators.fallback');
-  const notices = [...(await bondNotices(ctx, terms)), ...declineNotices(turns, terms)];
+  const notices = [
+    ...beaconWindowNotices(club, terms, ctx.beaconMarginSec ?? 0),
+    ...addressDefaultNotices(terms, { payment: buyer!['paymentAddress'] === undefined, payout: input['sellerPayoutAddress'] === undefined }),
+    ...moneyAddressNotices(ctx, terms),
+    ...(await bondNotices(ctx, terms)),
+    ...declineNotices(turns, terms),
+  ];
   const total = BigInt(terms.price.amount) + BigInt(terms.adjudication.fee.amount);
   const named = (role: AdjudicatorRole) => (filled[role] ? `${role} ${filled[role]} (this operator's default)` : `${role} ${slate[role]}`);
   return {
@@ -374,6 +437,7 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
     submit: { method: 'POST', path: '/v1/commitments', body: { ...terms, id, signatures: { seller: null } } },
     check: [
       `you are the seller ${terms.seller}; the buyer is ${terms.buyer}`,
+      `payments to you go to sellerPayoutAddress ${terms.sellerPayoutAddress}, which must be the address in your own configuration; the buyer's payment address ${terms.buyerPaymentAddress} funds the hold and receives every refund`,
       `price ${amountText(terms.price)}; adjudication fee ${amountText(terms.adjudication.fee)} (the buyer holds ${amountText({ token: terms.price.token, amount: total.toString() } as TokenAmount)}; the fee is kept on a refund)`,
       `adjudicators: ${(['primary', 'fallback', 'appeal'] as const).map(named).join(', ')}`,
       `policy id ${quoted(terms.adjudication.policyId)} (the primary's own label, untrusted text), policyHash ${terms.adjudication.policyHash} = keccak256(JCS(policy)) of the primary's registration; registryHash ${terms.adjudication.registryHash}`,
@@ -446,6 +510,81 @@ async function turnProblems(ctx: Pick<PrepareContext, 'declines'>, c: AnyCommitm
   return out;
 }
 
+/** The slot time of the chains a non-zero beacon margin runs on, Ethereum mainnet and Sepolia (ADR-0032 §5). */
+export const CHAIN_BLOCK_SEC = 12;
+
+/**
+ * ADR-0032 §5: the smallest escalation window (`appealDecideSec`) the appeal adjudicator can always decide in. The round
+ * is public at most `margin + period` s after the escalation's block; the decision needs the first block after that,
+ * and a second more, because the contract refuses a decision at the deadline itself. 37 s at the 29 s margin.
+ */
+export const escalationFloorSec = (marginSec: number, periodSec: number, blockSec = CHAIN_BLOCK_SEC): number => blockSec * (Math.floor((marginSec + periodSec) / blockSec) + 1) + 1;
+
+/**
+ * ADR-0032 §5: a fallback window (`fallbackBy − judgeBy`) that can always be decided, whatever slot `judgeBy` falls in:
+ * the round is public at most `margin + period − 1` s after judgeBy, a block follows within a slot, and a second more.
+ * 44 s at the 29 s margin; ADR-0032 measured 44 s on Sepolia and 43 s on mainnet, whose beacon phase is kinder.
+ */
+export const fallbackFloorSec = (marginSec: number, periodSec: number, blockSec = CHAIN_BLOCK_SEC): number => marginSec + periodSec + blockSec;
+
+/**
+ * ADR-0032 §5, gate line BR-5: advisory notices, never refusals (D31), for an escalation window or a fallback window
+ * below the floor this deployment can decide in. The floors follow from the rules contract's beacon margin, which the
+ * settlement layer reports (`beaconMarginSec`), and the rulebook's beacon clock. A margin of 0 (SimChain, a local chain)
+ * leaves a floor of a second or two, so no notice is given there.
+ */
+export function beaconWindowNotices(club: Pick<Club, 'rulebook'>, t: Pick<AnyCommitmentTerms, 'timing'>, marginSec: number): string[] {
+  if (!(marginSec > 0)) return [];
+  const clock = beaconClockOf(club.rulebook.randomness?.source);
+  if (!clock) return [];
+  const out: string[] = [];
+  const esc = escalationFloorSec(marginSec, clock.period);
+  const w = t.timing.appealDecideSec;
+  if (w < esc) {
+    out.push(`timing.appealDecideSec is ${w} s, below the ${esc} s the appeal adjudicator needs on this deployment to decide an escalation after the beacon's round is public (its beacon margin is ${marginSec} s, ADR-0032): every escalation under these terms would end in the default outcome, a refund. A panel needs more; the repository's terms use 300 s. You may still choose it`);
+  }
+  const fb = fallbackFloorSec(marginSec, clock.period);
+  const fw = (Date.parse(t.timing.fallbackBy) - Date.parse(t.timing.judgeBy)) / 1000;
+  if (fw < fb) {
+    out.push(`the fallback window (fallbackBy − judgeBy) is ${fw} s, below the ${fb} s that can always be decided on this deployment once the beacon's round is public (its beacon margin is ${marginSec} s, ADR-0032): a fallback decision may not fit, and the deal would take its default outcome. The repository's terms use 120 s. You may still choose it`);
+  }
+  return out;
+}
+
+/** ADR-0033 §7: one line for each money address the request left out, so the party knows its signing address holds the money. */
+function addressDefaultNotices(t: Pick<AnyCommitmentTerms, 'buyer' | 'seller'>, absent: { payment: boolean; payout: boolean }): string[] {
+  return [
+    ...(absent.payment ? [`Payment address: not set. The buyer's signing address ${t.buyer} funds the hold, and refunds return to it; the buyer may name buyer.paymentAddress`] : []),
+    ...(absent.payout ? [`Payout address: not set. Payments go to the seller's signing address ${t.seller}; name sellerPayoutAddress so the key that signs never holds the income`] : []),
+  ];
+}
+
+const ZERO_ADDRESS = `0x${'0'.repeat(40)}`;
+
+/**
+ * ADR-0033 §7: advisory warnings, never refusals (D31), for a money address that would lose or strand the money or hand
+ * it to a decider: the zero address, one of this deployment's own contracts, Multicall3, or one of the deal's three
+ * adjudicators. The contract compares none of them (ADR-0033 §2).
+ */
+export function moneyAddressNotices(ctx: Pick<PrepareContext, 'contracts'>, t: Pick<AnyCommitmentTerms, 'buyerPaymentAddress' | 'sellerPayoutAddress' | 'adjudication'>): string[] {
+  const out: string[] = [];
+  const contracts = ctx.contracts ?? [];
+  const adjudicators = ROLE_OF.map(([role, field]) => [role, t.adjudication[field]] as const);
+  const check = (field: 'buyerPaymentAddress' | 'sellerPayoutAddress', a: Address) => {
+    const payout = field === 'sellerPayoutAddress';
+    if (lc(a) === ZERO_ADDRESS) out.push(payout ? `${field} is the zero address: payments to the seller would be lost or would revert, depending on the token` : `${field} is the zero address: no signature can fund this deal`);
+    const own = contracts.find((c) => lc(c.address) === lc(a));
+    if (own?.name === 'multicall3' && payout) out.push(`${field} ${a} is Multicall3: anyone could take the seller's payment, because Multicall3 makes any call it is asked to`);
+    else if (own) out.push(payout ? `${field} ${a} is this deployment's ${own.name}: payments to the seller would be stranded there` : `${field} ${a} is this deployment's ${own.name}: no signature can fund this deal`);
+    for (const [role, adj] of adjudicators) {
+      if (lc(adj) === lc(a)) out.push(`${field} ${a} is the ${role} adjudicator: the adjudicator that decides would receive the price on ${payout ? 'an accept' : 'a reject'}`);
+    }
+  };
+  check('sellerPayoutAddress', t.sellerPayoutAddress);
+  check('buyerPaymentAddress', t.buyerPaymentAddress);
+  return out.map((n) => `${n}. You may still choose it`);
+}
+
 const declineNotices = (turns: Partial<Record<AdjudicatorRole, string>>, c: Pick<AnyCommitmentTerms, 'adjudication'>): string[] =>
   ROLE_OF.filter(([role]) => turns[role]).map(([role, field]) => `this operator's ${role} adjudicator ${c.adjudication[field]} will decline its ${role} turn on these terms: ${turns[role]}. You may still choose it`);
 
@@ -474,7 +613,7 @@ export async function bondNotices(ctx: Pick<PrepareContext, 'bond'>, t: Pick<Any
     const bond = await ctx.bond(address);
     if (!bond) continue;
     if (bond === 'unreadable') {
-      out.push(`this operator could not read the bond of the ${role} adjudicator ${address}; no bond check was made. Read it from HoldbackBonds yourself`);
+      out.push(`this operator could not read the bond of the ${role} adjudicator ${address}; no bond check was made. Read it from the settlement layer yourself`);
       continue;
     }
     const free = role === 'primary' && o.primaryAccepted ? BigInt(t.price.amount) : freeBond(bond, t.price.token);
@@ -496,7 +635,7 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
     type: 'FundingAuthorization',
     scheme: 'erc3009',
     commitmentId: c.id,
-    from: c.buyer,
+    from: c.buyerPaymentAddress, // ADR-0033 §3: the payment address signs the funding and the operator fee
     value: total,
     token: c.price.token,
     validAfter: funded ? funded.validAfter : c.createdAt,
@@ -517,7 +656,7 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
           scheme: 'erc3009',
           purpose: 'operator_fee',
           commitmentId: c.id,
-          from: c.buyer,
+          from: c.buyerPaymentAddress,
           to: schedule.to,
           value: due.amount,
           token: due.token,
@@ -528,7 +667,7 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
         } as const)
       : undefined;
   // Sent always is fine: a node that charges nothing ignores it. A node that charges needs it (fees.operator in discovery).
-  const feeSigned = feeBody && evm ? evm.operatorFee({ commitmentId: c.id, from: c.buyer, to: feeBody.to, value: feeBody.value, validAfter: feeBody.validAfter, validBefore: feeBody.validBefore }) : undefined;
+  const feeSigned = feeBody && evm ? evm.operatorFee({ commitmentId: c.id, from: c.buyerPaymentAddress, to: feeBody.to, value: feeBody.value, validAfter: feeBody.validAfter, validBefore: feeBody.validBefore }) : undefined;
   const feeNonce = feeBody ? (feeSigned ? fixedNonceIn(input['operatorFeeNonce'], feeSigned.nonce, 'operatorFeeNonce') : nonceIn(input['operatorFeeNonce'], 'operatorFeeNonce')) : undefined;
   const fee = feeBody ? { ...feeBody, nonce: feeNonce! } : undefined;
   const fixed = {
@@ -543,8 +682,8 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
     commitmentId: c.id,
     sign: [
       { slot: 'signature', signer: c.buyer, ...forMessage(ctx.domain, agree) },
-      { slot: 'fund.signature', signer: c.buyer, ...(funded ? { typedData: funded.typedData, digest: funded.digest } : forMessage(ctx.domain, funding)) },
-      ...(fee ? [{ slot: 'operatorFee.signature', signer: c.buyer, ...(feeSigned ? { typedData: feeSigned.typedData, digest: feeSigned.digest } : forMessage(ctx.domain, fee)) }] : []),
+      { slot: 'fund.signature', signer: c.buyerPaymentAddress, ...(funded ? { typedData: funded.typedData, digest: funded.digest } : forMessage(ctx.domain, funding)) },
+      ...(fee ? [{ slot: 'operatorFee.signature', signer: c.buyerPaymentAddress, ...(feeSigned ? { typedData: feeSigned.typedData, digest: feeSigned.digest } : forMessage(ctx.domain, fee)) }] : []),
     ],
     submit: {
       method: 'POST',
@@ -554,6 +693,7 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
     check: [
       `you are the buyer ${c.buyer}; the seller is ${c.seller}`,
       `you authorize ${amountText({ token: c.price.token, amount: total } as TokenAmount)}: price ${amountText(c.price)} plus fee ${amountText(c.adjudication.fee)}; the fee is kept on a refund`,
+      `the payment address ${c.buyerPaymentAddress} signs fund.signature${fee ? ' and operatorFee.signature' : ''}, funds the hold and receives every refund; it must be your own. The signing address ${c.buyer} signs the agreement. Payments to the seller go to its payout address ${c.sellerPayoutAddress}, which must be the one in the offer you approved (ADR-0033 §6)`,
       ...(fee && due
         ? [
             `you also pay this operator's operator fee of ${operatorFeeText(due, schedule!)}, the schedule in its discovery document's fees.operator; it is a separate transfer, never part of the hold, and not refunded, even on a refund. Another operator, or direct submission to the settlement layer, relays this agreement without it`,
@@ -627,7 +767,7 @@ async function earlyAccept(ctx: PrepareContext, input: Record<string, unknown>):
     submit: { method: 'POST', path: `/v1/commitments/${c.id}/accept`, body: { ...m, signature: null } },
     check: [
       `you are the buyer ${c.buyer}`,
-      `you accept the delivery and release ${amountText(c.price)} to the seller ${c.seller} now`,
+      `you accept the delivery and release ${amountText(c.price)} to the seller's payout address ${c.sellerPayoutAddress} now; the fee ${amountText(c.adjudication.fee)} returns to your payment address ${c.buyerPaymentAddress}`,
       `deliveryHash ${posted.deliveryHash} is the hash of the delivery you opened, computed yourself from the seller-signed delivery (EIP-712 struct hash without its signature); the settlement layer refuses an accept for any other delivery`,
       'open your envelope first: get the signed delivery from the seller, check it is the one the settlement layer holds (its deliveryHash in delivery.submitted, as at least two operators serve it), open your envelope with your own key, decrypt the ciphertext and check the plaintext hash; the envelope the seller supplied is what an early accept releases, and nothing else checks it',
       'no appeal follows an early accept (D32): if your envelope does not open, do not accept early; an adjudicator\'s decision re-seals the key to your terms key',
@@ -638,31 +778,56 @@ async function earlyAccept(ctx: PrepareContext, input: Record<string, unknown>):
 
 async function appeal(ctx: PrepareContext, input: Record<string, unknown>): Promise<Prepared> {
   const c = await commitmentIn(ctx, input);
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   if (!isAddress(input['appellant'])) bad('appellant (your address) is required', 'appellant');
   const who = lc(input['appellant'] as string);
   const appellant: 'buyer' | 'seller' = who === lc(c.buyer) ? 'buyer' : who === lc(c.seller) ? 'seller' : bad(`${who} is neither party to ${c.id}`, 'appellant');
   // T-206 L-7: only the party the decision went against appeals, so do not prepare a message settlement refuses.
   const s = await ctx.state(c.id);
   const against = s?.escrowState === 'Released' ? 'buyer' : s?.escrowState === 'Refunded' ? 'seller' : undefined;
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   if (against && appellant !== against) bad(`the decision went against the ${against}, so only the ${against} may appeal`, 'appellant');
   const rulebook = ctx.club(c.clubId)?.rulebook ?? bad(`no club ${c.clubId}`);
   const bond = mulBps(c.price, BigInt(rulebook.appealBondRateBps), 'ceil');
   if (!bond.ok) return bad('cannot compute the appeal bond');
   const givenAt = timestamp(input['filedAt'], 'filedAt');
   const filedAt = givenAt ?? ctx.now();
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   const body = { commitmentId: c.id, appellant, appellantAddress: who as Address, grounds: typeof input['grounds'] === 'string' ? input['grounds'] : 'wrong-outcome', bond: bond.value, filedAt };
   const fee = rulebook.appealFee;
   return {
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     kind: 'appeal',
     commitmentId: c.id,
     sign: [{ slot: 'signature', signer: body.appellantAddress, ...forMessage(ctx.domain, { ...body, type: 'Appeal' }) }],
     submit: { method: 'POST', path: `/v1/commitments/${c.id}/appeals`, body: { ...body, signature: null } },
     check: [
+      // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
       `you appeal as the ${appellant}`,
       `you post a bond of ${amountText(bond.value)} (${rulebook.appealBondRateBps} bps of the price, rounded up) and a fee of ${amountText(fee)}, ${amountText({ token: fee.token, amount: (BigInt(bond.value.amount) + BigInt(fee.amount)).toString() } as TokenAmount)} in all, from your balance; you lose the bond if the decision is upheld`,
     ],
     defaults: givenAt ? {} : { filedAt },
   };
+}
+
+/**
+ * The late delivery an agent names for a settlement in Held (SC-5b), checked as core and the contract check it when it
+ * releases a key: a delivery for this commitment with an envelope for the buyer. Undefined when none is given.
+ */
+function lateDeliveryIn(c: AnyCommitment, v: unknown): Delivery | undefined {
+  if (v === undefined) return undefined;
+  const r = parseDelivery(v);
+  if (!r.ok) return bad(`delivery is the seller-signed delivery you hold (delivery.schema.json): ${r.error.detail}`, 'delivery');
+  const d = r.value;
+  if (lc(d.commitmentId) !== lc(c.id)) bad(`delivery is for ${d.commitmentId}, not ${c.id}`, 'delivery.commitmentId');
+  return d;
+}
+
+/** Which money address a payout names, for the check line; both roles when the two addresses are one (ADR-0033 §8). */
+function payeeLabel(c: Pick<AnyCommitmentTerms, 'sellerPayoutAddress' | 'buyerPaymentAddress'>, to: Address): string {
+  const payout = lc(to) === lc(c.sellerPayoutAddress);
+  const payment = lc(to) === lc(c.buyerPaymentAddress);
+  return payout && payment ? " (the seller's payout address and the buyer's payment address)" : payout ? " (the seller's payout address)" : payment ? " (the buyer's payment address)" : '';
 }
 
 async function settlement(ctx: PrepareContext, input: Record<string, unknown>): Promise<Prepared> {
@@ -673,24 +838,47 @@ async function settlement(ctx: PrepareContext, input: Record<string, unknown>): 
     if (!Array.isArray(input['payouts'])) bad('payouts is a list of {"to", "amount"}', 'payouts');
     payouts = (input['payouts'] as unknown[]).map((p, i) => {
       if (!isObj(p) || !isAddress(p['to'])) return bad(`payouts[${i}].to must be an address`, `payouts.${i}.to`);
-      return { to: p['to'] as Address, amount: amountIn(p['amount'], `payouts.${i}.amount`) };
+      const amount = amountIn(p['amount'], `payouts.${i}.amount`);
+      const otherToken = amountTokenRefusal(ctx.token, amount, `payouts.${i}.amount.token`);
+      if (otherToken) throw new PrepareError(otherToken);
+      return { to: p['to'] as Address, amount };
     });
   } else {
     const bps = input['toSellerBps'];
     if (!Number.isSafeInteger(bps) || (bps as number) < 0 || (bps as number) > 10_000) bad('give payouts, or toSellerBps (0 to 10000): the seller gets that share of the price, the buyer the rest', 'toSellerBps');
     const split = splitBps(c.price, BigInt(bps as number));
     if (!split.ok) return bad('cannot split the price');
-    payouts = [
-      { to: c.seller, amount: split.value.share },
-      { to: c.buyer, amount: split.value.remainder },
-    ].filter((p) => p.amount.amount !== '0');
+    // ADR-0033: the money goes to the seller's payout address and back to the buyer's payment address; with the two
+    // equal, one payout of the whole price (the parser refuses a recipient named twice).
+    payouts = (
+      lc(c.sellerPayoutAddress) === lc(c.buyerPaymentAddress)
+        ? [{ to: c.sellerPayoutAddress, amount: c.price }]
+        : [
+            { to: c.sellerPayoutAddress, amount: split.value.share },
+            { to: c.buyerPaymentAddress, amount: split.value.remainder },
+          ]
+    ).filter((p) => p.amount.amount !== '0');
   }
-  const delivered = await ctx.delivery(c.id);
+  // ADR-0031 §4 (SC-3), ADR-0033: the phase-one contracts pay a settlement to the buyer's payment address and the
+  // seller's payout address only. Said here, before either party signs a settlement the contract would refuse.
+  if (ctx.phaseOne) {
+    const i = payouts.findIndex((p) => lc(p.to) !== lc(c.sellerPayoutAddress) && lc(p.to) !== lc(c.buyerPaymentAddress));
+    if (i >= 0) bad(`payouts[${i}].to ${payouts[i]!.to} is neither the buyer's payment address nor the seller's payout address: the phase-one contracts pay a mutual settlement to those two only (ADR-0031 §4, ADR-0033)`, `payouts.${i}.to`);
+  }
+  const posted = await ctx.delivery(c.id);
+  // SC-5b (T-357): with nothing posted, the agent may name the late delivery it holds, as the seller signed it. Its hash
+  // is rebuilt here from that delivery, never taken from the caller, and the agent recomputes it before signing.
+  const late = posted ? undefined : lateDeliveryIn(c, input['delivery']);
+  const named = posted?.deliveryHash ?? (late ? deliveryHash(late) : null);
+  if (posted && input['delivery'] !== undefined) bad(`a delivery is posted for ${c.id} (${posted.deliveryHash}); the settlement names that one, so leave delivery out`, 'delivery');
   const givenExpiry = timestamp(input['expiresAt'], 'expiresAt');
   const expiresAt = givenExpiry ?? plusSeconds(ctx.now(), 3600);
   const givenRelease = typeof input['releaseKey'] === 'boolean';
-  const releaseKey = givenRelease ? (input['releaseKey'] as boolean) : delivered !== undefined;
-  const body = { type: 'MutualSettlement', commitmentId: c.id, deliveryHash: delivered?.deliveryHash ?? null, payouts, releaseKey, expiresAt } as const;
+  const releaseKey = givenRelease ? (input['releaseKey'] as boolean) : named !== null;
+  if (releaseKey && named === null) bad('releaseKey needs a delivery: nothing is posted, so give the late delivery you hold as delivery, or set releaseKey false', 'releaseKey');
+  // The key proof reads only the buyer's envelope (HoldbackRules :381), so it is needed only when the key is released.
+  if (late && releaseKey && !late.encryptedKeys.some((k) => lc(k.recipient) === lc(c.buyer))) bad(`delivery has no envelope for the buyer ${c.buyer}, so there is no key to release`, 'delivery.encryptedKeys');
+  const body = { type: 'MutualSettlement', commitmentId: c.id, deliveryHash: named, payouts, releaseKey, expiresAt } as const;
   const m = { ...body, nonce };
   const signed = forMessage(ctx.domain, m);
   return {
@@ -700,12 +888,23 @@ async function settlement(ctx: PrepareContext, input: Record<string, unknown>): 
       { slot: 'buyerSignature', signer: c.buyer, ...signed },
       { slot: 'sellerSignature', signer: c.seller, ...signed },
     ],
-    submit: { method: 'POST', path: `/v1/commitments/${c.id}/settlements`, body: { ...m, buyerSignature: null, sellerSignature: null } },
+    // SC-5b (T-378): the late delivery travels in the body when the settlement releases its key, as the contract call
+    // mutualSettle(terms, settlement, delivery, keyProof) takes it; the route checks it and the settlement layer settles it.
+    submit: { method: 'POST', path: `/v1/commitments/${c.id}/settlements`, body: { ...m, buyerSignature: null, sellerSignature: null, ...(late && releaseKey ? { delivery: late } : {}) } },
     check: [
-      `payouts: ${payouts.map((p) => `${amountText(p.amount)} to ${p.to}${lc(p.to) === lc(c.seller) ? ' (seller)' : lc(p.to) === lc(c.buyer) ? ' (buyer)' : ''}`).join('; ')} (they must sum to the price ${amountText(c.price)})`,
-      `the fee ${amountText(c.adjudication.fee)} returns to the buyer`,
+      `payouts: ${payouts.map((p) => `${amountText(p.amount)} to ${p.to}${payeeLabel(c, p.to)}`).join('; ')} (they must sum to the price ${amountText(c.price)})`,
+      `the fee ${amountText(c.adjudication.fee)} returns to the buyer's payment address ${c.buyerPaymentAddress}`,
       releaseKey ? 'the buyer receives the content key' : 'the content key is not released',
       'both parties sign the identical typed data; either may submit once both signatures are in',
+      ...(late
+        ? [
+            `deliveryHash ${named} is the hash of the late delivery you gave, which was never posted: compute it yourself from the seller-signed delivery (EIP-712 struct hash without its signature) before you sign. Both signatures over this hash are what endorse that delivery; nothing checks the seller's signature on it`,
+            releaseKey
+              ? "the settlement layer releases the buyer's first envelope in that delivery with the payment, and no appeal follows a settlement. The buyer already holds that envelope in the delivery it was handed, so the exchange rests on the ciphertext: as seller, hand over the delivery but keep the ciphertext at its uri until the settlement lands; as buyer, check the ciphertext's sha256 and the hashes before you sign"
+              : 'the key stays with the seller: the settlement names the delivery and pays for it, and the work changes hands outside the protocol',
+            ...(releaseKey ? ['submit.body carries that delivery as delivery: the settlement travels with it, and the settlement layer checks that it hashes to deliveryHash and holds the buyer\'s envelope before it releases the key'] : []),
+          ]
+        : []),
     ],
     defaults: { ...(givenExpiry ? {} : { expiresAt }), ...(givenRelease ? {} : { releaseKey }) },
   };
@@ -750,6 +949,7 @@ export function prepare(kind: string, ctx: PrepareContext, input: unknown): Prom
   if (!(PREPARE_KINDS as readonly string[]).includes(kind)) notFound(`nothing to prepare for ${kind}; kinds: ${PREPARE_KINDS.join(', ')}`);
   if (!isObj(input)) bad('the body must be a JSON object');
   const run = async () => {
+    if (kind === 'appeal' && ctx.phaseOne) throw new PrepareError({ type: 'invalid_state', detail: PHASE_ONE_NO_APPEAL });
     await stateGate(kind as PrepareKind, ctx, input as Record<string, unknown>);
     return PREPARERS[kind as PrepareKind](ctx, input as Record<string, unknown>);
   };

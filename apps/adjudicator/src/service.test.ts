@@ -95,10 +95,13 @@ interface SetupOpts {
   overA?: Partial<AdjudicatorConfig>;
   /** T-217: the club rulebook names drand-quicknet, and the port reads its rounds from this source (null: none). */
   drand?: (s: TestSettlement) => RandomnessSource | null;
+  /** The port stands in for a chain settlement: the phase-one contracts, with no bonds and no party appeals (ADR-0031 §8). */
+  phaseOne?: boolean;
 }
 
 async function setup(opts: SetupOpts = {}) {
   const s = new TestSettlement();
+  if (opts.phaseOne) s.phaseOne = true;
   if (opts.drand) s.drand = opts.drand(s);
   const r = opts.registry ?? reg;
   const a = bench(A, 'bench-a', s, opts.scriptA, undefined, r, undefined, opts.overA);
@@ -150,6 +153,17 @@ describe('acceptance (commit)', () => {
     expect(acc.registryHash).toBe(reg.hash);
     expect(acc.fee).toEqual(commitment.adjudication.fee);
     expect(acc.bondReserved).toEqual(commitment.price);
+  });
+
+  // ADR-0031 §8 point 2: the phase-one contracts refuse an acceptance that reserves a bond; SimChain keeps the price.
+  it('signs bondReserved 0 in the price token on a chain settlement, and the price on SimChain', async () => {
+    const chain = await setup({ phaseOne: true });
+    const onChain = chain.s.submitted.find((m) => m.type === 'AdjudicatorAcceptance');
+    expect(onChain?.type === 'AdjudicatorAcceptance' ? onChain.bondReserved : null).toEqual({ token: chain.commitment.price.token, amount: '0' });
+    expect(chain.s.cases.get(chain.id)?.state.kind).toBe('Delivered');
+    const sim = await setup();
+    const onSim = sim.s.submitted.find((m) => m.type === 'AdjudicatorAcceptance');
+    expect(onSim?.type === 'AdjudicatorAcceptance' ? onSim.bondReserved : null).toEqual(sim.commitment.price);
   });
 
   it('declines an offer bound to another policy or registry, or with a fee below its minimum', async () => {
@@ -207,6 +221,24 @@ describe('acceptance (commit)', () => {
     expect(s.state(c.id).kind).toBe('Offered');
     expect(s.submitted).toEqual([]);
     expect(report.declined).toEqual([{ commitmentId: c.id, reason: expect.stringMatching(/does not trust/) }]);
+  });
+
+  // Triage item 63 (T-378): on a chain settlement no bond is at stake (ADR-0031 §8), so the two consent rules give their
+  // phase-one reasons, and the rules still apply: they are the adjudicator's own choice (D29).
+  it('on the phase-one contracts declines with reasons that name no bond', async () => {
+    const s = new TestSettlement();
+    s.phaseOne = true;
+    const a = bench(A, 'bench-a', s);
+    const terms = { primary: A.address, fallback: B.address, policyHash: policyHashOf(a.adj.policy), registryHash: reg.hash, buyer: BUYER, seller: SELLER };
+    const untrusted = makeCommitment({ ...terms, appeal: party(9).address });
+    const long = makeCommitment({ ...terms, appeal: C.address, timing: { appealWindowSec: 0, appealDecideSec: DEFAULT_APPEAL_LIMITS.maxAppealDecideSec + 1 } });
+    s.offer(untrusted);
+    s.offer(long);
+    const report = await a.adj.runOnce();
+    const reasons = Object.fromEntries(report.declined.map((d) => [d.commitmentId, d.reason]));
+    expect(reasons[untrusted.id]).toMatch(/does not trust .*: on the phase-one contracts the appeal adjudicator decides every escalation, and its decision is final/);
+    expect(reasons[long.id]).toMatch(/appealDecideSec is at most \d+ s: a deal it escalates stays open that long/);
+    for (const r of Object.values(reasons)) expect(r).not.toMatch(/bond/);
   });
 
   it('with no trusted set configured, trusts only itself as fallback and appeal adjudicator', async () => {
@@ -517,6 +549,7 @@ describe('escalation and appeal', () => {
     s.at('2026-11-01T10:00:30Z');
     await a.adj.runOnce();
     s.at('2026-11-01T10:01:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(id, 'missing-or-wrong-key');
     s.at('2026-11-01T10:01:05Z');
     await c.adj.runOnce();
@@ -605,6 +638,7 @@ describe('escalation and appeal', () => {
     await a.adj.runOnce();
     expect(s.state(id).kind).toBe('Released');
     s.at('2026-11-01T10:01:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(id, 'wrong-outcome');
     s.at('2026-11-01T10:01:05Z');
     await c.adj.runOnce();
@@ -617,6 +651,7 @@ describe('escalation and appeal', () => {
     s.at('2026-11-01T10:00:30Z');
     await a.adj.runOnce();
     s.at('2026-11-01T10:01:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(id, 'wrong-outcome');
     s.at('2026-11-01T10:01:05Z');
     await c.adj.runOnce();
@@ -662,6 +697,7 @@ describe('drand quicknet rounds for the fallback and appeal panels (T-217, ADR-0
     s.at('2026-11-01T10:00:30Z');
     await a.adj.runOnce();
     s.at('2026-11-01T10:01:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(id, 'wrong-outcome');
     s.at('2026-11-01T10:01:05Z');
     await c.adj.runOnce();
@@ -784,6 +820,8 @@ describe('never re-roll after a post-panel failure (review item 1)', () => {
     s.failNextPublishes = 1;
     const first = await a.adj.runOnce();
     expect(first.refused).toHaveLength(1);
+    // Caught where it happens, with the reason, not by the pass's catch-all (triage item 67, T-378).
+    expect(first.refused[0]!.problem.detail).toMatch(/^judgment record publication failed \(\w+\); retrying without re-judging$/);
     expect(a.calls).toHaveLength(3);
     expect(s.records.size).toBe(0);
     s.at('2026-11-01T10:00:40Z');
@@ -854,6 +892,24 @@ describe('review item 4: rules the mutation sweep found untested', () => {
     expect(new Set(record.panel.members.map((m) => m.family)).size).toBe(3);
   });
 
+  // Triage item 67 (T-378): with eight claude judges beside one gpt and one qwen, a five-seat panel drawn for two
+  // families would rarely seat both minor families; the appeal panel's three-family minimum seats them every time.
+  it('the appeal panel meets minFamiliesAppeal (3) where the first-instance minimum (2) would be met by two families', async () => {
+    const r = loadRegistry({
+      version: 1,
+      judges: [...['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((x) => entry(`claude-${x}`, 'claude', 'anthropic')), entry('gpt-a', 'gpt', 'openai-compatible'), entry('qwen-a', 'qwen', 'openai-compatible')],
+    });
+    if (!r.ok) throw new Error(r.error.detail);
+    const { s, a, c, id } = await setup({ registry: r.value, scriptA: onlyClaudePasses });
+    s.at('2026-11-01T10:00:30Z');
+    await a.adj.runOnce();
+    expect(s.state(id).kind).toBe('Escalated');
+    s.at('2026-11-01T10:00:32Z');
+    await c.adj.runOnce();
+    const record = [...s.records.values()][1]!;
+    expect(new Set(record.panel.members.map((m) => m.family)).size).toBe(3);
+  });
+
   it('the appeal panel needs minValidAppeal (4) valid verdicts, not the first-instance minimum', async () => {
     const script: FakeScript = { 'gpt-a': 'timeout', 'claude-a': 'timeout', 'claude-b': 'timeout' };
     const { s, a, c, id } = await setup({ registry: ONE_FAMILY_HEAVY, scriptA: onlyClaudePasses, scriptC: script });
@@ -873,6 +929,7 @@ describe('review item 4: rules the mutation sweep found untested', () => {
     await a.adj.runOnce();
     expect(s.state(id).kind).toBe('Refunded');
     s.at('2026-11-01T10:01:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(id, 'missing-or-wrong-key');
     s.at('2026-11-01T10:01:05Z');
     await c.adj.runOnce();
@@ -945,6 +1002,7 @@ describe("the buyer's key travels only with an accept, never on a deal that stan
       await a.adj.runOnce();
       if (o.appeal) {
         s.at('2026-11-01T10:01:00Z');
+        // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
         s.fileAppeal(id, o.appeal);
       }
       s.at('2026-11-01T10:01:05Z');
@@ -996,6 +1054,7 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
     s.at('2026-11-01T10:00:30Z');
     await a.adj.runOnce();
     s.at('2026-11-01T10:01:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(id, 'wrong-outcome');
     s.bonds.set(C.address, 0n);
     s.at('2026-11-01T10:01:05Z');
@@ -1022,6 +1081,7 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
     s.at('2026-11-01T10:00:30Z');
     await a.adj.runOnce();
     s.at('2026-11-01T10:01:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(id, 'wrong-outcome'); // appealDecideBy 10:11:00; the appeal adjudicator stays silent
     s.at('2026-11-01T10:10:59Z');
     expect((await a.adj.runOnce()).expired).toEqual([]);
@@ -1051,6 +1111,7 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
         s.at('2026-11-01T10:00:30Z');
         expect((await lone.adj.runOnce()).decided.map((d) => d.outcome)).toEqual(['reject']);
         s.at('2026-11-01T10:01:00Z');
+        // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
         s.fileAppeal(c.id, 'wrong-outcome');
         s.at('2026-11-01T10:01:05Z');
         expect((await later.adj.runOnce()).decided).toEqual([{ commitmentId: c.id, role: 'appeal', outcome: 'accept' }]);
@@ -1065,12 +1126,26 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
     s.at('2026-11-01T10:02:00Z');
     const report = await b.adj.runOnce();
     expect(report.triggered).toEqual([]);
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     expect(report.refused).toEqual([{ commitmentId: id, problem: { type: 'coverage_exceeded', detail: expect.stringMatching(/free bond/) } }]);
     await s.triggerFallback(id);
     expect((await b.adj.runOnce()).refused.map((r) => r.problem.type)).toEqual(['coverage_exceeded']);
     expect(b.calls).toHaveLength(0);
     s.bonds.set(B.address, price);
     expect((await b.adj.runOnce()).decided).toEqual([{ commitmentId: id, role: 'fallback', outcome: 'accept' }]);
+  });
+
+  // ADR-0031 §8 (review of T-349, finding 1): no bond backs a decision on a chain, so the fallback neither declines the
+  // takeover nor refuses to sign for want of one. Before the fix it judged and then refused, and the deal defaulted.
+  it('on a chain settlement the fallback triggers, judges and signs with no bond at all, at the takeover and before signing', async () => {
+    const { s, b, id } = await setup({ phaseOne: true });
+    s.bonds.set(B.address, 0n);
+    s.at('2026-11-01T10:02:00Z');
+    const report = await b.adj.runOnce();
+    expect(report.refused).toEqual([]);
+    expect(report.triggered).toEqual([id]);
+    expect(report.decided).toEqual([{ commitmentId: id, role: 'fallback', outcome: 'accept' }]);
+    expect(s.state(id).kind).toBe('Released');
   });
 
   it('reads its free bond again before signing a retry: judged, then the bond is taken, so it does not sign until it is back', async () => {
@@ -1080,6 +1155,7 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
     await b.adj.runOnce(); // triggered and judged; the submission failed
     expect(b.calls).toHaveLength(3);
     s.bonds.set(B.address, 0n);
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     expect((await b.adj.runOnce()).refused.map((r) => r.problem.type)).toEqual(['coverage_exceeded']);
     expect(s.state(id).kind).toBe('FallbackJudging');
     s.bonds.delete(B.address);
@@ -1098,6 +1174,7 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
     const report = await b.adj.runOnce();
     expect(report.triggered).toEqual([id]);
     expect(b.calls).toHaveLength(3);
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     expect(report.refused.map((r) => r.problem.type)).toEqual(['coverage_exceeded']);
     expect(s.decisions(id)).toEqual([]);
     expect(s.records.size).toBe(0);
@@ -1121,6 +1198,7 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
     s.at('2026-11-01T10:00:30Z');
     await a.adj.runOnce();
     s.at('2026-11-01T10:01:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(id, 'missing-or-wrong-key');
     const raised = bench(C, 'bench-c', s, {}, undefined, reg, undefined, { fee: { min: tusd('60000000') } });
     s.at('2026-11-01T10:01:05Z');
@@ -1143,6 +1221,7 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
     s.at('2026-11-01T10:02:00Z');
     expect((await b.adj.runOnce()).decided).toEqual([{ commitmentId: c.id, role: 'fallback', outcome: 'reject' }]);
     s.at('2026-11-01T10:03:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(c.id, 'wrong-outcome');
     const raised = bench(B, 'bench-b', s, {}, undefined, reg, undefined, { fee: { min: tusd('60000000') } });
     s.at('2026-11-01T10:03:05Z');
@@ -1164,6 +1243,7 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
     expect((await a.adj.runOnce()).decided.map((d) => d.outcome)).toEqual([kind === 'escalation' ? 'escalate' : 'accept']);
     if (kind === 'party appeal') {
       s.at('2026-11-01T10:01:00Z');
+      // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
       s.fileAppeal(c.id, 'wrong-outcome');
     }
     s.at('2026-11-01T10:01:05Z');
@@ -1264,6 +1344,7 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
         const { s, who, task } = await turn();
         s.bonds.set(who.adj.address, BigInt(task.commitment.price.amount) - 1n);
         const r = await who.adj.decideTask(task);
+        // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
         expect(!r.ok && r.error.type).toBe('coverage_exceeded');
         expect(who.calls).toHaveLength(0);
       });
@@ -1384,6 +1465,7 @@ describe('attack.untrusted-appeal-adjudicator-via-fallback', () => {
     s.at('2026-11-01T10:00:30Z');
     expect((await o.adj.runOnce()).decided).toEqual([{ commitmentId: terms.id, role: 'primary', outcome: 'reject' }]);
     s.at('2026-11-01T10:01:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(terms.id, 'wrong-outcome');
     s.at('2026-11-01T10:01:05Z');
     expect((await c.adj.runOnce()).decided).toEqual([{ commitmentId: terms.id, role: 'appeal', outcome: 'accept' }]);
@@ -1434,6 +1516,7 @@ describe('attack.outside-primary-rotates-policy', () => {
     expect((await o.adj.runOnce()).decided).toEqual([{ commitmentId: terms.id, role: 'primary', outcome: 'reject' }]);
     rotate(s, terms);
     s.at('2026-11-01T10:01:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(terms.id, 'wrong-outcome');
     s.at('2026-11-01T10:01:05Z');
     const report = await c.adj.runOnce();
@@ -1458,6 +1541,7 @@ describe('attack.outside-primary-rotates-policy', () => {
     rotate(s, terms);
     s.policies.delete(terms.adjudication.policyHash);
     s.at('2026-11-01T10:01:00Z');
+    // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
     s.fileAppeal(terms.id, 'wrong-outcome');
     s.at('2026-11-01T10:01:05Z');
     const report = await c.adj.runOnce();

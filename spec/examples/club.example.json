@@ -8,7 +8,7 @@
     "minWindowsSec": {
       "judge": 120,
       "fallback": 120,
-      "appealWindow": 300,
+      "appealWindow": 0,
       "appealDecide": 300
     },
     "windowCoverageRatioBps": 2000,
@@ -56,5 +56,5 @@
       "long-term"
     ]
   },
-  "rulebookHash": "0x140edd090559cb7dd3950b3a8b755b9cca7b81a37d11359738e1b9df7d0d971e"
+  "rulebookHash": "0xd9bc9c4961c67a80c4a1100bc5cb3345a70881b42725f7f84611d6a240f5492d"
 }

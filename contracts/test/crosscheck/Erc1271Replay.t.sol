@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "../unit/Base.sol";
 
@@ -26,7 +27,7 @@ contract OwnedWallet {
 }
 
 /// Red-team cross-check of S5 (marked pass, inferred): make it measured. Wallet A and wallet B share an owner key.
-/// A funding signature made for A's deal must not pull from B, under either collector.
+/// A funding signature made for A's deal must not pull from B. Phase one has one collector, ERC-3009 (SC-2).
 contract Erc1271ReplayTest is Base {
     uint256 internal constant OWNER_PK = 0x0111E4;
     OwnedWallet internal walletA;
@@ -39,35 +40,16 @@ contract Erc1271ReplayTest is Base {
         walletB = new OwnedWallet(owner);
         usdc.mint(address(walletA), 1_000_000_000);
         usdc.mint(address(walletB), 1_000_000_000);
-        walletA.approve(address(usdc), permit2);
-        walletB.approve(address(usdc), permit2);
     }
 
     function _dealFor(address who) internal returns (H.Terms memory t) {
         t = _terms();
         t.buyer = who;
+        t.buyerPaymentAddress = who; // ADR-0033: the wallet also holds the money
         t.nonce = keccak256("same nonce for both wallets");
     }
 
-    function test_defense_permit2FundingSignature_doesNotReplayAcrossWalletsWithOneOwner() public {
-        H.Terms memory tA = _dealFor(address(walletA));
-        H.Funding memory fA = _permit2(tA, OWNER_PK);
-        vm.prank(relayer);
-        bytes32 idA =
-            rules.agreeAndFund(tA, _sellerSig(tA, SELLER_PK), _acceptance(tA, ADJ_PK), _agree(tA, OWNER_PK), fA);
-        assertEq(uint8(_stage(idA)), uint8(HoldbackRules.Stage.Held), "wallet A funds through ERC-1271");
-
-        // The same owner agrees for wallet B (legitimately), but the relayer reuses A's Permit2 signature.
-        H.Terms memory tB = _dealFor(address(walletB));
-        bytes memory sellerSig = _sellerSig(tB, SELLER_PK);
-        H.Acceptance memory acc = _acceptance(tB, ADJ_PK);
-        H.Agree memory ag = _agree(tB, OWNER_PK);
-        uint256 balB = usdc.balanceOf(address(walletB));
-        vm.expectRevert();
-        rules.agreeAndFund(tB, sellerSig, acc, ag, fA);
-        assertEq(usdc.balanceOf(address(walletB)), balB, "nothing left wallet B");
-        assertEq(uint8(_stage(hx.id(tB))), uint8(HoldbackRules.Stage.None));
-    }
+    // T-356 (SC-2): the Permit2 replay test left with the Permit2 path; phase one funds by ERC-3009 only.
 
     function test_defense_erc3009FundingSignature_doesNotReplayAcrossWalletsWithOneOwner() public {
         H.Terms memory tA = _dealFor(address(walletA));
@@ -75,7 +57,7 @@ contract Erc1271ReplayTest is Base {
         vm.prank(relayer);
         bytes32 idA =
             rules.agreeAndFund(tA, _sellerSig(tA, SELLER_PK), _acceptance(tA, ADJ_PK), _agree(tA, OWNER_PK), fA);
-        assertEq(uint8(_stage(idA)), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(_stage(idA)), uint8(IHoldbackRules.Stage.Held), "wallet A funds through ERC-1271");
 
         H.Terms memory tB = _dealFor(address(walletB));
         bytes memory sellerSig = _sellerSig(tB, SELLER_PK);
@@ -96,7 +78,7 @@ contract Erc1271ReplayTest is Base {
         bytes memory sellerSig = _sellerSig(tB, SELLER_PK);
         H.Acceptance memory acc = _acceptance(tB, ADJ_PK);
         H.Funding memory fB = _erc3009(tB, OWNER_PK);
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.agreeAndFund(tB, sellerSig, acc, agA, fB);
     }
 }

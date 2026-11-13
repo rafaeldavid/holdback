@@ -1,5 +1,5 @@
 // Crow's test seller against the public demo's own world, served on two origins in this process: a visitor's buyer
-// agent follows the intake convention in site/llms.txt ("Two agents, two people") over HTTP only.
+// agent follows the intake convention in site/ref/intake.txt ("Two agents, two people") over HTTP only.
 import { MemoryStorage } from '@holdback/demo-cloud';
 import nacl from 'tweetnacl';
 import type { Hex } from 'viem';
@@ -332,7 +332,7 @@ describe("Crow's test seller", () => {
     let skew = 0;
     const world = await serveWorld({ now: () => Date.now() + skew });
     try {
-      const timing = { offerExpiresInSec: 600, fundWithinSec: 900, deliverWithinSec: 1200, judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 60, appealDecideSec: 60 };
+      const timing = { offerExpiresInSec: 600, fundWithinSec: 900, deliverWithinSec: 1200, judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 0, appealDecideSec: 60 };
       const storage = new MemoryStorage();
       const seed = generatePrivateKey();
       const s = startSeller({ world, timing, storage, seed });

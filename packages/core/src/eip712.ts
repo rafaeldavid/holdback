@@ -46,13 +46,13 @@ export const SIMCHAIN_VERIFYING_CONTRACT: Address = '0x0000000000000000000000000
 
 export interface HoldbackDomain {
   name: 'Holdback';
-  version: '0.7';
+  version: '0.8';
   chainId: bigint;
   verifyingContract: Address;
 }
 
 export function holdbackDomain(chainId: number | bigint, verifyingContract: Address = SIMCHAIN_VERIFYING_CONTRACT): HoldbackDomain {
-  return { name: 'Holdback', version: '0.7', chainId: BigInt(chainId), verifyingContract };
+  return { name: 'Holdback', version: '0.8', chainId: BigInt(chainId), verifyingContract };
 }
 
 const ZERO32: Hex32 = `0x${'0'.repeat(64)}`;
@@ -112,6 +112,9 @@ const termsType = [
   field('rulebookHash', 'bytes32'),
   field('buyer', 'address'),
   field('seller', 'address'),
+  // ADR-0033 (domain 0.8): the escrow's payer and receiver; buyer and seller stay the signers.
+  field('buyerPaymentAddress', 'address'),
+  field('sellerPayoutAddress', 'address'),
   field('deliverableHash', 'bytes32'),
   field('acceptanceHash', 'bytes32'),
   field('price', 'TokenAmount'),
@@ -317,6 +320,8 @@ export function termsOf(c: AnyCommitment): AnyCommitmentTerms {
     rulebookHash: c.rulebookHash,
     buyer: c.buyer,
     seller: c.seller,
+    buyerPaymentAddress: c.buyerPaymentAddress,
+    sellerPayoutAddress: c.sellerPayoutAddress,
     ...bodies,
     price: c.price,
     adjudication: c.adjudication,
@@ -338,6 +343,8 @@ export function typedTermsOf(t: AnyCommitmentTerms): Encoded {
     rulebookHash: t.rulebookHash,
     buyer: t.buyer,
     seller: t.seller,
+    buyerPaymentAddress: t.buyerPaymentAddress,
+    sellerPayoutAddress: t.sellerPayoutAddress,
     ...bodyHashes(t),
     price: amount(t.price),
     adjudication: { ...t.adjudication, fee: amount(t.adjudication.fee) },

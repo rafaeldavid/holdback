@@ -1,16 +1,16 @@
-// T-221 end to end (ADR-0030): an adjudicator no one at Crow runs registers through the API, bonds from its own key,
-// and is named primary under the demo's fallback and appeal adjudicators. The contracts are the ones deployed to anvil,
+// T-221 end to end (ADR-0030): an adjudicator no one at Crow runs registers through the API and is named primary under
+// the demo's fallback and appeal adjudicators. The phase-one contracts hold no bond and take no party appeal (ADR-0031
+// §8): it posts no bond, accepts with bondReserved 0, and its first decision is final at once. The contracts are the ones deployed to anvil,
 // with the sim beacon reseeded to the world's own seed so the demo appeal adjudicator's beacon proofs verify.
 //
 // Its own file, with no test that needs a network or a secret, so CI's contracts job can run it in the anvil step that
 // fails on any skip (T-221 review). Needs `anvil` on PATH and `forge build` output; elsewhere it skips and says why.
-import { encodeFunctionData, getAddress, type Hex } from 'viem';
 import { canonicalKeccak, holdbackDomain, verifyRegistration, wholeSecond, type Address } from '@holdback/core';
-import { FAIL_MARKER, LIVE_REGISTRY_URI, liveRegistry, markedFake, markerFake } from '@holdback/adjudicator';
-import { ensureBond, LiveChain, type DeploymentFile, type EvmSettlement } from '@holdback/settlement/live';
+import { LIVE_REGISTRY_URI, liveRegistry, markedFake, markerFake } from '@holdback/adjudicator';
+import { LiveChain, type DeploymentFile, type EvmSettlement } from '@holdback/settlement/live';
 import { EvmWorld } from '@holdback/settlement/evm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { deploymentOf, ENV, CSV, lc, Outsider, outsideDeal, PRICE, ready, RELAYER, root, serve, sleep, untilBoth, type J } from '../test/anvil.ts';
+import { deploymentOf, ENV, CSV, lc, Outsider, outsideDeal, ready, RELAYER, root, serve, sleep, untilBoth, type J } from '../test/anvil.ts';
 import { MemoryStorage, PublicWorld } from './index.js';
 
 describe.skipIf(!ready)(`an outside adjudicator on a live chain (anvil; T-221)${ready ? '' : ' (SKIPPED: needs anvil on PATH and forge build output in contracts/out)'}`, () => {
@@ -24,7 +24,7 @@ describe.skipIf(!ready)(`an outside adjudicator on a live chain (anvil; T-221)${
     await anvil?.stop();
   });
 
-  it('registers, bonds, accepts and decides as primary; a wrong accept is overturned from its bond after a policy rotation; another registry is refused; the demo fallback declines under its appeal adjudicator', async () => {
+  it('registers, accepts with bondReserved 0 and decides as primary, final at once; an appeal is refused naming phase one; another registry is noted; the demo fallback declines under its appeal adjudicator', async () => {
     const storage = new MemoryStorage();
     const chain = new LiveChain({ deployment, rpcUrls: [anvil.rpcUrl], relayerKey: RELAYER, pollMs: 200, rebroadcastMs: 10_000, mintBatchMs: 200 });
     const errors: string[] = [];
@@ -42,45 +42,41 @@ describe.skipIf(!ready)(`an outside adjudicator on a live chain (anvil; T-221)${
       const d = (await (await fetch(`${demo.urls[0]}/.well-known/holdback.json`)).json()) as J;
       const [, fallback, appeal] = d.demo.adjudicators.map((a: J) => a.address as string);
       const evm = world.chain as EvmSettlement;
-      // The outside appeal adjudicator a party controls (D44): registered, never bonded (L-5: no clause pays from it).
+      // The outside appeal adjudicator a party controls (D44): registered, and named in deal 4.
       const attackers = new Outsider(world, demo.urls, 't-221/live-attackers-appeal', { trusted: [] });
-      // The outsider judges blind to the scripted fail marker, so it accepts work the demo's panel rejects: a wrong accept.
       const outsider = new Outsider(world, demo.urls, 't-221/live-outsider', { trusted: [fallback, appeal], provider: markedFake(markerFake({}, 'NO-DELIVERY-CARRIES-THIS')) });
       const silent = new Outsider(world, demo.urls, 't-221/live-silent', { trusted: [fallback, attackers.address] });
       const issuedAt = wholeSecond(Date.now() - 120_000);
 
-      // Registration through the API, before any bond: listed, signed, and plainly unbonded (Rafa: "be clear").
+      // Registration through the API: listed, signed, and plainly unbonded (Rafa: "be clear"). A chain holds no bond.
       const posted = await outsider.register(issuedAt);
       expect(posted.status).toBe(200);
       expect(posted.body.observed).toMatchObject({ bond: 'none', expired: false });
       for (const o of [silent, attackers]) expect((await o.register(issuedAt)).status).toBe(200);
+      const served = await Promise.all(demo.urls.map(async (u) => (await (await fetch(`${u}/v1/adjudicators/${outsider.address}`)).json()) as J));
+      for (const v of served) expect(v.observed?.bond).toBe('none');
+      expect(await verifyRegistration(holdbackDomain(anvil.chainId, lc(deployment.rules) as Address), served[0])).toBe(true);
       lap('registered');
 
-      // The bond, from the outsider's own key (approve, then deposit); the relayer only pays its gas and mints its tUSDC.
-      const BOND = 100_000_000n;
-      for (const o of [outsider, silent]) await ensureBond(chain, o.account.privateKey, BOND, 100_000_000_000_000_000n);
-      expect(await evm.bondOf(outsider.address)).toBe(BOND);
-      // Both nodes serve the live bond once the per-block cache turns over (about 12 s): the read is HoldbackBonds'.
-      let served: J = null;
-      for (const end = Date.now() + 30_000; Date.now() < end; await sleep(500)) {
-        const views = await Promise.all(demo.urls.map(async (u) => (await (await fetch(`${u}/v1/adjudicators/${outsider.address}`)).json()) as J));
-        if (views.every((v) => v.observed?.bond === 'bonded')) {
-          served = views[0];
-          break;
-        }
-      }
-      expect(served?.pool).toMatchObject({ junior: { amount: BOND.toString() }, reserved: { amount: '0' } });
-      expect(await verifyRegistration(holdbackDomain(anvil.chainId, lc(deployment.rules) as Address), served)).toBe(true);
-      lap('bonded');
-
       // Deal 1: the outsider accepts and decides by script; the deal is Released and the buyer opens its copy.
-      const timing = { judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 60, appealDecideSec: 120 };
+      const timing = { judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 0, appealDecideSec: 120 }; // phase one: no party appeal (ADR-0033 §2b)
       const one = await outsideDeal(demo.urls, deployment, outsider, { work: CSV, timing });
       expect((await outsider.runOnce()).decided).toEqual([{ commitmentId: one.id, role: 'primary', outcome: 'accept' }]);
       await untilBoth(one.buyer, one.id, ['Released'], 60_000);
       expect(await one.buyer.openDelivery(one.id)).toBe(CSV);
       const decided = evm.log().find((e) => e.commitmentId === one.id && e.type === 'judgment.decided')!;
       expect({ actor: lc(String(decided.actor)), via: decided.submittedVia }).toEqual({ actor: outsider.address, via: 'demo-op-1' });
+      // ADR-0031 §8: the outsider's acceptance reserved no bond, and the decision is final at once.
+      const accepted = evm.log().find((e) => e.commitmentId === one.id && e.type === 'adjudicator.accepted')!;
+      expect(accepted.payload['bondRequired']).toMatchObject({ amount: '0' });
+      const final = (await one.buyer.call('GET', `/v1/commitments/${one.id}`)) as J;
+      expect(final).toMatchObject({ escrowState: 'Released', appealState: 'none' });
+      expect(final.finalAt).toBe(final.settledAt);
+      // The buyer's appeal is refused before anything is signed or sent, with the reason.
+      // A party appeal is not in phase one.
+      const refusedAppeal = await fetch(`${demo.urls[0]}/v1/prepare/appeal`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': crypto.randomUUID() }, body: JSON.stringify({ commitmentId: one.id, appellant: one.buyer.address }) });
+      expect(refusedAppeal.status).toBe(409);
+      expect((await refusedAppeal.json()) as J).toMatchObject({ type: expect.stringMatching(/invalid_state$/), detail: expect.stringMatching(/phase-one contracts, which have no party appeals/) });
       lap('deal 1 released');
 
       // Deal 4 (D44's second path): the silent outsider is primary, the demo fallback is named under an appeal
@@ -89,38 +85,8 @@ describe.skipIf(!ready)(`an outside adjudicator on a live chain (anvil; T-221)${
       const four = await outsideDeal(demo.urls, deployment, silent, { work: CSV, timing: { ...timing, offerExpiresInSec: 30, fundWithinSec: 45, deliverWithinSec: 60, judgeWithinSec: 5 }, adjudicators: { fallback, appeal: attackers.address } });
       // The relay said so before the buyer funded (T-221 review): the parties named it, so a notice, not a refusal.
       expect((four.offered.notices ?? []).join(' ')).toMatch(new RegExp(`fallback adjudicator ${fallback} will decline its fallback turn on these terms: .*${attackers.address}`));
-      const fallbackBond = await evm.freeBond(fallback as Address);
 
-      // Deal 2: the outsider accepts work that fails the rubric (the scripted panel's fail marker); the buyer appeals.
-      const two = await outsideDeal(demo.urls, deployment, outsider, { work: `${FAIL_MARKER}: a summary that says nothing about the product.`, rubric: true, timing });
-      expect((await outsider.runOnce()).decided).toEqual([{ commitmentId: two.id, role: 'primary', outcome: 'accept' }]);
-      await untilBoth(two.buyer, two.id, ['Released'], 60_000);
-      // attack.outside-primary-rotates-policy (T-221 review): the outsider registers another policy after its decision.
-      // The terms still bind the old hash, and the demo appeal adjudicator reads the policy by that hash.
-      const rotated = await outsider.register(wholeSecond(Date.now() - 60_000), { rationaleMaxChars: 599 });
-      expect(rotated.status).toBe(200);
-      expect(rotated.body.policyHash).not.toBe(two.terms.adjudication.policyHash);
-      const outsiderBond = await evm.bondOf(outsider.address);
-      const buyerBefore = await evm.tokenBalance(two.buyer.address, true);
-      const { rulebook } = await two.buyer.club(d.demo.clubId);
-      const appealBond = (BigInt(PRICE) * BigInt(rulebook.appealBondRateBps) + 9_999n) / 10_000n;
-      await anvil.rpc('anvil_setBalance', [two.buyer.address, '0x56bc75e2d63100000']);
-      const approved = await anvil.send({ key: two.buyerKey, to: deployment.token.address as Hex, data: encodeFunctionData({ abi: anvil.abis.token, functionName: 'approve', args: [deployment.bonds, appealBond] }) });
-      expect(approved.status).toBe('success');
-      const prepared = await two.buyer.call('POST', '/v1/prepare/appeal', { commitmentId: two.id, appellant: two.buyer.address });
-      await two.buyer.signAndSubmit(prepared, { kind: 'appeal', terms: two.terms, me: two.buyer.address, appealBondRateBps: rulebook.appealBondRateBps });
-      const overturned = await untilBoth(two.buyer, two.id, ['overturned', 'upheld'], 180_000, 'appealState');
-      // The release paid the seller at the first decision and stands; the overturn pays the buyer the price from the
-      // outsider's bond instead (D43, T-206 I-8): bond.slashed names the outsider.
-      expect(overturned).toMatchObject({ appealState: 'overturned', escrowState: 'Released' });
-      const slashed = evm.log().filter((e) => e.commitmentId === two.id && e.type === 'bond.slashed');
-      expect(slashed.map((e) => e.payload)).toMatchObject([{ adjudicator: getAddress(outsider.address), junior: { amount: PRICE }, reason: 'overturn' }]);
-      expect(outsiderBond - (await evm.bondOf(outsider.address))).toBe(BigInt(PRICE));
-      // The buyer gets the price from the bond and its appeal bond back.
-      expect((await evm.tokenBalance(two.buyer.address, true)) - buyerBefore).toBe(BigInt(PRICE));
-      lap('deal 2 overturned');
-
-      // Deal 4, continued: judgeBy has passed; the demo fallback declined its turn, and nothing reserved its bond.
+      // Deal 4, continued: judgeBy has passed, and the demo fallback declined its turn.
       let notices: string[] = [];
       for (const end = Date.parse(four.terms.timing.judgeBy) + 30_000; Date.now() < end; await sleep(500)) {
         notices = ((await four.buyer.call('GET', `/v1/commitments/${four.id}`)) as J).notices ?? [];
@@ -129,11 +95,10 @@ describe.skipIf(!ready)(`an outside adjudicator on a live chain (anvil; T-221)${
       expect(notices.join(' ')).toMatch(new RegExp(`fallback adjudicator declined this deal's fallback turn: .*does not trust ${attackers.address} as the appeal adjudicator`, 'i'));
       expect(notices.join(' ')).toMatch(/the default outcome applies at fallbackBy unless the parties settle by mutual agreement first/);
       expect(((await four.buyer.call('GET', `/v1/commitments/${four.id}`)) as J).escrowState).toBe('Delivered');
-      expect(await evm.freeBond(fallback as Address)).toBe(fallbackBond);
       lap('deal 4 declined');
 
       // Deal 3: the same outsider re-registers binding another registry (a later issuedAt replaces the record). The
-      // demo appeal adjudicator judges only under its own registry, so it refuses the appeal with registry_mismatch.
+      // demo appeal adjudicator judges escalations only under its own registry, and the relay says so before funding.
       outsider.rebind(liveRegistry(), LIVE_REGISTRY_URI);
       const again = await outsider.register(wholeSecond(Date.now()));
       expect(again.status).toBe(200);
@@ -144,25 +109,8 @@ describe.skipIf(!ready)(`an outside adjudicator on a live chain (anvil; T-221)${
       expect((three.offered.notices ?? []).join(' ')).toMatch(new RegExp(`appeal adjudicator ${appeal} will decline its appeal turn on these terms: .*registry`));
       expect((await outsider.runOnce()).decided).toEqual([{ commitmentId: three.id, role: 'primary', outcome: 'accept' }]);
       await untilBoth(three.buyer, three.id, ['Released'], 60_000);
-      await anvil.rpc('anvil_setBalance', [three.buyer.address, '0x56bc75e2d63100000']);
-      expect((await anvil.send({ key: three.buyerKey, to: deployment.token.address as Hex, data: encodeFunctionData({ abi: anvil.abis.token, functionName: 'approve', args: [deployment.bonds, appealBond] }) })).status).toBe('success');
-      const appealing = await three.buyer.call('POST', '/v1/prepare/appeal', { commitmentId: three.id, appellant: three.buyer.address });
-      await three.buyer.signAndSubmit(appealing, { kind: 'appeal', terms: three.terms, me: three.buyer.address, appealBondRateBps: rulebook.appealBondRateBps });
-      await untilBoth(three.buyer, three.id, ['open'], 60_000, 'appealState');
-      const judge = world.adjudicators.appeal;
-      const task = (await judge.settlement.tasks(judge.address)).find((t) => t.commitment.id === three.id);
-      expect(task?.role).toBe('appeal');
-      const refused = await judge.service.decideTask(task!);
-      expect(refused.ok ? 'decided' : refused.error.type).toBe('registry_mismatch');
-      // The world's own passes refuse it too: the appeal stays open, and the state read says why and what follows.
-      let read: J = null;
-      for (const end = Date.now() + 15_000; Date.now() < end; await sleep(500)) {
-        read = await three.buyer.call('GET', `/v1/commitments/${three.id}`);
-        if ((read.notices ?? []).some((n: string) => /appeal adjudicator .* cannot judge/.test(n))) break;
-      }
-      expect(read.appealState).toBe('open');
-      expect((read.notices ?? []).join(' ')).toMatch(/The appeal adjudicator .* cannot judge this deal's appeal: this build does not carry registry .*What follows: the appeal expires at .*, and the first decision stands/);
-      lap('deal 3 refused');
+      expect(((await three.buyer.call('GET', `/v1/commitments/${three.id}`)) as J).appealState).toBe('none');
+      lap('deal 3 noted');
       expect(errors).toEqual([]);
       console.log(`T-221 anvil end to end, seconds from the world's start: ${JSON.stringify(took)}`);
     } finally {

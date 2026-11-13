@@ -8,9 +8,10 @@ import {Base} from "../unit/Base.sol";
 
 /// @title NoAdminFuzzTest
 /// @notice T-203, hard rule "No admin keys" and the contract review checklist in docs/neutrality.md, over every
-///         contract the settlement deploys: HoldbackRules, HoldbackBonds, CPP AuthCaptureEscrow, both collectors,
-///         the TokenStore implementation, the rules contract's TokenStore clone, (T-209) both beacons: the
-///         drand quicknet verifier and the local-chain sim beacon, and (T-213) the Sepolia demo's test token, tUSDC.
+///         contract the settlement deploys: HoldbackRules, CPP AuthCaptureEscrow, both collectors, the TokenStore
+///         implementation, the rules contract's TokenStore clone, (T-209) both beacons: the drand quicknet verifier
+///         and the local-chain sim beacon, and (T-213) the Sepolia demo's test token, tUSDC. HoldbackBonds left with
+///         the phase-one cut (T-346, ADR-0031 §8): the rules contract creates no vault.
 ///         - Each ABI is exactly a reviewed allowlist (a new external function is a visible diff here).
 ///         - No ABI has a forbidden admin function, a fallback or a receive.
 ///         - Fuzzed: any selector outside a contract's ABI reverts, with any calldata and any caller.
@@ -21,9 +22,9 @@ contract NoAdminFuzzTest is Base {
     string internal constant PI =
         "(address,address,address,address,uint120,uint48,uint48,uint48,uint16,uint16,address,uint256)";
 
-    address[10] internal targets;
-    string[10] internal artifacts;
-    uint256 internal constant CLONE = 6;
+    address[9] internal targets;
+    string[9] internal artifacts;
+    uint256 internal constant CLONE = 5;
     mapping(address => mapping(bytes4 => bool)) internal inAbi;
 
     function setUp() public override {
@@ -36,10 +37,9 @@ contract NoAdminFuzzTest is Base {
         require(store.code.length > 0, "TokenStore clone not deployed");
         targets = [
             address(rules),
-            address(bonds),
             address(escrow),
             address(collector3009),
-            address(collectorPermit2),
+            address(collectorPermit2), // no longer deployed by the settlement (SC-2); the test world still has it
             escrow.tokenStoreImplementation(),
             store,
             address(new DrandQuicknetBeacon()),
@@ -48,7 +48,6 @@ contract NoAdminFuzzTest is Base {
         ];
         artifacts = [
             "out/HoldbackRules.sol/HoldbackRules.json",
-            "out/HoldbackBonds.sol/HoldbackBonds.json",
             "out/AuthCaptureEscrow.sol/AuthCaptureEscrow.json",
             "out/ERC3009PaymentCollector.sol/ERC3009PaymentCollector.json",
             "out/Permit2PaymentCollector.sol/Permit2PaymentCollector.json",
@@ -70,48 +69,35 @@ contract NoAdminFuzzTest is Base {
 
     function _allowlist(uint256 i) internal pure returns (string[] memory s) {
         if (i == 0) {
-            s = new string[](26);
+            // T-346 (ADR-0031 §8): BONDS(), KEY_APPEAL(), expireAppeal( and fileAppeal( left with the phase-one cut.
+            // T-356 (ADR-0031 §2, SC-1): TOKEN(), the deployment's one token, an immutable set at deploy.
+            // T-356 (ADR-0031 §3, SC-2): PERMIT2_COLLECTOR() left with the Permit2 path; TOKEN() takes its index.
+            // T-356 (ADR-0031 §7, SC-6): expireOffer( left; deliveryHashOf(bytes32) takes its index.
+            // T-380 (ADR-0032): BEACON_MARGIN(), the deployment's beacon margin, an immutable set at deploy.
+            s = new string[](22);
             s[0] = "BEACON()";
-            s[1] = "BONDS()";
-            s[2] = "ERC3009_COLLECTOR()";
-            s[3] = "ESCROW()";
-            s[4] = "EXPIRY_MARGIN()";
-            s[5] = "KEY_APPEAL()";
-            s[6] = "KEY_DECISION()";
-            s[7] = "KEY_EARLY_ACCEPT()";
-            s[8] = "KEY_MUTUAL()";
-            s[9] = "MUTUAL_FEE_SHARE_BPS()";
-            s[10] = "PERMIT2_COLLECTOR()";
-            s[11] = "agreeAndFund(";
-            s[12] = "dealOf(bytes32)";
-            s[13] = "decide(";
-            s[14] = "deliver(";
-            s[15] = "earlyAccept(";
-            s[16] = "eip712Domain()";
-            s[17] = "expireAppeal(";
-            s[18] = "expireOffer(";
-            s[19] = "fileAppeal(";
-            s[20] = "mutualSettle(";
-            s[21] = "reclaim(";
-            s[22] = "triggerDefault(";
-            s[23] = "triggerFallback(";
-            s[24] = "typedDataHash(bytes32)";
-            s[25] = "deliveryHashOf(bytes32)"; // a read: the posted delivery every signature names (ADR-0029)
+            s[1] = "ERC3009_COLLECTOR()";
+            s[2] = "ESCROW()";
+            s[3] = "EXPIRY_MARGIN()";
+            s[4] = "KEY_DECISION()";
+            s[5] = "KEY_EARLY_ACCEPT()";
+            s[6] = "KEY_MUTUAL()";
+            s[7] = "MUTUAL_FEE_SHARE_BPS()";
+            s[8] = "TOKEN()";
+            s[9] = "agreeAndFund(";
+            s[10] = "dealOf(bytes32)";
+            s[11] = "decide(";
+            s[12] = "deliver(";
+            s[13] = "earlyAccept(";
+            s[14] = "eip712Domain()";
+            s[15] = "deliveryHashOf(bytes32)"; // a read: the posted delivery every signature names (ADR-0029)
+            s[16] = "mutualSettle(";
+            s[17] = "reclaim(";
+            s[18] = "triggerDefault(";
+            s[19] = "triggerFallback(";
+            s[20] = "typedDataHash(bytes32)";
+            s[21] = "BEACON_MARGIN()";
         } else if (i == 1) {
-            s = new string[](12);
-            s[0] = "RULES()";
-            s[1] = "appealBondOf(bytes32)";
-            s[2] = "bondOf(address,address)";
-            s[3] = "deposit(address,uint256)";
-            s[4] = "encumber(address,address,uint256)";
-            s[5] = "encumberedOf(address,address)";
-            s[6] = "freeOf(address,address)";
-            s[7] = "payAppealBond(bytes32,address,address)";
-            s[8] = "release(address,address,uint256)";
-            s[9] = "slash(bytes32,address,address,uint256,address)"; // rules-only: the overturn payout (T-206 I-8)
-            s[10] = "takeAppealBond(bytes32,address,address,uint256)";
-            s[11] = "withdraw(address,uint256)";
-        } else if (i == 2) {
             s = new string[](11);
             s[0] = "PAYMENT_INFO_TYPEHASH()";
             s[1] = string.concat("authorize(", PI, ",uint256,address,bytes)");
@@ -124,25 +110,25 @@ contract NoAdminFuzzTest is Base {
             s[8] = string.concat("refund(", PI, ",uint256,address,bytes)");
             s[9] = "tokenStoreImplementation()";
             s[10] = string.concat("void(", PI, ")");
-        } else if (i == 3 || i == 4) {
-            s = new string[](i == 3 ? 4 : 5);
+        } else if (i == 2 || i == 3) {
+            s = new string[](i == 2 ? 4 : 5);
             s[0] = "authCaptureEscrow()";
             s[1] = string.concat("collectTokens(", PI, ",address,uint256,bytes)");
             s[2] = "collectorType()";
             s[3] = "multicall3()";
-            if (i == 4) s[4] = "permit2()";
-        } else if (i == 5 || i == 6) {
+            if (i == 3) s[4] = "permit2()";
+        } else if (i == 4 || i == 5) {
             s = new string[](2);
             s[0] = "authCaptureEscrow()";
             s[1] = "sendTokens(address,address,uint256)";
-        } else if (i == 7) {
+        } else if (i == 6) {
             s = new string[](5);
             s[0] = "GENESIS()";
             s[1] = "PERIOD()";
             s[2] = "beaconValue(uint64,bytes)";
             s[3] = "hashToG1(bytes32)";
             s[4] = "roundAt(uint256)";
-        } else if (i == 8) {
+        } else if (i == 7) {
             s = new string[](3);
             s[0] = "SIM_SEED()";
             s[1] = "beaconValue(uint64,bytes)";

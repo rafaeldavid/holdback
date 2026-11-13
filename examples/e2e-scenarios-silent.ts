@@ -7,7 +7,8 @@
 // trivially. The money is checked on a chain.
 import { RoundAdjudicator, type AdjudicatorRole, type Serving } from './e2e-adjudicator.ts';
 import { buyerKeys, buyerOpens, deliver, delta, eventsOf, finish, fund, get, logsOf, openDeal, reason, short, shortWindows, trigger, until, waitPast, type Deal, type Run } from './e2e-run.ts';
-import { CHECKS, CSV, DATASET, PRICE, expireAppeal, lastBlock, lc, paidCheck, requires, settledChecks, type J, type Scenario } from './e2e-scenario-kit.ts';
+import { closeOnSimChain } from './e2e-scenarios-appeal.ts';
+import { CHECKS, CSV, DATASET, PRICE, lastBlock, lc, paidCheck, requires, settledChecks, type J, type Scenario } from './e2e-scenario-kit.ts';
 import { deliveryHashOf, freshNonce } from './verify.ts';
 
 /** A beacon's clock (ADR-0018): round 1 at genesis, then one round per period. */
@@ -16,21 +17,33 @@ type Clock = { genesis: number; period: number };
 const QUICKNET: Clock = { genesis: 1692803367, period: 3 };
 /** SimChain's beacon: round t at unix second t. */
 const SIM: Clock = { genesis: 1, period: 1 };
-/** The latest round published at or before `iso`, as core's beaconRoundAt and the contract's BEACON.roundAt count it. */
-const roundAt = (c: Clock, iso: string): number => {
-  const t = Math.floor(Date.parse(iso) / 1000);
-  return t < c.genesis ? 0 : Math.floor((t - c.genesis) / c.period) + 1;
-};
+/** The latest round published at or before unix second `t`, as core's beaconRoundAt and the contract's BEACON.roundAt count it. */
+const roundAtSec = (c: Clock, t: number): number => (t < c.genesis ? 0 : Math.floor((t - c.genesis) / c.period) + 1);
 
-/** The deal's price: the round's adjudicator bonds for it on a chain; on SimChain it cannot, so the deal is priced at 0. */
+/**
+ * The first round published strictly after `lastChoiceSec + marginSec` (ADR-0032 §3.1), as the rules contract's
+ * `_roundAfter` and core's `roundAfter` compute it: `roundAt(lastChoice + margin) + 1`. The fallback's round takes
+ * `lastChoice = judgeBy − 1`; the margin is the contract's `BEACON_MARGIN()`, 0 on SimChain and a local chain.
+ */
+export const roundAfter = (c: Clock, lastChoiceSec: number, marginSec: number): number => roundAtSec(c, lastChoiceSec + marginSec) + 1;
+
+/** The fallback's round for a deal whose terms say `judgeBy` (HoldbackRules._fallbackRound, ADR-0032). */
+export const fallbackRound = (c: Clock, judgeBy: string, marginSec: number): number => roundAfter(c, Math.floor(Date.parse(judgeBy) / 1000) - 1, marginSec);
+
+export { QUICKNET, SIM, type Clock };
+
+/**
+ * The deal's price. On a chain the round's adjudicator needs no bond (ADR-0031 §8); on SimChain it would need one, and
+ * cannot bond at run time, so the deal is priced at 0.
+ */
 function priceFor(r: Run): string {
   if (r.round.chain) return PRICE;
   r.note("SimChain: the round's own adjudicator cannot bond at run time, so this deal is priced at 0; the money checks run on a chain");
   return '0';
 }
 
-/** The round's adjudicator under `role`, registered through the API and, on a chain, holding free bond for the price. */
-const adjudicator = (r: Run, role: AdjudicatorRole, price: string): Promise<RoundAdjudicator> => RoundAdjudicator.ready(r, role, r.round.chain ? { bond: BigInt(price) } : {});
+/** The round's adjudicator under `role`, registered through the API. */
+const adjudicator = (r: Run, role: AdjudicatorRole): Promise<RoundAdjudicator> => RoundAdjudicator.ready(r, role);
 
 /**
  * Windows short enough that a timeout comes within minutes, with room first for the round's primary to accept (it
@@ -62,9 +75,6 @@ const views = (deal: Deal): Promise<J[]> => Promise.all(deal.buyer.sources().map
 
 /** Each operator's events of one type for the deal. */
 const eventsOfType = (deal: Deal, type: string): Promise<J[][]> => Promise.all(deal.buyer.sources().map(async (api) => (await eventsOf(deal.buyer, deal.id, api)).filter((e) => e.type === type)));
-
-/** The BondReleased total for `adjudicator` among the deal's transactions. */
-const released = (deal: Deal, adjudicator: string): bigint => logsOf(deal.record, 'BondReleased').filter((l) => lc(l.args.adjudicator) === lc(adjudicator)).reduce((s, l) => s + BigInt(l.args.amount), 0n);
 
 /** The KeyReleased logs that name the buyer. */
 const keysToBuyer = (deal: Deal) => logsOf(deal.record, 'KeyReleased').filter((l) => lc(l.args.recipient) === deal.buyer.address);
@@ -164,10 +174,10 @@ export const SILENT: Scenario[] = [
       const { round } = r;
       const [buyer, seller] = [round.address('buyer'), round.address('seller')];
       const price = priceFor(r);
-      const primary = await adjudicator(r, 'adjudicator-1', price);
+      const primary = await adjudicator(r, 'adjudicator-1');
       // The fallback reserves its bond only by deciding, but a relay refuses terms whose fallback shows less free bond
       // than the price (T-221). It never serves: no takeover, no decision.
-      const fallback = await adjudicator(r, 'adjudicator-2', price);
+      const fallback = await adjudicator(r, 'adjudicator-2');
       let deal!: Deal;
       let takenBy = '';
       let defaulted = '';
@@ -200,8 +210,6 @@ export const SILENT: Scenario[] = [
         r.check('triggerDefault defaults and refunds in one transaction', dTx.length === 1 && refunded.length === 1 && dTx[0]!.tx === refunded[0]!.tx && callsOf(deal, 'triggerDefault').length === 1, `${dTx.length} Defaulted and ${refunded.length} Refunded log(s)${dTx[0] ? `, Defaulted in ${short(dTx[0].tx)}` : ''}${refunded[0] ? `, Refunded in ${short(refunded[0].tx)}` : ''}`);
         const takeover = logsOf(deal.record, 'FallbackTriggered');
         r.check('triggerFallback lands once, after judgeBy', takeover.length === 1 && callsOf(deal, 'triggerFallback').length === 1, `${takeover.length} FallbackTriggered log(s), beacon round ${takeover[0]?.args?.beaconRound ?? 'none'}`);
-        r.check("the primary's bond is freed", released(deal, primary.address) === BigInt(price), `BondReleased ${round.amount(released(deal, primary.address))} for ${short(primary.address)}`);
-        r.check("the fallback's bond is never encumbered", released(deal, fallback.address) === 0n && delta(deal.record, fallback.address, 'free') === 0n, `BondReleased ${round.amount(released(deal, fallback.address))}; free bond ${round.amount(delta(deal.record, fallback.address, 'free'))} across the deal`);
         r.check('no KeyReleased log names the buyer', keysToBuyer(deal).length === 0, `${keysToBuyer(deal).length} log(s)`);
       } else {
         deal.record.notes.push(`SimChain paid the seller ${round.amount(delta(deal.record, seller))} from the default outcome: its rulebook's compensation rate of a price of 0`);
@@ -218,7 +226,7 @@ export const SILENT: Scenario[] = [
       const [buyer, seller] = [round.address('buyer'), round.address('seller')];
       const { fallback, appeal } = round.demo.adjudicators;
       const price = priceFor(r);
-      const primary = await adjudicator(r, 'adjudicator-1', price);
+      const primary = await adjudicator(r, 'adjudicator-1');
       // The fallback decides between judgeBy and fallbackBy, after a beacon round and a block: room for both (D31).
       const timing = timeoutWindows(r, { fallbackWithinSec: Math.max(round.demo.minWindowSec, 180) });
       let deal!: Deal;
@@ -252,9 +260,11 @@ export const SILENT: Scenario[] = [
       const { rulebook } = await deal.buyer.club(round.demo.clubId);
       const source: string = rulebook.randomness?.source ?? 'sim';
       const clock = source === 'drand-quicknet' ? QUICKNET : source === 'sim' ? SIM : null;
-      const want = clock ? roundAt(clock, deal.terms.timing.judgeBy) : null;
+      // ADR-0032: the first round after judgeBy − 1 + the contract's margin; SimChain has no margin.
+      const margin = round.chain ? await round.chain.beaconMarginSec() : 0;
+      const want = clock ? fallbackRound(clock, deal.terms.timing.judgeBy, margin) : null;
       const rounds = decided.map((es) => es.at(-1)?.payload?.beaconRound ?? null);
-      if (done.deadlines?.appealBy) await expireAppeal(r, deal, done.deadlines.appealBy);
+      await closeOnSimChain(r, deal, done);
       await finish(r, deal);
       const fee = BigInt(deal.terms.adjudication.fee.amount);
       r.check('the seller is paid the price', delta(deal.record, seller) === BigInt(price), `seller ${round.amount(delta(deal.record, seller))}`);
@@ -266,17 +276,15 @@ export const SILENT: Scenario[] = [
         r.check('the demo fallback adjudicator decides', decided.every((es) => es.at(-1)?.payload?.role === 'fallback') && log.length === 1 && lc(log[0]!.args.adjudicator) === fallback, `Decided by ${log.map((l) => short(l.args.adjudicator)).join(', ') || 'nobody'}; role ${decided.map((es) => es.at(-1)?.payload?.role ?? 'none').join(' / ')}`);
         const named = decides.at(-1)?.args?.[1]?.beaconRound;
         const takeover = logsOf(deal.record, 'FallbackTriggered')[0]?.args?.beaconRound;
-        r.check("the fallback decision's beacon is drand-quicknet at the round of judgeBy", source === 'drand-quicknet' && want !== null && Number(named) === want && Number(takeover) === want && rounds.every((x) => Number(x) === want), `the club's beacon ${source}; the round at judgeBy ${want ?? 'unknown'}; decide's beaconRound ${named ?? 'none'}, FallbackTriggered's ${takeover ?? 'none'}, both operators' ${rounds.join(' and ')}; HoldbackRules verified its BLS signature, or decide would have reverted`);
+        r.check("the fallback decision's beacon is drand-quicknet at the fallback's round, the first after judgeBy − 1 + the margin", source === 'drand-quicknet' && want !== null && Number(named) === want && Number(takeover) === want && rounds.every((x) => Number(x) === want), `the club's beacon ${source}; margin ${margin} s; the fallback's round ${want ?? 'unknown'}; decide's beaconRound ${named ?? 'none'}, FallbackTriggered's ${takeover ?? 'none'}, both operators' ${rounds.join(' and ')}; HoldbackRules verified its BLS signature, or decide would have reverted`);
         r.check('the key reaches the buyer on chain', keysToBuyer(deal).length === 1, `${keysToBuyer(deal).length} KeyReleased log(s) to the buyer`);
         paidCheck(r, deal, 'the price reaches the seller on chain', seller, BigInt(price));
         paidCheck(r, deal, 'the adjudication fee goes to the fallback, whose decision settles', fallback, fee);
-        r.check("the primary's bond is freed at the fallback's decision", released(deal, primary.address) === BigInt(price), `BondReleased ${round.amount(released(deal, primary.address))} for ${short(primary.address)}`);
-        r.check("the fallback's bond is freed after the appeal window", released(deal, fallback) === BigInt(price), `BondReleased ${round.amount(released(deal, fallback))} for ${short(fallback)}`);
       } else {
         const actors = decided.map((es) => lc(es.at(-1)?.actor ?? 'none'));
         r.check('the demo fallback adjudicator decides', decided.every((es) => es.at(-1)?.payload?.role === 'fallback') && actors.every((a) => a === fallback), `judgment.decided by ${actors.map(short).join(' / ')}, role ${decided.map((es) => es.at(-1)?.payload?.role ?? 'none').join(' / ')}`);
         // SimChain's beacon is the settlement layer's own clock, not drand: the drand proof is checked on a chain.
-        r.check(`the fallback decision's beacon is ${source} at the round of judgeBy`, want !== null && rounds.every((x) => Number(x) === want), `the round at judgeBy ${want ?? 'unknown'}; both operators' judgment.decided ${rounds.join(' and ')}; drand quicknet is checked on a chain`);
+        r.check(`the fallback decision's beacon is ${source} at the fallback's round, the first after judgeBy − 1 + the margin`, want !== null && rounds.every((x) => Number(x) === want), `the fallback's round ${want ?? 'unknown'} (margin ${margin} s); both operators' judgment.decided ${rounds.join(' and ')}; drand quicknet is checked on a chain`);
       }
     },
   },
@@ -289,7 +297,7 @@ export const SILENT: Scenario[] = [
       const { round } = r;
       const [buyer, seller] = [round.address('buyer'), round.address('seller')];
       const price = priceFor(r);
-      const primary = await adjudicator(r, 'adjudicator-1', price);
+      const primary = await adjudicator(r, 'adjudicator-1');
       let deal!: Deal;
       let late = '';
       await withSilent(r, primary, async (serving) => {
@@ -318,12 +326,10 @@ export const SILENT: Scenario[] = [
       r.check('the buyer pays the price and the operator fee; the adjudication fee comes back', delta(deal.record, buyer) === -(BigInt(price) + (deal.operatorFee ?? 0n)), `buyer ${round.amount(delta(deal.record, buyer))}; adjudication fee ${round.amount(fee)}`);
       settledChecks(r, deal, 'Released');
       if (round.chain) {
-        r.check("dealOf's appeal state is closed (no appeal follows an early accept)", deal.record.chain?.appeal === 'closed', deal.record.chain?.appeal ?? 'unread');
         r.check('the key reaches the buyer on chain', keysToBuyer(deal).length === 1 && Number(keysToBuyer(deal)[0]!.args.path) === 1, `${keysToBuyer(deal).length} KeyReleased log(s) to the buyer, path ${keysToBuyer(deal).map((l) => l.args.path).join(', ') || 'none'} (1 is the early accept)`);
         r.check('no Decided log', logsOf(deal.record, 'Decided').length === 0, `${logsOf(deal.record, 'Decided').length} log(s)`);
         paidCheck(r, deal, 'the price reaches the seller on chain', seller, BigInt(price));
         paidCheck(r, deal, 'the adjudication fee returns to the buyer on chain', buyer, fee);
-        r.check("the primary's bond is freed at the early accept", released(deal, primary.address) === BigInt(price), `BondReleased ${round.amount(released(deal, primary.address))} for ${short(primary.address)}`);
       }
     },
   },
@@ -339,7 +345,7 @@ export const SILENT: Scenario[] = [
       if (!round.chain) throw new Error("SimChain: the round's own adjudicator cannot bond at run time, so its deal would be priced at 0, and a settlement of a price of 0 has no payout to carry; 10b runs on a chain (anvil in the tests, Sepolia live)");
       const [buyer, seller] = [round.address('buyer'), round.address('seller')];
       const price = priceFor(r);
-      const primary = await adjudicator(r, 'adjudicator-1', price);
+      const primary = await adjudicator(r, 'adjudicator-1');
       const total = BigInt(price);
       const share = (total * 6_000n) / 10_000n;
       let deal!: Deal;
@@ -373,7 +379,6 @@ export const SILENT: Scenario[] = [
         r.check('the settlement carries the delivery and releaseKey', settle?.hasDelivery === true && settle?.releaseKey === true, `hasDelivery ${settle?.hasDelivery}, releaseKey ${settle?.releaseKey}`);
         r.check('the key reaches the buyer on chain', keysToBuyer(deal).length === 1 && Number(keysToBuyer(deal)[0]!.args.path) === 2, `${keysToBuyer(deal).length} KeyReleased log(s) to the buyer, path ${keysToBuyer(deal).map((l) => l.args.path).join(', ') || 'none'} (2 is a mutual settlement)`);
         paidCheck(r, deal, 'the seller\'s share reaches it on chain', seller, share);
-        r.check("the primary's bond is freed", released(deal, primary.address) === total, `BondReleased ${round.amount(released(deal, primary.address))} for ${short(primary.address)}`);
       }
     },
   },

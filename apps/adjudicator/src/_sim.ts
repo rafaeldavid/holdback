@@ -201,12 +201,15 @@ export class TestSettlement implements AdjudicatorSettlement {
   /** Every policy a registration ever carried, by hash, as an operator's store keeps them (T-221 review). */
   readonly policies = new Map<string, AdjudicatorPolicy>();
   readonly submitted: Array<AdjudicatorAcceptance | Decision> = [];
+  /** True: it stands in for a chain settlement, which runs core's phase-one profile (ADR-0031 §8). Default: SimChain. */
+  phaseOne = false;
   /** Refuse the next N decision submissions (a transient failure). */
   failNextDecisions = 0;
   /** Throw on the next N record publications (a transient store failure). */
   failNextPublishes = 0;
   /** Throw on the next N appeal expiries (an unreachable settlement layer). */
   failNextExpiries = 0;
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   /** Free bond per adjudicator (lowercase address), as the contract's `freeOf` reads it. Unset: ample. */
   readonly bonds = new Map<string, bigint>();
   readonly sim: RandomnessSource = simBeacon(SIM_SEED, () => this.now());
@@ -241,7 +244,7 @@ export class TestSettlement implements AdjudicatorSettlement {
     return c;
   }
   private apply(c: Case, e: Parameters<typeof step>[1]): Result<unknown, Problem> {
-    const r = step(c.state, e);
+    const r = step(c.state, e, this.phaseOne ? 'phase_one' : 'full');
     if (r.ok) c.state = r.value;
     return r;
   }
@@ -299,6 +302,7 @@ export class TestSettlement implements AdjudicatorSettlement {
     return c.delivery!;
   }
 
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   fileAppeal(id: Hex32, ground?: DecisionTask['appealGround']) {
     const c = this.get(id);
     if ((c.state.kind !== 'Released' && c.state.kind !== 'Refunded') || c.state.via.kind !== 'first_instance') throw new Error('nothing to appeal');
@@ -372,6 +376,7 @@ export class TestSettlement implements AdjudicatorSettlement {
       .map((c) => c.commitment.id);
   }
 
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   async expireAppeal(id: Hex32) {
     if (this.failNextExpiries > 0) {
       this.failNextExpiries--;

@@ -25,7 +25,7 @@ describe('ADR-0018 encodings', () => {
     now = '2026-11-01T10:02:01Z';
     expect(await b.value(round + 1)).not.toBeNull();
   });
-  it('rounds: judgeBy for the fallback; strictly after for the appeal', () => {
+  it('rounds on the sim beacon with no margin: judgeBy for the fallback; strictly after for the appeal', () => {
     expect(roundFor('fallback', '2026-11-01T10:02:00Z', SIM_BEACON)).toBe(simRoundAt('2026-11-01T10:02:00Z'));
     expect(roundFor('appeal', '2026-11-01T10:02:00.999Z', SIM_BEACON)).toBe(simRoundAt('2026-11-01T10:02:00Z') + 1);
   });
@@ -43,6 +43,22 @@ describe('ADR-0018 encodings', () => {
       expect(roundFor('fallback', judgeBy, clock)).toBe(beaconRoundFor(fallback, 'fallback'));
       expect(roundFor('appeal', at, clock)).toBe(beaconRoundFor(escalated, 'appeal'));
     }
+  });
+  // ADR-0032 §3.6, the test that catches a service left without the margin (red team RT-1): the service's roundFor and
+  // core's beaconRoundFor give the same round for every second of 300, for both panels and for margins of 0 and 29 s
+  // on the drand clock. The contract's side of the same rule is the delay property in `contracts/test/unit/BeaconMargin.t.sol`.
+  it("roundFor agrees with core's beaconRoundFor over 300 seconds of drand clock, for margins of 0 and 29 s", () => {
+    for (const margin of [0, 29]) {
+      for (let t = 1_790_000_000; t < 1_790_000_300; t++) {
+        const ts = new Date(t * 1000).toISOString();
+        const fallback = { kind: 'Delivered', beaconSource: 'drand-quicknet', terms: { timing: { judgeBy: ts } } } as unknown as EscrowState;
+        const escalated = { kind: 'Escalated', beaconSource: 'drand-quicknet', escalation: { at: ts } } as unknown as EscrowState;
+        expect(roundFor('fallback', ts, DRAND_QUICKNET, margin)).toBe(beaconRoundFor(fallback, 'fallback', margin));
+        expect(roundFor('appeal', ts, DRAND_QUICKNET, margin)).toBe(beaconRoundFor(escalated, 'appeal', margin));
+      }
+    }
+    expect(roundFor('appeal', '2026-09-21T14:13:20Z', DRAND_QUICKNET, 29)).toBe(32_398_889); // 1,790,000,000 s
+    expect(roundFor('fallback', '2026-09-23T14:13:20Z', DRAND_QUICKNET, 29)).toBe(32_456_489); // judgeBy 1,790,172,800 s
   });
   it("simBeacon matches T-006's SimChain beacon round for round", async () => {
     const cast = simCast('t009-beacon');

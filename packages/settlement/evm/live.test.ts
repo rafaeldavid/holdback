@@ -6,15 +6,15 @@
 // The in-flight rows (T-219) run on anvil with mining held back, so a transaction stays between its broadcast and its
 // receipt for as long as a test needs. A second LiveChain opened on a copy of the rows stands in for the restarted
 // Durable Object. Needs `anvil` on PATH and `forge build` output in contracts/out.
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { holdbackDomain, type Hex32 } from '@holdback/core';
-import { decodeFunctionData, encodeFunctionResult, keccak256, parseTransaction, stringToBytes, type Hex } from 'viem';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { decodeFunctionData, encodeFunctionResult, getAddress, keccak256, parseTransaction, stringToBytes, type Hex } from 'viem';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LaneRow, RelayNote } from './chain.js';
-import { domainMismatch, laneOf, LIVE_ABIS, LiveChain, type DeploymentFile, type LaneStore } from './live.js';
+import { ACCEPTED_TOKENS, domainMismatch, laneOf, LIVE_ABIS, LiveChain, tokenMismatch, type DeploymentFile, type LaneStore } from './live.js';
 import { anvilAvailable, EvmWorld } from './world.js';
 
 const RULES = '0x00000000000000000000000000000000000000a1';
@@ -30,24 +30,30 @@ const deployment: DeploymentFile = {
   permit2Collector: addr(3),
   multicall: addr(4),
   rules: RULES,
-  bonds: addr(5),
   beacon: addr(6),
   expiryMarginSec: 86_400,
 };
 
 /** What the stub's rules contract answers for eip712Domain(). */
 let onChain = { name: 'Holdback', version: '0.6' };
+let onChainMargin = 0n;
+/** The stub chain's ID, its rules contract's TOKEN(), and the addresses that hold no code (T-383). */
+let stubChainId = 31337;
+let onChainToken: string = deployment.token.address;
+const noCode = new Set<string>();
 
 function answer(method: string, params: unknown[]): unknown {
-  if (method === 'eth_chainId') return '0x7a69';
-  if (method === 'eth_getCode') return '0x6080';
+  if (method === 'eth_chainId') return `0x${stubChainId.toString(16)}`;
+  if (method === 'eth_getCode') return noCode.has(String(params[0]).toLowerCase()) ? '0x' : '0x6080';
   if (method === 'eth_call') {
     const call = params[0] as { data?: Hex; input?: Hex };
     const { functionName } = decodeFunctionData({ abi: LIVE_ABIS.rules, data: (call.data ?? call.input)! });
     if (functionName === 'eip712Domain') {
-      return encodeFunctionResult({ abi: LIVE_ABIS.rules, functionName, result: ['0x0f', onChain.name, onChain.version, 31337n, RULES, `0x${'00'.repeat(32)}`, []] });
+      return encodeFunctionResult({ abi: LIVE_ABIS.rules, functionName, result: ['0x0f', onChain.name, onChain.version, BigInt(stubChainId), RULES, `0x${'00'.repeat(32)}`, []] });
     }
+    if (functionName === 'TOKEN') return encodeFunctionResult({ abi: LIVE_ABIS.rules, functionName, result: onChainToken as Hex });
     if (functionName === 'EXPIRY_MARGIN') return encodeFunctionResult({ abi: LIVE_ABIS.rules, functionName, result: 86_400n });
+    if (functionName === 'BEACON_MARGIN') return encodeFunctionResult({ abi: LIVE_ABIS.rules, functionName, result: onChainMargin });
   }
   throw new Error(`the stub does not answer ${method}`);
 }
@@ -82,7 +88,7 @@ describe('LiveChain refuses a rules contract under another EIP-712 domain (ADR-0
 
   it('refuses the deployed 0.6 contract with a message that names the redeploy', async () => {
     onChain = { name: 'Holdback', version: '0.6' };
-    await expect(chainOf().verify()).rejects.toThrow(/signs under EIP-712 domain "Holdback" 0\.6, this build under "Holdback" 0\.7: every message would revert BadSignature\. Deploy the 0\.7 contracts/);
+    await expect(chainOf().verify()).rejects.toThrow(/signs under EIP-712 domain "Holdback" 0\.6, this build under "Holdback" 0\.8: every message would revert BadSignature\. Deploy the 0\.8 contracts/);
   });
 
   it("starts against a contract under core's domain", async () => {
@@ -90,9 +96,106 @@ describe('LiveChain refuses a rules contract under another EIP-712 domain (ADR-0
     await expect(chainOf().verify()).resolves.toBeUndefined();
   });
 
+  // ADR-0032 (T-380): the fallback and escalation rounds add the contract's BEACON_MARGIN. A deployment file that states
+  // another margin would ask the adjudicators for rounds the contract refuses, so the chain does not start.
+  it("refuses a deployment file whose beacon margin is not the contract's", async () => {
+    onChain = { name: 'Holdback', version: holdbackDomain(31337).version };
+    onChainMargin = 29n;
+    try {
+      await expect(chainOf().verify()).rejects.toThrow(/BEACON_MARGIN is 29, the deployment file says 0/);
+      await expect(new LiveChain({ deployment: { ...deployment, beaconMarginSec: 29 }, rpcUrls: [rpc], relayerKey: RELAYER }).verify()).resolves.toBeUndefined();
+    } finally {
+      onChainMargin = 0n;
+    }
+  });
+
+  it('refuses a beacon margin that is not whole non-negative seconds before it reads the chain', () => {
+    for (const bad of ['29', 29.5, -1, '0x1d']) {
+      expect(() => new LiveChain({ deployment: { ...deployment, beaconMarginSec: bad as never }, rpcUrls: [rpc], relayerKey: RELAYER })).toThrow(/beaconMarginSec must be whole non-negative seconds/);
+    }
+  });
+
   it('compares the name too', () => {
-    expect(domainMismatch({ name: 'Other', version: '0.7' }, holdbackDomain(31337))).toMatch(/"Other" 0\.7/);
-    expect(domainMismatch({ name: 'Holdback', version: '0.7' }, holdbackDomain(31337))).toBeNull();
+    expect(domainMismatch({ name: 'Other', version: '0.8' }, holdbackDomain(31337))).toMatch(/"Other" 0\.8/);
+    expect(domainMismatch({ name: 'Holdback', version: '0.8' }, holdbackDomain(31337))).toBeNull();
+  });
+
+  // T-383: one token, three ways. The table (accepted-tokens.json), the deployment file and TOKEN() must agree, and
+  // the token must hold code. A local chain has no table entry and skips that one comparison.
+  describe('the token (T-383)', () => {
+    const sepoliaToken = ACCEPTED_TOKENS['11155111']!.address;
+    const onSepolia = (address: string): DeploymentFile => ({ ...deployment, chainId: 11155111, token: { ...deployment.token, address } });
+    beforeEach(() => {
+      onChain = { name: 'Holdback', version: holdbackDomain(31337).version };
+    });
+    afterEach(() => {
+      stubChainId = 31337;
+      onChainToken = deployment.token.address;
+      noCode.clear();
+    });
+
+    it("refuses a deployment file whose token is not the rules contract's TOKEN(), naming both", async () => {
+      onChainToken = addr(0xdead);
+      await expect(chainOf().verify()).rejects.toThrow(`the rules contract's TOKEN() is ${getAddress(addr(0xdead))}, the deployment file says ${getAddress(addr(0xbeef))}`);
+    });
+
+    it('refuses a token address that holds no code', async () => {
+      noCode.add(addr(0xbeef));
+      await expect(chainOf().verify()).rejects.toThrow(/no contract at the token address 0x0{36}BeEF on chain 31337: no deal could fund/i);
+    });
+
+    it("on Sepolia, refuses a deployment file and a chain that agree on a token the table does not name, naming both", async () => {
+      stubChainId = 11155111;
+      onChainToken = addr(0xbeef);
+      await expect(new LiveChain({ deployment: onSepolia(addr(0xbeef)), rpcUrls: [rpc], relayerKey: RELAYER }).verify()).rejects.toThrow(
+        `the deployment file's token is ${getAddress(addr(0xbeef))}, but Crow's operators accept ${sepoliaToken} (tUSDC) on chain 11155111`,
+      );
+    });
+
+    it("on Sepolia, refuses a chain whose TOKEN() is not the table's when the file names the table's", async () => {
+      stubChainId = 11155111;
+      onChainToken = addr(0xbeef);
+      await expect(new LiveChain({ deployment: onSepolia(sepoliaToken), rpcUrls: [rpc], relayerKey: RELAYER }).verify()).rejects.toThrow(`the rules contract's TOKEN() is ${getAddress(addr(0xbeef))}, the deployment file says ${sepoliaToken}`);
+    });
+
+    it("on Sepolia, starts when the table, the file and TOKEN() name one token, in any letter case", async () => {
+      stubChainId = 11155111;
+      onChainToken = sepoliaToken.toLowerCase();
+      await expect(new LiveChain({ deployment: onSepolia(sepoliaToken), rpcUrls: [rpc], relayerKey: RELAYER }).verify()).resolves.toBeUndefined();
+    });
+
+    it("the mainnet entry is data only: a mainnet deployment is still refused before any read", () => {
+      expect(ACCEPTED_TOKENS['1']!.address).toBe('0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48');
+      expect(() => new LiveChain({ deployment: { ...deployment, chainId: 1, token: { ...deployment.token, address: ACCEPTED_TOKENS['1']!.address } }, rpcUrls: [rpc], relayerKey: RELAYER })).toThrow(/mainnet/);
+    });
+
+    it('Sepolia must have an entry, and an entry must name an address (review of PR 423)', () => {
+      expect(tokenMismatch(11155111, sepoliaToken, sepoliaToken, {})).toMatch(/accept no token on chain 11155111/);
+      expect(tokenMismatch(31337, addr(0xbeef), addr(0xbeef), { '31337': { symbol: 'tUSDC', decimals: 6 } as never })).toMatch(/entry for chain 31337 names no address/);
+    });
+
+    it('a chain with no entry skips the table', () => {
+      expect(ACCEPTED_TOKENS['31337']).toBeUndefined();
+      expect(tokenMismatch(31337, addr(0xbeef), addr(0xbeef).toUpperCase().replace('0X', '0x'))).toBeNull();
+    });
+
+    // T-383 item 3: no new probe for an old world. The lane's build pointed at the 0.7 deployment (64be1f1, live since
+    // 2026-11-04) refuses at start, before any token or margin read, and the error names the domain. The record is read
+    // from the repository: sepolia.json until the cutover, its dated copy after it.
+    it('refuses the 0.7 deployment record by its domain, and names it', async () => {
+      const dir = join(import.meta.dirname, '..', '..', '..', 'contracts', 'deployments');
+      const old = readdirSync(dir)
+        .filter((f) => /^sepolia.*\.json$/.test(f))
+        .map((f) => JSON.parse(readFileSync(join(dir, f), 'utf8')) as DeploymentFile & { commit?: string })
+        .find((r) => r.commit === '64be1f176ab45cca94a2cd398981c2a6664bc98a');
+      expect(old, 'no record of the 64be1f1 deployment in contracts/deployments').toBeDefined();
+      stubChainId = 11155111;
+      onChain = { name: 'Holdback', version: '0.7' };
+      onChainToken = '0x0000000000000000000000000000000000000000'; // the 0.7 contracts have no TOKEN(); it must not be read
+      const refused = await new LiveChain({ deployment: old!, rpcUrls: [rpc], relayerKey: RELAYER }).verify().then(() => null, (e: Error) => e.message);
+      expect(refused).toMatch(/signs under EIP-712 domain "Holdback" 0\.7, this build under "Holdback" 0\.8: every message would revert BadSignature\. Deploy the 0\.8 contracts/);
+      expect(refused).toContain(`(rules contract ${getAddress(old!.rules)} on chain 11155111)`);
+    });
   });
 });
 
@@ -171,10 +274,8 @@ describe.skipIf(!ready)(`LiveChain's in-flight rows on anvil (T-219)${ready ? ''
       token: { address: d.token, name: anvil.tokenDomain.name, version: anvil.tokenDomain.version, symbol: 'tUSDC', decimals: 6 },
       escrow: d.escrow,
       erc3009Collector: d.erc3009Collector,
-      permit2Collector: d.permit2Collector,
       multicall: d.multicall,
       rules: d.rules,
-      bonds: d.bonds,
       beacon: d.beacon,
       expiryMarginSec: Number(anvil.expiryMargin),
     };

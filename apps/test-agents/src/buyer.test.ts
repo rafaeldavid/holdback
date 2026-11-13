@@ -1,6 +1,6 @@
 // Crow's test buyer against the public demo's own world, served on two origins in this process: an outside seller's
 // agent reads the buyer's card, offers on Crow naming the buyer, and posts the commitment ID to the buyer's intake,
-// over HTTP only, as site/llms.txt "Sell to Crow's test buyer" describes.
+// over HTTP only, as site/ref/intake.txt, "Sell to Crow's test buyer", describes.
 import { MemoryStorage } from '@holdback/demo-cloud';
 import nacl from 'tweetnacl';
 import type { Hex } from 'viem';
@@ -17,7 +17,7 @@ const BASE = 'https://crow.direct/agents/test-buyer';
 const pin = knownPins()[0]!; // SimChain, as the in-process world settles
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const PRICE = { token: pin.token.id, amount: '25000000' };
-const TIMING = { offerExpiresInSec: 600, fundWithinSec: 900, deliverWithinSec: 1200, judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 60, appealDecideSec: 60 };
+const TIMING = { offerExpiresInSec: 600, fundWithinSec: 900, deliverWithinSec: 1200, judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 0, appealDecideSec: 60 };
 /** An address on a port nobody listens on: an operator that is offline. */
 const OFFLINE = 'http://127.0.0.1:9';
 
@@ -58,7 +58,7 @@ async function freshSeller(world = demo): Promise<Agent> {
   return seller;
 }
 
-/** The outside seller's side: read the buyer's card and discovery, offer on Crow naming the buyer, as section 5 does. */
+/** The outside seller's side: read the buyer's card and discovery, offer on Crow naming the buyer, as site/ref/http-seller.txt ("Offer") does. */
 async function offerTo(s: Started, seller: Agent, over: J = {}): Promise<{ id: Hex; terms: J }> {
   const card = await (await s.call('/agent.json')).json();
   const found = await seller.trusted('/.well-known/holdback.json', (x) => ({ clubId: x.demo.clubId, adjudicators: x.demo.adjudicators }));
@@ -191,7 +191,8 @@ describe("Crow's test buyer", () => {
       [{ checks: [{ id: 'cols', type: 'csv_columns_exact', required: false, columns: ['customer_id', 'email'] }] }, 'accepts.checks.requiredAtLeast'],
       // A minute over the day: the window counts from settlement time at the post, a few seconds after createdAt.
       [{ timing: { ...TIMING, deliverWithinSec: 86_460, fundWithinSec: 900 } }, 'accepts.windows.maxDeliverWithinSec'],
-      [{ timing: { ...TIMING, appealWindowSec: 3601 } }, 'accepts.windows.maxJudgingSec'],
+      // Phase one states an appeal window of 0, so the escalation's window is the one a seller can stretch.
+      [{ timing: { ...TIMING, appealDecideSec: 3601 } }, 'accepts.windows.maxJudgingSec'],
     ];
     for (const [over, rule] of cases) {
       const { id } = await offerTo(s, seller, over);
@@ -224,6 +225,8 @@ describe("Crow's test buyer", () => {
     expect(checkTerms(id, { ...terms, price: { ...terms.price, amount: '1' } }, ctx)?.rule).toBe('commitmentId');
     expect(check({ ...terms, acceptance: { ...terms.acceptance, deterministicChecks: [{ id: 'x', type: 'run_script', required: true, script: 'rm -rf /' }] } })).toBe('accepts.checks.types');
     expect(check({ ...terms, acceptance: { ...terms.acceptance, deterministicChecks: [] } })).toBe('accepts.checks.min');
+    // ADR-0033 §6 (T-378): the test buyer pays from its signing address and refuses terms that name another payer.
+    expect(check({ ...terms, buyerPaymentAddress: `0x${'a1'.repeat(20)}` })).toBe('buyerPaymentAddress');
     expect(check({ ...terms, acceptance: { ...terms.acceptance, rubric: { criteria: [{ id: 'q', text: 'is it good' }], passThreshold: 1 } } })).toBe('accepts.template');
     await s.stop();
   });

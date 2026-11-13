@@ -17,8 +17,12 @@ const cases: Array<[Operation, string, string[]]> = [
   [{ kind: 'deliver', delivery: m('x') }, `/v1/commitments/${ID}/deliveries`, ['deliver']],
   [{ kind: 'early_accept', message: m('EarlyAccept') }, `/v1/commitments/${ID}/accept`, ['early_accept']],
   [{ kind: 'decide', message: m('Decision') }, `/v1/commitments/${ID}/decisions`, ['decide']],
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   [{ kind: 'appeal', appeal: m('x') }, `/v1/commitments/${ID}/appeals`, ['appeal']],
   [{ kind: 'settle', message: m('MutualSettlement') }, `/v1/commitments/${ID}/settlements`, ['mutual_settle']],
+  // T-378: the late work's delivery travels beside the settlement and reaches the settlement layer with it (SC-5b).
+  [{ kind: 'settle', message: m('MutualSettlement'), delivery: m('x') }, `/v1/commitments/${ID}/settlements`, ['mutual_settle']],
+  // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
   [{ kind: 'trigger', commitmentId: ID, timeout: 'appeal_expiry' }, `/v1/commitments/${ID}/triggers/appeal-expiry`, ['trigger']],
 ];
 
@@ -30,6 +34,17 @@ describe('operations', () => {
     // The operator parses the same request back into the same operation.
     const back = operationOf(path.split('/').filter(Boolean), req.body);
     expect(back.ok && submissionsOf(back.value)).toEqual(submissionsOf(op));
+  });
+
+  it('a settlement carries its late delivery as `delivery` beside its own fields, and the submission takes it (T-378)', () => {
+    const op: Operation = { kind: 'settle', message: m('MutualSettlement'), delivery: m('x', { attempt: 1 }) };
+    const req = requestOf(op);
+    expect(req.body).toMatchObject({ type: 'MutualSettlement', delivery: { type: 'x', attempt: 1 } });
+    expect(submissionsOf(op)).toEqual([{ kind: 'mutual_settle', message: m('MutualSettlement'), delivery: m('x', { attempt: 1 }) }]);
+    const back = operationOf(['v1', 'commitments', ID, 'settlements'], req.body);
+    expect(back.ok && back.value).toEqual(op);
+    const bad = operationOf(['v1', 'commitments', ID, 'settlements'], { ...(m('MutualSettlement') as object), delivery: 'late' });
+    expect(bad.ok || bad.error.type).toBe('invalid_terms');
   });
 
   it('refuses a body whose commitment does not match the path', () => {

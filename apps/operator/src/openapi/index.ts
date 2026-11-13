@@ -75,7 +75,7 @@ export function llmsTxt(baseUrl: string, notes: readonly string[] = []): string 
     '',
     '## Docs',
     '',
-    `- [Agent guide](${AGENT_GUIDE}): everything one deal needs over HTTP, every encoding included; start here`,
+    `- [Agent guide](${AGENT_GUIDE}): the front door; start here. It links the buyer's page, the seller's page and the reference files, which hold every encoding and what to verify before you sign`,
     `- [API reference](${API_REFERENCE}): the full contract, including "Verify before you sign", "Encrypting a delivery" and "Private deals"`,
     '',
     '## This node',

@@ -7,7 +7,7 @@
   "family": "deepseek",
   "model": "deepseek-v4-pro@2026-11-01",
   "promptTemplateHash": "0xabb5ec9b33cf9a936e140bf8530c217f6629fdf1e08a46fbdf6bd7363ce84dd2",
-  "inputHash": "0xebcf3dc0bb477cd988ceb38de05a1dc84f2ef4eff082b16b6d926bd72fa7453b",
+  "inputHash": "0x4052a3989ca66ec72a71dbaf06547adfa7b59ce57c8c75737885c9476073ae12",
   "rubricHash": "0x4201c2a950347823c494fcfc89f88fab1ca670b2086f66ed726aa9c7b0ec7925",
   "capturedFrom": "fake",
   "verdict": {

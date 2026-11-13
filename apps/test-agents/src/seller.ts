@@ -3,7 +3,7 @@
 // only what it prepared and checked itself (examples/agent.ts, examples/verify.ts), and holds its own keys, derived
 // from one Sepolia-only secret (keys.ts). The operators give it nothing they would not give any agent.
 //
-// It follows the agent intake convention in site/llms.txt ("Two agents, two people"): the buyer's agent stores its
+// It follows the agent intake convention in site/ref/intake.txt ("Two agents, two people"): the buyer's agent stores its
 // sealed proposal on Crow, sends the pointer and the sealed key here, and reads the commitment ID back with its
 // status token. The seller opens the proposal, offers its catalog terms on Crow from its one standing address (the
 // proposed terms mean yes; another price or other checks get the catalog terms as a counter-offer; other work is
@@ -166,7 +166,7 @@ export class TestSeller {
 
   /**
    * What the buyer pays on top of the price, as the operators serve it now: the primary adjudicator's fee and the
-   * operator's fee (site/llms.txt, section 6). Null when the operators cannot be read.
+   * operator's fee (site/ref/http-buyer.txt, "Check the offer, agree and fund"). Null when the operators cannot be read.
    */
   private async fees(): Promise<J | null> {
     try {
@@ -181,7 +181,7 @@ export class TestSeller {
     }
   }
 
-  /** The intake document (site/llms.txt, "Agent intake"), with the one offer this seller makes. Cached 5 minutes. */
+  /** The intake document (site/ref/intake.txt, "Two agents, two people"), with the one offer this seller makes. Cached 5 minutes. */
   async agentCard(): Promise<J> {
     const now = this.now();
     if (this.card && now - this.card.at < 5 * MIN) return this.card.value;
@@ -228,7 +228,7 @@ export class TestSeller {
 <h1>Crow's test seller</h1>
 <p><strong>Test tokens only.</strong> This agent sells one test dataset on Crow's Sepolia test environment, in tUSDC, an open-mint test token worth nothing.</p>
 <p>It sells 3 rows of <code>customer_id,email</code> for 25 tUSDC on a checks-only deal: the columns, the row count (3) and unique IDs decide. ${fees} To see a refund, put <code>"test": {"outcome": "refund"}</code> in your proposal: it then delivers 2 rows, the rows check fails, and the price comes back; the two fees do not, and no key is released.</p>
-<p>To buy, follow "Try it" in <a href="https://crow.direct/llms.txt">https://crow.direct/llms.txt</a>, or send a request as its "Two agents, two people" describes. Every offer comes from <code>${card.seller}</code>: check the seller in the terms against it. Unlike a person's intake, this page lists its address, because a public test seller has nothing to hide between deals.</p>
+<p>To buy, follow "Try it: one test deal" in <a href="https://crow.direct/llms.txt">https://crow.direct/llms.txt</a>, or send a request as "Two agents, two people" in <a href="https://crow.direct/ref/intake.txt">https://crow.direct/ref/intake.txt</a> describes. Every offer comes from <code>${card.seller}</code>: check the seller in the terms against it. Unlike a person's intake, this page lists its address, because a public test seller has nothing to hide between deals.</p>
 <p>Crow's maintainers run both the operators and this seller. It holds its own keys and uses only the operators' public API, but it is not an independent business.</p>
 <p>Limits: ${l.perClientPerHour} requests per IP address an hour and ${l.perClientPerDay} a day; ${l.perHour} offers an hour and ${l.perDay} a day in all; ${l.open} in progress at once. When it is busy, it answers 429 with when to retry.</p>
 </body></html>
@@ -500,7 +500,8 @@ export class TestSeller {
       await this.s.put({ recent: [...((await this.s.get<number[]>('recent')) ?? []).filter((t) => now - t < DAY), now] });
       await this.ensureMandate(found.clubId, settlement);
       const request = {
-        nonce: freshNonce(), disclosure: 'public', template: 'checks-only', clubId: found.clubId, seller: a.address,
+        // ADR-0033 §7: the test seller is paid at its signing address, named so the terms say it and no notice is needed.
+        nonce: freshNonce(), disclosure: 'public', template: 'checks-only', clubId: found.clubId, seller: a.address, sellerPayoutAddress: a.address,
         buyer: { address: want.buyer, encryptionPublicKey: want.encryptionPublicKey }, adjudicators, price: this.price, deliverable: DELIVERABLE, checks: CHECKS, timing: this.timing,
       };
       const prepared = await a.call('POST', '/v1/prepare/offer', request);

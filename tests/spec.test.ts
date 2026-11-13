@@ -10,7 +10,7 @@ let exampleResults: ReturnType<typeof validateExamplesFresh> | undefined;
 const loadSpec = () => (spec ??= loadSpecFresh());
 const validateExamples = () => (exampleResults ??= validateExamplesFresh(loadSpec()));
 
-const V = 'https://holdback.dev/schemas/v0.10';
+const V = 'https://holdback.dev/schemas/v0.11';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const example = (name: string): any => structuredClone(loadSpec().examples.find((e: { name: string }) => e.name === name).data);
 
@@ -74,15 +74,37 @@ describe('spec/', () => {
 
   // ADR-0023 and ADR-0024: v0.7 and v0.8 were additive and kept the signed encoding at 0.6. ADR-0029: v0.9 changes
   // EarlyAccept and Decision, so the EIP-712 domain version and commitment.schemaVersion move to 0.7. ADR-0030: v0.10
-  // adds AdjudicatorRegistration, a new type, and keeps both at 0.7.
-  it('moves every schema $id to v0.10 and keeps the commitment schemaVersion at 0.7', () => {
+  // adds AdjudicatorRegistration, a new type, and keeps both at 0.7. ADR-0033: v0.11 adds the buyer's payment address
+  // and the seller's payout address to the terms, so both move to 0.8.
+  it('moves every schema $id to v0.11 and the commitment schemaVersion to 0.8', () => {
     const { schemas, ajv } = loadSpec();
-    for (const id of schemas.values()) expect(id).toMatch(/\/schemas\/v0\.10\//);
+    for (const id of schemas.values()) expect(id).toMatch(/\/schemas\/v0\.11\//);
     const validate = ajv.getSchema(`${V}/commitment.schema.json`);
     const c = example('commitment');
-    expect(c.schemaVersion).toBe('0.7');
-    c.schemaVersion = '0.6';
+    expect(c.schemaVersion).toBe('0.8');
+    c.schemaVersion = '0.7';
     expect(validate(c)).toBe(false);
+  });
+
+  // ADR-0033: both money addresses are required; an appeal window of 0 is valid (§2b), and a rulebook may take it.
+  it.each(['buyerPaymentAddress', 'sellerPayoutAddress'])('refuses a commitment without %s', (field) => {
+    const validate = loadSpec().ajv.getSchema(`${V}/commitment.schema.json`)!;
+    const c = example('commitment');
+    expect(validate(c)).toBe(true);
+    delete c[field];
+    expect(validate(c)).toBe(false);
+  });
+
+  it('takes an appeal window of 0 in a commitment and a rulebook minimum of 0', () => {
+    const { ajv } = loadSpec();
+    const c = example('commitment');
+    expect(c.timing.appealWindowSec).toBe(0);
+    expect(ajv.getSchema(`${V}/commitment.schema.json`)!(c)).toBe(true);
+    c.timing.appealWindowSec = -1;
+    expect(ajv.getSchema(`${V}/commitment.schema.json`)!(c)).toBe(false);
+    const club = example('club');
+    expect(club.rulebook.minWindowsSec.appealWindow).toBe(0);
+    expect(ajv.getSchema(`${V}/club.schema.json`)!(club)).toBe(true);
   });
 
   // ADR-0029: every message that pays or judges, and the judgment record, names the delivery it settles.
@@ -456,6 +478,7 @@ describe('spec/', () => {
       ['commitment.offered', 'termsHash'],
       ['commitment.agreed', 'termsHash'],
       ['judgment.decided', 'recordHash'],
+      // Not in phase one: the spec keeps the appeal event for SimChain's full protocol (ADR-0031).
       ['appeal.decided', 'recordHash'],
     ])('%s always carries %s, with the body optional', (type, field) => {
       const validate = schema('event');
@@ -505,8 +528,8 @@ describe('spec/', () => {
 
   describe('review of PR 23: items 4, 5, 7 and 8', () => {
     const schema = (name: string) => loadSpec().ajv.getSchema(`${V}/${name}.schema.json`);
-    it('describes messages under domain version 0.7', () => {
-      expect(schema('messages').schema.description).toContain('version 0.7');
+    it('describes messages under domain version 0.8', () => {
+      expect(schema('messages').schema.description).toContain('version 0.8');
       expect(schema('messages').schema.description).not.toContain('0.5');
     });
     it.each([
@@ -553,6 +576,7 @@ describe('spec/', () => {
       ['adjudicator without a pool', 'adjudicator', 'adjudicator', (a) => delete a.pool],
       ['pool terms with an extra field', 'adjudicator', 'adjudicator', (a) => (a.pool.terms.extra = 1)],
       ['pool terms without noticePeriodSec', 'adjudicator', 'adjudicator', (a) => delete a.pool.terms.noticePeriodSec],
+      // Not in phase one: the spec keeps the bond event for SimChain's full protocol (ADR-0031).
       ['a bond.slashed event without per-tranche amounts', 'event', 'event.bond-slashed', (e) => delete e.payload.senior],
       ['a bond.slashed event with an unknown reason', 'event', 'event.bond-slashed', (e) => (e.payload.reason = 'whim')],
       ['an unknown event type', 'event', 'event', (e) => (e.type = 'bond.borrowed')],

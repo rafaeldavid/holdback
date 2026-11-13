@@ -26,6 +26,7 @@
     "sim:brief": "node tools/sim/bin/brief.ts",
     "sim:check": "tsc -b tools/sim && node tools/sim/bin/check.ts",
     "sim:stop": "node tools/sim/bin/stop.ts",
+    "duet": "tsc -b apps/operator examples && node tools/duet/duet.ts",
     "demo-cloud:dev": "node apps/demo-cloud/scripts/dev.mjs",
     "demo-cloud:e2e": "node apps/demo-cloud/scripts/dev.mjs --deal",
     "demo-cloud:deploy": "node apps/demo-cloud/scripts/deploy.mjs",

@@ -12,13 +12,13 @@ Atlas holds $2,050, enough for one $2,000 job plus its $50 fee. Tidewater offers
 | Prefix | error. (the system must refuse a step; invariants hold) |
 | Settlement | SimChain (T-006) driving @holdback/core `step` |
 | Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0xd136…9300 |
-| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
+| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0xd9bc…492d |
 | Buyer | atlas-buyer 0x0ECF…C423 |
 | Seller | tidewater-seller 0xf642…E0c4 |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x3074…d82b · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0xfafd…8bc3 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0x8886…141e · fallback bench-b 0xc57C…9376 · appeal bench-c 0x0138…591B |
 | Operators | op-1 · op-2 |
-| Commitment #2 | same terms, new nonce · commitment 0x570a…0b63 |
+| Commitment #2 | same terms, new nonce · commitment 0xc850…86ce |
 
 ## Timeline
 
@@ -50,7 +50,7 @@ Refusals:
 
 ## Receipts and log
 
-- Events 0–6. Chain head 0xa4cd…5973. Replay of 7 SimChain submissions from genesis matches the settlement state.
+- Events 0–6. Chain head 0x9dd1…883c. Replay of 7 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 7 (rcpt-0001–rcpt-0007). The runner labels them without signing; the operator API signs real receipts.
 
 ## Invariants

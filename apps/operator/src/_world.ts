@@ -54,6 +54,7 @@ export function asOperation(s: Submission): Operation {
     case 'decide':
       return { kind: 'decide', message: s.message };
     case 'appeal':
+      // SimChain only: party appeals and bonds stay in the full protocol (ADR-0031 §8).
       return { kind: 'appeal', appeal: s.appeal };
     case 'mutual_settle':
       return { kind: 'settle', message: s.message };

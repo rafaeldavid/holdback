@@ -20,7 +20,7 @@
 //   when to set its alarm, so an idle world, or one woken by a plain read, costs no alarm;
 // - any agent registers its own adjudicator at POST /v1/adjudicators (ADR-0030, T-221), one row `ar:<address>` each,
 //   never removed. The three demo adjudicators register the same way when the world opens, signed by their own keys,
-//   and are the defaults for any role an offer leaves out. Bonds are read live, HoldbackBonds' on a chain.
+//   and are the defaults for any role an offer leaves out. Bonds are read live on SimChain; a chain holds none (ADR-0031 §8).
 // No real money: SimChain (chain id 31337), the test token tUSD, and the operators' startup guards.
 //
 // On Sepolia (D41, ADR-0028; option `live`), the same world settles on the HoldbackRules contracts through
@@ -28,7 +28,8 @@
 // on; the world keeps what the chain does not (the signed offer, acceptance and agreement before funding, the
 // adjudicators' envelopes) and the event log. It persists each commitment's book and the log in pages, so a restart
 // reads one row per commitment and one per 64 events, and replays nothing. The relayer key pays gas for what the
-// operators relay; the faucet mints test tUSDC on chain (D42); the three adjudicators keep their own bonds in HoldbackBonds.
+// operators relay; the faucet mints test tUSDC on chain (D42). The phase-one contracts take no party appeal and hold no
+// bond (ADR-0031 §8): the demo adjudicators accept with bondReserved 0, and a first decision is final at once.
 // Each pass reads the rules contract's logs from a stored cursor (ChainSync, T-218), so a call a party sent straight
 // to the contract shows in the view too; a pass runs at least once a minute while any deal is open. Each relayer
 // lane's in-flight row (T-219, lanes.ts) survives a restart between a broadcast and its receipt: the next pass lands
@@ -36,9 +37,9 @@
 // quicknet, which the rules contract verifies, and the demo adjudicators read its rounds from the public relays (T-217,
 // T-220). One world lives through rulebook, schema and code changes; only a new rules contract needs a new one (D49).
 // After the adjudicators, each pass sends the deals' due timeouts at the relayer's gas (T-231): the reclaim, the
-// default, the appeal expiry and an accepted offer's expiry, so a deal ends when its parties are gone. A cap per pass
+// default and an accepted offer's expiry, so a deal ends when its parties are gone. A cap per pass
 // and a daily budget bound what that spends, and the alarm wakes at the next one due.
-import { canonicalKeccak, DRAND_QUICKNET_CHAIN_HASH, holdbackDomain, problem, registrationBodyHash, trimTrailingSlashes, wholeSecond, type AdjudicatorPolicy, type AdjudicatorRegistration, type AdjudicatorRole, type Address, type EscrowState, type HoldbackDomain, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Problem, type RegisteredAdjudicator, type SettlementEvent, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
+import { beaconClockOf, beaconRoundFor, canonicalKeccak, DRAND_QUICKNET_CHAIN_HASH, holdbackDomain, problem, registrationBodyHash, trimTrailingSlashes, wholeSecond, type AdjudicatorPolicy, type AdjudicatorRegistration, type AdjudicatorRole, type Address, type EscrowState, type HoldbackDomain, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Problem, type RegisteredAdjudicator, type SettlementEvent, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import { StoreError, type CiphertextStore } from '@holdback/core/store';
 import { declinesOf, drandQuicknet, testAdjudicator, type RandomnessSource, type RunReport, type KeptPolicies, type TestAdjudicator } from '@holdback/adjudicator';
@@ -64,9 +65,8 @@ import {
   type TestAccount,
 } from '@holdback/operator';
 import { decodePublicKey } from '@holdback/core/crypto';
-import { ChainSync, ensureBond, EvmSettlement, OperatorTimeouts, rebindToken, RelayRefused, type Book, type Cursor, type LiveChain, type RecoverReport, type SyncReport, type TimeoutBudget, type TimeoutReport } from '@holdback/settlement/live';
+import { ChainSync, EvmSettlement, OperatorTimeouts, rebindToken, RelayRefused, type Book, type Cursor, type LiveChain, type RecoverReport, type SyncReport, type TimeoutBudget, type TimeoutReport } from '@holdback/settlement/live';
 import type { TimeoutKind } from '@holdback/settlement';
-import { privateKeyToAccount } from 'viem/accounts';
 import { mandateFor, SIM_CHAIN_ID, SIM_RULEBOOK, simClub, SimChain, TOKEN, wideScope, type Genesis, type JournalEntry } from '@holdback/settlement/sim';
 import { panelConfig, type JudgeProvider, type PanelConfig } from './judges.js';
 import { StorageLanes } from './lanes.js';
@@ -79,6 +79,11 @@ export interface PublicWorldOptions {
   env: Readonly<Record<string, string | undefined>>;
   /** The demo club's minimum for each judge, fallback and appeal window, in seconds. Default 60. */
   minWindowSec?: number;
+  /**
+   * The protocol a new SimChain world enforces (T-378), fixed at creation like minWindowSec. Default `phase_one`, the
+   * contracts' rules, which the rehearsal tool's in-process world relies on; `full` keeps party appeals and bonds.
+   */
+  simProfile?: 'full' | 'phase_one';
   /** What the faucet grants when a request names no amount, in base units. Default 1,000 tUSD. */
   faucetAmount?: bigint;
   /** The largest amount one grant gives, in base units. Default DEMO_FAUCET_MAX_GRANT. */
@@ -115,10 +120,6 @@ export interface PublicWorldOptions {
 /** The live chain a world settles on, and the demo adjudicators' standing on it. */
 export interface LiveSettlement {
   chain: LiveChain;
-  /** The bond each demo adjudicator keeps in HoldbackBonds, in base units. Default 25,000 tUSDC. */
-  bond?: bigint;
-  /** Test ETH each demo adjudicator keeps for its own approve and deposit. Default 0.005 ETH. */
-  adjudicatorGas?: bigint;
   /** The block explorer for transaction links in the notes. Default Sepolia Etherscan. */
   explorer?: string;
   /**
@@ -141,8 +142,8 @@ interface Meta {
   settlement?: 'sim' | 'sepolia';
   /** The rules contract a live world settles on, lowercase. */
   rules?: string;
-  /** Live worlds: the adjudicators whose bonds are in place. */
-  bonded?: string[];
+  /** A SimChain world's protocol, fixed when the world is created (T-378). Absent in worlds created before it: `full`. */
+  profile?: 'full' | 'phase_one';
 }
 
 /** Which node a request reached, as the Worker in front knows it. */
@@ -170,7 +171,7 @@ export const DEMO_FAUCET_MAX_GRANT = 1_000_000n * TUSD;
 /**
  * Largest ciphertext this demo stores: 1 MiB (T-315). Each ciphertext is one row of Durable Object storage, and a row
  * (key and value) is at most 2 MiB, so 1 MiB leaves half the row free. Discovery states it as
- * `limits.maxCiphertextBytes`; docs/api.md and site/llms.txt state the same number (world.test.ts compares them).
+ * `limits.maxCiphertextBytes`; docs/api.md and site/ref/http-seller.txt state the same number (world.test.ts compares them).
  * A larger cap needs chunked rows or an object store first.
  */
 export const DEMO_MAX_CIPHERTEXT_BYTES = 1_048_576;
@@ -214,28 +215,14 @@ const lc = (s: string) => s.toLowerCase();
 const hex = (b: Uint8Array) => [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
 const jkey = (i: number) => `j:${String(i).padStart(12, '0')}`;
 const SEPOLIA_EXPLORER = 'https://sepolia.etherscan.io';
-/** Each demo adjudicator's bond on a chain, as on SimChain: 25,000 tUSDC covers a thousand 25 tUSDC deals at once. */
-const DEFAULT_LIVE_BOND = 25_000n * TUSD;
-/** Test ETH for an adjudicator's own approve and deposit: 0.005 ETH, about 13 times what the two cost on Sepolia at a 1 gwei tip (372,709 gas, measured). */
-const DEFAULT_ADJUDICATOR_GAS = 5_000_000_000_000_000n;
 /** A deal lane below 0.01 test ETH gets 0.03 from the funding lane: about 19 test deals on Sepolia at a 1 gwei tip (1.56 million gas a deal, measured). */
 const LANE_FLOOR = 10_000_000_000_000_000n;
 const LANE_TOP_UP = 30_000_000_000_000_000n;
 /** Faucet mints a day on a chain: about 0.08 to 0.14 test ETH on Sepolia at a 1 gwei tip (130,000 to 240,000 gas a mint, measured). */
 const FAUCET_MINTS_PER_DAY = 600;
-const BONDING = "The demo adjudicators' bonds are being put in place on Sepolia (a few blocks after this world started); the primary accepts offers once its bond is there.";
 /** How long a demo adjudicator's own registration runs (T-221), and how close to its end a world signs a new one at open. */
 const REGISTRATION_TTL_MS = 365 * 86_400_000;
 const REGISTRATION_RENEW_MS = 30 * 86_400_000;
-/** A bond read from HoldbackBonds is reused this long, about one Sepolia block (12 s), so a page of listings reads each once. */
-const BOND_TTL_MS = 12_000;
-/** Bond reads kept at once, the least recently read dropped first, so addresses named in many offers cannot grow it without end. */
-const BOND_CACHE_MAX = 1024;
-/**
- * Uncached bond reads a minute, world-wide, for GET /v1/adjudicators only: 60 addresses, 120 eth_calls, about 2 a second
- * on the RPC endpoints the relays and the chain sync share. Past it the listing shows `observed.bond: "unknown"`.
- */
-const LISTING_BOND_READS_PER_MIN = 60;
 
 /**
  * An append-only log kept in storage pages of PAGE entries, one row each (prefix + page number): a restart reads
@@ -356,52 +343,6 @@ class StorageRegistrations implements RegistrationStore {
   }
 }
 
-/** A bond as HoldbackBonds holds it: everything deposited, and what open deals do not reserve. */
-export interface BondRead {
-  held: bigint;
-  free: bigint;
-}
-
-/**
- * Bond reads from HoldbackBonds for any address (ADR-0030 §5), each reused for about a block. It keeps the `max` most
- * recently read addresses, dropping the least recently read first. A read made only to show a bond in GET
- * /v1/adjudicators spends a world-wide budget of `listingPerMin` uncached addresses a minute, so paging the listing
- * cannot turn one unauthenticated request into hundreds of RPC calls on the endpoint the relays and the chain sync
- * share (T-221 review). Past the budget such a read throws, and the listing says `observed.bond: "unknown"`. Prepare
- * and the relays read without the budget: their reads are bounded by the write limit.
- */
-export class BondReads {
-  private readonly cache = new Map<string, { at: number; bond: BondRead }>();
-  private window = { start: Number.NEGATIVE_INFINITY, spent: 0 };
-
-  constructor(
-    private readonly read: (address: Address) => Promise<BondRead>,
-    private readonly now: () => number,
-    private readonly o: { ttlMs: number; max: number; listingPerMin: number } = { ttlMs: BOND_TTL_MS, max: BOND_CACHE_MAX, listingPerMin: LISTING_BOND_READS_PER_MIN },
-  ) {}
-
-  async get(address: Address, o: { listing?: boolean } = {}): Promise<BondRead> {
-    const key = lc(address);
-    const hit = this.cache.get(key);
-    if (hit && this.now() - hit.at < this.o.ttlMs) {
-      // Most recently read last, so the first key is the one to drop.
-      this.cache.delete(key);
-      this.cache.set(key, hit);
-      return hit.bond;
-    }
-    if (o.listing) {
-      if (this.now() - this.window.start >= 60_000) this.window = { start: this.now(), spent: 0 };
-      if (this.window.spent >= this.o.listingPerMin) throw new Error(`this node read ${this.o.listingPerMin} bonds for listings in the last minute; read HoldbackBonds yourself`);
-      this.window.spent++;
-    }
-    const bond = await this.read(address);
-    this.cache.delete(key);
-    while (this.cache.size >= this.o.max) this.cache.delete(this.cache.keys().next().value!);
-    this.cache.set(key, { at: this.now(), bond });
-    return bond;
-  }
-}
-
 /**
  * The operators' daily budget for the timeouts they send on their own (T-231): one row `ot:<YYYY-MM-DD>` a UTC day,
  * written before each send, so a restart in the middle of one still counts it. Offer expiries have their own cap
@@ -505,6 +446,22 @@ function waitingNotice(s: EscrowState | null, w: WaitingTurn): string | null {
   return `The ${w.role} adjudicator cannot ${what} yet: ${w.detail}. It tries again on each pass.`;
 }
 
+/** How long after its round is published an adjudicator is woken: the round reaches the relays, then the next block. */
+export const ROUND_WAKE_MS = 1_500;
+
+/**
+ * ADR-0032 §3.5: when the beacon round that seeds the `role`'s panel on this deal is public, plus ROUND_WAKE_MS, in ms;
+ * null when no round applies. With a margin of 0 (SimChain, a local chain) the round is public at the deadline itself,
+ * so nothing moves.
+ */
+export function roundPublicAt(s: EscrowState, role: 'fallback' | 'appeal', marginSec: number): number | null {
+  if (!(marginSec > 0)) return null;
+  const clock = beaconClockOf(s.beaconSource);
+  const round = beaconRoundFor(s, role, marginSec);
+  if (!clock || round === null) return null;
+  return (clock.genesis + (round - 1) * clock.period) * 1000 + ROUND_WAKE_MS;
+}
+
 /**
  * ADR-0036's "open": the roles that may still decide this deal, from the primary's signed acceptance until no adjudicator
  * can decide it again; empty for an offer and once the deal is closed. One function, so the notice and the guard agree.
@@ -601,11 +558,16 @@ export async function cannotJudgeNotice(
  * takeover, nothing while it is a party's turn; null once no adjudicator can act on it again, so `look` drops it. The
  * primary accepts an offer before offerExpiresAt and decides a delivery before judgeBy; the fallback takes over at
  * judgeBy and decides before fallbackBy; the appeal adjudicator decides an escalation or an open appeal before
- * appealDecideBy. On a chain the operators send every other timeout themselves once it is due (offer expiry, reclaim,
- * default, appeal expiry; OperatorTimeouts, T-231), and any party may trigger one sooner.
+ * appealDecideBy (SimChain only: a chain takes no party appeal, ADR-0031 §8). On a chain the operators send every other
+ * timeout themselves once it is due (offer expiry, reclaim, default; OperatorTimeouts, T-231), and any party may trigger
+ * one sooner. A decided deal on a chain is final at once, whether core writes its appeal as `none` with appealBy at the
+ * decision or as `expired`: either way no adjudicator acts on it again.
  */
-function workAt(s: EscrowState, ours: (address: string) => boolean, now: number): number[] | null {
+export function workAt(s: EscrowState, ours: (address: string) => boolean, now: number, marginSec = 0): number[] | null {
   const { adjudicator, fallbackAdjudicator, appealAdjudicator } = s.terms.adjudication;
+  // ADR-0032 §3.5 (T-378 part 6): a fallback or appeal panel waits for its beacon round, which a rules contract with a
+  // margin publishes that long after the last choice. Its adjudicator is woken to decide when the round is public.
+  const roundReady = (role: 'fallback' | 'appeal', from: number) => Math.max(from, roundPublicAt(s, role, marginSec) ?? from);
   const { offerExpiresAt, deliverBy, judgeBy, fallbackBy } = s.terms.timing;
   const passed = (deadline: Timestamp) => now >= Date.parse(deadline);
   switch (s.kind) {
@@ -621,11 +583,13 @@ function workAt(s: EscrowState, ours: (address: string) => boolean, now: number)
       if (passed(fallbackBy)) return null;
       const at = s.kind === 'Delivered' && ours(adjudicator) && !passed(judgeBy) ? [now] : [];
       // Kept even while the primary can act now: the takeover must not wait on a slow cadence (T-057 review).
-      if (ours(fallbackAdjudicator)) at.push(s.kind === 'Delivered' ? Date.parse(judgeBy) : now);
+      // The takeover (triggerFallback) needs no round and is its own transaction, so it goes at judgeBy; the decision
+      // that follows in FallbackJudging waits for the round (PR 427 review M1: both after the round would cost a block).
+      if (ours(fallbackAdjudicator)) at.push(s.kind === 'Delivered' ? Date.parse(judgeBy) : roundReady('fallback', now));
       return at;
     }
     case 'Escalated':
-      return passed(s.escalation.appealDecideBy) ? null : ours(appealAdjudicator) ? [now] : [];
+      return passed(s.escalation.appealDecideBy) ? null : ours(appealAdjudicator) ? [roundReady('appeal', now)] : [];
     case 'Released':
     case 'Refunded': {
       if (s.via.kind !== 'first_instance') return null;
@@ -698,10 +662,18 @@ export class PublicWorld {
     // a later configuration change (MIN_WINDOW_SEC) applies to a fresh world, not to this one.
     let meta = await storage.get<Meta>('meta');
     if (!meta) {
-      meta = { secret: hex(crypto.getRandomValues(new Uint8Array(32))), start: wholeSecond(now()), minWindowSec: o.minWindowSec ?? 60, settlement, ...(o.live ? { rules: lc(o.live.chain.deployment.rules) } : {}) };
+      meta = {
+        secret: hex(crypto.getRandomValues(new Uint8Array(32))),
+        start: wholeSecond(now()),
+        minWindowSec: o.minWindowSec ?? 60,
+        settlement,
+        ...(o.live ? { rules: lc(o.live.chain.deployment.rules) } : { profile: o.simProfile ?? 'phase_one' }),
+      };
       await storage.put({ meta });
     }
     if ((meta.settlement ?? 'sim') !== settlement) throw new Error(`this world settles on ${meta.settlement ?? 'sim'}; it cannot open as ${settlement} (name another world)`);
+    // PR 416 review L4: a SimChain world keeps the protocol it was created with; asking for another is an error, not ignored.
+    if (!o.live && o.simProfile && o.simProfile !== (meta.profile ?? 'full')) throw new Error(`this world runs the ${meta.profile ?? 'full'} protocol; it cannot open as ${o.simProfile} (name another world)`);
     if (o.live && meta.rules !== lc(o.live.chain.deployment.rules)) throw new Error(`this world settles on the rules contract ${meta.rules}, not ${o.live.chain.deployment.rules} (a new deployment needs a new world)`);
     const secret = meta.secret;
     const key = (label: string): TestAccount => ({ ...testAccount(`${label}/${secret}`), label });
@@ -721,7 +693,7 @@ export class PublicWorld {
     // The club is rebuilt from code on every open, so the rulebook changes in place: each stored deal keeps the club it
     // was offered under (Book.club), and only a new offer binds the new hash. SimChain keeps the sim beacon (T-217).
     const drand = o.live && (o.live.beacon ?? (o.live.chain.chainId === SIM_CHAIN_ID ? 'sim' : 'drand-quicknet')) === 'drand-quicknet';
-    const rulebook = rebindToken({ ...SIM_RULEBOOK, minWindowsSec: { judge: m, fallback: m, appealWindow: m, appealDecide: m }, ...(drand ? { randomness: { source: 'drand-quicknet' as const, chainHash: DRAND_QUICKNET_CHAIN_HASH } } : {}) }, TOKEN, token);
+    const rulebook = rebindToken({ ...SIM_RULEBOOK, minWindowsSec: { judge: m, fallback: m, appealWindow: 0, appealDecide: m }, ...(drand ? { randomness: { source: 'drand-quicknet' as const, chainHash: DRAND_QUICKNET_CHAIN_HASH } } : {}) }, TOKEN, token);
     // One source for the three: a proven round is kept, so the fallback and appeal adjudicators never ask for it twice.
     // In a Worker it uses the global fetch, one relay request per decision when the first relay answers (T-217).
     const rounds = drand ? (o.live!.drand ?? drandQuicknet({ now: () => wholeSecond(now()) })) : undefined;
@@ -739,6 +711,9 @@ export class PublicWorld {
       members: [],
       balances: {},
       bonds: o.live ? {} : Object.fromEntries(adjKeys.map((a) => [a.keys.address, { junior: bond, senior: '0' }])),
+      // T-378: a SimChain world runs the phase-one contracts' rules unless it was created on the full protocol, so the
+      // rehearsal tool and any agent trying the world locally are refused what the chain refuses.
+      ...(o.live ? {} : { profile: meta.profile ?? 'full' }),
     };
     let chain: SimChain | EvmSettlement;
     let journalLength = 0;
@@ -747,8 +722,8 @@ export class PublicWorld {
       const books = [...(await storage.list<Book>({ prefix: 'b:' }))].map(([k, b]) => [k.slice(2) as Hex32, b] as const);
       const events = await PagedLog.load<SettlementEvent>(storage, 'e:');
       const mandates = await PagedLog.load<Mandate>(storage, 'mp:');
-      // No chain call here: opening runs inside blockConcurrencyWhile (30 s), so the first pass reads the bonds and the
-      // logs since the stored cursor; it comes within a pass's wait when a deal is open (`nextPass`). The lanes' rows
+      // No chain call here: opening runs inside blockConcurrencyWhile (30 s), so the first pass reads the logs since
+      // the stored cursor; it comes within a pass's wait when a deal is open (`nextPass`). The lanes' rows
       // are read here (one list), and the first pass lands them (T-219).
       await o.live.chain.attach(new StorageLanes(storage));
       const evm = await EvmSettlement.restore(o.live.chain, genesis, { books, events: events.all(), mandates: mandates.all() }, now);
@@ -763,7 +738,7 @@ export class PublicWorld {
         sent: (kind) => telemetry.timeout(kind),
         ...(o.onError ? { onError: o.onError } : {}),
       });
-      live = { settlement: o.live, evm, events, mandates, bonded: new Set(meta.bonded ?? []), adjudicatorKeys: adjKeys.map((a) => a.keys.privateKey), meta, pools: 0, verified: false, sync: new ChainSync(evm, cursor), cursor, timeouts };
+      live = { settlement: o.live, evm, events, mandates, meta, toppedUp: 0, verified: false, sync: new ChainSync(evm, cursor), cursor, timeouts };
     } else {
       const journal = [...(await storage.list<JournalEntry>({ prefix: 'j:' })).values()];
       chain = await SimChain.replay(genesis, journal);
@@ -785,23 +760,19 @@ export class PublicWorld {
     const faucetWindowSec = o.faucetWindowSec ?? 3600;
     const faucetPerClient = o.faucetPerClient ?? 10;
     const tokenAmount = (v: bigint): TokenAmount => ({ token, amount: v.toString() }) as TokenAmount;
+    // Bonds are not in phase one: on a chain the pool reads zero for every address (ADR-0031 §8); SimChain keeps them.
     const bondOf = (p: { junior: bigint; senior: bigint; reserved: bigint }): Bond => ({ junior: tokenAmount(p.junior), senior: tokenAmount(p.senior), reserved: tokenAmount(p.reserved) });
-    // Any address's bond, read live (ADR-0030 §3 and §5): SimChain's ledger, or HoldbackBonds' bondOf and freeOf on a
-    // chain through BondReads (reused for about a block; listings within a budget). A read that throws reaches the
-    // caller; the operator treats it as unknown.
-    const evmChain = chain instanceof EvmSettlement ? chain : undefined;
-    const bondReads = evmChain ? new BondReads(async (a) => ({ held: await evmChain.bondOf(a), free: await evmChain.freeBond(a) }), now) : undefined;
-    const pool = async (address: Address, o: { listing?: boolean } = {}): Promise<Bond> => {
-      if (!bondReads) return bondOf(chain.pool(address));
-      const { held, free } = await bondReads.get(address, o);
-      return bondOf({ junior: held, senior: 0n, reserved: held > free ? held - free : 0n });
-    };
+    // Any address's bond, read live (ADR-0030 §3 and §5) from SimChain's ledger. A chain holds no bond (ADR-0031 §8):
+    // EvmSettlement's pool is empty for every address, and the operator shows `observed.bond: "none"` there.
+    // Bonds are not in phase one: on a chain the pool reads zero for every address (ADR-0031 §8); SimChain keeps them.
+    const pool = async (address: Address): Promise<Bond> => bondOf(chain.pool(address));
     /**
      * A stored registration as the adjudicators read it: for its policy and its key, never its bond (the service reads
      * its own cover through `bondCover`), so `pool` holds the settlement view's cached balances and no chain call is made.
      */
     const registration = async (address: Address): Promise<AdjudicatorRegistration | null> => {
       const r = await registrations.get(address);
+      // Bonds are not in phase one: on a chain the pool reads zero for every address (ADR-0031 §8); SimChain keeps them.
       return r ? ({ ...r.record, pool: { ...bondOf(chain.pool(address)), terms: r.record.pool.terms } } as AdjudicatorRegistration) : null;
     };
     const registry: Registry = {
@@ -912,13 +883,26 @@ export class PublicWorld {
         // T-218: a deal the chain moved past this node's book (a direct delivery not yet posted, a forwarded call).
         const behind = live?.evm.lag(about.commitmentId);
         if (behind) return [behind];
-        if (live && live.bonded.size < ADJUDICATORS.length) return [BONDING];
         return [];
       }
       return [];
     };
     const chainFacts = o.live ? { chainId, rules: o.live.chain.deployment.rules, token, symbol, funding: o.live.chain.funding, explorer: o.live.explorer ?? SEPOLIA_EXPLORER, gas: gasQuote } : undefined;
     const evm = chain instanceof EvmSettlement ? chain : undefined;
+    // ADR-0033 §7: a money address equal to one of these gets a notice at prepare. The escrow's token store is not in the
+    // deployment record: reading it (getTokenStore) is a chain call, which opening a world may not make. So it is not listed
+    // (T-378 Handoff).
+    const d = o.live?.chain.deployment;
+    const contracts = d
+      ? [
+          { name: 'rules contract', address: lc(d.rules) as Address },
+          { name: 'escrow', address: lc(d.escrow) as Address },
+          { name: 'ERC-3009 collector', address: lc(d.erc3009Collector) as Address },
+          { name: 'token', address: lc(d.token) as Address },
+          { name: 'beacon', address: lc(d.beacon) as Address },
+          { name: 'multicall3', address: lc(d.multicall) as Address },
+        ]
+      : undefined;
     for (const i of [0, 1]) {
       operators.push(
         new Operator({
@@ -928,6 +912,9 @@ export class PublicWorld {
           maxCiphertextBytes: DEMO_MAX_CIPHERTEXT_BYTES,
           ...(operatorFee ? { fee: operatorFee } : {}),
           ...(evm ? { erc3009: { funding: (t) => evm.fundingTypedData(t), operatorFee: (x) => evm.operatorFeeTypedData(x) } } : {}),
+          ...(contracts ? { contracts } : {}),
+          // The plan's 2c: the deployment's one token (SimChain's tUSD in process), refused in any other at every terms route.
+          token: { id: token, symbol, decimals: o.live ? o.live.chain.token.decimals : 6 },
           signerKey: key(`demo-operator-${i + 1}`).privateKey,
           operatorId: `demo-op-${i + 1}`,
           env: o.env,
@@ -1089,7 +1076,7 @@ export class PublicWorld {
     this.wake = null;
     for (const id of this.commitments) {
       const s = this.chain.escrowState(id);
-      const at = s ? workAt(s, (a) => ours.has(lc(a)), now) : null;
+      const at = s ? workAt(s, (a) => ours.has(lc(a)), now, this.chain.beaconMarginSec ?? 0) : null;
       if (at === null) {
         this.commitments.delete(id);
         continue;
@@ -1143,32 +1130,22 @@ export class PublicWorld {
   }
 
   /**
-   * A chain world's setup (ADR-0028 §7), one step per pass so a pass stays small: each adjudicator gets its bond in
-   * HoldbackBonds, then the deal lanes their gas. Every step reads the chain first, so a repeat sends nothing.
+   * A chain world's setup (ADR-0028 §7): the RPC and the contract checked once, then the deal lanes' gas once a minute.
+   * Every step reads the chain first, so a repeat sends nothing. No bond: the phase-one contracts hold none (ADR-0031 §8).
    */
   private async setup(): Promise<void> {
     const l = this.live!;
     const chain = l.settlement.chain;
-    const addresses = l.adjudicatorKeys.map((k) => privateKeyToAccount(k).address);
     if (!l.verified) {
       // Before anything is sent: the RPC serves the deployment's chain, and the contract is the one in the file.
       await chain.verify();
       l.verified = true;
-      await l.evm.refreshPools(addresses);
     }
-    // Once a minute (and first): the deal lanes' gas, then the bonds' standing. A pass that sent ETH ends there.
-    if (this.now() - l.pools > 60_000) {
-      l.pools = this.now();
-      if ((await chain.topUpLanes(LANE_FLOOR, LANE_TOP_UP)).length > 0) return;
-      await l.evm.refreshPools(addresses);
+    // Once a minute (and first): the deal lanes' gas. A top-up that fails is tried again on the next pass.
+    if (this.now() - l.toppedUp > 60_000) {
+      await chain.topUpLanes(LANE_FLOOR, LANE_TOP_UP);
+      l.toppedUp = this.now();
     }
-    const next = l.adjudicatorKeys.find((k) => !l.bonded.has(privateKeyToAccount(k).address));
-    if (!next) return;
-    await ensureBond(chain, next, l.settlement.bond ?? DEFAULT_LIVE_BOND, l.settlement.adjudicatorGas ?? DEFAULT_ADJUDICATOR_GAS);
-    l.bonded.add(privateKeyToAccount(next).address);
-    l.meta.bonded = [...l.bonded];
-    await this.telemetry.storage.put({ meta: l.meta });
-    await l.evm.refreshPools(addresses);
   }
 
   /**
@@ -1216,9 +1193,9 @@ export class PublicWorld {
     return this.live?.lastRecovery ?? null;
   }
 
-  /** True once a chain world's setup is done (every adjudicator bonded); a SimChain world always is. */
+  /** True once a chain world's setup is done (the chain verified, the deal lanes' gas in place); a SimChain world always is. */
   ready(): boolean {
-    return !this.live || (this.live.verified && this.live.bonded.size === ADJUDICATORS.length);
+    return !this.live || (this.live.verified && this.live.toppedUp > 0);
   }
 
   /** One adjudicator pass (the Durable Object alarm): accept or decline offers, trigger fallbacks, decide; on a chain, then send due timeouts. */
@@ -1231,7 +1208,7 @@ export class PublicWorld {
       const setupLeft = !this.ready();
       try {
         await this.setup();
-        // Every setup step that does not throw takes the setup forward (verify, gas, a bond).
+        // Every setup step that does not throw takes the setup forward (verify, gas).
         if (setupLeft) this.idlePasses = 0;
       } catch (e) {
         // A failing step (an RPC down) backs off like a pass that changes nothing (T-057 review).
@@ -1242,9 +1219,8 @@ export class PublicWorld {
       if (this.live.verified) await this.recoverLanes();
       // Before the adjudicators, so they act on what was sent straight to the contract too (T-218).
       if (this.live.verified) await this.syncChain();
-      // The adjudicators wait for a verified chain and their own bonds: an acceptance without one is refused on chain.
-      // The look still runs, so a takeover whose judgeBy passed meanwhile is due, not a stale wake (T-057 review 4).
-      // The timeouts need no bond, only the verified chain.
+      // The adjudicators wait for a verified chain. The look still runs, so a takeover whose judgeBy passed meanwhile is
+      // due, not a stale wake (T-057 review 4).
       if (!this.ready()) {
         if (this.live.verified) await this.closeDue();
         await this.persist();
@@ -1279,7 +1255,7 @@ export class PublicWorld {
       }
     }
     await panel.budget.flush();
-    // After the adjudicators, so their own steps go first: the demo fallback's takeover, T-211's appeal expiries.
+    // After the adjudicators, so their own steps go first: the demo fallback's takeover.
     const closed = this.live ? await this.closeDue() : false;
     await this.persist();
     // A timeout for a deal behind the chain logs no event, so it counts as settlement moving too.
@@ -1399,14 +1375,11 @@ interface LiveWorld {
   evm: EvmSettlement;
   events: PagedLog<SettlementEvent>;
   mandates: PagedLog<Mandate>;
-  /** Adjudicators whose bond is in place. */
-  bonded: Set<string>;
-  adjudicatorKeys: `0x${string}`[];
   meta: Meta;
   /** Whether this instance checked the RPC's chain and the rules contract against the deployment file. */
   verified: boolean;
-  /** When the pools and lanes were last checked (ms). */
-  pools: number;
+  /** When the lanes' gas was last checked (ms). */
+  toppedUp: number;
   /** The reader of the rules contract's logs (T-218), and the cursor as last written to storage. */
   sync: ChainSync;
   cursor: Cursor | null;
@@ -1469,7 +1442,11 @@ function grantFrom(w: {
   const perClient = new Map<string, { start: number; count: number }>();
   const granting = new Set<string>();
   let today = { day: '', minted: 0 };
-  return async (address, { client, amount = w.amount }): Promise<FaucetOutcome> => {
+  // ADR-0033 §5: the tokens go to the payment address when the request names one, the mandate always to `address`, the
+  // signing address. The per-address window counts the signing address, so one standing payment address can fund many
+  // per-deal keys; the per-client window and the day's mints still bound what one caller takes. Two grants from two keys
+  // to one payment address may both mint, as two grants to two addresses always could.
+  return async (address, { client, amount = w.amount, paymentAddress = address }): Promise<FaucetOutcome> => {
     // Refused before any limit is counted: a corrected call keeps its turn.
     if (amount > w.maxAmount) return { ok: false, problem: problem('invalid_terms', `amount ${amount} is above this faucet's cap of ${w.maxAmount} base units a grant (${tokenText(w.maxAmount.toString(), w.symbol)}; demo.faucet.maxGrant in discovery)`), field: 'amount' };
     const now = w.now();
@@ -1484,13 +1461,13 @@ function grantFrom(w: {
     c.count++;
     granting.add(address);
     try {
-      return await grant(address, amount, now, windowMs, retryAfterSec);
+      return await grant(address, paymentAddress, amount, now, windowMs, retryAfterSec);
     } finally {
       granting.delete(address);
     }
   };
 
-  async function grant(address: Address, amount: bigint, now: number, windowMs: number, retryAfterSec: (at: number) => number): Promise<FaucetOutcome> {
+  async function grant(address: Address, payTo: Address, amount: bigint, now: number, windowMs: number, retryAfterSec: (at: number) => number): Promise<FaucetOutcome> {
     // Every grant signs a fresh 30-day mandate, which replaces the address's earlier one: an expired mandate is
     // refused at offer and agree (mandate_expired), and an agent may ask before its own deal outlasts the old one.
     const scope = rebindToken(wideScope(['buyer', 'seller'], wholeSecond(now + 30 * 86_400_000)), TOKEN, w.token);
@@ -1498,7 +1475,7 @@ function grantFrom(w: {
     const p = await w.ledger.admit(mandate);
     if (p) return { ok: false, problem: p };
     let tx: string | undefined;
-    const held = BigInt((await w.ledger.balances([address]))[address]?.amount ?? '0');
+    const held = BigInt((await w.ledger.balances([payTo]))[payTo]?.amount ?? '0');
     if (!w.live || held < amount) {
       const day = `fm:${new Date(now).toISOString().slice(0, 10)}`;
       if (w.live) {
@@ -1512,7 +1489,7 @@ function grantFrom(w: {
       // Counted before the mint, so a grant racing it cannot mint twice; a failed mint gives the address its turn back.
       await w.storage.put({ [`fa:${address}`]: now, ...(w.live ? { [day]: today.minted } : {}) });
       try {
-        tx = (await w.ledger.grant(address, amount)).tx;
+        tx = (await w.ledger.grant(payTo, amount)).tx;
       } catch (e) {
         await w.storage.put({ [`fa:${address}`]: 0 });
         if (e instanceof RelayRefused) return { ok: false, problem: problem('relay_refused', `the faucet cannot mint now: ${e.message}`) };
@@ -1526,7 +1503,7 @@ function grantFrom(w: {
       grant: {
         clubId: w.club.id,
         granted: { token: w.token, amount: tx || !w.live ? amount.toString() : '0' } as TokenAmount,
-        balance: (await w.ledger.balances([address]))[address]!,
+        balance: (await w.ledger.balances([payTo]))[payTo]!,
         mandate: { ...mandate, mandateHash: canonicalKeccak(mandate) as Hex32 },
         nextGrantAfter: wholeSecond(now + windowMs),
         notice: w.live
@@ -1643,12 +1620,12 @@ export function notesFor(
     `The faucet mandate is signed by the demo club's own test principal, which this demo holds; it lets your address act as buyer or seller in ${clubId}.`,
     judges,
     'Disclosure: offer at "public" on these nodes. The demo adjudicators cannot open sealed terms yet, so they decline private and judgment offers, which then expire unaccepted. The work itself is encrypted at every level.',
-    `Settlement time is the wall clock. Club ${clubId} allows windows from ${minWindowSec} seconds: timing {"judgeWithinSec": ${minWindowSec}, "fallbackWithinSec": ${minWindowSec}, "appealWindowSec": ${minWindowSec}, "appealDecideSec": ${minWindowSec}} completes a deal in a few minutes.`,
+    `Settlement time is the wall clock. Club ${clubId} allows windows from ${minWindowSec} seconds: timing {"judgeWithinSec": ${minWindowSec}, "fallbackWithinSec": ${minWindowSec}, "appealWindowSec": 0, "appealDecideSec": ${minWindowSec}} completes a deal in a few minutes.`,
     ...(feeNote ? [feeNote] : []),
     'Request log: these nodes keep one line per request for seven days (Request-Id, time, node, method, route template, status, problem type, timing), never a body, a header value, an IP address, or the addresses and IDs in the path. Quote the Request-Id of a failed request when you report it.',
     ...(chain
       ? [
-          "Fallback and appeal adjudicators decide on Sepolia: their panels are seeded from a drand quicknet round that settlement fixes (the round at judgeBy for the fallback, the first round after an escalation or appeal for the appeal adjudicator), and the rules contract verifies the round's BLS signature. If no drand relay answers before a deadline, nothing stands in: the deal takes its default outcome, or a party appeal expires and the first decision stands.",
+          "Fallback and appeal adjudicators decide on Sepolia: their panels are seeded from a drand quicknet round that settlement fixes (the first round published at or after judgeBy plus the rules contract's beacon margin for the fallback, and the first published more than the margin after an escalation for the appeal adjudicator; 29 s on Sepolia, ADR-0032), and the rules contract verifies the round's BLS signature. The demo's adjudicators wake when that round is public. If no drand relay answers before a deadline, nothing stands in: the deal takes its default outcome, or a party appeal expires and the first decision stands.",
           "The operators' view is kept across deploys. It starts over only when the settlement contracts are redeployed; what happened on Sepolia stays there. Keep your own copy of the terms you signed.",
         ]
       : ['State is journaled and replayed after a restart, but this is a demo: it may be reset at any time.']),

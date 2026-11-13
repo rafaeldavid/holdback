@@ -46,7 +46,7 @@ async function heldDeal(urls: string[]): Promise<string> {
     deliverable: { kind: 'other', description: 'A unified diff', format: 'text/plain' },
     checks: [{ id: 'hidden', type: 'hidden_characters_max', required: true, max: { tag: 0, bidi: 0, total: 0 } }],
     rubric: { passThreshold: 300, criteria: [{ id: 'fixes', description: 'It fixes the bug.', weight: 100, anchors: { '0': 'No', '2': 'Partly', '4': 'Yes' } }] },
-    timing: { judgeWithinSec: 600, fallbackWithinSec: 600, appealWindowSec: 2, appealDecideSec: 2 },
+    timing: { judgeWithinSec: 600, fallbackWithinSec: 600, appealWindowSec: 0, appealDecideSec: 2 },
   });
   await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);
   await buyer.agreeAndFund(offer.terms, 40_000_000n);

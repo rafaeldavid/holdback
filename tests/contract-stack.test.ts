@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error -- plain ESM helper without type declarations
-import { build, collect, INPUTS, plain, shallow, stackVersion } from '../scripts/contract-stack.mjs';
+import { build, collect, INPUTS, PHASE_ONE_ADDRESS_KEYS, plain, shallow, stackVersion } from '../scripts/contract-stack.mjs';
 import { execFileSync } from 'node:child_process';
 
 const root = new URL('../', import.meta.url);
@@ -22,7 +22,7 @@ describe('contract-stack page', () => {
 
   it('marks the contracts the live record deployed', () => {
     const deployed = data.contracts.filter((c: { deployed: boolean }) => c.deployed).map((c: { name: string }) => c.name);
-    for (const name of ['HoldbackRules', 'HoldbackBonds', 'DrandQuicknetBeacon']) expect(deployed).toContain(name);
+    for (const name of ['HoldbackRules', 'DrandQuicknetBeacon']) expect(deployed).toContain(name);
   });
 
   it('shows the live addresses, chain and commit from contracts/deployments/sepolia.json', () => {
@@ -30,15 +30,26 @@ describe('contract-stack page', () => {
     expect(d.chainId).toBe(live.chainId);
     expect(d.commit).toBe(live.commit);
     const byKey = Object.fromEntries(d.addresses.map((a: { key: string; address: string }) => [a.key, a.address]));
-    for (const key of ['rules', 'bonds', 'beacon', 'escrow', 'erc3009Collector', 'permit2Collector', 'multicall']) expect(byKey[key]).toBe(live[key]);
-    expect(byKey['token']).toBe(live.token.address);
+    // Every address the record has is shown as recorded; a phase-one record has the phase-one contracts at least.
+    for (const key of PHASE_ONE_ADDRESS_KEYS) expect(byKey[key], key).toBe(key === 'token' ? live.token.address : live[key]);
+    for (const a of d.addresses) expect(a.address).toBe(a.key === 'token' ? live.token.address : live[a.key]);
     expect(d.domain?.version).toMatch(/^\d+\.\d+$/);
     const html = build();
     for (const a of d.addresses) expect(html).toContain(a.address);
   });
 
+  it('lists exactly the state-changing functions HoldbackRules has, so the page describes the contract in contracts/src', () => {
+    const source = readFileSync(new URL('contracts/src/HoldbackRules.sol', root), 'utf8');
+    const external = [...source.matchAll(/function (\w+)\(([\s\S]*?)\{/g)].filter((m) => /\bexternal\b/.test(m[2]!) && !/\bview\b/.test(m[2]!)).map((m) => m[1]!);
+    const template = readFileSync(new URL('tools/contract-stack/template.html', root), 'utf8');
+    const card = template.slice(template.indexOf('<h3>HoldbackRules</h3>'), template.indexOf('</article>', template.indexOf('<h3>HoldbackRules</h3>')));
+    const listed = [...card.matchAll(/<tr><td>(.*?)<\/td>/g)].flatMap((m) => [...m[1]!.matchAll(/<code>(\w+)<\/code>/g)].map((c) => c[1]!));
+    expect(external.length).toBeGreaterThan(5);
+    expect([...listed].sort()).toEqual([...external].sort());
+  });
+
   it('reads every kept earlier deployment with its date and domain', () => {
-    const files = readdirSync(new URL('contracts/deployments/', root)).filter((f) => /^sepolia-\d{4}-\d{2}-\d{2}-domain-/.test(f));
+    const files = readdirSync(new URL('contracts/deployments/', root)).filter((f) => /^sepolia-\d{4}-\d{2}-\d{2}(T\d{4}Z)?-domain-/.test(f));
     expect(data.deployment.earlier).toHaveLength(files.length);
     for (const e of data.deployment.earlier) {
       expect(e.deployedOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);

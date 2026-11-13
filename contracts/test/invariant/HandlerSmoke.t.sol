@@ -2,8 +2,10 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {RulesHandler} from "../handlers/RulesHandler.sol";
 
@@ -27,8 +29,15 @@ contract HandlerSmokeTest is Test {
         (rules,,) = h.system();
     }
 
-    function _stage() internal view returns (HoldbackRules.Stage) {
-        return rules.dealOf(h.dealId(0)).stage;
+    function _stage() internal view returns (IHoldbackRules.Stage) {
+        return h.word(h.dealId(0)).stage;
+    }
+
+    /// T-375 (RF-4): the closing reason and the decider the word of deal 0 stores.
+    function _closedAs(IHoldbackRules.Reason reason, IHoldbackRules.Decider decider) internal view {
+        IHoldbackRules.Deal memory d = h.word(h.dealId(0));
+        assertEq(uint8(d.reason), uint8(reason), "stored closing reason");
+        assertEq(uint8(d.decider), uint8(decider), "stored decider");
     }
 
     function _warpTo(uint256 t) internal {
@@ -38,38 +47,53 @@ contract HandlerSmokeTest is Test {
     function _funded() internal {
         h.offer(OFFER);
         h.agreeAndFund(PICK, 0, 0);
-        assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(_stage()), uint8(IHoldbackRules.Stage.Held));
     }
 
-    function test_offer_fund_deliver_decide_appeal_decide() public {
+    /// T-346 (SC-7): the first decision is final. A later decision, the appeal filing and the appeal expiry are
+    /// refused on the phase-one contract: the handler re-reverts each with `Refused()`.
+    function test_offer_fund_deliver_decide_isFinal() public {
         _funded();
         h.deliver(PICK, 5, 0);
         h.decide(PICK, 6, 0, H.OUTCOME_ACCEPT);
-        assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage()), uint8(IHoldbackRules.Stage.Released));
+        _closedAs(IHoldbackRules.Reason.Decided, IHoldbackRules.Decider.Primary);
+        assertEq(h.closings(h.dealId(0)), 1);
+        assertEq(h.closedBy(h.dealId(0)), h.R_DECIDED());
+        assertEq(h.closedDecider(h.dealId(0)), h.D_PRIMARY());
+        vm.expectRevert(RulesHandler.Refused.selector);
         h.fileAppeal(PICK, 1, 0, 0);
-        _warpTo(block.timestamp + 1); // T-209: the appeal round is the first one after the appeal; wait for it
+        _warpTo(block.timestamp + 1);
+        vm.expectRevert(RulesHandler.Refused.selector);
         h.decide(PICK, 6, 0, H.OUTCOME_REJECT);
-        assertEq(uint8(rules.dealOf(h.dealId(0)).appeal), uint8(HoldbackRules.AppealState.Overturned));
+        vm.expectRevert(RulesHandler.Refused.selector);
+        h.decideAppeal(PICK, 6, H.OUTCOME_REJECT);
+        H.Terms memory t = h.termsOf(0);
+        _warpTo(h.word(h.dealId(0)).t1 + t.timing.appealWindowSec);
+        vm.expectRevert(RulesHandler.Refused.selector);
+        h.expireAppeal(PICK, 6);
+        assertEq(uint8(_stage()), uint8(IHoldbackRules.Stage.Released));
         assertEq(h.closings(h.dealId(0)), 1);
     }
 
-    function test_decide_carriesDelivery_thenAppealExpires() public {
+    function test_decide_carriesDelivery() public {
         _funded();
         h.decide(PICK, 0, 0, H.OUTCOME_REJECT);
-        assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Refunded));
-        H.Terms memory t = h.termsOf(0);
-        _warpTo(rules.dealOf(h.dealId(0)).t1 + t.timing.appealWindowSec);
-        h.expireAppeal(PICK, 6);
+        assertEq(uint8(_stage()), uint8(IHoldbackRules.Stage.Refunded));
+        _closedAs(IHoldbackRules.Reason.Decided, IHoldbackRules.Decider.Primary);
+        assertEq(h.closedBy(h.dealId(0)), h.R_DECIDED());
     }
 
     function test_escalate_thenAppealAdjudicatorDecides() public {
         _funded();
         h.deliver(PICK, 0, 0);
         h.decide(PICK, 0, 0, H.OUTCOME_ESCALATE);
-        assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Escalated));
+        assertEq(uint8(_stage()), uint8(IHoldbackRules.Stage.Escalated));
+        _closedAs(IHoldbackRules.Reason.Open, IHoldbackRules.Decider.None);
         _warpTo(block.timestamp + 1); // T-209: wait for the first round after the escalation
         h.decide(PICK, 0, 0, H.OUTCOME_ACCEPT);
-        assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage()), uint8(IHoldbackRules.Stage.Released));
+        _closedAs(IHoldbackRules.Reason.Decided, IHoldbackRules.Decider.Appeal);
     }
 
     function test_fallback_thenDefault() public {
@@ -80,7 +104,8 @@ contract HandlerSmokeTest is Test {
         h.triggerFallback(PICK, 6);
         _warpTo(t.timing.fallbackBy);
         h.triggerDefault(PICK, 5);
-        assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage()), uint8(IHoldbackRules.Stage.Refunded));
+        _closedAs(IHoldbackRules.Reason.Defaulted, IHoldbackRules.Decider.None);
     }
 
     function test_fallbackDecides() public {
@@ -89,13 +114,15 @@ contract HandlerSmokeTest is Test {
         _warpTo(h.termsOf(0).timing.judgeBy);
         h.triggerFallback(PICK, 6);
         h.decide(PICK, 0, 0, H.OUTCOME_ACCEPT);
-        assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage()), uint8(IHoldbackRules.Stage.Released));
+        _closedAs(IHoldbackRules.Reason.Decided, IHoldbackRules.Decider.Fallback);
     }
 
     function test_earlyAccept() public {
         _funded();
         h.earlyAccept(PICK, 3, 0);
-        assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage()), uint8(IHoldbackRules.Stage.Released));
+        _closedAs(IHoldbackRules.Reason.AcceptedEarly, IHoldbackRules.Decider.None);
     }
 
     function test_mutualSettle() public {
@@ -103,21 +130,30 @@ contract HandlerSmokeTest is Test {
         // a = 10, b = 20 of the price; the rest to the operator; with delivery and key release.
         uint256 split = 10 | (uint256(20) << 48) | (uint256(3) << 130);
         h.mutualSettle(PICK, 0, 0, split);
-        assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Settled));
+        assertEq(uint8(_stage()), uint8(IHoldbackRules.Stage.Settled));
+        _closedAs(IHoldbackRules.Reason.Settled, IHoldbackRules.Decider.None);
     }
 
     function test_reclaim() public {
         _funded();
         _warpTo(h.termsOf(0).timing.deliverBy);
         h.reclaim(PICK, 6);
-        assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage()), uint8(IHoldbackRules.Stage.Refunded));
+        _closedAs(IHoldbackRules.Reason.Reclaimed, IHoldbackRules.Decider.None);
     }
 
-    function test_expireOffer() public {
+    /// SC-6 (T-356): the phase-one contract has no `expireOffer`. The handler's action, kept for the side-by-side
+    /// harness, is refused with no violation, and the offer past its expiry stays unfunded and cannot fund.
+    function test_expireOffer_isGone_offerStaysUnfundedAndCannotFund() public {
         h.offer(OFFER);
         _warpTo(h.termsOf(0).timing.offerExpiresAt);
+        vm.expectRevert(RulesHandler.Refused.selector);
         h.expireOffer(PICK, 6);
-        assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Expired));
+        assertEq(uint8(_stage()), uint8(IHoldbackRules.Stage.None));
+        vm.expectRevert(RulesHandler.Refused.selector);
+        h.agreeAndFund(PICK, 0, 0);
+        assertEq(uint8(_stage()), uint8(IHoldbackRules.Stage.None));
+        assertEq(h.timeoutMismatch(), 0);
     }
 
     function test_cppReclaim_afterAuthorizationExpiry() public {
@@ -128,9 +164,7 @@ contract HandlerSmokeTest is Test {
         assertTrue(h.cppReclaimed(h.dealId(0)));
     }
 
-    function test_bonds_and_warp() public {
-        h.bondDeposit(2, 0, 1_000);
-        h.bondWithdraw(2, 0, 1_000);
+    function test_warp() public {
         h.offer(OFFER);
         h.warp(1 << 8);
     }
@@ -169,7 +203,7 @@ contract HandlerSmokeTest is Test {
     function test_deliveryCounter_decideFallbackPostsTheDelivery() public {
         _funded();
         h.decideFallback(PICK, 0, H.OUTCOME_ACCEPT);
-        assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage()), uint8(IHoldbackRules.Stage.Released));
         _deliveredOnce();
     }
 
@@ -181,6 +215,83 @@ contract HandlerSmokeTest is Test {
         assertEq(h.deliveries(), 0);
         assertEq(h.postedHash(h.dealId(0)), bytes32(0));
         assertEq(rules.deliveryHashOf(h.dealId(0)), bytes32(0));
+    }
+
+    // T-375 (triage item 43): the decision counter moves on every path that decides after a delivery, and the gate
+    // counts a disagreement in either direction: a timely decision refused (forced here by a failing escrow), or a
+    // decision that lands although the predicate calls it untimely. An untimely refusal is not a violation.
+
+    function test_decisionCounter_everyRole() public {
+        _funded();
+        h.decide(PICK, 0, 0, H.OUTCOME_ESCALATE); // the primary, carrying the delivery
+        _warpTo(block.timestamp + 1); // the escalation's beacon round is public from t1 + 1
+        h.decide(PICK, 0, 0, H.OUTCOME_ACCEPT); // the appeal adjudicator
+        assertEq(h.decisions(), 2);
+        h.offer(OFFER ^ (uint256(1) << 9)); // a second deal (another price), for the fallback
+        h.agreeAndFund(PICK, 0, 0);
+        h.decideFallback(PICK, 0, H.OUTCOME_REJECT);
+        assertEq(h.decisions(), 3);
+        assertEq(h.decideRefused(), 0);
+    }
+
+    function test_decisionCounter_lateDecisionIsRefusedWithoutAViolation() public {
+        _funded();
+        h.deliver(PICK, 5, 0);
+        _warpTo(h.termsOf(0).timing.judgeBy);
+        vm.expectRevert(RulesHandler.Refused.selector);
+        h.decide(PICK, 0, 0, H.OUTCOME_ACCEPT);
+        assertEq(h.decisions(), 0);
+        assertEq(h.decideRefused(), 0);
+    }
+
+    function test_decisionCounter_timelyRefusalIsAViolation() public {
+        _funded();
+        h.deliver(PICK, 5, 0);
+        (, , AuthCaptureEscrow escrow) = h.system();
+        vm.mockCallRevert(address(escrow), abi.encodeWithSelector(AuthCaptureEscrow.capture.selector), "escrow down");
+        h.decide(PICK, 0, 0, H.OUTCOME_ACCEPT); // no Refused(): the refusal is a violation, so the handler returns
+        assertEq(h.decisions(), 0);
+        assertEq(h.decideRefused(), 1);
+        assertEq(h.lastViolation(), "decide: an authorised, timely decision was refused");
+    }
+
+    // T-375 (triage item 46): the boundary offers (`RulesHandler._boundary`) are drawn, sit exactly on their bound,
+    // and fund or are refused as the bound says. The search repeats the handler's draw, and skips offers that another
+    // rare draw (another token, an appeal window, deadlines out of order) would refuse first.
+
+    function _boundarySeed(uint256 kind) internal pure returns (uint256 s) {
+        for (s = 1; s < 100_000; s++) {
+            uint256 b = uint256(keccak256(abi.encode("boundary", s)));
+            if (b % 16 != 0 || (b >> 8) % 8 != kind) continue;
+            if (uint256(keccak256(abi.encode("other token", s))) % 64 == 0) continue;
+            if (uint256(keccak256(abi.encode("appeal window", s))) % 32 == 0) continue;
+            if (uint256(keccak256(abi.encode("any order", s))) % 32 == 0) continue;
+            return s;
+        }
+        revert("no seed draws this boundary");
+    }
+
+    function test_boundaryOffers_sitOnTheirBounds() public {
+        // T-380: eight kinds; 2 and 3 are the escalation window's 32 bits, 4 and 5 the year 9999 (fallbackBy).
+        for (uint256 kind; kind < 8; kind++) {
+            RulesHandler x = new RulesHandler();
+            x.offer(_boundarySeed(kind));
+            H.Terms memory t = x.termsOf(0);
+            if (kind <= 1) assertEq(t.price + t.fee, uint256(type(uint120).max) + kind, "hold bound");
+            if (kind == 2 || kind == 3) assertEq(t.timing.appealDecideSec, uint256(type(uint32).max) + kind - 2, "window");
+            if (kind == 4 || kind == 5) assertEq(t.timing.fallbackBy, 253_402_387_139 + kind - 4, "year 9999");
+            if (kind >= 6) {
+                assertEq(t.timing.fallbackBy - t.timing.offerExpiresAt, 4, "deadlines one second apart");
+                assertEq(t.timing.appealDecideSec, kind - 5, "the smallest escalation windows");
+            }
+            // Kinds 2 to 7 keep the drawn price and fee, so price 0 with fee 0, which the escrow cannot hold, is
+            // possible in the handler (about one offer in 40 million); the seeds found here fund.
+            bool lands = kind != 1 && kind != 3 && kind != 5;
+            if (!lands) vm.expectRevert(RulesHandler.Refused.selector);
+            x.agreeAndFund(PICK, 0, 0);
+            IHoldbackRules.Stage s = x.word(x.dealId(0)).stage;
+            assertEq(uint8(s), uint8(lands ? IHoldbackRules.Stage.Held : IHoldbackRules.Stage.None), "funding outcome");
+        }
     }
 
     function test_stranger_isRefused() public {

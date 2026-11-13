@@ -1,6 +1,6 @@
 // Beacon round arithmetic (ADR-0018). One formula for every beacon, drand's: no round before genesis,
-// round 1 at genesis, then one round per period. The rules contract's beacons (contracts/src/SimBeacon.sol and
-// DrandQuicknetBeacon.sol) use the same formula, so SimChain, the EVM adapter and the contract agree on every round.
+// round 1 at genesis, then one round per period. The rules contract's beacons (contracts/script/SimBeacon.sol and
+// contracts/src/DrandQuicknetBeacon.sol) use the same formula, so SimChain, the EVM adapter and the contract agree on every round.
 import type { Hex32, RandomnessSource } from './types.js';
 
 export interface BeaconClock {
@@ -35,4 +35,16 @@ export function beaconClockOf(source: RandomnessSource | undefined): BeaconClock
 export function beaconRoundAt(clock: BeaconClock, t: number): number {
   if (!Number.isSafeInteger(t) || t < 0) throw new RangeError(`beacon time must be whole non-negative seconds, got ${t}`);
   return t < clock.genesis ? 0 : Math.floor((t - clock.genesis) / clock.period) + 1;
+}
+
+/**
+ * ADR-0032 §3.1: the round that seeds a panel, the first published strictly after `lastChoiceSec + marginSec`.
+ * `lastChoiceSec` is the last whole second at which a party can still make the choice the seed would inform: the
+ * escalation's block time, or `judgeBy − 1` for the fallback. `marginSec` is the rules contract's `BEACON_MARGIN()`
+ * (29 s on Ethereum mainnet and Sepolia, 0 on a local chain and SimChain). The rules contract's `_roundAfter` and the
+ * adjudicator service's `roundFor` compute the same round.
+ */
+export function roundAfter(clock: BeaconClock, lastChoiceSec: number, marginSec: number): number {
+  if (!Number.isSafeInteger(marginSec) || marginSec < 0) throw new RangeError(`beacon margin must be whole non-negative seconds, got ${marginSec}`);
+  return beaconRoundAt(clock, lastChoiceSec + marginSec) + 1;
 }

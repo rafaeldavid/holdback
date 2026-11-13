@@ -8,7 +8,7 @@ description: >-
   judges passed. Expected: the first decision stands (accept upheld). Under D27c (a party appeal handles
   judge-level flags as at first instance) Bench C's panel escalates and the first accept stands.
 club: fixtures/clubs/data-services-v1.yaml
-terms: fixtures/terms/clean-customers-2000.yaml
+terms: fixtures/terms/clean-customers-2000-appeals.yaml
 parties:
   buyer: atlas-buyer
   seller: tidewater-seller

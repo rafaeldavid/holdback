@@ -11,9 +11,9 @@ import {IPermit2} from "permit2/interfaces/IPermit2.sol";
 import {DeployPermit2} from "permit2/../test/utils/DeployPermit2.sol";
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
-import {HoldbackBonds} from "../../src/HoldbackBonds.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
-import {SimBeacon} from "../../src/SimBeacon.sol";
+import {SimBeacon} from "../../script/SimBeacon.sol";
 
 /// Exposes the library's struct hashes (calldata-only) to tests.
 contract TypesHarness {
@@ -49,10 +49,6 @@ contract TypesHarness {
         return H.decisionHash(i, a, t, m);
     }
 
-    function appeal(bytes32 i, address a, address token, H.Appeal calldata p) external pure returns (bytes32) {
-        return H.appealHash(i, a, H.tokenIdHash(token), p);
-    }
-
     function mutual(bytes32 i, address token, H.Mutual calldata m) external pure returns (bytes32) {
         return H.mutualHash(i, H.tokenIdHash(token), m);
     }
@@ -63,7 +59,10 @@ contract TypesHarness {
 }
 
 /// Shared fixture: CPP v1.1.0 (vendored, unmodified), both collectors, Permit2, a mock USDC with ERC-3009, and
-/// HoldbackRules with its bond vault and the sim beacon (T-209: the drand verifier has its own suites). Local EVM only (chain id 31337); no RPC.
+/// HoldbackRules (phase one: no bond vault, ADR-0031 §8) and the sim beacon (T-209: the drand verifier has its own suites). Local EVM only (chain id 31337); no RPC.
+/// Since SC-2 (ADR-0031 §3) the rules contract funds by ERC-3009 only and takes no Permit2 collector. The world still
+/// deploys Permit2 and its collector: the pinned contracts the side-by-side harness and `PhaseOneNoBonds.t.sol` deploy
+/// take one, and `Erc3009Only.t.sol` shows a valid Permit2 signature is refused.
 abstract contract Base is Test, DeployPermit2 {
     bytes32 internal constant RECEIVE_WITH_AUTHORIZATION_TYPEHASH =
         0xd099cc98ef71107a616c4f0f941f04c322d8e254fe26b3c6668db87aae413de8;
@@ -73,6 +72,8 @@ abstract contract Base is Test, DeployPermit2 {
     bytes32 internal constant TOKEN_PERMISSIONS_TYPEHASH = keccak256("TokenPermissions(address token,uint256 amount)");
     address internal constant MULTICALL3 = 0xcA11bde05977b3631167028862bE2a173976CA11;
     uint64 internal constant MARGIN = 1 days;
+    /// ADR-0032: the beacon margin of Ethereum mainnet and Sepolia, which the drand suites deploy with.
+    uint64 internal constant DRAND_MARGIN = 29;
 
     AuthCaptureEscrow internal escrow;
     ERC3009PaymentCollector internal collector3009;
@@ -81,7 +82,6 @@ abstract contract Base is Test, DeployPermit2 {
     MockERC3009Token internal usdc;
     SimBeacon internal sim;
     HoldbackRules internal rules;
-    HoldbackBonds internal bonds;
     TypesHarness internal hx;
 
     uint256 internal constant BUYER_PK = 0xB0B;
@@ -99,13 +99,18 @@ abstract contract Base is Test, DeployPermit2 {
 
     uint256 internal constant PRICE = 26_000_000; // 26 tUSD, 6 decimals
     uint256 internal constant FEE = 500_000; // 0.50 tUSD adjudication fee
-    uint256 internal constant BOND = 1_000_000_000;
     bytes32 internal constant SEED = keccak256("primary seed");
     bytes32 internal constant SIM_SEED = keccak256("sim seed");
     string internal constant KEY_SCHEME = "x25519-xsalsa20poly1305";
     string internal constant KEY_CT = "c2VhbGVkLWtleS1mb3ItYnV5ZXI";
 
     uint256 internal salt;
+
+    /// The rules contract's beacon margin (ADR-0032): 0 on the local chain, which keeps the sim rounds at judgeBy and
+    /// t1 + 1. A suite that tests the margin on the sim beacon overrides it.
+    function _beaconMargin() internal view virtual returns (uint64) {
+        return 0;
+    }
 
     function setUp() public virtual {
         vm.chainId(31337);
@@ -116,8 +121,7 @@ abstract contract Base is Test, DeployPermit2 {
         collectorPermit2 = new Permit2PaymentCollector(address(escrow), permit2, MULTICALL3);
         usdc = new MockERC3009Token("Mock USDC", "mUSDC", 6);
         sim = new SimBeacon(SIM_SEED);
-        rules = new HoldbackRules(escrow, address(collector3009), address(collectorPermit2), MARGIN, sim);
-        bonds = rules.BONDS();
+        rules = new HoldbackRules(escrow, address(collector3009), MARGIN, sim, address(usdc), _beaconMargin());
         hx = new TypesHarness();
 
         buyer = vm.addr(BUYER_PK);
@@ -128,29 +132,27 @@ abstract contract Base is Test, DeployPermit2 {
         relayer = makeAddr("relayer");
         usdc.mint(buyer, 1_000_000_000);
         usdc.mint(seller, 1_000_000_000);
-        _bond(adjudicator, BOND);
-        _bond(fallbackAdj, BOND);
-        _bond(appealAdj, BOND);
     }
 
     // ------------------------------------------------------------ builders
 
-    function _bond(address a, uint256 amount) internal {
-        usdc.mint(a, amount);
-        vm.startPrank(a);
-        usdc.approve(address(bonds), amount);
-        bonds.deposit(address(usdc), amount);
-        vm.stopPrank();
+    /// The `bondReserved` an acceptance signs: 0 on a phase-one deployment, which refuses any other value (ADR-0031
+    /// §8, point 2). The side-by-side harness's pinned side overrides it with the price, which the deployed
+    /// contracts require.
+    function _bondReserved(H.Terms memory) internal view virtual returns (uint256) {
+        return 0;
     }
 
     function _terms() internal returns (H.Terms memory t) {
         uint64 now_ = uint64(block.timestamp);
         t = H.Terms({
-            schemaVersionHash: keccak256("0.7"),
+            schemaVersionHash: keccak256("0.8"),
             clubIdHash: keccak256("data-services-v1"),
             rulebookHash: keccak256("rulebook"),
             buyer: buyer,
             seller: seller,
+            buyerPaymentAddress: buyer, // ADR-0033: equal to the signing addresses unless a test sets them apart
+            sellerPayoutAddress: seller,
             deliverableHash: keccak256("deliverable"),
             acceptanceHash: keccak256("acceptance"),
             token: address(usdc),
@@ -168,7 +170,7 @@ abstract contract Base is Test, DeployPermit2 {
                 deliverBy: now_ + 1 days,
                 judgeBy: now_ + 2 days,
                 fallbackBy: now_ + 3 days,
-                appealWindowSec: 1 days,
+                appealWindowSec: 0, // phase one has no party appeal (ADR-0033 §2b)
                 appealDecideSec: 1 days,
                 maxSubmissions: 1,
                 disputeBy: 0,
@@ -195,11 +197,11 @@ abstract contract Base is Test, DeployPermit2 {
 
     /// The CPP PaymentInfo the rules contract derives (ADR-0025).
     function _pi(H.Terms memory t) internal view returns (AuthCaptureEscrow.PaymentInfo memory) {
-        uint48 expiry = uint48(t.timing.fallbackBy + t.timing.appealDecideSec + MARGIN);
+        uint48 expiry = uint48(t.timing.fallbackBy + t.timing.appealDecideSec + rules.EXPIRY_MARGIN()); // the deployment's
         return AuthCaptureEscrow.PaymentInfo({
             operator: address(rules),
-            payer: t.buyer,
-            receiver: t.seller,
+            payer: t.buyerPaymentAddress,
+            receiver: t.sellerPayoutAddress,
             token: t.token,
             maxAmount: uint120(t.price + t.fee),
             preApprovalExpiry: uint48(t.timing.fundBy),
@@ -231,10 +233,12 @@ abstract contract Base is Test, DeployPermit2 {
             )
         );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", IERC3009(pi.token).DOMAIN_SEPARATOR(), structHash));
-        return H.Funding({method: 0, signature: _signRaw(pk, digest)});
+        return H.Funding({signature: _signRaw(pk, digest)});
     }
 
-    function _permit2(H.Terms memory t, uint256 pk) internal view returns (H.Funding memory) {
+    /// A Permit2 PermitTransferFrom signature for the deal's hold, for the Permit2 collector. Phase one has no
+    /// Permit2 path (SC-2): it is the pinned contracts' funding, and the input `Erc3009Only.t.sol` shows refused.
+    function _permit2(H.Terms memory t, uint256 pk) internal view returns (bytes memory) {
         AuthCaptureEscrow.PaymentInfo memory pi = _pi(t);
         bytes32 permitHash = keccak256(
             abi.encode(
@@ -246,13 +250,13 @@ abstract contract Base is Test, DeployPermit2 {
             )
         );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", IPermit2(permit2).DOMAIN_SEPARATOR(), permitHash));
-        return H.Funding({method: 1, signature: _signRaw(pk, digest)});
+        return _signRaw(pk, digest);
     }
 
     function _acceptance(H.Terms memory t, uint256 pk) internal view returns (H.Acceptance memory a) {
         a = H.Acceptance({
             seedCommitment: keccak256(abi.encodePacked(SEED)),
-            bondReserved: t.price,
+            bondReserved: _bondReserved(t),
             nonce: keccak256("acc"),
             expiresAt: t.timing.offerExpiresAt,
             signature: ""
@@ -397,7 +401,7 @@ abstract contract Base is Test, DeployPermit2 {
         return _signDecision(t, id, _decision(H.ROLE_PRIMARY, outcome), adjudicator, ADJ_PK);
     }
 
-    function _stage(bytes32 id) internal view returns (HoldbackRules.Stage) {
+    function _stage(bytes32 id) internal view returns (IHoldbackRules.Stage) {
         return rules.dealOf(id).stage;
     }
 

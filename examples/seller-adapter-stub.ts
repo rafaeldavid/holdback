@@ -153,6 +153,12 @@ export async function startStubSellerApi(o: StubOptions = {}): Promise<StubSelle
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  const { help, helpAsked } = await import('./help.ts');
+  const asked = helpAsked(process.argv.slice(2));
+  if (asked !== null || process.argv.length > 2) {
+    (asked === 0 ? console.log : console.error)(help('seller-adapter-stub', import.meta.url));
+    process.exit(asked ?? 2);
+  }
   const stub = await startStubSellerApi();
   console.log(`Stub seller API listening on ${stub.url}: POST /quote, POST /jobs, GET /jobs/<id>/result. Test data only.`);
 }

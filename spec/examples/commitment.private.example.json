@@ -1,10 +1,12 @@
 {
-  "schemaVersion": "0.7",
+  "schemaVersion": "0.8",
   "id": "0x2b4e8f1c7d9a3b5e6f0a1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f",
   "clubId": "data-services-v1",
   "rulebookHash": "0xb70959b8b5a5a9d365df7471120396553ed1bc0bff83059e4862e6d11b36a556",
   "buyer": "0x7a1c2e9d4b3f5a6c8e0d1b2a3c4d5e6f7a8b9c0d",
   "seller": "0x3e5f7a9b1c2d4e6f8a0b1c3d5e7f9a1b3c5d7e9f",
+  "buyerPaymentAddress": "0x7a1c2e9d4b3f5a6c8e0d1b2a3c4d5e6f7a8b9c0d",
+  "sellerPayoutAddress": "0x3e5f7a9b1c2d4e6f8a0b1c3d5e7f9a1b3c5d7e9f",
   "price": {
     "token": "tUSD",
     "amount": "2000000000"
@@ -27,7 +29,7 @@
     "deliverBy": "2026-11-02T10:00:00Z",
     "judgeBy": "2026-11-02T10:02:00Z",
     "fallbackBy": "2026-11-02T10:04:00Z",
-    "appealWindowSec": 300,
+    "appealWindowSec": 0,
     "appealDecideSec": 300,
     "maxSubmissions": 1
   },

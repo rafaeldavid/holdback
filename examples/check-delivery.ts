@@ -56,7 +56,15 @@ export interface CheckDeliveryResult {
 /** The command cannot run: a missing file, terms without checks, an unknown option. */
 export class UsageError extends Error {}
 
-const USAGE = 'usage: node examples/check-delivery.ts <terms.json> <file> [--reference <file>]... [--mime <type>] [--json]';
+/**
+ * What the command does, its usage and one example (T-397), as `--help` and a wrong call print them. Kept here, not in
+ * examples/help.ts, so this file imports nothing beyond the list its test holds (no network, no child process).
+ */
+const USAGE = [
+  "check-delivery: runs a deal's deterministic checks on one file, offline: exit 0 when they do not refuse it, 1 when the adjudicator would reject it, 2 when a check cannot be decided or the command cannot run. It does not run the screen or the judges.",
+  'usage: node examples/check-delivery.ts <terms.json> <file> [--reference <file>]... [--mime <type>] [--json]',
+  'example: node examples/check-delivery.ts terms.json work.json',
+].join('\n');
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 function bytesOf(path: string): Uint8Array {
@@ -241,6 +249,12 @@ function parseArgs(argv: readonly string[]): CheckDeliveryOptions & { json: bool
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
+    // --help or -h first asks for help (exit 0); anywhere else it is a wrong call (exit 2): exit 0 means the checks accept the file.
+    const argv = process.argv.slice(2), isHelp = (a: string | undefined) => a === '--help' || a === '-h';
+    if (argv.some(isHelp)) {
+      (isHelp(argv[0]) ? console.log : console.error)(USAGE);
+      process.exit(isHelp(argv[0]) ? 0 : 2);
+    }
     const options = parseArgs(process.argv.slice(2));
     const r = checkDelivery(options);
     console.log(options.json ? safeJson({ file: options.file, mime: r.mime, ...r.preflight, ...(r.panelRead ? { panelRead: r.panelRead } : {}) }) : r.lines.join('\n'));

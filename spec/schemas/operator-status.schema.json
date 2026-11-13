@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.10/operator-status.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.11/operator-status.schema.json",
   "title": "Operator status (GET /v1/status, ADR-0017)",
   "type": "object",
   "additionalProperties": false,

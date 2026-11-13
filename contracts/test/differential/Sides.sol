@@ -7,39 +7,43 @@ import {Permit2PaymentCollector} from "commerce-payments/collectors/Permit2Payme
 import {MockERC3009Token} from "commerce-payments-test/mocks/MockERC3009Token.sol";
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
-import {SimBeacon} from "../../src/SimBeacon.sol";
+import {SimBeacon} from "../../script/SimBeacon.sol";
 import {TypesHarness} from "../unit/Base.sol";
 import {RulesHandler} from "../handlers/RulesHandler.sol";
 
-// The two HoldbackRules copies carry a suffix in their file names, so a lookup by "HoldbackRules.sol:HoldbackRules"
+// The pinned copies carry a suffix in their file names, so a lookup by "HoldbackRules.sol:HoldbackRules"
 // (`deployCodeTo`, `vm.getCode`) still finds only src/. Nothing imports them by name, so their bytes are unchanged.
-import {HoldbackRules as OldRules} from "./old/HoldbackRules.64be1f1.sol";
-import {SimBeacon as OldSimBeacon} from "./old/SimBeacon.sol";
-import {IHoldbackBeacon as OldBeacon} from "./old/IHoldbackBeacon.sol";
+import {HoldbackRules as ParentRules} from "./parent/HoldbackRules.73bbafa.sol";
+import {IHoldbackBeacon as ParentBeacon} from "./parent/IHoldbackBeacon.sol";
 import {HoldbackRules as PlantedRules} from "./planted/HoldbackRules.planted.sol";
 
 /// @title The sides of the side-by-side harness (T-341, refinement gate VG-1)
 /// @notice Each side is the invariant handler (`RulesHandler`) in trace mode over one build of the contracts:
 ///         - `NewSide`: the source under test, `contracts/src/`, deployed by `Base.setUp` unchanged;
-///         - `OldSide`: the pinned copy of `contracts/src/` at the deployed commit `64be1f1` (`old/`);
+///         - `OldSide`: the pinned copy of `contracts/src/` at the change's parent commit (`parent/`). Since T-356
+///           each change on `contracts-audit-ready` is compared with its parent, not with the deployed commit
+///           (the refinement plan, R6c's harness row). The parent here is `73bbafa` (holdback
+///           PR 431), whose contracts are R8's last fix as merged in PR 426 (`7a9f1d2`), copied unchanged. Both sides pay the terms' money addresses (ADR-0033), so deals with those addresses
+///           apart from the signing addresses run on both sides too;
 ///         - `PlantedSide`: the pinned copy with one planted behaviour change (`planted/`), for the tests that
 ///           prove the harness and the liveness invariant fail on a real change.
 ///         The handler drives every side through the new source's ABI (`HoldbackRules`, `HoldbackTypes`), so the
-///         sides receive byte-identical calls.
+///         sides receive the same calls. The parent's ABI equals the new one, so the pinned side needs no hook of its
+///         own.
 /// @dev Same addresses on both sides. The harness creates each side from the same snapshot, so a side lands at
 ///      the same address, and every contract it creates lands at the same address as on the other side, as long as
-///      the sides create the same number of contracts in the same order. That is why `_setUpWith` repeats
-///      `Base.setUp` line for line, with only the beacon and the rules contract swapped. When a change on
-///      `contracts-audit-ready` changes `Base.setUp` (new constructor arguments, a token fixed at deploy, no bond
-///      vault), keep the creation order of `_setUpWith` level with it: the harness checks the addresses first and
-///      names this function when they differ.
+///      the sides create the same number of contracts in the same order. That is why `PinnedSide.setUp` repeats
+///      `Base.setUp` line for line, with only the rules contract swapped. When a change on `contracts-audit-ready`
+///      changes `Base.setUp`, keep the creation order of `PinnedSide.setUp` level with it: the harness checks the
+///      addresses first and names this function when they differ. The sim beacon is the same source on both sides
+///      (`script/SimBeacon.sol` is unchanged since the parent), so it is not vendored.
 contract NewSide is RulesHandler {
     constructor() {
         traceMode = true;
     }
 }
 
-/// The old side's world, the pinned 64be1f1 contracts deployed exactly as `Base.setUp` deploys the new ones.
+/// The old side's world, the pinned parent contracts deployed exactly as `Base.setUp` deploys the new ones.
 abstract contract PinnedSide is RulesHandler {
     function _rulesWith(SimBeacon beacon) internal virtual returns (HoldbackRules);
 
@@ -51,9 +55,8 @@ abstract contract PinnedSide is RulesHandler {
         collector3009 = new ERC3009PaymentCollector(address(escrow), MULTICALL3);
         collectorPermit2 = new Permit2PaymentCollector(address(escrow), permit2, MULTICALL3);
         usdc = new MockERC3009Token("Mock USDC", "mUSDC", 6);
-        sim = SimBeacon(address(new OldSimBeacon(SIM_SEED)));
+        sim = new SimBeacon(SIM_SEED);
         rules = _rulesWith(sim);
-        bonds = rules.BONDS();
         hx = new TypesHarness();
 
         buyer = vm.addr(BUYER_PK);
@@ -64,9 +67,6 @@ abstract contract PinnedSide is RulesHandler {
         relayer = makeAddr("relayer");
         usdc.mint(buyer, 1_000_000_000);
         usdc.mint(seller, 1_000_000_000);
-        _bond(adjudicator, BOND);
-        _bond(fallbackAdj, BOND);
-        _bond(appealAdj, BOND);
     }
 }
 
@@ -77,11 +77,7 @@ contract OldSide is PinnedSide {
 
     function _rulesWith(SimBeacon beacon) internal override returns (HoldbackRules) {
         return HoldbackRules(
-            address(
-                new OldRules(
-                    escrow, address(collector3009), address(collectorPermit2), MARGIN, OldBeacon(address(beacon))
-                )
-            )
+            address(new ParentRules(escrow, address(collector3009), MARGIN, ParentBeacon(address(beacon)), address(usdc), 0))
         );
     }
 }
@@ -93,11 +89,7 @@ contract PlantedSide is PinnedSide {
 
     function _rulesWith(SimBeacon beacon) internal override returns (HoldbackRules) {
         return HoldbackRules(
-            address(
-                new PlantedRules(
-                    escrow, address(collector3009), address(collectorPermit2), MARGIN, OldBeacon(address(beacon))
-                )
-            )
+            address(new PlantedRules(escrow, address(collector3009), MARGIN, ParentBeacon(address(beacon)), address(usdc), 0))
         );
     }
 }
@@ -106,11 +98,7 @@ contract PlantedSide is PinnedSide {
 contract PlantedHandler is PinnedSide {
     function _rulesWith(SimBeacon beacon) internal override returns (HoldbackRules) {
         return HoldbackRules(
-            address(
-                new PlantedRules(
-                    escrow, address(collector3009), address(collectorPermit2), MARGIN, OldBeacon(address(beacon))
-                )
-            )
+            address(new PlantedRules(escrow, address(collector3009), MARGIN, ParentBeacon(address(beacon)), address(usdc), 0))
         );
     }
 }

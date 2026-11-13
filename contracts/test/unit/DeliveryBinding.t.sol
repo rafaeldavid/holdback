@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {IHoldbackRules} from "../../src/IHoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {Base} from "./Base.sol";
 
@@ -69,7 +70,7 @@ contract DeliveryBindingTest is Base {
         H.Decision memory m = _primary(t, id, H.OUTCOME_ACCEPT); // names D1, the carried default
         (H.Delivery memory d2,) = _other();
         bytes memory sig2 = _deliverySig(id, d2, SELLER_PK);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.decide(t, m, d2, sig2);
     }
 
@@ -78,7 +79,7 @@ contract DeliveryBindingTest is Base {
         (H.Terms memory t, bytes32 id) = _funded();
         _deliver(t, id); // D1
         H.Decision memory m = _primaryNaming(t, id, H.OUTCOME_ACCEPT, _otherHash(id));
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.decide(t, m, _noDelivery(), "");
     }
 
@@ -90,13 +91,13 @@ contract DeliveryBindingTest is Base {
         H.EarlyAccept memory m = _earlyFor(t, id, hx.delivery(id, d1));
         (H.Delivery memory d2, H.KeyProof memory k2) = _other();
         bytes memory sig2 = _deliverySig(id, d2, SELLER_PK);
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.earlyAccept(t, m, d2, sig2, k2);
 
         vm.expectEmit(true, true, false, true, address(rules));
         emit KeyReleased(id, buyer, 1, KEY_SCHEME, "buyer-envelope");
         rules.earlyAccept(t, m, d1, "", k1);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Released));
     }
 
     /// D1 is posted; a mutual settlement naming D2 is refused, as core refuses it (state.ts).
@@ -105,7 +106,7 @@ contract DeliveryBindingTest is Base {
         _deliver(t, id); // D1
         H.Mutual memory m = _mutualNaming(t, id, _otherHash(id));
         H.KeyProof memory none;
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, m, _noDelivery(), none);
     }
 
@@ -129,7 +130,7 @@ contract DeliveryBindingTest is Base {
         (H.Delivery memory d1,) = _delivery();
         bytes memory sig1 = _deliverySig(id, d1, SELLER_PK);
         H.Decision memory wrong = _primaryNaming(t, id, outcome, _otherHash(id));
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.decide(t, wrong, d1, sig1);
 
         H.Decision memory right = _primaryNaming(t, id, outcome, hx.delivery(id, d1));
@@ -137,7 +138,7 @@ contract DeliveryBindingTest is Base {
         emit JobSubmitted(id, seller, hx.delivery(id, d1));
         rules.decide(t, right, d1, sig1);
         assertEq(rules.deliveryHashOf(id), hx.delivery(id, d1));
-        assertTrue(_stage(id) != HoldbackRules.Stage.Held);
+        assertTrue(_stage(id) != IHoldbackRules.Stage.Held);
     }
 
     function test_held_carriedDeliveryMustMatchTheNamedHash_earlyAccept() public {
@@ -145,11 +146,11 @@ contract DeliveryBindingTest is Base {
         (H.Delivery memory d1, H.KeyProof memory k1) = _delivery();
         bytes memory sig1 = _deliverySig(id, d1, SELLER_PK);
         H.EarlyAccept memory wrong = _earlyFor(t, id, _otherHash(id));
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.earlyAccept(t, wrong, d1, sig1, k1);
 
         rules.earlyAccept(t, _earlyFor(t, id, hx.delivery(id, d1)), d1, sig1, k1);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Released));
         assertEq(rules.deliveryHashOf(id), hx.delivery(id, d1));
     }
 
@@ -159,7 +160,7 @@ contract DeliveryBindingTest is Base {
         (H.Delivery memory d1, H.KeyProof memory k1) = _delivery();
         bytes memory forged = _deliverySig(id, d1, OTHER_PK);
         H.EarlyAccept memory m = _earlyFor(t, id, hx.delivery(id, d1));
-        vm.expectRevert(HoldbackRules.BadSignature.selector);
+        vm.expectRevert(IHoldbackRules.BadSignature.selector);
         rules.earlyAccept(t, m, d1, forged, k1);
     }
 
@@ -169,7 +170,7 @@ contract DeliveryBindingTest is Base {
         (H.Terms memory t, bytes32 id) = _funded();
         (H.Delivery memory d1, H.KeyProof memory k1) = _deliver(t, id);
         rules.earlyAccept(t, _earlyFor(t, id, hx.delivery(id, d1)), d1, "", k1);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Released));
     }
 
     // ------------------------------------------------------------ every role names the posted delivery
@@ -179,20 +180,6 @@ contract DeliveryBindingTest is Base {
         _deliver(t, id);
         rules.decide(t, _primary(t, id, H.OUTCOME_ESCALATE), _noDelivery(), "");
         round = uint64(rules.dealOf(id).t1) + 1;
-        vm.warp(round);
-    }
-
-    function _partyAppeal() internal returns (H.Terms memory t, bytes32 id, uint64 round) {
-        (t, id) = _funded();
-        _deliver(t, id);
-        rules.decide(t, _primary(t, id, H.OUTCOME_ACCEPT), _noDelivery(), "");
-        vm.prank(buyer);
-        usdc.approve(address(bonds), type(uint256).max);
-        H.Appeal memory a =
-            H.Appeal({appellant: 0, groundsHash: keccak256("g"), bond: 1_000, filedAt: 0, signature: ""});
-        a.signature = _sign(BUYER_PK, hx.appeal(id, buyer, t.token, a));
-        rules.fileAppeal(t, a);
-        round = uint64(rules.dealOf(id).t2) + 1;
         vm.warp(round);
     }
 
@@ -214,36 +201,26 @@ contract DeliveryBindingTest is Base {
         vm.warp(t.timing.judgeBy);
         rules.triggerFallback(t);
         H.Decision memory wrong = _beaconNaming(t, id, H.ROLE_FALLBACK, t.timing.judgeBy, _otherHash(id));
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.decide(t, wrong, _noDelivery(), "");
         rules.decide(t, _beaconNaming(t, id, H.ROLE_FALLBACK, t.timing.judgeBy, 0), _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
     }
 
     function test_everyRoleNamesThePostedDelivery_afterEscalation() public {
         (H.Terms memory t, bytes32 id, uint64 round) = _escalated();
         H.Decision memory wrong = _beaconNaming(t, id, H.ROLE_APPEAL, round, _otherHash(id));
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.decide(t, wrong, _noDelivery(), "");
         rules.decide(t, _beaconNaming(t, id, H.ROLE_APPEAL, round, 0), _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
-    }
-
-    /// The appeal adjudicator judges the body the first instance judged.
-    function test_everyRoleNamesThePostedDelivery_partyAppeal() public {
-        (H.Terms memory t, bytes32 id, uint64 round) = _partyAppeal();
-        H.Decision memory wrong = _beaconNaming(t, id, H.ROLE_APPEAL, round, _otherHash(id));
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
-        rules.decide(t, wrong, _noDelivery(), "");
-        rules.decide(t, _beaconNaming(t, id, H.ROLE_APPEAL, round, 0), _noDelivery(), "");
-        assertEq(uint8(rules.dealOf(id).appeal), uint8(HoldbackRules.AppealState.Overturned));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
     }
 
     function test_everyRoleNamesThePostedDelivery_primary() public {
         (H.Terms memory t, bytes32 id) = _funded();
         (H.Delivery memory d1,) = _deliver(t, id);
         rules.decide(t, _primaryNaming(t, id, H.OUTCOME_REJECT, hx.delivery(id, d1)), _noDelivery(), "");
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Refunded));
     }
 
     /// A decision that names no delivery (a zero hash) is refused once one is posted.
@@ -253,7 +230,7 @@ contract DeliveryBindingTest is Base {
         H.Decision memory m = _decision(H.ROLE_PRIMARY, H.OUTCOME_ACCEPT);
         m.deliveryHash = bytes32(0);
         m.signature = _sign(ADJ_PK, hx.decision(id, adjudicator, t, m));
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.decide(t, m, _noDelivery(), "");
     }
 
@@ -266,10 +243,10 @@ contract DeliveryBindingTest is Base {
         rules.triggerFallback(t);
         H.KeyProof memory none;
         H.Mutual memory wrong = _mutualNaming(t, id, _otherHash(id));
-        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
+        vm.expectRevert(IHoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, wrong, _noDelivery(), none);
         rules.mutualSettle(t, _mutualNaming(t, id, hx.delivery(id, d1)), _noDelivery(), none);
-        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Settled));
+        assertEq(uint8(_stage(id)), uint8(IHoldbackRules.Stage.Settled));
     }
 
     function test_deliveryHashOf_setByDeliverAndByACarriedDelivery() public {

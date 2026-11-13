@@ -25,7 +25,7 @@ In scope:
 
 Out of scope:
 
-- contracts reused unchanged (Coinbase Commerce Payments `AuthCaptureEscrow` and its collectors, Permit2, Multicall3): report those to their maintainers;
+- contracts reused unchanged (Coinbase Commerce Payments `AuthCaptureEscrow` and its ERC-3009 collector, and Multicall3): report those to their maintainers. The phase-one contracts fund by ERC-3009 only, and Permit2 is not in phase one; the tests still use Permit2's library (`contracts/lib/commerce-payments/lib/permit2`), which the deployment script does not deploy;
 - controls a token issuer holds over its own token;
 - denial of service by request volume, spam and social engineering;
 - issues that need an already compromised device or account;

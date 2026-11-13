@@ -21,13 +21,20 @@ export const SEED_VAR = 'E2E_SEPOLIA_SEED';
 /** The master, then the round's roles: the parties, and its own adjudicators (registered through the API, T-221). */
 export const ROLES = ['master', 'buyer', 'seller', 'adjudicator-1', 'adjudicator-2', 'adjudicator-3'] as const;
 export type Role = (typeof ROLES)[number];
+/**
+ * The round's money addresses (ADR-0033, T-381): the buyer's payment address, apart from its signing key, and the
+ * seller's payout address, apart from its. Not in ROLES: neither is topped up with Sepolia ETH, because the payment
+ * address only signs ERC-3009 messages, which the operators relay, and the payout address only receives.
+ */
+export const MONEY_ROLES = ['buyer-payment', 'seller-payout'] as const;
+export type MoneyRole = (typeof MONEY_ROLES)[number];
 
 const SEED = /^0x[0-9a-fA-F]{64}$/;
 /** A line that sets the secret, in any form a dotenv reader accepts: leading spaces, `export`, spaces around `=`. */
 const SETS_SEED = new RegExp(`^\\s*(export\\s+)?${SEED_VAR}\\s*=`, 'm');
 
 /** A role's key: keccak256(seed ‖ "holdback/e2e/<role>"), as the relayer derives its deal lanes from its secret. */
-export function roundKey(seed: string, role: Role): Hex {
+export function roundKey(seed: string, role: Role | MoneyRole): Hex {
   if (!SEED.test(seed)) throw new RangeError(`${SEED_VAR} must be 32 bytes of 0x-prefixed hex`);
   return keccak256(concat([seed as Hex, stringToHex(`holdback/e2e/${role}`)]));
 }

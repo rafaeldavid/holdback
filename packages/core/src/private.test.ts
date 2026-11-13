@@ -38,11 +38,13 @@ const CANARY_A = 'CANARY-ACCEPTANCE-9b2c';
 
 function terms(): CommitmentTerms {
   return {
-    schemaVersion: '0.7',
+    schemaVersion: '0.8',
     clubId: 'sim-club',
     rulebookHash: `0x${'ab'.repeat(32)}`,
     buyer,
     seller,
+    buyerPaymentAddress: buyer,
+    sellerPayoutAddress: seller,
     deliverable: { kind: 'dataset', description: `clean the list ${CANARY_D}`, format: 'text/csv', salt: `0x${'5a'.repeat(32)}`, sellerEncryptionPublicKey: encodePublicKey(sellerEnc.publicKey) },
     acceptance: {
       deterministicChecks: [{ id: 'cols', type: 'csv_columns_exact', required: true, columns: ['id', CANARY_A] }],

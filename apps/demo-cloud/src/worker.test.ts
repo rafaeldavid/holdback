@@ -1,6 +1,7 @@
 // T-057: the World Durable Object (worker.ts) in Node, behind both Workers. A fake Durable Object state over memory
 // storage holds the alarm in a field the test fires, on a fake clock. Cloudflare bills each setAlarm as a row written
 // and each alarm as a request, so the alarm is what an idle world must not cost.
+import { readFileSync } from 'node:fs';
 import nacl from 'tweetnacl';
 import { generatePrivateKey } from 'viem/accounts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -48,7 +49,7 @@ function deploy() {
 const agent = () => new Agent(URLS, generatePrivateKey(), nacl.randomBytes(32));
 
 /** Two funded agents and a checks-only offer between them. */
-async function offered(timing: Record<string, number> = { judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 60, appealDecideSec: 60 }) {
+async function offered(timing: Record<string, number> = { judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 0, appealDecideSec: 60 }) {
   const d = ((await (await fetch(`${URLS[0]}/`)).json()) as J).demo;
   const [seller, buyer] = [agent(), agent()];
   for (const a of [seller, buyer]) await a.call('POST', '/v1/faucet', { address: a.address });
@@ -97,7 +98,7 @@ describe('the adjudicator alarm (T-057)', () => {
     // Accepted under the live registry, then redeployed without the live judges' keys before the primary's pass: no
     // provider reaches the registry the deal bound, so it refuses the delivery on every pass (registry_mismatch, ADR-0036).
     dep.restart(LIVE);
-    const timing = { offerExpiresInSec: 30, fundWithinSec: 45, deliverWithinSec: 60, judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 60, appealDecideSec: 60 };
+    const timing = { offerExpiresInSec: 30, fundWithinSec: 45, deliverWithinSec: 60, judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 0, appealDecideSec: 60 };
     const { seller, buyer, offer, state } = await offered(timing);
     await dep.fire(Date.now() + 2000);
     await buyer.agreeAndFund(offer.terms, 30_000_000n);
@@ -241,7 +242,9 @@ describe('the SETTLEMENT variable (T-313)', () => {
   };
 
   it('`sim` and `sepolia` each forward to their own world, and name the settlement to it', async () => {
-    for (const [value, name] of [['sim', 'holdback-public-demo-2026-11-04'], ['sepolia', 'holdback-public-demo-sepolia-2026-11-04']] as const) {
+    // T-383: the Sepolia world's name is the record's rules address, so a new record is a new world.
+    const record = JSON.parse(readFileSync(new URL('../../../contracts/deployments/sepolia.json', import.meta.url), 'utf8')) as { rules: string };
+    for (const [value, name] of [['sim', 'holdback-public-demo-sim-2026-11-12'], ['sepolia', `holdback-public-demo-sepolia-${record.rules.toLowerCase()}`]] as const) {
       const b = binding();
       const r = await worker.fetch(new Request('https://api.crow.direct/v1/status', { headers: { 'x-holdback-settlement': 'spoofed' } }), b.env(value));
       expect(await r.text()).toBe('from the world');

@@ -28,7 +28,7 @@ const CHECKS = [
   { id: 'rows', type: 'row_count_range', required: true, min: 3, max: 3 },
   { id: 'uniq', type: 'unique_key', required: true, columns: ['customer_id'] },
 ];
-const TIMING = { judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 60, appealDecideSec: 60 };
+const TIMING = { judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 0, appealDecideSec: 60 }; // phase one: no party appeal, so the window is 0 (ADR-0033 §2b)
 const CSV = 'customer_id,email\n1,ada@example.com\n2,alan@example.com\n3,grace@example.com\n';
 /** Price 25 tUSD, adjudication fee 1 tUSD, operator fee 0.01 tUSD (1 bp, at least 10,000 base units). */
 const TOTAL = '26010000';

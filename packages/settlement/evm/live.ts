@@ -44,6 +44,7 @@ import {
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import { holdbackDomain, type HoldbackDomain } from '@holdback/core';
 import abisJson from './abis.json' with { type: 'json' };
+import acceptedTokensJson from './accepted-tokens.json' with { type: 'json' };
 import { RelayRefused, type Abis, type Deployment, type EvmChain, type LaneRow, type Mined, type RelayNote } from './chain.js';
 import { revertData } from './errors.js';
 import { assertSafeChain } from './guard.js';
@@ -57,12 +58,16 @@ export interface DeploymentFile {
   token: { address: string; name: string; version: string; symbol: string; decimals: number };
   escrow: string;
   erc3009Collector: string;
-  permit2Collector: string;
+  /** The Permit2 collector of a deployment from before phase one (ADR-0031 §3). Read by nothing: phase one funds by ERC-3009 only. */
+  permit2Collector?: string;
   multicall: string;
   rules: string;
-  bonds: string;
+  /** The bond vault of a deployment from before phase one (ADR-0031 §8). Read by nothing: phase one has no vault. */
+  bonds?: string;
   beacon: string;
   expiryMarginSec?: number;
+  /** The rules contract's `BEACON_MARGIN()` in seconds (ADR-0032). Absent: 0, which a shared chain's contract refuses at deploy. */
+  beaconMarginSec?: number;
 }
 
 /**
@@ -73,6 +78,37 @@ export interface DeploymentFile {
 export function domainMismatch(onChain: { name: string; version: string }, want: Pick<HoldbackDomain, 'name' | 'version'>): string | null {
   if (onChain.name === want.name && onChain.version === want.version) return null;
   return `the rules contract signs under EIP-712 domain "${onChain.name}" ${onChain.version}, this build under "${want.name}" ${want.version}: every message would revert BadSignature. Deploy the ${want.version} contracts and update the deployment file (contracts/deployments/<network>.json, ADR-0029 §8) before starting this build`;
+}
+
+/** A token Crow's operators accept on one chain. */
+export interface AcceptedToken {
+  address: string;
+  symbol: string;
+  decimals: number;
+}
+
+/**
+ * The one token Crow's operators accept, per chain ID (accepted-tokens.json, T-383). It is Crow's rule, not the
+ * protocol's: the contract serves whatever token its deployer fixed. A chain with no entry, the local one, skips it.
+ */
+export const ACCEPTED_TOKENS: Readonly<Record<string, AcceptedToken>> = Object.fromEntries(
+  Object.entries(acceptedTokensJson as Record<string, unknown>).filter((e): e is [string, AcceptedToken] => /^\d+$/.test(e[0])),
+);
+
+/**
+ * Why a deployment's token is not one this build settles in, or null. Three values must agree: the table's entry for
+ * the chain (none: that comparison is skipped), the deployment file's token, and the rules contract's TOKEN(). Each
+ * message names both sides of the first pair that differs.
+ */
+export function tokenMismatch(chainId: number, file: string, onChain: string, table: Readonly<Record<string, AcceptedToken>> = ACCEPTED_TOKENS): string | null {
+  const entry = table[String(chainId)];
+  // Only a chain with no entry skips the table; Sepolia, which Crow's operators serve, must have one (review of PR 423).
+  if (!entry && chainId === 11155111) return `Crow's operators accept no token on chain ${chainId}: packages/settlement/evm/accepted-tokens.json has no entry for it`;
+  if (entry && !/^0x[0-9a-fA-F]{40}$/.test(String(entry.address))) return `the accepted-token table's entry for chain ${chainId} names no address (packages/settlement/evm/accepted-tokens.json)`;
+  if (entry && lc(entry.address) !== lc(file)) return `the deployment file's token is ${file}, but Crow's operators accept ${entry.address} (${entry.symbol}) on chain ${chainId} (packages/settlement/evm/accepted-tokens.json)`;
+  // With the first two equal, a third difference (table against chain) is this one.
+  if (lc(onChain) !== lc(file)) return `the rules contract's TOKEN() is ${onChain}, the deployment file says ${file}`;
+  return null;
 }
 
 /** The six ABIs from contracts/out (scripts/evm-abis.mjs), for a runtime with no file system. */
@@ -92,10 +128,8 @@ export function deploymentOf(f: DeploymentFile): Deployment {
     token: getAddress(f.token.address),
     escrow: getAddress(f.escrow),
     erc3009Collector: getAddress(f.erc3009Collector),
-    permit2Collector: getAddress(f.permit2Collector),
     multicall: getAddress(f.multicall),
     rules: getAddress(f.rules),
-    bonds: getAddress(f.bonds),
     beacon: getAddress(f.beacon),
     fromBlock: BigInt(f.fromBlock),
   };
@@ -216,6 +250,7 @@ export class LiveChain implements EvmChain {
   readonly token: DeploymentFile['token'];
   readonly tokenDomain: { name: string; version: string };
   readonly expiryMargin: bigint;
+  readonly beaconMarginSec: number;
   /** The funding lane, then the deal lanes. */
   readonly lanes: readonly PrivateKeyAccount[];
   private readonly keys: readonly Hex[];
@@ -259,6 +294,13 @@ export class LiveChain implements EvmChain {
     this.token = o.deployment.token;
     this.tokenDomain = { name: o.deployment.token.name, version: o.deployment.token.version };
     this.expiryMargin = BigInt(o.deployment.expiryMarginSec ?? 86_400);
+    // A margin that is not whole non-negative seconds (a string, a fraction) would pass the BEACON_MARGIN() check by
+    // BigInt and then throw in every round computation (T-380 red team, L-1): refuse it here.
+    const beaconMargin: unknown = o.deployment.beaconMarginSec ?? 0;
+    if (typeof beaconMargin !== 'number' || !Number.isSafeInteger(beaconMargin) || beaconMargin < 0) {
+      throw new RangeError(`the deployment file's beaconMarginSec must be whole non-negative seconds, got ${JSON.stringify(beaconMargin)}`);
+    }
+    this.beaconMarginSec = beaconMargin;
     this.keys = [o.relayerKey, ...Array.from({ length: DEAL_LANES }, (_, i) => laneKey(o.relayerKey, i + 1))];
     this.lanes = this.keys.map((k) => privateKeyToAccount(k));
     this.maxFee = parseGwei(String(o.maxFeeGwei ?? 20));
@@ -315,10 +357,23 @@ export class LiveChain implements EvmChain {
     const [, name, version] = (await this.publicClient.readContract({ address: this.deployment.rules, abi: this.abis.rules, functionName: 'eip712Domain' })) as readonly [Hex, string, string, bigint, Address, Hex, readonly bigint[]];
     const mismatch = domainMismatch({ name, version }, holdbackDomain(id, this.deployment.rules));
     if (mismatch) throw new RangeError(`${mismatch} (rules contract ${this.deployment.rules} on chain ${id})`);
+    // T-383: one token, three ways (the table, the file, TOKEN()), and code at it. A token with no code could take no
+    // funding at all; it is refused here and by the deploy script's check, not by the contract's constructor.
+    // eslint-disable-next-line no-restricted-syntax -- read before any write, and TOKEN is a constant of the deployed contract.
+    const token = (await this.publicClient.readContract({ address: this.deployment.rules, abi: this.abis.rules, functionName: 'TOKEN' })) as Address;
+    const wrongToken = tokenMismatch(id, this.deployment.token, token);
+    if (wrongToken) throw new RangeError(`${wrongToken} (rules contract ${this.deployment.rules} on chain ${id})`);
+    const tokenCode = await this.publicClient.getCode({ address: this.deployment.token });
+    if (!tokenCode || tokenCode === '0x') throw new RangeError(`no contract at the token address ${this.deployment.token} on chain ${id}: no deal could fund`);
     // Every funding nonce hashes the margin: a deployment file that disagrees with the contract signs for nothing.
     // eslint-disable-next-line no-restricted-syntax -- T-232: read before any write, and EXPIRY_MARGIN is a constant of the deployed contract.
     const margin = (await this.publicClient.readContract({ address: this.deployment.rules, abi: this.abis.rules, functionName: 'EXPIRY_MARGIN' })) as bigint;
     if (BigInt(margin) !== this.expiryMargin) throw new RangeError(`the rules contract's EXPIRY_MARGIN is ${margin}, the deployment file says ${this.expiryMargin}`);
+    // ADR-0032: the fallback and escalation rounds add the contract's margin. A node that counted another would ask the
+    // adjudicators for a round the contract refuses, and every such deal would default.
+    // eslint-disable-next-line no-restricted-syntax -- read before any write, and BEACON_MARGIN is a constant of the deployed contract.
+    const beaconMargin = (await this.publicClient.readContract({ address: this.deployment.rules, abi: this.abis.rules, functionName: 'BEACON_MARGIN' })) as bigint;
+    if (BigInt(beaconMargin) !== BigInt(this.beaconMarginSec)) throw new RangeError(`the rules contract's BEACON_MARGIN is ${beaconMargin}, the deployment file says ${this.beaconMarginSec}`);
   }
 
   floor(): bigint {
@@ -700,31 +755,4 @@ export class LiveChain implements EvmChain {
     this.blockTimes.set(n, t);
     return t;
   }
-}
-
-/**
- * Gives an adjudicator key this world holds at least `amount` of its own bond in HoldbackBonds (the demo's setup,
- * ADR-0028 §7). The funding lane tops up the adjudicator's test ETH to `gas` and mints the missing test tokens to it
- * (open mint); the adjudicator then approves and deposits with its own key, as HoldbackBonds bonds msg.sender.
- * Idempotent: every step is decided by an on-chain read, and nothing is sent when the bond is already there. Each read
- * and the deposit's estimate are pinned to the block of the step before or later (T-232), so a node that trails the
- * approval neither refuses the deposit nor sends a second approval.
- */
-export async function ensureBond(chain: LiveChain, adjudicatorKey: Hex, amount: bigint, gas: bigint): Promise<Hex[]> {
-  const a = privateKeyToAccount(adjudicatorKey).address;
-  const { token, bonds } = chain.deployment;
-  const read = (address: Address, functionName: string, args: unknown[]) =>
-    chain.pinned((blockNumber) => chain.publicClient.readContract({ address, abi: address === bonds ? chain.abis.bonds : chain.abis.token, functionName, args, blockNumber }) as Promise<bigint>);
-  const bond = await read(bonds, 'bondOf', [a, token]);
-  if (bond >= amount) return [];
-  const sent: Hex[] = [];
-  const need = amount - bond;
-  if ((await chain.ethBalance(a)) < gas / 2n) sent.push((await chain.send({ lane: FUNDING_LANE, to: a, data: '0x', value: gas })).hash);
-  if ((await read(token, 'balanceOf', [a])) < need) sent.push((await chain.mint(a, need)).hash);
-  if ((await read(token, 'allowance', [a, bonds])) < need) {
-    sent.push((await chain.send({ key: adjudicatorKey, to: token, data: encodeFunctionData({ abi: chain.abis.token, functionName: 'approve', args: [bonds, need] }) })).hash);
-  }
-  const deposit = await chain.send({ key: adjudicatorKey, to: bonds, data: encodeFunctionData({ abi: chain.abis.bonds, functionName: 'deposit', args: [token, need] }) });
-  if (deposit.status !== 'success') throw new Error(`the bond deposit for ${a} reverted: ${deposit.hash}`);
-  return [...sent, deposit.hash];
 }

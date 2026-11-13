@@ -10,7 +10,7 @@
 //   are false for an unparseable time, so a bad clock refuses instead of firing a timeout, and step
 //   refuses an unparseable event time outright.
 import { encodePacked, keccak256 } from 'viem';
-import { beaconClockOf, beaconRoundAt, type BeaconClock } from './beacon.js';
+import { beaconClockOf, roundAfter } from './beacon.js';
 import { rulebookHash } from './canonical.js';
 import { commitmentId, deliveryHash, isSealed, termsOf } from './eip712.js';
 import { add, gte, tokenAmount, type MoneyError } from './money/index.js';
@@ -122,7 +122,44 @@ export interface OfferInput {
   /** The rulebook registered under terms.rulebookHash, or null when none is. */
   rulebook: Rulebook | null;
   nonceUsed: boolean;
+  /** The protocol the settlement layer enforces (`full` unless it says otherwise). */
+  profile?: SettlementProfile;
 }
+
+/**
+ * T-380 (R8 fix 3): the phase-one escrow holds price + fee in a uint120 (`AuthCaptureEscrow.PaymentInfo.maxAmount`),
+ * and the rules contract refuses a larger hold at funding (`Unrepresentable`). Core refuses it at the offer, the same
+ * bound, for that reason only (D31). The contract's other two bounds (a deadline after 9999-12-31T23:59:59-23:59, the
+ * last RFC 3339 instant, and an escalation window above 32 bits) are core's own encoding limits, which the parser
+ * refuses (`parse.ts`).
+ */
+export const MAX_HOLD = 2n ** 120n - 1n;
+export const HOLD_TOO_LARGE_PROBLEM = `price plus adjudication fee is above ${MAX_HOLD}, the largest hold the phase-one escrow can represent (a uint120; the rules contract refuses it as Unrepresentable)`;
+
+/**
+ * ADR-0031 §6 (SC-5; Rafa, 2026-11-11): on the phase-one contracts a deal holds at least one base unit, as price or as
+ * fee. The escrow refuses to hold nothing (`AuthCaptureEscrow` reverts `ZeroAmount`; pinned by
+ * `contracts/test/unit/ZeroPrice.t.sol`, `test_zeroPriceZeroFee_cannotFund_escrowRefusesZeroAmount`).
+ */
+export const ZERO_HOLD_PROBLEM =
+  'price and adjudication fee are both 0, and the phase-one contracts cannot fund a deal that holds nothing: the escrow refuses to hold 0 (AuthCaptureEscrow ZeroAmount; ADR-0031 §6). A zero price is allowed with a fee above 0; give the deal a price or a fee of at least one base unit';
+
+/**
+ * ADR-0031 §8 (D57): the phase-one contracts take no party appeal. The adapter and the operator's prepare routes answer
+ * a party appeal, or its expiry, with this reason before any transaction, never with a revert the agent cannot read.
+ * Written once here for both (T-349 review).
+ */
+export const PHASE_ONE_NO_APPEAL =
+  'this settlement runs the phase-one contracts, which have no party appeals and no bonds (ADR-0031, D57): the first decision by the primary or the fallback adjudicator is final on chain. ' +
+  'Nothing reopens it. The signed decision and its judgment record are your evidence (D26); before you sign your next deal, choose the three adjudicators and the default outcome you can rely on';
+
+/**
+ * ADR-0033 §2b (D62; Rafa, 2026-11-12, "Yes, contract too"): phase one has no party appeal, so a phase-one deal's
+ * terms state an appeal window of 0. The contract (`agreeAndFund`, InvalidMessage), core's `phase_one` profile and the
+ * operator's prepare routes refuse any other value, each with this reason.
+ */
+export const APPEAL_WINDOW_PROBLEM =
+  'timing.appealWindowSec must be 0: phase one has no party appeal, so the first decision is final and the phase-one contracts refuse any other appeal window (ADR-0033 §2b)';
 
 export type EscrowEvent =
   | { type: 'adjudicator_accept'; at: Timestamp; message: AdjudicatorAcceptance; unencumberedBond: TokenAmount }
@@ -135,7 +172,9 @@ export type EscrowEvent =
   // decisions, ignored for the primary (ADR-0018). null when the round cannot be proven.
   | { type: 'decide'; at: Timestamp; message: Decision; beacon?: BeaconFact | null }
   // ADR-0019, D23. Both signatures are verified before step; rule is the club rulebook's mutualSettlement.
-  | { type: 'mutual_settle'; at: Timestamp; message: MutualSettlement; rule: Pick<Rulebook['mutualSettlement'], 'allowed' | 'payoutsTo'> }
+  // T-357 (SC-5b): in Held, `delivery` is the unposted delivery the settlement names and whose key it releases; it is
+  // read only there, as the contract reads its `dv` and key proof only with releaseKey.
+  | { type: 'mutual_settle'; at: Timestamp; message: MutualSettlement; rule: Pick<Rulebook['mutualSettlement'], 'allowed' | 'payoutsTo'>; delivery?: Delivery }
   // requiredBond is price x the rulebook appealBondRateBps and requiredFee the rulebook appealFee, both
   // computed by the caller; feePaid is the appeal-fee authorization that accompanies the appeal.
   | { type: 'file_appeal'; at: Timestamp; appeal: Appeal; requiredBond: TokenAmount; requiredFee: TokenAmount; feePaid: TokenAmount }
@@ -148,6 +187,17 @@ export type EscrowEvent =
   | { type: 'expire_appeal'; at: Timestamp };
 
 type R<T = EscrowState> = Result<T, Problem>;
+
+/**
+ * Which protocol a step is checked against (ADR-0031). `full` is the whole protocol, which SimChain runs: party
+ * appeals and adjudicator bonds. `phase_one` is what the phase-one contracts settle (SC-7, D57): no party appeal and
+ * no bond. On `phase_one` the primary's acceptance must reserve 0 and no free bond is read; the first decision of the
+ * primary or the fallback is final at once (its appeal state is `expired` with no appeal from the decision on); and a party appeal,
+ * an appeal decision or an appeal expiry is refused. A settlement layer passes the profile its contracts enforce.
+ */
+export type SettlementProfile = 'full' | 'phase_one';
+
+const NO_PARTY_APPEAL = 'phase one has no party appeal: the first decision is final (ADR-0031)';
 
 const ms = (ts: Timestamp): number => Date.parse(ts);
 const before = (at: Timestamp, deadline: Timestamp): boolean => ms(at) < ms(deadline);
@@ -193,8 +243,19 @@ export function offer(input: OfferInput): R<Extract<EscrowState, { kind: 'Offere
   if (LEVEL_RANK[level] < LEVEL_RANK[rulebook.disclosureMin]) return fail('invalid_terms', `disclosure.level ${level} is below the rulebook minimum ${rulebook.disclosureMin}`);
   if ((level === 'public') === isSealed(terms)) return fail('invalid_terms', level === 'public' ? 'a public commitment carries its bodies in the clear, not privateTerms' : `a ${level} commitment carries its bodies only as privateTerms`);
 
-  const timing = validateTiming(terms.timing, rulebook);
+  // ADR-0033 §2b: on phase one the appeal window is 0, whatever the rulebook's minimum; the phase-one rule replaces it.
+  if (input.profile === 'phase_one' && terms.timing.appealWindowSec !== 0) return fail('invalid_terms', APPEAL_WINDOW_PROBLEM);
+  const timing = validateTiming(terms.timing, input.profile === 'phase_one' ? { minWindowsSec: { ...rulebook.minWindowsSec, appealWindow: 0 } } : rulebook);
   if (!timing.ok) return timing;
+  // ADR-0031 §6 (SC-5): what the phase-one contracts refuse at funding, refused at the offer, before the buyer and the
+  // adjudicator sign (the operator's prepare route says it before the seller signs). The strict deadline order is
+  // validateTiming's, which the contract copies.
+  if (input.profile === 'phase_one') {
+    if (terms.timing.maxSubmissions !== 1) return fail('invalid_terms', `timing.maxSubmissions ${terms.timing.maxSubmissions}: the phase-one contracts take one delivery (1 only)`);
+    if (terms.timing.appealDecideSec < 1) return fail('invalid_terms', 'timing.appealDecideSec must be at least 1: with 0 no escalation could be decided');
+    if (BigInt(terms.price.amount) === 0n && BigInt(terms.adjudication.fee.amount) === 0n) return fail('invalid_terms', ZERO_HOLD_PROBLEM);
+    if (BigInt(terms.price.amount) + BigInt(terms.adjudication.fee.amount) > MAX_HOLD) return fail('invalid_terms', HOLD_TOO_LARGE_PROBLEM);
+  }
   if (!rulebook.allowedSettlementModes.includes(terms.settlement.mode)) return fail('invalid_terms', `the rulebook does not allow ${terms.settlement.mode}`);
   if (terms.timing.maxSubmissions > rulebook.maxSubmissions) return fail('invalid_terms', 'maxSubmissions exceeds the rulebook maximum');
   for (const token of [terms.price.token, terms.adjudication.fee.token, terms.settlement.token]) {
@@ -209,7 +270,7 @@ export function offer(input: OfferInput): R<Extract<EscrowState, { kind: 'Offere
   return ok({ kind: 'Offered', id: commitment.id, terms, beaconSource, sellerSignature: commitment.signatures.seller });
 }
 
-function adjudicatorAccept(s: Extract<EscrowState, { kind: 'Offered' }>, e: Extract<EscrowEvent, { type: 'adjudicator_accept' }>): R {
+function adjudicatorAccept(s: Extract<EscrowState, { kind: 'Offered' }>, e: Extract<EscrowEvent, { type: 'adjudicator_accept' }>, profile: SettlementProfile): R {
   const m = e.message;
   const { adjudication, price, timing } = s.terms;
   if (!sameAddress(m.adjudicator, adjudication.adjudicator)) return fail('not_your_turn', 'only the primary adjudicator accepts');
@@ -220,6 +281,14 @@ function adjudicatorAccept(s: Extract<EscrowState, { kind: 'Offered' }>, e: Extr
   if (m.policyHash !== adjudication.policyHash) return fail('policy_mismatch', 'acceptance policyHash differs from the terms');
   if (m.registryHash !== adjudication.registryHash) return fail('registry_mismatch', 'acceptance registryHash differs from the terms');
   if (m.fee.token !== adjudication.fee.token || m.fee.amount !== adjudication.fee.amount) return fail('acceptance_mismatch', 'acceptance fee differs from the terms');
+  if (profile === 'phase_one') {
+    // ADR-0031 §8, point 2: phase one has no bond, so the acceptance says that nothing is reserved, as the
+    // contract requires. The contract hashes bondReserved in the price token.
+    if (m.bondReserved.token !== price.token || m.bondReserved.amount !== '0') {
+      return fail('acceptance_mismatch', `phase one has no bond: bondReserved must be 0 ${price.token}, not ${m.bondReserved.amount} ${m.bondReserved.token}`);
+    }
+    return ok({ kind: 'AcceptedByAdjudicator', id: s.id, terms: s.terms, beaconSource: s.beaconSource, sellerSignature: s.sellerSignature, acceptance: m });
+  }
   // Guaranteed mode: the bond covers 100% of the price until appealDecideBy (ADR-0007).
   for (const [what, amount] of [
     ['bond reserved', m.bondReserved],
@@ -251,10 +320,15 @@ function agree(s: Extract<EscrowState, { kind: 'AcceptedByAdjudicator' }>, e: Ex
   return ok({ kind: 'Agreed', id: s.id, terms, beaconSource: s.beaconSource, acceptance: s.acceptance, agree: m });
 }
 
-function fund(s: Extract<EscrowState, { kind: 'Agreed' }>, e: Extract<EscrowEvent, { type: 'fund' }>): R {
+function fund(s: Extract<EscrowState, { kind: 'Agreed' }>, e: Extract<EscrowEvent, { type: 'fund' }>, profile: SettlementProfile): R {
   const m = e.message;
   const { terms } = s;
-  if (!sameAddress(m.from, terms.buyer)) return fail('invalid_signature', 'funding authorization is not from the buyer');
+  // ADR-0031 §3 (SC-2): the phase-one contracts fund by ERC-3009 only.
+  if (profile === 'phase_one' && m.scheme !== 'erc3009') {
+    return fail('invalid_terms', `the phase-one contracts fund by ERC-3009 only, not ${m.scheme} (ADR-0031 §3)`);
+  }
+  // ADR-0033: the buyer's payment address funds the hold; the buyer's signing address agreed to it above.
+  if (!sameAddress(m.from, terms.buyerPaymentAddress)) return fail('invalid_signature', `funding authorization is not from the buyer's payment address ${terms.buyerPaymentAddress}`);
   if (m.commitmentId !== s.id) return fail('invalid_terms', 'funding authorization is for another commitment');
   if (!before(e.at, terms.timing.fundBy)) return fail('deadline_passed', `fundBy passed at ${terms.timing.fundBy}`);
   const live = messageLive(m, e.at);
@@ -295,21 +369,28 @@ function deliver(s: Extract<EscrowState, { kind: 'Held' }>, e: Extract<EscrowEve
   return ok({ ...s, kind: 'Delivered', delivery: d });
 }
 
-// A beacon's round at a timestamp, in drand's arithmetic (the sim beacon: genesis 1 s, period 1 s, round(t) = t).
-const roundAt = (clock: BeaconClock, ts: Timestamp): number => beaconRoundAt(clock, Math.max(0, Math.floor(ms(ts) / 1000)));
+// A timestamp in whole unix seconds, never below 0: the beacon arithmetic's input.
+const secondsOf = (ts: Timestamp): number => Math.max(0, Math.floor(ms(ts) / 1000));
 
 /**
- * The beacon round that fixes a fallback or appeal panel's seed (ADR-0018), or null when that role has no
- * turn in this state. Fallback: the round at judgeBy. Appeal: the first round strictly after the settlement
- * layer applied the escalation or the appeal. Message and trigger times never set it. Rounds count on the clock
- * of the source the commitment's rulebook names, as the rules contract's beacon counts them (T-217).
+ * The beacon round that fixes a fallback or appeal panel's seed (ADR-0018, ADR-0032), or null when that role has no
+ * turn in this state. Each is `roundAfter(lastChoice, marginSec)`, the first round published strictly after the last
+ * second a party could still choose, plus the deployment's margin: for the fallback, `judgeBy − 1` (the last second
+ * the primary's decision can carry); for the appeal adjudicator, the second the settlement layer applied the
+ * escalation or the appeal. Message and trigger times never set it. Rounds count on the clock of the source the
+ * commitment's rulebook names, as the rules contract's beacon counts them (T-217). `marginSec` is the rules contract's
+ * `BEACON_MARGIN()`; SimChain and a local chain use 0, where the rounds are `judgeBy` and `t + 1` on the sim beacon.
  */
-export function beaconRoundFor(s: EscrowState, role: 'fallback' | 'appeal'): number | null {
+export function beaconRoundFor(s: EscrowState, role: 'fallback' | 'appeal', marginSec = 0): number | null {
   const clock = beaconClockOf(s.beaconSource);
   if (!clock) return null;
-  if (role === 'fallback') return s.kind === 'Delivered' || s.kind === 'FallbackJudging' ? roundAt(clock, s.terms.timing.judgeBy) : null;
-  if (s.kind === 'Escalated') return roundAt(clock, s.escalation.at) + 1;
-  if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance' && s.via.appeal.kind === 'open') return roundAt(clock, s.via.appeal.openedAt) + 1;
+  if (role === 'fallback') {
+    // judgeBy is at least 3 s after the epoch once the deadlines are in strict order; the floor at 0 only keeps the
+    // arithmetic defined for a state that never funds.
+    return s.kind === 'Delivered' || s.kind === 'FallbackJudging' ? roundAfter(clock, Math.max(0, secondsOf(s.terms.timing.judgeBy) - 1), marginSec) : null;
+  }
+  if (s.kind === 'Escalated') return roundAfter(clock, secondsOf(s.escalation.at), marginSec);
+  if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance' && s.via.appeal.kind === 'open') return roundAfter(clock, secondsOf(s.via.appeal.openedAt), marginSec);
   return null;
 }
 
@@ -319,9 +400,9 @@ export function panelSeed(id: Hex32, role: 'fallback' | 'appeal', attempt: numbe
 }
 
 /** The beacon seed check for fallback and appeal decisions. There is no substitute source: no fact, no decision. */
-function beaconSeed(s: EscrowState, m: Decision, beacon: BeaconFact | null | undefined): R<true> {
+function beaconSeed(s: EscrowState, m: Decision, beacon: BeaconFact | null | undefined, marginSec: number): R<true> {
   if (m.role === 'primary') return ok(true);
-  const round = beaconRoundFor(s, m.role);
+  const round = beaconRoundFor(s, m.role, marginSec);
   if (round === null) return fail('not_your_turn', `the ${m.role} adjudicator has no turn in ${s.kind}`);
   if (!beacon) return fail('seed_mismatch', `no beacon value for round ${round}`);
   if (beacon.round !== round) return fail('seed_mismatch', `the ${m.role} seed comes from round ${round}, not ${beacon.round}`);
@@ -342,11 +423,12 @@ function namesTheDelivery(m: { deliveryHash: Hex32 }, d: Delivery | Hex32): R<tr
 /**
  * The posted delivery's hash, from Delivered on (the read model's `deliveryHash`, ADR-0029): from the delivery while
  * the state holds it, then from the signature that settled the deal, which named it. Undefined before a delivery,
- * after a reclaim, after a default (no signature named it) and after a mutual settlement before delivery.
+ * after a reclaim, after a default (no signature named it) and after any mutual settlement in Held: one that named an
+ * unposted delivery (SC-5b) posted nothing, and the contract's deliveryHashOf stays zero too.
  */
 export function postedDeliveryHash(s: EscrowState): Hex32 | undefined {
   if ('delivery' in s) return deliveryHash(s.delivery);
-  if (s.kind === 'Settled') return s.settlement.deliveryHash ?? undefined;
+  if (s.kind === 'Settled') return s.from === 'Held' ? undefined : (s.settlement.deliveryHash ?? undefined);
   if (s.kind !== 'Released' && s.kind !== 'Refunded') return undefined;
   const via = s.via;
   if (via.kind === 'first_instance' || via.kind === 'escalation') return via.decision.deliveryHash;
@@ -371,7 +453,14 @@ function decisionBindings(s: Pick<Base, 'id' | 'terms'>, m: Decision, at: Timest
   return ok(true);
 }
 
-function firstInstance(s: Extract<EscrowState, { kind: 'Delivered' | 'FallbackJudging' }>, m: Decision, at: Timestamp, beacon: BeaconFact | null | undefined): R {
+function firstInstance(
+  s: Extract<EscrowState, { kind: 'Delivered' | 'FallbackJudging' }>,
+  m: Decision,
+  at: Timestamp,
+  beacon: BeaconFact | null | undefined,
+  profile: SettlementProfile,
+  marginSec: number,
+): R {
   const role = s.kind === 'Delivered' ? 'primary' : 'fallback';
   if (m.role !== role) return fail('not_your_turn', `it is the ${role} adjudicator's turn`);
   const { adjudication, timing } = s.terms;
@@ -390,25 +479,30 @@ function firstInstance(s: Extract<EscrowState, { kind: 'Delivered' | 'FallbackJu
   if (m.appealGround !== undefined) return fail('invalid_terms', 'appealGround belongs to appeal decisions only');
   // ADR-0018: the primary reveals its committed seed; the fallback takes the beacon seed for judgeBy.
   if (role === 'primary' && keccak256(m.seed) !== s.acceptance.seedCommitment) return fail('seed_mismatch', 'seed does not hash to the acceptance seedCommitment');
-  const seeded = beaconSeed(s, m, beacon);
+  const seeded = beaconSeed(s, m, beacon, marginSec);
   if (!seeded.ok) return seeded;
 
   const base = { id: s.id, terms: s.terms, beaconSource: s.beaconSource, settledAt: at };
   if (m.outcome === 'escalate') {
     return ok({ ...s, kind: 'Escalated', escalation: { by: role, at, appealDecideBy: addSeconds(at, timing.appealDecideSec) } });
   }
+  // Phase one: final at the decision (ADR-0031 §8, point 7). The appeal state is closed with no appeal at once, so no
+  // reader schedules an appeal expiry; the API still reports appealState `none` (the settlement layer's view).
   const appealBy = addSeconds(at, timing.appealWindowSec);
   const via: FirstInstance = {
     kind: 'first_instance',
     role,
     decision: m,
     delivery: s.delivery,
-    appeal: { kind: 'none', appealBy, appealDecideBy: addSeconds(appealBy, timing.appealDecideSec) },
+    appeal:
+      profile === 'phase_one'
+        ? { kind: 'expired', appeal: null }
+        : { kind: 'none', appealBy, appealDecideBy: addSeconds(appealBy, timing.appealDecideSec) },
   };
   return ok(m.outcome === 'accept' ? { ...base, kind: 'Released', via } : { ...base, kind: 'Refunded', via });
 }
 
-function escalationDecision(s: Extract<EscrowState, { kind: 'Escalated' }>, m: Decision, at: Timestamp, beacon: BeaconFact | null | undefined): R {
+function escalationDecision(s: Extract<EscrowState, { kind: 'Escalated' }>, m: Decision, at: Timestamp, beacon: BeaconFact | null | undefined, marginSec: number): R {
   if (m.role !== 'appeal') return fail('not_your_turn', "it is the appeal adjudicator's turn");
   const bound = decisionBindings(s, m, at, s.terms.adjudication.appealAdjudicator, s.escalation.appealDecideBy);
   if (!bound.ok) return bound;
@@ -416,7 +510,7 @@ function escalationDecision(s: Extract<EscrowState, { kind: 'Escalated' }>, m: D
   if (!attempt.ok) return attempt;
   const named = namesTheDelivery(m, s.delivery);
   if (!named.ok) return named;
-  const seeded = beaconSeed(s, m, beacon);
+  const seeded = beaconSeed(s, m, beacon, marginSec);
   if (!seeded.ok) return seeded;
   if (m.outcome === 'escalate') return fail('invalid_terms', 'the appeal adjudicator decides accept or reject; it cannot escalate');
   const base = { id: s.id, terms: s.terms, beaconSource: s.beaconSource, settledAt: at };
@@ -483,8 +577,9 @@ export function stepAppeal(a: AppealState, e: AppealEvent, ctx: AppealContext): 
   }
 }
 
-function settled(s: Extract<EscrowState, { kind: 'Released' | 'Refunded' }>, e: EscrowEvent): R {
+function settled(s: Extract<EscrowState, { kind: 'Released' | 'Refunded' }>, e: EscrowEvent, profile: SettlementProfile, marginSec: number): R {
   if (e.type !== 'file_appeal' && e.type !== 'expire_appeal' && e.type !== 'decide') return fail('invalid_state', `commitment is ${s.kind}`);
+  if (profile === 'phase_one') return fail('invalid_state', NO_PARTY_APPEAL);
   if (s.via.kind !== 'first_instance') {
     return fail('invalid_state', s.via.kind === 'escalation' ? 'a decision reached through escalation is not appealable' : `nothing to appeal after ${s.via.kind}`);
   }
@@ -497,7 +592,7 @@ function settled(s: Extract<EscrowState, { kind: 'Released' | 'Refunded' }>, e: 
   };
   const next = stepAppeal(s.via.appeal, e as AppealEvent, ctx);
   if (next.ok && e.type === 'decide') {
-    const seeded = beaconSeed(s, e.message, e.beacon);
+    const seeded = beaconSeed(s, e.message, e.beacon, marginSec);
     if (!seeded.ok) return seeded;
   }
   if (!next.ok) return next;
@@ -507,15 +602,43 @@ function settled(s: Extract<EscrowState, { kind: 'Released' | 'Refunded' }>, e: 
 
 type Settleable = Extract<EscrowState, { kind: 'Held' | 'Delivered' | 'FallbackJudging' | 'Escalated' }>;
 
+/**
+ * ADR-0031 SC-5b, ADR-0019 as amended 2026-11-12 (T-357): a settlement in Held, where nothing is posted, exactly as
+ * HoldbackRules.mutualSettle takes it, no looser and no stricter:
+ * - no delivery named: no key released (:370, InvalidMessage);
+ * - a delivery named and its key kept: nothing more is checked (:379);
+ * - a delivery named and its key released: the carried delivery is for this commitment and hashes to the hash both
+ *   parties signed (:380, the contract hashes `dv` with this commitment's id), and it holds an envelope for the buyer,
+ *   the first of which is released (:381, BadKeyProof). Both parties' signatures over the settlement, which names that
+ *   hash, are what endorse the delivery: like the contract, core reads no seller signature, attempt or submittedAt.
+ */
+function lateDelivery(s: Extract<Settleable, { kind: 'Held' }>, m: MutualSettlement, d: Delivery | undefined): R<true> {
+  if (m.deliveryHash === null) return m.releaseKey ? fail('invalid_terms', 'releaseKey needs a delivery') : ok(true);
+  if (!m.releaseKey) return ok(true);
+  if (!d) return fail('invalid_terms', `the settlement releases the key of delivery ${m.deliveryHash}, but carries no delivery`);
+  // Hex compared in any letter case: the contract hashes the id as bytes32 (:380).
+  if (d.commitmentId.toLowerCase() !== s.id.toLowerCase()) return fail('invalid_terms', 'the carried delivery is for another commitment');
+  if (deliveryHash(d) !== m.deliveryHash) return fail('invalid_terms', `the carried delivery does not hash to the signed deliveryHash ${m.deliveryHash}; it hashes to ${deliveryHash(d)}`);
+  if (!d.encryptedKeys.some((k) => sameAddress(k.recipient, s.terms.buyer))) return fail('invalid_terms', 'the carried delivery has no envelope for the buyer, so there is no key to release');
+  return ok(true);
+}
+
 /** ADR-0019: a settlement both parties signed closes a funded, undecided commitment. Signatures are checked before step. */
-function mutualSettle(s: Settleable, e: Extract<EscrowEvent, { type: 'mutual_settle' }>): R {
+function mutualSettle(s: Settleable, e: Extract<EscrowEvent, { type: 'mutual_settle' }>, profile: SettlementProfile): R {
   const m = e.message;
   if (m.commitmentId !== s.id) return fail('invalid_terms', 'settlement is for another commitment');
+  // ADR-0031 §4 (SC-3), ADR-0033 §2: the phase-one contracts pay a settlement to the buyer's payment address and the
+  // seller's payout address only, whatever the rulebook's payoutsTo says; a signing address that differs from them is a
+  // third address. D23's payouts to other addresses are deferred past phase one.
+  if (profile === 'phase_one') {
+    const other = m.payouts.find((p) => !sameAddress(p.to, s.terms.buyerPaymentAddress) && !sameAddress(p.to, s.terms.sellerPayoutAddress));
+    if (other) return fail('invalid_terms', `payout recipient ${other.to} is neither the buyer's payment address nor the seller's payout address: the phase-one contracts pay a mutual settlement to those two only (ADR-0031 §4, ADR-0033)`);
+  }
   const live = messageLive(m, e.at);
   if (!live.ok) return live;
   if (s.kind === 'Held') {
-    if (m.deliveryHash !== null) return fail('invalid_terms', 'nothing was delivered, so deliveryHash must be null');
-    if (m.releaseKey) return fail('invalid_terms', 'releaseKey needs a delivery');
+    const late = lateDelivery(s, m, e.delivery);
+    if (!late.ok) return late;
   } else if (m.deliveryHash !== deliveryHash(s.delivery)) {
     return fail('invalid_terms', 'deliveryHash does not name the current delivery');
   }
@@ -538,19 +661,24 @@ function mutualSettle(s: Settleable, e: Extract<EscrowEvent, { type: 'mutual_set
 const wrongState = (s: EscrowState, e: EscrowEvent): R => fail('invalid_state', `${e.type} is not allowed in ${s.kind}`);
 const tooEarly = (deadline: Timestamp): R => fail('invalid_state', `deadline ${deadline} has not passed`);
 
-export function step(s: EscrowState, e: EscrowEvent): R {
+/**
+ * One transition. `profile` is the protocol the settlement layer enforces (`full` unless it says otherwise).
+ * `beaconMarginSec` is its rules contract's `BEACON_MARGIN()` (ADR-0032), which fixes the fallback and appeal rounds;
+ * SimChain and a local chain use 0.
+ */
+export function step(s: EscrowState, e: EscrowEvent, profile: SettlementProfile = 'full', beaconMarginSec = 0): R {
   if (!validTime(e.at)) return fail('invalid_terms', `event time ${e.at} is not a timestamp`);
-  if (e.type === 'mutual_settle' && (s.kind === 'Held' || s.kind === 'Delivered' || s.kind === 'FallbackJudging' || s.kind === 'Escalated')) return mutualSettle(s, e);
+  if (e.type === 'mutual_settle' && (s.kind === 'Held' || s.kind === 'Delivered' || s.kind === 'FallbackJudging' || s.kind === 'Escalated')) return mutualSettle(s, e, profile);
   switch (s.kind) {
     case 'Offered':
-      if (e.type === 'adjudicator_accept') return adjudicatorAccept(s, e);
+      if (e.type === 'adjudicator_accept') return adjudicatorAccept(s, e, profile);
       if (e.type === 'agree') return fail('acceptance_missing', 'the primary adjudicator has not accepted yet');
       break;
     case 'AcceptedByAdjudicator':
       if (e.type === 'agree') return agree(s, e);
       break;
     case 'Agreed':
-      if (e.type === 'fund') return fund(s, e);
+      if (e.type === 'fund') return fund(s, e, profile);
       if (e.type === 'expire') {
         if (!reached(e.at, s.terms.timing.fundBy)) return tooEarly(s.terms.timing.fundBy);
         return ok({ kind: 'Expired', id: s.id, terms: s.terms, beaconSource: s.beaconSource, from: s.kind, expiredAt: e.at });
@@ -564,7 +692,7 @@ export function step(s: EscrowState, e: EscrowEvent): R {
       }
       break;
     case 'Delivered':
-      if (e.type === 'decide') return firstInstance(s, e.message, e.at, e.beacon);
+      if (e.type === 'decide') return firstInstance(s, e.message, e.at, e.beacon, profile, beaconMarginSec);
       if (e.type === 'early_accept') {
         const m = e.message;
         if (!sameAddress(m.buyer, s.terms.buyer)) return fail('invalid_signature', 'early acceptance is not from the buyer');
@@ -581,14 +709,14 @@ export function step(s: EscrowState, e: EscrowEvent): R {
       }
       break;
     case 'FallbackJudging':
-      if (e.type === 'decide') return firstInstance(s, e.message, e.at, e.beacon);
+      if (e.type === 'decide') return firstInstance(s, e.message, e.at, e.beacon, profile, beaconMarginSec);
       if (e.type === 'trigger_default') {
         if (!reached(e.at, s.terms.timing.fallbackBy)) return tooEarly(s.terms.timing.fallbackBy);
         return ok({ kind: 'Defaulted', id: s.id, terms: s.terms, beaconSource: s.beaconSource, acceptance: s.acceptance, hold: s.hold, from: s.kind, defaultedAt: e.at });
       }
       break;
     case 'Escalated':
-      if (e.type === 'decide') return escalationDecision(s, e.message, e.at, e.beacon);
+      if (e.type === 'decide') return escalationDecision(s, e.message, e.at, e.beacon, beaconMarginSec);
       if (e.type === 'trigger_default') {
         if (!reached(e.at, s.escalation.appealDecideBy)) return tooEarly(s.escalation.appealDecideBy);
         return ok({ kind: 'Defaulted', id: s.id, terms: s.terms, beaconSource: s.beaconSource, acceptance: s.acceptance, hold: s.hold, from: s.kind, defaultedAt: e.at });
@@ -602,7 +730,7 @@ export function step(s: EscrowState, e: EscrowEvent): R {
       break;
     case 'Released':
     case 'Refunded':
-      return settled(s, e);
+      return settled(s, e, profile, beaconMarginSec);
     case 'Expired':
     case 'Settled':
       break;

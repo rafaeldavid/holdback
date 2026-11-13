@@ -28,10 +28,13 @@ export type StepBody =
   // `opened`: the buyer names a second delivery of that file, which the seller signed and handed it off chain, not
   // the posted one (seller equivocation, ADR-0029); settlement refuses it.
   | { kind: 'early_accept'; by: 'buyer'; via: Via; signer?: string; opened?: string }
-  // A party appeals a first-instance decision, posting the rulebook's appeal bond (or `bond`) and fee.
+  // A party appeals a first-instance decision, posting the rulebook's appeal bond (or `bond`) and fee. SimChain only:
+  // the phase-one contracts have no party appeal, and the EVM adapter refuses the step (ADR-0031 §8).
   | { kind: 'appeal'; by: 'buyer' | 'seller'; via: Via; grounds: string; bond?: string; signer?: string }
   // ADR-0019, D23: both parties sign payouts (actor name to amount) that sum to the price.
-  | { kind: 'mutual_settle'; via: Via; payouts: Record<string, string>; releaseKey: boolean; signer?: string }
+  // `carry` (late work, ADR-0031 SC-5b): the settlement carries a seller-signed delivery of that file that was never
+  // posted, names it and may release its key. `names`: it signs the hash of a delivery of another file instead.
+  | { kind: 'mutual_settle'; via: Via; payouts: Record<string, string>; releaseKey: boolean; signer?: string; carry?: string; names?: string }
   // Outages and permissionless timeouts (neutrality fixtures).
   | { kind: 'offline'; actor: string }
   | { kind: 'operator_refuses'; operator: string }
@@ -82,7 +85,8 @@ export interface Scenario {
   pragmas: Pragmas;
   club?: string;
   terms?: string;
-  parties: { buyer: string; seller: string };
+  /** ADR-0033: `buyerPayment` funds the hold and is refunded, `sellerPayout` is paid; each defaults to its party. */
+  parties: { buyer: string; seller: string; buyerPayment?: string; sellerPayout?: string };
   /** neutrality. fixtures: the actor that refuses or disappears. */
   fails?: string;
   adjudicators: { primary: string; fallback: string; appeal: string };
@@ -261,12 +265,19 @@ function parseStepBody(kind: string, body: unknown, path: string, operators: rea
       };
     }
     case 'mutual_settle': {
-      const o = object(body, p, ['via', 'payouts', 'release_key', 'signer'], ['payouts']);
+      const o = object(body, p, ['via', 'payouts', 'release_key', 'signer', 'carry', 'names'], ['payouts']);
       const payouts = moneyMap(o.payouts, `${p}.payouts`);
       for (const who of Object.keys(payouts)) if (!actors.includes(who)) fail(`${p}.payouts.${who}`, 'not a party, adjudicator or operator of this scenario');
       if (Object.keys(payouts).length === 0) fail(`${p}.payouts`, 'needs at least one payout');
       if (o.release_key !== undefined && typeof o.release_key !== 'boolean') fail(`${p}.release_key`, 'must be true or false');
-      return { kind, via: via(o), payouts, releaseKey: o.release_key === true, ...signer(o) };
+      const file = (k: 'carry' | 'names'): { carry?: string } | { names?: string } => {
+        if (o[k] === undefined) return {};
+        const f = str(o[k], `${p}.${k}`);
+        if (f.startsWith('/') || f.split('/').includes('..')) fail(`${p}.${k}`, 'must be a path relative to fixtures/ without ".."');
+        return { [k]: f };
+      };
+      if (o.names !== undefined && o.carry === undefined) fail(`${p}.names`, 'names needs carry: it names another delivery than the one carried');
+      return { kind, via: via(o), payouts, releaseKey: o.release_key === true, ...signer(o), ...file('carry'), ...file('names') };
     }
     case 'advance_clock': {
       const o = object(body, p, ['seconds'], ['seconds']);
@@ -360,17 +371,23 @@ export function parseScenario(source: string, fileName: string): Scenario {
   const top = object(data, fileName, TOP, ['name', 'parties', 'adjudicators', 'steps']);
   const scenarioName = name(top.name, 'name');
   if (scenarioName !== fileName) fail('name', `"${scenarioName}" must match the file name "${fileName}"`);
-  const partiesObj = object(top.parties, 'parties', ['buyer', 'seller'], ['buyer', 'seller']);
+  const partiesObj = object(top.parties, 'parties', ['buyer', 'seller', 'buyer_payment', 'seller_payout'], ['buyer', 'seller']);
   const adjObj = object(top.adjudicators, 'adjudicators', ['primary', 'fallback', 'appeal'], ['primary', 'fallback', 'appeal']);
   const operators = top.operators === undefined ? [] : Array.isArray(top.operators) ? top.operators.map((o, i) => name(o, `operators[${i}]`)) : fail('operators', 'must be a list');
   if (!Array.isArray(top.steps)) fail('steps', 'must be a list');
-  const parties = { buyer: name(partiesObj.buyer, 'parties.buyer'), seller: name(partiesObj.seller, 'parties.seller') };
+  const parties = {
+    buyer: name(partiesObj.buyer, 'parties.buyer'),
+    seller: name(partiesObj.seller, 'parties.seller'),
+    ...(partiesObj.buyer_payment !== undefined ? { buyerPayment: name(partiesObj.buyer_payment, 'parties.buyer_payment') } : {}),
+    ...(partiesObj.seller_payout !== undefined ? { sellerPayout: name(partiesObj.seller_payout, 'parties.seller_payout') } : {}),
+  };
   const adjudicators = {
     primary: name(adjObj.primary, 'adjudicators.primary'),
     fallback: name(adjObj.fallback, 'adjudicators.fallback'),
     appeal: name(adjObj.appeal, 'adjudicators.appeal'),
   };
-  const actors = [parties.buyer, parties.seller, ...Object.values(adjudicators), ...operators];
+  const money = [parties.buyerPayment, parties.sellerPayout].filter((n): n is string => n !== undefined);
+  const actors = [parties.buyer, parties.seller, ...money, ...Object.values(adjudicators), ...operators];
   for (const a of actors) if (RESERVED_NAMES.includes(a)) fail('parties', `"${a}" is reserved for the runner (${RESERVED_NAMES.join(', ')})`);
   if (new Set(actors).size !== actors.length) fail('parties', 'buyer, seller, adjudicators and operators must all have distinct names');
 
