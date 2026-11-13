@@ -1,6 +1,6 @@
 # PRD: Holdback v0.1
 
-Status: v0.1 requirements, written October 30, 2026; updated for D30 and D39 on November 3. Decisions and the few still open: `docs/decisions-today.md`.
+Status: v0.1 requirements, written October 30, 2026; updated for D30 and D39 on November 3, and on November 12 for the phase-one contracts (ADR-0031: bonds and party appeals deferred) and the two money addresses (ADR-0033). Decisions and the few still open: `docs/decisions-today.md`.
 
 ## Problem
 

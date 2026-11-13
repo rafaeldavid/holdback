@@ -29,7 +29,7 @@ A complete alert reads: "High · PR 151 touches `.github/CODEOWNERS`, a tier 3 c
 
 ## Numbers, times and evidence
 
-- **Units every time:** "4.71 tUSDC", "1,636,242 gas", "42 s", "0.03 Sepolia ETH". Money follows the hard rule: base units in data, two decimals with the token in prose.
+- **Units every time:** "12.50 tUSDC", "1,636,242 gas", "42 s", "0.03 Sepolia ETH". Money follows the hard rule: base units in data, two decimals with the token in prose.
 - **Dates and times:** dates as YYYY-MM-DD; times in UTC in records and logs; the console's header may show local time if it says so.
 - **Label each claim** measured, documented, inferred or guessed (`CLAUDE.md`, "How to verify your work"). Put measured numbers next to the command or source that produced them.
 - **Link evidence:** a PR, a commit, an Etherscan transaction or a file path, not "see above".

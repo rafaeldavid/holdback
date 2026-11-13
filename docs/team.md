@@ -77,7 +77,7 @@ flowchart LR
 
 ## Lanes and ownership
 
-Parallel lanes own disjoint paths, which reduces merge conflicts.
+Parallel lanes own disjoint paths, which reduces merge conflicts. "Phase 1" below is the build phase of `docs/plan.md`, the demo walking skeleton on SimChain, done on 2026-11-01. It is not "phase one" of the contracts, the contract scope of ADR-0031.
 
 | Lane | Paths | Phase 1 tasks |
 | --- | --- | --- |
