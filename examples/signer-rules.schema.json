@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://holdback.dev/examples/signer-rules.schema.json",
-  "title": "The signer's rules: the limits within which Crow's signer signs a payment for its buying agent (T-434)",
+  "title": "The signer's rules: the limits within which Crow's signer signs a payment for its buying agent (T-439)",
   "description": "Only the signer's administrator writes this file, on the signer's machine. The signer validates it against this schema at start, refuses every request once its bytes change, and never takes a value from a request. Amounts are base units as decimal strings; times are whole seconds.",
   "type": "object",
   "additionalProperties": false,

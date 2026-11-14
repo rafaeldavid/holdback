@@ -1,8 +1,9 @@
-# T-434: Crow's signer, the buying half
+# T-439: Crow's signer, the buying half
 
+- **Roadmap row:** N131
 - **Lane:** demo (Crow's own agents, roadmap row N131, build row 3)
 - **Phase:** 2
-- **Depends on:** T-433 (the mandate tool: the signer verifies its mandate and revocations with it); the own-agents design and its constraints, version 1, in crow-private (`company-ops/own-agents/design.md`, `constraints.md`; Rafa's decisions 1 to 6 of 2026-11-14)
+- **Depends on:** T-438 (the mandate tool: the signer verifies its mandate and revocations with it); the own-agents design and its constraints, version 1, in crow-private (`company-ops/own-agents/design.md`, `constraints.md`; Rafa's decisions 1 to 6 of 2026-11-14)
 - **Paths this task may touch:** `examples/signer.ts`, `examples/signer-rules.schema.json`, `examples/signer-rules.v1.json`, `examples/signer*.test.ts` (with `signer-redteam.test.ts`, the red team's), `examples/signer-test-kit.ts`, `examples/signer-world-kit.ts`, this file
 - **Human gate:** no. Nothing is deployed and no real key exists; Rafa makes the keys and the machines (design, "Actions only you can take")
 - **Status:** review
@@ -124,7 +125,7 @@ The `reviewer` agent and the `red-teamer` agent read `CLAUDE.md`, ADR-0038, `doc
 | Review 7: the float signed the file it was sent | Low | It signs the digest it checked |
 | Review 8: a lapsed revocation was found by matching error text | Low | Its `expiresAt` is compared with the clock |
 | Review 9: the raw-path tests asserted only 400 or more | Low | They assert 401 `invalid_signature`, beside a raw control that funds |
-| Review 10, the red team on T-435: the keys in the first environment; an unauthenticated port | Low | Both under "Still soft" |
+| Review 10, the red team on T-440: the keys in the first environment; an unauthenticated port | Low | Both under "Still soft" |
 
 ## Decisions
 
@@ -137,6 +138,6 @@ The `reviewer` agent and the `red-teamer` agent read `CLAUDE.md`, ADR-0038, `doc
 
 ## Handoff
 
-Done: the signer's buying half, its rules format and version 1 file, and its attack tests. Not done, by design: the selling half (build row 5), the machines (row 7), the person-signed purchase, the float's emptying. To run it: `node examples/signer.ts check-rules <file>`, then `serve` with the two keys in the signer's own environment; the buying agent's side is T-435.
+Done: the signer's buying half, its rules format and version 1 file, and its attack tests. Not done, by design: the selling half (build row 5), the machines (row 7), the person-signed purchase, the float's emptying. To run it: `node examples/signer.ts check-rules <file>`, then `serve` with the two keys in the signer's own environment; the buying agent's side is T-440.
 
 **For the coordinator:** CI's anvil job lists its files in `.github/workflows/ci.yml` (tier 3). Adding `examples/signer-anvil.test.ts` to the `world` leg would make CI run the token-level test; that change waits for Rafa's word.

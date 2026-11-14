@@ -1,4 +1,4 @@
-// The signer, buying half (T-434), on a local chain: the phase-one contracts and TestUSDC deployed to anvil, the demo
+// The signer, buying half (T-439), on a local chain: the phase-one contracts and TestUSDC deployed to anvil, the demo
 // world relaying to them (examples/e2e-world.ts, as the round's tests run it). The signer's rules pin that deployment
 // ("network": "local"), so it signs the ERC-3009 ReceiveWithAuthorization the escrow's collector redeems. Rung 1 shown by
 // the token itself: a signature it made for one deal does not move money for another deal, a higher amount or another

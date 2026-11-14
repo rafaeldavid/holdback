@@ -1,4 +1,4 @@
-// The red team of T-434 (the signer, buying half), as the buying agent: RT-1 to RT-4. Each `it` states the outcome
+// The red team of T-439 (the signer, buying half), as the buying agent: RT-1 to RT-4. Each `it` states the outcome
 // the signer gives; each failed on the branch before its fix (PR 555). The last one records a limit that stays: a
 // delegation names a deal key, not a deal (ADR-0024 section 7). Keys are made in memory.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
