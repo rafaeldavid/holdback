@@ -78,7 +78,7 @@ describe('the trust surfaces (site/trust.mjs)', () => {
     for (const it of items) expect(it).toMatch(/<p class="src">Source: <a href="https:\/\//);
   });
   it('has the status page read its listed public sources only', () => {
-    const script = /<script>([\s\S]*?)<\/script>/.exec(statusPage())![1]!;
+    const script = /<script\b[^>]*>([\s\S]*?)<\/script\b[^>]*>/i.exec(statusPage())![1]!;
     expect([...script.matchAll(/timed\('([^']+)'\)/g)].map((m) => m[1])).toEqual(STATUS_SOURCES);
   });
 });

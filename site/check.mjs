@@ -373,7 +373,7 @@ for (const [path, h] of footed) {
 }
 for (const file of ['trust.html', 'status.html']) expect(built.has(file), `${file} is not among the pages whose card and footer group 5 checks`);
 const shownText = (h) => {
-  let t = h.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<!--[\s\S]*?-->/g, ' '), before;
+  let t = h.replace(/<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>|<style\b[^>]*>[\s\S]*?<\/style\b[^>]*>|<!--[\s\S]*?-->/gi, ' '), before;
   do {
     before = t;
     t = t.replace(/<[^>]*>/g, ' ');
@@ -395,15 +395,19 @@ if (existsSync(here('trust.html'))) {
   for (const it of items) expect(/<p class="src">Source: <a href="https:\/\//.test(it), `a statement on site/trust.html has no source link: ${shownText(it).trim().slice(0, 80)}`);
   for (const w of ['no outside audit', 'SOC 2', 'test network']) expect(shownText(t).includes(w), `site/trust.html no longer says "${w}": it states plainly what is not there yet`);
   const repo = 'https://github.com/rafaeldavid/holdback/';
-  for (const m of t.matchAll(/href="https:\/\/github\.com\/rafaeldavid\/holdback\/(blob|tree)\/main\/([^"#]+)/g)) expect(existsSync(here(`../${m[2]}`)), `site/trust.html links ${repo}${m[1]}/main/${m[2]}, which is not in this checkout`);
+  // A submodule counts when .gitmodules names it: a copy of the tracked files (tests/record-copies.test.ts) has no submodule folder.
+  const submodules = [...read('../.gitmodules').matchAll(/^\s*path = (.+)$/gm)].map((m) => m[1].trim());
+  for (const m of t.matchAll(/href="https:\/\/github\.com\/rafaeldavid\/holdback\/(blob|tree)\/main\/([^"#]+)/g)) expect(existsSync(here(`../${m[2]}`)) || submodules.includes(m[2]), `site/trust.html links ${repo}${m[1]}/main/${m[2]}, which is not in this checkout`);
   // The page names Coinbase's escrow at the commit contracts/lib/commerce-payments pins.
-  const pin = spawnSync('git', ['-C', fileURLToPath(here('..')), 'ls-tree', 'HEAD', 'contracts/lib/commerce-payments'], { encoding: 'utf8' }).stdout.split(/\s+/)[2] ?? '';
-  expect(/^[0-9a-f]{40}$/.test(pin) && t.includes(`commerce-payments/blob/${pin}/`), `site/trust.html does not link Coinbase's escrow at the pinned commit ${pin || '(unread)'}`);
+  // Where git cannot answer (a copy of the tracked files), this one check is skipped; CI and the deploy run in a checkout.
+  const tree = spawnSync('git', ['-C', fileURLToPath(here('..')), 'ls-tree', 'HEAD', 'contracts/lib/commerce-payments'], { encoding: 'utf8' });
+  const pin = tree.status === 0 ? (tree.stdout.split(/\s+/)[2] ?? '') : null;
+  if (pin !== null) expect(/^[0-9a-f]{40}$/.test(pin) && t.includes(`commerce-payments/blob/${pin}/`), `site/trust.html does not link Coinbase's escrow at the pinned commit ${pin || '(unread)'}`);
   const record = JSON.parse(read('../contracts/deployments/sepolia.json'));
   for (const a of [record.escrow, record.rules, record.token.address]) expect(t.includes(`https://sepolia.etherscan.io/address/${a}`), `site/trust.html does not link ${a} from contracts/deployments/sepolia.json`);
 }
 if (existsSync(here('status.html'))) {
-  const st = read('status.html'), script = /<script>([\s\S]*?)<\/script>/.exec(st)?.[1] ?? '';
+  const st = read('status.html'), script = /<script\b[^>]*>([\s\S]*?)<\/script\b[^>]*>/i.exec(st)?.[1] ?? '';
   for (const id of ['site', 'op1', 'op2', 'seller', 'network']) expect(st.includes(`data-check="${id}"`), `site/status.html has no row for ${id}`);
   const read_ = [...script.matchAll(/timed\('([^']+)'\)/g)].map((m) => m[1]);
   expect(read_.length === 4 && read_.every((u) => (trust.STATUS_SOURCES ?? []).includes(u)), `site/status.html's script reads ${read_.join(', ') || 'nothing'}, not its listed public sources`);
