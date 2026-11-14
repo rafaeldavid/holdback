@@ -308,22 +308,22 @@ pre{font-family:var(--mono);font-size:11px;white-space:pre-wrap;overflow-wrap:an
 <p class="endings-lead">The demo above is a sample deal on a local test setup. These three ran on Crow's live service on 14 November 2026, between a test buyer and Crow's test seller, in test dollars. Each number is from that one deal, and each deal's record is public.</p>
 <div class="endings-switch" role="tablist" aria-label="How the deal ended" hidden><button type="button" role="tab" id="ending-tab-passes" aria-controls="ending-passes" aria-selected="true" tabindex="0">The work passes</button><button type="button" role="tab" id="ending-tab-fails" aria-controls="ending-fails" aria-selected="false" tabindex="-1">The work fails</button><button type="button" role="tab" id="ending-tab-silent" aria-controls="ending-silent" aria-selected="false" tabindex="-1">The seller goes silent</button></div>
 <div class="endings-cards">
-<article class="ending" id="ending-passes" role="tabpanel" aria-labelledby="ending-tab-passes">
-<h3>The work passes</h3>
+<article class="ending" id="ending-passes" aria-labelledby="ending-title-passes">
+<h3 id="ending-title-passes">The work passes</h3>
 <p class="ending-rule">The seller is paid, and the buyer gets the key to the work in the same step.</p>
 <dl class="ending-facts"><div><dt>from the seller&#39;s offer to the payment</dt><dd>68 s</dd></div><div><dt>paid to the seller</dt><dd>10 test dollars</dd></div></dl>
 <p class="ending-how">The agreed checks ran first. The first reviewer asked for a second look, and a panel of 5 AI judges from 2 model makers passed the work, 5 of 5.</p>
 <ul class="ending-links"><li><a href="https://api.crow.direct/v1/commitments/0xf3d68191f957109f95f0c8b1599fcb0818dc0936a83e42c01f37b7806ae7a8cd" rel="noopener" target="_blank">The deal's record on the live service ›</a></li><li><a href="https://sepolia.etherscan.io/tx/0xe8094b1e1972b040b89b877629b4f2b013e1a93adc1888fcce88f2f1221fee08" rel="noopener" target="_blank" aria-label="The final transaction on the Sepolia test network, 0xe8094b…ee08">The final transaction on Sepolia ›</a></li></ul>
 </article>
-<article class="ending" id="ending-fails" role="tabpanel" aria-labelledby="ending-tab-fails">
-<h3>The work fails</h3>
+<article class="ending" id="ending-fails" aria-labelledby="ending-title-fails">
+<h3 id="ending-title-fails">The work fails</h3>
 <p class="ending-rule">The price goes back to the buyer, and the work stays locked.</p>
 <dl class="ending-facts"><div><dt>from the seller&#39;s offer to the refund</dt><dd>31 s</dd></div><div><dt>back to the buyer</dt><dd>10 test dollars</dd></div></dl>
 <p class="ending-how">The same terms as the deal that passed; only the delivered text differed. A panel of 3 AI judges rejected it, 3 of 3, and the reviewer kept its fee of 1 test dollar.</p>
 <ul class="ending-links"><li><a href="https://api.crow.direct/v1/commitments/0x3b35c932b51a420686748bf5265044fdb5e7356ebb760cfa407e5c6e5653f249" rel="noopener" target="_blank">The deal's record on the live service ›</a></li><li><a href="https://sepolia.etherscan.io/tx/0xb0706d46ec333513fb7e4700b0d38f7bed3c8c1738cc57dce0330ff86177b5e1" rel="noopener" target="_blank" aria-label="The final transaction on the Sepolia test network, 0xb0706d…b5e1">The final transaction on Sepolia ›</a></li></ul>
 </article>
-<article class="ending" id="ending-silent" role="tabpanel" aria-labelledby="ending-tab-silent">
-<h3>The seller goes silent</h3>
+<article class="ending" id="ending-silent" aria-labelledby="ending-title-silent">
+<h3 id="ending-title-silent">The seller goes silent</h3>
 <p class="ending-rule">Nothing arrived by the deadline, so the whole payment went back to the buyer, without the buyer asking.</p>
 <dl class="ending-facts"><div><dt>from the seller&#39;s offer to the refund</dt><dd>6 min 5 s</dd></div><div><dt>back to the buyer: the price and the reviewer&#39;s fee</dt><dd>26 test dollars</dd></div></dl>
 <p class="ending-how">The seller took the deal and never delivered. The terms gave it 5 minutes from the offer; the payment went back 65 seconds after that deadline.</p>
@@ -554,6 +554,8 @@ pre{font-family:var(--mono);font-size:11px;white-space:pre-wrap;overflow-wrap:an
   var bar=root.querySelector('.endings-switch'),tabs=[].slice.call(bar.querySelectorAll('[role="tab"]'));
   function pick(i,focus){tabs.forEach(function(t,j){var on=i===j;t.setAttribute('aria-selected',on?'true':'false');t.tabIndex=on?0:-1;document.getElementById(t.getAttribute('aria-controls')).hidden=!on});if(focus)tabs[i].focus()}
   tabs.forEach(function(t,i){t.addEventListener('click',function(){pick(i,false)});t.addEventListener('keydown',function(e){var k=e.key,n=tabs.length;if(k==='ArrowRight'||k==='ArrowLeft'||k==='Home'||k==='End'){e.preventDefault();pick(k==='Home'?0:k==='End'?n-1:(i+(k==='ArrowRight'?1:n-1))%n,true)}})});
+  // The tab roles go on only with the switch, so a page read without scripts announces three plain cards.
+  tabs.forEach(function(t){var c=document.getElementById(t.getAttribute('aria-controls'));c.setAttribute('role','tabpanel');c.setAttribute('aria-labelledby',t.id)});
   bar.hidden=false;pick(0,false);
 })();
 </script>

@@ -38,12 +38,15 @@ export function checkEndings(e: Endings): void {
   if (e.record !== 'https://api.crow.direct/v1/commitments/') fail('record must be the live API');
   if (e.explorer !== 'https://sepolia.etherscan.io/tx/') fail('explorer must be Sepolia Etherscan');
   if (e.endings.length !== 3) fail('three endings, one per card');
+  if (e.endings.map((x) => x.key).join(' ') !== 'passes fails silent') fail('the endings are passes, fails and silent, in that order');
   for (const x of e.endings) {
     if (!HEX32.test(x.commitment) || !HEX32.test(x.tx)) fail(`${x.key}: commitment and tx are 32-byte lowercase hex`);
     if (!ISO.test(x.offeredAt) || !ISO.test(x.endedAt) || (x.deliverBy !== undefined && !ISO.test(x.deliverBy))) fail(`${x.key}: times are UTC ISO 8601 to the second`);
     if (!x.offeredAt.startsWith(e.date)) fail(`${x.key}: not from ${e.date}`);
     if (seconds(x.offeredAt, x.endedAt) <= 0) fail(`${x.key}: ends before it starts`);
     if (!/^[1-9]\d*$/.test(x.amount.base)) fail(`${x.key}: amount is a whole number of base units`);
+    if (x.key === 'silent' && x.deliverBy === undefined) fail('silent: deliverBy is the deadline its card names');
+    if (x.deliverBy !== undefined && !(seconds(x.offeredAt, x.deliverBy) > 0 && seconds(x.deliverBy, x.endedAt) > 0)) fail(`${x.key}: deliverBy falls between the offer and the end`);
   }
 }
 
@@ -89,8 +92,8 @@ export const ENDINGS_CSS = `/* Three ways a deal ends (T-427): stacked cards wit
 
 /** The section's HTML. Its switch starts hidden and its cards all show: the script below turns the switch on. */
 export function endingsSection(e: Endings = ENDINGS): string {
-  const card = (x: Ending) => `<article class="ending" id="ending-${esc(x.key)}" role="tabpanel" aria-labelledby="ending-tab-${esc(x.key)}">
-<h3>${esc(x.title)}</h3>
+  const card = (x: Ending) => `<article class="ending" id="ending-${esc(x.key)}" aria-labelledby="ending-title-${esc(x.key)}">
+<h3 id="ending-title-${esc(x.key)}">${esc(x.title)}</h3>
 <p class="ending-rule">${esc(x.rule)}</p>
 <dl class="ending-facts"><div><dt>${esc(x.measure)}</dt><dd>${duration(seconds(x.offeredAt, x.endedAt))}</dd></div><div><dt>${esc(x.amount.label)}</dt><dd>${testDollars(x.amount.base)}</dd></div></dl>
 <p class="ending-how">${esc(x.how)}</p>
@@ -114,5 +117,7 @@ export const ENDINGS_SCRIPT = `(function(){
   var bar=root.querySelector('.endings-switch'),tabs=[].slice.call(bar.querySelectorAll('[role="tab"]'));
   function pick(i,focus){tabs.forEach(function(t,j){var on=i===j;t.setAttribute('aria-selected',on?'true':'false');t.tabIndex=on?0:-1;document.getElementById(t.getAttribute('aria-controls')).hidden=!on});if(focus)tabs[i].focus()}
   tabs.forEach(function(t,i){t.addEventListener('click',function(){pick(i,false)});t.addEventListener('keydown',function(e){var k=e.key,n=tabs.length;if(k==='ArrowRight'||k==='ArrowLeft'||k==='Home'||k==='End'){e.preventDefault();pick(k==='Home'?0:k==='End'?n-1:(i+(k==='ArrowRight'?1:n-1))%n,true)}})});
+  // The tab roles go on only with the switch, so a page read without scripts announces three plain cards.
+  tabs.forEach(function(t){var c=document.getElementById(t.getAttribute('aria-controls'));c.setAttribute('role','tabpanel');c.setAttribute('aria-labelledby',t.id)});
   bar.hidden=false;pick(0,false);
 })();`;

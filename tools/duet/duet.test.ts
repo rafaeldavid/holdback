@@ -233,6 +233,9 @@ describe('three ways a deal ends (T-427): live test deals under the player', () 
     expect(html.match(/role="tab"/g)).toHaveLength(3);
     expect(ENDINGS_SCRIPT).toContain('bar.hidden=false');
     expect(ENDINGS_CSS).not.toMatch(/animation|transition/);
+    // Without scripts the cards are plain articles named by their headings; the script adds the tab roles.
+    expect(html).not.toMatch(/role="tabpanel"/);
+    expect(ENDINGS_SCRIPT).toContain("setAttribute('role','tabpanel')");
   });
   it("gives each card its rule, the record's own times and amounts, and links to its public record and transaction", () => {
     const want: Record<string, [string, string]> = { passes: ['68 s', '10 test dollars'], fails: ['31 s', '10 test dollars'], silent: ['6 min 5 s', '26 test dollars'] };
@@ -258,6 +261,9 @@ describe('three ways a deal ends (T-427): live test deals under the player', () 
     expect(bad((e) => { e.endings[1]!.endedAt = e.endings[1]!.offeredAt; })).toThrow(/ends before/);
     expect(bad((e) => { e.record = 'https://example.com/'; })).toThrow(/live API/);
     expect(bad((e) => { e.endings.pop(); })).toThrow(/three endings/);
+    expect(bad((e) => { e.endings[1]!.key = 'passes'; })).toThrow(/passes, fails and silent/);
+    expect(bad((e) => { delete e.endings[2]!.deliverBy; })).toThrow(/deliverBy is the deadline/);
+    expect(bad((e) => { e.endings[2]!.deliverBy = e.endings[2]!.endedAt; })).toThrow(/between the offer and the end/);
   });
 });
 

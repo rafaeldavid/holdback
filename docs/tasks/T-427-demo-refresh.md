@@ -5,9 +5,9 @@
 - **Kind:** 1 (copy), with the demo generator's tests (`tools/duet/duet.test.ts`), from the Change recipes in `docs/team.md`; one `reviewer` pass, told to check every statement on the page against the live service; no red team
 - **Depends on:** T-391 (the two-agent demo), T-418 (the ontology's words), T-420 (the test seller's live endings)
 - **Paths this task may touch:** `site/demo/index.html`, `tools/duet/replay.ts`, `tools/duet/endings.ts` and `tools/duet/endings.json` (part 2), `tools/duet/scenarios.ts` (one note), `tools/duet/duet.test.ts`, `tools/duet/README.md`, this file. Never: `site/build.mjs`, `site/check.mjs`, `site/footer.ts`, the header, the trust and status pages (T-421), the guides, `site/brand/`, `site/try.mjs`, `site/buy.mjs`.
-- **Human gate:** no for the merge and the site deploy (Rafa's word for the wave of 2026-11-14: merge and deploy when ready). The proposal below waits for Rafa.
+- **Human gate:** no for the merge and the site deploy (Rafa's word for the wave of 2026-11-14: merge and deploy when ready). The proposal below was answered by Rafa on 2026-11-14 ("Yes, build it") and built in part 2.
 - **Status:** review (part 2: the three endings, on Rafa's word). Part 1 done: PR 536, merged as `d3ce4cf3`; site deployed 2026-11-14 13:14 UTC
-- **Agent/session:** the T-427 session, 2026-11-14, branch `t-427-demo-refresh`
+- **Agent/session:** the T-427 session, 2026-11-14, branches `t-427-demo-refresh` (part 1), `t-427-record`, `t-427-three-endings` (part 2)
 
 ## Intent
 
@@ -49,7 +49,7 @@ The refund scenario's note in `tools/duet/scenarios.ts` and the README's table o
 5. **Does it lead to the next step?** Early access twice, Learn more, and the guides under Resources. It never says a reader can run a test deal; the front page's line under Resources now says "Where an AI agent starts, and the one command for a test deal". The proposal adds a "Try one yourself" line.
 6. **Looks and behaves like the site?** Yes (above). The page's share description ("set the payment aside and settle when the work passes") lives in `site/footer.ts`, outside this task's paths; it is not wrong, so it stays.
 
-## The proposal (waits for Rafa)
+## The proposal (answered: built in part 2)
 
 **Three ways a deal ends, on the public test network.** Under the player, a section with a three-way switch: "The work passes", "The work fails", "The seller goes silent". One card shows at a time, each with its rule in one sentence, two measured numbers and a link to that deal's public record on the live API. The replay above stays as it is.
 
@@ -102,12 +102,23 @@ After the fixes: `pnpm exec vitest run tools/duet` 32 of 32, `node site/check.mj
 - **Site checks:** `node site/build.mjs --op1 https://api.crow.direct --op2 https://api2.crow.direct --out reports/site-out && node site/check.mjs` PASS; `try.mjs` SHA-256 `04ef4434…75c8`, unchanged; `eslint` and `tsc` on `tools/duet` clean.
 - **In the browser (the built page, 2026-11-14):** at 1,280 px and 375 px the section sits under the player across the page's width; clicking "The seller goes silent" showed only that card; ArrowLeft moved focus and the card to "The work fails"; at 375 px the page is 375 px wide (no sideways scroll) and the switch shows as three equal columns.
 
+### Part 2 review
+
+One `reviewer` pass on commit `200e3443`, told to open each deal's public record and compare it with its card: ISSUES, all low. It measured every card's outcome, time, amount, fee, panel size and transaction against the records (`/v1/commitments/<id>`, its events and its judgment record): all match. Etherscan answered 403 to its plain GET, so the transactions were matched to the API's settlement events, not read on chain. What became of each finding:
+
+1. The Handoff and line 8 still said the proposal waited for Rafa: fixed.
+2. The task file named only part 1's branch: fixed.
+3. Without scripts the cards carried tab-panel roles pointing at hidden tabs: fixed. The cards are plain articles named by their headings; the script adds the roles when it turns the switch on (test added).
+4. `checkEndings` did not check the keys, or that `deliverBy` exists for the silent card and falls between the offer and the end: fixed, with three test cases.
+
+After the fixes: `pnpm exec vitest run tools/duet` 37 of 37; `node site/check.mjs` PASS; `try.mjs` hash unchanged.
+
 ## Handoff
 
-**Done; the proposal waits for Rafa.**
+**Part 1 done; part 2 in review (PR 543).**
 
 - **Merged:** PR 536 as `d3ce4cf3`, by hand, after all 14 checks that ran passed, `check` and `gitleaks` among them (2 contract suites skipped: no contract change).
 - **Site deploy 2026-11-14 13:14 UTC, commit `d3ce4cf` on a detached HEAD: pass.** crow-site `610258b8-a9a7-4761-927a-c44d9f228c6d` (rollback target `b0c3a3d3-448d-40dd-a112-38e0cce332de`). It also carried PR 531 (the buyer guide's shorter wording, `site/buy.txt`, `site/llms.txt`, two `site/ref/` files), merged by another session and not deployed before.
 - **Live checks (plain GETs, 13:15 UTC, measured):** `version.json` reads commit `d3ce4cf3` and version `610258b8…`; `https://crow.direct/demo/` holds each of the six new sentences and no "independent" or "Neither side can take"; `try.mjs` SHA-256 `04ef4434…` and `buy.mjs` `e74ff223…`, both unchanged, so no copy of the try command or the install line handed out stops working.
-- **For Rafa:** the proposal above (three ways a deal ends) and its one question. Mock: `reports/scratch/t427/mock-three-endings.html` in the main checkout.
+- **Part 2 (PR 543):** the three endings, built on Rafa's word. Left: merge, `pnpm site:deploy` from `origin/main`, and a live check that `https://crow.direct/demo/` carries the section with its three cards. To refresh the cards later: change `tools/duet/endings.json` (from each deal's public record), then republish the page; the test fails until `site/demo/index.html` carries the new section.
 - **Follow-ups, not built:** the share description in `site/footer.ts` could add the refund rule (the footer's lane); review finding 3 (what the page says of who the reviewers are) goes with the proposal.
