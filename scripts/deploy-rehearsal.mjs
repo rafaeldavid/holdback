@@ -44,7 +44,7 @@ export const SEPOLIA_COMMANDS = {
   '0.4': 'the runtime-hash loop of docs/redeploy-contracts.md step 0.4, in $W',
   '2.1': 'cast chain-id --rpc-url $D && cast chain-id --rpc-url $R   (each prints 11155111)',
   '2.2': 'node $W/scripts/record-copies.mjs keep --rpc $R',
-  '2.3': '$W/contracts/script/deploy-sepolia.sh $D <keystore-file> <password-file>',
+  '2.3': 'DEPLOY_CROSSCHECK_RPC=$R $W/contracts/script/deploy-sepolia.sh $D <keystore-file> <password-file>',
   '2.4': "cast call $(jq -r .rules $W/contracts/deployments/sepolia.json) 'eip712Domain()(bytes1,string,string,uint256,address,bytes32,uint256[])' --rpc-url $R",
   '3.1': 'the --old line step 2.2 printed (it rebuilds the site, then sweeps)',
   '3.2': '$W/contracts/script/deploy-sepolia.sh --check $R',
@@ -53,7 +53,7 @@ export const SEPOLIA_COMMANDS = {
 
 /** What this rehearsal cannot show, and where it is shown instead. */
 export const NOT_REHEARSED = [
-  'the finality wait: the deploy on Sepolia waits until its last block is finalized, about 13 minutes; here it takes the latest block',
+  'the finality wait: the deploy on Sepolia waits until its last block is finalized on both RPCs, about 13 minutes; here it takes the latest block on one',
   "Sourcify's answer: step 3.3 on Sepolia; here the source check runs and nothing is sent",
   'the site rebuild of step 3.1, and step 3.4 (forge build, site/check.mjs, typecheck, tests on the new record): run them in $W, or on a fork of Sepolia (step 1.2)',
   'steps 4 to 11: the fork suites, the quiet, the operators, the test agents, the live rounds, the merge, the site, the tag',

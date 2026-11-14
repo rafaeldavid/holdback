@@ -386,7 +386,7 @@ describe.skipIf(!ready)(`the deploy script on a local chain (T-383)${ready ? '' 
   // a second copy of a contract: the deployer ends exactly five nonces on, and the record checks.
   describe('a failed send', () => {
     /** A stand-in for forge that fails the first `forge create` of `target` in `mode`, and runs forge otherwise. */
-    const shim = (name: string, target: string, mode: 'after' | 'before' | 'foreign' | 'pending') => {
+    const shim = (name: string, target: string, mode: 'after' | 'before' | 'foreign' | 'pending' | 'wrong') => {
       const file = join(chain.dir, `forge-${name}.sh`);
       const log = join(chain.dir, `forge-${name}.log`);
       const underpriced = 'echo "Error: server returned an error response: error code -32000: replacement transaction underpriced" >&2';
@@ -397,6 +397,14 @@ describe.skipIf(!ready)(`the deploy script on a local chain (T-383)${ready ? '' 
         mode === 'after' ? `  forge "$@" >/dev/null 2>&1; ${underpriced}; exit 1` : '',
         mode === 'before' ? `  ${underpriced}; exit 1` : '',
         mode === 'foreign' ? `  cast send '${chain.address}' --value 1 --keystore '${chain.keystore}' --password-file '${chain.passwordFile}' --rpc-url '${chain.rpc}' >/dev/null || exit 9` : '',
+        // Another contract's code at this creation's nonce: the beacon's, which takes no constructor argument.
+        ...(mode === 'wrong'
+          ? [
+              `  n=$(sed -E 's/.*--nonce ([0-9]+).*/\\1/' <<<"$*")`,
+              `  cast send --nonce "$n" --keystore '${chain.keystore}' --password-file '${chain.passwordFile}' --rpc-url '${chain.rpc}' --create "$(forge inspect --root '${join(root, 'contracts')}' 'src/DrandQuicknetBeacon.sol:DrandQuicknetBeacon' bytecode)" >/dev/null || exit 9`,
+              `  ${underpriced}; exit 1`,
+            ]
+          : []),
         // The creation goes to the pool with mining off, forge reports a failure, and a block comes 4 s later.
         ...(mode === 'pending'
           ? [
@@ -431,11 +439,35 @@ describe.skipIf(!ready)(`the deploy script on a local chain (T-383)${ready ? '' 
       const d = await chain.deploy(out, { DEPLOY_FORGE: f.file, DEPLOY_POLL_SEC: '0' });
       expect(d.code, d.stderr).toBe(0);
       expect(d.stderr).toContain('replacement transaction underpriced');
-      expect(d.stderr).toMatch(/the chain holds DrandQuicknetBeacon at 0x[0-9a-fA-F]{40} from nonce \d+ \(0x[0-9a-f]{64}\); nothing is sent again/);
+      expect(d.stderr).toMatch(/the chain holds DrandQuicknetBeacon at 0x[0-9a-fA-F]{40} from nonce \d+ \(0x[0-9a-f]{64}\), this build's code; nothing is sent again/);
       expect(f.calls().filter((c) => c.includes(':DrandQuicknetBeacon '))).toHaveLength(1);
       expect(await chain.nonce()).toBe(start + 5);
       const c = await chain.check(out);
       expect(c.code, c.stderr).toBe(0);
+    }, 300_000);
+
+    it('every creation is signed for the chain the script checked, by --chain (red team of T-410, H1)', async () => {
+      const f = shim('chain', 'none-such', 'after');
+      const out = join(chain.dir, 'chain-flag.json');
+      const d = await chain.deploy(out, { DEPLOY_FORGE: f.file });
+      expect(d.code, d.stderr).toBe(0);
+      const creates = f.calls().filter((c) => c.startsWith('create '));
+      expect(creates).toHaveLength(5);
+      for (const c of creates) expect(c).toContain(' --chain 31337 ');
+    }, 300_000);
+
+    it('another contract at the right nonce is refused before the next creation (red team of T-410, M1)', async () => {
+      const start = await chain.nonce();
+      const f = shim('wrong', 'AuthCaptureEscrow', 'wrong');
+      const out = join(chain.dir, 'wrong-contract.json');
+      const d = await chain.deploy(out, { DEPLOY_FORGE: f.file, DEPLOY_POLL_SEC: '0' });
+      expect(d.code).not.toBe(0);
+      expect(d.stderr).toContain('lib/commerce-payments/src/AuthCaptureEscrow.sol:AuthCaptureEscrow: the creation input differs from this build');
+      expect(d.stderr).not.toContain('the chain holds AuthCaptureEscrow');
+      // Only the stand-in's one transaction: nothing was built on it.
+      expect(await chain.nonce()).toBe(start + 1);
+      expect(f.calls().filter((c) => c.startsWith('create '))).toHaveLength(1);
+      expect(existsSync(out)).toBe(false);
     }, 300_000);
 
     it('a send still pending is waited for, then taken from the chain, not sent again', async () => {
@@ -450,7 +482,7 @@ describe.skipIf(!ready)(`the deploy script on a local chain (T-383)${ready ? '' 
       }
       expect(d.code, d.stderr).toBe(0);
       expect(d.stderr).toContain(`a transaction at nonce ${start + 2} is pending; waiting until it is mined`);
-      expect(d.stderr).toMatch(/the chain holds DrandQuicknetBeacon at 0x[0-9a-fA-F]{40} from nonce \d+ \(0x[0-9a-f]{64}\); nothing is sent again/);
+      expect(d.stderr).toMatch(/the chain holds DrandQuicknetBeacon at 0x[0-9a-fA-F]{40} from nonce \d+ \(0x[0-9a-f]{64}\), this build's code; nothing is sent again/);
       expect(f.calls().filter((c) => c.includes(':DrandQuicknetBeacon '))).toHaveLength(1);
       expect(await chain.nonce()).toBe(start + 5);
       expect((await chain.check(out)).code).toBe(0);
@@ -485,6 +517,32 @@ describe.skipIf(!ready)(`the deploy script on a local chain (T-383)${ready ? '' 
 
   // Finality (T-410): the record pins five creations, so it is written only once the last one's block is final.
   describe('the record waits for finality', () => {
+    it('with a second RPC, writes the record only when it holds every creation in the same block', async () => {
+      const out = join(chain.dir, 'crosschecked.json');
+      // The same anvil by another spelling of its URL: the script asks it as a second node.
+      const d = await chain.deploy(out, { DEPLOY_CROSSCHECK_RPC: chain.rpc.replace('127.0.0.1', 'localhost') });
+      expect(d.code, d.stderr).toBe(0);
+      expect(d.stdout).toContain('the second RPC holds all five creations in the same blocks');
+      expect((await chain.check(out)).code).toBe(0);
+    }, 300_000);
+
+    it('a second RPC that does not hold the creations stops the run before the record (red team of T-410, M2)', async () => {
+      const other = await Rehearsal.start();
+      try {
+        // Ahead of the deploy's chain, as Sepolia's real head would be, so the wait passes and the receipts decide.
+        await other.rpcCall('anvil_mine', ['0x1f4']);
+        const out = join(chain.dir, 'other-chain.json');
+        const d = await chain.deploy(out, { DEPLOY_CROSSCHECK_RPC: other.rpc });
+        expect(d.code).not.toBe(0);
+        expect(d.stderr).toMatch(/the second RPC has no receipt for AuthCaptureEscrow's creation 0x[0-9a-f]{64}/);
+        expect(existsSync(out)).toBe(false);
+        expect(d.stderr.match(/^deploy-sepolia: {3}\w+ 0x/gm)).toHaveLength(5);
+      } finally {
+        other.stop();
+      }
+    }, 300_000);
+
+
     it('writes no record while the last creation is not finalized, and names the orphans', async () => {
       const out = join(chain.dir, 'not-final.json');
       const d = await chain.deploy(out, { DEPLOY_FINALITY: 'finalized', DEPLOY_POLL_SEC: '1', DEPLOY_FINALITY_WAIT_SEC: '2' });
@@ -544,7 +602,7 @@ describe.skipIf(!ready)(`the deploy script on a local chain (T-383)${ready ? '' 
     expect(code, out).toBe(0);
     for (const id of ['2.1', '2.2', '2.3', '2.4', '3.1', '3.2', '3.3']) expect(out.match(new RegExp(`^step ${id.replace('.', '\\.')} +pass`, 'gm')), id).toHaveLength(2);
     expect(out).toMatch(/^step 0\.4 +pass/m);
-    expect(out).toContain('on Sepolia: $W/contracts/script/deploy-sepolia.sh $D <keystore-file> <password-file>');
+    expect(out).toContain('on Sepolia: DEPLOY_CROSSCHECK_RPC=$R $W/contracts/script/deploy-sepolia.sh $D <keystore-file> <password-file>');
     expect(out).toContain('on Sepolia: $W/contracts/script/deploy-sepolia.sh --verify $R');
     // Two dated copies with two names, and both runtime hashes equal at each run.
     const dated = [...out.matchAll(/keep the live record under its dated name: (\S+)/g)].map((m) => m[1]);
@@ -631,6 +689,17 @@ describe.skipIf(!ready)('the chain the deploy script is pointed at (T-410)', () 
       expect(d.code, knob).not.toBe(0);
       expect(d.stderr, knob).toContain(`on Sepolia ${knob} is not taken; unset it`);
     }
+    // A deploy on Sepolia needs a second RPC, and not a development node; no FOUNDRY_* setting; a strict dry run.
+    const alone = await run('bash', [SCRIPT, sepolia, fork.keystore, fork.passwordFile], { DEPLOY_RECORD: '' });
+    expect(alone.stderr).toContain('a deploy on Sepolia needs DEPLOY_CROSSCHECK_RPC');
+    const dev = await run('bash', [SCRIPT, sepolia, fork.keystore, fork.passwordFile], { DEPLOY_RECORD: '', DEPLOY_CROSSCHECK_RPC: fork.rpc });
+    expect(dev.stderr).toMatch(/DEPLOY_CROSSCHECK_RPC is a development node \(anvil/);
+    const second = await posingAs('0xaa36a7', 'Geth/v1.15.0');
+    const runs = await run('bash', [SCRIPT, sepolia, fork.keystore, fork.passwordFile], { DEPLOY_RECORD: '', DEPLOY_CROSSCHECK_RPC: second, FOUNDRY_OPTIMIZER_RUNS: '1' });
+    expect(runs.stderr).toContain('on Sepolia FOUNDRY_OPTIMIZER_RUNS is not taken');
+    const loose = await run('bash', [SCRIPT, '--verify', sepolia], { DEPLOY_RECORD: '', VERIFY_DRY_RUN: 'yes' });
+    expect(loose.stderr).toContain('VERIFY_DRY_RUN is 1 or unset, not yes');
+    for (const r of [alone, dev, runs, loose]) expect(r.code).not.toBe(0);
     const scratch = await run('bash', [SCRIPT, '--check', sepolia], { DEPLOY_RECORD: join(fork.dir, 'fork.json') });
     expect(scratch.stderr).toContain('on Sepolia the record is');
     expect(untouched()).toBe(before);
