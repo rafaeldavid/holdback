@@ -7871,6 +7871,65 @@
                     ],
                     "pattern": "^[0-9a-f]{40}$",
                     "description": "The repository commit holdback-op1 was deployed from: the World Durable Object runs there, so both nodes show it. `null` when the deploy named none"
+                  },
+                  "deployedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$",
+                    "description": "When Cloudflare created the live version of the Worker that answered (its version-metadata binding), in ISO 8601 UTC with milliseconds; after a rollback, the older version's time. `null` when that Worker has no binding (T-413, T-422)"
+                  }
+                }
+              },
+              "limits": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "client",
+                  "floodCeiling",
+                  "fundedDealsPerDay",
+                  "ciphertextBytesPerDay",
+                  "day"
+                ],
+                "description": "This world's limits on abuse (docs/operator-threat-model.md), beside the operator's own `limits.reads` and `limits.writes`. Each counts per client and at each operator apart; over one, a request gets 429 `rate_limited` with `retryAfterSec`. None caps a deal's terms, and a replay of an accepted request is never refused by the daily caps",
+                "properties": {
+                  "client": {
+                    "type": "string",
+                    "description": "What one client is: an IPv4 address or an IPv6 /64"
+                  },
+                  "floodCeiling": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "limit",
+                      "windowSec"
+                    ],
+                    "description": "Requests of every kind per window per client, in each Cloudflare location, counted before the operator; replays included",
+                    "properties": {
+                      "limit": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "windowSec": {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    }
+                  },
+                  "fundedDealsPerDay": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Deals the relayer funds for one client a day (a funded agree, a fund or a one-shot hold); a replay of a counted one is not counted again"
+                  },
+                  "ciphertextBytesPerDay": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "New ciphertext bytes stored for one client a day; bytes the store already holds are not counted"
+                  },
+                  "day": {
+                    "const": "UTC",
+                    "description": "The daily caps open again at 00:00 in this time zone"
                   }
                 }
               },

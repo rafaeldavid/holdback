@@ -70,6 +70,7 @@ import type { TimeoutKind } from '@holdback/settlement';
 import { mandateFor, SIM_CHAIN_ID, SIM_RULEBOOK, simClub, SimChain, TOKEN, wideScope, type Genesis, type JournalEntry } from '@holdback/settlement/sim';
 import { panelConfig, type JudgeProvider, type PanelConfig } from './judges.js';
 import { StorageLanes } from './lanes.js';
+import { capOf, DailyCaps, MAX_BODY_BYTES, routedUrl, DEFAULT_DAILY_CAPS, DEFAULT_RATE, FLOOD_CEILING, problemResponse, wholeNumberVar } from './limits.js';
 import type { WorldStorage } from './storage.js';
 import { dealFacts, Telemetry, type DayFacts, type TelemetryOptions } from './telemetry.js';
 
@@ -92,8 +93,12 @@ export interface PublicWorldOptions {
   faucetWindowSec?: number;
   /** Grants per client (IP address) per window. Default 10. */
   faucetPerClient?: number;
-  /** Per-client operator throttle. Default 120 writes and 1,200 reads a minute. */
+  /** Per-client operator throttle. Default RATE_WRITES_PER_MIN and RATE_READS_PER_MIN from `env`, else 120 writes and 1,200 reads a minute. */
   rateLimit?: { writes: number; reads: number; windowMs: number };
+  /** T-422: deals the relayer funds per client per UTC day, at each node. Default FUNDED_DEALS_PER_CLIENT_PER_DAY from `env`, else 100. */
+  fundedDealsPerClientPerDay?: number;
+  /** T-422: new ciphertext bytes stored per client per UTC day, at each node. Default CIPHERTEXT_BYTES_PER_CLIENT_PER_DAY from `env`, else 256 MiB. */
+  ciphertextBytesPerClientPerDay?: number;
   /**
    * Live judge calls a day across the demo. Default LIVE_JUDGE_CALLS_PER_DAY from `env`, else 30.
    * Live judging needs HOLDBACK_ANTHROPIC_API_KEY, HOLDBACK_OPENAI_COMPATIBLE_API_KEY and
@@ -151,8 +156,10 @@ export interface Via {
   node: 0 | 1;
   /** The node's public origin, e.g. https://holdback-op1.example.workers.dev. */
   origin: string;
-  /** The caller's address (cf-connecting-ip), for throttles. */
+  /** The caller as the limits count it: an IPv4 address or an IPv6 /64 (limits.ts clientKey), for throttles. */
   client: string;
+  /** When Cloudflare created the version of the Worker in front (its version-metadata binding), or null; absent in tests. */
+  deployedAt?: string | null;
 }
 
 export const DEMO_CLUB_ID = 'demo-club';
@@ -619,6 +626,10 @@ export class PublicWorld {
   private due = false;
   private wake: number | null = null;
   private readonly handlers: Array<(r: Request, client?: string) => Promise<Response>>;
+  /** T-422: the daily caps per client and node on deals the relayer funds and on new ciphertext stored. */
+  private caps: DailyCaps | undefined;
+  /** Each node's deploy time for discovery, shared with the demo facts (T-413). */
+  private deployedAt: Array<string | null> = [null, null];
 
   private constructor(
     private readonly o: PublicWorldOptions,
@@ -813,7 +824,15 @@ export class PublicWorld {
     const publicUrls = String(o.env?.OPERATOR_URLS ?? '').split(',').map((u) => trimTrailingSlashes(u.trim())).filter((u) => /^https:\/\//.test(u));
     // D39: the one discovery document carries what GET / used to list. T-066 adds the facts Crow Control reads by
     // script: the deployed commit, the relayer's lanes, the faucet's daily mints and the judges' tokens by model.
-    const demo = async (): Promise<WorldDemoFacts> => {
+    // T-422: the limits, from options, then Worker variables, then the defaults. A malformed variable refuses to start.
+    const rate = o.rateLimit ?? { writes: wholeNumberVar(o.env, 'RATE_WRITES_PER_MIN', DEFAULT_RATE.writes), reads: wholeNumberVar(o.env, 'RATE_READS_PER_MIN', DEFAULT_RATE.reads), windowMs: 60_000 };
+    const capLimits = {
+      fundedDeals: o.fundedDealsPerClientPerDay ?? wholeNumberVar(o.env, 'FUNDED_DEALS_PER_CLIENT_PER_DAY', DEFAULT_DAILY_CAPS.fundedDeals),
+      ciphertextBytes: o.ciphertextBytesPerClientPerDay ?? wholeNumberVar(o.env, 'CIPHERTEXT_BYTES_PER_CLIENT_PER_DAY', DEFAULT_DAILY_CAPS.ciphertextBytes),
+    };
+    // Each node's deploy time, as the Worker in front last said (T-413); null until it does.
+    const deployedAt: Array<string | null> = [null, null];
+    const demo = async (node: 0 | 1 = 0): Promise<WorldDemoFacts> => {
       const today = await panel.budget.used();
       return {
         clubId: club.id,
@@ -838,7 +857,14 @@ export class PublicWorld {
             ? { liveCallsPerDay: panel.budget.perDay, liveCallsToday: today.calls, tokensToday: { input: today.inputTokens, output: today.outputTokens, byModel: today.byModel ?? {} }, day: today.day }
             : { missing: panel.missing }),
         },
-        build: { commit: buildCommit(o.env) },
+        build: { commit: buildCommit(o.env), deployedAt: deployedAt[node] ?? null },
+        limits: {
+          client: 'an IPv4 address or an IPv6 /64, counted at each operator apart',
+          floodCeiling: { limit: FLOOD_CEILING.limit, windowSec: FLOOD_CEILING.periodSec },
+          fundedDealsPerDay: capLimits.fundedDeals,
+          ciphertextBytesPerDay: capLimits.ciphertextBytes,
+          day: 'UTC',
+        },
         ...(o.live ? { relayer: relayerFacts(o.live.chain) } : {}),
       };
     };
@@ -918,9 +944,9 @@ export class PublicWorld {
           signerKey: key(`demo-operator-${i + 1}`).privateKey,
           operatorId: `demo-op-${i + 1}`,
           env: o.env,
-          rateLimit: o.rateLimit ?? { writes: 120, reads: 1200, windowMs: 60_000 },
+          rateLimit: rate,
           notes: notesFor(club.id, m, { amount: faucetAmount, maxAmount: faucetMaxAmount, windowSec: faucetWindowSec }, panel, operatorFee, chainFacts),
-          demo,
+          demo: () => demo(i === 1 ? 1 : 0),
           notices,
           ...(feedback ? { feedback } : {}),
           // The fields the request log keeps, picked here: the path and traceparent never reach telemetry.
@@ -976,6 +1002,8 @@ export class PublicWorld {
     if (registrations.policiesKept() > 0) telemetry.rows('ph', registrations.policiesKept());
     const keys = [principal, key('demo-club-operator'), ...adjKeys.map((a) => a.keys), key('demo-operator-1'), key('demo-operator-2')];
     const world = new PublicWorld(o, telemetry, secret, chain, keys, operators, adjudicators, panel, declined, turnsDeclined, waiting, journalLength, publicUrls, live);
+    world.caps = new DailyCaps(storage, now, secret, capLimits);
+    world.deployedAt = deployedAt;
     // A wake, from a plain read too, makes the world active only when its adjudicators have a step to take or a chain
     // world's setup is left: a deal left mid-way resumes, an idle world arms no alarm. A takeover later on is
     // scheduled whether or not it is active.
@@ -1323,6 +1351,53 @@ export class PublicWorld {
     }
   }
 
+  /**
+   * T-422: the daily caps, before the operator relays (limits.ts). A funding (a funded agree, a fund, a one-shot hold)
+   * takes one of the client's funded deals at this node, and an upload takes its new bytes; a replay of a counted funding,
+   * and bytes the store already holds, take nothing. A count the relay refuses is given back. Anything else passes as is.
+   */
+  private async limited(request: Request, via: Via): Promise<Response | { request: Request; settle?: (accepted: boolean) => Promise<void> }> {
+    const caps = this.caps;
+    const url = routedUrl(new URL(request.url));
+    const cap = caps ? capOf(request.method, url) : null;
+    const key = request.headers.get('idempotency-key');
+    // Without a key the operator refuses the write before any relay, so it spends nothing.
+    if (!caps || !cap || key === null) return { request };
+    const max = cap === 'ciphertext' ? DEMO_MAX_CIPHERTEXT_BYTES : MAX_BODY_BYTES;
+    const bytes = await readCapped(request, max);
+    if (bytes === null) return problemResponse('payload_too_large', `request bodies to ${url.pathname} are limited to ${max} bytes at this operator`, { maxBytes: max });
+    const forward = new Request(request, { body: bytes });
+    const n = via.node;
+    if (cap === 'ciphertext') {
+      if (bytes.length === 0) return { request: forward };
+      const t = await caps.takeBytes(n, via.client, bytes.length, async () => (await this.telemetry.storage.get(`ct:${sha256(bytes)}`)) !== undefined);
+      if (!t.ok) return problemResponse('rate_limited', `this operator stores at most ${caps.limits.ciphertextBytes} bytes of new ciphertext a day (UTC) per client (an IPv4 address or an IPv6 /64), and this upload of ${bytes.length} bytes would pass it. Retry after 00:00 UTC, upload to another operator, or keep the ciphertext in a store of your own: the delivery names its URI`, { retryAfterSec: t.retryAfterSec });
+      return t.counted ? { request: forward, settle: (ok) => caps.settleBytes(n, via.client, bytes.length, ok) } : { request: forward };
+    }
+    let body: unknown;
+    let fingerprint: string;
+    try {
+      // Decoded as the operator decodes it (Buffer#toString keeps a byte-order mark), so both read the same JSON or neither does.
+      body = JSON.parse(new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes));
+      fingerprint = canonicalKeccak({ idempotencyKey: key, path: url.pathname, body: body ?? null });
+    } catch {
+      return { request: forward }; // not JSON the operator could relay: it refuses it before any relay
+    }
+    // An agree funds only with `fund` beside it.
+    if (cap === 'agree' && (typeof body !== 'object' || body === null || (body as Record<string, unknown>)['fund'] === undefined)) return { request: forward };
+    // A deal already past funding costs the relayer no funding gas: the settlement layer replays or refuses it. So a replay
+    // of an accepted funding is never counted, after 00:00 UTC or from another address too (T-422 review and red team, F4).
+    const id = cap === 'funding' && url.pathname.endsWith('/holds') ? ((body as { commitment?: { id?: unknown } }).commitment?.id ?? null) : url.pathname.split('/').filter(Boolean)[2];
+    const state = typeof id === 'string' && /^0x[0-9a-fA-F]{64}$/.test(id) ? await this.chain.state(id as Hex32).catch(() => null) : null;
+    if (state && !PRE_FUNDING_STATES.has(state.escrowState)) return { request: forward };
+    const t = await caps.takeFunding(n, via.client, fingerprint);
+    if (!t.ok) {
+      const d = caps.limits.fundedDeals;
+      return problemResponse('rate_limited', `this operator relays at most ${d} funded deal${d === 1 ? '' : 's'} a day (UTC) per client (an IPv4 address or an IPv6 /64), and this client has reached it. Nothing about the deal changed: retry after 00:00 UTC, send the same signed request to another operator, or submit it to the settlement layer (on Sepolia, the rules contract) yourself`, { retryAfterSec: t.retryAfterSec });
+    }
+    return t.counted ? { request: forward, settle: (ok) => caps.settleFunding(n, via.client, fingerprint, ok) } : { request: forward };
+  }
+
   async fetch(request: Request, via: Via): Promise<Response> {
     // A broken world takes no new work: the stored write failure, before a handler runs or relays.
     if (this.failed) await this.persisting;
@@ -1332,7 +1407,11 @@ export class PublicWorld {
     // The public address when configured (OPERATOR_URLS), so one odd request (another port, http) cannot change it.
     // A URL origin has no path, so it never ends in a slash.
     op.baseUrl = this.publicUrls[via.node] ?? via.origin;
-    const response = await this.handlers[via.node]!(request, via.client);
+    if (via.deployedAt !== undefined) this.deployedAt[via.node] = via.deployedAt;
+    const gate = await this.limited(request, via);
+    if (gate instanceof Response) return gate;
+    const response = await this.handlers[via.node]!(gate.request, via.client);
+    await gate.settle?.(response.status < 300);
     await this.persist();
     if (await this.look()) this.stir();
     await this.flushTelemetry(false);
@@ -1538,7 +1617,9 @@ export type WorldDemoFacts = DemoFacts & {
    * The commit holdback-op1 was deployed from (BUILD_COMMIT, set by scripts/deploy.mjs), or null when unknown. The
    * World Durable Object runs in holdback-op1, so both nodes show that Worker's commit.
    */
-  build: { commit: string | null };
+  build: { commit: string | null; deployedAt: string | null };
+  /** T-422: this world's limits on abuse, per client (an IPv4 address or an IPv6 /64) and node (docs/operator-threat-model.md). */
+  limits: { client: string; floodCeiling: { limit: number; windowSec: number }; fundedDealsPerDay: number; ciphertextBytesPerDay: number; day: 'UTC' };
   /** A chain world's relayer: the funding lane and the deal lanes that pay its gas (ADR-0028). */
   relayer?: { fundingLane: string; dealLanes: string[] };
 };
@@ -1630,4 +1711,32 @@ export function notesFor(
         ]
       : ['State is journaled and replayed after a restart, but this is a demo: it may be reset at any time.']),
   ];
+}
+
+/** The states before funding: a funding relayed for a deal in any other spends no funding gas (T-422). */
+const PRE_FUNDING_STATES: ReadonlySet<string> = new Set(['Offered', 'AcceptedByAdjudicator', 'Agreed']);
+
+/** A request's body, or null when it is longer than `max` bytes: read no further than that (T-422). */
+async function readCapped(request: Request, max: number): Promise<Uint8Array | null> {
+  if (!request.body) return new Uint8Array(0);
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > max) {
+      void reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.length;
+  }
+  return out;
 }
