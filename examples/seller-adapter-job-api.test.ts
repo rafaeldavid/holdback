@@ -437,8 +437,25 @@ describe('seller adapter, a job API of another shape (T-366): answers', () => {
   it('a redirect is refused, so the credential never follows it elsewhere', async () => {
     stub = await startJobStub({ key: KEY });
     const api = client({ ...jobStubSellerApi(stub.base), quote: { ...jobStubSellerApi(stub.base).quote, path: 'moved' } });
-    await expect(api.quote({ scope: SCOPE })).rejects.toThrow();
+    await expect(api.quote({ scope: SCOPE })).rejects.toThrow('the seller API answered 302 to the quote, a redirect, which the adapter never follows');
     expect(stub.requests.map((r) => r.path)).toEqual(['/api/v2/moved']);
+  });
+
+  it('asks the runtime for no redirect handling of its own: redirect "manual", which the Workers runtime accepts (T-433)', async () => {
+    stub = await startJobStub({ key: KEY });
+    const api = client(jobStubSellerApi(stub.base));
+    const seen: Array<RequestInit['redirect']> = [];
+    const real = globalThis.fetch;
+    globalThis.fetch = ((input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      seen.push(init?.redirect);
+      return real(input, init);
+    }) as typeof fetch;
+    try {
+      await api.quote({ scope: SCOPE });
+    } finally {
+      globalThis.fetch = real;
+    }
+    expect(seen).toEqual(['manual']);
   });
 
   it('prices a quote that counts units, such as credits, at a fixed price per unit (T-406)', async () => {

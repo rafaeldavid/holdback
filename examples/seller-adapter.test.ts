@@ -884,15 +884,16 @@ describe('seller adapter as a service: restarts with open deals', () => {
 // ---- T-329: a refused report alerts the seller, and the adapter delivers the fixed one ----
 
 /** The seller's alert receiver: it keeps each POST's raw body and headers, and answers as told. */
-async function alertReceiver(answer: 'ok' | 'fail' | 'hang' = 'ok') {
-  const got: Array<{ raw: string; body: J; headers: Record<string, string | string[] | undefined> }> = [];
+async function alertReceiver(answer: 'ok' | 'fail' | 'hang' | 'redirect' = 'ok') {
+  const got: Array<{ raw: string; body: J; headers: Record<string, string | string[] | undefined>; path: string }> = [];
   const server = createHttpServer((req, res) => {
     let raw = '';
     req.on('data', (c) => (raw += c));
     req.on('end', () => {
-      got.push({ raw, body: JSON.parse(raw), headers: req.headers });
+      got.push({ raw, body: JSON.parse(raw), headers: req.headers, path: req.url ?? '' });
       if (answer === 'ok') res.writeHead(204).end();
       else if (answer === 'fail') res.writeHead(500).end();
+      else if (answer === 'redirect') res.writeHead(307, { location: '/somewhere-else' }).end(); // 307 keeps the POST and its body
     });
   });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
@@ -924,7 +925,7 @@ describe('seller adapter: a refused report waits for the fixed one (T-329)', () 
     await world.close();
     world = shared;
   });
-  const receiver = async (answer?: 'ok' | 'fail' | 'hang') => {
+  const receiver = async (answer?: 'ok' | 'fail' | 'hang' | 'redirect') => {
     const r = await alertReceiver(answer);
     receivers.push(r);
     return r;
@@ -1182,6 +1183,27 @@ describe('seller adapter: a refused report waits for the fixed one (T-329)', () 
     await until('the journal to record the delivery', () => stageOf(again, id) === 'delivered');
     expect(await events(buyer, id, 'delivery.submitted')).toHaveLength(1);
   }, 30_000);
+
+  it('an alert callback that redirects is not followed: the signed body goes to the configured address only (T-433)', async () => {
+    // A world of its own: this block's buyers have spent their test tokens on the deals above.
+    const before = world;
+    world = await startSimWorld({ env: {}, onError: () => {} });
+    try {
+      const hook = await receiver('redirect');
+      const { running, lines } = await service({ alerts: { callback: hook.url, secretEnv: 'ALERT_SECRET' } }, { ALERT_SECRET: 'alert-secret-3' }, { report: 'missing-file', pollsUntilComplete: 0 });
+      const buyer = agent('buyer-1');
+      const { body: q } = await quoteFor(running, buyer);
+      const id = q.commitmentId as Hex;
+      await fund(buyer, id);
+      await until('the log to name the redirect', () => lines.some((l) => l.includes(`${id} the alert callback answered 307 to delivery.refused, a redirect, which the adapter never follows`)));
+      await new Promise((r) => setTimeout(r, 200));
+      expect(hook.got.map((g) => g.path)).toEqual(['/crow-alerts']);
+      await running.close();
+    } finally {
+      await world.close();
+      world = before;
+    }
+  }, 45_000);
 });
 
 describe('seal.ts', () => {
