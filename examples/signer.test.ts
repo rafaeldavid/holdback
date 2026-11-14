@@ -214,7 +214,15 @@ describe('A13: reach the signer\'s flag, rules and ledger from the agent\'s side
     refused(await s.post(payment(termsFor(c))), 'X1', /cannot be read/);
     writeFileSync(s.flagPath, 'run\n');
     chmodSync(s.flagPath, 0o000);
-    const unreadable = spawnSync('cat', [s.flagPath]).status !== 0; // root reads any file: then this part says so and skips
+    // Root reads any file: then this part skips. Node's own read tells (code scanning alert 32: no `cat`).
+    const unreadable = (() => {
+      try {
+        readFileSync(s.flagPath);
+        return false;
+      } catch {
+        return true;
+      }
+    })();
     if (unreadable) refused(await s.post(payment(termsFor(c))), 'X1', /cannot be read/);
     chmodSync(s.flagPath, 0o600);
     for (const text of ['', 'stop', 'running', 'run run', '{"run":true}']) {

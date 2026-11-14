@@ -3,7 +3,7 @@
 - **Lane:** demo (Crow's own agents, build row 3)
 - **Phase:** 2
 - **Depends on:** T-439 (the signer, PR 555)
-- **Paths this task may touch:** `examples/signer.test.ts`, this file
+- **Paths this task may touch:** `examples/signer.test.ts`, this file. It also closes code scanning alert 32 (`js/unnecessary-use-of-cat`, `examples/signer.test.ts`), at the coordinator's request
 - **Human gate:** no
 - **Status:** review
 - **Agent/session:** own-agents build session, on the coordinator's report of 2026-11-14 (`main` red on `test (1/4)`)
@@ -50,5 +50,8 @@ The `reviewer` agent found the signer right and the test wrong, no boundary a re
 For triage, not this task: the signer's `TIME` pattern with `Date.parse` takes dates that do not exist (`2026-02-30T00:00:00Z` reads as 2 March, `T24:00:00Z` as the next midnight). The signer and `verify.ts` read them the same way, so the bound it checks is the one it signs (inferred); whether the operators and the chain read them so too is not known.
 
 ## Handoff
+
+Code scanning alert 32 (`js/unnecessary-use-of-cat`): the A13 test now asks Node whether the flag file is readable, in place of running `cat` on it.
+
 
 Done. The failure was a test that read the clock twice; the signer's bounds hold exactly where the rules put them. The other tests that build terms from the wall clock take every deadline from the terms' own `createdAt` (`termsFor` in `signer-test-kit.ts`), so a second read of the clock cannot change a window. Against the signer's clock such a `createdAt` sits up to a few seconds behind it, well inside the 60 s allowed ahead and the 300 s before the offer expires (inferred from the code).
