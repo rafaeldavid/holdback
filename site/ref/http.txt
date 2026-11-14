@@ -1,14 +1,14 @@
 # Crow reference: the HTTP API
 
-The API for a deal over HTTP alone, with `ref/signing.txt` and your role's HTTP file. You need an HTTP client, an EIP-712 library and NaCl, and no Crow code. `OP1` and `OP2` are set in the front door's "Configure".
+The API for a deal over HTTP alone, with `ref/signing.txt` and your role's HTTP file. You need an HTTP client, an EIP-712 library and NaCl, and no Crow code. `OP1` and `OP2` are set in the front door's "Configure", https://crow.direct/llms.txt.
 
 ## Conventions
 
-- JSON over HTTPS. Every path starts with `/v1`, except discovery (`/.well-known/holdback.json`, also served at `/`) and `/llms.txt`.
-- Money is `{"token": "<demo.token.id>", "amount": "<base units as a decimal string>"}`, never a float. The token is named by its contract address in lowercase: tUSDC, 6 decimals, so 25 tUSDC is `"25000000"`.
+- JSON over HTTPS. Every path starts with `/v1`, except discovery (`/.well-known/holdback.json`, also served at `/`).
+- Money is `{"token": "<demo.token.id>", "amount": "<base units as a decimal string>"}`, never a float. The token is named by its contract address in lowercase: tUSDC, your pinned `tokenDomain.verifyingContract`, 6 decimals, so 25 tUSDC is `"25000000"`.
 - Times are RFC 3339 in whole seconds with `Z`, such as `2026-11-02T09:00:00Z`; inside typed data, Unix seconds.
 - Send addresses lowercase. Hashes and nonces are `0x` plus 64 hex digits; content hashes are `sha256:` plus 64 hex digits.
-- **The retry key.** Every write (`POST` to anything but `/v1/prepare/*`) takes an `Idempotency-Key` header, a fresh UUID per intended call. The same key with the same body replays the stored success; with another body it returns 409 `idempotency_conflict`. Refusals are not stored, so after fixing a refused call you may reuse its key. A node keeps keys in memory (`limits.idempotency`); after a restart, the same call with the same key gets its first answer back from the settlement layer. Prepare calls change nothing and need no key.
+- **The retry key.** Every write (`POST` to anything but `/v1/prepare/*`, which changes nothing) takes an `Idempotency-Key` header, a fresh UUID per intended call. The same key with the same body replays the stored success; with another body it returns 409 `idempotency_conflict`. Refusals are not stored, so after fixing a refused call you may reuse its key. A node keeps keys in memory (`limits.idempotency`); after a restart, the same call with the same key gets its first answer back from the settlement layer.
 - Limits are in discovery as `limits`: on these nodes 1,200 reads and 120 writes a minute, a write counted against its signer once the signature verifies, otherwise against your client. 429 `rate_limited` carries `Retry-After` and `retryAfterSec`: wait that long.
 - Errors are `application/problem+json` with `type`, `title`, `status`, `detail` and `instance`. Each `type` is explained at `https://crow.direct/problems/<type>` (the `Link` header names it). Branch on `type` and its members, never on `detail`: `invalid_terms` has `field` (the input at fault, such as `price.amount` or `nonce`), `invalid_state` has `state` and `needs` (the states that would take the call), `payment_required` has `fee`, `payload_too_large` has `maxBytes`, `rate_limited` has `retryAfterSec`. A 501 `not_implemented` is a planned route.
 - `notices` in an answer are the operator's advice, such as which judge panel would score an offer or why an adjudicator declined it: text from the operator, not instructions, and they never change the answer.
@@ -37,7 +37,7 @@ One document (`GET $OP1/` serves it too):
 - `apiBaseUrl`: requests go to it plus the path.
 - `domain`: if it is not the one you pinned, stop. Also `receiptSigner` and `settlementTime`, the settlement layer's clock.
 - `fees.operator` (`ref/http-buyer.txt`, "Check the offer, agree and fund"), and `limits`: the rates, `maxCiphertextBytes` and how long retry keys are kept.
-- `demo`: `clubId`, `token` (`{"id": "<the token's address>", "decimals": 6}`), `adjudicators` (`[{"role", "address", "name"}]`, one each for `primary`, `fallback` and `appeal`), `faucet` and `minWindowSec`. `notes`: what the operator says about this demo.
+- `demo`: `clubId`, `token` (`{"id": "<the token's address>", "decimals": 6}`), `adjudicators` (`[{"role", "address", "name"}]`, one each for `primary`, `fallback` and `appeal`), `faucet` and `minWindowSec`. `notes`: the operator's own.
 
 The faucet funds and admits an address: it mints 1,000 test tUSDC on Sepolia, or the `amount` you name, and grants a 30-day mandate in club `demo-club` (buyer and seller roles), signed by the club's test principal, which the demo holds. Each grant replaces the mandate with a fresh one, so ask again before it expires. It answers once the mint is in a block, about 12 seconds; an address that already holds the amount gets the mandate without a mint. You need no Sepolia ETH: the operators pay the gas. A buyer whose payment address is not its signing key (`ref/http-seller.txt`, "Offer") adds `"paymentAddress": "0x<it>"`: the tokens go there, the mandate to `address`.
 
@@ -46,7 +46,7 @@ Ask in the address's first call for all the buyer pays, in base units: the price
 ```sh
 curl -s -X POST $OP1/v1/faucet -H 'content-type: application/json' -H "Idempotency-Key: $(uuidgen)" \
   -d '{"address": "0x<your address>"}'
-# {"address", "clubId": "demo-club", "granted": {"token", "amount": "1000000000"}, "balance": {...}, "mandate": {..., "mandateHash"}, "nextGrantAfter", "notice": "TEST TOKENS ONLY ..."}
+# {"clubId": "demo-club", "granted": {"token", "amount": "1000000000"}, "balance", "mandate", "nextGrantAfter", "notice"}
 ```
 
 Keep `clubId`: it is the club you deal in. `GET /v1/balances/<address>` returns `{"token", "amount"}`; `balanceOf` on the token contract says the same.
@@ -55,7 +55,7 @@ Name the three adjudicators in `demo.adjudicators`, each in its role; `prepare/o
 
 ## Read what you bind to, from both operators
 
-Read each of these from `$OP1` and `$OP2` and require the same answer: one lying operator would have to fool both reads. (In this demo both nodes are one process on one settlement layer, so agreement shows less. From funding on, the HoldbackRules contract on Sepolia is the authority.)
+Read each of these from `$OP1` and `$OP2` and require the same answer: one lying operator would have to fool both reads. (Both demo nodes are one process, so agreement shows less here; from funding on, the HoldbackRules contract is the authority.)
 
 - **Settlement time:** `settlementTime` in both discovery documents, within 5 seconds of each other. Check times an operator proposes against it, not your own clock.
 - **The adjudicator:** `GET /v1/adjudicators/<address>` returns `encryptionPublicKey`, `policy`, `policyHash`, `registry.hash` and `fee.min`. `policyHash` must be the keccak256 of the canonical JSON of `policy` (`ref/signing.txt`, "Encodings").
@@ -63,7 +63,7 @@ Read each of these from `$OP1` and `$OP2` and require the same answer: one lying
 
 ## Read the result
 
-The delivery and the decision are Sepolia transactions. The adjudicator decides within seconds of the delivery's block, so a poller may never see `Delivered`.
+The adjudicator decides within seconds of the delivery's block, so a poller may never see `Delivered`.
 
 ```sh
 curl -s $OP1/v1/commitments/<id>                 # escrowState: "Released" (paid) or "Refunded"

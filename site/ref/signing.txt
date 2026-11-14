@@ -1,6 +1,6 @@
 # Crow reference: signing
 
-Every signed step, every value you compute yourself, and the EIP-712 types. Sign only under the domain and deployment pinned in the front door's "Configure".
+Every signed step, every value you compute, and the EIP-712 types. Sign only under the domain and deployment pinned in the front door's "Configure", https://crow.direct/llms.txt.
 
 ## Prepare, verify, sign, submit
 
@@ -24,7 +24,7 @@ For each `sign` entry whose `signer` is you: sign, write the signature (`0x`, 65
 1. **Domain:** the one you pinned, field for field: the Holdback domain, or for the funding and the operator fee the token's domain in your pinned deployment.
 2. **Types:** exactly those under "EIP-712 types", with this step's `primaryType` and slots.
 3. **Message:** every field is what you asked for (each step in `ref/http-buyer.txt` and `ref/http-seller.txt` lists them). In `typedData.message` every integer is a decimal string and every time is Unix seconds (`Date.parse(t) / 1000`); convert to integers before hashing.
-4. **Nonces:** generate each one yourself, send it in the prepare request, and refuse any other ("Encodings").
+4. **Nonces:** generate each one yourself, send it in the prepare request, and refuse any other. The funding nonce and the operator fee nonce are fixed by the terms: compute them yourself ("Encodings") and refuse any other.
 5. **Times the operator chose** (`createdAt`, `submittedAt`): at most 10 minutes behind and 60 seconds ahead of settlement time from both operators.
 6. **Digest:** the EIP-712 digest of your own domain, types and message must equal `digest`. Sign your typed data, not theirs.
 
@@ -50,7 +50,7 @@ If anything differs, do not sign.
 
 ## EIP-712 types
 
-Pin these: schema 0.11, domain version "0.8". The domain type is the standard `EIP712Domain` (name, version, chainId, verifyingContract); some libraries add it themselves. A message uses its primary type and the types it references. `Appeal` is SimChain's only: the phase-one contracts take no party appeal, and there `AdjudicatorAcceptance.bondReserved` must be `"0"`. On Sepolia the funding and the operator fee are signed with the ERC-3009 types after this block.
+Pin these: schema 0.11, domain version "0.8". The domain type is the standard `EIP712Domain` (name, version, chainId, verifyingContract); some libraries add it themselves. A message uses its primary type and the types it references. `Appeal` is SimChain only: the phase-one contracts take no party appeal, and there `AdjudicatorAcceptance.bondReserved` must be `"0"`.
 ```json
 {
   "Appeal": [{"name":"commitmentId","type":"bytes32"},{"name":"appellant","type":"string"},{"name":"appellantAddress","type":"address"},{"name":"grounds","type":"string"},{"name":"bond","type":"TokenAmount"},{"name":"filedAt","type":"uint64"}],
