@@ -8,6 +8,7 @@
 - **Human gate:** no. The live run makes test deals on the public test service like anyone running the try command; the operators pay its gas in test ETH. The two other measurements run on a local anvil chain only. Nothing is deployed.
 - **Status:** done (pull request 544)
 - **Agent/session:** the T-425 side session of 2026-11-14, worktree `.worktrees/holdback-T-425`, branch `t-425-pitch-evidence`
+- **Roadmap row:** none
 
 ## Intent
 

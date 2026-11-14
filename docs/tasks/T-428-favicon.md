@@ -7,6 +7,7 @@
 - **Human gate:** no for the pull requests; the deploys run on Rafa's standing word for this wave (coordinator brief 2026-11-14, "Merge and deploy when ready")
 - **Status:** done
 - **Agent/session:** T-428 side session, started by the coordinator on 2026-11-14
+- **Roadmap row:** N103
 
 ## Intent
 

@@ -7,6 +7,7 @@
 - **Human gate:** no. The site deploy that publishes the new `buy.mjs` is Rafa's word.
 - **Status:** done
 - **Agent/session:** T-411's session, kinds 1 and 4 (buyer's tools)
+- **Roadmap row:** none
 
 ## Intent
 

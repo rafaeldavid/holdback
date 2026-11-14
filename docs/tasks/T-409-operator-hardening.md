@@ -7,8 +7,9 @@
 - **Roadmap:** N80 ("A delivery with no stored ciphertext can't stall the adjudicator for other deals") and N92 ("The read-after-write attacks run against the phase-one adapter"), both marked "before design partner A's first deal"
 - **Paths this task may touch:** `apps/demo-cloud/` and its tests; the operator's relay and read paths in `packages/settlement/evm/` (`live.ts`, `sync.ts`, `timeouts.ts`, `errors.ts`, `chain.ts`, the read model in `evm-settlement.ts`) and their tests; `tests/read-after-write*.test.ts`; the read-after-write rule in `eslint.config.js`; this file. Never: `contracts/src/`, `spec/schemas/`, `examples/seller-adapter*.ts`.
 - **Human gate:** no for the code. The operators change only with a deploy, which waits for Rafa.
-- **Status:** review
+- **Status:** done (pull request 512, merged 2026-11-14; both operators deployed 10:43 UTC)
 - **Agent/session:** the T-409 session, 2026-11-14, branch `t-409-operator-hardening`, worktree `.worktrees/holdback-T-409`
+- **Roadmap row:** N80, N92
 
 ## Intent
 

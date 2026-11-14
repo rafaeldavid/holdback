@@ -8,6 +8,7 @@
 - **Human gate:** no. The pages are Rafa's private artifacts and Crow Control's `/map` and `/contracts`; republishing them to their existing addresses is in the brief. No Worker deploy.
 - **Status:** done (holdback PR 518, merge commit 3fd5b2c8; crow-private PR 60, merge commit ff4416b8)
 - **Agent/session:** T-424 in the second wave of 2026-11-14, branch `t-424-report-pages-kit`
+- **Roadmap row:** N103
 
 ## Intent
 

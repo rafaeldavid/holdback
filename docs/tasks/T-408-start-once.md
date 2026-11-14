@@ -8,6 +8,7 @@
 - **Human gate:** no. Rafa, 2026-11-14: "Go ahead on next steps that are possible", after the fix was recommended before the pilot's two scans. Nothing deploys.
 - **Status:** done (PR 501, merge commit `f6b30a8`)
 - **Agent/session:** the T-399 session, 2026-11-14, branch `t-408-start-once`
+- **Roadmap row:** N37 (the seller adapter)
 
 ## Intent
 

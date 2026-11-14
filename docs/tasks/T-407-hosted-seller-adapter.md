@@ -7,6 +7,7 @@
 - **Human gate:** yes for any deploy and every secret. The build itself is confined to the repository.
 - **Status:** review (the design record; nothing is built)
 - **Agent/session:** the T-407 session, started 2026-11-14 by the pilot coordinator
+- **Roadmap row:** N134
 
 ## Intent
 
