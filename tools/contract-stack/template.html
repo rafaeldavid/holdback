@@ -194,6 +194,7 @@ dl.gloss dt:first-of-type,dl.gloss dt:first-of-type + dd{border-top:0}
       <div class="card-top"><h3>HoldbackRules</h3><span class="tag">Crow · the core</span></div>
       <p class="analogy">The referee.</p>
       <p>It checks every signed message, keeps track of where each deal stands, and is the only thing allowed to tell the vault to pay, refund or hold. It never holds money itself.</p>
+      <p>Each deal names two money addresses apart from the keys that sign: the buyer's payment address funds the hold and receives every refund, and the seller's payout address receives every payment. One deployment serves one token: tUSDC on Sepolia.</p>
       <details><summary>Technical details</summary><div class="detail">
         <div class="tbl"><table><thead><tr><th>Function</th><th>Who can call it</th><th>What it does</th></tr></thead><tbody>
           <tr><td><code>agreeAndFund</code></td><td>anyone, carrying the seller's, adjudicator's and buyer's signatures</td><td>Checks the three signatures and pulls price + adjudication fee into the vault through the ERC-3009 collector.</td></tr>
@@ -203,18 +204,21 @@ dl.gloss dt:first-of-type,dl.gloss dt:first-of-type + dd{border-top:0}
           <tr><td><code>mutualSettle</code></td><td>anyone, with both parties' signatures</td><td>Any split both sides agree, paid to the buyer's payment address and the seller's payout address only.</td></tr>
           <tr><td><code>reclaim</code> · <code>triggerFallback</code> · <code>triggerDefault</code></td><td>anyone, once the deadline has passed</td><td>The escape hatches: refund an undelivered deal, hand a silent adjudicator's case to the fallback, refund if no one decides.</td></tr>
         </tbody></table></div>
+        <p class="small">Anyone can read a deal: <code>dealOf</code> gives its stage, why it closed (decided, accepted early, settled, reclaimed or defaulted) and which adjudicator decided; <code>deliveryHashOf</code> gives the fingerprint of the delivery it judged.</p>
         <p class="small">An offer nobody funds stores nothing on chain: the contract refuses to fund it after its deadline, and the operators mark it expired by their own clock.</p>
+        <p class="small">It refuses at funding, before any money moves: a token other than the deployment's, a reserved bond other than 0, more than one delivery attempt, an escalation window of 0, an appeal window other than 0, and deadlines that are equal or out of order.</p>
+        <p class="small">Its events use the draft ERC-8183 names (<code>JobCreated</code>, <code>JobFunded</code>, <code>JobSubmitted</code>, <code>JobCompleted</code>, <code>JobRejected</code>, <code>PaymentReleased</code>, <code>Refunded</code>), with the deal ID as the job ID, and <code>SettlementAddresses</code> names the two money addresses. The interface and its descriptions are in <code>contracts/src/IHoldbackRules.sol</code>.</p>
         <p class="small">Not in phase one: party appeals, adjudicator bonds and Permit2 funding. The simulated chain keeps them as the full protocol's reference (ADR-0031).</p>
         <p class="small">Source: <code>contracts/src/HoldbackRules.sol</code>. Amounts must fit 120 bits and times 48 bits; there are no other caps (decision D31).</p>
       </div></details>
     </article>
 
     <article class="card">
-      <div class="card-top"><h3>Beacon</h3><span class="tag">Crow · 3 small contracts</span></div>
+      <div class="card-top"><h3>Beacon</h3><span class="tag">Crow · 2 small files</span></div>
       <p class="analogy">A public dice roll nobody can load.</p>
       <p>When the fallback adjudicator takes a case, or the appeal adjudicator decides an escalated one, the beacon supplies a random number that picks which AI models judge it, so no one can steer the panel. The number comes from drand, a public randomness network, and the contract checks drand's signature itself.</p>
       <details><summary>Technical details</summary><div class="detail">
-        <p><code>IHoldbackBeacon</code> is the interface. <code>DrandQuicknetBeacon</code> verifies a drand quicknet round on chain (a BLS signature check through Ethereum's EIP-2537 precompiles: about 136,500 gas on a local chain and about 213,000 on Sepolia, review I-13). <code>SimBeacon</code> stands in on local test chains. The primary adjudicator uses commit-reveal instead (ADR-0018, T-209).</p>
+        <p><code>IHoldbackBeacon</code> is the interface. <code>DrandQuicknetBeacon</code> verifies a drand quicknet round on chain (a BLS signature check through Ethereum's EIP-2537 precompiles: about 136,500 gas on a local chain and about 213,000 on Sepolia, review I-13). A test beacon stands in on local chains and is never deployed. The round is the first one after the adjudicator's last moment of choice plus a margin fixed at deploy, so no one knows the random value while they can still act (ADR-0032). The primary adjudicator uses commit-reveal instead (ADR-0018, T-209).</p>
       </div></details>
     </article>
 
@@ -223,7 +227,7 @@ dl.gloss dt:first-of-type,dl.gloss dt:first-of-type + dd{border-top:0}
       <p class="analogy">The message dictionary.</p>
       <p>It defines the exact shape of every signed message, byte for byte the same as Crow's API, so a signature an agent makes off-chain checks out on chain.</p>
       <details><summary>Technical details</summary><div class="detail">
-        <p>EIP-712 typed data: <code>Terms</code> (signed by the seller; its hash is the deal ID), <code>Acceptance</code> (adjudicator), <code>Agree</code> and funding (buyer), <code>Delivery</code> (seller), <code>Decision</code> (adjudicator), <code>EarlyAccept</code> and <code>Mutual</code>. No decimals anywhere in a signed message (ADR-0022).</p>
+        <p>EIP-712 typed data: <code>Terms</code> (signed by the seller; its hash is the deal ID; it carries <code>buyerPaymentAddress</code> and <code>sellerPayoutAddress</code>), <code>Acceptance</code> (adjudicator), <code>Agree</code> and funding (buyer), <code>Delivery</code> (seller), <code>Decision</code> (adjudicator), <code>EarlyAccept</code> and <code>Mutual</code>. No decimals anywhere in a signed message (ADR-0022).</p>
       </div></details>
     </article>
 
@@ -260,7 +264,7 @@ dl.gloss dt:first-of-type,dl.gloss dt:first-of-type + dd{border-top:0}
   <div class="group" style="padding:0 18px">
     <ol class="steps">
       <li class="step"><span class="who">Seller, then adjudicator</span><b>Offer and acceptance, off chain</b><p class="muted">The seller signs the terms; the chosen adjudicator signs that it takes the case. Nothing is on chain yet.</p><div class="where"><span class="on">Buyer's wallet</span><span>Vault</span><span>Seller</span></div></li>
-      <li class="step"><span class="who">Buyer</span><b>Agree and fund</b><p class="muted"><code>agreeAndFund</code> checks all three signatures and moves the price plus the adjudication fee into the vault.</p><div class="where"><span>Buyer's wallet</span><span class="on">Vault</span><span>Seller</span></div></li>
+      <li class="step"><span class="who">Buyer</span><b>Agree and fund</b><p class="muted"><code>agreeAndFund</code> checks all three signatures and moves the price plus the adjudication fee from the buyer's payment address into the vault.</p><div class="where"><span>Buyer's wallet</span><span class="on">Vault</span><span>Seller</span></div></li>
       <li class="step"><span class="who">Seller</span><b>Deliver</b><p class="muted">The seller sends the encrypted work off chain. Its fingerprint can go on chain now, or ride along with the decision.</p><div class="where"><span>Buyer's wallet</span><span class="on">Vault</span><span>Seller</span></div></li>
       <li class="step"><span class="who">Adjudicator</span><b>Decide</b><p class="muted"><code>decide</code> accepts or rejects. On accept the seller is paid, the adjudicator gets its fee, and the buyer's decryption key is released, all in one transaction.</p><div class="where"><span>Buyer's wallet</span><span>Vault</span><span class="on">Seller</span></div></li>
       <li class="step"><span class="who">No one acts</span><b>Final</b><p class="muted">The decision is final at once. Phase one has no party appeal; an adjudicator that cannot decide escalates to the appeal adjudicator instead.</p><div class="where"><span>Buyer's wallet</span><span>Vault</span><span class="on">Seller</span></div></li>
@@ -274,8 +278,8 @@ dl.gloss dt:first-of-type,dl.gloss dt:first-of-type + dd{border-top:0}
   <div class="group tbl"><table>
     <thead><tr><th>Who</th><th>Can</th><th>Cannot</th></tr></thead>
     <tbody>
-      <tr><td><b>Buyer</b></td><td>Fund, accept early, agree a split, take money back after the deadlines</td><td>Take money back after a valid acceptance</td></tr>
-      <tr><td><b>Seller</b></td><td>Deliver, agree a split</td><td>Get paid without a decision or the buyer's acceptance, or settle a decision against a delivery it did not judge</td></tr>
+      <tr><td><b>Buyer</b></td><td>Fund from its payment address, accept early, agree a split, take money back after the deadlines; every refund goes to the payment address</td><td>Take money back after a valid acceptance</td></tr>
+      <tr><td><b>Seller</b></td><td>Deliver, agree a split; every payment goes to its payout address</td><td>Get paid without a decision or the buyer's acceptance, or settle a decision against a delivery it did not judge</td></tr>
       <tr><td><b>Adjudicator</b></td><td>Accept, reject or escalate, in its role and time window</td><td>Pay itself more than the agreed fee, or send money anywhere else</td></tr>
       <tr><td><b>Crow's API</b></td><td>Pass messages along, charge its own published fee outside the vault (none for the first pilots)</td><td>Write a message for anyone, or touch the held money</td></tr>
       <tr><td><b>Anyone</b></td><td>Trigger a deadline that has passed</td><td>Choose where the money goes</td></tr>
@@ -326,6 +330,7 @@ dl.gloss dt:first-of-type,dl.gloss dt:first-of-type + dd{border-top:0}
   <div class="sechead"><span class="eyebrow">Terms</span><h2>Glossary</h2></div>
   <dl class="gloss">
     <dt>Signed message (EIP-712)</dt><dd>A structured message an agent signs with its key. The contract checks the signature, so no one can act for an agent without its key.</dd>
+    <dt>Payment address, payout address</dt><dd>The buyer's address that funds the hold and receives refunds, and the seller's address that receives payment. Either can differ from the key that signs, so an online key never holds the money.</dd>
     <dt>Escrow, or the hold</dt><dd>The payment waiting in the vault until the deal resolves. Neither side can take it alone.</dd>
     <dt>Adjudicator</dt><dd>The party both sides chose to check the work, using fixed checks first and then a panel of AI models from at least two companies.</dd>
     <dt>Bond</dt><dd>Money an adjudicator deposits that pays out if it judges wrongly and loses on appeal. The phase-one contracts hold no bonds (ADR-0031).</dd>
