@@ -35,11 +35,10 @@ This runbook moves Crow's live test service to a new deployment of the phase-one
 ```sh
 export T=contracts-phase-one-2 W=/Users/rafa/Documents/escrow/.worktrees/cutover-contracts-phase-one-2
 export R=https://ethereum-sepolia-rpc.publicnode.com D=https://sepolia.gateway.tenderly.co
-export F=/Users/rafa/Documents/escrow/.worktrees/rehearse-contracts-phase-one-2 S=/Users/rafa/Documents/escrow/.worktrees/sourcify-contracts-phase-one-2
-export X=/Users/rafa/Documents/escrow/reports/scratch/sourcify-contracts-phase-one-2
+export F=/Users/rafa/Documents/escrow/.worktrees/rehearse-contracts-phase-one-2
 ```
 
-`T` is the tag. `W` is the cutover worktree. `R` is the public node, for reads. `D` is Tenderly's gateway, for the deploy: on 2026-11-13 the deploy failed on the public node and passed on the gateway (step 2.3). `F` and `S` are two scratch worktrees, for the rehearsal (step 1) and for Sourcify's input (step 3.3); `X` is the scratch folder for Sourcify's request files (`mkdir -p $X` before step 3.3).
+`T` is the tag. `W` is the cutover worktree. `R` is the public node, for reads. `D` is Tenderly's gateway, for the deploy: on 2026-11-13 the deploy failed on the public node and passed on the gateway (step 2.3). `F` is a scratch worktree for the rehearsal on a fork (step 1.2).
 
 ## The order
 
@@ -96,7 +95,7 @@ Steps 0 to 6, then 8, then 7, then 11.1, 9, 10 and the rest of 11. The site depl
    cast balance <deployer address> --ether --rpc-url $R
    ```
 
-   Keep at least twice the sum at today's gas price, with room for the price to move: a failed run is rerun whole, because the script does not resume [inferred]. A fix that grows the contracts costs more.
+   Keep at least twice the sum at today's gas price, with room for the price to move: a stopped run is rerun whole, because the script does not resume (its header says so). A fix that grows the contracts costs more.
 8. **The relayer's funding lane has test ETH:** `cast balance $(curl -s https://api.crow.direct/.well-known/holdback.json | jq -r .demo.relayer.fundingLane) --ether --rpc-url $R`. The new world keeps the relayer key and its lanes. Do not run `apps/demo-cloud/scripts/relayer.mjs` or `apps/test-agents/scripts/seed.mjs`: both secrets stay as they are.
 9. **The rollback targets,** each Worker's live version. Write each version ID down; later deploys replace them:
 
@@ -115,14 +114,15 @@ Steps 0 to 6, then 8, then 7, then 11.1, 9, 10 and the rest of 11. The site depl
 
 **Rehearse, before the day.**
 
-1. **On anvil,** no RPC and no key: `pnpm -C $W exec vitest run packages/settlement/evm/deploy-script.test.ts` runs steps 2 and 3's commands twice against a local chain. It must pass.
-2. **On a fork of Sepolia, with the full checks.** On 2026-11-13 the anvil rehearsal missed three breaks that CI found at the record's commit: the record's type in `examples/deployments.ts`, `tests/record-copies.test.ts`, and a test that named a cut contract. `pnpm typecheck` and `pnpm test` on a rehearsal's record catch that kind [measured: they failed on CI]. A fork keeps chain ID 11155111, so the script treats it as Sepolia and writes the scratch worktree's record, never the real one. In a scratch worktree `F` at the frozen commit, made as in step 0.3, with anvil running in its own terminal (`anvil --fork-url $R --hardfork prague`):
+1. **On anvil,** no RPC and no key of anyone's: `node $W/scripts/deploy-rehearsal.mjs` runs steps 2.1 to 3.3 against its own local chain, on a copy of the checkout's tracked files, with a throwaway key it makes and removes. It prints one line per step, `pass` or `FAIL`, each with the Sepolia command it stands for, then what a local chain cannot show. It must end `deploy-rehearsal: pass: …` [measured on 2026-11-14: 8 steps in about 66 s]. `pnpm -C $W exec vitest run packages/settlement/evm/deploy-script.test.ts` runs it twice, and the script's refusals beside it; it must pass too.
+2. **On a fork of Sepolia, with the full checks.** On 2026-11-13 the anvil rehearsal missed three breaks that CI found at the record's commit: the record's type in `examples/deployments.ts`, `tests/record-copies.test.ts`, and a test that named a cut contract. `pnpm typecheck` and `pnpm test` on a rehearsal's record catch that kind [measured: they failed on CI]. A fork keeps chain ID 11155111, but the script knows a development node by its client name (anvil, Hardhat, Ganache) and treats it as a rehearsal: it writes only the file `DEPLOY_RECORD` names, never a record in `contracts/deployments/`, and the source tool sends nothing from it. anvil mines a block only for a transaction, so the rehearsal takes the latest block in place of the finalized one (`DEPLOY_FINALITY=latest`). In a scratch worktree `F` at the frozen commit, made as in step 0.3, with anvil running in its own terminal (`anvil --fork-url $R --hardfork prague`):
 
    ```sh
    cast wallet new $F/reports/scratch --unsafe-password rehearsal
    cast rpc anvil_setBalance <the new address> 0x8AC7230489E80000 --rpc-url http://127.0.0.1:8545
    node $F/scripts/record-copies.mjs keep --rpc http://127.0.0.1:8545 --root $F
-   $F/contracts/script/deploy-sepolia.sh http://127.0.0.1:8545 <the new keystore file> <a file holding "rehearsal">
+   DEPLOY_RECORD=$F/reports/scratch/fork-record.json DEPLOY_FINALITY=latest $F/contracts/script/deploy-sepolia.sh http://127.0.0.1:8545 <the new keystore file> <a file holding "rehearsal">
+   cp $F/reports/scratch/fork-record.json $F/contracts/deployments/sepolia.json
    <the --old line that keep printed, run as printed>
    (cd $F/contracts && forge build)
    pnpm -C $F typecheck
@@ -130,7 +130,7 @@ Steps 0 to 6, then 8, then 7, then 11.1, 9, 10 and the rest of 11. The site depl
    node $F/site/check.mjs
    ```
 
-   The key is a throwaway for the fork only, and `anvil_setBalance` funds it there with `0x8AC7230489E80000` wei, 10 ETH on the fork. Each line must pass. A failure is a fix for the lane before the freeze, not a cutover step. Then remove `F` with its key [inferred: the fork option is documented for the old script, and nobody has run this sequence whole].
+   The key is a throwaway for the fork only, and `anvil_setBalance` funds it there with `0x8AC7230489E80000` wei, 10 ETH on the fork. Each line must pass. A failure is a fix for the lane before the freeze, not a cutover step. Then remove `F` with its key [inferred: the script's fork rules are tested on an anvil with Sepolia's chain ID (`deploy-script.test.ts`), and nobody has run this sequence whole].
 
 **Start the quiet.**
 
@@ -165,12 +165,13 @@ Steps 0 to 6, then 8, then 7, then 11.1, 9, 10 and the rest of 11. The site depl
    $W/contracts/script/deploy-sepolia.sh $D <keystore-file> <password-file>
    ```
 
-   It ends with the token note (`this deployment created the token …; the table names …`) and `wrote …/contracts/deployments/sepolia.json`. Write the note down.
+   It prints one `created <contract> at <address> (nonce …, transaction …, block …)` line per creation, five in all. It then waits until the last creation's block is finalized, about 13 minutes on Sepolia, and prints `waiting until block … is finalized` while it does. It ends with the token note (`this deployment created the token …; the table names …`) and `wrote …/contracts/deployments/sepolia.json`. Write the note down.
 
-   **If a `forge create` fails** ("replacement transaction underpriced" on 2026-11-13), the script exits, writes nothing, and leaves the contracts it created unused on chain. The script sends its five creates back to back and does not wait for the deployer's nonce to advance between them. Before a rerun:
-   - write down each address the failed run printed, as orphans;
-   - wait until the deployer's mined and pending nonces agree: `cast nonce <deployer address> --block latest --rpc-url $D` equals `cast nonce <deployer address> --block pending --rpc-url $D` [inferred];
-   - then rerun step 2.3 whole.
+   **How the script sends** (its header has the whole of it): each creation goes at an explicit nonce, once the deployer's mined and pending nonces agree, so its address is known before it is sent. A failed send ("replacement transaction underpriced" on 2026-11-13) is settled from the chain: a creation mined at that nonce is taken as sent, a pending one is waited for, and only a nonce still unused goes again, at the same nonce, at most three times. A retry cannot create a second copy of a contract [measured on anvil with a stand-in forge that fails after sending, and one that fails before: the deployer ends five nonces on and the record checks].
+
+   **If the run stops** (another transaction from the deployer, a creation that reverts, finality not reached within 60 minutes), it writes no record and prints `the run stopped before the record was written`, then one line per contract it created. Before a rerun:
+   - write those lines down, as orphans, for step 11.4;
+   - then rerun step 2.3 whole. Each rerun creates all five anew.
 4. **Read the domain** the new rules contract signs under: `cast call $(jq -r .rules $W/contracts/deployments/sepolia.json) 'eip712Domain()(bytes1,string,string,uint256,address,bytes32,uint256[])' --rpc-url $R`. It reads "Holdback" and the version in `packages/core/src/eip712.ts` at the frozen commit. A change of domain or schema version lands on the lane before the freeze, never in the record's commit.
 
 **It must show:** the record's `commit` equals `git -C $W rev-parse HEAD`; it has `beaconMarginSec` and `deployedAt`.
@@ -196,50 +197,22 @@ The record, the world's name and every copy move together: each Worker names its
    ```
 
    Each size and hash equals step 0.4's.
-3. **Verify the source on Sourcify, through its API v2.** Do not run `deploy-sepolia.sh --verify`: the forge of the 2026-11-13 run (1.0.0; `forge --version` shows yours) calls Sourcify's API v1, which Sourcify removed, and fails with "error decoding response body" [measured on 2026-11-13]. The commands below are drawn from the scratch script that ran on 2026-11-13 and have not run in this form [inferred]; a committed tool that replaces them is a follow-up. The route sends the deploy build's own compile job with each creation transaction; Sourcify reads the constructor arguments from the transaction. It needs no key and no account. Sending publishes the source, so it is part of the run's go-ahead.
-   1. **The exact input,** from a scratch worktree `S` at the record's `commit` with recursive submodules. A checkout of only the submodules CI uses has another remapping set and gets only a partial match [measured by T-383]:
+3. **Verify the source on Sourcify,** through its API v2, by the script. It needs no key and no account. Sending publishes the source, so it is part of the run's go-ahead.
+   1. **Check first; this sends nothing:**
 
       ```sh
-      git -C /Users/rafa/Documents/escrow worktree add --detach $S $(jq -r .commit $W/contracts/deployments/sepolia.json)
-      git -C $S submodule update --init --recursive
-      (cd $S/contracts && forge build --force --build-info)
-      ls $S/contracts/out/build-info/
-      jq '.input | {language, sources, settings}' $S/contracts/out/build-info/<the one file>.json > $X/input.json
-      jq -r .metadata.compiler.version $S/contracts/out/HoldbackRules.sol/HoldbackRules.json
+      VERIFY_DRY_RUN=1 $W/contracts/script/deploy-sepolia.sh --verify $R
       ```
 
-      The build makes one compile job, so `build-info/` holds one file. The last line prints the full compiler version (`0.8.<n>+commit.<hash>`).
-   2. **Check before sending,** as the scratch script's check mode did: it sends nothing. Compile the input with the pinned solc, the binary of that version under `~/Library/Application Support/svm/`, and compare each contract with its code on Sepolia, the immutables zeroed on both sides:
-
-      ```bash
-      jq '.settings.outputSelection = {"*": {"*": ["evm.deployedBytecode.object", "evm.deployedBytecode.immutableReferences"]}}' $X/input.json | <the pinned solc> --standard-json > $X/out.json
-      zero() { local body="$1" s l; while read -r s l; do [ -n "$s" ] || continue; body="${body:0:$((s*2))}$(printf '%0*d' $((l*2)) 0)${body:$(((s+l)*2))}"; done <<<"$2"; printf '%s' "$body"; }
-      same() { local f="${1%%:*}" c="${1##*:}" want refs got; want=$(jq -r --arg f "$f" --arg c "$c" '.contracts[$f][$c].evm.deployedBytecode.object' $X/out.json); refs=$(jq -r --arg f "$f" --arg c "$c" '.contracts[$f][$c].evm.deployedBytecode.immutableReferences // {} | .[][] | "\(.start) \(.length)"' $X/out.json); got=$(cast code "$2" --rpc-url $R); got=${got#0x}; [ "$(zero "$got" "$refs")" = "$(zero "$want" "$refs")" ] && echo "$1 exact" || echo "$1 DIFFERS"; }
-      same <identifier> <address>
-      ```
-
-      Run `same` for each row of the table below. Each must print `exact`. `DIFFERS` with the same code but another metadata tail gives only a partial match, most often from a checkout without `--recursive` submodules: fix the input before sending anything.
-   3. **One request per contract.** The identifiers are the `*_ID` lines of `deploy-sepolia.sh`; the address and the creation transaction are the record's:
-
-      | Contract | Identifier (`deploy-sepolia.sh`) | Record fields |
-      | --- | --- | --- |
-      | the escrow | `ESCROW_ID` | `.contracts.AuthCaptureEscrow.address`, `.tx` |
-      | the collector | `C3009_ID` | `.contracts.ERC3009PaymentCollector.address`, `.tx` |
-      | the beacon | `BEACON_ID` | `.contracts.DrandQuicknetBeacon.address`, `.tx` |
-      | the test token | `TOKEN_ID` | `.token.address`, `.token.tx` |
-      | the rules contract | `RULES_ID` | `.contracts.HoldbackRules.address`, `.tx` |
-
-      For each, build the body, send it, and read the answer. Send the beacon first and read its result before the other four. The User-Agent names no project:
+      It runs step 3.2's check, then `scripts/sourcify-verify.mjs`: it compiles the five contracts alone, with the project's settings, into a scratch folder (seconds; `contracts/out` is untouched), and compares each with its code and its creation transaction on the chain, the immutables zeroed. It prints one line per contract, `exact`, `code only` or `DIFFERS`, and must print `exact` five times. `code only` is the same code with another metadata hash, a partial match on Sourcify: most often a checkout without `--recursive` submodules, which the script refuses on Sepolia, or another commit. Fix the checkout before sending anything.
+   2. **Send:**
 
       ```sh
-      jq -n --slurpfile i $X/input.json --arg v <compiler version> --arg id <identifier> --arg tx <creation tx> '{stdJsonInput: $i[0], compilerVersion: $v, contractIdentifier: $id, creationTransactionHash: ($tx | ascii_downcase)}' > $X/body.json
-      curl -sS -A 'sourcify-v2-verify/1.0' -H 'content-type: application/json' --data-binary @$X/body.json -w '\n%{http_code}\n' https://sourcify.dev/server/v2/verify/11155111/<address>
+      $W/contracts/script/deploy-sepolia.sh --verify $R
       ```
 
-      - `202` with a `verificationId`: poll `curl -sS -A 'sourcify-v2-verify/1.0' https://sourcify.dev/server/v2/verify/<verificationId> | jq '{isJobCompleted, error, runtime: .contract.runtimeMatch, creation: .contract.creationMatch}'` every few seconds until `isJobCompleted` is `true`.
-      - `409` with `already_verified`: done.
-      - Anything else: stop and read the answer.
-   4. **It must show** `exact_match` for runtime and creation on all five, which `https://sourcify.dev/server/v2/contract/11155111/<address>` confirms. Then remove `S` and `X`. Etherscan needs a key and a newer forge than the pinned one; it is not part of the run.
+      It checks again, then sends the beacon first and the other four after it, one at a time, each with its creation transaction, from which Sourcify reads the constructor arguments. The first refusal stops it. Then it asks Sourcify what it holds for each address and prints one line per contract, `<contract> <address>: exact match on Sourcify (runtime exact_match, creation exact_match)` or `NOT an exact match …`. A contract verified before answers `already verified` and is still looked up, so a rerun is safe. Its User-Agent names the tool and no project. The routes and their answers are Sourcify's own documentation, `https://sourcify.dev/server/openapi.json`, as the tool's header cites them [documented, read 2026-11-14].
+   3. **It must show** `deploy-sepolia: the five contracts are an exact match on Sourcify`. Etherscan is not part of the run: forge 1.0.0 names only Etherscan's retired API, and the script no longer calls it.
 4. **Build fully, then the local checks.** After the deploy, `contracts/out` holds only the deploy's contracts, and every anvil suite fails with "no artifact … run forge build" [measured on 2026-11-13]. The full build leaves the deployed contracts' artifacts unchanged:
 
    ```sh
@@ -266,7 +239,7 @@ The record, the world's name and every copy move together: each Worker names its
    git -C $W checkout -- reports/differential-local.md
    ```
 
-**It must show:** the copies command ends `pass`; `--check` passes; both runtime hashes equal step 0.4's; Sourcify reads `exact_match` five times; every required check on the pull request passes; the tree is clean.
+**It must show:** the copies command ends `pass`; `--check` passes; both runtime hashes equal step 0.4's; `--verify` ends `the five contracts are an exact match on Sourcify`; every required check on the pull request passes; the tree is clean.
 **Rollback:** close the pull request. Nothing live has changed.
 
 ## Step 4. The fork suites
@@ -280,7 +253,7 @@ SEPOLIA_FORK_RPC=$R pnpm -C $W exec vitest run apps/adjudicator/src/drand-fork.t
 
 If anvil exits on the public node, use `SEPOLIA_FORK_RPC=$D`.
 
-- **`live-fork.test.ts`** runs one deal through the public world's code against the new record, and runs `site/walkthrough.mjs`. No CI job runs the walkthrough, so this is where a stale one shows [measured on 2026-11-13]. The suite prints none of the walkthrough's output: a pass shows no `walkthrough PASS` line, and the assertion holds it.
+- **`live-fork.test.ts`** (`apps/demo-cloud/src/live-fork.test.ts`) runs one deal through the public world's code against the new record, then `site/walkthrough.mjs`. It prints the whole output of both, each under a heading: `examples/try.ts (exit 0):`, which ends `done commitment … Released`, and `site/walkthrough.mjs (exit 0):`, which ends `walkthrough PASS`. Then it prints the Sepolia gas of each transaction the fork mined. No CI job runs the walkthrough, so this is where a stale one shows [measured on 2026-11-13].
 - **`drand-fork.test.ts`** escalates and decides from live drand rounds against the new rules contract and its beacon.
 
 A failure here means the build cannot settle on the new contracts: fix it on the branch and repeat from step 3.2. A fix that touches `contracts/src` voids the deployment: go back to step 0 with a new frozen commit.
@@ -415,9 +388,11 @@ Each prints `results: … pass`. The escalation proves the operators' gas estima
 - **Point of no return 2:** the merge of step 11.1 and the tag of step 11.3.
 - **Never reversible, and harmless:** every Sepolia transaction, an orphan contract included.
 
-## Where the deploy script lags the run
+## What the tools do not cover
 
-Two parts of `contracts/script/deploy-sepolia.sh` failed or risked failure on 2026-11-13, and this page works around both until the script changes:
+The two gaps of 2026-11-13 are closed in the script (T-410): `--verify` goes through Sourcify's API v2 (step 3.3), and the deploy sends each creation at an explicit nonce and settles a failed send from the chain (step 2.3). What remains by hand:
 
-- **`--verify` calls Sourcify's removed API v1** through the run's forge (1.0.0). Step 3.3 gives the API v2 route by hand.
-- **The deploy does not wait for the deployer's nonce to advance** between its five creates. Step 2.3 deploys through Tenderly's gateway and checks the nonces before a rerun.
+- **The rehearsal on a fork** (step 1.2): `scripts/deploy-rehearsal.mjs` runs on a local chain only, so it does not run the type checks and tests on a Sepolia-shaped record.
+- **Etherscan:** not verified. The script's Sourcify route needs no key; Etherscan's needs a key and its API V2.
+- **A CI job for `site/walkthrough.mjs`:** a workflow change, waiting for Rafa's word; until then step 4 is where the walkthrough runs.
+- **A stopped deploy** is rerun whole: the script does not resume, and step 2.3 lists the orphans it prints.

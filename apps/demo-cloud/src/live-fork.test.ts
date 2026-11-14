@@ -59,10 +59,13 @@ describe.skipIf(!forkReady)(`the public world on a Sepolia fork${forkReady ? '' 
       for (const end = Date.now() + 120_000; !world.ready() && Date.now() < end; ) await new Promise((r) => setTimeout(r, 500));
       expect(world.ready()).toBe(true);
       const run = await runTry({ HOLDBACK_OPERATORS: demo.urls.join(','), HOLDBACK_DEPLOYMENT: JSON.stringify(deployment) });
+      // Printed whole (T-410): the runbook's step 4 reads it, and a failure shows what the script said before it.
+      console.log(`examples/try.ts (exit ${run.code}):\n${run.out}`);
       expect(run.out).toMatch(/^done\s+commitment 0x[0-9a-f]{64} Released$/m);
       expect(run.out.split('\n').filter((l) => l.startsWith('chain')).map((l) => l.split(/\s+/)[1])).toEqual(['funded', 'delivered', 'decided']);
       // The page's own walkthrough: every message built from site/llms.txt alone, under the domain and deployment it pins.
       const walk = await runTry({ OP1: demo.urls[0], OP2: demo.urls[1] }, 'site/walkthrough.mjs');
+      console.log(`site/walkthrough.mjs (exit ${walk.code}):\n${walk.out}`);
       expect(walk.out).toMatch(/^walkthrough PASS/m);
       expect(walk.code).toBe(0);
     } finally {
@@ -76,7 +79,9 @@ describe.skipIf(!forkReady)(`the public world on a Sepolia fork${forkReady ? '' 
     const stateOverrides = Object.fromEntries([...new Set(txs.map((t) => t.from.toLowerCase()))].map((a) => [a, { balance: toHex(10n ** 20n) }]));
     const now = Math.floor(Date.now() / 1000);
     const blockStateCalls = txs.map((t, i) => ({ ...(i === 0 ? { stateOverrides } : {}), blockOverrides: { time: toHex(now + 12 * (i + 1)) }, calls: [{ from: t.from, to: t.to, data: t.input, value: toHex(t.value) }] }));
-    const sim = (await (await fetch(forkRpc!, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_simulateV1', params: [{ blockStateCalls, validation: false }, 'latest'] }) })).json()) as { result: { calls: { status: string; gasUsed: string }[] }[] };
+    const sim = (await (await fetch(forkRpc!, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_simulateV1', params: [{ blockStateCalls, validation: false }, 'latest'] }) })).json()) as { result?: { calls: { status: string; gasUsed: string }[] }[]; error?: unknown };
+    // Not every RPC serves eth_simulateV1 (Tenderly's gateway did not on 2026-11-14): say what it answered.
+    if (!sim.result) throw new Error(`eth_simulateV1 on SEPOLIA_FORK_RPC answered no result: ${JSON.stringify(sim.error ?? sim)}`);
     const gas = sim.result.map((b) => b.calls[0]!);
     expect(gas.map((c) => c.status)).toEqual(txs.map(() => '0x1'));
     for (const c of gas) expect((BigInt(c.gasUsed) * 5n) / 4n).toBeLessThanOrEqual(GAS_CAP);
