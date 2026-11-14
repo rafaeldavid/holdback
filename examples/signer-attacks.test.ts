@@ -86,8 +86,8 @@ describe('the signer against the demo world, operator fee 0 (the first pilots)',
       keys2.slice(0, -1).reduce((o: J, k: string) => o[k], v.body)[keys2.at(-1)!] = sig;
     }
     const raw = await post(w.urls[0]!, v.path, v.body);
-    console.log(`raw ${v.path}: ${raw.status} ${raw.body?.type}: ${String(raw.body?.detail).slice(0, 160)}`);
-    expect(raw.status, JSON.stringify(raw.body)).toBeGreaterThanOrEqual(400);
+    expect(raw.status, JSON.stringify(raw.body)).toBe(401);
+    expect(raw.body.type).toBe('invalid_signature');
     expect((await agent.call('GET', `/v1/commitments/${id}`)).escrowState).not.toBe('Held');
     void terms;
   });
@@ -107,11 +107,22 @@ describe('the signer against the demo world, operator fee 0 (the first pilots)',
       ks.slice(0, -1).reduce((o: J, k: string) => o[k], v.body)[ks.at(-1)!] = sig;
     }
     const raw = await post(w.urls[0]!, v.path, v.body);
-    console.log(`raw ${v.path}: ${raw.status} ${raw.body?.type}: ${String(raw.body?.detail).slice(0, 160)}`);
-    expect(raw.status, JSON.stringify(raw.body)).toBeGreaterThanOrEqual(400);
+    expect(raw.status, JSON.stringify(raw.body)).toBe(401);
+    expect(raw.body.type).toBe('invalid_signature');
     expect((await agent.call('GET', `/v1/commitments/${two.id}`)).escrowState).not.toBe('Held');
-    // The first deal's payment still funds its own deal: the control.
-    await expect(one.buyer.agreeAndFund(one.id, { funding: r.body.funding })).resolves.toMatchObject({ total: { amount: '10000000' } });
+    // The control, by the same raw path: the first deal's own signature funds the first deal.
+    const own = JSON.parse(readFileSync(join(one.dir, `${one.buyer.address}.json`), 'utf8'));
+    const mine = new Agent(w.urls, own.privateKey, new Uint8Array(Buffer.from(own.encryptionSecretKey, 'base64url')));
+    const p1 = await mine.prepareAgreeAndFund(one.terms, 10_000_000n, { paymentAddress: c.float, nonces: own.funding.nonces });
+    const v1 = verifyPrepared(p1.prepared, p1.intent, mine.address, mine.domain, await mine.settlementNow());
+    for (const slot of v1.slots) {
+      const sig = slot.signer === mine.address ? await mine.account.signTypedData(slot.typed) : r.body.funding;
+      const ks = slot.slot.split('.');
+      ks.slice(0, -1).reduce((o: J, k: string) => o[k], v1.body)[ks.at(-1)!] = sig;
+    }
+    const ok = await post(w.urls[0]!, v1.path, v1.body);
+    expect(ok.status, JSON.stringify(ok.body)).toBeLessThan(300);
+    expect((await mine.call('GET', `/v1/commitments/${one.id}`)).escrowState).toBe('Held');
   }, 60_000);
 
   it('A9: a float the faucet fills moves no limit: above 10.00 a deal is still refused', async () => {

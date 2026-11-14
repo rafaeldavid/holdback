@@ -4,7 +4,8 @@
 // read endpoint (a stand-in that plays the chain's part, set by the test as the signer's administrator would). Every
 // attack has a control that is signed inside the limits, so a refusal for the wrong reason does not pass. Limits come
 // from examples/signer-rules.v1.json (constraints version 1): 10.00 tUSDC a deal, 60.00 a day, 3 open deals, 30.00 open.
-import { chmodSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -13,8 +14,8 @@ import { default as addFormats } from 'ajv-formats';
 import { recoverTypedDataAddress } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { buildRevocation, fileOf, verifyDocument } from './mandate.ts';
-import { loadRules, RULES_SCHEMA, schemaError } from './signer.ts';
+import { buildRevocation, fileOf, verifyDocument, verifyFile } from './mandate.ts';
+import { loadRules, RULES_SCHEMA, schemaError, Signer } from './signer.ts';
 import { ACCEPTANCE, cast, cleanup, fresh, fundingFileFor, iso, mandateFor, payment, rulesFor, startSigner, stateServer, termsFor, V1, type Cast, type Running } from './signer-test-kit.ts';
 import { commitmentIdOf, SIMCHAIN_DOMAIN, typedDataFile, typedOf } from './verify.ts';
 
@@ -349,5 +350,151 @@ describe('the rules file and its schema', () => {
 
   it('the signer refuses to start on a schema keyword its validator does not know', () => {
     expect(() => schemaError({}, { type: 'object', propertyNames: { maxLength: 3 } })).toThrow(/does not know: refusing to start/);
+  });
+});
+
+/** The signer in this process, with a clock the test moves (OpenOptions.now): for the timing of the ledger only. */
+async function inProcess(now: { t: number }, o: { rules?: (c: Cast) => J } = {}) {
+  const c = cast();
+  const dir = mkdtempSync(join(tmpdir(), 'crow-signer-clock-'));
+  dirs.push(dir);
+  writeFileSync(join(dir, 'rules.json'), JSON.stringify(o.rules ? o.rules(c) : rulesFor(c, { reads: [reads.url] })));
+  writeFileSync(join(dir, 'mandate.json'), JSON.stringify(await mandateFor(c, { now: now.t - 1000 })));
+  writeFileSync(join(dir, 'flag'), 'run\n');
+  mkdirSync(join(dir, 'revocations'));
+  spawnSync(process.execPath, [here('./signer.ts'), 'init', '--state', join(dir, 'state')]);
+  const s = await Signer.open({ rulesPath: join(dir, 'rules.json'), statePath: join(dir, 'state'), flagPath: join(dir, 'flag'), keys: { float: c.keys.float, buying: c.keys.buying }, now: () => now.t });
+  const post = (body: J) => s.handle('POST', '/v1/sign', JSON.stringify(body));
+  return { c, s, dir, post };
+}
+
+describe('the review and red team of PR 555: each finding, as an attack that now fails', () => {
+  it('a deal is "never funded" only after fundBy plus reads.lagSec and clockSkewSec: a funding the reads have not seen yet keeps it open', async () => {
+    const t0 = Math.floor(Date.now() / 1000) * 1000, now = { t: t0 };
+    const { c, post } = await inProcess(now);
+    const first = signed(await post(payment(termsFor(c, { createdAt: t0 }))));
+    reads.set(first.commitmentId, 'AcceptedByAdjudicator'); // funded on chain; the operators have not indexed it yet
+    now.t = Date.parse(termsFor(c, { createdAt: t0 }).timing.fundBy) + 1000;
+    for (let i = 0; i < 2; i++) signed(await post(payment(termsFor(c, { createdAt: now.t }))));
+    refused(await post(payment(termsFor(c, { createdAt: now.t }))), 'B9');
+    now.t += (V1.reads.lagSec + V1.buying.clockSkewSec) * 1000;
+    signed(await post(payment(termsFor(c, { createdAt: now.t }))));
+  });
+
+  it('a deal stays open while two read endpoints disagree', async () => {
+    const other = await stateServer();
+    try {
+      const { c, s } = await signer({ rules: (x) => rulesFor(x, { reads: [reads.url, other.url] }) });
+      for (let i = 0; i < 3; i++) {
+        const id = signed(await s.post(payment(termsFor(c)))).commitmentId;
+        reads.set(id, 'Released');
+        other.set(id, 'Held');
+      }
+      refused(await s.post(payment(termsFor(c))), 'B9');
+      await s.kill();
+    } finally {
+      await other.close();
+    }
+  });
+
+  it('the revocations folder: the form mandate.ts verify prints counts; a file that is not a revocation document refuses; the folder missing stops the start', async () => {
+    const { c, s } = await signer();
+    const real = buildRevocation({ principal: c.principal.address, agent: c.standing });
+    const file = fileOf('AgentRevocation', real, SIMCHAIN_DOMAIN), sig = await c.principal.signTypedData(file);
+    const v = await verifyFile(file, sig, SIMCHAIN_DOMAIN, { principal: c.principal.address });
+    writeFileSync(join(s.revocationsPath, 'printed.json'), JSON.stringify({ ok: true, kind: v.kind, document: v.document }));
+    refused(await s.post(payment(termsFor(c))), 'mandate', /revoked the mandate \(printed.json\)/);
+    rmSync(join(s.revocationsPath, 'printed.json'));
+    writeFileSync(join(s.revocationsPath, 'typed.json'), JSON.stringify({ ...file, signature: sig }));
+    refused(await s.post(payment(termsFor(c))), 'mandate', /typed.json in the revocations folder is not a signed AgentRevocation document/);
+    rmSync(join(s.revocationsPath, 'typed.json'));
+    signed(await s.post(payment(termsFor(c))));
+    await s.kill();
+    rmSync(s.revocationsPath, { recursive: true });
+    await expect(s.restart()).rejects.toThrow(/revocations folder revocations the rules name is not a folder/);
+  });
+
+  it('the ledger: a missing one stops the start, init never writes over one, and a second signer on one state folder does not start', async () => {
+    const { c, s } = await signer();
+    for (let i = 0; i < 6; i++) settle(signed(await s.post(payment(termsFor(c)))).commitmentId);
+    const second = await startSigner(c, JSON.parse(readFileSync(s.rulesPath, 'utf8')), JSON.parse(readFileSync(join(s.dir, 'mandate.json'), 'utf8')), { dir: s.dir }).then(() => 'started', (e: Error) => e.message);
+    expect(second).toMatch(/lock exists: another signer serves this state folder/);
+    await s.kill();
+    const init = spawnSync(process.execPath, [here('./signer.ts'), 'init', '--state', s.statePath], { encoding: 'utf8' });
+    expect(init.status).toBe(3);
+    rmSync(join(s.statePath, 'ledger.json'));
+    await expect(s.restart()).rejects.toThrow(/there is no ledger at .*refusing to start/);
+    writeFileSync(join(s.statePath, 'ledger.json'), JSON.stringify({ version: 2, entries: [] }));
+    await expect(s.restart()).rejects.toThrow(/not a ledger of version 1/);
+  });
+
+  it('the flag reads exactly "run": padding is a stop', async () => {
+    const { c, s } = await signer({ flag: '  run  \n\n' });
+    refused(await s.post(payment(termsFor(c))), 'X1', /does not read exactly "run"/);
+    await s.kill();
+  });
+
+  it('every sub-check of B6, B8 and B12 refuses on its own; each has the same control', async () => {
+    const { c, s } = await signer();
+    const t = () => termsFor(c), base = Math.floor(Date.now() / 1000) * 1000;
+    const cases: Array<[string, J, string]> = [
+      ['settlement.mode', { ...t(), settlement: { mode: 'optimistic', token: 'tUSD' } }, 'B6'],
+      ['remedy.onReject', { ...t(), remedy: { onReject: 'partial_refund' } }, 'B6'],
+      ['disclosure.level', { ...t(), disclosure: { level: 'private' } }, 'B6'],
+      ['timing.appealWindowSec', termsFor(c, { timing: { appealWindowSec: 60 } }), 'B6'],
+      ['rulebookHash', { ...t(), rulebookHash: `0x${'44'.repeat(32)}` }, 'B6'],
+      ['schemaVersion', { ...t(), schemaVersion: '0.9' }, 'B6'],
+      ['deliverBy', termsFor(c, { createdAt: base, timing: { deliverBy: iso(base + 3_601_000), judgeBy: iso(base + 3_661_000), fallbackBy: iso(base + 3_721_000) } }), 'B8'],
+      ['judgeBy', termsFor(c, { createdAt: base, timing: { judgeBy: iso(base + 3_600_000 + 3_601_000), fallbackBy: iso(base + 3_600_000 + 3_661_000) } }), 'B8'],
+      ['fallbackBy', termsFor(c, { createdAt: base, timing: { fallbackBy: iso(base + 3_660_000 + 3_601_000) } }), 'B8'],
+      ['judgeBy before deliverBy', termsFor(c, { createdAt: base, timing: { judgeBy: iso(base + 3_599_000) } }), 'B8'],
+      ['offerExpiresAt after fundBy', termsFor(c, { createdAt: base, timing: { offerExpiresAt: iso(base + 300_000), fundBy: iso(base + 200_000) } }), 'B8'],
+      ['settlement.token', { ...t(), settlement: { mode: 'guaranteed_on_decision', token: 'TUSD' } }, 'B12'],
+      ['adjudication.fee.token', termsFor(c, { adjudication: { fee: { token: 'TUSD', amount: c.reviewers.fee } } }), 'B12'],
+      ['price.token in other case', termsFor(c, { token: 'TUSD' }), 'B12'],
+      ['price.token as a list', { ...t(), price: { token: ['tUSD'], amount: '9000000' } }, 'request'],
+      ['price.amount as a number', { ...t(), price: { token: 'tUSD', amount: 9000000 } }, 'request'],
+      ['timing.maxSubmissions as a string', termsFor(c, { timing: { maxSubmissions: '1' } }), 'request'],
+    ];
+    for (const [name, terms, rule] of cases) {
+      const r = await s.post(payment(terms));
+      expect(r.body.rule, `${name}: ${JSON.stringify(r.body)}`).toBe(rule);
+    }
+    signed(await s.post(payment(t())));
+    await s.kill();
+  });
+
+  it('B9\'s open total refuses on its own (with maxOpenTotal set to 15.00 for this test, below 3 deals of 10.00)', async () => {
+    const { c, s } = await signer({ rules: (x) => ({ ...rulesFor(x, { reads: [reads.url] }), buying: { ...rulesFor(x, { reads: [reads.url] }).buying, maxOpenTotal: '15000000' } }) });
+    signed(await s.post(payment(termsFor(c))));
+    refused(await s.post(payment(termsFor(c))), 'B9', /above 15000000/);
+    await s.kill();
+  });
+
+  it('B13: one deal key serves one deal; a repeat gets the same delegation', async () => {
+    const { c, s } = await signer();
+    const t = termsFor(c);
+    const first = signed(await s.post(payment(t)));
+    expect(signed(await s.post(payment(t))).delegation).toEqual(first.delegation);
+    refused(await s.post(payment(termsFor(c, { buyer: t.buyer }))), 'B13', /one deal key serves one deal/);
+    await s.kill();
+  });
+
+  it('the mandate\'s other checks: another agent, club or token stops the start; its daily cap refuses the day', async () => {
+    const c = cast();
+    const wrong = async (mandate: J, re: RegExp) => expect(startSigner(c, rulesFor(c, { reads: [reads.url] }), mandate)).rejects.toThrow(re);
+    const sign = async (doc: J) => ({ ...doc, signature: await c.principal.signTypedData(fileOf('Mandate', doc, SIMCHAIN_DOMAIN)) });
+    const { buildMandate } = await import('./mandate.ts');
+    const doc = (o: J) => buildMandate({ principal: c.principal.address, agent: c.standing, clubId: V1.buying.clubId, role: 'buyer', maxPerDeal: '1600000000', maxPerDay: '1600000000', token: 'tUSD', ...o });
+    await wrong(await sign(doc({ agent: fresh() })), /the mandate is for 0x[0-9a-f]{40}, not the standing key/);
+    await wrong(await sign(doc({ clubId: 'other-club' })), /does not allow the buyer role in the pinned club/);
+    await wrong(await sign(doc({ role: 'seller' })), /does not allow the buyer role/);
+    await wrong(await sign(doc({ token: 'tUSDX' })), /caps another token/);
+    const s = await startSigner(c, rulesFor(c, { reads: [reads.url] }), await sign(doc({ maxPerDay: '15000000' })));
+    dirs.push(s.dir);
+    settle(signed(await s.post(payment(termsFor(c)))).commitmentId);
+    refused(await s.post(payment(termsFor(c))), 'B4', /mandate's 15000000 a day/);
+    await s.kill();
+    await expect(startSigner({ ...c, keys: { ...c.keys, buying: generatePrivateKey() } }, rulesFor(c, { reads: [reads.url] }), await mandateFor(c))).rejects.toThrow(/is not the rules' standingKey/);
   });
 });

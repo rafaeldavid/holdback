@@ -9,6 +9,7 @@
     "principal": "0x0000000000000000000000000000000000000000",
     "standingKey": "0x0000000000000000000000000000000000000000",
     "mandatePath": "mandate.json",
+    "revocationsPath": "revocations",
     "maxPerDeal": "10000000",
     "maxPerDay": "60000000",
     "maxOpenDeals": 3,
@@ -56,6 +57,7 @@
     "operators": [
       "https://api.crow.direct",
       "https://api2.crow.direct"
-    ]
+    ],
+    "lagSec": 300
   }
 }

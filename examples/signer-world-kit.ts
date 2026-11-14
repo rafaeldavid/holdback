@@ -88,7 +88,7 @@ export async function rulesForWorld(w: World, c: Cast, store: () => string, chai
       reviewers: { adjudicator: a.adjudicator, fallbackAdjudicator: a.fallbackAdjudicator, appealAdjudicator: a.appealAdjudicator, policyId: a.policyId, policyHash: a.policyHash, registryHash: a.registryHash, fee: a.fee.amount },
       sellers: [{ seller: w.seller.address, payoutAddress: w.seller.payout, deliverableHashes: [jcsHash(t.deliverable)], acceptanceHash: jcsHash(t.acceptance) }],
     },
-    reads: { operators: w.urls },
+    reads: { ...V1.reads, operators: w.urls },
   };
 }
 
