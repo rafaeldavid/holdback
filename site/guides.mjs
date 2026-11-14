@@ -19,6 +19,24 @@ export const FIRST_DEAL_BUDGET = {
   paths: { buyer: ['llms.txt', 'buy.txt'], seller: ['llms.txt', 'sell.txt'] },
 };
 
+/**
+ * The plain-HTTP buyer's budget (T-426): what a first purchase costs an agent that uses none of Crow's code, the front
+ * door plus the three reference pages it reads, in tokens estimated as bytes divided by four, the pages joined by a
+ * newline as `measurePaths` joins them. `tokens` is the ceiling a later edit may not pass; `target` is the comparator
+ * the path is measured against (about 8,700 tokens to a first payment with x402).
+ */
+export const HTTP_BUYER_BUDGET = {
+  tokens: 9450,
+  target: 8700,
+  path: ['llms.txt', 'ref/http.txt', 'ref/signing.txt', 'ref/http-buyer.txt'],
+};
+
+/** The plain-HTTP buyer's path, measured from the published guides: `{files, bytes, tokens}`, tokens estimated. */
+export function measureHttpBuyer(published) {
+  const text = HTTP_BUYER_BUDGET.path.map((p) => published.get(p) ?? '').join('\n');
+  return { files: HTTP_BUYER_BUDGET.path, bytes: Buffer.byteLength(text, 'utf8'), tokens: estimateTokens(text) };
+}
+
 /** The reference files, by their published path (`ref/<name>.txt`), sorted. */
 export function referenceFiles(dir = here('./ref/')) {
   return readdirSync(dir).filter((f) => /^[a-z0-9-]+\.txt$/.test(f)).sort().map((f) => `ref/${f}`);
