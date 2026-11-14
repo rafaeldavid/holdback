@@ -11,7 +11,7 @@ import { RoundChain, termsTuple, type TxRecord } from '../../examples/e2e-chain.
 import { deliveryTuple } from '../../examples/e2e-scenarios-direct.ts';
 import { ENV, WORLD, root } from '../../examples/e2e-world.ts';
 import { serveTwoOrigins, type TwoOrigins } from '../../examples/two-origins.ts';
-import { deliveryHashOf, ERC3009_TYPES, freshNonce, pinOf, typedOf } from '../../examples/verify.ts';
+import { deliveryHashOf, ERC3009_TYPES, freshNonce, fundingNonceOf, pinOf, typedDataFile, typedOf } from '../../examples/verify.ts';
 import { keyProof, NO_DELIVERY, NO_KEY } from '../../packages/settlement/evm/encode.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -31,6 +31,12 @@ const TIMING = { judgeWithinSec: 30, fallbackWithinSec: 30, appealWindowSec: 0, 
 export interface Party {
   agent: Agent;
   key: Hex;
+}
+
+/** ADR-0033's money addresses apart from the signing keys: the buyer's payment address and the seller's payout address. */
+export interface Apart {
+  payer: Party;
+  payout: string;
 }
 
 export interface LocalDeal {
@@ -119,12 +125,15 @@ export class LocalWorld {
     return pinOf(this.deployment);
   }
 
-  /** A party with a fresh key, its test tUSDC from the world's faucet, and `wei` of anvil ETH for direct calls. */
-  async party(wei = 10n ** 18n): Promise<Party> {
+  /**
+   * A party with a fresh key, its test tUSDC from the world's faucet (none with `faucet: false`, as a signing key
+   * apart from its money address holds none), and `wei` of anvil ETH for direct calls.
+   */
+  async party(wei = 10n ** 18n, o: { faucet?: boolean } = {}): Promise<Party> {
     const key = freshKey();
     const pin = this.pin();
     const agent = new Agent([...this.served.urls], key, crypto.getRandomValues(new Uint8Array(32)), pin.domain, pin.chain);
-    await agent.call('POST', '/v1/faucet', { address: agent.address });
+    if (o.faucet !== false) await agent.call('POST', '/v1/faucet', { address: agent.address });
     if (wei > 0n) await this.rpc('anvil_setBalance', [agent.address, `0x${wei.toString(16)}`]);
     return { agent, key };
   }
@@ -177,23 +186,33 @@ export class LocalWorld {
    * One deal through the operators, as try.ts runs it, while the passes run: the seller offers, the primary accepts,
    * the buyer agrees and funds. It ends Held (AcceptedByAdjudicator with `fund: false`); `deliver` delivers it.
    */
-  async deal(o: { buyer?: Party; seller?: Party; fund?: boolean } = {}): Promise<LocalDeal> {
+  async deal(o: { buyer?: Party; seller?: Party; fund?: boolean; apart?: Apart } = {}): Promise<LocalDeal> {
     if (!this.ticking) this.tick();
     const buyer = o.buyer ?? (await this.party());
     const seller = o.seller ?? (await this.party());
     const a = (role: string) => this.discovery.demo.adjudicators.find((x: J) => x.role === role).address;
-    const offer = await seller.agent.offer({
+    const given = {
       template: 'checks-only', clubId: this.discovery.demo.clubId, seller: seller.agent.address,
-      buyer: { address: buyer.agent.address, encryptionPublicKey: buyer.agent.encryptionPublicKey },
+      buyer: { address: buyer.agent.address, encryptionPublicKey: buyer.agent.encryptionPublicKey, ...(o.apart ? { paymentAddress: o.apart.payer.agent.address } : {}) },
+      ...(o.apart ? { sellerPayoutAddress: o.apart.payout } : {}),
       adjudicators: { primary: a('primary'), fallback: a('fallback'), appeal: a('appeal') },
       price: { token: this.pin().token.id, amount: PRICE_UNITS.toString() },
       deliverable: { kind: 'dataset', description: `customers.csv, T-425 deal ${freshNonce().slice(2, 10)}`, format: 'text/csv' },
       checks: CHECKS, timing: TIMING,
-    });
+    };
+    // Money addresses apart from the signing keys (ADR-0033): the seller builds the offer itself (agent.ts offerDirect).
+    const offer = o.apart ? await seller.agent.offerDirect(given) : await seller.agent.offer(given);
     await this.until(buyer.agent, offer.id, ['AcceptedByAdjudicator']);
     if (o.fund === false) return { id: offer.id, terms: offer.terms, buyer, seller, delivery: null };
     const hold = PRICE_UNITS + BigInt(offer.terms.adjudication.fee.amount);
-    await buyer.agent.agreeAndFund(offer.terms, hold + 10_000_000n);
+    if (o.apart) {
+      // The payment address signs its slots as a wallet outside the tool would; the signing key signs the agreement.
+      const payer = o.apart.payer.agent;
+      const { prepared, intent, slots } = await buyer.agent.prepareAgreeAndFund(offer.terms, hold + 10_000_000n, { paymentAddress: payer.address });
+      const outside: Record<string, Hex> = {};
+      for (const sl of slots.filter((x) => x.signer === payer.address)) outside[sl.slot] = await payer.account.signTypedData(typedDataFile(sl.typed));
+      await buyer.agent.submitAgreeAndFund(prepared, intent, outside);
+    } else await buyer.agent.agreeAndFund(offer.terms, hold + 10_000_000n);
     await this.until(buyer.agent, offer.id, ['Held']);
     return { id: offer.id, terms: offer.terms, buyer, seller, delivery: null };
   }
@@ -258,6 +277,30 @@ export class LocalWorld {
     return this.chain.send(sender, 'rules', 'mutualSettle', [termsTuple(deal.terms), view, d ? deliveryTuple(d) : NO_DELIVERY, NO_KEY]);
   }
 
+  /**
+   * `agreeAndFund` straight to HoldbackRules from `sender`, with the agreement signed by `agreer` and the funding's
+   * ERC-3009 authorization signed by `funder`: what a leaked signing key can try with another address's money.
+   */
+  async fundDirect(deal: LocalDeal, agreer: Party, funder: Party, sender: Hex): Promise<TxRecord> {
+    const t = deal.terms;
+    const pin = this.pin().chain!;
+    const sellerSig = await deal.buyer.agent.trusted(`/v1/commitments/${deal.id}/terms`, (x) => x.signatures?.seller ?? null);
+    const acc = await deal.buyer.agent.trusted(`/v1/commitments/${deal.id}/events?limit=200`, (x) => x.items.find((e: J) => e.type === 'adjudicator.accepted')?.payload?.acceptance ?? null);
+    const hold = BigInt(t.price.amount) + BigInt(t.adjudication.fee.amount);
+    const agree = { commitmentId: deal.id, buyer: t.buyer, nonce: freshNonce(), expiresAt: t.timing.offerExpiresAt };
+    const agreeSig = await agreer.agent.account.signTypedData(typedOf('Agree', agree, agreer.agent.domain));
+    const fundSig = await funder.agent.account.signTypedData({
+      domain: pin.tokenDomain, types: { ReceiveWithAuthorization: ERC3009_TYPES.ReceiveWithAuthorization }, primaryType: 'ReceiveWithAuthorization',
+      message: { from: t.buyerPaymentAddress, to: pin.collector, value: hold, validAfter: 0n, validBefore: secs(t.timing.fundBy), nonce: fundingNonceOf(t, deal.id, pin) },
+    } as J);
+    return this.chain.send(sender, 'rules', 'agreeAndFund', [
+      termsTuple(t), sellerSig,
+      { seedCommitment: acc.seedCommitment, bondReserved: BigInt(acc.bondReserved.amount), nonce: acc.nonce, expiresAt: secs(acc.expiresAt), signature: acc.signature },
+      { nonce: agree.nonce, expiresAt: secs(agree.expiresAt), signature: agreeSig },
+      { signature: fundSig },
+    ]);
+  }
+
   /** A timeout sent straight to HoldbackRules from `sender`, once anvil's clock is past its deadline. */
   async triggerDirect(deal: LocalDeal, fn: 'reclaim' | 'triggerFallback' | 'triggerDefault', sender: Hex): Promise<TxRecord> {
     return this.chain.send(sender, 'rules', fn, [termsTuple(deal.terms)]);
@@ -267,5 +310,7 @@ export class LocalWorld {
 /** The revert's reason as viem reports it (the custom error's name), or the message. */
 export function revertOf(e: unknown): string {
   const msg = String((e as Error)?.message ?? e);
-  return /(WrongStage|TooEarly|DeadlinePassed|MessageExpired|InvalidMessage|BadSignature|BadKeyProof|Unauthorized|[A-Z][A-Za-z]+Error)/.exec(msg)?.[1] ?? msg.slice(0, 120);
+  const named = /\b(WrongStage|TooEarly|DeadlinePassed|MessageExpired|InvalidMessage|BadSignature|BadKeyProof|Unrepresentable|BadSeed)\b/.exec(msg)?.[1];
+  // A require string, such as the token's "TestUSDC: invalid signature".
+  return named ?? /reverted with the following reason:\s*([^\n]+)/.exec(msg)?.[1]?.trim() ?? msg.split('\n')[0]!.slice(0, 120);
 }

@@ -21,7 +21,7 @@ const MORNING = [
 const ID = `0x3040ec75${'0'.repeat(52)}a1a7`;
 const OK_STDOUT = [
   'Crow test deal on https://api.crow.direct and https://api2.crow.direct: test tokens only, nothing here is real money',
-  `offered   ${ID.slice(0, 10)}...a1a7 offered by the test seller`,
+  `offered   ${ID.slice(0, 8)}...a1a7 offered by the test seller`,
   "final     Released in 46 s with Crow's test seller as the other party; final at the decision",
   `done      commitment ${ID} Released`,
 ].join('\n');
@@ -63,12 +63,25 @@ describe('parseTryOutput and nextStep', () => {
     const p = parseTryOutput(OK_STDOUT, '');
     expect(p).toMatchObject({ commitmentId: ID, state: 'Released', reportedSec: 46, withTestSeller: true, stoppedAt: null, rateLimited: false });
     expect(nextStep(p, 0)).toEqual({ action: 'next' });
+    // A deal that stops after the offer keeps the short ID try printed.
+    expect(parseTryOutput(OK_STDOUT.split('\n').slice(0, 2).join('\n'), 'stopped at outcome: still Held').idPrefix).toBe('0x3040ec...a1a7');
   });
 
   it('waits out a faucet refusal, as the faucet says', () => {
     const p = parseTryOutput('', 'stopped at faucet: POST /v1/faucet: rate_limited: too many faucet grants from this client; retry later');
     expect(p.stoppedAt).toBe('faucet');
     expect(nextStep(p, 1)).toEqual({ action: 'wait-faucet' });
+  });
+
+  it("stops, and does not wait, when the faucet refuses the seller's grant after the test seller was busy or silent", () => {
+    for (const why of ['it is busy: one deal at a time', 'https://crow.direct/agents/test-seller/agent.json did not answer (fetch failed)']) {
+      const p = parseTryOutput(`seller    the test seller is unavailable: ${why}. Playing both sides instead`, 'stopped at faucet: POST /v1/faucet: rate_limited: too many faucet grants from this client; retry later');
+      expect(nextStep(p, 1)).toMatchObject({ action: 'stop' });
+    }
+  });
+
+  it('names a run it stopped at the time limit', () => {
+    expect(nextStep(parseTryOutput('', ''), 1, true)).toMatchObject({ action: 'stop', why: expect.stringContaining('ran past 6 min') });
   });
 
   it('stops the series at a 429 anywhere else, a busy test seller, a refusal or a failed deal', () => {
@@ -85,11 +98,13 @@ describe('parseTryOutput and nextStep', () => {
 });
 
 describe('gasBudget and eth', () => {
-  it('passes when the deals leave the relayer above the low mark, and fails when they would not', () => {
+  it('passes when the deals leave the funding lane above the low mark, and fails when they would not', () => {
     // 2026-11-14 11:28 UTC (measured): 2.784514 ETH in the funding lane, three deal lanes, a gas price of 17 wei.
     const live = gasBudget({ fundingWei: 2784514516735066124n, laneWei: [10431418830265356n, 29193263376683148n, 13617594100513706n], gasPriceWei: 17n, count: 20 });
     expect(live.ok).toBe(true);
     expect(eth(live.needWei)).toBe('0.031200');
+    expect(eth(live.afterWei)).toBe('2.753314'); // the funding lane alone: the deal lanes are not counted
+    expect(gasBudget({ fundingWei: 10n ** 18n, laneWei: [], gasPriceWei: 0n, count: 1, lowWei: 10n ** 18n }).ok).toBe(false);
     const low = gasBudget({ fundingWei: FUNDING_LANE_LOW_WEI, laneWei: [], gasPriceWei: 0n, count: 1 });
     expect(low.ok).toBe(false);
     expect(eth(low.afterWei)).toBe('0.298440');

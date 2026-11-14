@@ -21,7 +21,10 @@ export const SCRIPT = 'scripts/metrics/pitch-evidence.mjs';
 export const OPERATORS = ['https://api.crow.direct', 'https://api2.crow.direct'];
 export const TEST_SELLER = 'https://crow.direct/agents/test-seller';
 export const SEPOLIA_RPC = 'https://ethereum-sepolia-rpc.publicnode.com';
-/** Crow Control's low mark for the relayer's funding lane, in wei: 0.3 Sepolia ETH (marked guessed where it is set). */
+/**
+ * Crow Control's low mark for the relayer's funding lane, in wei: 0.3 Sepolia ETH. It is set, marked guessed, in the
+ * console's wallet list in the private repository (`control/wallets.json`, `funding-lane`); pass --low-eth to change it.
+ */
 export const FUNDING_LANE_LOW_WEI = 300_000_000_000_000_000n;
 /** Gas one test deal costs the relayer on Sepolia: 1.56 million (LANE_FLOOR's note in apps/demo-cloud/src/world.ts, measured there). */
 export const GAS_PER_DEAL = 1_560_000n;
@@ -29,19 +32,20 @@ export const GAS_PER_DEAL = 1_560_000n;
 export const TIP_WEI = 1_000_000_000n;
 /** The deal of 2026-11-14 10:49 UTC that took 33 s from offer to payment (the pitch note's "test deal"). */
 export const MORNING_DEAL_MS = 33_000;
-const DEAL_TIMEOUT_MS = 6 * 60_000;
+/** How long one try run may take before the series stops it: try itself waits up to 3 min for the outcome. */
+export const DEAL_TIMEOUT_MS = 6 * 60_000;
 
 const HELP = `pitch-evidence: three measurements for the machine-first pitch (T-425). Test tokens only.
 
 usage:
-  node scripts/metrics/pitch-evidence.mjs deals  [--count 20] [--out <file>] [--seller <url>] [--check-only]
+  node scripts/metrics/pitch-evidence.mjs deals  [--count 20] [--out <file>] [--seller <url>] [--low-eth 0.3] [--check-only]
   node scripts/metrics/pitch-evidence.mjs direct [--out <file>]     local anvil only
   node scripts/metrics/pitch-evidence.mjs leak   [--out <file>]     local anvil only
   node scripts/metrics/pitch-evidence.mjs show   <file>             print a record's tables again
 
 deals   runs test deals one after another against the live test service on Sepolia, as the published try command
         does (examples/try.ts --seller ${TEST_SELLER}). It first reads the relayer's test ETH and stops if the deals
-        would take the funding lane below 0.3 ETH. It stops the series at the first failed deal or any 429, except
+        would take the funding lane below --low-eth (default 0.3 ETH, Crow Control's low mark). It stops the series at the first failed deal or any 429, except
         a faucet refusal, which it waits out as the faucet's answer says. --check-only reads the balances and stops.
 direct  needs anvil on PATH and forge build output in contracts/out (cd contracts && forge build).
 leak    the same.
@@ -109,7 +113,8 @@ export function rankOf(values, x) {
  */
 export function parseTryOutput(stdout, stderr = '') {
   const done = /^done\s+commitment (0x[0-9a-f]{64}) (Released|Refunded)\s*$/m.exec(stdout);
-  const id = done?.[1] ?? /^\S+\s+(0x[0-9a-f]{8})\.\.\.[0-9a-f]{4} offered by the test seller/m.exec(stdout)?.[1] ?? null;
+  // try.ts's `short` prints 0x and 6 hex characters, three dots and the last 4.
+  const id = done?.[1] ?? /^\S+\s+(0x[0-9a-f]{6}\.\.\.[0-9a-f]{4}) offered by the test seller/m.exec(stdout)?.[1] ?? null;
   const stop = /^(stopped|refused) at (\S+): (.*)$/m.exec(stderr);
   const final = /^final\s+(\w+) in (\d+) s (.*?);/m.exec(stdout);
   const unavailable = /^\S+\s+the test seller is unavailable: (.*)$/m.exec(stdout);
@@ -129,23 +134,28 @@ export function parseTryOutput(stdout, stderr = '') {
 }
 
 /** What to do after one try run: go on, wait out the faucet, or stop the series (one deal at a time, no retries around a failure). */
-export function nextStep(parsed, exitCode) {
+export function nextStep(parsed, exitCode, timedOut = false) {
+  if (timedOut) return { action: 'stop', why: `try ran past ${DEAL_TIMEOUT_MS / 60_000} min and was stopped${parsed.stoppedAt ? ` at ${parsed.stoppedAt}` : ''}` };
   if (exitCode === 0 && parsed.commitmentId && parsed.state === 'Released' && parsed.withTestSeller && !parsed.rateLimited) return { action: 'next' };
-  if (exitCode !== 0 && parsed.stoppedAt === 'faucet' && /rate_limited/.test(parsed.stopReason ?? '')) return { action: 'wait-faucet' };
+  // Only the buyer's own grant: when the test seller was unavailable (a 429 or 503 there), try plays both sides and
+  // asks the faucet for a second grant, and the series stops on the seller's answer instead.
+  if (exitCode !== 0 && parsed.stoppedAt === 'faucet' && /rate_limited/.test(parsed.stopReason ?? '') && !parsed.sellerUnavailable) return { action: 'wait-faucet' };
   if (parsed.rateLimited) return { action: 'stop', why: `an answer was 429 or the test seller was busy${parsed.stopReason ? `: ${parsed.stopReason}` : parsed.sellerUnavailable ? `: ${parsed.sellerUnavailable}` : ''}` };
   if (exitCode === 0 && parsed.commitmentId && !parsed.withTestSeller) return { action: 'stop', why: `the deal ran with both sides played by the script, not with the test seller${parsed.sellerUnavailable ? ` (${parsed.sellerUnavailable})` : ''}` };
   return { action: 'stop', why: `try exited ${exitCode}${parsed.stoppedAt ? ` at ${parsed.stoppedAt}: ${parsed.stopReason}` : ''}${parsed.state && parsed.state !== 'Released' ? ` with ${parsed.state}` : ''}` };
 }
 
 /**
- * Whether `count` deals fit the relayer's test ETH: the funding lane plus the deal lanes, less the gas the deals
- * need at the current gas price plus the lanes' 1 gwei tip, must stay at or above the funding lane's low mark.
+ * Whether `count` deals fit the relayer's test ETH: the funding lane, less the gas the deals need at the current gas
+ * price plus the lanes' 1 gwei tip, must stay at or above its low mark. The deal lanes pay the gas but refill from the
+ * funding lane and never pay back, so their balances are reported and not counted (the worst case: every deal's gas
+ * comes from the funding lane).
  */
 export function gasBudget({ fundingWei, laneWei, gasPriceWei, count, lowWei = FUNDING_LANE_LOW_WEI }) {
   const needWei = BigInt(count) * GAS_PER_DEAL * (BigInt(gasPriceWei) + TIP_WEI);
-  const totalWei = BigInt(fundingWei) + laneWei.reduce((s, w) => s + BigInt(w), 0n);
-  const afterWei = totalWei - needWei;
-  return { ok: afterWei >= lowWei, needWei: needWei.toString(), totalWei: totalWei.toString(), afterWei: afterWei.toString(), lowWei: lowWei.toString() };
+  const lanesWei = laneWei.reduce((s, w) => s + BigInt(w), 0n);
+  const afterWei = BigInt(fundingWei) - needWei;
+  return { ok: afterWei >= BigInt(lowWei), needWei: needWei.toString(), lanesWei: lanesWei.toString(), afterWei: afterWei.toString(), lowWei: BigInt(lowWei).toString() };
 }
 
 /** Wei as Sepolia ETH with 6 decimals, in integer arithmetic. */
@@ -203,7 +213,7 @@ async function rpc(method, params) {
 }
 
 /** The relayer's test ETH: the addresses from discovery, the balances and gas price from the public RPC. */
-async function relayerBalances(count) {
+async function relayerBalances(count, lowWei) {
   const d = await getJson(`${OPERATORS[0]}/.well-known/holdback.json`);
   const relayer = d.body?.demo?.relayer;
   if (!relayer?.fundingLane || !Array.isArray(relayer.dealLanes)) throw new Error('discovery names no demo.relayer');
@@ -211,7 +221,7 @@ async function relayerBalances(count) {
   const laneWei = [];
   for (const a of relayer.dealLanes) laneWei.push(await rpc('eth_getBalance', [a, 'latest']));
   const gasPriceWei = await rpc('eth_gasPrice', []);
-  return { relayer, faucet: d.body?.demo?.faucet ?? null, fundingWei: fundingWei.toString(), laneWei: laneWei.map(String), gasPriceWei: gasPriceWei.toString(), budget: gasBudget({ fundingWei, laneWei, gasPriceWei, count }) };
+  return { relayer, faucet: d.body?.demo?.faucet ?? null, fundingWei: fundingWei.toString(), laneWei: laneWei.map(String), gasPriceWei: gasPriceWei.toString(), budget: gasBudget({ fundingWei, laneWei, gasPriceWei, count, lowWei }) };
 }
 
 /** Runs examples/try.ts once as the published command does, with a time limit. */
@@ -222,15 +232,23 @@ function runTry(seller) {
     let stdout = '', stderr = '';
     child.stdout.on('data', (d) => (stdout += d));
     child.stderr.on('data', (d) => (stderr += d));
-    const timer = setTimeout(() => child.kill('SIGTERM'), DEAL_TIMEOUT_MS);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+    }, DEAL_TIMEOUT_MS);
     child.on('close', (code) => {
       clearTimeout(timer);
-      resolve({ code: code ?? 1, stdout, stderr, startedAt: started, wallMs: Date.now() - started });
+      resolve({ code: code ?? 1, stdout, stderr, startedAt: started, wallMs: Date.now() - started, timedOut });
     });
   });
 }
 
-/** A refused faucet probe from a fresh address tells how long the client window has left; it grants nothing when refused. */
+/**
+ * A refused faucet probe from a fresh random address tells how long the client window has left, and grants nothing.
+ * If the window has just reset, the probe is granted: 1,000 test tUSDC to an address nobody holds, one of the
+ * client's grants and one relayer mint. The series then runs the deal at once.
+ */
 async function faucetWait() {
   const address = `0x${Buffer.from(crypto.getRandomValues(new Uint8Array(20))).toString('hex')}`;
   const r = await getJson(`${OPERATORS[0]}/v1/faucet`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': crypto.randomUUID() }, body: JSON.stringify({ address }) });
@@ -247,7 +265,7 @@ async function readEvents(id) {
   return { items: a.body.items, operatorsAgree: same };
 }
 
-async function deals({ count, out, seller, checkOnly }) {
+async function deals({ count, out, seller, checkOnly, lowWei }) {
   const record = {
     schema: SCHEMA, generatedAt: iso(Date.now()), generator: { script: SCRIPT, commit: gitCommit(ROOT) },
     deals: { operators: OPERATORS, seller, count, preflight: null, items: [], waits: [], stopped: null, summary: null },
@@ -256,10 +274,10 @@ async function deals({ count, out, seller, checkOnly }) {
     record.deals.summary = summarize(record.deals.items);
     if (out) writeJson(out, record);
   };
-  const pre = await relayerBalances(count);
+  const pre = await relayerBalances(count, lowWei);
   record.deals.preflight = { readAt: iso(Date.now()), ...pre };
   say(`relayer funding lane ${pre.relayer.fundingLane}: ${eth(pre.fundingWei)} ETH; deal lanes ${pre.laneWei.map(eth).join(', ')} ETH; gas price ${pre.gasPriceWei} wei`);
-  say(`${count} deals need at most ${eth(pre.budget.needWei)} ETH at ${GAS_PER_DEAL} gas a deal and a 1 gwei tip; after them ${eth(pre.budget.afterWei)} ETH, low mark ${eth(pre.budget.lowWei)} ETH`);
+  say(`${count} deals need at most ${eth(pre.budget.needWei)} ETH at ${GAS_PER_DEAL} gas a deal and a 1 gwei tip; the funding lane would keep ${eth(pre.budget.afterWei)} ETH, low mark ${eth(pre.budget.lowWei)} ETH`);
   if (!pre.budget.ok) {
     record.deals.stopped = 'the deals would take the relayer below its low mark';
     save();
@@ -274,7 +292,7 @@ async function deals({ count, out, seller, checkOnly }) {
     say(`deal ${n} of ${count}: node examples/try.ts --seller ${seller}`);
     const run = await runTry(seller);
     const parsed = parseTryOutput(run.stdout, run.stderr);
-    const next = nextStep(parsed, run.code);
+    const next = nextStep(parsed, run.code, run.timedOut);
     if (next.action === 'wait-faucet') {
       if (++waitsInSlot > 2) {
         record.deals.stopped = `the faucet refused deal ${n} three times`;
@@ -338,12 +356,15 @@ export async function main(argv = process.argv.slice(2)) {
   const [kind, ...rest] = argv;
   const { values, positionals } = parseArgs({
     args: rest, allowPositionals: kind === 'show', strict: true,
-    options: { count: { type: 'string', default: '20' }, out: { type: 'string' }, seller: { type: 'string', default: TEST_SELLER }, 'check-only': { type: 'boolean', default: false } },
+    options: { count: { type: 'string', default: '20' }, out: { type: 'string' }, seller: { type: 'string', default: TEST_SELLER }, 'check-only': { type: 'boolean', default: false }, 'low-eth': { type: 'string', default: '0.3' } },
   });
   if (kind === 'deals') {
     const count = Number(values.count);
     if (!Number.isSafeInteger(count) || count < 1) throw new Error(`--count is a whole number from 1, not ${values.count}`);
-    return deals({ count, out: values.out, seller: values.seller.replace(/\/+$/, ''), checkOnly: values['check-only'] });
+    const low = /^(\d+)(?:\.(\d{1,18}))?$/.exec(values['low-eth']);
+    if (!low) throw new Error(`--low-eth is ETH as a decimal, such as 0.3, not ${values['low-eth']}`);
+    const lowWei = BigInt(low[1]) * 10n ** 18n + BigInt((low[2] ?? '').padEnd(18, '0') || '0');
+    return deals({ count, out: values.out, seller: values.seller.replace(/\/+$/, ''), checkOnly: values['check-only'], lowWei });
   }
   if (kind === 'direct' || kind === 'leak') return local(kind, values.out);
   if (kind === 'show') {
