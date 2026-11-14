@@ -3,7 +3,8 @@
 // nothing from the faucet. A10: a deal funded from a fresh key with faucet money funds, as on this network anyone's
 // can; it is not paid from Crow's float and the signer's ledger does not hold it.
 import { spawn } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MemoryStorage, PublicWorld } from '@holdback/demo-cloud';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -72,7 +73,7 @@ describe('the buying agent pays only through the signer', () => {
     writeFileSync(s.flagPath, 'stop\n');
     const stopped = await ownBuyer([w.seller.quoteUrl, store(), '"rows"', '20000000', '--signer', s.url], { HOLDBACK_OPERATORS: demo.urls.join(',') });
     expect(stopped.code).toBe(3);
-    expect(stopped.err).toMatch(/the signer is stopped: nothing is asked or paid/);
+    expect(stopped.err).toMatch(/the signer's state is "stopped", not running: nothing is asked or paid/);
     writeFileSync(s.flagPath, 'run\n');
     expect(await balance(w, c.float)).toBe(before);
   }, 60_000);
@@ -93,6 +94,7 @@ describe('the buying agent pays only through the signer', () => {
     expect(await balance(w, c.float)).toBe(before);
     const after = (await s.get('/v1/status')).body;
     expect(after.signedToday).toBe(status.signedToday);
-    expect(after.lastDeal?.commitmentId).not.toBe(q.commitmentId);
+    expect(after.dealsToday).toBe(status.dealsToday);
+    expect(readFileSync(join(s.statePath, 'ledger.json'), 'utf8')).not.toContain(q.commitmentId);
   }, 60_000);
 });
