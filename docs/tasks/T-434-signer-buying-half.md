@@ -71,6 +71,38 @@ A review by a model of another family of the unattended payment path, the operat
 
 ## Evidence
 
+All measured on 2026-11-14 in `.worktrees/holdback-own-agents-signer`, branch `t-434-signer-buying`, unless labelled.
+
+- `npx vitest run examples/signer.test.ts`: 22 passed. The signer runs as its own process in each test; a stand-in plays its read endpoint.
+- `npx vitest run examples/signer-attacks.test.ts`: 6 passed, against the public demo world on SimChain:
+  - the control deal funds from the float (10.00 tUSDC out, measured by balance) and releases 9.00 to the listed payout address;
+  - A1 and A2 straight at the operator, past the buyer's tool: `401 invalid_signature`, "FundingAuthorization signature does not recover to" the float;
+  - A8: a payment collected before the stop funded after it, inside its offer window (300 s at most);
+  - A9: a float filled with 100.00 more still gets B3 at 10.000001;
+  - A14: where the operators charge a fee, the float pays nothing.
+- `npx vitest run examples/signer-anvil.test.ts`: 1 passed, on anvil 31337 with the phase-one contracts and TestUSDC, in about 30 s. TestUSDC itself takes the signer's authorization for its deal and refuses it for another deal's nonce, for 1 base unit more and for a second use ("authorization is used"); it refuses a funding the deal key signed. The deal then funds from the float and releases 9.00 tUSDC to the listed payout address. `contracts/out` was copied from a build of `origin/main`'s contracts (the build in `.worktrees/holdback-T-425`, 2026-11-14 12:38 local; `contracts/src` last changed 2026-11-12).
+- **Each attack test fails without its constraint.** The script `reports/scratch/own-agents/mutate.sh` turned each rule's refusals into a no-op in a copy of `signer.ts` (commit `830cb9e7`), one rule at a time, and ran `signer.test.ts`:
+
+  | Rule disabled | Tests that failed (of 22) |
+  | --- | --- |
+  | B2 (the payment check) | 2: A4, A14 |
+  | B3 | 2: A3, the mandate's cap |
+  | B4 | 1: A5, the day |
+  | B5 | 1: A6 |
+  | B6 | 2: A4, A7 |
+  | B7 | 1: A6 |
+  | B8 | 1: A7 |
+  | B9 | 2: A5, open deals; A5, a read that does not answer |
+  | B12 | 1: A4 |
+  | B14 | 1: A14 |
+  | X1 | 2: A8; A13, the flag |
+  | X4 | 1: A13, the rules file |
+  | mandate | 2: the mandate at the signer; a self-minted mandate |
+  | none | 0: 22 passed |
+
+- `pnpm typecheck`: 0 errors. `npx eslint examples/`: 0 problems.
+- The pinned bundle, before (`origin/main` `02506766`) and on this branch: `site/buy.mjs` `e74ff2230f0d4fd426525095731e42d50b65b55ab7792a43cab73c302b22eb88`, `site/try.mjs` `04ef4434fb4b5635bb3c49df69c7547f3200c6c41f903237ee37098be23f75c8`. Unchanged.
+
 ## Decisions
 
 - **The signer runs `checkPaymentFile` as it is**, the check a wallet's holder runs before signing (`verify.ts`), rather than its own rebuild: one check for both.
@@ -79,3 +111,7 @@ A review by a model of another family of the unattended payment path, the operat
 - **The rules file is validated by a small validator in `signer.ts`** that knows each keyword the schema uses and refuses to start on any other; a test checks that Ajv strict agrees on the same files. Ajv is not a dependency of `examples/`.
 
 ## Handoff
+
+Done: the signer's buying half, its rules format and version 1 file, and its attack tests. Not done, by design: the selling half (build row 5), the machines (row 7), the person-signed purchase, the float's emptying. To run it: `node examples/signer.ts check-rules <file>`, then `serve` with the two keys in the signer's own environment; the buying agent's side is T-435.
+
+**For the coordinator:** CI's anvil job lists its files in `.github/workflows/ci.yml` (tier 3). Adding `examples/signer-anvil.test.ts` to the `world` leg would make CI run the token-level test; that change waits for Rafa's word.
