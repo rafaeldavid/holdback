@@ -103,6 +103,8 @@ export interface SellerApi {
   readsToken: boolean;
   /** false: a start sent again could start a second job, so the adapter sends it at most once a deal (T-408). */
   startRepeatable: boolean;
+  /** Why a start is not repeatable, for the start-up line; absent when it is. */
+  startOneShotBecause?: string;
   quote(v: Values): Promise<J>;
   start(v: Values): Promise<string>;
   result(v: Values): Promise<JobAnswer>;
@@ -365,6 +367,7 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
   // only when it names the header its API keys a start by, or says so.
   if (isRecord(s) && s.repeatable !== undefined && typeof s.repeatable !== 'boolean') throw new Error('sellerApi.start.repeatable must be true or false');
   const startRepeatable = !isRecord(s) ? true : s.repeatable ?? s.idempotencyHeader !== undefined;
+  const startOneShotBecause = startRepeatable ? undefined : isRecord(s) && s.repeatable === false ? 'the mapping says "repeatable": false' : 'the mapping names no idempotencyHeader';
   const startRead = pointers('sellerApi.start.read', isRecord(s) ? s.read : undefined, { jobId: '/jobId' });
 
   // ---- The result ----
@@ -450,6 +453,7 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
   return {
     readsToken,
     startRepeatable,
+    ...(startOneShotBecause ? { startOneShotBecause } : {}),
     describe: `The seller API is ${base ? `under ${base.href}` : 'at the three configured addresses'}, with ${auth ? `a credential from ${auth.env} in header ${auth.header}` : 'no credential'}${unitsAt !== undefined ? `; a quote prices ${plain(unitsAt)} units at ${unitPrice} base units each` : ''}; its job state is read by ${status.by === 'http' ? 'HTTP status' : 'a status field'}${files ? `, and a result's further files are added at ${plain(rm.files.into)}` : ''}.`,
 
     async quote(v) {

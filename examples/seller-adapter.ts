@@ -1011,10 +1011,13 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
       const state = await escrowState();
       if (BEFORE_HOLD.includes(state)) return;
       if (state !== 'Held') return record(deal, { stage: 'closed', note: `the offer ended ${state} with no job started` });
-      record(deal, { stage: 'starting', note: 'every operator shows the hold funded' }); // recorded before the call, so a crash here repeats it under the same key
+      // Recorded before the call. A repeatable start sent again after a crash carries the same key; a one-shot start
+      // counts its attempts from 0 here, so a journal without the count (written before T-408) reads as attempted.
+      record(deal, { stage: 'starting', startAttempts: 0, note: 'every operator shows the hold funded' });
     }
     if (deal.stage === 'starting') {
-      if (!sellerApi.startRepeatable && (deal.startAttempts ?? 0) > 0) {
+      // A `starting` deal with no count comes from a journal written before T-408, whose start went out at least once.
+      if (!sellerApi.startRepeatable && (deal.startAttempts === undefined || deal.startAttempts > 0)) {
         // T-408: the API cannot tell a repeat from a new job, so a second start could start (and charge) a second
         // one. The adapter never sends it again: a person finds the job at the seller and names it.
         const deliverBy: string = deal.terms.timing.deliverBy;
@@ -1262,6 +1265,8 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     const deal = Object.hasOwn(journal.deals, id) ? journal.deals[id]! : undefined;
     if (!deal) return send(404, { type: 'not_found', detail: 'this adapter holds no such deal' });
     if (deal.stage !== 'start-unknown') return send(409, { type: 'not_waiting', detail: `the deal is ${deal.stage}, not waiting for its job's ID` });
+    const holder = Object.values(journal.deals).find((d) => d.id !== deal.id && d.jobId === jobId);
+    if (holder) return send(409, { type: 'job_taken', detail: `job ${jobId} belongs to another deal in this journal, ${holder.id}` });
     record(deal, { stage: 'started', jobId, note: `job ${jobId}, named by the seller's operator` });
     wake();
     return send(202, { commitmentId: id, stage: deal.stage, jobId });
@@ -1304,7 +1309,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   const source = (yes: boolean) => (yes ? 'from discovery' : 'from the configuration');
   log(`Offers name club ${plain(clubId)} and its adjudicators ${fromDiscovery.club === fromDiscovery.adjudicators ? source(fromDiscovery.club) : `${source(fromDiscovery.adjudicators)}, the club ${source(fromDiscovery.club)}`}: primary ${adjudicators.primary}, fallback ${adjudicators.fallback}, appeal ${adjudicators.appeal}. The mandate ends ${at(mandateUntil)}${faucet ? '; the faucet renews it' : ''}.`);
   log(`A refused result alerts by the log${refusal.callback ? ' and the callback' : ''}${refusal.secret ? ', signed' : ''}; the adapter fetches it again ${refusal.refetchEverySec === undefined ? 'only when you say' : `every ${refusal.refetchEverySec} s`}${refusal.ready ? ', and on POST /deals/<commitmentId>/ready' : ''}, until deliverBy.`);
-  if (!sellerApi.startRepeatable) log(`The seller API's start is sent at most once a deal: the mapping names no idempotency key it repeats by. A start sent with no answer holds the deal at start-unknown${refusal.ready ? ', until you name the job with POST /deals/<commitmentId>/job' : '; with no ready credential set (redelivery.readyAuth) nobody can name the job, and the deal closes at deliverBy'}.`);
+  if (!sellerApi.startRepeatable) log(`The seller API's start is sent at most once a deal: ${sellerApi.startOneShotBecause}. A start sent with no answer holds the deal at start-unknown${refusal.ready ? ', until you name the job with POST /deals/<commitmentId>/job' : '; with no ready credential set (redelivery.readyAuth) nobody can name the job, and the deal closes at deliverBy'}.`);
   const limit = c.quoteRateLimit?.overall;
   log(sellerApi.describe);
   log(`The quote route takes ${c.quoteAuth ? `a bearer credential from ${plain(c.quoteAuth.env)}` : 'no credential'}; rate limit ${limit ? `${limit.requests} per ${limit.windowSec} s` : 'none'}.`);

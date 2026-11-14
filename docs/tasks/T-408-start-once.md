@@ -22,6 +22,7 @@ This task makes such a start a one-shot: sent at most once a deal, with the atte
 - [x] A pass that finds a recorded attempt and no job ID never calls the start again: the deal moves to `start-unknown` and raises one `job.start_unknown` alert.
 - [x] `POST /deals/<commitmentId>/job` with `{"jobId"}`, behind the ready credential, moves a `start-unknown` deal to `started` with that job; other stages answer 409, a wrong credential 401, a bad ID 400.
 - [x] A `start-unknown` deal closes at `deliverBy`.
+- [x] A journal written before this change cannot cause a second start.
 - [x] The start-up log says when the start is a one-shot; the seller-adapter guide says how to name the job.
 - [x] Existing behaviour holds: a repeatable start whose answer is lost is sent again under the same key and starts one job.
 
@@ -31,7 +32,8 @@ Measured on 2026-11-14 in the worktree `.worktrees/t-408-start-once`, cut from `
 
 - **Test first.** The new test in `examples/seller-adapter-job-api.test.ts` failed before the change: `sellerApi.start has a field the adapter does not take: repeatable`.
 - **After.** With the job stub's start set to `repeatable: false` and its first start answered 503 after making the run: the deal reached `start-unknown`; over the following polls the stub saw one start call in all; the log carried `job.start_unknown`; a wrong credential got 401, an empty ID 400; naming job 41 got 202, the deal was `Released`, one delivery, one run; naming it again got 409.
-- **Tests.** `vitest run examples/seller-adapter-job-api.test.ts examples/seller-adapter.test.ts`: 2 files, 65 tests passed, the existing lost-answer test for a repeatable start among them. The whole `examples/` suite: 34 files, 417 tests passed, 24 skipped. `tsc -b examples` exit 0.
+- **Tests.** `vitest run examples/seller-adapter-job-api.test.ts examples/seller-adapter.test.ts`: 2 files, 67 tests passed, the existing lost-answer test for a repeatable start among them. The whole `examples/` suite: 34 files, 419 tests passed, 24 skipped. `tsc -b examples` exit 0.
+- **After the review (one reviewer: one Medium, four Low, all fixed).** A journal written before this change, with a `starting` deal and no attempt count, now reads as attempted: a test rewrites the journal that way, restarts the adapter, and sees `start-unknown` with still one start call. A named job that another deal in the journal holds answers 409 (read from code; no test). New tests: a mapping with no `idempotencyHeader` is a one-shot by default and with one is repeatable, the three-address form stays repeatable; an unknown deal on the job route answers 404; a `start-unknown` deal nobody names closes at `deliverBy` (the simulator's clock moved two days). The start-up line names the reason a start is a one-shot.
 - **Site.** `node site/check.mjs` passed; no bundle changed.
 
 ## Handoff
