@@ -49,19 +49,19 @@
 // signs under the settlement layer those operators serve, which must be one pinned in verify.ts: SimChain, Sepolia,
 // or the deployment in HOLDBACK_DEPLOYMENT. Your API prices in that layer's token: `tUSD` on SimChain, the token's
 // address on a chain (discovery, `demo.token.id`). Test tokens only: nothing here is real money.
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import type { Hex } from 'viem';
+import { concat, keccak256, stringToHex, type Hex } from 'viem';
 import { preflightDelivery } from '@holdback/judgment';
 import { plain } from '@holdback/testkit';
 import { Agent } from './agent.ts';
 import { convertReport, loadReportMapping, ReportNotConverted } from './report-converter.ts';
 import { FilesNotAdded, sellerApiClient, type SellerApiConfig } from './seller-adapter-api.ts';
-import { isAddressText, jcs, knownPins, moneyAddressWarnings, operatorFeeOf } from './verify.ts';
+import { freshNonce, isAddressText, jcs, knownPins, moneyAddressWarnings, operatorFeeOf } from './verify.ts';
 import { help, helpAsked } from './help.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -194,6 +194,17 @@ export interface SellerAdapterConfig {
    * (default 86,400 s, one day). `fromFaucet: false`: only the mandate your principal gave you.
    */
   mandate?: { fromFaucet?: boolean; renewBeforeSec?: number };
+  /**
+   * Which key signs each offer and delivery (T-432). `"standing"`, the default: HOLDBACK_KEY signs every deal, so one
+   * read of the commitments by that address lists all of them. `"per-deal"`: a fresh key signs each deal, derived
+   * from HOLDBACK_KEY and the offer's own nonce, so a read by any one key finds one deal. The adapter derives the key
+   * again from the signed terms after a restart, so no deal key is stored anywhere. Each deal key takes its own
+   * mandate from the test service's faucet when the quote comes in: one grant a quote, counted against the faucet's
+   * limit per client (`demo.faucet.perClientPerWindow` in discovery). Without a faucet for the club, the start stops.
+   * HOLDBACK_KEY then signs nothing the operators check. Payments still go to `payoutAddress`, or to HOLDBACK_KEY's
+   * address, which every deal names.
+   */
+  signingKey?: 'standing' | 'per-deal';
   /** Windows in whole seconds. Your API's `deliverWithinSec`, when a quote carries one, replaces this one; a terms rule replaces both. */
   timing: { offerExpiresInSec: number; fundWithinSec: number; deliverWithinSec: number; judgeWithinSec: number; fallbackWithinSec: number; appealWindowSec: number; appealDecideSec: number };
   /** The journal file. Its directory must exist. */
@@ -251,7 +262,7 @@ export const config: SellerAdapterConfig = {
 // ---- End of the defaults. ----
 
 /** The fields a configuration file may set: every field of the configuration but `log`. */
-const FILE_KEYS = ['port', 'sellerApi', 'template', 'reportMapping', 'reportSalt', 'scope', 'options', 'termsRules', 'payoutAddress', 'clubId', 'adjudicators', 'mandate', 'events', 'timing', 'journal', 'pollMs', 'quoteAuth', 'quoteRateLimit', 'alerts', 'redelivery'];
+const FILE_KEYS = ['port', 'sellerApi', 'template', 'reportMapping', 'reportSalt', 'scope', 'options', 'termsRules', 'payoutAddress', 'clubId', 'adjudicators', 'mandate', 'signingKey', 'events', 'timing', 'journal', 'pollMs', 'quoteAuth', 'quoteRateLimit', 'alerts', 'redelivery'];
 /** Options removed in T-331, each with what to do instead. A configuration that still sets one is refused. */
 const REMOVED: Array<[string, (c: J) => boolean, string]> = [
   ['stream', (c) => c?.stream !== undefined, 'the adapter learns of a funded hold by polling every pollMs; remove the field'],
@@ -320,6 +331,7 @@ export function loadConfig(file: string): SellerAdapterConfig {
   if (f.journal !== undefined && (typeof f.journal !== 'string' || f.journal === '')) throw new Error(`${file}: journal must be a file path`);
   if (f.events !== undefined && (typeof f.events !== 'string' || f.events === '')) throw new Error(`${file}: events must be a file path`);
   if (f.reportSalt !== undefined && typeof f.reportSalt !== 'boolean') throw new Error(`${file}: reportSalt must be true or false`);
+  if (f.signingKey !== undefined && f.signingKey !== 'standing' && f.signingKey !== 'per-deal') throw new Error(`${file}: signingKey must be "standing" or "per-deal"`);
   if (own && Array.isArray(f.termsRules) && f.termsRules.some((r: J) => r?.rubric === true)) {
     // A rule that adds the optional rubric needs a template that holds one: refuse the file, not a buyer's quote.
     let t: J;
@@ -337,7 +349,7 @@ export function loadConfig(file: string): SellerAdapterConfig {
     sellerApi: { ...(api.baseUrl === undefined ? {} : { baseUrl: api.baseUrl }), ...(api.auth === undefined ? {} : { auth: api.auth }), quote: api.quote, start: api.start, result: api.result },
     template: own ? beside(f.template, 'template') : config.template,
     ...(f.reportMapping === undefined ? {} : { reportMapping: beside(f.reportMapping, 'reportMapping') }),
-    ...pass('reportSalt'),
+    ...pass('reportSalt'), ...pass('signingKey'),
     scope: f.scope ?? config.scope,
     ...(own ? { ...pass('options'), ...pass('termsRules') } : { options: f.options ?? config.options, termsRules: f.termsRules ?? config.termsRules }),
     timing: { ...config.timing, ...(f.timing ?? {}) },
@@ -746,6 +758,38 @@ export interface Discovered {
   faucet: boolean;
 }
 
+// ---- Keys derived from HOLDBACK_KEY (T-432) ----
+const SECP256K1_ORDER = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+/**
+ * A private key derived from the seller's key, a label and optionally a nonce: keccak256 of the three. Only the holder
+ * of HOLDBACK_KEY can derive it, and two keys derived from it share nothing a stranger can see.
+ */
+export function derivedKey(key: Hex, label: string, nonce?: Hex): Hex {
+  const k = keccak256(concat([key, stringToHex(label), ...(nonce === undefined ? [] : [nonce])]));
+  const n = BigInt(k);
+  if (n === 0n || n >= SECP256K1_ORDER) throw new Error(`the key derived for ${label} is not a valid secp256k1 key; draw another nonce`);
+  return k;
+}
+/** The key that signs the deal whose terms carry `nonce`, in `signingKey: "per-deal"` (T-432). */
+export const dealKeyOf = (key: Hex, nonce: Hex): Hex => derivedKey(key, 'crow.seller-adapter.deal-key/1', nonce);
+/** The address each per-deal faucet grant sends its token unit to, so a grant on a chain mints nothing after the first. */
+export const holdingKeyOf = (key: Hex): Hex => derivedKey(key, 'crow.seller-adapter.faucet-holding/1');
+/**
+ * The agent that signs for these terms: HOLDBACK_KEY's own when the terms name its address as the seller, else the
+ * deal key its nonce derives. Refuses terms whose seller is neither, so nothing is ever signed by the wrong key.
+ */
+export function signerFor(key: Hex, operators: string[], pin: ReturnType<typeof knownPins>[number], terms: J): Agent {
+  const seller = String(terms?.seller ?? '').toLowerCase();
+  const standing = new Agent(operators, key, new Uint8Array(32), pin.domain, pin.chain);
+  if (seller === standing.address) return standing;
+  const nonce = terms?.nonce;
+  if (typeof nonce === 'string' && /^0x[0-9a-fA-F]{64}$/.test(nonce)) {
+    const deal = new Agent(operators, dealKeyOf(key, nonce as Hex), new Uint8Array(32), pin.domain, pin.chain);
+    if (seller === deal.address) return deal;
+  }
+  throw new Error(`the terms name the seller ${plain(seller).slice(0, 60)}, which is neither HOLDBACK_KEY's address nor the deal key their nonce derives from it`);
+}
+
 /**
  * The seller's agent, signing under the settlement layer every operator serves, which must be one pinned in
  * verify.ts (SimChain, Sepolia, or HOLDBACK_DEPLOYMENT), as the buyer's signer pins it (buyer-signer.ts). Refuses
@@ -871,12 +915,26 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   // the adapter asks for 1 base unit of the test token with it, since the faucet takes no zero amount.
   const faucet = m.fromFaucet !== false && discovered.faucet && discovered.clubId === clubId;
   const renewBeforeMs = (m.renewBeforeSec ?? 86_400) * 1000;
+  // A fresh key for each deal (T-432): its mandate comes from the faucet with each quote, so only the test service serves it.
+  if (c.signingKey !== undefined && c.signingKey !== 'standing' && c.signingKey !== 'per-deal') throw new Error('signingKey must be "standing" or "per-deal"');
+  const perDeal = c.signingKey === 'per-deal';
+  if (perDeal && !faucet) throw new Error(`signingKey "per-deal" takes a mandate for each deal key from the test service's faucet, and ${m.fromFaucet === false ? 'mandate.fromFaucet is false' : `these operators serve no faucet for club ${plain(String(clubId))}`}: set signingKey to "standing"`);
+  const sellerKey = env['HOLDBACK_KEY'] as Hex;
+  const holding = perDeal ? new Agent(operators, holdingKeyOf(sellerKey), new Uint8Array(32)).address : undefined;
+  /** The agent that signs each deal: HOLDBACK_KEY's, or the deal key the terms' nonce derives. One per deal, kept in memory only. */
+  const signers = new Map<string, Agent>();
+  let dealGrantAfter = 0; // local time before which no deal key is granted again, after the faucet refused one
+  const signerOf = (deal: Deal): Agent => {
+    let a = signers.get(deal.id);
+    if (!a) signers.set(deal.id, (a = String(deal.terms.seller).toLowerCase() === seller.address ? seller : signerFor(sellerKey, operators, pin, deal.terms)));
+    return a;
+  };
   let mandateUntil = 0; // when the latest mandate in the club ends, in settlement-layer time; 0: none known
   /** The end of the seller's latest mandate in the club that covers selling, as every operator lists it; 0 for none. */
-  async function mandateEnd(): Promise<number> {
+  async function mandateEnd(address: string = seller.address): Promise<number> {
     let list: J[];
     try {
-      list = await seller.trusted(`/v1/agents/${seller.address}`, (x) => x.mandates ?? []);
+      list = await seller.trusted(`/v1/agents/${address}`, (x) => x.mandates ?? []);
     } catch (e) {
       if (/: not_found: /.test((e as Error).message)) return 0; // an address no club has admitted yet
       throw e;
@@ -953,9 +1011,42 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     mandateChain = run.catch(() => {});
     return run;
   };
-  await ensureMandate(await seller.settlementNow()); // no mandate, no start
+  /**
+   * A mandate for one deal key (T-432): a faucet grant that sends its token unit to the adapter's holding address, then
+   * a wait until every operator lists the mandate. Throws when the faucet refuses; the quote then answers 503.
+   */
+  async function grantDealKey(address: string): Promise<void> {
+    // As Agent.call sends it, and keeping the answer's Retry-After for the backoff after a refusal.
+    const res = await fetch(`${operators[0]}/v1/faucet`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': randomUUID() }, body: JSON.stringify({ address, amount: '1', paymentAddress: holding }) });
+    const granted: J = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const retry = Number(res.headers.get('retry-after'));
+      throw Object.assign(new Error(`POST /v1/faucet: ${plain(String(granted?.type))}: ${plain(String(granted?.detail)).slice(0, 200)}`), Number.isSafeInteger(retry) && retry > 0 ? { retryAfterSec: retry } : {});
+    }
+    const now = await seller.settlementNow();
+    const waitFor = granted?.clubId === clubId ? 12 : 1;
+    for (let tries = 1; ; tries++) {
+      let until = 0;
+      try {
+        until = await mandateEnd(address);
+      } catch (e) {
+        if (tries >= waitFor) throw e;
+      }
+      if (until > now) return;
+      if (tries >= waitFor) throw new Error(`the faucet answered, but the operators list no mandate for the deal key ${address}`);
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+  }
+  if (!perDeal) await ensureMandate(await seller.settlementNow()); // no mandate, no start
+  else {
+    log(`Signing key: a fresh key for each deal, derived from HOLDBACK_KEY; its own address ${seller.address} signs no deal. Each quote takes one faucet grant for its deal key.`);
+    // Advisory, never a refusal: what still links the deals, and who can spend the faucet's grants.
+    if (c.quoteAuth === undefined && c.quoteRateLimit === undefined) log('Warning: per-deal keys with no quoteAuth and no quoteRateLimit: anyone who reaches /quote spends a faucet grant with each quote, and past the faucet\'s limit a buyer is refused until it resets. Set one of them, or limit /quote in your proxy.');
+    if (c.payoutAddress === undefined) log(`Warning: every deal names HOLDBACK_KEY's address ${seller.address} as its payout address, which links the deals in their terms and on the chain. Set payoutAddress to an address of its own to keep HOLDBACK_KEY out of them.`);
+  }
   // ADR-0033 §7: one line on where payments go, and the advisory warnings for an odd payout address. None stops the start.
-  if (c.payoutAddress === undefined) log(`Payout address: not set. Payments go to the signing address ${seller.address}.`);
+  if (perDeal) log(`Payout address: ${payout}${c.payoutAddress === undefined ? ", HOLDBACK_KEY's address, as payoutAddress is not set" : ''}. Every deal names it; the deal keys receive none.`);
+  else if (c.payoutAddress === undefined) log(`Payout address: not set. Payments go to the signing address ${seller.address}.`);
   else if (payout === seller.address) log(`Payout address: ${payout}, the signing address itself. Payments go there.`);
   else log(`Payout address: ${payout}. Payments go there; the signing address ${seller.address} receives none.`);
   for (const w of moneyAddressWarnings('payout', payout, pin, adjudicators)) log(w);
@@ -969,7 +1060,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     // The mandate before the price: a seller that cannot offer now costs its API no call. This renews a test
     // mandate that ran out while the adapter waited.
     try {
-      await ensureMandate(await seller.settlementNow()); // renews a test mandate that ran out while the adapter waited
+      if (!perDeal) await ensureMandate(await seller.settlementNow()); // renews a test mandate that ran out while the adapter waited
     } catch (e) {
       log(`Quote refused: ${plain((e as Error).message)}.`);
       throw new Refused(503, 'seller_unavailable', 'the seller holds no mandate to offer now');
@@ -1005,16 +1096,38 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     // The offer never outlives your price: how long the price holds caps the offer's window.
     if (validForSec !== undefined) built.timing.offerExpiresInSec = Math.min(built.timing.offerExpiresInSec, validForSec);
     const panel = Array.isArray(built.rubric?.criteria) && built.rubric.criteria.length > 0;
+    // The key that signs this deal (T-432): HOLDBACK_KEY's, or a fresh one from the offer's nonce with its own mandate.
+    let signer = seller;
+    let nonce: Hex | undefined;
+    let grantMs: number | null = null;
+    if (perDeal) {
+      // After a refusal the faucet is not asked again until its own Retry-After has passed, however many quotes come in.
+      const waitSec = Math.ceil((dealGrantAfter - Date.now()) / 1000);
+      if (waitSec > 0) throw new Refused(503, 'seller_unavailable', 'the seller cannot take a key for a new deal now; try again later', { 'retry-after': String(waitSec) });
+      nonce = freshNonce().toLowerCase() as Hex;
+      signer = new Agent(operators, dealKeyOf(sellerKey, nonce), new Uint8Array(32), pin.domain, pin.chain);
+      const asked = Date.now();
+      try {
+        await grantDealKey(signer.address);
+      } catch (e) {
+        const retryAfterSec = Math.max(60, (e as { retryAfterSec?: number }).retryAfterSec ?? 0);
+        dealGrantAfter = Date.now() + retryAfterSec * 1000;
+        log(`Quote refused: the faucet gave the deal key ${signer.address} no mandate (${plain((e as Error).message)}). No offer is signed with HOLDBACK_KEY instead; the faucet is asked again in ${retryAfterSec} s at the earliest.`);
+        throw new Refused(503, 'seller_unavailable', 'the seller cannot take a key for a new deal now; try again later', { 'retry-after': String(retryAfterSec) });
+      }
+      grantMs = Date.now() - asked;
+    }
     let offer;
     try {
-      offer = await seller.offer({
+      offer = await signer.offer({
+        ...(nonce === undefined ? {} : { nonce }),
         template: panel ? 'default' : 'checks-only',
         clubId,
-        seller: seller.address,
+        seller: signer.address,
         // The buyer's payment address as its quote named it, and this seller's payout address from its own
         // configuration (ADR-0033 §6). Agent.offer rebuilds the prepared terms and refuses any other address in them.
         buyer: { address: buyer, encryptionPublicKey: buyerEncryptionPublicKey, ...(buyerPaymentAddress && buyerPaymentAddress !== buyer ? { paymentAddress: buyerPaymentAddress } : {}) },
-        ...(payout !== seller.address ? { sellerPayoutAddress: payout } : {}),
+        ...(payout !== signer.address ? { sellerPayoutAddress: payout } : {}),
         adjudicators,
         price: { token: price.token, amount: price.amount },
         ...(template.fee === undefined ? {} : { fee: { token: template.fee.token, amount: template.fee.amount } }),
@@ -1028,12 +1141,13 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
       throw new Refused(502, 'offer_failed', 'the seller could not make this offer');
     }
     const { id, terms } = offer;
+    if (perDeal) signers.set(id, signer);
     // Agent.offer signed only terms it rebuilt from this request; this says so again where it matters most.
     if (String(terms.sellerPayoutAddress).toLowerCase() !== payout) throw new Error(`the signed offer ${id} names ${terms.sellerPayoutAddress} as the payout address, not the configured ${payout}`);
     journal.deals[id] = { id, stage: 'offered', terms, scope, ...(options === undefined ? {} : { options }), ...(typeof quoted.quoteId === 'string' ? { quoteId: quoted.quoteId } : {}), ...(salting ? { salt: `0x${randomBytes(32).toString('hex')}` } : {}), times: { offered: new Date().toISOString() } };
     save();
-    emit('deal.offered', { commitmentId: id, price: terms.price, ...(quoted.units === undefined ? {} : { units: quoted.units }), deliverWithinSec: Math.round((Date.parse(terms.timing.deliverBy) - Date.parse(terms.createdAt)) / 1000), sellerApiQuoteMs });
-    log(`${id} is offered to ${terms.buyer} for ${terms.price.amount} base units of ${plain(terms.price.token)}; the offer expires ${terms.timing.offerExpiresAt}.`);
+    emit('deal.offered', { commitmentId: id, price: terms.price, ...(quoted.units === undefined ? {} : { units: quoted.units }), deliverWithinSec: Math.round((Date.parse(terms.timing.deliverBy) - Date.parse(terms.createdAt)) / 1000), sellerApiQuoteMs, ...(perDeal ? { grantMs } : {}) });
+    log(`${id} is offered${perDeal ? `, signed by its deal key ${signer.address},` : ''} to ${terms.buyer} for ${terms.price.amount} base units of ${plain(terms.price.token)}; the offer expires ${terms.timing.offerExpiresAt}.`);
     // What the buyer pays on top of the price: the adjudication fee, and the operators' fee when they publish one.
     const schedule = await seller.operatorFeeSchedule();
     const operatorFee = schedule ? operatorFeeOf(terms.price, schedule) : 0n;
@@ -1221,7 +1335,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
       // settlement layer first, so the adapter never delivers twice.
       const attempt = (deal.refusals ?? 0) + 1;
       record(deal, { stage: 'delivering', ready: false, note: `delivering ${pre.bytes} bytes, ${pre.plaintextSha256}` });
-      await seller.deliver(deal.terms, bytes);
+      await signerOf(deal).deliver(deal.terms, bytes);
       record(deal, { stage: 'delivered', note: `${pre.bytes} bytes, ${pre.plaintextSha256}` });
       if (deal.refusals) alert({ type: 'delivery.fixed', commitmentId: id, attempt, plaintextSha256: pre.plaintextSha256, bytes: pre.bytes }, `the fixed report passed the check run and is delivered, ${pre.bytes} bytes, ${pre.plaintextSha256}`);
     }
@@ -1291,7 +1405,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     firstPass = false;
     let now: Promise<number> | undefined;
     const passNow = () => (now ??= seller.settlementNow());
-    if (Date.now() - mandateCheckedAt >= 60_000) {
+    if (!perDeal && Date.now() - mandateCheckedAt >= 60_000) {
       // Once a minute: renew a test mandate before it runs out, so a quote rarely waits for the faucet.
       mandateCheckedAt = Date.now();
       try {
@@ -1420,9 +1534,9 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   const url = `http://${bound.address}:${bound.port}`;
   const timer = setInterval(wake, c.pollMs);
   wake(); // deals the journal left open
-  log(`Seller adapter for ${seller.address} serves POST ${url}/quote; journal ${plain(c.journal)}, ${Object.keys(journal.deals).length} deals.`);
+  log(`Seller adapter for ${perDeal ? `a fresh key each deal, from HOLDBACK_KEY at ${seller.address},` : seller.address} serves POST ${url}/quote; journal ${plain(c.journal)}, ${Object.keys(journal.deals).length} deals.`);
   const source = (yes: boolean) => (yes ? 'from discovery' : 'from the configuration');
-  log(`Offers name club ${plain(clubId)} and its adjudicators ${fromDiscovery.club === fromDiscovery.adjudicators ? source(fromDiscovery.club) : `${source(fromDiscovery.adjudicators)}, the club ${source(fromDiscovery.club)}`}: primary ${adjudicators.primary}, fallback ${adjudicators.fallback}, appeal ${adjudicators.appeal}. The mandate ends ${at(mandateUntil)}${faucet ? '; the faucet renews it' : ''}.`);
+  log(`Offers name club ${plain(clubId)} and its adjudicators ${fromDiscovery.club === fromDiscovery.adjudicators ? source(fromDiscovery.club) : `${source(fromDiscovery.adjudicators)}, the club ${source(fromDiscovery.club)}`}: primary ${adjudicators.primary}, fallback ${adjudicators.fallback}, appeal ${adjudicators.appeal}. ${perDeal ? 'Each deal key takes its own mandate from the faucet with its quote' : `The mandate ends ${at(mandateUntil)}${faucet ? '; the faucet renews it' : ''}`}.`);
   log(`A refused result alerts by the log${refusal.callback ? ' and the callback' : ''}${refusal.secret ? ', signed' : ''}; the adapter fetches it again ${refusal.refetchEverySec === undefined ? 'only when you say' : `every ${refusal.refetchEverySec} s`}${refusal.ready ? ', and on POST /deals/<commitmentId>/ready' : ''}, until deliverBy.`);
   if (!sellerApi.startRepeatable) log(`The seller API's start is sent at most once a deal: ${sellerApi.startOneShotBecause}. A start sent with no answer holds the deal at start-unknown${refusal.ready ? ', until you name the job with POST /deals/<commitmentId>/job' : '; with no ready credential set (redelivery.readyAuth) nobody can name the job, and the deal closes at deliverBy'}.`);
   const limit = c.quoteRateLimit?.overall;

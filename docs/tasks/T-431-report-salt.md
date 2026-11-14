@@ -5,7 +5,7 @@
 - **Depends on:** T-416 (the privacy baseline, PR 503), T-408 (the one-shot start)
 - **Paths this task may touch:** `examples/seller-adapter.ts`, `examples/seller-adapter.template.json`, `examples/seller-adapter.test.ts`, `examples/audit-deal.ts`, `examples/audit-deal.test.ts`, `fixtures/terms/audit-report*.yaml`, `fixtures/scenarios/audit-report-*.expect.md`, `fixtures/scenarios/two-addresses-released.expect.md`, `fixtures/recordings/audit-report-rubric-accepted/`, `spec/examples/commitment.audit-report.example.json`, `site/ref/seller-adapter.txt`, `site/ref/checks.txt`, `site/ref/limits.txt`, this file
 - **Human gate:** no
-- **Status:** review
+- **Status:** done
 - **Agent/session:** T-399 session (roadmap row N128, Rafa 2026-11-14: "Yes build both")
 
 ## Intent

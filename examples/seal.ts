@@ -5,12 +5,15 @@
 // Usage: node examples/seal.ts <terms.json> <file>                  (terms.json: the offer you signed)
 //        node examples/seal.ts <journal.json> <file> <commitmentId>  (the seller adapter's journal holds the terms)
 // Env: HOLDBACK_KEY, HOLDBACK_OPERATORS (two or more, comma-separated). Uses agent.ts (Web Crypto, tweetnacl).
+// Terms the adapter signed with a fresh key (signingKey "per-deal", T-432) are delivered by the key their nonce derives
+// from HOLDBACK_KEY; terms naming any other seller are refused.
 // The settlement layer takes one delivery per commitment: a second one is refused, so a run after the adapter
 // delivered changes nothing.
 import { readFileSync } from 'node:fs';
 import { plain } from '@holdback/testkit';
 import { help, helpAsked } from './help.ts';
-import { pinnedSeller } from './seller-adapter.ts';
+import type { Hex } from 'viem';
+import { pinnedSeller, signerFor } from './seller-adapter.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -35,8 +38,11 @@ if (asked !== null || !termsFile || !file) {
 }
 try {
   const operators = (process.env['HOLDBACK_OPERATORS'] ?? 'http://127.0.0.1:8787,http://127.0.0.1:8788').split(',').filter(Boolean);
-  const { seller } = await pinnedSeller(operators, process.env['HOLDBACK_KEY']);
-  const state = await seller.deliver(termsFrom(termsFile, commitmentId), new Uint8Array(readFileSync(file)));
+  const { pin } = await pinnedSeller(operators, process.env['HOLDBACK_KEY']);
+  const terms = termsFrom(termsFile, commitmentId);
+  // HOLDBACK_KEY's own agent, or the deal key the terms' nonce derives when the adapter signed with one (T-432).
+  const signer = signerFor(process.env['HOLDBACK_KEY'] as Hex, operators, pin, terms);
+  const state = await signer.deliver(terms, new Uint8Array(readFileSync(file)));
   console.log(JSON.stringify({ escrowState: state.escrowState }));
 } catch (e) {
   console.error(`seal: ${plain((e as Error).message)}`);
