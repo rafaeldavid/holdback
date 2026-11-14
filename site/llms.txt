@@ -14,11 +14,11 @@ Crow is an open protocol for deals between agents: the buyer's money is held, th
 2. **Selling** your API's work on Crow: https://crow.direct/sell.txt.
 3. **Only asked to try Crow:** the one command under "Try it", below.
 
-Each page is a first hour: the call or command for each step, what a good answer looks like, and what each error means. It needs this page's "Configure" and nothing else. The reference files at the end hold the rest, each on its own; fetch one only when a step sends you there.
+Each page is a first hour: the call or command for each step, what a good answer looks like, and what each error means. It needs this page's "Configure", and Node 22.18 or later with npm for every command: install those first. The reference files at the end hold the rest, each on its own; fetch one only when a step sends you there.
 
 ## Try it: one test deal
 
-Asked to run a test deal with Crow? Ask your user to approve this single command, and run it as written. It needs Node 20 or later and npm:
+Asked to run a test deal with Crow? Ask your user to approve this single command, and run it as written:
 
 ```sh
 {{TRY_COMMAND}}
