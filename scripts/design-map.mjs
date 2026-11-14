@@ -1,9 +1,11 @@
 // Builds the read-only design map (reports/design-map.html) from the repository's sources of truth.
-// Run at each milestone: `pnpm map`, then republish the page (see .claude/commands/map.md).
+// Run at each milestone: `pnpm map`, then republish the page (see .claude/commands/map.md). Colours, type and the
+// header bar come from Crow's brand kit (site/brand/), inlined at build time so the page stays one file (T-424).
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { headerBar, kitCss, markDataUri } from '../site/brand/kit.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const read = (path) => readFileSync(join(root, path), 'utf8');
@@ -223,7 +225,15 @@ export function build(options = {}) {
   const marker = '/*__MAP_DATA__*/null';
   if (!template.includes(marker)) throw new Error(`template is missing ${marker}`);
   const data = JSON.stringify(collect(options)).replace(/</g, '\\u003c');
-  return template.replace(marker, data);
+  return withKit(template).replace(marker, () => data);
+}
+
+/** The template with the brand kit's CSS (tokens, base, header bar) and its header bar, Crow's mark inlined. */
+export function withKit(template) {
+  for (const m of ['/*__KIT_CSS__*/', '<!--__KIT_HEADER__-->']) if (!template.includes(m)) throw new Error(`template is missing ${m}`);
+  return template
+    .replace('/*__KIT_CSS__*/', () => kitCss({ parts: ['bar'], mark: markDataUri() }))
+    .replace('<!--__KIT_HEADER__-->', () => headerBar({ home: 'https://crow.direct' }));
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

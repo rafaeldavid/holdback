@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 // @ts-expect-error -- plain ESM helper without type declarations
 import { build, collect, CUT_WITH_BONDS, INPUTS, PHASE_ONE_ADDRESS_KEYS, plain, shallow, stackVersion } from '../scripts/contract-stack.mjs';
 import { execFileSync } from 'node:child_process';
+import { TOKENS_CSS } from '../site/brand/kit.mjs';
 
 const root = new URL('../', import.meta.url);
 const json = (path: string) => JSON.parse(readFileSync(new URL(path, root), 'utf8'));
@@ -144,5 +145,18 @@ describe('contract-stack page', () => {
     expect(embedded.length).toBeGreaterThan(1000);
     expect(embedded).not.toContain('</');
     for (const id of ['pills', 'safety', 'sources', 'addresses', 'gas', 'footer', 'deploy-intro', 'gas-notes']) expect(html).toContain(`id="${id}"`);
+  });
+
+  it('takes its colours and fonts from the brand kit: its tokens inlined, none written by the template (T-424)', () => {
+    const template = readFileSync(new URL('../tools/contract-stack/template.html', import.meta.url), 'utf8');
+    // the same rule as site/check.mjs group 15: a colour or a font stack is written only in site/brand/tokens.css
+    expect(template.match(/(?<![\w&/-])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])|\b(?:rgba?|hsla?)\(/g)).toBeNull();
+    expect(template.match(/-apple-system|BlinkMacSystemFont|Helvetica|Arial|Garamond|Menlo|\bsans-serif\b|\bmonospace\b|"SF (?:Pro|Mono)|fonts\.googleapis/g)).toBeNull();
+    const html = build();
+    expect(html).toContain(TOKENS_CSS.trim());
+    expect(html).toContain('<header class="ck-bar">');
+    expect(html).toContain('url("data:image/svg+xml,');
+    expect(html).not.toContain('__KIT_');
+    expect(html).not.toMatch(/prefers-color-scheme/);
   });
 });

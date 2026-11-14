@@ -5,6 +5,7 @@ import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error -- plain ESM helper without type declarations
 import { NO_LOG_NOTE, build, collect } from '../scripts/design-map.mjs';
+import { TOKENS_CSS } from '../site/brand/kit.mjs';
 
 // The page's own "What's live" block (its helpers and the lines between its live and recipes comments), run on a
 // stand-in document: what a reader sees for the Live and Waiting lists.
@@ -84,6 +85,19 @@ describe('design map', () => {
     expect(html).not.toContain('/*__MAP_DATA__*/null');
     const embedded = html.slice(html.indexOf('window.MAP = '), html.indexOf(';</script>'));
     expect(embedded).not.toContain('</');
+  });
+
+  it('takes its colours and fonts from the brand kit: its tokens inlined, none written by the template (T-424)', () => {
+    const template = readFileSync(new URL('../tools/design-map/template.html', import.meta.url), 'utf8');
+    // the same rule as site/check.mjs group 15: a colour or a font stack is written only in site/brand/tokens.css
+    expect(template.match(/(?<![\w&/-])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])|\b(?:rgba?|hsla?)\(/g)).toBeNull();
+    expect(template.match(/-apple-system|BlinkMacSystemFont|Helvetica|Arial|Garamond|Menlo|\bsans-serif\b|\bmonospace\b|"SF (?:Pro|Mono)|fonts\.googleapis/g)).toBeNull();
+    const html = build();
+    expect(html).toContain(TOKENS_CSS.trim());
+    expect(html).toContain('<header class="ck-bar">');
+    expect(html).toContain('url("data:image/svg+xml,');
+    expect(html).not.toContain('__KIT_');
+    expect(html).not.toMatch(/prefers-color-scheme/);
   });
 });
 
