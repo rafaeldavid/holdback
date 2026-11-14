@@ -1,4 +1,4 @@
-// Crow's signer, buying half (T-434): a separate program, on a machine the buying agent cannot log in to, that holds
+// Crow's signer, buying half (T-439): a separate program, on a machine the buying agent cannot log in to, that holds
 // the payment key and signs one thing: a deal's funding, and only inside its rules. The agent holds no key that can
 // move Crow's money; it asks this program, and this program decides from the signed terms, its own rules file, its
 // own clock, its own ledger and its own reads of each deal. Test tokens only (Sepolia, a local chain or SimChain).

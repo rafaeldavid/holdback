@@ -1,4 +1,4 @@
-// What the signer's tests against a demo world share (T-434, T-435): a seller that offers by Agent.offerDirect and
+// What the signer's tests against a demo world share (T-439, T-440): a seller that offers by Agent.offerDirect and
 // delivers once the hold is funded, the version 1 rules for that world's club and reviewers, the administrator's
 // top-up of the float, and the buying agent's steps up to the payment. Only tests import it. Keys are made in memory.
 import { mkdtempSync, readFileSync } from 'node:fs';

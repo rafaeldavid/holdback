@@ -1,4 +1,4 @@
-// The signer, buying half (T-434), against the public demo's own world on SimChain, served in this process on two
+// The signer, buying half (T-439), against the public demo's own world on SimChain, served in this process on two
 // origins: the attacks that need a real settlement layer to refuse (A1, A2, A11), the stop with payments collected
 // before it (A8), a float the faucet filled (A9), and the operator-fee message where an operator charges one (A14).
 // The agent is this test process: it holds each deal's buyer key (the buyer signer's key store) and full control of

@@ -1,4 +1,4 @@
-// What the signer's tests share (T-434): the signer run as its own process with its keys in its own environment, the
+// What the signer's tests share (T-439): the signer run as its own process with its keys in its own environment, the
 // rules built from examples/signer-rules.v1.json (constraints version 1), a principal's mandate signed by a key made
 // in memory, and terms in the shape the operators serve. Not a test file and not a tool: only tests import it.
 // Every key here is made in memory for one test run and guards nothing.

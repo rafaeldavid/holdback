@@ -1,4 +1,4 @@
-// The signer, buying half (T-434): the attack tests run as the buying agent. The agent here has its own keys (each
+// The signer, buying half (T-439): the attack tests run as the buying agent. The agent here has its own keys (each
 // deal's buyer key) and full control of this test process; the signer runs as its own process, with the payment key
 // and the standing key only in that process's environment, its rules, flag and ledger in its own folder, and its own
 // read endpoint (a stand-in that plays the chain's part, set by the test as the signer's administrator would). Every

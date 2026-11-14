@@ -1,4 +1,4 @@
-// The mandate tool (T-433): it builds a Mandate, a Delegation and an AgentRevocation for a signature made elsewhere,
+// The mandate tool (T-438): it builds a Mandate, a Delegation and an AgentRevocation for a signature made elsewhere,
 // verifies a signed one, and prints the digest. The keys here are made in memory for the test and signed with as a
 // hardware wallet would sign the file; the tool itself never sees them.
 import { spawnSync } from 'node:child_process';
