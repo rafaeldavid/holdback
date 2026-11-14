@@ -42,8 +42,8 @@ Non-goals: deploying, setting a secret, or reading the pilot's private folder.
 
 Measured on 2026-11-14 on branch `t-436-hosted-sellers-deploy`, stacked on T-435.
 
-- `pnpm exec vitest run apps/hosted-sellers/src/deploy.test.ts`: 16 tests passed. The example folder reads to the example bundle; the decisions are tested with plain facts, and both runs with stand-ins for wrangler, git, the network, the files and the clock.
-- `node apps/hosted-sellers/scripts/deploy.ts --seller apps/hosted-sellers/example/seller --workspace example-workspace --dry-run`: printed the Worker, its address and the bundle's SHA-256; Wrangler bundled "Total Upload: 3876.47 KiB / gzip: 590.26 KiB"; exit 0. With `--workspace other`: "Refused: the configuration pins another account than --workspace names: nothing was deployed", exit 2.
+- `pnpm exec vitest run apps/hosted-sellers`: 27 tests passed, the 16 of `deploy.test.ts` among them. The example folder reads to the example bundle; the decisions are tested with plain facts, and both runs with stand-ins for wrangler, git, the network, the files and the clock.
+- `node apps/hosted-sellers/scripts/deploy.ts --seller apps/hosted-sellers/example/seller --workspace example-workspace --dry-run`: printed the Worker, its address and the bundle's SHA-256; Wrangler bundled "Total Upload: 3879.87 KiB / gzip: 591.14 KiB"; exit 0. With `--workspace other`: "Refused: the configuration pins another account than --workspace names: nothing was deployed", exit 2.
 - Nothing was deployed, no secret was set, and no Cloudflare account was called.
 
 ## Decisions

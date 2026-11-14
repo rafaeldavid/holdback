@@ -61,7 +61,8 @@ export function wranglerConfig(s: HostedSeller, o: { main: string; bundlePath: s
     name: workerName(s.slug),
     main: o.main,
     compatibility_date: '2025-09-15',
-    compatibility_flags: ['nodejs_compat'],
+    // process.env stays empty: no module the Worker imports reads a variable or a secret (T-435 review).
+    compatibility_flags: ['nodejs_compat', 'nodejs_compat_do_not_populate_process_env', 'disallow_importable_env'],
     workers_dev: false,
     preview_urls: false,
     // Two patterns, not "<slug>*": a seller named "acme" never takes "acme-two"'s paths.

@@ -44,6 +44,7 @@ describe("the seller's Worker configuration (T-436)", () => {
     expect(c.durable_objects).toEqual({ bindings: [{ name: 'SELLER', class_name: 'HostedSeller' }], code_update_strategy: { mode: 'deferred', max_delay: 300 } });
     expect(c.observability).toEqual({ enabled: true, logs: { invocation_logs: false } });
     expect(c.workers_dev).toBe(false);
+    expect(c.compatibility_flags).toEqual(['nodejs_compat', 'nodejs_compat_do_not_populate_process_env', 'disallow_importable_env']);
     expect(JSON.stringify(c)).not.toMatch(/KEY|CREDENTIAL|secret/i);
   });
 });
