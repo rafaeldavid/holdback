@@ -7,7 +7,8 @@
 //   quote         asks the seller's quote route for an offer. The seller learns the buyer's address, its public
 //                 encryption key and the scope, nothing else, plus a bearer credential when the seller requires one
 //                 (Options.quoteCredentialEnv names the environment variable that holds it).
-//   testFunds     on the test service, asks the faucet for the deal's total and a mandate in the demo club.
+//   testFunds     on the test service, asks the faucet for the deal's total and a mandate in the demo club. A 429
+//                 throws FaucetLimited, with the seconds until the faucet grants again.
 //   readOffer     reads the offer from both operators, for the buyer's agent to approve. Given the seller's published
 //                 defaults, it lists what the offer changes from them: each check, window and requirement, old and
 //                 new (T-330). It records what it showed.
@@ -353,6 +354,35 @@ export const printable = (json: string): string =>
 /** A value from the offer in an error message: canonical JSON, its first 200 code points, printable. */
 const shown = (v: J) => printable([...jcs(lowerHex(v))].slice(0, 200).join(''));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** The faucet's refusal of a grant (429), with the whole seconds until it grants again when it says (Retry-After). */
+export class FaucetLimited extends Error {
+  readonly detail: string;
+  readonly retryAfterSec: number | null;
+  constructor(detail: string, retryAfterSec: number | null) {
+    super(`POST /v1/faucet: rate_limited: ${detail}`);
+    this.detail = detail;
+    this.retryAfterSec = retryAfterSec;
+  }
+}
+
+/**
+ * The pauses, in ms, between reads of what changes over time (a state, the events, a balance, a released key) while
+ * the operators disagree on it: 15 s in all, a Sepolia block and some, for an operator a step behind the other to
+ * catch up (T-399 Finding 5). Every answer still has to agree; one that still differs after them stops the run.
+ */
+export const AGREE_PAUSES_MS: readonly number[] = [1000, 2000, 4000, 8000];
+/** `read`, and again after each pause while it throws `operators disagree on ...`; then that error. Any other error at once. */
+export async function agreeing<T>(read: () => Promise<T>, pauses: readonly number[] = AGREE_PAUSES_MS): Promise<T> {
+  for (let i = 0; ; i++) {
+    try {
+      return await read();
+    } catch (e) {
+      if (i >= pauses.length || !/^operators disagree on /.test(String((e as Error)?.message))) throw e;
+      await sleep(pauses[i]!);
+    }
+  }
+}
 const isRecord = (v: J): boolean => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 const PLACEHOLDER = /(\\?)\{\{([A-Za-z][A-Za-z0-9]*)(\.length)?\}\}/g;
@@ -684,23 +714,37 @@ export class BuyerSigner {
     if (!DEC.test(amount) || amount === '0') throw new Error('amount is base units as a decimal string, above 0');
     const { agent, pin } = await this.#connect();
     if (this.paymentAddress === this.address) {
-      const grant = await agent.call('POST', '/v1/faucet', { address: this.address, amount });
+      const grant = await this.#faucet(agent, { address: this.address, amount });
       return { token: grant.granted.token, amount: grant.granted.amount };
     }
     // ADR-0033 section 5 (T-378): one grant, the tokens to the payment address and the mandate to the signing key, which gets
     // no tokens. The faucet mints nothing to a payment address that already holds the amount.
-    const heldNow = async () => String((await agent.trusted(`/v1/balances/${this.paymentAddress}`, (x) => x.amount)) ?? '0');
+    const heldNow = async () => String((await agreeing(() => agent.trusted(`/v1/balances/${this.paymentAddress}`, (x) => x.amount))) ?? '0');
     let grant: J = null;
     try {
-      grant = await agent.call('POST', '/v1/faucet', { address: this.address, amount, paymentAddress: this.paymentAddress });
+      grant = await this.#faucet(agent, { address: this.address, amount, paymentAddress: this.paymentAddress });
     } catch (e) {
       // A second run within the hour (an approve after a stop): the first grant stands when the payment address holds the total.
       const h = await heldNow();
-      if (!/: rate_limited: /.test((e as Error).message) || !DEC.test(h) || BigInt(h) < BigInt(amount)) throw e;
+      if (!(e instanceof FaucetLimited) || !DEC.test(h) || BigInt(h) < BigInt(amount)) throw e;
     }
     const held = await heldNow();
     if (!DEC.test(held) || BigInt(held) < BigInt(amount)) throw new Error(`the faucet did not fund the payment address ${this.paymentAddress} (it holds ${held} base units): these operators predate the faucet's payment address (T-378)`);
     return { token: grant?.granted?.token ?? pin.token.id, amount: grant?.granted?.amount ?? '0' };
+  }
+
+  /** POST /v1/faucet to the relay, as Agent.call sends it; a 429 throws FaucetLimited, with the seconds Retry-After names. */
+  async #faucet(agent: Agent, body: J): Promise<J> {
+    const res = await fetch(`${agent.operators[0]}/v1/faucet`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': crypto.randomUUID() }, body: JSON.stringify(body) });
+    const out = (await res.json().catch(() => null)) as J;
+    // The operator's words, as printable text, at most 200 characters.
+    const detail = String(out?.detail ?? '').replace(/[^\x20-\x7e]/g, '?').slice(0, 200);
+    if (res.status === 429) {
+      const header = res.headers.get('retry-after') ?? '', sec = /^[0-9]{1,9}$/.test(header) ? Number(header) : Number.isSafeInteger(out?.retryAfterSec) && out.retryAfterSec >= 0 ? out.retryAfterSec : null;
+      throw new FaucetLimited(detail, sec);
+    }
+    if (!res.ok || out === null) throw new Error(`POST /v1/faucet: ${out?.type}: ${detail}`);
+    return out;
   }
 
   /**
@@ -981,7 +1025,7 @@ export class BuyerSigner {
     const written = this.#saved.funding?.commitmentId === id ? this.#saved.funding : undefined;
     if (apart && !written) throw new Error(`the payment address ${this.paymentAddress} signs the funding: call fundingFiles, sign its files with that wallet, and pass the signatures here`);
     if (!apart && signatures) throw new Error('this key is its own payment address: it signs the funding itself, and takes no signatures');
-    const state = (await agent.trusted(`/v1/commitments/${id}`, (x) => x.escrowState)) as string;
+    const state = (await agreeing(() => agent.trusted(`/v1/commitments/${id}`, (x) => x.escrowState))) as string;
     if (state === 'AcceptedByAdjudicator') {
       let held: J;
       if (apart) {
@@ -1002,7 +1046,7 @@ export class BuyerSigner {
       // Not waiting for the agreement any more. When both operators record the funding, an earlier run funded the hold
       // and stopped before it saved: only this key could have agreed. What it paid is what the approved terms say; that
       // run's receipt is gone. Without a recorded funding there is nothing this key paid, and nothing left to fund.
-      const funded = await agent.trusted(`/v1/commitments/${id}/events?limit=200`, (x) => x.items.some((e: J) => e.type === 'hold.funded'));
+      const funded = await agreeing(() => agent.trusted(`/v1/commitments/${id}/events?limit=200`, (x) => x.items.some((e: J) => e.type === 'hold.funded')));
       if (!funded) throw new Error(`${id} is ${state} and no funding is recorded: there is nothing to fund`);
     }
     this.#saved.paid = paid;
@@ -1198,7 +1242,7 @@ export class BuyerSigner {
     const { agent, pin } = await this.#connect();
     const sources = agent.sources();
     const path = `/v1/commitments/${id}/events?limit=200`;
-    const events = (await this.#agreed(sources, path, (x) => x.items.map((e: J) => ({ seq: e.seq, type: e.type, hash: e.hash, tx: typeof e.payload?.tx === 'string' ? e.payload.tx : null, delivery: e.type === 'delivery.submitted' ? { uri: e.payload?.ciphertext?.uri, plaintextSha256: e.payload?.plaintextSha256 } : null })))) as J[];
+    const events = (await agreeing(() => this.#agreed(sources, path, (x) => x.items.map((e: J) => ({ seq: e.seq, type: e.type, hash: e.hash, tx: typeof e.payload?.tx === 'string' ? e.payload.tx : null, delivery: e.type === 'delivery.submitted' ? { uri: e.payload?.ciphertext?.uri, plaintextSha256: e.payload?.plaintextSha256 } : null }))))) as J[];
     events.sort((a, b) => a.seq - b.seq);
     let work: string | null = null;
     let plaintextSha256: string | null = null;
@@ -1247,7 +1291,7 @@ export class BuyerSigner {
     if (lowerHex(d?.commitmentId) !== id) throw new Error(`the delivery you passed is for ${shown(d?.commitmentId ?? null)}, not ${id}`);
     const signer = await recoverTypedDataAddress({ ...typedOf('Delivery', d, agent.domain), signature: d.signature }).catch(() => '');
     if (signer.toLowerCase() !== String(terms.seller).toLowerCase()) throw new Error("the delivery you passed is not signed by the deal's seller");
-    const released = (await this.#agreed(agent.sources(), `/v1/commitments/${id}/key?recipient=${this.address}`, (x) => (Array.isArray(x?.items) ? x.items.map((k: J) => k.ciphertext) : []))) as string[];
+    const released = (await agreeing(() => this.#agreed(agent.sources(), `/v1/commitments/${id}/key?recipient=${this.address}`, (x) => (Array.isArray(x?.items) ? x.items.map((k: J) => k.ciphertext) : [])))) as string[];
     const mine = (Array.isArray(d.encryptedKeys) ? d.encryptedKeys : []).filter((k: J) => String(k?.recipient).toLowerCase() === this.address);
     if (mine.length !== 1 || !released.includes(mine[0].ciphertext)) throw new Error('the key the settlement released is not your envelope in the delivery you passed: it is not the delivery that settled');
     const uri = String(d.ciphertext?.uri);

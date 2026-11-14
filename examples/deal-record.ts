@@ -426,7 +426,9 @@ async function view(a: Answers, id: Hex, o: Options, cache: Map<string, Uint8Arr
     const apart = t ? [[t.buyer, payment], [t.seller, payout]].filter(([s, m]) => lc(s) !== lc(m)).map(([s]) => lc(s)) : [];
     if (apart.length) add('signing addresses receive nothing', postings.every((x: J) => !apart.includes(x.to)), `no posting out of escrow goes to ${apart.join(' or ')}, which sign and differ from their money address`);
   }
-  const transactions = events.filter((e) => typeof e.payload?.tx === 'string' && ID.test(e.payload.tx)).map((e) => ({ step: e.type, tx: e.payload.tx, url: pin?.chain?.explorer ? `${pin.chain.explorer}/tx/${e.payload.tx}` : null }));
+  // Each transaction once, under the first step it carries: one decision's transaction emits several events (T-399 Finding 6).
+  const seen = new Set<string>();
+  const transactions = events.filter((e) => typeof e.payload?.tx === 'string' && ID.test(e.payload.tx) && !seen.has(lc(e.payload.tx)) && seen.add(lc(e.payload.tx))).map((e) => ({ step: e.type, tx: e.payload.tx, url: pin?.chain?.explorer ? `${pin.chain.explorer}/tx/${e.payload.tx}` : null }));
   const settlement = { hold, operatorFee, postings, transactions };
   const balances = { note: 'as the operators report them when the record was written; read the token contract to check', ...a.balances };
   return { sections: { terms, outcome, steps, delivery, judgment, settlement, balances }, checks, pin };

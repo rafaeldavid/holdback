@@ -7,7 +7,7 @@
 // CROW_EXPECT: what you expect of the club, policy and mode, as JSON; give it to the approve run too. HOLDBACK_OPERATORS: the operators (on `pnpm sim`, its two). CROW_PAYMENT_ADDRESS: your own address that funds the hold and receives every refund (saved in the key file; left out, the fresh signing key's own). With it the run stops before funding, with exit status 4: it writes the two messages that address signs as typed-data files, and pay-from-wallet.ts funds with the signatures.
 import { readFileSync } from 'node:fs';
 import { command, help, helpAsked } from './help.ts';
-import { loadKeys, makeKeys, openDeals, printable, type BuyerSigner, type Offer } from './buyer-signer.ts';
+import { FaucetLimited, loadKeys, makeKeys, openDeals, printable, type BuyerSigner, type Offer } from './buyer-signer.ts';
 import { jcs } from './verify.ts';
 const args = process.argv.slice(2), stop = args.includes('--stop-after-funding'), at = args.indexOf('--expect-terms'), termsFile = at >= 0 ? args[at + 1] : undefined, dl = args.indexOf('--delivery'), deliveryFile = dl >= 0 ? args[dl + 1] : undefined;
 const [first, store, third, fourth, defaults, options] = args.filter((a, i) => a !== '--stop-after-funding' && (at < 0 || (i !== at && i !== at + 1)) && (dl < 0 || (i !== dl && i !== dl + 1))); const usage = help('buy-with-signer', import.meta.url), asked = helpAsked(args); // what it does, the usage and one example (examples/help.ts)
@@ -16,11 +16,23 @@ const say = (x: unknown) => console.error(printable(JSON.stringify(x))); // sell
 const expect = () => ({ expect: JSON.parse(process.env['CROW_EXPECT'] || '{}') }), sh = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
 // Waits, reports each step, reclaims the hold if deliverBy passes undelivered, decrypts, checks the hash. The work is the seller's data: printed as JSON, never run.
 const finish = async (s: BuyerSigner) => { const done = await s.openDelivery(s.commitmentId!, { onReport: say, ...(deliveryFile ? { delivery: JSON.parse(readFileSync(deliveryFile, 'utf8')) } : {}) }); console.log(printable(JSON.stringify({ commitmentId: s.commitmentId, buyer: s.address, paid: s.paid?.total, outcome: done.outcome, ...(done.settlement ? { settlement: done.settlement } : {}), work: done.work, transactions: done.transactions }))); };
+// The faucet's tokens and mandate; on its 429 one plain line, exit status 1, and false: nothing is signed or paid yet (T-399 Finding 2).
+const testFunds = async (s: BuyerSigner, amount: string) => {
+  try {
+    await s.testFunds(amount);
+    return true;
+  } catch (e) {
+    if (!(e instanceof FaucetLimited)) throw e;
+    console.error(printable(`Stopped: the faucet's grants for this client are used (429: ${e.detail}). It grants again ${e.retryAfterSec === null ? 'within the hour' : `in ${e.retryAfterSec} s`}. Nothing is signed or paid: run the approve command again then, before offerExpiresAt.`));
+    process.exitCode = 1;
+    return false;
+  }
+};
 // The approved offer: read again from every operator and refused, naming the field, unless it equals what was shown; then the faucet's total and mandate, and three signatures, each rebuilt from the approved terms.
 const pay = async (s: BuyerSigner, offer: Offer, budget: string) => {
   if (BigInt(offer.fees.total.amount) > BigInt(budget)) throw new Error(`the offer costs ${offer.fees.total.amount} base units, above ${budget}`);
-  if (!s.paid && s.paymentAddress !== s.address) { await s.checkOffer(offer.commitmentId, offer); await s.testFunds(offer.fees.total.amount); for (const f of await s.fundingFiles(offer.commitmentId)) say({ sign: f.path, digest: f.digest, check: f.check, summary: f.summary }); console.error(printable(`Stopped for the payment address's signatures: nothing is paid. Where the wallet that holds ${s.paymentAddress} is, run each file's check above (with the terms file beside it) and sign only a file it passes, whose digest the wallet shows; then run: ${[...['HOLDBACK_OPERATORS', 'CROW_EXPECT'].filter((k) => process.env[k]).map((k) => `${k}=${sh(process.env[k]!)}`), command('pay-from-wallet', import.meta.url)].join(' ')} fund ${sh(store!)} ${offer.commitmentId} <funding signature> [<operator-fee signature>]`)); return void (process.exitCode = 4); }
-  if (!s.paid) { await s.checkOffer(offer.commitmentId, offer); await s.testFunds(offer.fees.total.amount); say({ funded: offer.commitmentId, paid: (await s.agreeAndFund(offer.commitmentId)).total }); }
+  if (!s.paid && s.paymentAddress !== s.address) { await s.checkOffer(offer.commitmentId, offer); if (!(await testFunds(s, offer.fees.total.amount))) return; for (const f of await s.fundingFiles(offer.commitmentId)) say({ sign: f.path, digest: f.digest, check: f.check, summary: f.summary }); console.error(printable(`Stopped for the payment address's signatures: nothing is paid. Where the wallet that holds ${s.paymentAddress} is, run each file's check above (with the terms file beside it) and sign only a file it passes, whose digest the wallet shows; then run: ${[...['HOLDBACK_OPERATORS', 'CROW_EXPECT'].filter((k) => process.env[k]).map((k) => `${k}=${sh(process.env[k]!)}`), command('pay-from-wallet', import.meta.url)].join(' ')} fund ${sh(store!)} ${offer.commitmentId} <funding signature> [<operator-fee signature>]`)); return void (process.exitCode = 4); }
+  if (!s.paid) { await s.checkOffer(offer.commitmentId, offer); if (!(await testFunds(s, offer.fees.total.amount))) return; say({ funded: offer.commitmentId, paid: (await s.agreeAndFund(offer.commitmentId)).total }); }
   if (!stop) await finish(s); // with --stop-after-funding the key store keeps the deal: run resume later
 };
 if (first === 'resume') { const deals = third ? [await loadKeys(store!, third, expect())] : await openDeals(store!, expect()); if (deals.length === 0) console.error(printable(`No open deal in ${store}: no funded deal there is waiting for its outcome. To follow a deal again, or to open late work with --delivery, name it: ${command('buy-with-signer', import.meta.url)} resume ${sh(store!)} <commitment ID>`)); const failed = (await Promise.allSettled(deals.map(finish))).filter((r): r is PromiseRejectedResult => r.status === 'rejected'); for (const f of failed) say({ error: String(f.reason?.message ?? f.reason) }); process.exitCode = failed.length > 0 ? 1 : 0; } else if (first === 'approve') {
