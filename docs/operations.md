@@ -258,6 +258,17 @@ The maintainers keep the notes on agent sessions and permission prompts privatel
 
 Each entry records one deploy as it ran: the date and time in UTC, the commit, each Worker's new version and its rollback target, and what was measured after it. The deploy scripts print the entry's first line (`pnpm demo-cloud:deploy`, `pnpm site:deploy`, `node apps/test-agents/scripts/deploy.mjs`). The values are true for their date: for what runs now, read "What is live" above and each node's discovery.
 
+### The seller guide's fresh-key line (site deployed 2026-11-14, 14:14 UTC)
+
+**Site deploy 2026-11-14 14:14 UTC, commit `0250676` on a detached HEAD: pass.** crow-site `3f6b27aa-be9e-472e-9771-aef718c855a8` (rollback target `49d9faa2-af62-4f80-ba18-eced852bb792`).
+
+The T-399 session ran it on Rafa's word ("Yes, deploy"). It carries PR 546 (T-432): `ref/seller-adapter.txt` gains "A fresh key for each deal". The build uploaded three changed files (`/version.json`, `/guide-budget.json`, `/ref/seller-adapter.txt`), with 72 already uploaded. Two earlier tries, from `2db4e8f` and `46c03a4`, were refused before any upload, because `origin/main` had moved; the script refuses a checkout that lacks commits from `origin/main`.
+
+Measured after the deploy:
+- the script's own live check passed 0 s after the upload: the live site serves the built `llms.txt` and the pinned `try.mjs`;
+- `https://crow.direct/version.json` names commit `0250676` and version `3f6b27aa-…`;
+- the live `ref/seller-adapter.txt` holds both "A salt in each report" (T-431) and "A fresh key for each deal" (T-432).
+
 ### Rafa's four site fixes (site deployed 2026-11-13, 08:05 UTC)
 
 **Site deploy 2026-11-13 08:05 UTC, commit `15fedc8` on a detached HEAD: pass.** crow-site `80cdc3da-2376-40b5-9ac5-94dc2b4ecc47` (rollback target `ea7ecc24-ceb2-4368-b208-d6f36526292a`).

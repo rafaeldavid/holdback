@@ -5,8 +5,9 @@
 - **Depends on:** T-393 (the short guides), T-401 (ASCII guides)
 - **Paths this task may touch:** `site/ref/http.txt`, `site/ref/signing.txt`, `site/ref/http-buyer.txt`, `site/guides.mjs`, `tests/site-guides.test.ts`, this file. Off limits: `site/llms.txt`, `site/buy.txt`, `site/sell.txt`, `site/try.mjs`, `site/buy.mjs`, `site/build.mjs` and `site/check.mjs` (T-421's today), `site/ref/limits.txt` (T-423's), `site/ref/intake.txt` (T-420's).
 - **Human gate:** no. Rafa's standing word for the wave of 2026-11-14 is "merge and deploy when ready", inside the brief's six limits.
-- **Status:** in review
+- **Status:** done (pull request 525, merged 2026-11-14; the site deployed 12:03 UTC)
 - **Agent/session:** T-426's session, kind 1 (docs)
+- **Roadmap row:** T-252 (the agent guides)
 
 ## Intent
 

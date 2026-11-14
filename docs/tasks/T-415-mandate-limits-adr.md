@@ -5,8 +5,9 @@
 - **Depends on:** none. It reads ADR-0001, ADR-0002, ADR-0015, ADR-0017, ADR-0024, ADR-0031 and ADR-0033.
 - **Paths this task may touch:** one new file under `docs/decisions/`, one entry in `docs/decisions-today.md`, this file
 - **Human gate:** no. Nothing leaves the repository; Rafa may overrule the decision.
-- **Status:** review (the decision record; nothing is built)
+- **Status:** done (pull request 508, merged 2026-11-14: the decision record ADR-0038; Rafa answered its questions the same day, D69; the build is later tasks)
 - **Agent/session:** the T-415 session, started 2026-11-14 by the coordinator of that day's wave
+- **Roadmap row:** N117, N115
 - **Kind:** 10, research and decisions (`docs/team.md`, Change recipes)
 
 ## Intent

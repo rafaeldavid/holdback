@@ -5,8 +5,9 @@
 - **Depends on:** T-066 and T-370 (the One-Click harness, `tools/one-click/run.mjs`), T-328 (the outsider runner, `tools/one-click/outsider.mjs`), T-222 and T-239 (Crow's test seller and test buyer)
 - **Paths this task may touch:** `tools/one-click/`, `scripts/metrics/one-click*`, `scripts/metrics/schemas/one-click*`, `tests/metrics/one-click*`, this file. Two shared lines outside them, named under Decisions: `scripts/metrics/schemas/common.schema.json` (the envelope's version pattern) and `tests/metrics/schemas.test.ts` (the list of schema names).
 - **Human gate:** yes for the live runs only. They spend Rafa's model key and Sepolia test funds, so Rafa starts them (Handoff). Scripted runs need no key and no network.
-- **Status:** done (PR 506, merged 2026-11-14)
+- **Status:** done (PR 506, merged 2026-11-14; the six live runs recorded on 2026-11-14, crow-private PR 68)
 - **Agent/session:** T-412 side session of the 2026-11-14 wave, worktree `.worktrees/holdback-T-412`, branch `t-412-benchmark-harness`
+- **Roadmap row:** B1
 - **Change kind:** 4 (tool code with its tests): the metrics tests, `pnpm typecheck`, `pnpm lint`; one `reviewer` pass (the wave's rule 8)
 
 ## Intent
@@ -34,7 +35,7 @@ Non-goals: running the live scenarios (Rafa's); fixing the scenarios that cannot
 
 ## What the stage's bar still lacks after this task
 
-- **Live records.** No live record exists until Rafa runs the commands in the Handoff, so the four headline numbers read "missing".
+- **Live records.** No live record exists until Rafa runs the commands in the Handoff, so the four headline numbers read "missing". (Since 2026-11-14 six exist: Evidence.)
 - **s2 and s5 against the test seller** wait on N70 (a rubric item, and a silent outcome with a short delivery window).
 - **The console** reads `one-click/1` run files only. Reading the summary file is a `control/` change (T-414's lane, or the coordinator's).
 - **Doc gaps** in a live run come from the agent's own `GUESS:` lines, which the goal asks for. Writing each friction point up as a finding (the stage's second bar) still means reading the run's raw log (`--logs`).
@@ -76,7 +77,23 @@ All measured on 2026-11-14 in the worktree, on Node 22.22.2, unless labelled oth
   - Low: the schema ties `mode` to `agent.kind` and `world.engine`, and the summary checks all three; a scripted success also needs the operator to report the same end state; a crash is named as a crash; doc gaps come from the agent's own words only; a missing price table and Haiku's long-prompt tier get gap lines; the summary adds uncached input.
   - The same file-tool gap exists in `run.mjs` and `outsider.mjs` (Handoff, follow-ups).
   - After the fixes [measured]: `pnpm exec vitest run tests/metrics`: 9 files, 151 tests passed; eslint exit 0; `pnpm typecheck` passes.
-- **Not run** [measured]: no live run. `bench-live.mjs` is written from `outsider.mjs`, which ran four times on 2026-11-11, but its own code has run only up to the key check. Whether Claude Code honours `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` is a guess.
+- **Not run at merge** [measured]: no live run before PR 506 merged. The live runs followed the same day (next item).
+- **The six live runs** [measured]: Rafa ran them on 2026-11-14 from 13:22 to 14:40 UTC, from `main` at 40eb155, with a spend-capped key, Claude Code 2.1.318 with Opus 5.5 at effort medium, on Sepolia. Every record passed `bench: record valid`, and every scenario reached its end state. s2 and s5 ran against the test seller, so N70's rubric item and silent outcome were live by then.
+
+  | Scenario | End state | Approvals (by tool) | Tokens in / out | Cost (USD) | Wall time | API calls |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | s1 | Released | 20 (Bash 14, Write 6) | 1,073,841 / 21,256 | 1.06 | 256,695 ms | 41 |
+  | s2 | Released | 25 (Bash 20, Write 4, one question card) | 1,893,443 / 24,562 | 1.29 | 324,562 ms | 59 |
+  | s3 | Released | 11 (Bash 10, Write 1) | 564,014 / 15,914 | 0.73 | 195,481 ms | 66 |
+  | s4 | Refunded | 8 (Bash 8) | 350,264 / 3,681 | 0.30 | 98,374 ms | 141 |
+  | s5 | Refunded, by the buyer's reclaim | 28 (Bash 26, Monitor 1, one chat reply) | 3,552,708 / 28,318 | 1.83 | 886,145 ms | 141 |
+  | s6 | Released | 10 (Bash 9, Write 1) | 665,021 / 15,569 | 0.73 | 200,797 ms | 53 |
+  | All six | | 102 | | 5.94 | | |
+
+  - **The four headline numbers** (nearest-rank medians of the 6 completed live deals): approvals 11 per deal (target 1), tokens 680,590 per deal, time without the user 200,787 ms, cost 733,922 micro-USD. `node scripts/metrics/one-click-summary.mjs --runs <the live folder>` and Crow Control's own reader (a local build with `--metrics-from control/metrics`) give the same four values.
+  - **s5's reclaim** [measured, from its log]: the seller missed `deliverBy` (14:34:05 UTC); the first reclaim at 14:34:07 got `409 TooEarly` on both operators, and the retry at 14:34:24 refunded the 26 tUSDC hold. It took 886 s because the agent waited out the delivery window. Two copies of its script followed the deal; the reclaim is idempotent, so the refund happened once.
+  - **Where the approvals go** [measured, each `permission_request` in the six logs paired with the agent's tool call]: the logs hold 103 permission requests (the records count 100 tool prompts, 1 question card and 1 chat reply; the 3-request difference in s2 and s5 is not explained yet). Of the 103, 47 read the docs (`curl` of `llms.txt` and the `ref/` files, then `cat` or `sed` over them), 26 ran the agent's own deal scripts or one API call, 14 were Write calls for those scripts, 6 were `npm install` of `viem` and `tweetnacl`, 9 were s5's extra workspace steps (heredoc script writes, `sed -i` patches, a Monitor, `ls`), and 1 was s2's question card when the test seller counter-offered its own rubric. The first `llms.txt` fetch asked twice in 5 of the 6 runs. Every tool prompt came from the default permission mode.
+  - **Doc gaps**: 18 `GUESS:` lines across the six records (s4 none). The repeated ones: what `from` holds in a `crow-request`, where `"offer"` goes in a proposal, and what a checks-only deal's rubric looks like in the terms.
 
 ## Decisions
 
@@ -90,9 +107,9 @@ All measured on 2026-11-14 in the worktree, on Node 22.22.2, unless labelled oth
 
 ## Handoff
 
-**Done:** the harness, its scripted runs of all six scenarios in CI, the live mode (not run), the summary script and the README.
+**Done:** the harness, its scripted runs of all six scenarios in CI, the live mode, the summary script and the README. The six live runs ran on 2026-11-14 (Evidence), and their records are in crow-private `control/metrics/bench/` (crow-private PR 68), where the console's Benchmark panel reads them.
 
-**Waits for Rafa: the live runs.** Use a dedicated, spend-capped key for them and rotate it after: the agent runs with every request approved, and only plain-sight reads of the environment are denied. Each run spends that key (billed as API usage, not the Claude subscription) and Sepolia test funds from the public faucet; no real money. From `/Users/rafa/Documents/escrow`, on `main` after this merges, with `HOLDBACK_AGENT_ANTHROPIC_API_KEY` set in the shell (or `node --env-file=<his env file>` in place of `node`):
+**To rerun the live runs** (Rafa's, as before). Use a dedicated, spend-capped key for them and rotate it after: the agent runs with every request approved, and only plain-sight reads of the environment are denied. Each run spends that key (billed as API usage, not the Claude subscription) and Sepolia test funds from the public faucet; no real money. From `/Users/rafa/Documents/escrow`, on `main` after this merges, with `HOLDBACK_AGENT_ANTHROPIC_API_KEY` set in the shell (or `node --env-file=<his env file>` in place of `node`):
 
 ```
 cd /Users/rafa/Documents/escrow
@@ -119,10 +136,11 @@ One at a time: the test seller takes 3 requests per client an hour (`site/llms.t
 | s6 | about 1.0 to 1.6 | guessed: as s3 |
 | All six | about 7 to 8.5 | the sum |
 
-The estimates assume `llms.txt` is still about the size it was on 2026-11-11 (90 kB): the tokens were almost all cache reads of it (T-328 review, F5) [inferred]. Each run takes about 5 to 7 minutes [measured in T-328]. Expect s2 and s5 to stop or to self-play until N70 lands: the live test seller sells no rubric item and always delivers.
+The estimates assume `llms.txt` is still about the size it was on 2026-11-11 (90 kB): the tokens were almost all cache reads of it (T-328 review, F5) [inferred]. Each run takes about 5 to 7 minutes [measured in T-328]. The runs of 2026-11-14 cost USD 5.94 for all six, below the estimate, and took 98 to 886 s each [measured].
+
+To land new records, follow crow-private `control/README.md`, "The benchmark's headline numbers": copy them to `control/metrics/bench/` by pull request.
 
 **Waits for another lane:**
-- **The console** (T-414 or the coordinator, `control/`): run the summary in the build, `node scripts/metrics/one-click-summary.mjs --runs control/metrics/bench --out <out>/metrics/one-click-summary.json`, and read its four headline numbers. Committing `/2` records to their own folder, `control/metrics/bench/` (a suggestion), keeps them out of the `/1` reader's gap lines.
-- **N70** (the test seller): a rubric-judged item and an outcome that never delivers. Then replace `blockedBy` for s2 and s5 in `tools/one-click/scenarios.mjs` with their scripted agents.
+- **N70** (the test seller): the live seller served s2 and s5 on 2026-11-14, but the scripted world still blocks them. Replace `blockedBy` for s2 and s5 in `tools/one-click/scenarios.mjs` with their scripted agents.
 
 **Follow-ups not built:** the file-tool fence and the shell-history read denials in `run.mjs` and `outsider.mjs`, which have the gap the review found in this harness (for the triage note); Cloudflare request counts (`run.mjs --tail`) in the `/2` record; telling a reclaim from a rejection in a live s5 record; a CI run of the live mode with a capped key (T-068).

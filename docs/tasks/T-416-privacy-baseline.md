@@ -8,6 +8,7 @@
 - **Human gate:** no. Plain GETs of the live operators and a public Sepolia RPC only; no deal is created and nothing on the live service changes.
 - **Status:** done (pull request 503)
 - **Agent/session:** the T-416 session, 2026-11-14, branch `t-416-privacy-baseline`
+- **Roadmap row:** N30
 
 ## Intent
 
