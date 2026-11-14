@@ -965,8 +965,9 @@ describe('telemetry (T-031)', () => {
     expect(kept).not.toMatch(/0x[0-9a-f]{40}/);
     // And no header, query or body value, nor the IP, lands anywhere in the world's storage.
     const everything = await storage.list({ prefix: '' });
-    // `ar`: the demo adjudicators' own registrations (T-221), which hold no request data.
-    expect(new Set([...everything.keys()].map((k) => k.split(':')[0]))).toEqual(new Set(['meta', 'j', 'fa', 'ct', 'jr', 'rl', 'tm', 'ar']));
+    // `ar`: the demo adjudicators' own registrations (T-221), which hold no request data. `lc`: the daily caps (T-422),
+    // keyed by the client hashed with the world's secret; the IP check below covers them.
+    expect(new Set([...everything.keys()].map((k) => k.split(':')[0]))).toEqual(new Set(['meta', 'j', 'fa', 'ct', 'jr', 'rl', 'tm', 'ar', 'lc']));
     const stored = JSON.stringify([...everything.values()], (_k, v) => (v instanceof Uint8Array ? undefined : v)).toLowerCase();
     for (const secret of [...Object.values(canaries), 'c0ffeec0ffee', 'canary-query', 'canary-body', ip]) expect(stored).not.toContain(secret.toLowerCase());
   }, 60_000);
@@ -1095,8 +1096,8 @@ describe('discovery publishes what Crow Control reads by script (T-066, slice 3)
   const COMMIT = '0123456789abcdef0123456789abcdef01234567';
 
   it('names the deployed commit from BUILD_COMMIT, and null for anything that is not 40 hex characters', async () => {
-    expect((await demoOf(await PublicWorld.open({ storage: new MemoryStorage(), env: { BUILD_COMMIT: COMMIT } }))).build).toEqual({ commit: COMMIT });
-    expect((await demoOf(await PublicWorld.open({ storage: new MemoryStorage(), env: {} }))).build).toEqual({ commit: null });
+    expect((await demoOf(await PublicWorld.open({ storage: new MemoryStorage(), env: { BUILD_COMMIT: COMMIT } }))).build).toEqual({ commit: COMMIT, deployedAt: null });
+    expect((await demoOf(await PublicWorld.open({ storage: new MemoryStorage(), env: {} }))).build).toEqual({ commit: null, deployedAt: null });
     expect(buildCommit({ BUILD_COMMIT: COMMIT.toUpperCase() })).toBe(COMMIT);
     expect(buildCommit({ BUILD_COMMIT: 'main' })).toBe(null);
     expect(buildCommit({ BUILD_COMMIT: `${COMMIT}0` })).toBe(null);

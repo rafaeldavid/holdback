@@ -51,7 +51,7 @@ import type { Sha256, Signature, Timestamp, TokenAmount } from '@holdback/core';
 import { CryptoError, sha256 } from '@holdback/core/crypto';
 import { MAX_CIPHERTEXT_BYTES, StoreError, type CiphertextStore } from '@holdback/core/store';
 import { ENVELOPE_SPEC } from './envelope-spec.js';
-import { FeedbackDesk, FeedbackError, MAX_REPORT_BYTES, parseReport, type FeedbackOptions, type Report } from './feedback.js';
+import { FeedbackDesk, FeedbackError, MAX_REPORT_BYTES, parseReport, type FeedbackOptions } from './feedback.js';
 import { startupGuards } from './guards.js';
 import { tokenRefusal, type AcceptedToken } from './token.js';
 import { amountText, bondNotices, fallbackBondRefusal, operatorFeeText, prepare, PrepareError, turnNotices, type Erc3009Signing, type PrepareContext } from './prepare.js';
