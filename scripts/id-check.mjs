@@ -57,7 +57,11 @@ export function rowProblems(id, dir = TASKS) {
 }
 
 // { ok, ids, reason }
-export function checkPr({ title = '', branch = '', body = '' } = {}, ids = taskIds(), dir = TASKS) {
+// The body without its HTML comments: the pull request template's guidance ("write no ticket …", "T-xxx") is not
+// the author's answer, and GitHub keeps the comments in the body.
+export const uncommented = (text) => String(text ?? '').replace(/<!--[\s\S]*?(?:-->|$)/g, ' ');
+export function checkPr({ title = '', branch = '', body: raw = '' } = {}, ids = taskIds(), dir = TASKS) {
+  const body = uncommented(raw);
   const named = [...new Set([...`${branch} ${title} ${body}`.matchAll(T_ID)].map((m) => `T-${m[1]}`))].filter((id) => ids.has(id));
   if (named.length) {
     const problems = named.flatMap((id) => rowProblems(id, dir));

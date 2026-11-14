@@ -71,6 +71,12 @@ describe('the ID check: the task file names its roadmap row (T-437)', () => {
     expect(check({ branch: 't-999-unfiled' }).ok).toBe(false);
   });
 
+  it('ignores the template\'s HTML comments: guidance in them is no answer', () => {
+    expect(check({ branch: 'misc', body: '<!-- No task: write "no ticket" here. Closes T-440 -->\nTask: T-xxx' }).ok).toBe(false);
+    expect(check({ branch: 'misc', body: '<!-- guidance -->\nNo ticket: a dependency bump.' }).ok).toBe(true);
+    expect(check({ branch: 'misc', body: '<!-- unclosed comment, Closes T-440' }).ok).toBe(false);
+  });
+
   it('reads the line\'s shape: row IDs separated by commas, a bracketed note, or none', () => {
     expect(rowLine('N70')).toEqual({ ok: true, none: false, ids: ['N70'] });
     expect(rowLine('N1a, T-252 and B1')).toEqual({ ok: true, none: false, ids: ['N1a', 'T-252', 'B1'] });
