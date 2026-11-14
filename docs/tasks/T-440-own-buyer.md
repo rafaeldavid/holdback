@@ -1,6 +1,5 @@
 # T-440: Crow's buying agent pays through the signer
 
-- **Roadmap row:** N131
 - **Lane:** demo (Crow's own agents, roadmap row N131, build row 4)
 - **Phase:** 2
 - **Depends on:** T-439 (the signer), T-438 (the mandate tool)
@@ -8,6 +7,7 @@
 - **Human gate:** no (nothing deployed; the site deploy after merge follows the wave's rule)
 - **Status:** review
 - **Agent/session:** own-agents build session, started by the coordinator on 2026-11-14
+- **Roadmap row:** N131
 
 ## Intent
 
