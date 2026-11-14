@@ -1323,3 +1323,9 @@ On a chain, the operators that relay a deal check a mandate's roles, cap per dea
 - **What it parks with T-207.** Closing what the operators still serve an outsider for a sealed deal, re-measuring the baseline on a live `private` deal, and keeping a mandate's principal out of public reads. Each starts only when T-207 does.
 - **What it leaves open.** Sealing the judges' notes, a salt in the audit report and a fresh key per deal in the seller adapter do not wait for T-207; the baseline names their lanes.
 - **Litmus tests.** Neutrality, the hold and defended judgment: unchanged; nothing is built or removed.
+
+## D71. Sourcify's API v2 is the one way the deploy script verifies the contracts' source (T-410)
+
+**Status:** decided, 2026-11-14.
+
+**Decided 2026-11-14 by T-410, pull request 514:** Etherscan leaves `contracts/script/deploy-sepolia.sh --verify`. The step verifies the five contracts' source through Sourcify's API v2 only (`scripts/sourcify-verify.mjs`), with no key and no account. Forge 1.0.0 names only Etherscan's retired API, so the script no longer calls it. The steps are in `docs/redeploy-contracts.md`, step 3. Litmus tests: unchanged; verification publishes source and moves nothing.
