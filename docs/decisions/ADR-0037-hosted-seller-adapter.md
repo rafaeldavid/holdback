@@ -22,7 +22,8 @@ Labels: **measured** (read at the cited line, or run), **documented** (stated in
 4. **The configuration** stays outside the public repository. The deploy script reads it from a path Rafa names and bundles it; the card shows its SHA-256.
 5. **The workspace guard.** The configuration names the workspace once; the quote and start addresses must carry it; a result that names another workspace is never delivered.
 6. **The card page** at `crow.direct/agents/<seller>`, with the `crow-agent` card `site/buy.txt` step 2 reads.
-7. **Deploys.** The Durable Object keeps running its old code while a deal is between "the hold is funded" and "the job has an ID"; the deploy script refuses while one is.
+7. **A start with no idempotency key goes out at most once per deal.** Today the adapter sends it again at every poll until it records a job ID, which can charge the partner a second scan. The fix is in the shared core, so the Mac gets it too.
+8. **Deploys** use deferred code updates, and the deploy script refuses while a deal waits between a funded hold and a recorded job ID.
 
 ## 1. Context
 
@@ -36,12 +37,14 @@ Labels: **measured** (read at the cited line, or run), **documented** (stated in
 
 **What has to change for hosting** [measured, by import]: four Node-only parts. `node:fs` reads the configuration, the template, the report mapping and the journal; `node:http` serves the routes; `setInterval` drives the poll; `examples/report-converter.ts:31` reads its mapping with `readFileSync`. The rest already runs in Workers: `examples/agent.ts` and `examples/verify.ts` run in `crow-test-agents` [measured, `apps/test-agents/src/seller.ts:17-19`], and the check library runs in the adjudicators inside holdback-op1 [documented, `docs/operations.md`, "What is live"; `apps/adjudicator/src/service.ts` imports `@holdback/judgment`].
 
+**One call fails in a Worker as written.** The adapter fetches with `redirect: 'error'` (`examples/seller-adapter-api.ts:427`, `examples/seller-adapter.ts:1110`). Workers do not implement that mode and throw a `TypeError` before sending [documented, Workers Request API]. The core uses `redirect: 'manual'` and refuses any 3xx itself, on Node and in the Worker.
+
 **The partner's job API sets two hard constraints** (private kit, `run-real-jobs.md`, not copied here):
 
 - **Each scan spends the partner's credits once.** A start for a deal whose scan has ended is charged again.
-- **The start call takes no idempotency key.** A second start while the first scan is queued or running is refused with 409 at no cost. A 409 leaves the deal at `starting` and the adapter alerts; a person finds the job by its name [inferred from `:1013-1017`].
+- **The start call takes no idempotency key.** A second start while the first scan is queued or running is refused with 409 at no cost.
 
-So the moment between "recorded `starting`" and "recorded the job's ID" is the one place where a lost process costs the partner a scan or a person's time.
+**High · The adapter sends the start again at every poll while a deal is at `starting`** (`examples/seller-adapter.ts:1013-1017`, `:1172-1183`) [inferred from reading]. A start whose answer was lost (a crash, a reset, a timeout after the partner created the job) leaves no job ID. Each later poll calls start again. While the scan runs, each call draws a free 409. Once the scan ends, the next call starts and charges a second scan. The `starting` branch also checks neither `Held` nor `deliverBy` before it calls. This holds on the Mac today, hosted or not, so the shared core fixes it (section 6).
 
 ## 2. The runtime: a Worker with a Durable Object, or a container
 
@@ -100,12 +103,22 @@ So the moment between "recorded `starting`" and "recorded the job's ID" is the o
 
 ## 6. Deploys, resets and the `starting` window
 
-**A deploy resets an active Durable Object** unless its code update is deferred; with `deferred`, the object keeps running its version until it goes idle or `max_delay` passes [documented, Durable Objects code updates]. A reset during the start call leaves `starting` recorded with no job ID. The next pass calls start again; while the scan runs the partner answers 409 at no cost, and the adapter alerts [inferred, section 1].
+**A start with no idempotency key is sent at most once per deal.** This is the fix for section 1's High finding, in the core, so the Mac gets it too.
 
-- **The Worker deploys with a deferred code update** and a `max_delay` above the start call's timeout.
-- **The deploy script refuses** while `/health` shows a deal at `starting`, with no override. Every other stage is safe across a reset: `delivering` reads the settlement layer before it delivers again [measured, `examples/seller-adapter.ts:1021-1025`].
+1. **The mapping says so.** A start mapping with no `idempotencyHeader`, or with `"repeatable": false`, is a one-shot start. The shipped stub's shape, which takes the deal's ID as its key, stays repeatable.
+2. **Before the call,** the `starting` branch reads the settlement layer again: the hold must still be `Held` and `deliverBy` still ahead. Otherwise the deal closes with no start.
+3. **The attempt is recorded before the call.** The Durable Object holds the outgoing request until that record is stored [documented, Durable Objects rules: output gates]; on Node the journal is written first, as today.
+4. **A pass that finds an attempt and no job ID never calls again.** The deal holds at `start-unknown`, the adapter alerts once, and `/health` lists the deal as waiting on the seller's operator. An alert is only a log line unless `alerts.callback` is set (`examples/seller-adapter.ts:1105-1106`), so `/health` is where Rafa sees it.
+5. **A person supplies the job ID** through `POST /deals/<id>/job`, behind the ready route's credential, after finding the job by its name at the partner. The adapter then resumes at `started`. With no ID by `deliverBy`, the deal closes and the buyer reclaims.
+
+Reading the existing job's ID from a 409 answer would remove the person's step, but could adopt another deal's scan of the same commit. It is backlog (D26: bounded loss and a clean record first).
+
+**A deploy resets an active Durable Object** unless its code update is deferred. With `deferred`, an active object keeps its version for up to `max_delay`, at most 300 s and best effort, then resets [documented, Durable Objects code updates]. The next alarm resumes from storage.
+
+- **The Worker deploys with a deferred code update.**
+- **The deploy script refuses** while `/health` shows a deal at `starting` or `start-unknown`, with no override. Every other stage is safe across a reset: `delivering` reads the settlement layer before it delivers again [measured, `examples/seller-adapter.ts:1021-1025`].
 - **The alarm handler never throws.** It catches each deal's error, as the poll does today (`:1172-1183`), and sets the next alarm itself, since a throwing handler is retried only six times [documented, Alarms API].
-- **Recovering the job after a 409** stays a person's step, as on the Mac. Reading the existing job's ID from the 409 answer would remove it, but could adopt another deal's scan of the same commit. It is backlog (D26: bounded loss and a clean record first).
+- **A contract cutover** strands an open deal on the old deployment. The cutover checklist reads each hosted seller's open deals first.
 
 ## 7. One core, two shells
 
@@ -114,7 +127,9 @@ The deal logic moves from `startSellerAdapter` into `createSellerAdapter({config
 - **The Node shell** keeps `startSellerAdapter`'s signature and behaviour: a file store written whole and renamed, `node:http` turned into `Request`s, and `setInterval` calling `pass`. Every existing adapter test runs unchanged against it.
 - **The Worker shell** is a Durable Object: storage holds one key per deal and per quote replay, the alarm calls `pass` and sets the next wake, and the Worker routes `/agents/<slug>` and `/agents/<slug>/*` to the object.
 - **The routes are two patterns,** `crow.direct/agents/<slug>` and `crow.direct/agents/<slug>/*`, not `<slug>*`, so a seller named `test` never takes `test-seller`'s paths. The slug is lowercase letters, digits and single hyphens, and the deploy script refuses `test-seller` and `test-buyer`.
-- **The card page,** `GET /agents/<slug>`: an HTML page with a `<script type="application/json" id="crow-agent">` card: `{"type": "crow-agent", "name", "seller": <signing address>, "offers": [{"id", "pricing": {"kind": "quoted", "quote": ".../quote", "defaults": ".../defaults"}}], "configSha256", "testTokensOnly": true}`. Whether a card names the partner is publishing, so Rafa decides it per seller in `card.name`.
+- **The card page,** `GET /agents/<slug>`: an HTML page with a `<script type="application/json" id="crow-agent">` card: `{"type": "crow-agent", "name", "seller": <signing address>, "offers": [{"id", "pricing": {"kind": "quoted", "quote": ".../quote", "defaults": ".../defaults"}}], "configSha256", "testTokensOnly": true}`, also served as `/agents/<slug>/agent.json`, as the test seller does (`apps/test-agents/src/seller.ts:238-249`). The page says that Crow runs the operators, the demo adjudicators and this seller, as the test seller's page does (`:232`). Whether a card names the partner is publishing, so Rafa decides it per seller in `card.name`.
+- **Sepolia only.** The Worker signs only for the Sepolia deployment pinned in `examples/deployments.ts`, as `apps/test-agents/src/worker.ts:61` does. `knownPins()` also takes a deployment from the environment (`examples/verify.ts:55-59`), so the Worker refuses any other pin at start.
+- **Rate limits held in memory** (the quote route's window, `examples/seller-adapter.ts:591-600`) move into storage, so a reset does not reopen the window.
 
 ## 8. Litmus tests
 
@@ -129,13 +144,20 @@ The deal logic moves from `startSellerAdapter` into `createSellerAdapter({config
 - **D. One shared Worker for every hosted seller.** Fewer Workers, but one configuration could reach another seller's secrets, and one deploy restarts every seller's object (section 3).
 - **E. A Workflow per deal.** Durable steps and long sleeps fit a 7-day deal. The quote route and the redelivery signal still need a Worker and storage, and the deal logic would be rewritten as steps rather than shared with the Node adapter.
 
-**Independent research pass.** Pending: a separate research agent compares A and B from the code and Cloudflare's documentation, without this note's conclusion. Its result and any disagreement go here before review.
+**Independent research pass** (2026-11-14, a separate agent given the code, the docs and the two options, not this note's conclusion). It recommends A with one Worker per seller, at about 85% confidence for A over B and 65% for the configuration and guard details [its own estimates]. It agrees with sections 2 to 5 and 7. It added three findings this note now carries:
+
+- **High:** the start sent again at every poll (section 1), fixed by section 6's start-at-most-once rule.
+- **Medium:** B does not keep the adapter unchanged: the disk is ephemeral and code inside a container does not keep it running, so B needs the journal store and a keep-alive alarm too [documented, Containers FAQ].
+- **Medium:** `redirect: 'error'` throws in a Worker (section 1).
+
+It estimated A at about 40,000 alarm runs per 7-day deal at a 15 s poll, inside Workers Paid's included 1,000,000 requests a month, and B at about 1.40 USD per 7-day window on a 1 GiB instance [inferred, from Cloudflare's pricing pages]. It measured the pilot partner's template at 7,733 bytes minified, over the 5 KB limit for a Worker variable, which confirms the bundled configuration of section 4.
 
 ## 10. Consequences
 
 - A design partner with only a job API sells through Crow without running anything; a buyer needs only crow.direct.
 - Crow holds third-party keys that start paid work. The red-team review of the build covers: the credential-variable refusal, the workspace guard, secrets in the journal and logs, the `starting` window across a deploy and an alarm retry, the quote route's credential and rate limit, and the card page's escaping.
 - `site/buy.txt` step 2 says Crow runs no seller that sells by quote. That line changes when the first hosted seller goes live, in the deploy's change.
+- A hosted seller bundles its own copy of the check library. A change to the checks goes out to the hosted sellers with the operator deploy that carries it, so the seller's first-stage run matches the adjudicator's.
 - Every deploy and every secret stays Rafa's.
 
 ## 11. What the build tests
@@ -143,12 +165,14 @@ The deal logic moves from `startSellerAdapter` into `createSellerAdapter({config
 On the in-process world (`apps/test-agents/src/test-world.ts`) with the job stub (`examples/seller-adapter-job-stub.ts`):
 
 1. Quote, hold, start, result, delivery and release through the Worker shell.
-2. A reset of the object in each stage, `starting` included, ending in at most one job and at most one delivery.
-3. The workspace guard: a path without the placeholder, a literal ID, and a result from another workspace, each refused.
-4. The credential refusal: `sellerApi.auth.env` equal to `HOLDBACK_KEY` or to another credential's variable.
-5. No secret value in any journal entry or log line.
-6. The card page: the `crow-agent` card parses, its addresses answer, and a hostile `card.name` is escaped.
-7. Every existing adapter test, unchanged, on the Node shell.
+2. A reset of the object between any two steps, `starting` included, ending in at most one job, at most one delivery, the same keyed quote answer and the same rate-limit window.
+3. A lost start answer sends no second start; no start once the hold is not `Held` or `deliverBy` has passed; `POST /deals/<id>/job` resumes the deal.
+4. A 3xx from the partner's API is refused, on Node and in the Worker; a pin other than Sepolia stops the Worker at start; a failed alarm sets the next one.
+5. The workspace guard: a path without the placeholder, a literal ID, and a result from another workspace, each refused.
+6. The credential refusal: `sellerApi.auth.env` equal to `HOLDBACK_KEY` or to another credential's variable.
+7. No secret value in any journal entry or log line.
+8. The card page: the `crow-agent` card parses, its addresses answer, and a hostile `card.name` is escaped.
+9. Every existing adapter test, unchanged, on the Node shell.
 
 ## 12. Open questions for Rafa
 
@@ -156,3 +180,5 @@ On the in-process world (`apps/test-agents/src/test-world.ts`) with the job stub
 2. **One Worker per seller** (recommended) or one shared Worker.
 3. **Where the configuration lives:** a folder per seller in the private repository (recommended), bundled at deploy.
 4. **The card's name:** whether a hosted seller's page names its partner, decided per seller.
+5. **A spare copy of each seller's signing key,** held offline by Rafa, or none. Without one, a Worker that cannot run until `deliverBy` means a refund to the buyer and a spent scan; with one, a person can deliver by hand (`examples/seal.ts`). Recommended: none for the pilot wave, since the funds are test tokens and the refund is bounded.
+6. **The start-at-most-once rule (section 6) on the Mac too,** before the pilot's two scans: it changes `examples/seller-adapter.ts` that those scans run. Recommended: yes, as a small change of its own ahead of the hosted build, since a second charged scan is the costliest failure here.

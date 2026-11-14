@@ -1150,5 +1150,6 @@ The full text is kept privately (`docs/private-materials.md`).
 - **Secrets** are Worker secrets only. A new refusal in the adapter's core: every credential variable a configuration names is distinct, and none is `HOLDBACK_KEY`.
 - **The configuration** stays outside the public repository, bundled at deploy; the card shows its SHA-256.
 - **The workspace guard:** the configuration names the workspace once, the quote and start addresses must carry it, and a result that names another workspace is not delivered.
+- **A one-shot start** (no idempotency key) is sent at most once per deal. Today the adapter resends it at every poll until it records a job ID, which can charge a partner a second scan (High, found by the research pass). The fix is in the shared core, so the Mac gets it too; a person supplies a lost job ID.
 - **Deploys:** deferred code updates, and the deploy script refuses while a deal is between a funded hold and a recorded job ID.
 - **Litmus tests.** Neutrality, the hold and defended judgment: unchanged. The hosted adapter is a party that reaches the operators over the public API, like the test seller (D47).

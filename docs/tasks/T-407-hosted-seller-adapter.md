@@ -5,7 +5,7 @@
 - **Depends on:** T-406 (a quote priced per unit, PR 497), T-399 (the live rehearsal of a design partner's two scans)
 - **Paths this task may touch:** `docs/decisions/ADR-0037-hosted-seller-adapter.md`, `docs/decisions-today.md` (one entry), this file; after Rafa picks the design: `examples/seller-adapter*.ts`, `examples/report-converter.ts`, a new `apps/hosted-sellers/`, `pnpm-workspace.yaml`, `fixtures/` for the new tests, `docs/operations.md` (a "how to deploy" section only)
 - **Human gate:** yes for any deploy and every secret. The build itself is confined to the repository.
-- **Status:** in progress (the design record is in review; nothing is built)
+- **Status:** review (the design record; nothing is built)
 - **Agent/session:** the T-407 session, started 2026-11-14 by the pilot coordinator
 
 ## Intent
@@ -24,7 +24,7 @@ Inputs: one adapter configuration per seller in the `loadConfig` shape. Outputs:
 - `examples/seller-adapter.ts`, `examples/seller-adapter-api.ts`, `examples/report-converter.ts`: the adapter today.
 - `apps/test-agents/` and `docs/operations.md`: how the test seller runs as a Worker with a Durable Object, an alarm and one Worker secret.
 - `site/buy.txt` step 2, `site/ref/intake.txt` and `site/ref/seller-adapter.txt`: the card a buyer reads.
-- The private kit for the pilot's scans (`reports/crow-private/design-partners/…/kit/run-real-jobs.md`): the workspace rule and the duplicate-start rule. Nothing from it is copied here.
+- The pilot's private kit (`docs/private-materials.md`): the workspace rule and the duplicate-start rule. Nothing from it is copied here.
 
 ## Acceptance criteria
 
@@ -53,7 +53,11 @@ Fill this in before review. Label each item measured, inferred or guessed.
 ## Decisions
 
 - 2026-11-14: the design record first, the build after Rafa picks (the task's brief).
+- 2026-11-14: one independent research pass (a separate agent, at maximum effort) compared the runtimes from the code and Cloudflare's documentation. It recommends the same option and found the High finding below; ADR-0037 section 9 records it.
 
 ## Handoff
 
-The design record is drafted and waits for Rafa's pick. Nothing is built.
+**State: review.** ADR-0037 is Proposed and waits for Rafa's pick (its section 12). Nothing is built.
+
+- **High, for the pilot's scans on the Mac too:** `examples/seller-adapter.ts:1013-1017` sends the partner's start again at every poll while a deal is at `starting` with no recorded job ID [inferred from reading, not run]. After a lost start answer, the first poll after the scan ends starts and charges a second scan. ADR-0037 section 6 is the fix; its open question 6 asks whether to ship it as a small change before the two scans.
+- **To resume after Rafa picks:** build in this order: the start-at-most-once rule and the `redirect: 'manual'` change in the current file with tests; the core split (section 7) with every existing adapter test unchanged; `apps/hosted-sellers/` with the Worker-shell tests of section 11; the deploy and secret scripts; then the red-team review.
