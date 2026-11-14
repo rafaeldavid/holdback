@@ -45,4 +45,4 @@ All measured on 2026-11-14 in `.worktrees/holdback-T-441`, branch `t-442-signer-
 
 ## Handoff
 
-Done. The failure was a test that read the clock twice; the signer's bounds hold exactly where the rules put them. The rest of the signer's tests that build dates from the wall clock (the control cases in A3 to A14) depend on no bound to the second: they sit at least 60 s inside every window (inferred from the values in `signer-test-kit.ts`).
+Done. The failure was a test that read the clock twice; the signer's bounds hold exactly where the rules put them. The other tests that build terms from the wall clock take every deadline from the terms' own `createdAt` (`termsFor` in `signer-test-kit.ts`), so a second read of the clock cannot change a window. Against the signer's clock such a `createdAt` sits up to a few seconds behind it, well inside the 60 s allowed ahead and the 300 s before the offer expires (inferred from the code).
