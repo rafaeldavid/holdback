@@ -1,0 +1,206 @@
+// T-451: every answer of the site Worker (crow-site) carries the security headers; HTML pages carry a content security
+// policy that names the build's inline hashes, and nothing else about an answer changes: its body's bytes, its
+// Cache-Control and its CORS header stay as the asset server or the route sent them.
+import { afterEach, describe, expect, it, vi } from 'vitest';
+// @ts-expect-error -- plain ESM Worker without type declarations
+import site from '../apps/site/worker.js';
+// @ts-expect-error -- plain ESM module without type declarations
+import { COMMON, contentSecurityPolicy, forgetHashes, parseHashes } from '../apps/site/headers.js';
+import { cspHash, elements, inlineBlocks, scriptCountProblem } from '../site/csp.mjs';
+
+type Fetcher = { fetch(request: Request, env: unknown, ctx?: unknown): Promise<Response> };
+const S = `sha256-${'A'.repeat(43)}=`, T = `sha256-${'B'.repeat(43)}=`;
+const HASHES = { scripts: [S], styles: [T] };
+
+/** A stand-in assets binding: each path answers its own type; /csp-hashes.json answers `hashes` (or 404 when null). */
+function assets(hashes: unknown = HASHES) {
+  const asked: string[] = [];
+  const types: Record<string, string> = { '/llms.txt': 'text/plain', '/security.txt': 'text/plain', '/try.mjs': 'text/javascript', '/favicon.ico': 'image/vnd.microsoft.icon', '/status.json': 'application/json', '/version.json': 'application/json' };
+  const ASSETS = {
+    fetch: async (r: Request) => {
+      const p = new URL(r.url).pathname;
+      asked.push(p);
+      if (p === '/csp-hashes.json') return hashes === null ? new Response('not found', { status: 404 }) : Response.json(hashes);
+      if (p === '/version.json') return Response.json({ commit: 'abc' });
+      return new Response(`bytes of ${p} – Crow’s`, { status: p === '/missing' ? 404 : 200, headers: { 'content-type': types[p] ?? 'text/html', 'cache-control': 'public, max-age=0, must-revalidate' } });
+    },
+  };
+  return { asked, env: { ASSETS } };
+}
+const get = (url: string, env: unknown) => (site as Fetcher).fetch(new Request(url), env, { waitUntil: () => undefined });
+
+function common(r: Response) {
+  for (const [k, v] of Object.entries(COMMON as Record<string, string>)) expect(r.headers.get(k), k).toBe(v);
+  expect(r.headers.get('strict-transport-security')).toBe('max-age=31536000; includeSubDomains');
+  expect(r.headers.get('x-content-type-options')).toBe('nosniff');
+  expect(r.headers.get('x-frame-options')).toBe('DENY');
+  expect(r.headers.get('referrer-policy')).toBe('strict-origin-when-cross-origin');
+  expect(r.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
+}
+
+afterEach(() => {
+  forgetHashes();
+  vi.unstubAllGlobals();
+});
+
+describe('the security headers on the site Worker (T-451)', () => {
+  it('each kind of page carries the policy with the build’s hashes, no unsafe-inline for scripts, and no framing', async () => {
+    const { env } = assets();
+    for (const path of ['/', '/demo/', '/trust', '/status', '/problems/not_found', '/missing']) {
+      const r = await get(`https://crow.direct${path}`, env);
+      common(r);
+      const csp = r.headers.get('content-security-policy')!;
+      expect(csp).toBe(contentSecurityPolicy(HASHES, path));
+      expect(csp).toContain(`script-src 'self' '${S}'`);
+      expect(csp).toContain(`style-src 'self' '${T}'`);
+      expect(csp).toContain("default-src 'none'");
+      expect(csp).toContain("base-uri 'none'");
+      expect(csp).toContain("object-src 'none'");
+      expect(csp).toContain("connect-src 'self' https://join.crow.direct https://eth-sepolia.blockscout.com");
+      expect(csp).not.toMatch(/unsafe-inline|unsafe-eval|\*|https:(?!\/\/)/);
+      expect(r.headers.get('cross-origin-opener-policy')).toBe('same-origin');
+      expect(r.headers.get('cross-origin-resource-policy')).toBe('same-origin');
+      expect(r.headers.get('cache-control')).toBe('public, max-age=0, must-revalidate');
+    }
+  });
+
+  it('the visual walkthrough alone may use inline styles and its Google font; its scripts are hashed as elsewhere', async () => {
+    const { env } = assets();
+    const csp = (await get('https://crow.direct/visualdemo/', env)).headers.get('content-security-policy')!;
+    expect(csp).toContain("style-src 'self' 'unsafe-inline' https://fonts.googleapis.com");
+    expect(csp).toContain('font-src https://fonts.gstatic.com');
+    expect(csp).toContain(`script-src 'self' '${S}';`);
+    for (const path of ['/visualdemox', '/demo/visualdemo']) expect((await get(`https://crow.direct${path}`, env)).headers.get('content-security-policy')).not.toContain('unsafe-inline');
+  });
+
+  it('the guides, the bundles, the icon and the JSON keep their bytes and type, and carry the headers with a policy that runs nothing', async () => {
+    const { env } = assets();
+    for (const [path, type] of [['/llms.txt', 'text/plain; charset=utf-8'], ['/try.mjs', 'text/javascript; charset=utf-8'], ['/favicon.ico', 'image/vnd.microsoft.icon'], ['/status.json', 'application/json'], ['/.well-known/security.txt', 'text/plain; charset=utf-8']] as const) {
+      const r = await get(`https://crow.direct${path}`, env);
+      common(r);
+      expect(r.headers.get('content-type')).toBe(type);
+      expect(await r.text()).toBe(`bytes of ${path === '/.well-known/security.txt' ? '/security.txt' : path} – Crow’s`);
+      expect(r.headers.get('content-security-policy')).toBe("default-src 'none'; frame-ancestors 'none'");
+      expect(r.headers.get('cross-origin-resource-policy')).toBe('cross-origin');
+      expect(r.headers.get('cross-origin-opener-policy')).toBeNull();
+    }
+  });
+
+  it('version.json keeps its CORS header and no-store; the 301 from escrow.stream carries the headers too', async () => {
+    const { env } = assets();
+    const v = await get('https://crow.direct/version.json', env);
+    common(v);
+    expect(v.headers.get('access-control-allow-origin')).toBe('*');
+    expect(v.headers.get('cache-control')).toBe('no-store');
+    const moved = await get('https://escrow.stream/trust?x=1', env);
+    expect(moved.status).toBe(301);
+    expect(moved.headers.get('location')).toBe('https://crow.direct/trust?x=1');
+    common(moved);
+  });
+
+  it('the status relay keeps its CORS header and its 15 s cache, and its 405 carries the headers too', async () => {
+    const relayed = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=15', 'access-control-allow-origin': '*' };
+    vi.stubGlobal('caches', { default: { match: async () => new Response('{"operators":[]}\n', { headers: relayed }), put: async () => undefined } });
+    const { env } = assets();
+    const r = await get('https://crow.direct/status/operators.json', env);
+    common(r);
+    expect([r.headers.get('content-type'), r.headers.get('cache-control'), r.headers.get('access-control-allow-origin')]).toEqual(Object.values(relayed));
+    expect(await r.text()).toBe('{"operators":[]}\n');
+    const refused = await (site as Fetcher).fetch(new Request('https://crow.direct/status/operators.json', { method: 'POST', body: 'x' }), env, { waitUntil: () => undefined });
+    expect(refused.status).toBe(405);
+    common(refused);
+  });
+
+  it('requests that arrive while a failed hashes read is in flight all get the fail-closed policy, none an error', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const env = { ASSETS: { fetch: async (r: Request) => (new URL(r.url).pathname === '/csp-hashes.json' ? (await gate, new Response('busy', { status: 503 })) : new Response('page', { headers: { 'content-type': 'text/html' } })) } };
+    const answers = Promise.all([1, 2, 3].map(() => get('https://crow.direct/', env)));
+    release();
+    for (const r of await answers) {
+      expect(r.status).toBe(200);
+      expect(r.headers.get('content-security-policy')).toContain("script-src 'self';");
+    }
+    // The failure is not kept: the next request reads the file again.
+    const ok = assets();
+    expect((await get('https://crow.direct/', ok.env)).headers.get('content-security-policy')).toContain(`'${S}'`);
+  });
+
+  it('reads the hashes once per instance; without a readable hashes file, pages run no inline script or style (fail closed)', async () => {
+    const one = assets();
+    await get('https://crow.direct/', one.env);
+    await get('https://crow.direct/trust', one.env);
+    expect(one.asked.filter((p) => p === '/csp-hashes.json')).toHaveLength(1);
+    for (const bad of [null, { scripts: ["'unsafe-inline'"], styles: [] }, { scripts: [S] }]) {
+      forgetHashes();
+      const { env } = assets(bad);
+      const csp = (await get('https://crow.direct/', env)).headers.get('content-security-policy')!;
+      expect(csp).toContain("script-src 'self';");
+      expect(csp).toContain("style-src 'self';");
+      expect(csp).not.toContain('unsafe');
+    }
+    expect(parseHashes({ scripts: [S, 'sha256-x'], styles: [] })).toBeNull();
+    expect(parseHashes(HASHES)).toEqual(HASHES);
+  });
+
+  it('plain HTTP gets a 301 to HTTPS, straight to crow.direct for the old hostnames; local runs stay on HTTP', async () => {
+    const { env, asked } = assets();
+    for (const [from, to] of [['http://crow.direct/llms.txt?x=1', 'https://crow.direct/llms.txt?x=1'], ['http://www.crow.direct/', 'https://www.crow.direct/'], ['http://escrow.stream/trust', 'https://crow.direct/trust']]) {
+      const r = await get(from, env);
+      expect([r.status, r.headers.get('location')]).toEqual([301, to]);
+      common(r);
+    }
+    expect(asked).toEqual([]);
+    expect((await get('http://127.0.0.1:8799/llms.txt', env)).status).toBe(200);
+  });
+
+  it('hashes inline code as a browser does: CR LF and a lone CR count as LF; every inline script whatever its type, none with a src', () => {
+    expect(cspHash('a();\r\nb();\rc();')).toBe(cspHash('a();\nb();\nc();'));
+    const b = inlineBlocks('<script>x()</script><script type="importmap">{}</script><script type="application/json">[]</script><script src="/a.js"></script><style>p{}</style>');
+    expect(b).toEqual({ scripts: ['x()', '{}', '[]'], styles: ['p{}'] });
+  });
+
+  it('ends a script where a browser does: any case, whitespace, a slash or attributes after the name', () => {
+    for (const end of ['</script>', '</SCRIPT>', '</Script >', '</script\n>', '</script\t\n bar>', '</script/>', '</script foo="a>b">']) {
+      const page = `<p>one</p><script>a()</script><div>two</div><script data-x="a>b">b()${end}<p>three</p>`;
+      expect(inlineBlocks(page).scripts, end).toEqual(['a()', 'b()']);
+      expect(scriptCountProblem(page), end).toBeNull();
+    }
+    // '</scripts>' is not an end tag of script; the reader refuses the text rather than guess.
+    expect(() => inlineBlocks('<script>a("</scripts>")</script>')).toThrow(/holds/);
+    // Styles end the same way.
+    expect(inlineBlocks('<style>p{}</STYLE ><style>q{}</style>').styles).toEqual(['p{}', 'q{}']);
+  });
+
+  it('refuses what it does not model, so no hash covers text a browser would not run', () => {
+    const refused = {
+      '"</script>" inside a string (the script ends there; a second end tag is left)': '<script>var s = "</script>";</script>',
+      '"<!--" inside a script (the escaped states)': '<script>a("<!--")</script>',
+      '"<script" inside a script': '<script>a("<script>")</script>',
+      'a script that never ends': '<script>a()',
+      'a script inside <svg>': '<svg><script>a()</script></svg>',
+      '<plaintext>': '<plaintext><script>a()</script>',
+      // The red team's second pass: inputs where the reader lost track of <svg> or of what a browser runs.
+      'a comment ended by --!> hiding <svg>': '<!-- --!><svg> --><script>a()</script></svg>',
+      'CDATA inside <svg> holding </svg>': '<svg><![CDATA[></svg>]]><script>a()</script></svg>',
+      'an integration point inside <svg>': '<svg><foreignObject><span></svg></span></foreignObject><script>a()</script></svg>',
+      'a comment ended by --!> hiding <plaintext>': '<!-- --!><plaintext> --><script>a()</script>',
+      'a NUL in a script': '<script>a("\u0000")</script>',
+      'a script inside srcdoc': '<iframe srcdoc="&lt;script&gt;a()&lt;/script&gt;"></iframe><script>b()</script>',
+    };
+    for (const [why, page] of Object.entries(refused)) {
+      let problem: string | null;
+      try {
+        problem = scriptCountProblem(page);
+      } catch (e) {
+        problem = (e as Error).message;
+      }
+      expect(problem, why).not.toBeNull();
+    }
+    // A "<script" the reader skips (a comment, an attribute, a title) makes the counts differ, and the build refuses.
+    for (const page of ['<!-- <script>a()</script> --><p>x</p>', '<a title="<script>x</script>">y</a>', '<title><script>a()</script></title>']) {
+      expect(elements(page).scripts).toEqual([]);
+      expect(scriptCountProblem(page), page).not.toBeNull();
+    }
+  });
+});
