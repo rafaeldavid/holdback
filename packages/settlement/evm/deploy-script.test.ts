@@ -5,24 +5,22 @@
 //
 // Needs anvil, forge, cast and jq on PATH and `forge build` output in contracts/out; the CI anvil job has all four.
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer as createHttpServer, type IncomingMessage } from 'node:http';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 // @ts-expect-error -- a plain .mjs script with no types
-import { keep, recordCopies, trackedFiles } from '../../../scripts/record-copies.mjs';
+import { rehearse } from '../../../scripts/deploy-rehearsal.mjs';
+// @ts-expect-error -- a plain .mjs script with no types
+import { CONTRACTS, USER_AGENT } from '../../../scripts/sourcify-verify.mjs';
 import { anvilAvailable } from './world.js';
 
 const root = fileURLToPath(new URL('../../..', import.meta.url));
 const SCRIPT = join(root, 'contracts', 'script', 'deploy-sepolia.sh');
 const MULTICALL3 = '0xcA11bde05977b3631167028862bE2a173976CA11';
-/**
- * What the --verify tests give the script as ETHERSCAN_API_KEY: any string proves that the script hides what it is
- * given. It is built from words, so no secret scanner reads it as a key (gitleaks flagged a literal one, PR 424).
- */
-const STAND_IN_KEY = ['rehearsal', 'stand', 'in', 'value'].join('_').toUpperCase();
 const have = (cmd: string) => spawnSync(cmd, ['--version'], { encoding: 'utf8' }).status === 0;
 const ready = anvilAvailable() && have('forge') && have('cast') && have('jq') && existsSync(join(root, 'contracts', 'out', 'HoldbackRules.sol', 'HoldbackRules.json'));
 
@@ -73,11 +71,12 @@ export class Rehearsal {
     readonly keystore: string,
     readonly passwordFile: string,
     private readonly proc: ReturnType<typeof spawn>,
+    readonly address = '',
   ) {}
 
-  static async start(): Promise<Rehearsal> {
+  static async start(extra: string[] = []): Promise<Rehearsal> {
     const port = await freePort();
-    const proc = spawn('anvil', ['--host', '127.0.0.1', '--port', String(port), '--hardfork', 'prague', '--silent'], { stdio: 'ignore' });
+    const proc = spawn('anvil', ['--host', '127.0.0.1', '--port', String(port), '--hardfork', 'prague', '--silent', ...extra], { stdio: 'ignore' });
     const rpc = `http://127.0.0.1:${port}`;
     const dir = mkdtempSync(join(tmpdir(), 't383-deploy-'));
     const r = new Rehearsal(rpc, dir, '', join(dir, 'password'), proc);
@@ -100,7 +99,7 @@ export class Rehearsal {
     const file = readdirSync(keys)[0];
     if (!address || !file) throw new Error(`cast wallet new printed no address: ${made.stdout}`);
     await r.rpcCall('anvil_setBalance', [address, '0x56bc75e2d63100000']);
-    return new Rehearsal(rpc, dir, join(keys, file), r.passwordFile, proc);
+    return new Rehearsal(rpc, dir, join(keys, file), r.passwordFile, proc, address);
   }
 
   async rpcCall(method: string, params: unknown[]): Promise<unknown> {
@@ -110,9 +109,17 @@ export class Rehearsal {
     return body.result;
   }
 
-  /** The script's deploy mode, writing `record`. */
+  /**
+   * The script's deploy mode, writing `record`. anvil mines a block only for a transaction, so its finalized block
+   * stays 64 behind; a rehearsal takes `latest` unless a test names DEPLOY_FINALITY.
+   */
   deploy(record: string, env: Record<string, string> = {}): Promise<Run> {
-    return run('bash', [SCRIPT, this.rpc, this.keystore, this.passwordFile], { DEPLOY_RECORD: record, ...env });
+    return run('bash', [SCRIPT, this.rpc, this.keystore, this.passwordFile], { DEPLOY_RECORD: record, DEPLOY_FINALITY: 'latest', ...env });
+  }
+
+  /** The deployer's mined nonce. */
+  async nonce(): Promise<number> {
+    return Number(await this.rpcCall('eth_getTransactionCount', [this.address, 'latest']));
   }
 
   /** The script with any arguments. */
@@ -233,77 +240,135 @@ describe.skipIf(!ready)(`the deploy script on a local chain (T-383)${ready ? '' 
     expect(c.stderr).toContain('src/HoldbackRules.sol:HoldbackRules: the creation input differs from this build');
   }, 300_000);
 
-  // Explorer verification (T-383 item 4). No explorer serves chain 31337 and no test reaches the network, so the
-  // rehearsal prints the commands; what Sourcify and Etherscan answer on Sepolia is untested here.
+  // Source verification (T-410): the committed tool, scripts/sourcify-verify.mjs, through Sourcify's API v2. No test
+  // reaches Sourcify: a stand-in server on this machine answers as Sourcify's documentation says it does.
   describe('--verify', () => {
-    const lines = (out: string) => out.split('\n').filter((l) => l.startsWith('deploy-sepolia: would run: '));
-
-    it('checks first, then names each of the five contracts with the record’s constructor arguments, on Sourcify only without a key', async () => {
+    it('checks the record first, then the five contracts against the chain, and sends nothing under VERIFY_DRY_RUN=1', async () => {
       const r = JSON.parse(readFileSync(record, 'utf8'));
-      const v = await chain.run(['--verify', chain.rpc], { DEPLOY_RECORD: record, VERIFY_DRY_RUN: '1', ETHERSCAN_API_KEY: '' });
+      const v = await chain.run(['--verify', chain.rpc], { DEPLOY_RECORD: record, VERIFY_DRY_RUN: '1' });
       expect(v.stderr).toBe('');
       expect(v.code).toBe(0);
       expect(v.stdout).toContain(`${record} matches the chain and the build`);
-      const runs = lines(v.stdout);
-      expect(runs).toHaveLength(5);
-      for (const l of runs) expect(l).toMatch(/ env -u ETHERSCAN_API_KEY -u VERIFIER_URL -u VERIFIER_API_KEY forge verify-contract 0x[0-9a-fA-F]{40} \S+ --root \S+ --chain 31337 --watch( --constructor-args 0x[0-9a-f]+)? --verifier sourcify$/);
-      const rulesArgs = (await run('cast', ['abi-encode', 'constructor(address,address,uint64,address,address,uint64)', ...r.contracts.HoldbackRules.args])).stdout.trim();
-      const collectorArgs = (await run('cast', ['abi-encode', 'constructor(address,address)', ...r.contracts.ERC3009PaymentCollector.args])).stdout.trim();
-      expect(runs.find((l) => l.includes(` ${r.rules} src/HoldbackRules.sol:HoldbackRules `))).toContain(`--constructor-args ${rulesArgs} `);
-      expect(runs.find((l) => l.includes(` ${r.erc3009Collector} `))).toContain(`--constructor-args ${collectorArgs} `);
-      for (const [address, id] of [[r.escrow, 'AuthCaptureEscrow'], [r.beacon, 'DrandQuicknetBeacon'], [r.token.address, 'TestUSDC']]) {
-        const l = runs.find((x) => x.includes(` ${address} `));
-        expect(l).toContain(`:${id} `);
-        expect(l).not.toContain('--constructor-args');
+      for (const [name, address] of [['DrandQuicknetBeacon', r.beacon], ['AuthCaptureEscrow', r.escrow], ['ERC3009PaymentCollector', r.erc3009Collector], ['TestUSDC', r.token.address], ['HoldbackRules', r.rules]]) {
+        expect(v.stdout).toContain(`${name} ${address}: exact\n`);
       }
-      expect(v.stdout).toContain('dry run: nothing was sent to an explorer');
+      expect(v.stdout).toContain('dry run: nothing was sent to Sourcify');
     }, 300_000);
 
-    it('adds Etherscan when ETHERSCAN_API_KEY is set, and never puts the key on a command line', async () => {
-      const key = STAND_IN_KEY;
-      const v = await chain.run(['--verify', chain.rpc], { DEPLOY_RECORD: record, VERIFY_DRY_RUN: '1', ETHERSCAN_API_KEY: key });
-      expect(v.code).toBe(0);
-      const runs = lines(v.stdout);
-      // All five on Sourcify first, so a failure on Etherscan leaves Sourcify complete (review of PR 424, M3).
-      expect(runs.slice(0, 5).every((l) => l.endsWith('--verifier sourcify'))).toBe(true);
-      expect(runs.slice(5).every((l) => l.endsWith('--verifier etherscan') && l.includes(' env -u VERIFIER_URL -u VERIFIER_API_KEY forge '))).toBe(true);
-      expect(runs).toHaveLength(10);
-      expect(v.stdout + v.stderr).not.toContain(key);
+    it('names the five contracts with the identifiers the script deploys them under', () => {
+      const ids = [...readFileSync(SCRIPT, 'utf8').matchAll(/^[A-Z0-9]+_ID=(\S+)$/gm)].map((m) => m[1]);
+      expect(new Set(CONTRACTS.map((c: { id: string }) => c.id))).toEqual(new Set(ids));
+      expect(ids).toHaveLength(5);
+    });
+
+    /** A stand-in for Sourcify's API v2, on this machine: what it was sent, and what it answers. */
+    async function standIn(answers: { conflict?: string[]; partial?: string[]; refuse?: string[] } = {}) {
+      const posts: { address: string; body: Record<string, unknown>; agent: string | undefined }[] = [];
+      const verified = new Map<string, string>();
+      const jobs = new Map<string, string>();
+      const read = (req: IncomingMessage) => new Promise<string>((ok) => {
+        let b = '';
+        req.on('data', (d: Buffer) => (b += d.toString()));
+        req.on('end', () => ok(b));
+      });
+      const server = createHttpServer(async (req, res) => {
+        const send = (status: number, body: unknown) => {
+          res.writeHead(status, { 'content-type': 'application/json' });
+          res.end(JSON.stringify(body));
+        };
+        const url = req.url ?? '';
+        let m = /^\/v2\/verify\/31337\/(0x[0-9a-fA-F]{40})$/.exec(url);
+        if (req.method === 'POST' && m) {
+          const address = m[1]!.toLowerCase();
+          posts.push({ address, body: JSON.parse(await read(req)), agent: req.headers['user-agent'] });
+          if (answers.refuse?.includes(address)) return send(400, { customCode: 'no_match', message: 'stand-in refusal', errorId: 'x' });
+          if (answers.conflict?.includes(address)) {
+            verified.set(address, 'match');
+            return send(409, { customCode: 'already_verified', message: 'stand-in', errorId: 'x' });
+          }
+          const id = `job-${jobs.size + 1}`;
+          jobs.set(id, address);
+          verified.set(address, answers.partial?.includes(address) ? 'match' : 'exact_match');
+          return send(202, { verificationId: id });
+        }
+        m = /^\/v2\/verify\/(job-\d+)$/.exec(url);
+        if (req.method === 'GET' && m && jobs.has(m[1]!)) {
+          const kind = verified.get(jobs.get(m[1]!)!);
+          return send(200, { isJobCompleted: true, verificationId: m[1], contract: { match: kind, runtimeMatch: kind, creationMatch: kind } });
+        }
+        m = /^\/v2\/contract\/31337\/(0x[0-9a-fA-F]{40})$/.exec(url);
+        if (req.method === 'GET' && m) {
+          const kind = verified.get(m[1]!.toLowerCase());
+          return kind ? send(200, { match: kind, runtimeMatch: kind, creationMatch: kind, chainId: '31337', address: m[1] }) : send(404, { customCode: 'not_found', message: 'none', errorId: 'x' });
+        }
+        send(404, { customCode: 'route', message: url, errorId: 'x' });
+      });
+      const port = await new Promise<number>((ok) => server.listen(0, '127.0.0.1', () => ok((server.address() as { port: number }).port)));
+      return { url: `http://127.0.0.1:${port}`, posts, close: () => server.close() };
+    }
+
+    it('sends each contract to Sourcify v2 with its creation transaction, and prints an exact match for each', async () => {
+      const r = JSON.parse(readFileSync(record, 'utf8'));
+      const sourcify = await standIn();
+      try {
+        const v = await chain.run(['--verify', chain.rpc], { DEPLOY_RECORD: record, SOURCIFY_URL: sourcify.url });
+        expect(v.stderr).toBe('');
+        expect(v.code).toBe(0);
+        // The beacon first; then the rest, each with its identifier, its creation transaction and the full compiler version.
+        const order = [['DrandQuicknetBeacon', r.beacon, r.contracts.DrandQuicknetBeacon.tx], ['AuthCaptureEscrow', r.escrow, r.contracts.AuthCaptureEscrow.tx], ['ERC3009PaymentCollector', r.erc3009Collector, r.contracts.ERC3009PaymentCollector.tx], ['TestUSDC', r.token.address, r.token.tx], ['HoldbackRules', r.rules, r.contracts.HoldbackRules.tx]];
+        expect(sourcify.posts.map((p) => p.address)).toEqual(order.map(([, a]) => a.toLowerCase()));
+        for (const [i, [name, address, tx]] of order.entries()) {
+          const body = sourcify.posts[i]!.body as { contractIdentifier: string; creationTransactionHash: string; compilerVersion: string; stdJsonInput: Record<string, unknown> };
+          expect(body.contractIdentifier.endsWith(`:${name}`)).toBe(true);
+          expect(body.creationTransactionHash).toBe(tx.toLowerCase());
+          expect(body.compilerVersion).toMatch(/^0\.8\.28\+commit\.[0-9a-f]{8}$/);
+          expect(Object.keys(body.stdJsonInput).sort()).toEqual(['language', 'settings', 'sources']);
+          expect(sourcify.posts[i]!.agent).toBe(USER_AGENT);
+          expect(v.stdout).toContain(`${name} ${address}: exact match on Sourcify (runtime exact_match, creation exact_match)`);
+        }
+        expect(v.stdout).toContain('deploy-sepolia: the five contracts are an exact match on Sourcify');
+      } finally {
+        sourcify.close();
+      }
     }, 300_000);
 
-    // forge prints a failed request's URL, and Etherscan's carries `?apikey=` (review of PR 424, H1). A stand-in for
-    // forge's verify-contract fails that way on Etherscan; the script must print its output with the key replaced.
-    it("replaces the key in forge's own output, and fails with forge's exit code", async () => {
-      const key = STAND_IN_KEY;
-      const shim = join(chain.dir, 'forge-shim.sh');
-      const log = join(chain.dir, 'forge-shim.log');
-      writeFileSync(
-        shim,
-        [
-          '#!/usr/bin/env bash',
-          `echo "$*" >> '${log}'`,
-          'case "$*" in',
-          '  *"--verifier etherscan"*) echo "Error: error sending request for url (https://api-sepolia.etherscan.io/api?apikey=$ETHERSCAN_API_KEY&module=contract)" >&2; exit 7 ;;',
-          '  *) echo "Contract successfully verified" ;;',
-          'esac',
-          '',
-        ].join('\n'),
-        { mode: 0o755 },
-      );
-      const v = await chain.run(['--verify', chain.rpc], { DEPLOY_RECORD: record, VERIFY_FORGE: shim, ETHERSCAN_API_KEY: key });
-      expect(v.code).not.toBe(0);
-      expect(v.stdout + v.stderr).not.toContain(key);
-      expect(v.stdout).toContain('apikey=<ETHERSCAN_API_KEY>&module=contract');
-      expect(v.stderr).toContain('Etherscan verification failed (exit 7)');
-      const calls = readFileSync(log, 'utf8').trim().split('\n');
-      expect(calls.filter((c) => c.endsWith('--verifier sourcify'))).toHaveLength(5);
-      expect(calls.at(-1)).toMatch(/--verifier etherscan$/);
+    it('says plainly which contract is not an exact match, and fails', async () => {
+      const r = JSON.parse(readFileSync(record, 'utf8'));
+      const sourcify = await standIn({ conflict: [r.token.address.toLowerCase()], partial: [r.rules.toLowerCase()] });
+      try {
+        const v = await chain.run(['--verify', chain.rpc], { DEPLOY_RECORD: record, SOURCIFY_URL: sourcify.url });
+        expect(v.code).not.toBe(0);
+        expect(v.stdout).toContain(`TestUSDC ${r.token.address}: NOT an exact match on Sourcify (runtime match, creation match)`);
+        expect(v.stdout).toContain(`HoldbackRules ${r.rules}: NOT an exact match on Sourcify (runtime match, creation match)`);
+        expect(v.stdout).toContain(`DrandQuicknetBeacon ${r.beacon}: exact match on Sourcify`);
+        expect(v.stderr).toContain('Sourcify verification did not end in five exact matches');
+      } finally {
+        sourcify.close();
+      }
+    }, 300_000);
+
+    it('stops at the first refusal: the contracts after it are not sent', async () => {
+      const r = JSON.parse(readFileSync(record, 'utf8'));
+      const sourcify = await standIn({ refuse: [r.escrow.toLowerCase()] });
+      try {
+        const v = await chain.run(['--verify', chain.rpc], { DEPLOY_RECORD: record, SOURCIFY_URL: sourcify.url });
+        expect(v.code).not.toBe(0);
+        expect(sourcify.posts.map((p) => p.address)).toEqual([r.beacon.toLowerCase(), r.escrow.toLowerCase()]);
+        expect(v.stdout).toContain('AuthCaptureEscrow: refused, status 400: no_match stand-in refusal');
+        expect(v.stdout).toContain('stopped at AuthCaptureEscrow');
+      } finally {
+        sourcify.close();
+      }
     }, 300_000);
 
     it('refuses to send a local rehearsal to an explorer, and verifies nothing when the check fails', async () => {
       const live = await chain.run(['--verify', chain.rpc], { DEPLOY_RECORD: record });
       expect(live.code).not.toBe(0);
       expect(live.stderr).toContain('no explorer serves the local chain');
+      // A stand-in server not on this machine is refused before anything is sent.
+      const away = await chain.run(['--verify', chain.rpc], { DEPLOY_RECORD: record, SOURCIFY_URL: 'https://sourcify.example' });
+      expect(away.code).not.toBe(0);
+      expect(away.stdout).toContain('--sourcify names a stand-in server, on this machine and for the local chain only');
       // An argument the record holds, changed: the whole-record comparison refuses, so nothing is verified.
       const wrong = chain.planted(record, 'verify-wrong-argument', (r) => {
         const c = (r['contracts'] as Record<string, { args: string[] }>)['ERC3009PaymentCollector']!;
@@ -312,7 +377,194 @@ describe.skipIf(!ready)(`the deploy script on a local chain (T-383)${ready ? '' 
       const bad = await chain.run(['--verify', chain.rpc], { DEPLOY_RECORD: wrong, VERIFY_DRY_RUN: '1' });
       expect(bad.code).not.toBe(0);
       expect(bad.stderr).toContain('differs from what the chain and this build give');
-      expect(lines(bad.stdout)).toHaveLength(0);
+      expect(bad.stdout).not.toContain(': exact');
+    }, 300_000);
+  });
+
+  // The nonce (T-410). On 2026-11-13 a send failed with "replacement transaction underpriced" from a lagging backend.
+  // A stand-in for forge fails one creation in a chosen way; the script must settle it from the chain and never create
+  // a second copy of a contract: the deployer ends exactly five nonces on, and the record checks.
+  describe('a failed send', () => {
+    /** A stand-in for forge that fails the first `forge create` of `target` in `mode`, and runs forge otherwise. */
+    const shim = (name: string, target: string, mode: 'after' | 'before' | 'foreign' | 'pending' | 'wrong') => {
+      const file = join(chain.dir, `forge-${name}.sh`);
+      const log = join(chain.dir, `forge-${name}.log`);
+      const underpriced = 'echo "Error: server returned an error response: error code -32000: replacement transaction underpriced" >&2';
+      writeFileSync(file, [
+        '#!/usr/bin/env bash',
+        `echo "$*" >> '${log}'`,
+        `if [[ "$*" == *':${target} '* ]] && [ "$(grep -c ':${target} ' '${log}')" = 1 ]; then`,
+        mode === 'after' ? `  forge "$@" >/dev/null 2>&1; ${underpriced}; exit 1` : '',
+        mode === 'before' ? `  ${underpriced}; exit 1` : '',
+        mode === 'foreign' ? `  cast send '${chain.address}' --value 1 --keystore '${chain.keystore}' --password-file '${chain.passwordFile}' --rpc-url '${chain.rpc}' >/dev/null || exit 9` : '',
+        // Another contract's code at this creation's nonce: the beacon's, which takes no constructor argument.
+        ...(mode === 'wrong'
+          ? [
+              `  n=$(sed -E 's/.*--nonce ([0-9]+).*/\\1/' <<<"$*")`,
+              `  cast send --nonce "$n" --keystore '${chain.keystore}' --password-file '${chain.passwordFile}' --rpc-url '${chain.rpc}' --create "$(forge inspect --root '${join(root, 'contracts')}' 'src/DrandQuicknetBeacon.sol:DrandQuicknetBeacon' bytecode)" >/dev/null || exit 9`,
+              `  ${underpriced}; exit 1`,
+            ]
+          : []),
+        // The creation goes to the pool with mining off, forge reports a failure, and a block comes 4 s later.
+        ...(mode === 'pending'
+          ? [
+              `  n=$(sed -E 's/.*--nonce ([0-9]+).*/\\1/' <<<"$*")`,
+              `  cast rpc evm_setAutomine false --rpc-url '${chain.rpc}' >/dev/null || exit 9`,
+              `  cast send --nonce "$n" --async --keystore '${chain.keystore}' --password-file '${chain.passwordFile}' --rpc-url '${chain.rpc}' --create "$(forge inspect --root '${join(root, 'contracts')}' 'src/DrandQuicknetBeacon.sol:DrandQuicknetBeacon' bytecode)" >/dev/null || { cast rpc evm_setAutomine true --rpc-url '${chain.rpc}' >/dev/null; exit 9; }`,
+              `  ( sleep 4; cast rpc evm_setAutomine true --rpc-url '${chain.rpc}'; cast rpc evm_mine --rpc-url '${chain.rpc}' ) >/dev/null 2>&1 &`,
+              `  ${underpriced}; exit 1`,
+            ]
+          : []),
+        'fi',
+        'exec forge "$@"',
+        '',
+      ].join('\n'), { mode: 0o755 });
+      return { file, calls: () => readFileSync(log, 'utf8').trim().split('\n') };
+    };
+
+    it('the deploy sends each creation at the next nonce, in order', async () => {
+      const r = JSON.parse(readFileSync(record, 'utf8'));
+      const nonces: number[] = [];
+      for (const tx of [r.contracts.AuthCaptureEscrow.tx, r.contracts.ERC3009PaymentCollector.tx, r.contracts.DrandQuicknetBeacon.tx, r.token.tx, r.contracts.HoldbackRules.tx]) {
+        nonces.push(Number(((await chain.rpcCall('eth_getTransactionByHash', [tx])) as { nonce: string }).nonce));
+      }
+      expect(nonces).toEqual([0, 1, 2, 3, 4]);
+      expect(deployed.stdout.match(/^deploy-sepolia: created \w+ at 0x[0-9a-fA-F]{40} \(nonce \d+, /gm)).toHaveLength(5);
+    });
+
+    it('a send that reached the chain and then failed is taken from the chain, not sent again', async () => {
+      const start = await chain.nonce();
+      const f = shim('after', 'DrandQuicknetBeacon', 'after');
+      const out = join(chain.dir, 'sent-then-failed.json');
+      const d = await chain.deploy(out, { DEPLOY_FORGE: f.file, DEPLOY_POLL_SEC: '0' });
+      expect(d.code, d.stderr).toBe(0);
+      expect(d.stderr).toContain('replacement transaction underpriced');
+      expect(d.stderr).toMatch(/the chain holds DrandQuicknetBeacon at 0x[0-9a-fA-F]{40} from nonce \d+ \(0x[0-9a-f]{64}\), this build's code; nothing is sent again/);
+      expect(f.calls().filter((c) => c.includes(':DrandQuicknetBeacon '))).toHaveLength(1);
+      expect(await chain.nonce()).toBe(start + 5);
+      const c = await chain.check(out);
+      expect(c.code, c.stderr).toBe(0);
+    }, 300_000);
+
+    it('every creation is signed for the chain the script checked, by --chain (red team of T-410, H1)', async () => {
+      const f = shim('chain', 'none-such', 'after');
+      const out = join(chain.dir, 'chain-flag.json');
+      const d = await chain.deploy(out, { DEPLOY_FORGE: f.file });
+      expect(d.code, d.stderr).toBe(0);
+      const creates = f.calls().filter((c) => c.startsWith('create '));
+      expect(creates).toHaveLength(5);
+      for (const c of creates) expect(c).toContain(' --chain 31337 ');
+    }, 300_000);
+
+    it('another contract at the right nonce is refused before the next creation (red team of T-410, M1)', async () => {
+      const start = await chain.nonce();
+      const f = shim('wrong', 'AuthCaptureEscrow', 'wrong');
+      const out = join(chain.dir, 'wrong-contract.json');
+      const d = await chain.deploy(out, { DEPLOY_FORGE: f.file, DEPLOY_POLL_SEC: '0' });
+      expect(d.code).not.toBe(0);
+      expect(d.stderr).toContain('lib/commerce-payments/src/AuthCaptureEscrow.sol:AuthCaptureEscrow: the creation input differs from this build');
+      expect(d.stderr).not.toContain('the chain holds AuthCaptureEscrow');
+      // Only the stand-in's one transaction: nothing was built on it.
+      expect(await chain.nonce()).toBe(start + 1);
+      expect(f.calls().filter((c) => c.startsWith('create '))).toHaveLength(1);
+      expect(existsSync(out)).toBe(false);
+    }, 300_000);
+
+    it('a send still pending is waited for, then taken from the chain, not sent again', async () => {
+      const start = await chain.nonce();
+      const f = shim('pending', 'DrandQuicknetBeacon', 'pending');
+      const out = join(chain.dir, 'pending.json');
+      let d: Run;
+      try {
+        d = await chain.deploy(out, { DEPLOY_FORGE: f.file, DEPLOY_POLL_SEC: '1' });
+      } finally {
+        await chain.rpcCall('evm_setAutomine', [true]);
+      }
+      expect(d.code, d.stderr).toBe(0);
+      expect(d.stderr).toContain(`a transaction at nonce ${start + 2} is pending; waiting until it is mined`);
+      expect(d.stderr).toMatch(/the chain holds DrandQuicknetBeacon at 0x[0-9a-fA-F]{40} from nonce \d+ \(0x[0-9a-f]{64}\), this build's code; nothing is sent again/);
+      expect(f.calls().filter((c) => c.includes(':DrandQuicknetBeacon '))).toHaveLength(1);
+      expect(await chain.nonce()).toBe(start + 5);
+      expect((await chain.check(out)).code).toBe(0);
+    }, 300_000);
+
+    it('a send that never reached the chain goes again at the same nonce, once', async () => {
+      const start = await chain.nonce();
+      const f = shim('before', 'ERC3009PaymentCollector', 'before');
+      const out = join(chain.dir, 'never-sent.json');
+      const d = await chain.deploy(out, { DEPLOY_FORGE: f.file, DEPLOY_POLL_SEC: '0' });
+      expect(d.code, d.stderr).toBe(0);
+      expect(d.stderr).toContain(`nonce ${start + 1} is unused and nothing is pending; sending ERC3009PaymentCollector again at the same nonce (attempt 2 of 3)`);
+      const sends = f.calls().filter((c) => c.includes(':ERC3009PaymentCollector '));
+      expect(sends).toHaveLength(2);
+      for (const s of sends) expect(s).toContain(` --nonce ${start + 1} `);
+      expect(await chain.nonce()).toBe(start + 5);
+      expect((await chain.check(out)).code).toBe(0);
+    }, 300_000);
+
+    it('another transaction from the deployer stops the run; it writes no record and names its orphans', async () => {
+      const f = shim('foreign', 'TestUSDC', 'foreign');
+      const out = join(chain.dir, 'foreign.json');
+      const d = await chain.deploy(out, { DEPLOY_FORGE: f.file, DEPLOY_POLL_SEC: '0' });
+      expect(d.code).not.toBe(0);
+      expect(d.stderr).toMatch(/did not create 0x[0-9a-fA-F]{40}: it is not this run's creation of TestUSDC/);
+      expect(existsSync(out)).toBe(false);
+      expect(d.stderr).toContain('the run stopped before the record was written');
+      for (const name of ['AuthCaptureEscrow', 'ERC3009PaymentCollector', 'DrandQuicknetBeacon']) expect(d.stderr).toMatch(new RegExp(`deploy-sepolia: {3}${name} 0x[0-9a-fA-F]{40} in 0x[0-9a-f]{64}`));
+      expect(d.stderr).not.toMatch(/deploy-sepolia: {3}TestUSDC /);
+    }, 300_000);
+  });
+
+  // Finality (T-410): the record pins five creations, so it is written only once the last one's block is final.
+  describe('the record waits for finality', () => {
+    it('with a second RPC, writes the record only when it holds every creation in the same block', async () => {
+      const out = join(chain.dir, 'crosschecked.json');
+      // The same anvil by another spelling of its URL: the script asks it as a second node.
+      const d = await chain.deploy(out, { DEPLOY_CROSSCHECK_RPC: chain.rpc.replace('127.0.0.1', 'localhost') });
+      expect(d.code, d.stderr).toBe(0);
+      expect(d.stdout).toContain('the second RPC holds all five creations in the same blocks');
+      expect((await chain.check(out)).code).toBe(0);
+    }, 300_000);
+
+    it('a second RPC that does not hold the creations stops the run before the record (red team of T-410, M2)', async () => {
+      const other = await Rehearsal.start();
+      try {
+        // Ahead of the deploy's chain, as Sepolia's real head would be, so the wait passes and the receipts decide.
+        await other.rpcCall('anvil_mine', ['0x1f4']);
+        const out = join(chain.dir, 'other-chain.json');
+        const d = await chain.deploy(out, { DEPLOY_CROSSCHECK_RPC: other.rpc });
+        expect(d.code).not.toBe(0);
+        expect(d.stderr).toMatch(/the second RPC has no receipt for AuthCaptureEscrow's creation 0x[0-9a-f]{64}/);
+        expect(existsSync(out)).toBe(false);
+        expect(d.stderr.match(/^deploy-sepolia: {3}\w+ 0x/gm)).toHaveLength(5);
+      } finally {
+        other.stop();
+      }
+    }, 300_000);
+
+
+    it('writes no record while the last creation is not finalized, and names the orphans', async () => {
+      const out = join(chain.dir, 'not-final.json');
+      const d = await chain.deploy(out, { DEPLOY_FINALITY: 'finalized', DEPLOY_POLL_SEC: '1', DEPLOY_FINALITY_WAIT_SEC: '2' });
+      expect(d.code).not.toBe(0);
+      expect(d.stderr).toMatch(/block \d+ is not finalized after 2 s/);
+      expect(existsSync(out)).toBe(false);
+      expect(d.stderr.match(/^deploy-sepolia: {3}\w+ 0x/gm)).toHaveLength(5);
+    }, 300_000);
+
+    it('waits until the finalized block passes the last creation, then writes the record', async () => {
+      const out = join(chain.dir, 'final.json');
+      // anvil's finalized block is 64 behind its head; blocks mined beside the run let it pass.
+      const miner = setInterval(() => void chain.rpcCall('anvil_mine', ['0x1']).catch(() => {}), 100);
+      try {
+        const d = await chain.deploy(out, { DEPLOY_FINALITY: 'finalized', DEPLOY_POLL_SEC: '1' });
+        expect(d.code, d.stderr).toBe(0);
+        expect(d.stdout).toMatch(/waiting until block \d+ is finalized before the checks and the record/);
+        expect(d.stdout).toContain(`wrote ${out}`);
+      } finally {
+        clearInterval(miner);
+      }
+      expect((await chain.check(out)).code).toBe(0);
     }, 300_000);
   });
 
@@ -337,66 +589,26 @@ describe.skipIf(!ready)(`the deploy script on a local chain (T-383)${ready ? '' 
     expect(deployed.stderr).toContain('a rehearsal must not write or check');
   }, 120_000);
 
-  // The routine twice, with no hand edit between runs (T-383, "done looks like"): on a copy of the repository's
-  // tracked files, each run copies the record to its dated name, deploys, writes the copies with
-  // scripts/record-copies.mjs and checks all three token values. The copy starts as if the live world were a first
-  // local deployment: its record is sepolia.json and its table names that deployment's token for chain 31337. What
-  // this shows is the chain side: the record, the dated copy, the table and examples/deployments.ts move with no hand
-  // edit, and the check passes each time. The local values appear in no other pin, so the site's pins, the rebuild and
-  // a sweep that catches a miss are shown on the Sepolia record by tests/record-copies.test.ts instead.
-  it('runs the whole routine twice on the local chain with no hand edit', async () => {
-    const copy = realpathSync(mkdtempSync(join(tmpdir(), 't383-routine-')));
-    try {
-      for (const file of trackedFiles(root)) {
-        const from = join(root, file);
-        if (!existsSync(from) || statSync(from).isDirectory()) continue; // a submodule
-        mkdirSync(dirname(join(copy, file)), { recursive: true });
-        cpSync(from, join(copy, file));
-      }
-      const live = join(copy, 'contracts', 'deployments', 'sepolia.json');
-      const table = join(copy, 'packages', 'settlement', 'evm', 'accepted-tokens.json');
-      cpSync(record, live);
-      const first = JSON.parse(readFileSync(record, 'utf8'));
-      const t = JSON.parse(readFileSync(table, 'utf8'));
-      t['31337'] = { address: first.token.address, symbol: 'tUSDC', decimals: 6 };
-      writeFileSync(table, `${JSON.stringify(t, null, 2)}\n`);
-      const rules = [first.rules];
-      const kept: string[] = [];
-      for (let run = 0; run < 2; run++) {
-        // Two redeploys on one day: anvil moves its clock two minutes, the time between two real deploys at least.
-        await chain.rpcCall('evm_increaseTime', [120]);
-        await chain.rpcCall('evm_mine', []);
-        // 1. The old record keeps its dated name, from its own deployment time and the chain's domain version.
-        const dated = keep({ root: copy, rpc: chain.rpc, log: () => {} });
-        expect(dated).toMatch(/^contracts\/deployments\/sepolia-\d{4}-\d{2}-\d{2}T\d{4}Z-domain-0\.8\.json$/);
-        kept.push(dated);
-        // 2. Deploy, into the copy's record.
-        const d = await chain.deploy(live, { ACCEPTED_TOKENS: table });
-        expect(d.code, d.stderr).toBe(0);
-        expect(d.stdout).toContain('the table names');
-        // 3. The record's copies.
-        const lines: string[] = [];
-        const code = recordCopies({ root: copy, oldPath: dated, newPath: 'contracts/deployments/sepolia.json', build: false, log: (l: string) => lines.push(l) });
-        expect(code, lines.join('\n')).toBe(0);
-        // 4. The check, now with all three token values.
-        const c = await chain.check(live, { ACCEPTED_TOKENS: table });
-        expect(c.stderr).toBe('');
-        expect(c.code).toBe(0);
-        const now = JSON.parse(readFileSync(live, 'utf8'));
-        expect(JSON.parse(readFileSync(table, 'utf8'))['31337'].address).toBe(now.token.address);
-        expect(readFileSync(join(copy, 'examples', 'deployments.ts'), 'utf8')).toContain(`rules: '${now.rules}',`);
-        rules.push(now.rules);
-      }
-      // Each run is a new deployment, so each is a new world: the Workers name it by the record's rules address.
-      expect(new Set(rules.map((r) => r.toLowerCase())).size).toBe(3);
-      // The two dated copies have two names, and each still holds the record it kept.
-      expect(new Set(kept).size).toBe(2);
-      expect(JSON.parse(readFileSync(join(copy, kept[0]!), 'utf8')).rules).toBe(rules[0]);
-      expect(JSON.parse(readFileSync(join(copy, kept[1]!), 'utf8')).rules).toBe(rules[1]);
-    } finally {
-      rmSync(copy, { recursive: true, force: true });
-    }
-  }, 600_000);
+  // The routine twice, with no hand edit between runs (T-383, "done looks like"), now the rehearsal command (T-410):
+  // on a copy of the repository's tracked files, scripts/deploy-rehearsal.mjs runs steps 2.1 to 3.3 of
+  // docs/redeploy-contracts.md against its own anvil and prints each step's Sepolia command. What this shows is the
+  // chain side: the record, the dated copy, the table and examples/deployments.ts move with no hand edit, and the check
+  // and the source check pass each time. The site's pins, the rebuild and a sweep that catches a miss are shown on the
+  // Sepolia record by tests/record-copies.test.ts instead.
+  it('the rehearsal command runs the whole routine twice on a local chain with no hand edit', async () => {
+    const lines: string[] = [];
+    const code = await rehearse({ root, runs: 2, log: (l: string) => lines.push(l) });
+    const out = lines.join('\n');
+    expect(code, out).toBe(0);
+    for (const id of ['2.1', '2.2', '2.3', '2.4', '3.1', '3.2', '3.3']) expect(out.match(new RegExp(`^step ${id.replace('.', '\\.')} +pass`, 'gm')), id).toHaveLength(2);
+    expect(out).toMatch(/^step 0\.4 +pass/m);
+    expect(out).toContain('on Sepolia: DEPLOY_CROSSCHECK_RPC=$R $W/contracts/script/deploy-sepolia.sh $D <keystore-file> <password-file>');
+    expect(out).toContain('on Sepolia: $W/contracts/script/deploy-sepolia.sh --verify $R');
+    // Two dated copies with two names, and both runtime hashes equal at each run.
+    const dated = [...out.matchAll(/keep the live record under its dated name: (\S+)/g)].map((m) => m[1]);
+    expect(new Set(dated).size).toBe(2);
+    expect(out).toContain('deploy-rehearsal: pass: 15 steps, 2 run(s); nothing was sent to a network');
+  }, 900_000);
 
   it('the local chain id behind a URL that is not exactly a local origin is refused', async () => {
     // The same anvil, reached with user info in the URL: the chain answers 31337, and the script still refuses it.
@@ -405,4 +617,103 @@ describe.skipIf(!ready)(`the deploy script on a local chain (T-383)${ready ? '' 
     expect(c.stderr).toContain('is not a local RPC');
     expect(c.stderr).not.toContain('rehearsal@');
   });
+});
+
+// The chain the script is pointed at (T-410). A development node answering Sepolia's chain id is a fork, a rehearsal
+// that never writes the Sepolia record; a node that answers as Sepolia takes no stand-in and no knob; any other chain
+// id, mainnet's included, is refused before anything is read or sent. The "Sepolia" here is a local anvil behind a
+// proxy that names itself as another client: no test reaches a network.
+describe.skipIf(!ready)('the chain the deploy script is pointed at (T-410)', () => {
+  let fork: Rehearsal;
+  const servers: { close: () => void }[] = [];
+
+  beforeAll(async () => {
+    fork = await Rehearsal.start(['--chain-id', '11155111']);
+  }, 120_000);
+  afterAll(() => {
+    fork?.stop();
+    for (const s of servers) s.close();
+  });
+
+  /** A proxy to the fork that answers `chainId` and `client` in place of anvil's own. */
+  async function posingAs(chainId: string, client: string): Promise<string> {
+    const server = createHttpServer((req, res) => {
+      let b = '';
+      req.on('data', (d: Buffer) => (b += d.toString()));
+      req.on('end', async () => {
+        const call = JSON.parse(b) as { id: number; method: string; params: unknown[] };
+        const answer = (result: unknown) => res.end(JSON.stringify({ jsonrpc: '2.0', id: call.id, result }));
+        if (call.method === 'eth_chainId') return answer(chainId);
+        if (call.method === 'web3_clientVersion') return answer(client);
+        const r = await fetch(fork.rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: b });
+        res.end(await r.text());
+      });
+    });
+    servers.push(server);
+    const port = await new Promise<number>((ok) => server.listen(0, '127.0.0.1', () => ok((server.address() as { port: number }).port)));
+    return `http://127.0.0.1:${port}`;
+  }
+
+  const sepoliaRecord = join(root, 'contracts', 'deployments', 'sepolia.json');
+  const untouched = () => readFileSync(sepoliaRecord, 'utf8');
+
+  it('a development node on chain 11155111 is a fork: it needs a scratch record and never names the Sepolia record', async () => {
+    const before = untouched();
+    const none = await run('bash', [SCRIPT, fork.rpc, fork.keystore, fork.passwordFile], { DEPLOY_RECORD: '', DEPLOY_FINALITY: 'latest' });
+    expect(none.code).not.toBe(0);
+    expect(none.stderr).toMatch(/a rehearsal on a fork of Sepolia \(anvil\S*\) needs DEPLOY_RECORD/);
+    const real = await fork.deploy(sepoliaRecord);
+    expect(real.code).not.toBe(0);
+    expect(real.stderr).toContain('a rehearsal must not write or check');
+    const out = join(fork.dir, 'fork.json');
+    const d = await fork.deploy(out);
+    expect(d.code, d.stderr).toBe(0);
+    expect(JSON.parse(readFileSync(out, 'utf8')).chainId).toBe(11155111);
+    expect(untouched()).toBe(before);
+  }, 300_000);
+
+  it('the source tool sends nothing from a fork', async () => {
+    const r = await run('node', [join(root, 'scripts', 'sourcify-verify.mjs'), '--record', join(fork.dir, 'fork.json'), '--rpc', fork.rpc, '--submit']);
+    expect(r.code).not.toBe(0);
+    expect(r.stdout).toContain('a development node forking Sepolia');
+  }, 120_000);
+
+  it('Sepolia takes no stand-in and no knob, before anything is read or written', async () => {
+    const before = untouched();
+    const sepolia = await posingAs('0xaa36a7', 'reth/v2.11.0');
+    for (const knob of ['DEPLOY_FORGE', 'DEPLOY_FINALITY', 'DEPLOY_POLL_SEC', 'DEPLOY_FINALITY_WAIT_SEC', 'SOURCIFY_URL']) {
+      const c = await run('bash', [SCRIPT, '--check', sepolia], { DEPLOY_RECORD: '', [knob]: knob === 'DEPLOY_FINALITY' ? 'latest' : '1' });
+      expect(c.code, knob).not.toBe(0);
+      expect(c.stderr, knob).toContain(`on Sepolia ${knob} is not taken; unset it`);
+      const d = await run('bash', [SCRIPT, sepolia, fork.keystore, fork.passwordFile], { DEPLOY_RECORD: '', [knob]: knob === 'DEPLOY_FINALITY' ? 'latest' : '1' });
+      expect(d.code, knob).not.toBe(0);
+      expect(d.stderr, knob).toContain(`on Sepolia ${knob} is not taken; unset it`);
+    }
+    // A deploy on Sepolia needs a second RPC, and not a development node; no FOUNDRY_* setting; a strict dry run.
+    const alone = await run('bash', [SCRIPT, sepolia, fork.keystore, fork.passwordFile], { DEPLOY_RECORD: '' });
+    expect(alone.stderr).toContain('a deploy on Sepolia needs DEPLOY_CROSSCHECK_RPC');
+    const dev = await run('bash', [SCRIPT, sepolia, fork.keystore, fork.passwordFile], { DEPLOY_RECORD: '', DEPLOY_CROSSCHECK_RPC: fork.rpc });
+    expect(dev.stderr).toMatch(/DEPLOY_CROSSCHECK_RPC is a development node \(anvil/);
+    const second = await posingAs('0xaa36a7', 'Geth/v1.15.0');
+    const runs = await run('bash', [SCRIPT, sepolia, fork.keystore, fork.passwordFile], { DEPLOY_RECORD: '', DEPLOY_CROSSCHECK_RPC: second, FOUNDRY_OPTIMIZER_RUNS: '1' });
+    expect(runs.stderr).toContain('on Sepolia FOUNDRY_OPTIMIZER_RUNS is not taken');
+    const loose = await run('bash', [SCRIPT, '--verify', sepolia], { DEPLOY_RECORD: '', VERIFY_DRY_RUN: 'yes' });
+    expect(loose.stderr).toContain('VERIFY_DRY_RUN is 1 or unset, not yes');
+    for (const r of [alone, dev, runs, loose]) expect(r.code).not.toBe(0);
+    const scratch = await run('bash', [SCRIPT, '--check', sepolia], { DEPLOY_RECORD: join(fork.dir, 'fork.json') });
+    expect(scratch.stderr).toContain('on Sepolia the record is');
+    expect(untouched()).toBe(before);
+  }, 300_000);
+
+  it('a mainnet chain id, or any chain but Sepolia and the local one, is refused', async () => {
+    for (const [id, dec] of [['0x1', '1'], ['0x2105', '8453'], ['0x4268', '17000']] as const) {
+      const other = await posingAs(id, 'Geth/v1.15.0');
+      const d = await run('bash', [SCRIPT, other, fork.keystore, fork.passwordFile], { DEPLOY_RECORD: '' });
+      expect(d.code, id).not.toBe(0);
+      expect(d.stderr, id).toContain(`chain id ${dec} is not Sepolia (11155111), nor the local chain (31337) for a rehearsal`);
+      const v = await run('node', [join(root, 'scripts', 'sourcify-verify.mjs'), '--record', sepoliaRecord, '--rpc', other, '--submit']);
+      expect(v.code, id).not.toBe(0);
+      expect(v.stdout, id).toContain(`the RPC serves chain ${dec}, but the record is for chain 11155111`);
+    }
+  }, 300_000);
 });
