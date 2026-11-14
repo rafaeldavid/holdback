@@ -200,7 +200,7 @@ The phase-one contracts are deployed on Ethereum Sepolia, a public testnet whose
   - Multicall3 is the canonical contract already on Sepolia, and the script checks its code hash; the collector uses it.
   - None of these contracts has an owner, pause or upgrade path, so the deployer key has no power over them.
 - **Token.** `TestUSDC` ("Crow Test USDC", tUSDC, 6 decimals, EIP-712 version "1"; D42). It has USDC's ERC-3009 interface and anyone can mint it. It is not Circle's USDC.
-- **How.** `contracts/script/deploy-sepolia.sh <rpc-url> <keystore-file> <password-file>` runs one `forge create --broadcast` per contract, with no `forge script` and no `cast send`. It:
+- **How.** `DEPLOY_CROSSCHECK_RPC=<second-rpc-url> contracts/script/deploy-sepolia.sh <rpc-url> <keystore-file> <password-file>` runs one `forge create --broadcast` per contract, with no `forge script` and no `cast send`. It:
   - refuses any chain except Sepolia;
   - refuses a `contracts/src`, `lib`, build config or `script/TestUSDC.sol` that differs from the commit;
   - checks that each transaction succeeded, came from the deployer, and carried this build's creation code with its encoded constructor arguments;
@@ -208,11 +208,12 @@ The phase-one contracts are deployed on Ethereum Sepolia, a public testnet whose
   - checks that the beacon's code hash matches the compiled `DrandQuicknetBeacon`;
   - checks that the beacon verifies drand round 1000, and refuses a signature outside G1 or another round's signature with `InvalidSignature`;
   - checks the token's EIP-712 domain;
+  - on Sepolia, refuses to start without `DEPLOY_CROSSCHECK_RPC`, a second RPC from another provider, which must hold each creation as final before the record is written (T-410);
   - writes the JSON.
 - **Check it.** `contracts/script/deploy-sepolia.sh --check <rpc-url>` deploys nothing and is read-only. It runs the same checks from the recorded addresses and the checkout's build. It ties each address to the transaction that created it. Then it fails unless the record it derives equals `contracts/deployments/sepolia.json`. Run it from a checkout whose build inputs equal the recorded commit's. Every check fails closed: an RPC error is a failure, never a pass.
 - **Rehearse first** on a fork: `anvil --fork-url <sepolia-rpc> --fork-block-number <a recent block> --hardfork prague`. Without `--hardfork prague` the fork lacks EIP-2537 and the beacon check fails.
 - **The deployer.** A throwaway key, whose address is in the JSON. It sits in an encrypted Foundry keystore at `~/.foundry/keystores/`, outside the repository, with its password in a 0600 file next to it. It only pays gas. Never print the key or the password, and never put either in `.env*`.
-- **Source verification.** `contracts/script/deploy-sepolia.sh --verify <rpc-url>` runs `--check` first, then publishes each contract's source with the recorded constructor arguments: on Sourcify always, with no key, and on Etherscan too when `ETHERSCAN_API_KEY` is in the environment (T-383). Forge 1.0.0 could not read Sourcify's answer on 2026-11-13; the phase-one deployment was verified through Sourcify's v2 API instead (the phase-one cutover, below in the Deploy record). The deployment of 2026-11-04 is not verified. The JSON records the commit and compiler settings, so anyone can rebuild and compare the bytecode.
+- **Source verification.** `contracts/script/deploy-sepolia.sh --verify <rpc-url>` runs `--check` first, then verifies the five contracts' source on Sourcify through its API v2 (`scripts/sourcify-verify.mjs`, T-410), with no key and no account. `VERIFY_DRY_RUN=1` runs the check and sends nothing. Etherscan is not part of `--verify`: forge 1.0.0 names only Etherscan's retired API, and the script no longer calls it. The steps and what each must show are in [`redeploy-contracts.md`](redeploy-contracts.md), step 3. The deployment of 2026-11-04 is not verified. The JSON records the commit and compiler settings, so anyone can rebuild and compare the bytecode.
 - **Redeploying.** A contract fix ships as a new deployment that new deals opt into. Deals already open keep the contracts they started with. Deploying again, to Sepolia or anywhere else, is a gate (below), and follows [`redeploy-contracts.md`](redeploy-contracts.md).
 - **Earlier deployments** keep their records beside `sepolia.json` under dated names (`sepolia-<date>-domain-<version>.json`). To check one, copy it over `sepolia.json` in a checkout at its `commit` and run `deploy-sepolia.sh --check`. The dated record below says when each went live.
 

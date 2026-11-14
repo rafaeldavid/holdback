@@ -5,7 +5,7 @@
 - **Depends on:** T-383, T-398
 - **Paths this task may touch:** `contracts/script/`, `scripts/deploy-*`, `scripts/sourcify*`, `docs/redeploy-contracts.md`, their tests (`packages/settlement/evm/deploy-script.test.ts`, `tests/sourcify-verify.test.ts`), this task file; `apps/demo-cloud/src/live-fork.test.ts` for its output, on the coordinator's brief (and the two lines it needed to run on the public node: see Decisions)
 - **Human gate:** no for this pull request; a CI job for `site/walkthrough.mjs` is a workflow file, a separate draft pull request for Rafa's word
-- **Status:** review
+- **Status:** done (pull request 514 merged 2026-11-14 as `0ed11a8`)
 - **Agent/session:** T-410 session, 2026-11-14
 
 ## Intent
