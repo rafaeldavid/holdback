@@ -10732,7 +10732,7 @@ async function connect() {
 async function faucet(w, a) {
 	const grant = await a.call("POST", "/v1/faucet", { address: a.address });
 	if (grant.clubId !== w.clubId) throw new Error(`the faucet admitted to ${grant.clubId}, not ${w.clubId}`);
-	say(`${w.tusd(grant.granted.amount)} from the faucet, admitted to ${w.clubId}`);
+	say(`${w.tusd(grant.granted.amount)} from the faucet, admitted to ${plain(w.clubId, 60)}`);
 }
 /** A JSON answer from a test agent (a party, not an operator), or Unavailable with why. */
 async function fromParty(url, init = {}) {
@@ -10806,7 +10806,7 @@ async function requestOffer(buyer, card, seller, proposal, from) {
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(request)
 	});
-	say(`sealed proposal stored on Crow (${stored.bytes} bytes) and sent to the intake, offer "${plain(proposal.offer)}"`);
+	say(`sealed proposal stored on Crow (${ct.length} bytes) and sent to the intake, offer "${plain(proposal.offer)}"`);
 	at("offered");
 	let s;
 	for (const end = Date.now() + 12e4; Date.now() < end; await sleep(1e3)) {
@@ -10838,7 +10838,11 @@ async function checkOffer(w, buyer, id, seller, want) {
 		signature: signatures?.seller
 	})).toLowerCase() !== seller) refuse("the seller's signature does not recover to the seller");
 	const t = terms.timing, secs = (x) => Date.parse(x) / 1e3;
+	const now = await buyer.settlementNow() / 1e3, created = secs(terms.createdAt);
+	if (!(created >= now - CREATED_AT_BAND.behindSec && created <= now + CREATED_AT_BAND.aheadSec)) refuse(`the offer is dated ${plain(terms.createdAt, 40)}, not within ${CREATED_AT_BAND.behindSec} s before and ${CREATED_AT_BAND.aheadSec} s after settlement time`);
 	const windows = {
+		offer: secs(t.offerExpiresAt) - secs(terms.createdAt),
+		fund: secs(t.fundBy) - secs(terms.createdAt),
 		deliverBy: secs(t.deliverBy) - secs(terms.createdAt),
 		judge: secs(t.judgeBy) - secs(t.deliverBy),
 		fallback: secs(t.fallbackBy) - secs(t.judgeBy),
@@ -10967,6 +10971,8 @@ const NAME = "customers-3-silent";
 const MAX_TOTAL = 30000000n;
 /** The windows it accepts: the work due within 10 minutes of the offer, so the hold comes back soon. */
 const WINDOWS = {
+	offer: 600,
+	fund: 600,
 	deliverBy: 600,
 	judge: 60,
 	fallback: 60,
@@ -11025,7 +11031,7 @@ await run(async () => {
 	await fund(w, buyer, terms, MAX_TOTAL);
 	at("wait");
 	const deliverBy = Date.parse(terms.timing.deliverBy);
-	say(`nothing is delivered; deliverBy is ${terms.timing.deliverBy}, judged by the block's timestamp, ${Math.max(0, Math.round((deliverBy - await buyer.settlementNow()) / 1e3))} s from now by settlement time`);
+	say(`nothing is delivered; deliverBy is ${plain(terms.timing.deliverBy, 40)}, judged by the block's timestamp, ${Math.max(0, Math.round((deliverBy - await buyer.settlementNow()) / 1e3))} s from now by settlement time`);
 	let done;
 	let tries = 0;
 	for (const end = Date.now() + Math.max(0, deliverBy - await buyer.settlementNow()) + GIVE_UP_MS;; await sleep(1e4)) {

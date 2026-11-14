@@ -246,7 +246,7 @@ for (const [name, g] of Object.entries(GOALS)) {
   expect(file.includes(`viem@${pins().viem}`) && file.includes(`tweetnacl@${pins().tweetnacl}`) && file.includes('MIT License, Copyright (c) 2023-present weth, LLC'), `site/${name}.mjs's banner does not name the bundled viem and tweetnacl, with viem's licence`);
   expect(existsSync(here(`../${g.source}`)) && tryIt.includes(`\`${g.source.split('/').pop()}\``), `"Try it" does not name ${g.source}, the source of ${name}.mjs`);
   const line = goalCommand(name);
-  expect(line.includes(`curl -fsSLO ${goalUrl(name)} `) && line.includes(`echo "${goalSha256(name)}  ${name}.mjs" | shasum -a 256 -c && node ${name}.mjs`) && !/npm/.test(line), `the ${name} command does not fetch ${goalUrl(name)}, check its current sha256 and run it without npm`);
+  expect(line.includes(`curl -fsSL ${goalUrl(name)} -o ${name}.mjs.part `) && line.includes(`echo "${goalSha256(name)}  ${name}.mjs.part" | shasum -a 256 -c && mv ${name}.mjs.part ${name}.mjs && node ${name}.mjs`) && !/npm/.test(line), `the ${name} command does not fetch ${goalUrl(name)} as ${name}.mjs.part, check its current sha256 before naming it ${name}.mjs, and run it without npm`);
   expect(count(md, g.placeholder) === 1 && tryIt.includes(`\`\`\`sh\n${g.placeholder}\n\`\`\``) && filledTry.split('\n').includes(line), `${g.placeholder} must appear once in llms.txt, in its own sh block under "Try it", filled with the current ${name} command`);
   if (existsSync(here('../reports/site-out/llms.txt'))) expect(existsSync(here(`../reports/site-out/${name}.mjs`)) && read(`../reports/site-out/${name}.mjs`) === file, `reports/site-out/${name}.mjs is missing or differs from site/${name}.mjs: build with --out again`);
 }

@@ -9,11 +9,12 @@ import nacl from 'tweetnacl';
 import { recoverTypedDataAddress, type Hex } from 'viem';
 import { generatePrivateKey } from 'viem/accounts';
 import { Agent } from './agent.ts';
-import { commitmentIdOf, jcs, knownPins, operatorFeeOf, Refusal, sealKeyTo, typedOf, type Pin } from './verify.ts';
+import { commitmentIdOf, CREATED_AT_BAND, jcs, knownPins, operatorFeeOf, Refusal, sealKeyTo, typedOf, type Pin } from './verify.ts';
 
 export type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
-// tweetnacl finds no random source of its own in a bundled ES module on Node: give it Web Crypto's, explicitly.
+// tweetnacl's random source, set explicitly to Web Crypto's rather than left to its environment probe (the bundle's
+// createRequire also gives it node:crypto; this makes the source one line anyone can read).
 nacl.setPRNG((x: Uint8Array, n: number) => x.set(crypto.getRandomValues(new Uint8Array(n))));
 
 export const OPERATORS = (process.env['HOLDBACK_OPERATORS'] || 'https://api.crow.direct,https://api2.crow.direct').split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean);
@@ -110,7 +111,7 @@ export async function connect(): Promise<World> {
 export async function faucet(w: World, a: Agent): Promise<void> {
   const grant = await a.call('POST', '/v1/faucet', { address: a.address });
   if (grant.clubId !== w.clubId) throw new Error(`the faucet admitted to ${grant.clubId}, not ${w.clubId}`);
-  say(`${w.tusd(grant.granted.amount)} from the faucet, admitted to ${w.clubId}`);
+  say(`${w.tusd(grant.granted.amount)} from the faucet, admitted to ${plain(w.clubId, 60)}`);
 }
 
 /** A JSON answer from a test agent (a party, not an operator), or Unavailable with why. */
@@ -164,7 +165,7 @@ export async function requestOffer(buyer: Agent, card: J, seller: string, propos
   const token = Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString('base64url');
   const request = { type: 'crow-request', proposal: { uri: stored.uri, sha256: stored.id }, sealedKey: sealKeyTo(key, 'intake', card.intake.encryptionPublicKey).ciphertext, statusTokenHash: await sha256hex(new TextEncoder().encode(token)), from };
   await fromParty(card.intake.api, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(request) });
-  say(`sealed proposal stored on Crow (${stored.bytes} bytes) and sent to the intake, offer "${plain(proposal.offer)}"`);
+  say(`sealed proposal stored on Crow (${ct.length} bytes) and sent to the intake, offer "${plain(proposal.offer)}"`);
   at('offered');
   let s: J;
   for (const end = Date.now() + 120_000; Date.now() < end; await sleep(1000)) {
@@ -185,7 +186,7 @@ export interface Want {
   deliverable: J;
   checks: J[];
   rubric: J;
-  windows: { deliverBy: number; judge: number; fallback: number; appealWindow: number; appealDecide: number };
+  windows: { offer: number; fund: number; deliverBy: number; judge: number; fallback: number; appealWindow: number; appealDecide: number };
 }
 
 /**
@@ -204,7 +205,11 @@ export async function checkOffer(w: World, buyer: Agent, id: Hex, seller: string
   const signer = await recoverTypedDataAddress({ ...typedOf('CommitmentTerms', terms, buyer.domain), signature: signatures?.seller });
   if (signer.toLowerCase() !== seller) refuse("the seller's signature does not recover to the seller");
   const t = terms.timing, secs = (x: string) => Date.parse(x) / 1000;
-  const windows: Record<string, number> = { deliverBy: secs(t.deliverBy) - secs(terms.createdAt), judge: secs(t.judgeBy) - secs(t.deliverBy), fallback: secs(t.fallbackBy) - secs(t.judgeBy), appealWindow: Number(t.appealWindowSec), appealDecide: Number(t.appealDecideSec) };
+  // The seller picks createdAt and every window counts from it: refuse one far from settlement time, or a seller could
+  // date the offer a year ahead and lock the hold that long (red team F1; buyer-signer.ts does the same, T-388 H1).
+  const now = (await buyer.settlementNow()) / 1000, created = secs(terms.createdAt);
+  if (!(created >= now - CREATED_AT_BAND.behindSec && created <= now + CREATED_AT_BAND.aheadSec)) refuse(`the offer is dated ${plain(terms.createdAt, 40)}, not within ${CREATED_AT_BAND.behindSec} s before and ${CREATED_AT_BAND.aheadSec} s after settlement time`);
+  const windows: Record<string, number> = { offer: secs(t.offerExpiresAt) - secs(terms.createdAt), fund: secs(t.fundBy) - secs(terms.createdAt), deliverBy: secs(t.deliverBy) - secs(terms.createdAt), judge: secs(t.judgeBy) - secs(t.deliverBy), fallback: secs(t.fallbackBy) - secs(t.judgeBy), appealWindow: Number(t.appealWindowSec), appealDecide: Number(t.appealDecideSec) };
   for (const [name, max] of Object.entries(want.windows)) if (!(windows[name]! <= max)) refuse(`the offer's ${name} window is ${windows[name]} s, longer than the ${max} s this buyer accepts`);
   if (Number(t.maxSubmissions) !== 1) refuse(`the offer allows ${t.maxSubmissions} deliveries, not 1`);
   // The money addresses: the buyer pays and is refunded from its own address; the seller is paid at the payout

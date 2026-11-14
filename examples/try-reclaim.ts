@@ -27,7 +27,7 @@ const NAME = 'customers-3-silent';
 /** The most this command pays in all, price and fees: 30 tUSDC. */
 const MAX_TOTAL = 30_000_000n;
 /** The windows it accepts: the work due within 10 minutes of the offer, so the hold comes back soon. */
-const WINDOWS = { deliverBy: 600, judge: 60, fallback: 60, appealWindow: 0, appealDecide: 60 };
+const WINDOWS = { offer: 600, fund: 600, deliverBy: 600, judge: 60, fallback: 60, appealWindow: 0, appealDecide: 60 };
 /** How long after deliverBy it keeps trying before it gives up: 10 minutes. */
 const GIVE_UP_MS = 600_000;
 
@@ -62,7 +62,7 @@ await run(async () => {
 
   at('wait');
   const deliverBy = Date.parse(terms.timing.deliverBy);
-  say(`nothing is delivered; deliverBy is ${terms.timing.deliverBy}, judged by the block's timestamp, ${Math.max(0, Math.round((deliverBy - (await buyer.settlementNow())) / 1000))} s from now by settlement time`);
+  say(`nothing is delivered; deliverBy is ${plain(terms.timing.deliverBy, 40)}, judged by the block's timestamp, ${Math.max(0, Math.round((deliverBy - (await buyer.settlementNow())) / 1000))} s from now by settlement time`);
   let done: J;
   let tries = 0;
   for (const end = Date.now() + Math.max(0, deliverBy - (await buyer.settlementNow())) + GIVE_UP_MS; ; await sleep(10_000)) {

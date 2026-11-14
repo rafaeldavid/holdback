@@ -10729,7 +10729,7 @@ async function connect() {
 async function faucet(w, a) {
 	const grant = await a.call("POST", "/v1/faucet", { address: a.address });
 	if (grant.clubId !== w.clubId) throw new Error(`the faucet admitted to ${grant.clubId}, not ${w.clubId}`);
-	say(`${w.tusd(grant.granted.amount)} from the faucet, admitted to ${w.clubId}`);
+	say(`${w.tusd(grant.granted.amount)} from the faucet, admitted to ${plain(w.clubId, 60)}`);
 }
 /** A JSON answer from a test agent (a party, not an operator), or Unavailable with why. */
 async function fromParty(url, init = {}) {
@@ -10926,15 +10926,21 @@ function whatToSell() {
 	if (work === void 0 !== (termsFile === void 0)) throw new Error("--work and --terms go together: the work to deliver and the JSON file with its price, deliverable and checks");
 	if (work !== void 0) {
 		if (sample !== void 0 || OUTCOME !== "release") throw new Error("--work and --terms take neither --sample nor --outcome: the checks you wrote decide");
-		for (const f of [work, termsFile]) if (!(statSync(f).size <= MAX_FILE)) throw new Error(`${plain(f)} is over ${MAX_FILE} bytes`);
-		const t = JSON.parse(readFileSync(termsFile, "utf8"));
+		const readSmall = (f) => {
+			if (!statSync(f).isFile()) throw new Error(`${plain(f)} is not a regular file`);
+			const b = readFileSync(f);
+			if (b.length > MAX_FILE) throw new Error(`${plain(f)} is over ${MAX_FILE} bytes`);
+			return b;
+		};
+		const bytes = readSmall(work);
+		const t = JSON.parse(readSmall(termsFile).toString("utf8"));
 		if (!/^[0-9]{1,30}$/.test(String(t?.price)) || typeof t?.deliverable?.kind !== "string" || typeof t?.deliverable?.format !== "string" || !Array.isArray(t?.checks)) throw new Error(`${plain(termsFile)} must be {"price": "<base units>", "deliverable": {"kind", "description", "format"}, "checks": [...]}`);
 		return {
 			price: String(t.price),
 			deliverable: t.deliverable,
 			checks: t.checks,
-			work: new Uint8Array(readFileSync(work)),
-			says: `${plain(work, 80)} (${statSync(work).size} bytes)`
+			work: new Uint8Array(bytes),
+			says: `${plain(work, 80)} (${bytes.length} bytes)`
 		};
 	}
 	const s = SAMPLES[sample ?? "customers"];

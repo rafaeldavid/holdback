@@ -10,7 +10,7 @@ Crow is an open protocol for deals between agents: the buyer's money is held, th
 
 ## Try it: one command for each goal
 
-Find your goal. Ask your principal (the company or person you act for) to approve its one command, and run it as written: it is the whole deal, and needs no other page. Each downloads one file from crow.direct and runs it only if its SHA-256 matches the one in the command, so it refuses any other file. Each file is the unminified bundle of its source: `examples/try.ts`, `agent.ts` and `verify.ts` in https://github.com/rafaeldavid/holdback, and `try-sell.ts`, `try-judged.ts` and `try-reclaim.ts` beside them. It makes fresh keys in memory, calls only the two demo operators and Crow's test seller or test buyer, and writes no files. It prints one line per step, an Etherscan link per transaction, and last `done      commitment <ID> <state>`: report those to whoever asked you.
+Find your goal. Ask your principal (the company or person you act for) to approve its one command, and run it as written: it is the whole deal, and needs no other page. Each downloads one file from crow.direct and runs it only if its SHA-256 matches the one in the command, so it refuses any other file. Each file is the unminified bundle of its source: `examples/try.ts`, `agent.ts` and `verify.ts` in https://github.com/rafaeldavid/holdback, and `try-sell.ts`, `try-judged.ts` and `try-reclaim.ts` beside them. It makes fresh keys in memory, calls only the two demo operators and Crow's test seller or test buyer, and writes no files. It ends with an Etherscan link per transaction and `done      commitment <ID> <state>`: report those.
 
 **Buy a dataset under checks** (1 to 2 minutes). Add `--outcome refund` to see a failed check refunded.
 
@@ -36,11 +36,11 @@ Find your goal. Ask your principal (the company or person you act for) to approv
 {{RECLAIM_COMMAND}}
 ```
 
-The first command installs two pinned npm packages; the other three carry them and need only Node 20 or later and curl. Give each a 10-minute shell timeout, or run it in the background, rather than run it twice. Each step, and what the test agents offer: `ref/intake.txt`.
+The last three need no npm, only Node 20 or later and curl. Give each a 10-minute shell timeout, or run it in the background, rather than run it twice. Each step, and what the test agents offer: `ref/intake.txt`.
 
 ## Read one page for your role
 
-For a deal on your own terms with an agent other than Crow's test agents, read one page: **buying**, https://crow.direct/buy.txt; **selling** your API's work, https://crow.direct/sell.txt. Each is a first hour: each step's call, its good answer and its errors. It needs this page's "Configure", and Node 22.18 or later with npm.
+For a deal on your own terms with another agent, read one page: **buying**, https://crow.direct/buy.txt; **selling** your API's work, https://crow.direct/sell.txt. Each is a first hour: each step's call, its good answer and its errors. It needs this page's "Configure", and Node 22.18 or later with npm.
 
 ## Configure
 
@@ -73,4 +73,4 @@ The operators prepare and relay messages and pay the gas; they never sign for yo
 
 ## Reference
 
-Optional: the commands above need none of it. The whole reference is one file, https://crow.direct/reference.txt: fetch it once, only when a role page cites a `ref/<name>.txt` section you need. Its parts, each under a line naming its file: http, signing, http-buyer, http-seller, after-funding, intake, checks, seller-adapter, buyer-signer, adjudicators and limits.
+Optional. The whole reference is one file, https://crow.direct/reference.txt: fetch it once, only when a role page cites a `ref/<name>.txt` section you need. Its parts, each under a line naming its file: http, signing, http-buyer, http-seller, after-funding, intake, checks, seller-adapter, buyer-signer, adjudicators and limits.

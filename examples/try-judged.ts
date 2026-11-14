@@ -25,7 +25,7 @@ const OUTCOME = option('--outcome') ?? 'release';
 /** The most this command pays in all, price and fees: 20 tUSDC. */
 const MAX_TOTAL = 20_000_000n;
 /** The windows it accepts from the test seller, in seconds: the seller's published ones. */
-const WINDOWS = { deliverBy: 3600, judge: 60, fallback: 60, appealWindow: 0, appealDecide: 60 };
+const WINDOWS = { offer: 1800, fund: 2400, deliverBy: 3600, judge: 60, fallback: 60, appealWindow: 0, appealDecide: 60 };
 
 await run(async () => {
   const started = Date.now();

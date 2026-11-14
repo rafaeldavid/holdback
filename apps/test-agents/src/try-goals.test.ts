@@ -142,6 +142,18 @@ describe('try-reclaim.mjs (scenario s5)', () => {
     expect(r.out).toMatch(/^(reclaim|refunded) /m);
     expect(r.out).toMatch(/^refunded +Refunded on every operator: the price and the adjudication fee came back/m);
   }, 90_000);
+
+  it('refuses, and exits 3 before it funds, when the seller offers a longer delivery window than it accepts', async () => {
+    const slow = await serveAgent('/agents/test-seller', (base) => new TestSeller({ storage: new MemoryStorage(), operators: [...world.urls], seed: generatePrivateKey(), pin, base, log: () => {}, silentTiming: { offerExpiresInSec: 180, fundWithinSec: 240, deliverWithinSec: 1200, judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 0, appealDecideSec: 60 } }));
+    try {
+      const r = await node([bundle('try-reclaim'), '--seller', slow.url], world.urls);
+      expect(r.code, r.out).toBe(3);
+      expect(r.out).toMatch(/^refused at check: refusing to agree: the offer's deliverBy window is 1200 s, longer than the 600 s this buyer accepts$/m);
+      expect(r.out).not.toMatch(/^fund /m);
+    } finally {
+      await slow.close();
+    }
+  }, 60_000);
 });
 
 describe('try-sell.mjs (scenarios s3 and s6)', () => {

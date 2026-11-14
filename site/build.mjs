@@ -176,11 +176,12 @@ export async function goalBundle(name, p = pins()) {
 export const goalSha256 = (name) => createHash('sha256').update(readFileSync(here(`${name}.mjs`))).digest('hex');
 
 /**
- * A goal's one command: a fresh folder, the file from the site, run only when its sha256 is the pinned one. No npm:
- * the file carries its two packages.
+ * A goal's one command: a fresh folder, the file from the site downloaded as <name>.mjs.part and moved to <name>.mjs
+ * only when its sha256 is the pinned one, as buyInstall does, so a file that fails the check is never <name>.mjs (red
+ * team F3). No npm: the file carries its two packages.
  */
 export function goalCommand(name, sha = goalSha256(name)) {
-  return `mkdir -p crow-${name} && cd crow-${name} && curl -fsSLO ${goalUrl(name)} && echo "${sha}  ${name}.mjs" | shasum -a 256 -c && node ${name}.mjs${GOALS[name].args ? ` ${GOALS[name].args}` : ''}`;
+  return `mkdir -p crow-try && cd crow-try && curl -fsSL ${goalUrl(name)} -o ${name}.mjs.part && echo "${sha}  ${name}.mjs.part" | shasum -a 256 -c && mv ${name}.mjs.part ${name}.mjs && node ${name}.mjs${GOALS[name].args ? ` ${GOALS[name].args}` : ''}`;
 }
 /** Each goal's command by its llms.txt placeholder. */
 export const goalCommands = () => Object.fromEntries(Object.entries(GOALS).map(([name, g]) => [g.placeholder, goalCommand(name)]));
