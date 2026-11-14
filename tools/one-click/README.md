@@ -10,6 +10,7 @@ Two harnesses share this folder. `bench.mjs` (T-412, roadmap B1) runs the six ou
 node tools/one-click/bench.mjs --scenario s1                  # scripted: about 3 s
 node tools/one-click/bench.mjs --scenario all                 # scripted, the six in turn: about 11 s
 node tools/one-click/bench.mjs --scenario s1 --live           # live: needs HOLDBACK_AGENT_ANTHROPIC_API_KEY
+node tools/one-click/bench.mjs --scenario s1 --live --permissions sandbox-auto   # live, as an operator runs it (T-441)
 node scripts/metrics/one-click-summary.mjs --runs reports/scratch/one-click-bench/live --out reports/scratch/one-click-summary.json
 ```
 
@@ -36,25 +37,50 @@ So a scripted record proves the harness and the scenario's path through today's 
 
 A live run gives a fresh Claude Code one sentence of goal (the scenario's `goal`, naming `https://crow.direct/llms.txt`) and nothing else about Crow, as T-328 did:
 
-- an empty folder, default permissions, no settings files, no MCP servers and a filtered environment;
-- Claude Code's OS sandbox around its Bash commands by default: writes only in its folders, no reads of this user's main folders, shell history and rc files, network only to Crow's, npm's and Sepolia's hosts;
+- an empty folder, no settings files, no MCP servers and a filtered environment;
+- Claude Code's OS sandbox around its Bash commands by default: writes only in its folders, no reads of this user's main folders, shell history and rc files, network only to Crow's, npm's and Sepolia's hosts, and the agent key unset for every sandboxed command;
 - file tools (Read, Write, Edit, Glob, Grep and the rest) only inside the run's two folders, since the OS sandbox fences Bash only;
-- every permission request answered "allow" and counted, except a request that names this user's files or logins, reads the environment, or points a file tool outside the run's folders, which is denied and listed in `errors`;
+- every permission request answered "allow" and counted;
+- a request that names this user's files or logins, reads the environment, or points a file tool outside the run's folders denied on every call, prompted or not (a PreToolUse hook), and listed in `errors`; the raw log names it `denied`;
 - a question card answered with its "yes" option, and "Yes, go ahead." when a turn ends with a question, up to `--max-replies` times; each counts as an approval.
 
 The goal also asks the agent to write a `GUESS:` line whenever the docs leave it unsure. Those lines are the record's `docGaps`.
 
-**The key.** The run reads `HOLDBACK_AGENT_ANTHROPIC_API_KEY`, the agents' own key that `tools/duet` also uses, never the judges'. Without it the run stops before it imports the SDK or sends anything. The key reaches only the SDK's Claude Code process, as `ANTHROPIC_API_KEY`. It is never printed, and every string the harness writes (the record, and the raw log with `--logs`) passes through `scrubSecrets()` first. Claude Code's commands could still read their own environment; the harness denies the commands that do so in plain sight (`printenv`, `env`, `ps e`, `process.env`, `os.getenv`, `$ANTHROPIC…`), but a dedicated, spend-capped key, rotated after the runs, is the real fence. The record's gaps name the key source Claude Code reported, so a run billed to another login shows.
+**Two permission modes** (T-441), set by `--permissions`:
+
+| Mode | What asks a person | Records go to | Fills |
+| --- | --- | --- | --- |
+| `prompt` (the default) | every Bash command and file edit: Claude Code's default mode | `reports/scratch/one-click-bench/live/` | the summary's `headline` |
+| `sandbox-auto` | only what the OS sandbox cannot hold: Bash runs unprompted inside it, file edits in the run's folders are accepted; other tools, question cards and chat replies still ask | `reports/scratch/one-click-bench/live-sandbox-auto/` | the summary's `sandboxAuto` |
+
+The six live runs in `sandbox-auto`, one at a time (the test seller takes 3 requests per client an hour, and s1, s2, s4 and s5 use it):
+
+```
+node tools/one-click/bench.mjs --scenario s1 --live --permissions sandbox-auto --logs reports/scratch/one-click-bench/logs
+node tools/one-click/bench.mjs --scenario s2 --live --permissions sandbox-auto --logs reports/scratch/one-click-bench/logs
+node tools/one-click/bench.mjs --scenario s3 --live --permissions sandbox-auto --logs reports/scratch/one-click-bench/logs
+node tools/one-click/bench.mjs --scenario s4 --live --permissions sandbox-auto --logs reports/scratch/one-click-bench/logs
+node tools/one-click/bench.mjs --scenario s5 --live --permissions sandbox-auto --logs reports/scratch/one-click-bench/logs
+node tools/one-click/bench.mjs --scenario s6 --live --permissions sandbox-auto --logs reports/scratch/one-click-bench/logs
+node scripts/metrics/one-click-summary.mjs --runs reports/scratch/one-click-bench/live-sandbox-auto --out reports/scratch/one-click-summary-sandbox-auto.json
+```
+
+Cost: about USD 6 for the six (guessed). The prompt-mode runs of 2026-11-14 cost USD 5.94 for the six [measured]; the agent does the same work, and only who answers the prompts changes.
+
+`sandbox-auto` is how a careful operator runs an unattended agent: the OS sandbox, not a list of allowed command texts, is what keeps it to Crow's, npm's and Sepolia's hosts and its own folder. It needs the sandbox, so it refuses `--unsandboxed`. Each live record names its mode in `agent.permissions`; a record from before T-441 has none and counts as `prompt`.
+
+**The key.** The run reads `HOLDBACK_AGENT_ANTHROPIC_API_KEY`, the agents' own key that `tools/duet` also uses, never the judges'. Without it the run stops before it imports the SDK or sends anything. The key reaches only the SDK's Claude Code process, as `ANTHROPIC_API_KEY`. It is never printed, and every string the harness writes (the record, and the raw log with `--logs`) passes through `scrubSecrets()` first. The sandbox unsets the key for every sandboxed command (`sandbox.credentials.envVars`, T-441), and the harness also denies the commands that read the environment in plain sight (`printenv`, `env`, `ps e`, `process.env`, `os.getenv`, `$ANTHROPIC…`). With `--unsandboxed` only the denials remain, so a dedicated, spend-capped key, rotated after the runs, stays the last fence. The record's gaps name the key source Claude Code reported, so a run billed to another login shows.
 
 | Option (live) | Default | What it does |
 | --- | --- | --- |
 | `--model` | `claude-opus-5-5` | The model the agent runs |
 | `--effort` | `medium` | The SDK's effort level |
+| `--permissions` | `prompt` | `prompt` or `sandbox-auto` (above) |
 | `--max-replies` | 4 | Chat replies before the harness stops answering |
 | `--timeout-min`, `--idle-min` | 40, 5 | The whole run's limit, and the idle limit after a turn ends with background work |
 | `--unsandboxed` | off | Runs the agent's commands without the OS sandbox: only as a separate user or in a throwaway virtual machine |
 | `--logs <dir>` | none | Keeps the SDK's raw messages, scrubbed; outside the repository or under `reports/` |
-| `--out <dir>` | `reports/scratch/one-click-bench/live` | Where the record goes (`.../scripted` for scripted runs) |
+| `--out <dir>` | `reports/scratch/one-click-bench/live` | Where the record goes (`.../live-sandbox-auto` with `--permissions sandbox-auto`, `.../scripted` for scripted runs) |
 
 Exit codes: 0 when every record is valid and every scenario that can run reached its end state; 1 otherwise; 2 when the run could not start.
 
@@ -65,6 +91,7 @@ One file per run, `<runId>.json`, checked against `scripts/metrics/schemas/one-c
 | Field | Meaning | Source |
 | --- | --- | --- |
 | `mode` | `scripted` or `live` | the command line |
+| `agent.permissions` | a live run's permission mode, `prompt` or `sandbox-auto`; absent before T-441, read as `prompt` | `--permissions` |
 | `outcome.success` | the deal reached the scenario's end state | scripted: the script's last `done` line, confirmed by the operator's `escrowState`; live: the operators' `escrowState` for the commitment the agent called most in its own API calls |
 | `outcome.state` | `Released`, `Refunded`, `stopped`, `timedOut` or `blocked` (with `blockedBy`) | as above |
 | `approvals` | what a person would have answered: tool permissions, question cards, chat replies | the harness's own count |
@@ -76,7 +103,7 @@ One file per run, `<runId>.json`, checked against `scripts/metrics/schemas/one-c
 | `errors` | what stopped or slowed the run, scrubbed | the harness |
 | `docGaps` | each place the agent had to guess | the `GUESS:` lines in the agent's own words, never in a tool result |
 
-**The summary** (`scripts/metrics/one-click-summary.mjs`, `crow.metrics.one-click-summary/1`) turns the records into the four headline numbers: approvals per deal, tokens per deal (with the uncached input apart), time without the user and cost per deal. Each is the median of the newest 10 live records that reached their end state. With none, it reads `"state": "missing"` and `null`, never 0.
+**The summary** (`scripts/metrics/one-click-summary.mjs`, `crow.metrics.one-click-summary/1`) turns the records into the four headline numbers: approvals per deal, tokens per deal (with the uncached input apart), time without the user and cost per deal. Each is the median of the newest 10 live records that reached their end state. With none, it reads `"state": "missing"` and `null`, never 0. `headline` counts `prompt` records only; `sandboxAuto` holds the same four numbers from `sandbox-auto` records, so the two modes never share a median.
 
 ### Rerun a scenario
 
