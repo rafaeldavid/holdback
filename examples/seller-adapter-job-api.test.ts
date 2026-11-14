@@ -117,7 +117,8 @@ describe('seller adapter, a job API of another shape (T-366): deals', () => {
 
   it('a funded deal starts one job, polls it while it runs, adds its files, and delivers once', async () => {
     stub = await startJobStub({ key: KEY, readsUntilComplete: 3 });
-    const file = configFile(stub.base);
+    const events = join(mkdtempSync(join(tmpdir(), 't417-')), 'events.jsonl');
+    const file = configFile(stub.base, { events });
     const { running, lines } = await adapter(file);
     const buyer = agent('buyer-1');
     const { body: q } = await quote(running, buyer);
@@ -145,6 +146,65 @@ describe('seller adapter, a job API of another shape (T-366): deals', () => {
     expect(log).toMatch(/preflight: accept/);
     expect(log).not.toContain(KEY);
     expect(journalText(file)).not.toContain(KEY);
+
+    // T-417: the events, one JSON line each: the quote, each stage with its times, the job's states, the delivery.
+    const text = readFileSync(events, 'utf8');
+    const ev = text.trim().split('\n').map((l) => JSON.parse(l));
+    expect(ev.every((e) => e.schema === 'crow.seller-adapter.event/1' && typeof e.at === 'string')).toBe(true);
+    const types = ev.map((e) => (e.type === 'deal.stage' ? `stage:${e.stage}` : e.type === 'job.status' ? `status:${e.status}` : e.type));
+    expect(types.slice(0, 2)).toEqual(['deal.offered', 'quote.answered']);
+    for (const t of ['stage:starting', 'stage:started', 'status:queued', 'status:running', 'job.done', 'stage:delivering', 'stage:delivered']) expect(types, t).toContain(t);
+    expect(types.indexOf('status:queued')).toBeLessThan(types.indexOf('status:running'));
+    expect(ev.find((e) => e.type === 'deal.offered')).toMatchObject({ commitmentId: id, price: { amount: '200000000' }, deliverWithinSec: 2 * 86_400 });
+    expect(ev.find((e) => e.type === 'quote.answered')).toMatchObject({ commitmentId: id, ms: expect.any(Number) });
+    const done = ev.find((e) => e.type === 'deal.stage' && e.stage === 'delivered');
+    expect(done).toMatchObject({ from: 'delivering', refusals: 0, secSinceOffered: expect.any(Number), secSincePrevious: expect.any(Number) });
+    expect(ev.find((e) => e.type === 'job.done')).toMatchObject({ secSinceStarted: expect.any(Number), bytes: expect.any(Number) });
+    // No content, credential, identity or scope.
+    for (const secret of [KEY, buyer.address.toLowerCase(), buyer.address, 'vault-core', 'Reviewed', 'overflow', DEFAULT_FILES['poc/overflow.t.sol']!]) expect(text, secret).not.toContain(secret);
+    const journaled = JSON.parse(journalText(file)).deals[id];
+    expect(Object.keys(journaled.times).sort()).toEqual(['delivered', 'delivering', 'jobDone', 'offered', 'started', 'starting'].sort());
+  }, 30_000);
+
+  it('a quote the adapter refuses is an event with its reason code and no request content (T-417)', async () => {
+    stub = await startJobStub({ key: KEY });
+    const events = join(mkdtempSync(join(tmpdir(), 't417-')), 'events.jsonl');
+    const { running } = await adapter(configFile(stub.base, { events }));
+    const res = await fetch(`${running.url}/quote`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ buyer: '0x00000000000000000000000000000000000000aa', buyerEncryptionPublicKey: 'x', scope: { target: 'secret-target', depth: 2 } }) });
+    expect(res.status).toBe(400);
+    const text = readFileSync(events, 'utf8');
+    expect(JSON.parse(text.trim())).toMatchObject({ type: 'quote.refused', status: 400, reason: 'invalid_request', ms: expect.any(Number) });
+    for (const secret of ['secret-target', '0x00000000000000000000000000000000000000aa']) expect(text).not.toContain(secret);
+  }, 30_000);
+
+  it('a replayed quote is marked, a refused credential is counted, and an unwritable file never stops the adapter (T-417)', async () => {
+    const here = await startJobStub({ key: KEY });
+    stub = here;
+    const events = join(mkdtempSync(join(tmpdir(), 't417-')), 'events.jsonl');
+    const { running } = await adapter(configFile(here.base, { events }));
+    const buyer = agent('buyer-2');
+    const body = JSON.stringify({ buyer: buyer.address, buyerEncryptionPublicKey: buyer.encryptionPublicKey, scope: SCOPE });
+    const post = () => fetch(`${running.url}/quote`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'k-t417' }, body });
+    expect((await post()).status).toBe(200);
+    expect((await post()).status).toBe(200);
+    const answered = readFileSync(events, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.type === 'quote.answered');
+    expect(answered.map((e) => e.replayed)).toEqual([false, true]);
+
+    // A quote route with a credential: a refusal there is counted too.
+    const guarded = join(mkdtempSync(join(tmpdir(), 't417-')), 'events.jsonl');
+    const lines: string[] = [];
+    const g = await startSellerAdapter({ ...loadConfig(configFile(here.base, { events: guarded, quoteAuth: { kind: 'bearer', env: 'QUOTE_CREDENTIALS' } })), log: (l) => lines.push(l) }, { HOLDBACK_KEY: acct('seller-1').privateKey, HOLDBACK_OPERATORS: world.info.operators.join(','), JOBS_API_KEY: KEY, QUOTE_CREDENTIALS: 'q-1' });
+    adapters.push(g);
+    expect((await fetch(`${g.url}/quote`, { method: 'POST', headers: { 'content-type': 'application/json' }, body })).status).toBe(401);
+    expect(JSON.parse(readFileSync(guarded, 'utf8').trim())).toMatchObject({ type: 'quote.refused', status: 401, reason: 'unauthorized' });
+
+    // A file in a folder that does not exist: one log line, and quotes still answer.
+    const broken: string[] = [];
+    const b = await startSellerAdapter({ ...loadConfig(configFile(here.base, { events: join(tmpdir(), 't417-missing-folder', 'events.jsonl') })), log: (l) => broken.push(l) }, { HOLDBACK_KEY: acct('seller-1').privateKey, HOLDBACK_OPERATORS: world.info.operators.join(','), JOBS_API_KEY: KEY });
+    adapters.push(b);
+    for (const key of ['k-b1', 'k-b2']) expect((await fetch(`${b.url}/quote`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': key }, body })).status).toBe(200);
+    expect(broken.filter((l) => l.includes('Events: cannot write'))).toHaveLength(1);
+    expect(() => loadConfig(configFile(here.base, { events: 1 }))).toThrow('events must be a file path');
   }, 30_000);
 
   it('a start whose answer is lost, then a restart, starts one job under the same key and delivers once', async () => {

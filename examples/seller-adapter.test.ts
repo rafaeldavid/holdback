@@ -927,8 +927,9 @@ describe('seller adapter: a refused report waits for the fixed one (T-329)', () 
 
   it('alerts the seller with the failed check, holds the delivery, and delivers the fixed report when the seller says it is ready', async () => {
     const hook = await receiver();
+    const eventsFile = join(mkdtempSync(join(tmpdir(), 't417-')), 'events.jsonl');
     const { running, lines } = await service(
-      { alerts: { callback: hook.url, secretEnv: 'ALERT_SECRET' }, redelivery: { readyAuth: { kind: 'bearer', env: 'READY_CREDENTIALS' } } },
+      { alerts: { callback: hook.url, secretEnv: 'ALERT_SECRET' }, redelivery: { readyAuth: { kind: 'bearer', env: 'READY_CREDENTIALS' } }, events: eventsFile },
       { ALERT_SECRET: 'alert-secret-1', READY_CREDENTIALS: 'ready-one' },
       { report: 'missing-file', pollsUntilComplete: 0 },
     );
@@ -946,6 +947,9 @@ describe('seller adapter: a refused report waits for the fixed one (T-329)', () 
     expect(alert!.body.checks).toContainEqual({ checkId: 'coverage', required: true, outcome: 'fail', detail: 'schema: /filesReviewed: fewer than 3 items' });
     expect(alert!.headers['x-crow-signature']).toBe(hmac('alert-secret-1', alert!.raw));
     expect(lines.join('\n')).toContain(`ALERT ${id} delivery.refused (attempt 1): FAIL coverage (required): schema: /filesReviewed: fewer than 3 items`);
+    // T-417: the refusal is an event too, naming the failed check only.
+    const refusedEvent = readFileSync(eventsFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).find((e) => e.type === 'delivery.refused');
+    expect(refusedEvent).toMatchObject({ commitmentId: id, attempt: 1, failedChecks: ['coverage'], refusedCode: null });
 
     // The delivery waits: nothing reaches the settlement layer, and the deal stays Held.
     await new Promise((r) => setTimeout(r, 300));

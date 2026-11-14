@@ -6,7 +6,7 @@
 - **Depends on:** T-366 (the adapter calls a seller's job API through a mapping); the High finding and the design are ADR-0037, section 6 (T-407, pull request 499, Proposed)
 - **Paths this task may touch:** `examples/seller-adapter.ts`, `examples/seller-adapter-api.ts`, `examples/seller-adapter-job-api.test.ts`, `site/ref/seller-adapter.txt`, this file. Never: settlement, judgment, auth or the operators.
 - **Human gate:** no. Rafa, 2026-11-14: "Go ahead on next steps that are possible", after the fix was recommended before the pilot's two scans. Nothing deploys.
-- **Status:** review (this pull request)
+- **Status:** done (PR 501, merge commit `f6b30a8`)
 - **Agent/session:** the T-399 session, 2026-11-14, branch `t-408-start-once`
 
 ## Intent
