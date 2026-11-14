@@ -375,7 +375,10 @@ describe.skipIf(!ready)(`red team of the operators' own timeouts, on anvil stand
     const late = await pass.run();
     expect(late.sent).toEqual([]);
     expect(late.refused.map((x) => x.detail)).toEqual([expect.stringMatching(/^contract revert WrongStage at block \d+$/)]);
-    expect(await sync.pass()).toMatchObject({ applied: 1 });
+    // On WrongStage the pass read the deal's own transactions again (T-409, M1), so the book has the buyer's reclaim
+    // and the sync finds it applied.
+    expect(s.escrowState(d.id)?.kind).toBe('Refunded');
+    expect(await sync.pass()).toMatchObject({ applied: 0 });
     expect(pass.nextAt()).toBeNull();
     expect((await lanes()) - before).toBe(0);
   }, 120_000);
