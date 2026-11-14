@@ -18,12 +18,15 @@ export const cspHash = (text) => `sha256-${createHash('sha256').update(text.repl
 // attribute values, and enters escaped states after `<!--` inside a script. So this reads the page the way the
 // standard does, and refuses (throws) what it does not model, rather than hash text the browser would not run:
 // a script or style that holds `<!--`, `<script` or `</script` (`</style`), one with no end tag, one inside <svg> or
-// <math> (foreign content, parsed differently), and <plaintext>.
+// <math> (foreign content, parsed differently), an HTML integration point or CDATA inside them, a srcdoc attribute,
+// a NUL character, and <plaintext>. Comments end at `-->` or `--!>`, as in a browser.
 const SPACE = /[\t\n\f\r ]/;
 const LETTER = /[A-Za-z]/;
 const RAWTEXT = new Set(['style', 'xmp', 'iframe', 'noembed', 'noframes', 'noscript', 'script']);
 const RCDATA = new Set(['title', 'textarea']);
 const FOREIGN = new Set(['svg', 'math']);
+/** Elements inside <svg> or <math> where a browser parses HTML again (the standard's integration points). */
+const INTEGRATION = new Set(['foreignobject', 'desc', 'title', 'annotation-xml', 'mi', 'mo', 'mn', 'ms', 'mtext']);
 
 /** Reads one tag from `i` (just after `<` or `</`): its lowercase name, its attributes, and the index after its `>`. */
 function readTag(html, i) {
@@ -77,6 +80,8 @@ function endTagAt(html, name, from) {
  * @returns {{ scripts: { attrs: Map<string, string>, text: string }[], styles: string[] }} in page order
  */
 export function elements(html) {
+  // A browser turns NUL into U+FFFD inside a script or style, so a hash of the raw text would not match.
+  if (html.includes('\u0000')) throw new Error('a page holds a NUL character, which a browser replaces before hashing');
   const scripts = [], styles = [];
   let foreign = 0;
   let i = 0;
@@ -89,10 +94,14 @@ export function elements(html) {
       if (html[lt + 4] === '>') i = lt + 5;
       else if (html.startsWith('->', lt + 4)) i = lt + 6;
       else {
-        const close = html.indexOf('-->', lt + 4);
-        if (close < 0) throw new Error('a comment never ends');
-        i = close + 3;
+        // It also ends at '--!>', whichever comes first.
+        const ends = [html.indexOf('-->', lt + 4), html.indexOf('--!>', lt + 4)].filter((k) => k >= 0);
+        if (ends.length === 0) throw new Error('a comment never ends');
+        const close = Math.min(...ends);
+        i = close + (html.startsWith('-->', close) ? 3 : 4);
       }
+    } else if (html.startsWith('<![CDATA[', lt) && foreign > 0) {
+      throw new Error('a page holds <![CDATA[ inside <svg> or <math>, which this reader does not model');
     } else if (next === '!' || next === '?') {
       const close = html.indexOf('>', lt);
       i = close < 0 ? html.length : close + 1; // a doctype or bogus comment
@@ -108,6 +117,8 @@ export function elements(html) {
       const tag = readTag(html, lt + 1);
       i = tag.end;
       if (tag.name === 'plaintext') throw new Error('a page holds <plaintext>, which this reader does not model');
+      if (tag.attrs.has('srcdoc')) throw new Error(`a <${tag.name}> carries srcdoc, a page inside an attribute that this reader does not read`);
+      if (foreign > 0 && INTEGRATION.has(tag.name)) throw new Error(`a <${tag.name}> inside <svg> or <math> returns to HTML parsing, which this reader does not model`);
       if (FOREIGN.has(tag.name) && !tag.selfClosing) foreign++;
       if (!RAWTEXT.has(tag.name) && !RCDATA.has(tag.name)) continue;
       if (foreign > 0) {

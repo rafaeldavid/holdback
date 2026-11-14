@@ -180,6 +180,13 @@ describe('the security headers on the site Worker (T-451)', () => {
       'a script that never ends': '<script>a()',
       'a script inside <svg>': '<svg><script>a()</script></svg>',
       '<plaintext>': '<plaintext><script>a()</script>',
+      // The red team's second pass: inputs where the reader lost track of <svg> or of what a browser runs.
+      'a comment ended by --!> hiding <svg>': '<!-- --!><svg> --><script>a()</script></svg>',
+      'CDATA inside <svg> holding </svg>': '<svg><![CDATA[></svg>]]><script>a()</script></svg>',
+      'an integration point inside <svg>': '<svg><foreignObject><span></svg></span></foreignObject><script>a()</script></svg>',
+      'a comment ended by --!> hiding <plaintext>': '<!-- --!><plaintext> --><script>a()</script>',
+      'a NUL in a script': '<script>a("\u0000")</script>',
+      'a script inside srcdoc': '<iframe srcdoc="&lt;script&gt;a()&lt;/script&gt;"></iframe><script>b()</script>',
     };
     for (const [why, page] of Object.entries(refused)) {
       let problem: string | null;
