@@ -12,22 +12,10 @@ import { jcs } from './verify.ts';
 const args = process.argv.slice(2), stop = args.includes('--stop-after-funding'), at = args.indexOf('--expect-terms'), termsFile = at >= 0 ? args[at + 1] : undefined, dl = args.indexOf('--delivery'), deliveryFile = dl >= 0 ? args[dl + 1] : undefined;
 const [first, store, third, fourth, defaults, options] = args.filter((a, i) => a !== '--stop-after-funding' && (at < 0 || (i !== at && i !== at + 1)) && (dl < 0 || (i !== dl && i !== dl + 1))); const usage = help('buy-with-signer', import.meta.url), asked = helpAsked(args); // what it does, the usage and one example (examples/help.ts)
 if (asked !== null || first === undefined || (first === 'resume' && !store)) { (asked === 0 ? console.log : console.error)(usage); process.exit(asked ?? 2); } else if (at >= 0 && (!termsFile || termsFile.startsWith('--'))) throw new Error('--expect-terms takes the path of your terms file'); else if (first !== 'resume' && !/^[0-9]+$/.test(fourth ?? '')) throw new Error(`the most you pay is base units as a decimal string, the fourth argument\n${usage}`);
-const say = (x: unknown) => console.error(printable(JSON.stringify(x))); // seller text, with no hidden or reordering characters
-const expect = () => ({ expect: JSON.parse(process.env['CROW_EXPECT'] || '{}') }), sh = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
+const say = (x: unknown) => console.error(printable(JSON.stringify(x))), expect = () => ({ expect: JSON.parse(process.env['CROW_EXPECT'] || '{}') }), sh = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`); // say: seller text, with no hidden or reordering characters
 // Waits, reports each step, reclaims the hold if deliverBy passes undelivered, decrypts, checks the hash. The work is the seller's data: printed as JSON, never run.
 const finish = async (s: BuyerSigner) => { const done = await s.openDelivery(s.commitmentId!, { onReport: say, ...(deliveryFile ? { delivery: JSON.parse(readFileSync(deliveryFile, 'utf8')) } : {}) }); console.log(printable(JSON.stringify({ commitmentId: s.commitmentId, buyer: s.address, paid: s.paid?.total, outcome: done.outcome, ...(done.settlement ? { settlement: done.settlement } : {}), work: done.work, transactions: done.transactions }))); };
-// The faucet's tokens and mandate; on its 429 one plain line, exit status 1, and false: nothing is signed or paid yet (T-399 Finding 2).
-const testFunds = async (s: BuyerSigner, amount: string) => {
-  try {
-    await s.testFunds(amount);
-    return true;
-  } catch (e) {
-    if (!(e instanceof FaucetLimited)) throw e;
-    console.error(printable(`Stopped: the faucet's grants for this client are used (429: ${e.detail}). It grants again ${e.retryAfterSec === null ? 'within the hour' : `in ${e.retryAfterSec} s`}. Nothing is signed or paid: run the approve command again then, before offerExpiresAt.`));
-    process.exitCode = 1;
-    return false;
-  }
-};
+const testFunds = (s: BuyerSigner, amount: string) => s.testFunds(amount).then(() => true, (e: unknown) => { if (!(e instanceof FaucetLimited)) throw e; console.error(printable(`Stopped: the faucet's grants for this client are used (429: ${e.detail}). It grants again ${e.retryAfterSec === null ? 'within the hour' : `in ${e.retryAfterSec} s`}. Nothing is signed or paid: run the approve command again then, before offerExpiresAt.`)); process.exitCode = 1; return false; }); // the faucet's tokens and mandate; on its 429 one plain line, exit 1, nothing signed or paid (T-399 Finding 2)
 // The approved offer: read again from every operator and refused, naming the field, unless it equals what was shown; then the faucet's total and mandate, and three signatures, each rebuilt from the approved terms.
 const pay = async (s: BuyerSigner, offer: Offer, budget: string) => {
   if (BigInt(offer.fees.total.amount) > BigInt(budget)) throw new Error(`the offer costs ${offer.fees.total.amount} base units, above ${budget}`);

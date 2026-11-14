@@ -4200,17 +4200,12 @@ var init_buy_with_signer = __esmMin((async () => {
 			transactions: done.transactions
 		})));
 	};
-	testFunds = async (s, amount) => {
-		try {
-			await s.testFunds(amount);
-			return true;
-		} catch (e) {
-			if (!(e instanceof FaucetLimited)) throw e;
-			console.error(printable(`Stopped: the faucet's grants for this client are used (429: ${e.detail}). It grants again ${e.retryAfterSec === null ? "within the hour" : `in ${e.retryAfterSec} s`}. Nothing is signed or paid: run the approve command again then, before offerExpiresAt.`));
-			process.exitCode = 1;
-			return false;
-		}
-	};
+	testFunds = (s, amount) => s.testFunds(amount).then(() => true, (e) => {
+		if (!(e instanceof FaucetLimited)) throw e;
+		console.error(printable(`Stopped: the faucet's grants for this client are used (429: ${e.detail}). It grants again ${e.retryAfterSec === null ? "within the hour" : `in ${e.retryAfterSec} s`}. Nothing is signed or paid: run the approve command again then, before offerExpiresAt.`));
+		process.exitCode = 1;
+		return false;
+	});
 	pay = async (s, offer, budget) => {
 		if (BigInt(offer.fees.total.amount) > BigInt(budget)) throw new Error(`the offer costs ${offer.fees.total.amount} base units, above ${budget}`);
 		if (!s.paid && s.paymentAddress !== s.address) {
