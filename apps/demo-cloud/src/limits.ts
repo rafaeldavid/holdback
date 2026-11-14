@@ -10,7 +10,7 @@
 // - The replay rule: a repeat of an accepted request (the same Idempotency-Key and body) is never refused by a daily
 //   cap, nor by the operator's read and write throttle (apps/operator/src/server.ts). The flood ceiling counts it.
 import { canonicalKeccak } from '@holdback/core';
-import { MAX_BODY_BYTES, MAX_REGISTRATION_BYTES, PROBLEM_BASE, PROBLEMS, type ApiProblemType } from '@holdback/operator';
+import { MAX_REGISTRATION_BYTES, PROBLEM_BASE, PROBLEMS, type ApiProblemType } from '@holdback/operator';
 import type { WorldStorage } from './storage.js';
 
 /**
@@ -74,6 +74,9 @@ export function problemResponse(type: ApiProblemType, detail: string, members: {
     },
   });
 }
+
+/** The operator's cap on a JSON body, in bytes (apps/operator/src/server.ts; limits.test.ts reads its 413 to match). */
+export const MAX_BODY_BYTES = 1_048_576;
 
 /** The largest body a route takes, in bytes: the operator's own caps, checked by the Worker on Content-Length. */
 export const bodyCapOf = (path: string): number => (path.replace(/\/+$/, '') === '/v1/adjudicators' ? MAX_REGISTRATION_BYTES : MAX_BODY_BYTES);

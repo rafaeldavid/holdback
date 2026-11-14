@@ -45,7 +45,6 @@ import { StoreError, type CiphertextStore } from '@holdback/core/store';
 import { declinesOf, drandQuicknet, testAdjudicator, type RandomnessSource, type RunReport, type KeptPolicies, type TestAdjudicator } from '@holdback/adjudicator';
 import {
   fetchHandler,
-  MAX_BODY_BYTES,
   nameToken,
   Operator,
   POOL_TERMS,
@@ -71,7 +70,7 @@ import type { TimeoutKind } from '@holdback/settlement';
 import { mandateFor, SIM_CHAIN_ID, SIM_RULEBOOK, simClub, SimChain, TOKEN, wideScope, type Genesis, type JournalEntry } from '@holdback/settlement/sim';
 import { panelConfig, type JudgeProvider, type PanelConfig } from './judges.js';
 import { StorageLanes } from './lanes.js';
-import { capOf, DailyCaps, DEFAULT_DAILY_CAPS, DEFAULT_RATE, FLOOD_CEILING, problemResponse, wholeNumberVar } from './limits.js';
+import { capOf, DailyCaps, MAX_BODY_BYTES, DEFAULT_DAILY_CAPS, DEFAULT_RATE, FLOOD_CEILING, problemResponse, wholeNumberVar } from './limits.js';
 import type { WorldStorage } from './storage.js';
 import { dealFacts, Telemetry, type DayFacts, type TelemetryOptions } from './telemetry.js';
 

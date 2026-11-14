@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { Agent } from '../../../examples/agent.ts';
 import { serveTwoOrigins } from '../../../examples/two-origins.ts';
 import { MemoryStorage, PublicWorld, type PublicWorldOptions } from './index.js';
-import { DailyCaps, FLOOD_CEILING, clientKey, secondsToUtcMidnight } from './limits.js';
+import { DailyCaps, FLOOD_CEILING, MAX_BODY_BYTES, clientKey, secondsToUtcMidnight } from './limits.js';
 import worker, { World, type Env } from './worker.js';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -209,6 +209,49 @@ describe('no service limit refuses a replay (the operator\'s throttle)', () => {
   });
 });
 
+describe('the replay path is bounded and opens no way around a limit (the coordinator\'s conditions, T-422)', () => {
+  it('a replay flood meets its own budget, ten times the write budget, while another client still writes', async () => {
+    const { urls, other } = await serveWorld({ rateLimit: { writes: 2, reads: 1000, windowMs: 60_000 } });
+    const a = freshAgent(urls);
+    const body = { address: a.address };
+    expect((await post(`${urls[0]}/v1/faucet`, body, 'flood-1')).status).toBe(200);
+    for (let i = 0; i < 20; i++) expect((await post(`${urls[0]}/v1/faucet`, body, 'flood-1')).status, `replay ${i + 1}`).toBe(200);
+    const stopped = await post(`${urls[0]}/v1/faucet`, body, 'flood-1');
+    expectRateLimited(stopped.status, stopped.headers, await stopped.json());
+    // The flood spent only its own client's replay budget: another client writes and replays in the same window.
+    const b = freshAgent(other);
+    expect((await post(`${other[0]}/v1/faucet`, { address: b.address }, 'b-1')).status).toBe(200);
+    expect((await post(`${other[0]}/v1/faucet`, { address: b.address }, 'b-1')).status).toBe(200);
+    // And the flooding client's own write budget is untouched by its replays.
+    expect((await post(`${urls[0]}/v1/faucet`, { address: freshAgent(urls).address }, 'flood-2')).status).toBe(200);
+  });
+
+  it('the same key with another body is a 409 and counts as a write; another party\'s key replays nothing of theirs', async () => {
+    const { urls, other } = await serveWorld({ rateLimit: { writes: 2, reads: 1000, windowMs: 60_000 } });
+    const a = freshAgent(urls);
+    expect((await post(`${urls[0]}/v1/faucet`, { address: a.address }, 'k-a')).status).toBe(200);
+    const conflict = await post(`${urls[0]}/v1/faucet`, { address: freshAgent(urls).address }, 'k-a');
+    expect(conflict.status).toBe(409);
+    expect((await conflict.json()).type).toBe('idempotency_conflict');
+    // Two writes are spent (the grant and the conflict), so the next one is refused.
+    expect((await post(`${urls[0]}/v1/faucet`, { address: freshAgent(urls).address }, 'k-c')).status).toBe(429);
+    // Another client that guesses the key gets the stored answer only by sending the very same request, which is public
+    // anyway (the faucet's answer names the address it granted); any other body under that key is a 409.
+    const guess = await post(`${other[0]}/v1/faucet`, { address: freshAgent(other).address }, 'k-a');
+    expect(guess.status).toBe(409);
+  });
+
+  it('caps the body before the replay lookup: an oversized body under a known key is a 413 and counts', async () => {
+    const { urls } = await serveWorld({ rateLimit: { writes: 2, reads: 1000, windowMs: 60_000 } });
+    const a = freshAgent(urls);
+    expect((await post(`${urls[0]}/v1/faucet`, { address: a.address }, 'big-1')).status).toBe(200);
+    const big = await fetch(`${urls[0]}/v1/faucet`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'big-1' }, body: `{"address":"${'a'.repeat(MAX_BODY_BYTES)}"}` });
+    expect(big.status).toBe(413);
+    expect((await big.json()).maxBytes).toBe(MAX_BODY_BYTES);
+    expect((await post(`${urls[0]}/v1/faucet`, { address: freshAgent(urls).address }, 'big-2')).status).toBe(429);
+  });
+});
+
 describe('the limits come from Worker variables and discovery states them', () => {
   it('reads each limit from its variable, publishes them under demo.limits, and refuses a malformed one at start', async () => {
     const env = { FUNDED_DEALS_PER_CLIENT_PER_DAY: '7', CIPHERTEXT_BYTES_PER_CLIENT_PER_DAY: '1048576', RATE_READS_PER_MIN: '600', RATE_WRITES_PER_MIN: '60' };
@@ -291,6 +334,22 @@ describe('each Worker, before the World object', () => {
     const r = await worker.fetch(at('/v1/status'), e.env('0'));
     expectRateLimited(r.status, r.headers, await r.json(), FLOOD_CEILING.periodSec);
     expect(e.forwarded).toHaveLength(1);
+  });
+
+  it('a flood from one client, replays included, stops at the ceiling while another client is forwarded', async () => {
+    // A fixed-window stand-in for Cloudflare's binding: FLOOD_CEILING.limit per client per window.
+    const counts = new Map<string, number>();
+    const FLOOD = { limit: async ({ key }: { key: string }) => ({ success: (counts.set(key, (counts.get(key) ?? 0) + 1).get(key) ?? 0) <= FLOOD_CEILING.limit }) };
+    const forwarded: string[] = [];
+    const WORLD = { idFromName: (n: string) => n, get: () => ({ fetch: async (r: Request) => (forwarded.push(r.headers.get('x-holdback-client')!), new Response('{}')) }) };
+    const env = { WORLD, NODE_INDEX: '0', SETTLEMENT: 'sim', FLOOD } as unknown as Env;
+    const replay = () => at('/v1/faucet', { method: 'POST', headers: { 'idempotency-key': 'same', 'content-type': 'application/json' }, body: '{}' });
+    const answers = [];
+    for (let i = 0; i <= FLOOD_CEILING.limit; i++) answers.push((await worker.fetch(replay(), env)).status);
+    expect(answers.filter((s) => s === 200)).toHaveLength(FLOOD_CEILING.limit);
+    expect(answers.at(-1)).toBe(429);
+    expect((await worker.fetch(at('/v1/status', { ip: '203.0.113.9' }), env)).status).toBe(200);
+    expect(forwarded.filter((c) => c === '203.0.113.9')).toHaveLength(1);
   });
 
   it('counts an IPv6 /64 as one client and forwards that key as the client', async () => {

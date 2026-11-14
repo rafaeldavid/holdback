@@ -65,8 +65,7 @@ import type { Registry } from './registry.js';
 export { statusOf } from './problems.js';
 export const API_VERSION = 'v1';
 export const SCHEMA_VERSION = '0.11';
-/** The largest JSON body a write takes, in bytes; the demo Workers refuse a larger declared one before it streams in (T-422). */
-export const MAX_BODY_BYTES = 1_048_576;
+const MAX_BODY_BYTES = 1_048_576;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 const SSE_POLL_MS = 50;
@@ -1007,10 +1006,15 @@ export class Operator {
     return typeof key === 'string' && !ctx.url.searchParams.has('validateOnly') && this.idempotency.has(key);
   }
 
-  /** Answers a replay from the stored response, before any limit; false when `raw` is another request than the key's. */
+  /**
+   * Answers a replay from the stored response, before the read and write budgets; false when `raw` is another request
+   * than the key's. Replays have a budget of their own, ten times the write budget per window per client (1,200 a
+   * minute at the demo's defaults): generous, since a replay spends no gas, but a flood of them still stops.
+   */
   private replayed(ctx: Ctx, raw: unknown): boolean {
     const stored = this.idempotency.replay(ctx.req.headers['idempotency-key'] as string, fingerprint('POST', ctx.url.pathname, raw));
     if (!stored) return false;
+    this.throttle(`p:${this.client(ctx)}`, (this.o.rateLimit?.writes ?? 0) * 10);
     if (this.o.dropResponses) ctx.res.socket?.destroy();
     else this.send(ctx, stored);
     return true;
