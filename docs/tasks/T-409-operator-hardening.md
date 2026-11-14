@@ -93,6 +93,10 @@ All runs on 2026-11-14, on branch `t-409-operator-hardening`, from `origin/main`
 
 ## Review and red team
 
+**CI on PR 512's first head (`57ca272`), two failures, both fixed.**
+- **`test (4/4)`, the cut-feature alignment test, failed on progress.** `read-after-write.test.ts` no longer names a cut feature (the port dropped its `permit2Collector` field), so the known list had one file too many. The list was rewritten with the test's own `-u`; the diff is that one removal.
+- **CodeQL `js/polynomial-redos` (alerts 26 and 27, `errors.ts`), a real finding.** `missingBlock`'s pattern `block at number .* could not be found` backtracks polynomially on a long message, and an RPC node controls that message. Measured with `node`: 20,000 repetitions of "block at number " took 9,704 ms with the old pattern and 0 ms with the new one. The pattern now matches only viem's quoted identifier, `block at (number|hash) "…" could not be found`, at most 80 characters. A test in `t409-redteam.test.ts` reads 200,000 repetitions in under 1 s, and still recognises viem's own messages.
+
 **Reviewer (one pass, 2026-11-14): ISSUES, all Low or Info; nothing blocking.** Its runs are in the Evidence.
 - **Fixed:**
   - Low 1: the lint test's comment pointed at `docs/team.md` for the rule's known limits, but that doc does not list them. The pointer is gone.

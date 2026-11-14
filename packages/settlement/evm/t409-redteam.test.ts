@@ -442,3 +442,14 @@ describe.skipIf(!ready)(`T-409 red team on anvil${ready ? '' : ' (SKIPPED: needs
     expect({ refused, marked: t1.marked, errors, book: s.escrowState(d.id)?.kind, view: (await s.state(d.id))?.escrowState }).toEqual({ refused: [true], marked: [], errors: [], book: 'Held', view: 'Held' });
   }, 120_000);
 });
+
+describe('missingBlock stays fast on a long message from a node (CodeQL js/polynomial-redos on PR 512)', () => {
+  it('reads 200,000 repetitions of "block at number " in well under a second, and still knows viem\'s own message', () => {
+    const hostile = `${'block at number '.repeat(200_000)}x`;
+    const start = performance.now();
+    expect(missingBlock(new Error(hostile))).toBe(false);
+    expect(performance.now() - start).toBeLessThan(1_000);
+    expect(missingBlock(new BlockNotFoundError({ blockNumber: 18n }))).toBe(true);
+    expect(missingBlock(new BlockNotFoundError({ blockHash: `0x${'ab'.repeat(32)}` }))).toBe(true);
+  });
+});

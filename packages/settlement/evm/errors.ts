@@ -62,8 +62,12 @@ export function revertName(abi: Abi, data: Hex | undefined): string | undefined 
   }
 }
 
-/** How nodes word an answer for a block they do not have yet ("header not found", "block not found", viem's BlockNotFoundError). */
-const MISSING_BLOCK = /header not found|block not found|unknown block|block at number .* could not be found/i;
+/**
+ * How nodes word an answer for a block they do not have yet ("header not found", "block not found", viem's
+ * BlockNotFoundError, `Block at number "18" could not be found.`). The quoted identifier is bounded, so a long message
+ * from a node cannot make the match slow (CodeQL js/polynomial-redos on PR 512).
+ */
+const MISSING_BLOCK = /header not found|block not found|unknown block|block at (?:number|hash) "[^"]{1,80}" could not be found/i;
 
 /**
  * True when a node answered that it has no such block, whatever the shape (T-232; T-409 red team, L2). viem rewraps a
