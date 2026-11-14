@@ -6,8 +6,9 @@
 - **Depends on:** none
 - **Paths this task may touch:** `site/build.mjs`, `site/llms.txt`, `site/buy.txt`, `site/index.html` (built), `site/demo/index.html`, `tools/duet/replay.ts`, `docs/architecture.md` (Glossary), this file. Never: a spec field, a contract name, a URL or a file name.
 - **Human gate:** no for the merge. Rafa, 2026-11-14, on the before/after table: "This is great, implement". The site deploy that makes it live waits for Rafa.
-- **Status:** review
+- **Status:** done (pull request 513, merged 2026-11-14; the site deployed 10:45 UTC)
 - **Agent/session:** the Crow ontology session, 2026-11-14, branch `t-418-ontology-copy`
+- **Roadmap row:** none
 
 ## Intent
 

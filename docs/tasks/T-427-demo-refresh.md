@@ -8,6 +8,7 @@
 - **Human gate:** no for the merge and the site deploy (Rafa's word for the wave of 2026-11-14: merge and deploy when ready). The proposal below was answered by Rafa on 2026-11-14 ("Yes, build it") and built in part 2.
 - **Status:** done. Part 1: PR 536, merged as `d3ce4cf3`, site deployed 2026-11-14 13:14 UTC. Part 2: PR 543, merged as `080920cf`, site deployed 2026-11-14 13:46 UTC
 - **Agent/session:** the T-427 session, 2026-11-14, branches `t-427-demo-refresh` (part 1), `t-427-record`, `t-427-three-endings` (part 2)
+- **Roadmap row:** N102
 
 ## Intent
 

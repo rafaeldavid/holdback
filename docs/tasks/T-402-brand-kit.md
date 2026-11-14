@@ -7,6 +7,7 @@
 - **Human gate:** no (the site deploy after the merge is Rafa's word)
 - **Status:** review
 - **Agent/session:** the T-402 session, started by the coordinator on 2026-11-13
+- **Roadmap row:** N103
 - **Kind:** 1, copy and agent docs (`site/`), with the display code of kind 3; one reviewer pass, no red team
 
 ## Intent

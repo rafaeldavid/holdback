@@ -7,6 +7,7 @@
 - **Human gate:** yes | no (yes only if it reaches outside the repository: deploys, remote force pushes, real keys or money, publishing, repository settings)
 - **Status:** todo | in progress | review | done
 - **Agent/session:** …
+- **Roadmap row:** N… (the roadmap row this task serves; several separated by commas, or "none")
 
 ## Intent
 

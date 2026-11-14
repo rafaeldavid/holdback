@@ -7,6 +7,7 @@
 - **Human gate:** the site deploy runs under Rafa's standing word for this wave ("merge and deploy when ready"). The `CLAUDE.md` line waits for Rafa's word.
 - **Status:** done (pull request 520 merged 2026-11-14 11:30 UTC as `0746a888`)
 - **Agent/session:** T-423 session of the second wave, 2026-11-14
+- **Roadmap row:** N117
 
 ## Intent
 
