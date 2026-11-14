@@ -12,8 +12,8 @@
 // Crow's test agents cannot play yet writes a record with the state "blocked" and what is missing.
 //
 // Live runs read the agent key from HOLDBACK_AGENT_ANTHROPIC_API_KEY and refuse to start without it (bench-live.mjs).
-// Options (live only): --model (claude-opus-5-5), --effort (medium), --max-replies (4), --timeout-min (40),
-// --idle-min (5), --unsandboxed, --logs <dir> (raw messages, scrubbed, outside git).
+// Options (live only): --model (claude-opus-5-5), --effort (medium), --permissions (prompt | sandbox-auto; T-441),
+// --max-replies (4), --timeout-min (40), --idle-min (5), --unsandboxed, --logs <dir> (raw messages, scrubbed, outside git).
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { check } from '../../scripts/metrics/check.mjs';
 import { ROOT, gitCommit } from '../../scripts/metrics/lib.mjs';
+import { PERMISSIONS } from './bench-live.mjs'; // no SDK at import: runLive() loads it
 import { benchRunId, buildBenchRecord, scrubSecrets } from './bench-record.mjs';
 import { EFFORTS, REQUESTED_MODEL_ID } from './metrics.mjs';
 import { readCalls, writeFetchProbe } from './probes.mjs';
@@ -47,6 +48,7 @@ try {
       'timeout-min': { type: 'string', default: '40' },
       'idle-min': { type: 'string', default: '5' },
       unsandboxed: { type: 'boolean', default: false },
+      permissions: { type: 'string' },
       logs: { type: 'string' },
     },
     strict: true,
@@ -64,6 +66,11 @@ if (args.live && !key) fail(`a live run needs ${KEY_VAR} in the environment (the
 if (!args.live && process.env[KEY_VAR]) console.error(`bench: scripted run; ${KEY_VAR} is set and is not used`);
 if (args.live && !REQUESTED_MODEL_ID.test(args.model)) fail('--model is a model ID: lower-case letters, digits, dots and dashes');
 if (args.live && !EFFORTS.includes(args.effort)) fail(`--effort is one of ${EFFORTS.join(', ')}`);
+// T-441: prompt (Claude Code's default mode, every command asks) or sandbox-auto (Bash runs unprompted in the OS sandbox)
+const permissions = args.permissions ?? 'prompt';
+if (args.permissions !== undefined && !args.live) fail('--permissions is for live runs: a scripted run has no person to ask');
+if (!PERMISSIONS.includes(permissions)) fail(`--permissions is one of ${PERMISSIONS.join(', ')}`);
+if (permissions === 'sandbox-auto' && args.unsandboxed) fail('--permissions sandbox-auto needs the OS sandbox, so it does not take --unsandboxed');
 const whole = (name) => {
   const n = Number.parseInt(args[name], 10);
   if (!Number.isSafeInteger(n) || n < 0 || String(n) !== args[name]) fail(`--${name} takes a whole number`);
@@ -74,8 +81,9 @@ const timeoutMs = whole('timeout-min') * 60_000;
 const idleMs = whole('idle-min') * 60_000;
 const logsDir = args.logs ? resolve(args.logs) : null;
 if (logsDir && (logsDir === ROOT || logsDir.startsWith(ROOT + sep)) && !logsDir.startsWith(join(ROOT, 'reports') + sep)) fail('--logs must be outside the repository or under reports/, so raw logs stay out of git');
-// Scripted and live records never share a folder, so a scripted file is never collected as a measurement.
-const outDir = resolve(args.out ?? join(ROOT, 'reports/scratch/one-click-bench', args.live ? 'live' : 'scripted'));
+// Scripted and live records never share a folder, so a scripted file is never collected as a measurement; nor do the
+// two live permission modes, so copying live/*.json never picks up a sandbox-auto record (T-441).
+const outDir = resolve(args.out ?? join(ROOT, 'reports/scratch/one-click-bench', !args.live ? 'scripted' : permissions === 'prompt' ? 'live' : `live-${permissions}`));
 
 // The scripted world imports TypeScript that Node's default type stripping does not take (constructor parameter
 // properties), so a scripted run starts itself again with --experimental-transform-types.
@@ -147,9 +155,9 @@ async function live(id) {
   const startedAtMs = Date.now();
   const runId = benchRunId(startedAtMs, id);
   const note = (s) => console.error(`[${String(Math.round((Date.now() - startedAtMs) / 1000)).padStart(5)} s] ${s}`);
-  note(`scenario ${id} live: ${scenario.name}; model ${args.model}, effort ${args.effort}${args.unsandboxed ? ', unsandboxed' : ', in the OS sandbox'}`);
+  note(`scenario ${id} live: ${scenario.name}; model ${args.model}, effort ${args.effort}, permissions ${permissions}${args.unsandboxed ? ', unsandboxed' : ', in the OS sandbox'}`);
   const { runLive } = await import('./bench-live.mjs');
-  const r = await runLive({ scenario, key, model: args.model, effort: args.effort, maxReplies, timeoutMs, idleMs, sandboxed: !args.unsandboxed, logsDir, runId, note });
+  const r = await runLive({ scenario, key, model: args.model, effort: args.effort, permissions, maxReplies, timeoutMs, idleMs, sandboxed: !args.unsandboxed, logsDir, runId, note });
   const record = buildBenchRecord({ mode: 'live', scenario, world: { engine: 'sepolia', docs: DOCS }, agent: r.agent, outcome: r.outcome, book: r.book, results: r.results, calls: r.calls, texts: r.texts, prices, startedAtMs, generatedAtMs: Date.now(), commit, sources: r.sources, gaps: r.gaps });
   return { record, secrets: r.secrets };
 }

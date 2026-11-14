@@ -672,6 +672,13 @@
                 "null"
               ],
               "pattern": "^\\d+\\.\\d+\\.\\d+$"
+            },
+            "permissions": {
+              "description": "A live run's permission mode (T-441): prompt, Claude Code's default mode, where every Bash command and file edit asks; sandbox-auto, Bash runs without asking inside the OS sandbox and file edits are accepted. Absent on records written before T-441, which are prompt records.",
+              "enum": [
+                "prompt",
+                "sandbox-auto"
+              ]
             }
           }
         },

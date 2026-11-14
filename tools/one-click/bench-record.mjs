@@ -16,6 +16,8 @@ import { MODEL_ID, decimalToMicros, priceNumerator, scrub, tokensOf } from './me
 const MILLION = 1_000_000n;
 const count = (v) => (Number.isSafeInteger(v) && v >= 0 ? v : 0);
 export const STATES = ['Released', 'Refunded', 'stopped', 'timedOut', 'blocked'];
+// a live run's permission mode (T-441): prompt, Claude Code's default; sandbox-auto, Bash unprompted in the OS sandbox
+export const PERMISSION_MODES = ['prompt', 'sandbox-auto'];
 // Hosts whose calls are the agent's own tooling, not Crow or the chain: they stay out of the API call count.
 const NOT_COUNTED = /(^|\.)(anthropic\.com|claude\.ai|claude\.com|statsig\.com|sentry\.io|npmjs\.org|npmjs\.com|githubusercontent\.com)$/;
 const CROW = /(^|\.)(crow\.direct|escrow\.stream)$|^(127\.0\.0\.1|localhost)$/;
@@ -186,6 +188,8 @@ export function buildBenchRecord({ mode, scenario, world, agent, outcome, book, 
       effortApplied: agent.effortApplied ?? null,
       claudeCodeVersion: typeof agent.claudeCodeVersion === 'string' && /^\d+\.\d+\.\d+/.test(agent.claudeCodeVersion) ? agent.claudeCodeVersion.slice(0, 40) : null,
       sdkVersion: typeof agent.sdkVersion === 'string' && /^\d+\.\d+\.\d+$/.test(agent.sdkVersion) ? agent.sdkVersion : null,
+      // T-441: a live record names its permission mode; a record without it (before T-441) is a prompt record
+      ...(mode === 'live' ? { permissions: PERMISSION_MODES.includes(agent.permissions) ? agent.permissions : 'prompt' } : {}),
     },
     outcome: {
       success,
