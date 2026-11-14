@@ -41,13 +41,13 @@
 <p class="alt">The same answers in plain text: <a href="/trust.txt">https://crow.direct/trust.txt</a></p>
 <nav class="toc" aria-label="Questions">
 <p class="toc-group">Money</p>
-<ul><li><a href="#does-crow-hold-funds">Does Crow hold the funds of a deal?</a></li><li><a href="#which-contract-holds-funds">Which contract holds the funds?</a></li><li><a href="#when-is-the-hold-released">When is the hold released or refunded?</a></li><li><a href="#funds-held-after-deadlines">What happens to funds still held after every deadline?</a></li><li><a href="#who-triggers-refunds">Who can trigger a refund after a missed deadline?</a></li><li><a href="#who-receives-money">Which addresses can receive money from the hold?</a></li><li><a href="#can-an-operator-move-funds">Can an operator move held funds?</a></li><li><a href="#can-crow-move-funds">Can Crow move held funds or change the contracts?</a></li><li><a href="#can-an-adjudicator-move-funds">Can an adjudicator move held funds?</a></li><li><a href="#can-the-token-be-frozen">Can a token issuer freeze held funds?</a></li><li><a href="#is-real-money-involved">Is real money involved?</a></li><li><a href="#if-operators-go-offline">What happens if Crow’s operators go offline?</a></li></ul>
+<ul><li><a href="#does-crow-hold-funds">Does Crow hold the funds of a deal?</a></li><li><a href="#which-contract-holds-funds">Which contract holds the funds?</a></li><li><a href="#when-is-the-hold-released">When is the hold released or refunded?</a></li><li><a href="#funds-held-after-deadlines">What happens to funds still held after every deadline?</a></li><li><a href="#who-triggers-refunds">Who can trigger a refund after a missed deadline?</a></li><li><a href="#who-receives-money">Which addresses can receive money from the hold?</a></li><li><a href="#can-an-operator-move-funds">Can an operator move held funds?</a></li><li><a href="#can-crow-move-funds">Can Crow move held funds outside a deal’s terms?</a></li><li><a href="#can-crow-change-contracts">Can Crow pause or upgrade the contracts?</a></li><li><a href="#can-an-adjudicator-move-funds">Can an adjudicator move held funds?</a></li><li><a href="#can-the-token-be-frozen">Can a token issuer freeze held funds?</a></li><li><a href="#is-real-money-involved">Is real money involved?</a></li><li><a href="#if-operators-go-offline">What happens if Crow’s operators refuse a deal or go offline?</a></li></ul>
 <p class="toc-group">Keys</p>
 <ul><li><a href="#does-crow-hold-keys">Does Crow hold my keys?</a></li><li><a href="#who-can-sign-for-my-address">Who can sign for my address?</a></li><li><a href="#who-signs-mandates">Who signs an agent’s mandate on the test service?</a></li><li><a href="#what-secrets-crow-keeps">What secrets does Crow keep?</a></li></ul>
 <p class="toc-group">Data</p>
 <ul><li><a href="#is-a-deal-public">Is a deal’s data public?</a></li><li><a href="#who-can-read-the-work">Who can read the delivered work?</a></li><li><a href="#what-the-work-reveals">What can anyone learn about the delivered work?</a></li><li><a href="#what-an-operator-logs">What does an operator log for each request?</a></li><li><a href="#what-goes-to-cloudflare-logs">What goes to Cloudflare’s logs?</a></li><li><a href="#how-long-deal-records-stay">How long does an operator keep a deal’s records?</a></li><li><a href="#are-problem-reports-stored">Does an operator store problem reports?</a></li><li><a href="#what-early-access-stores">What does the early-access sign-up store?</a></li></ul>
 <p class="toc-group">Outside review</p>
-<ul><li><a href="#escrow-external-review">Has Coinbase’s escrow contract had an external review?</a></li><li><a href="#rules-contract-audit">Has the rules contract had an external audit?</a></li><li><a href="#what-testing-crow-runs">What testing does Crow run?</a></li><li><a href="#can-i-check-the-bytecode">Can I check the deployed bytecode?</a></li><li><a href="#certifications">Does Crow have a certification, a penetration test or a bug bounty?</a></li></ul>
+<ul><li><a href="#escrow-external-review">Has Coinbase’s escrow contract had an external review?</a></li><li><a href="#rules-contract-audit">Has the rules contract had an external audit?</a></li><li><a href="#what-testing-crow-runs">What testing does Crow run?</a></li><li><a href="#can-i-check-the-bytecode">Can I check the deployed bytecode?</a></li><li><a href="#certifications">Does Crow hold a security certification?</a></li><li><a href="#penetration-test">Has Crow had a penetration test?</a></li><li><a href="#bug-bounty">Does Crow run a bug bounty?</a></li></ul>
 <p class="toc-group">Reporting a problem</p>
 <ul><li><a href="#report-a-security-problem">Where do I report a security problem?</a></li><li><a href="#report-another-problem">Where do I report any other problem?</a></li><li><a href="#is-crow-up">How do I check whether Crow is up?</a></li></ul>
 </nav>
@@ -59,14 +59,15 @@
 </section>
 <section class="qa" id="which-contract-holds-funds">
 <h3>Which contract holds the funds?</h3>
-<p>Coinbase’s Commerce Payments escrow contract (AuthCaptureEscrow) on Ethereum Sepolia, chain 11155111. Inside that escrow, the tokens sit in a token store the escrow creates for Crow’s rules contract (HoldbackRules), so Etherscan shows the balance at the token store, not at the escrow’s own address. The deployment record lists every address.</p>
+<p>Coinbase’s Commerce Payments escrow contract (AuthCaptureEscrow) on Ethereum Sepolia, chain 11155111. The escrow keeps the tokens in a separate token store contract that it creates for Crow’s rules contract (HoldbackRules), so Etherscan shows the balance at the token store, not at the escrow’s own address. The deployment record lists the escrow, the rules contract and the token; the token store’s address is <code>getTokenStore</code> of the rules contract, read on the escrow.</p>
 <p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/contracts/deployments/sepolia.json">contracts/deployments/sepolia.json</a>; <a href="https://sepolia.etherscan.io/address/0x8ef2b0Bc9304Fd4D506b5410B35Cc1e2D2BB4357">The escrow contract on Etherscan</a>; <a href="https://github.com/base/commerce-payments/blob/6b0a5ef3f0df973857f558e2d6b5dd645b5e97f9/src/AuthCaptureEscrow.sol">Coinbase’s escrow code at the pinned commit, getTokenStore</a></p>
 </section>
 <section class="qa" id="when-is-the-hold-released">
 <h3>When is the hold released or refunded?</h3>
-<p>Only in five ways, all set by the deal’s signed terms and enforced by the rules contract. The hold is the buyer’s payment, locked in escrow until the deal settles. The hold opens when:</p>
+<p>In five ways set by the deal’s signed terms, plus one backstop. The rules contract enforces the five. The hold is the buyer’s payment, locked in escrow until the deal settles. The hold opens when:</p>
 <ul><li>the adjudicator (the reviewer both parties name in the terms) signs a decision: accept pays the seller, and reject refunds the buyer;</li><li>the buyer signs an early accept;</li><li>both parties sign a settlement;</li><li>the seller misses its delivery deadline, which refunds the buyer;</li><li>no adjudicator decides in time, and the default outcome applies, which on the live service refunds the buyer.</li></ul>
-<p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/neutrality.md#the-test">docs/neutrality.md, “The test”</a>; <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/audit/scope.md#in-scope">docs/audit/scope.md, “In scope”</a>; <a href="https://sepolia.etherscan.io/address/0x3BE45128565ABBc35DbD4660716b703Ff489f1b4">The rules contract on Etherscan</a></p>
+<p>The backstop: if funds are still held 24 hours after the deal’s last decision deadline, the buyer’s payment address can take them back directly from the escrow.</p>
+<p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/neutrality.md#the-test">docs/neutrality.md, “The test”</a>; <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/audit/scope.md#in-scope">docs/audit/scope.md, “In scope”</a>; <a href="https://sepolia.etherscan.io/address/0x3BE45128565ABBc35DbD4660716b703Ff489f1b4">The rules contract on Etherscan</a>; <a href="https://github.com/rafaeldavid/holdback/blob/main/contracts/src/HoldbackRules.sol">contracts/src/HoldbackRules.sol, “_escrowExpiry”</a></p>
 </section>
 <section class="qa" id="funds-held-after-deadlines">
 <h3>What happens to funds still held after every deadline?</h3>
@@ -75,7 +76,7 @@
 </section>
 <section class="qa" id="who-triggers-refunds">
 <h3>Who can trigger a refund after a missed deadline?</h3>
-<p>Anyone. Once the late-delivery refund or the default outcome is due, anyone can send it to the rules contract. Crow’s operators send these on their own and pay the gas.</p>
+<p>Anyone. Once the late-delivery refund or the default outcome is due, anyone can send it to the rules contract. Crow’s operators (the servers that relay the parties’ signed messages and serve Crow’s API) send these on their own and pay the gas.</p>
 <p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/neutrality.md#control-point-analysis">docs/neutrality.md, “Control-point analysis”</a>; <a href="https://crow.direct/ref/limits.txt">crow.direct/ref/limits.txt, “Honest limits”</a></p>
 </section>
 <section class="qa" id="who-receives-money">
@@ -85,12 +86,17 @@
 </section>
 <section class="qa" id="can-an-operator-move-funds">
 <h3>Can an operator move held funds?</h3>
-<p>No. An operator (a server that relays the parties’ signed messages and serves Crow’s API) has no role in any contract. The rules contract checks every signature itself, so a relayed message that was changed fails. Crow’s operators pass messages on and pay the gas.</p>
-<p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/neutrality.md#control-point-analysis">docs/neutrality.md, “Control-point analysis”</a></p>
+<p>No. An operator’s relayer keys, which pay the gas for relayed messages, have no role in any contract. The rules contract checks every signature itself, so a relayed message that was changed fails. On the live service, Crow’s adjudicators run in the same service as Crow’s operators, and an adjudicator’s signed decision does move held funds within the deal’s terms.</p>
+<p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/neutrality.md#control-point-analysis">docs/neutrality.md, “Control-point analysis”</a>; <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/operations.md#what-is-live">docs/operations.md, “What is live”</a></p>
 </section>
 <section class="qa" id="can-crow-move-funds">
-<h3>Can Crow move held funds or change the contracts?</h3>
-<p>No. The contracts have no admin key, no pause and no upgrade path, and the key that deployed them only paid the gas. No one at Crow can move a held payment outside the deal’s terms.</p>
+<h3>Can Crow move held funds outside a deal’s terms?</h3>
+<p>No. No one at Crow can move a held payment outside the deal’s terms. On the live service Crow runs the adjudicators, whose signed decisions pay the seller or refund the buyer as the terms say.</p>
+<p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/neutrality.md#control-point-analysis">docs/neutrality.md, “Control-point analysis”</a>; <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/audit/scope.md#the-phase-one-scope">docs/audit/scope.md, “The phase-one scope”</a></p>
+</section>
+<section class="qa" id="can-crow-change-contracts">
+<h3>Can Crow pause or upgrade the contracts?</h3>
+<p>No. The contracts have no admin key, no pause and no upgrade path, and the key that deployed them only paid the gas.</p>
 <p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/operations.md#sepolia-contracts-t-206">docs/operations.md, “Sepolia contracts (T-206)”</a>; <a href="https://github.com/rafaeldavid/holdback/blob/main/contracts/test/fuzz/NoAdmin.fuzz.t.sol">contracts/test/fuzz/NoAdmin.fuzz.t.sol</a></p>
 </section>
 <section class="qa" id="can-an-adjudicator-move-funds">
@@ -109,7 +115,7 @@
 <p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/operations.md#sepolia-contracts-t-206">docs/operations.md, “Sepolia contracts (T-206)”</a>; <a href="https://sepolia.etherscan.io/address/0x0b3d947f594B59Fc1Fb7D02E62C6795F8118cA6D">The tUSDC token on Etherscan</a>; <a href="https://crow.direct/ref/limits.txt">crow.direct/ref/limits.txt, “Honest limits”</a></p>
 </section>
 <section class="qa" id="if-operators-go-offline">
-<h3>What happens if Crow’s operators go offline?</h3>
+<h3>What happens if Crow’s operators refuse a deal or go offline?</h3>
 <p>Either party can send the same signed messages straight to the contracts, using its own Sepolia ETH. The two operators share one process today, so most failures hit both. Crow’s adjudicators run in the same service: while it is down, a deal that named them ends at its deadlines with the default refund, unless the buyer accepts early or both parties sign a settlement.</p>
 <p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/neutrality.md#escape-hatch-requirements">docs/neutrality.md, “Escape hatch requirements”</a>; <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/operations.md#what-is-live">docs/operations.md, “What is live”</a>; <a href="https://crow.direct/ref/limits.txt">crow.direct/ref/limits.txt, “Honest limits”</a></p>
 </section>
@@ -121,8 +127,8 @@
 </section>
 <section class="qa" id="who-can-sign-for-my-address">
 <h3>Who can sign for my address?</h3>
-<p>Only the holder of that address’s key. Every step that changes a deal carries the party’s own signature, which anyone can check, and Crow’s operators never write a message on a party’s behalf.</p>
-<p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/neutrality.md#control-point-analysis">docs/neutrality.md, “Control-point analysis”</a></p>
+<p>Only a valid signature for that address: a signature from the address’s key or, for a contract account, one that the contract accepts (ERC-1271). Every step that changes a deal carries the party’s own signature, which anyone can check, and Crow’s operators never write a message on a party’s behalf.</p>
+<p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/neutrality.md#control-point-analysis">docs/neutrality.md, “Control-point analysis”</a>; <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/audit/scope.md#the-phase-one-scope">docs/audit/scope.md, “The phase-one scope”</a>; <a href="https://github.com/rafaeldavid/holdback/blob/main/contracts/src/HoldbackRules.sol">contracts/src/HoldbackRules.sol, “_requireSigned”</a></p>
 </section>
 <section class="qa" id="who-signs-mandates">
 <h3>Who signs an agent’s mandate on the test service?</h3>
@@ -131,19 +137,19 @@
 </section>
 <section class="qa" id="what-secrets-crow-keeps">
 <h3>What secrets does Crow keep?</h3>
-<p>Two kinds. Cloudflare Worker secrets, never stored in the code repository: the operators’ gas key on Sepolia, the model providers’ keys for the adjudicators’ judges, and the test seller’s seed. The adjudicators’ and the operators’ signing keys, which sign the decisions that move payments, come from a random secret that the operators’ Durable Object keeps in its own storage.</p>
-<p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/operations.md#secrets">docs/operations.md, “Secrets”</a>; <a href="https://github.com/rafaeldavid/holdback/blob/main/apps/demo-cloud/src/world.ts">apps/demo-cloud/src/world.ts</a></p>
+<p>Cloudflare Worker secrets, never stored in the code repository: the operators’ gas key on Sepolia, the model providers’ keys for the adjudicators’ judges, and the test seller’s seed. The adjudicators’ and the operators’ signing keys, which sign the decisions that move payments, come from a random secret that the operators’ Durable Object keeps in its own storage. The key that deployed the contracts sits in an encrypted keystore outside the repository and only pays gas.</p>
+<p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/operations.md#secrets">docs/operations.md, “Secrets”</a>; <a href="https://github.com/rafaeldavid/holdback/blob/main/apps/demo-cloud/src/world.ts">apps/demo-cloud/src/world.ts</a>; <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/operations.md#sepolia-contracts-t-206">docs/operations.md, “Sepolia contracts (T-206)”</a></p>
 </section>
 <h2>Data</h2>
 <section class="qa" id="is-a-deal-public">
 <h3>Is a deal’s data public?</h3>
-<p>Yes. Every deal on the live service is public today: anyone can read its terms, including the scope, the checks, the price, the deadlines, the adjudicators and every address. The chain shows the amounts and the time of each step, and links each payment and payout address to the deal’s signing key. Use a fresh key and fresh addresses for each deal.</p>
-<p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/privacy-baseline.md#the-answer">docs/privacy-baseline.md, “The answer”</a>; <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/privacy-baseline.md#what-a-design-partner-should-be-told-before-its-first-deal">docs/privacy-baseline.md, “What a design partner should be told before its first deal”</a></p>
+<p>Yes. Every deal on the live service is public today: anyone can read its terms, including the scope, the checks, the price, the deadlines, the adjudicators and every address. The chain shows the amounts and the time of each step, and links each payment and payout address to the deal’s signing key. The delivered work stays encrypted. Use a fresh key and fresh addresses for each deal.</p>
+<p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/privacy-baseline.md#the-answer">docs/privacy-baseline.md, “The answer”</a>; <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/privacy-baseline.md#what-a-design-partner-should-be-told-before-its-first-deal">docs/privacy-baseline.md, “What a design partner should be told before its first deal”</a>; <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/privacy-baseline.md#what-the-encrypted-delivery-hides-and-what-it-does-not">docs/privacy-baseline.md, “What the encrypted delivery hides, and what it does not”</a></p>
 </section>
 <section class="qa" id="who-can-read-the-work">
 <h3>Who can read the delivered work?</h3>
-<p>The first adjudicator and the buyer. The seller encrypts the work for those two before sending it. A backup adjudicator gets the key only if it takes over, and the buyer opens the work after paying. Crow runs the adjudicators on the live service, so Crow can read the work in the deals it judges.</p>
-<p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/privacy-baseline.md#what-the-encrypted-delivery-hides-and-what-it-does-not">docs/privacy-baseline.md, “What the encrypted delivery hides, and what it does not”</a>; <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/neutrality.md#residual-control-points">docs/neutrality.md, “Residual control points”</a></p>
+<p>The first adjudicator and the buyer. The seller encrypts the work for those two before sending it. A backup adjudicator gets the key only if it takes over, and the buyer opens the work after paying. Crow runs the adjudicators on the live service, so Crow can read the work in the deals it judges. If the terms include a rubric, two model providers also read the work.</p>
+<p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/privacy-baseline.md#what-the-encrypted-delivery-hides-and-what-it-does-not">docs/privacy-baseline.md, “What the encrypted delivery hides, and what it does not”</a>; <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/neutrality.md#residual-control-points">docs/neutrality.md, “Residual control points”</a>; <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/privacy-baseline.md#what-a-design-partner-should-be-told-before-its-first-deal">docs/privacy-baseline.md, “What a design partner should be told before its first deal”</a></p>
 </section>
 <section class="qa" id="what-the-work-reveals">
 <h3>What can anyone learn about the delivered work?</h3>
@@ -178,7 +184,7 @@
 <h2>Outside review</h2>
 <section class="qa" id="escrow-external-review">
 <h3>Has Coinbase’s escrow contract had an external review?</h3>
-<p>Yes. Cantina reviewed the whole escrow contract in April 2025 and found one critical issue, which was fixed before release. In July 2026, Cantina reviewed the contract’s last code change, PR 90, at the exact commit Crow deploys, and found three informational issues. One later change, the renames in PR 71, has no review.</p>
+<p>Yes. Cantina reviewed the escrow contract twice in April 2025 and found one critical issue, which was fixed before release. In July 2026, Cantina reviewed the contract’s last code change, PR 90, at the exact commit Crow deploys, and found three informational issues. One later change, the renames in PR 71, has no review.</p>
 <p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/reviews/2026-11-03-public-audit-crosscheck.md">docs/reviews/2026-11-03-public-audit-crosscheck.md</a>; <a href="https://github.com/rafaeldavid/holdback/tree/main/contracts/lib/commerce-payments">contracts/lib/commerce-payments/</a>; <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/decisions/ADR-0003-escrow-contract-base.md">docs/decisions/ADR-0003-escrow-contract-base.md</a></p>
 </section>
 <section class="qa" id="rules-contract-audit">
@@ -197,8 +203,18 @@
 <p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/docs/operations.md#sepolia-contracts-t-206">docs/operations.md, “Sepolia contracts (T-206)”</a>; <a href="https://github.com/rafaeldavid/holdback/blob/main/contracts/deployments/sepolia.json">contracts/deployments/sepolia.json</a></p>
 </section>
 <section class="qa" id="certifications">
-<h3>Does Crow have a certification, a penetration test or a bug bounty?</h3>
-<p>No. Crow has no penetration test, no SOC 2, ISO 27001 or other certification, and no bug bounty yet. A bug bounty sized to the funds at risk starts before any deployment with real money.</p>
+<h3>Does Crow hold a security certification?</h3>
+<p>No. Crow holds no SOC 2, ISO 27001 or other certification yet.</p>
+<p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/SECURITY.md">SECURITY.md</a></p>
+</section>
+<section class="qa" id="penetration-test">
+<h3>Has Crow had a penetration test?</h3>
+<p>No. Crow has had no penetration test yet.</p>
+<p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/SECURITY.md">SECURITY.md</a></p>
+</section>
+<section class="qa" id="bug-bounty">
+<h3>Does Crow run a bug bounty?</h3>
+<p>No. Crow runs no bug bounty yet. A bug bounty sized to the funds at risk starts before any deployment with real money.</p>
 <p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/SECURITY.md">SECURITY.md</a></p>
 </section>
 <h2>Reporting a problem</h2>
@@ -217,7 +233,7 @@
 <p>Open https://crow.direct/status. The status page checks each part of Crow when it is opened, and https://crow.direct/status.json lists what it checks.</p>
 <p class="source">Source: <a href="https://crow.direct/status">crow.direct/status</a>; <a href="https://crow.direct/status.json">crow.direct/status.json</a></p>
 </section>
-<p class="checked">Each answer was checked against its source on 2026-11-14. The addresses, the chain and the retention periods come from the deployment record and the code each time the site is built.</p>
+<p class="checked">Each answer was checked against its source on 2026-11-14. The addresses, the chain and the request log’s retention come from the deployment record and the code each time the site is built.</p>
 </main>
 <footer class="ck-foot">
 <div class="ck-foot-row"><a class="ck-brand" href="/"><span class="ck-mark" aria-hidden="true"></span>Crow</a>

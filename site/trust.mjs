@@ -74,10 +74,10 @@ export function trustFaq(f = trustFacts()) {
         a: `No. When the buyer funds a deal, the payment goes straight into Coinbase’s Commerce Payments escrow contract on Ethereum Sepolia, used without changes. The payment never passes through an account that Crow controls.`,
         sources: [record, ['The escrow contract on Etherscan', etherscan(f.escrow)], adr3] },
       { id: 'which-contract-holds-funds', q: 'Which contract holds the funds?',
-        a: `Coinbase’s Commerce Payments escrow contract (AuthCaptureEscrow) on Ethereum Sepolia, chain ${f.chainId}. Inside that escrow, the tokens sit in a token store the escrow creates for Crow’s rules contract (HoldbackRules), so Etherscan shows the balance at the token store, not at the escrow’s own address. The deployment record lists every address.`,
+        a: `Coinbase’s Commerce Payments escrow contract (AuthCaptureEscrow) on Ethereum Sepolia, chain ${f.chainId}. The escrow keeps the tokens in a separate token store contract that it creates for Crow’s rules contract (HoldbackRules), so Etherscan shows the balance at the token store, not at the escrow’s own address. The deployment record lists the escrow, the rules contract and the token; the token store’s address is <code>getTokenStore</code> of the rules contract, read on the escrow.`,
         sources: [record, ['The escrow contract on Etherscan', etherscan(f.escrow)], ['Coinbase’s escrow code at the pinned commit, getTokenStore', CPP_ESCROW]] },
       { id: 'when-is-the-hold-released', q: 'When is the hold released or refunded?',
-        a: `Only in five ways, all set by the deal’s signed terms and enforced by the rules contract. The hold is the buyer’s payment, locked in escrow until the deal settles. The hold opens when:`,
+        a: `In five ways set by the deal’s signed terms, plus one backstop. The rules contract enforces the five. The hold is the buyer’s payment, locked in escrow until the deal settles. The hold opens when:`,
         list: [
           'the adjudicator (the reviewer both parties name in the terms) signs a decision: accept pays the seller, and reject refunds the buyer;',
           'the buyer signs an early accept;',
@@ -85,21 +85,25 @@ export function trustFaq(f = trustFacts()) {
           'the seller misses its delivery deadline, which refunds the buyer;',
           'no adjudicator decides in time, and the default outcome applies, which on the live service refunds the buyer.',
         ],
-        sources: [neutralityTest, file('docs/audit/scope.md', 'In scope', 'in-scope'), ['The rules contract on Etherscan', etherscan(f.rules)]] },
+        after: `The backstop: if funds are still held ${f.expiryMarginHours} hours after the deal’s last decision deadline, the buyer’s payment address can take them back directly from the escrow.`,
+        sources: [neutralityTest, file('docs/audit/scope.md', 'In scope', 'in-scope'), ['The rules contract on Etherscan', etherscan(f.rules)], file('contracts/src/HoldbackRules.sol', '_escrowExpiry')] },
       { id: 'funds-held-after-deadlines', q: 'What happens to funds still held after every deadline?',
         a: `The buyer’s payment address can take them back directly from the escrow, starting ${f.expiryMarginHours} hours after the deal’s last decision deadline. Coinbase’s escrow contract enforces this backstop.`,
         sources: [file('contracts/src/HoldbackRules.sol', '_escrowExpiry')] },
       { id: 'who-triggers-refunds', q: 'Who can trigger a refund after a missed deadline?',
-        a: `Anyone. Once the late-delivery refund or the default outcome is due, anyone can send it to the rules contract. Crow’s operators send these on their own and pay the gas.`,
+        a: `Anyone. Once the late-delivery refund or the default outcome is due, anyone can send it to the rules contract. Crow’s operators (the servers that relay the parties’ signed messages and serve Crow’s API) send these on their own and pay the gas.`,
         sources: [controls, limits] },
       { id: 'who-receives-money', q: 'Which addresses can receive money from the hold?',
         a: `Only three. The price goes to the seller’s payout address or back to the buyer’s payment address. The adjudicator that decides receives its fee from the hold at the decision, if the terms set one. The rules contract pays no other address.`,
         sources: [controls, phaseOne] },
       { id: 'can-an-operator-move-funds', q: 'Can an operator move held funds?',
-        a: `No. An operator (a server that relays the parties’ signed messages and serves Crow’s API) has no role in any contract. The rules contract checks every signature itself, so a relayed message that was changed fails. Crow’s operators pass messages on and pay the gas.`,
-        sources: [controls] },
-      { id: 'can-crow-move-funds', q: 'Can Crow move held funds or change the contracts?',
-        a: `No. The contracts have no admin key, no pause and no upgrade path, and the key that deployed them only paid the gas. No one at Crow can move a held payment outside the deal’s terms.`,
+        a: `No. An operator’s relayer keys, which pay the gas for relayed messages, have no role in any contract. The rules contract checks every signature itself, so a relayed message that was changed fails. On the live service, Crow’s adjudicators run in the same service as Crow’s operators, and an adjudicator’s signed decision does move held funds within the deal’s terms.`,
+        sources: [controls, file('docs/operations.md', 'What is live', 'what-is-live')] },
+      { id: 'can-crow-move-funds', q: 'Can Crow move held funds outside a deal’s terms?',
+        a: `No. No one at Crow can move a held payment outside the deal’s terms. On the live service Crow runs the adjudicators, whose signed decisions pay the seller or refund the buyer as the terms say.`,
+        sources: [controls, phaseOne] },
+      { id: 'can-crow-change-contracts', q: 'Can Crow pause or upgrade the contracts?',
+        a: `No. The contracts have no admin key, no pause and no upgrade path, and the key that deployed them only paid the gas.`,
         sources: [sepolia, file('contracts/test/fuzz/NoAdmin.fuzz.t.sol')] },
       { id: 'can-an-adjudicator-move-funds', q: 'Can an adjudicator move held funds?',
         a: `Yes, within the deal’s terms. The adjudicator’s signed decision pays the seller or refunds the buyer, as the terms say, and each decision is final once it settles. Crow runs the adjudicators on the live service, and the buyer and the seller name all three adjudicators in the terms they sign.`,
@@ -110,7 +114,7 @@ export function trustFaq(f = trustFacts()) {
       { id: 'is-real-money-involved', q: 'Is real money involved?',
         a: `No. Crow runs on Ethereum Sepolia, a public test network, with tUSDC, a test token that anyone can mint, that is worth nothing and that is not Circle’s USDC. No real money can enter Crow today.`,
         sources: [sepolia, ['The tUSDC token on Etherscan', etherscan(f.token)], limits] },
-      { id: 'if-operators-go-offline', q: 'What happens if Crow’s operators go offline?',
+      { id: 'if-operators-go-offline', q: 'What happens if Crow’s operators refuse a deal or go offline?',
         a: `Either party can send the same signed messages straight to the contracts, using its own Sepolia ETH. The two operators share one process today, so most failures hit both. Crow’s adjudicators run in the same service: while it is down, a deal that named them ends at its deadlines with the default refund, unless the buyer accepts early or both parties sign a settlement.`,
         sources: [hatch, file('docs/operations.md', 'What is live', 'what-is-live'), limits] },
     ] },
@@ -119,22 +123,22 @@ export function trustFaq(f = trustFacts()) {
         a: `No. Agents sign with keys they keep. The buyer’s tool, <code>examples/buyer-signer.ts</code>, creates each deal’s keys on the buyer’s machine and never sends them anywhere.`,
         sources: [file('examples/buyer-signer.ts'), file('CLAUDE.md', 'Hard rules', 'hard-rules')] },
       { id: 'who-can-sign-for-my-address', q: 'Who can sign for my address?',
-        a: `Only the holder of that address’s key. Every step that changes a deal carries the party’s own signature, which anyone can check, and Crow’s operators never write a message on a party’s behalf.`,
-        sources: [controls] },
+        a: `Only a valid signature for that address: a signature from the address’s key or, for a contract account, one that the contract accepts (ERC-1271). Every step that changes a deal carries the party’s own signature, which anyone can check, and Crow’s operators never write a message on a party’s behalf.`,
+        sources: [controls, phaseOne, file('contracts/src/HoldbackRules.sol', '_requireSigned')] },
       { id: 'who-signs-mandates', q: 'Who signs an agent’s mandate on the test service?',
         a: `Crow’s demo principal. A mandate is the standing approval of what an agent may sign; the principal is the company or person the agent acts for. On the test service, Crow’s demo principal signs every agent’s mandate, so the authority standing for your company there is a Crow key. A company that runs its own club signs its agents’ mandates itself.`,
         sources: [file('docs/privacy-baseline.md', 'Level public', 'level-public-the-only-level-the-live-service-judges'), file('docs/decisions/ADR-0038-mandate-limits-and-revocation.md')] },
       { id: 'what-secrets-crow-keeps', q: 'What secrets does Crow keep?',
-        a: `Two kinds. Cloudflare Worker secrets, never stored in the code repository: the operators’ gas key on Sepolia, the model providers’ keys for the adjudicators’ judges, and the test seller’s seed. The adjudicators’ and the operators’ signing keys, which sign the decisions that move payments, come from a random secret that the operators’ Durable Object keeps in its own storage.`,
-        sources: [file('docs/operations.md', 'Secrets', 'secrets'), file('apps/demo-cloud/src/world.ts')] },
+        a: `Cloudflare Worker secrets, never stored in the code repository: the operators’ gas key on Sepolia, the model providers’ keys for the adjudicators’ judges, and the test seller’s seed. The adjudicators’ and the operators’ signing keys, which sign the decisions that move payments, come from a random secret that the operators’ Durable Object keeps in its own storage. The key that deployed the contracts sits in an encrypted keystore outside the repository and only pays gas.`,
+        sources: [file('docs/operations.md', 'Secrets', 'secrets'), file('apps/demo-cloud/src/world.ts'), sepolia] },
     ] },
     { group: 'Data', questions: [
       { id: 'is-a-deal-public', q: 'Is a deal’s data public?',
-        a: `Yes. Every deal on the live service is public today: anyone can read its terms, including the scope, the checks, the price, the deadlines, the adjudicators and every address. The chain shows the amounts and the time of each step, and links each payment and payout address to the deal’s signing key. Use a fresh key and fresh addresses for each deal.`,
-        sources: [file('docs/privacy-baseline.md', 'The answer', 'the-answer'), partner] },
+        a: `Yes. Every deal on the live service is public today: anyone can read its terms, including the scope, the checks, the price, the deadlines, the adjudicators and every address. The chain shows the amounts and the time of each step, and links each payment and payout address to the deal’s signing key. The delivered work stays encrypted. Use a fresh key and fresh addresses for each deal.`,
+        sources: [file('docs/privacy-baseline.md', 'The answer', 'the-answer'), partner, encryption] },
       { id: 'who-can-read-the-work', q: 'Who can read the delivered work?',
-        a: `The first adjudicator and the buyer. The seller encrypts the work for those two before sending it. A backup adjudicator gets the key only if it takes over, and the buyer opens the work after paying. Crow runs the adjudicators on the live service, so Crow can read the work in the deals it judges.`,
-        sources: [encryption, residual] },
+        a: `The first adjudicator and the buyer. The seller encrypts the work for those two before sending it. A backup adjudicator gets the key only if it takes over, and the buyer opens the work after paying. Crow runs the adjudicators on the live service, so Crow can read the work in the deals it judges. If the terms include a rubric, two model providers also read the work.`,
+        sources: [encryption, residual, partner] },
       { id: 'what-the-work-reveals', q: 'What can anyone learn about the delivered work?',
         a: `Its exact size, when it arrived, and a fingerprint that confirms a guessed copy; the work itself stays encrypted. If the terms include a rubric, two model providers read the work and the judges’ public notes quote its findings. A deal judged by checks alone sends the work to no model provider.`,
         sources: [encryption, partner] },
@@ -156,7 +160,7 @@ export function trustFaq(f = trustFacts()) {
     ] },
     { group: 'Outside review', questions: [
       { id: 'escrow-external-review', q: 'Has Coinbase’s escrow contract had an external review?',
-        a: `Yes. Cantina reviewed the whole escrow contract in April 2025 and found one critical issue, which was fixed before release. In July 2026, Cantina reviewed the contract’s last code change, PR 90, at the exact commit Crow deploys, and found three informational issues. One later change, the renames in PR 71, has no review.`,
+        a: `Yes. Cantina reviewed the escrow contract twice in April 2025 and found one critical issue, which was fixed before release. In July 2026, Cantina reviewed the contract’s last code change, PR 90, at the exact commit Crow deploys, and found three informational issues. One later change, the renames in PR 71, has no review.`,
         sources: [file('docs/reviews/2026-11-03-public-audit-crosscheck.md'), file('contracts/lib/commerce-payments/'), adr3] },
       { id: 'rules-contract-audit', q: 'Has the rules contract had an external audit?',
         a: `No. Crow’s rules contract (HoldbackRules), which decides when the escrow pays out, has had no outside audit yet. Models from two AI families reviewed it, and the scope an auditor would need is written.`,
@@ -167,8 +171,14 @@ export function trustFaq(f = trustFacts()) {
       { id: 'can-i-check-the-bytecode', q: 'Can I check the deployed bytecode?',
         a: `Yes. Each contract’s source code is published on Sourcify, and the deployment record names the commit and the compiler settings, so anyone can rebuild the bytecode and compare it.`,
         sources: [sepolia, record] },
-      { id: 'certifications', q: 'Does Crow have a certification, a penetration test or a bug bounty?',
-        a: `No. Crow has no penetration test, no SOC 2, ISO 27001 or other certification, and no bug bounty yet. A bug bounty sized to the funds at risk starts before any deployment with real money.`,
+      { id: 'certifications', q: 'Does Crow hold a security certification?',
+        a: `No. Crow holds no SOC 2, ISO 27001 or other certification yet.`,
+        sources: [policy] },
+      { id: 'penetration-test', q: 'Has Crow had a penetration test?',
+        a: `No. Crow has had no penetration test yet.`,
+        sources: [policy] },
+      { id: 'bug-bounty', q: 'Does Crow run a bug bounty?',
+        a: `No. Crow runs no bug bounty yet. A bug bounty sized to the funds at risk starts before any deployment with real money.`,
         sources: [policy] },
     ] },
     { group: 'Reporting a problem', questions: [
@@ -201,7 +211,7 @@ ${groups.map((g) => `<p class="toc-group">${esc(g.group)}</p>
 /** One answer: the question as a heading, the answer, an optional list, its Source line. */
 const qaHtml = (x) => `<section class="qa" id="${x.id}">
 <h3>${esc(x.q)}</h3>
-<p>${x.a}</p>${x.list ? `\n<ul>${x.list.map((i) => `<li>${i}</li>`).join('')}</ul>` : ''}
+<p>${x.a}</p>${x.list ? `\n<ul>${x.list.map((i) => `<li>${i}</li>`).join('')}</ul>` : ''}${x.after ? `\n<p>${x.after}</p>` : ''}
 ${sourceLine(x.sources)}
 </section>`;
 /** The header both pages share: the kit's header bar, its one button opening the early-access drawer. */
@@ -280,7 +290,7 @@ ${sourceLine(comingSoonSources())}
 <p class="alt">The same answers in plain text: <a href="${base}trust.txt">${esc(site)}trust.txt</a></p>
 ${toc(groups)}
 ${groups.map((g) => `<h2>${esc(g.group)}</h2>\n${g.questions.map(qaHtml).join('\n')}`).join('\n')}
-<p class="checked">Each answer was checked against its source on ${TRUST_CHECKED}. The addresses, the chain and the retention periods come from the deployment record and the code each time the site is built.</p>
+<p class="checked">Each answer was checked against its source on ${TRUST_CHECKED}. The addresses, the chain and the request log’s retention come from the deployment record and the code each time the site is built.</p>
 </main>
 ${footerHtml({ base, current: 'trust' })}
 <script>
@@ -303,7 +313,7 @@ export function trustText({ site = 'https://crow.direct/', facts = trustFacts() 
     `${COMING_SOON.title}: ${plain(COMING_SOON.text)}`,
     src_(comingSoonSources()),
     '',
-    ...groups.flatMap((g) => [`## ${g.group}`, '', ...g.questions.flatMap((x) => [`### ${plain(x.q)}`, '', plain(x.a), ...(x.list ? x.list.map((i) => `- ${plain(i)}`) : []), src_(x.sources), ''])]),
+    ...groups.flatMap((g) => [`## ${g.group}`, '', ...g.questions.flatMap((x) => [`### ${plain(x.q)}`, '', plain(x.a), ...(x.list ? x.list.map((i) => `- ${plain(i)}`) : []), ...(x.after ? [plain(x.after)] : []), src_(x.sources), ''])]),
   ].join('\n');
 }
 
@@ -402,9 +412,12 @@ export function statusFaq({ site = 'https://crow.direct/' } = {}) {
       { id: 'machine-readable-copy', q: 'Is there a machine-readable copy?',
         a: `Yes, without live states. <code>${site}status.json</code> lists each service, the address checked, who checks it and when it reads Operational. It carries no state or time, because the checks run in the reader’s browser; read each address yourself, or the operators’ live state at <code>${site}status/operators.json</code>.`,
         sources: [[`${site.replace(/^https:\/\//, '')}status.json`, `${site}status.json`], code] },
-      { id: 'storage-and-alerts', q: 'Does the status page store data or send alerts?',
-        a: `No. The status page reads only public addresses, the same ones any agent can read, and sends no alerts. The only thing kept is the site Worker’s 15-second cache of the operators’ answer.`,
+      { id: 'storage', q: 'Does the status page store data?',
+        a: `No. The status page reads only public addresses, the same ones any agent can read, and keeps nothing but the site Worker’s 15-second cache of the operators’ answer.`,
         sources: [code, relay] },
+      { id: 'alerts', q: 'Does the status page send alerts?',
+        a: `No. The status page sends no alerts; it checks only when someone opens it.`,
+        sources: [code] },
       { id: 'report-an-outage', q: 'Where do I report an outage?',
         a: `In a public issue on Crow’s GitHub repository. A security problem goes to GitHub’s private vulnerability reporting instead.`,
         sources: [['GitHub: issues', `${CODE_URL}/issues`], ['SECURITY.md', SECURITY_POLICY]] },
@@ -427,7 +440,7 @@ ${STATUS_CHECKS.map((c) => `<tr data-check="${c.id}"><td>${esc(c.name)}<span cla
 </table>
 </div>
 <p class="again">${button({ label: 'Check again', variant: 'outlined', size: 'compact', attrs: 'id="again"' })}</p>
-<noscript><p>This page checks with a script in your browser. Without it, read each address in the table yourself.</p></noscript>
+<noscript><p>This page checks with a script in your browser. Without it, read each address yourself: ${STATUS_CHECKS.map((c) => `<a href="${esc(c.address)}">${esc(plain(c.name))}</a>`).join(', ')}.</p></noscript>
 <p class="alt">The services and addresses as JSON: <a href="${base}status.json">${esc(site)}status.json</a></p>
 ${toc(groups)}
 ${groups.map((g) => `<h2>${esc(g.group)}</h2>\n${g.questions.map(qaHtml).join('\n')}`).join('\n')}

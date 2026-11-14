@@ -49,11 +49,11 @@
 </table>
 </div>
 <p class="again"><button class="ck-btn ck-btn-out ck-btn-s" type="button" id="again">Check again</button></p>
-<noscript><p>This page checks with a script in your browser. Without it, read each address in the table yourself.</p></noscript>
+<noscript><p>This page checks with a script in your browser. Without it, read each address yourself: <a href="https://crow.direct/version.json">The site, crow.direct</a>, <a href="https://api.crow.direct/.well-known/holdback.json">Operator 1, api.crow.direct</a>, <a href="https://api2.crow.direct/.well-known/holdback.json">Operator 2, api2.crow.direct</a>, <a href="https://crow.direct/agents/test-seller/health">Crow's test seller</a>, <a href="https://eth-sepolia.blockscout.com/api/v2/main-page/blocks">Ethereum Sepolia, where deals settle</a>.</p></noscript>
 <p class="alt">The services and addresses as JSON: <a href="/status.json">https://crow.direct/status.json</a></p>
 <nav class="toc" aria-label="Questions">
 <p class="toc-group">About these checks</p>
-<ul><li><a href="#which-services">Which services does the status page check?</a></li><li><a href="#how-each-check-works">How is each service checked?</a></li><li><a href="#what-the-states-mean">What does each state mean?</a></li><li><a href="#how-fresh">How fresh is each result?</a></li><li><a href="#what-it-misses">What can the status page not detect?</a></li><li><a href="#machine-readable-copy">Is there a machine-readable copy?</a></li><li><a href="#storage-and-alerts">Does the status page store data or send alerts?</a></li><li><a href="#report-an-outage">Where do I report an outage?</a></li></ul>
+<ul><li><a href="#which-services">Which services does the status page check?</a></li><li><a href="#how-each-check-works">How is each service checked?</a></li><li><a href="#what-the-states-mean">What does each state mean?</a></li><li><a href="#how-fresh">How fresh is each result?</a></li><li><a href="#what-it-misses">What can the status page not detect?</a></li><li><a href="#machine-readable-copy">Is there a machine-readable copy?</a></li><li><a href="#storage">Does the status page store data?</a></li><li><a href="#alerts">Does the status page send alerts?</a></li><li><a href="#report-an-outage">Where do I report an outage?</a></li></ul>
 </nav>
 <h2>About these checks</h2>
 <section class="qa" id="which-services">
@@ -86,10 +86,15 @@
 <p>Yes, without live states. <code>https://crow.direct/status.json</code> lists each service, the address checked, who checks it and when it reads Operational. It carries no state or time, because the checks run in the reader’s browser; read each address yourself, or the operators’ live state at <code>https://crow.direct/status/operators.json</code>.</p>
 <p class="source">Source: <a href="https://crow.direct/status.json">crow.direct/status.json</a>; <a href="https://github.com/rafaeldavid/holdback/blob/main/site/trust.mjs">site/trust.mjs</a></p>
 </section>
-<section class="qa" id="storage-and-alerts">
-<h3>Does the status page store data or send alerts?</h3>
-<p>No. The status page reads only public addresses, the same ones any agent can read, and sends no alerts. The only thing kept is the site Worker’s 15-second cache of the operators’ answer.</p>
+<section class="qa" id="storage">
+<h3>Does the status page store data?</h3>
+<p>No. The status page reads only public addresses, the same ones any agent can read, and keeps nothing but the site Worker’s 15-second cache of the operators’ answer.</p>
 <p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/site/trust.mjs">site/trust.mjs</a>; <a href="https://github.com/rafaeldavid/holdback/blob/main/apps/site/status.js">apps/site/status.js</a></p>
+</section>
+<section class="qa" id="alerts">
+<h3>Does the status page send alerts?</h3>
+<p>No. The status page sends no alerts; it checks only when someone opens it.</p>
+<p class="source">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/site/trust.mjs">site/trust.mjs</a></p>
 </section>
 <section class="qa" id="report-an-outage">
 <h3>Where do I report an outage?</h3>

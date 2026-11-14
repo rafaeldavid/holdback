@@ -384,9 +384,9 @@ const shownText = (h) => {
 // The pages are written for an agent reader and use the guides' words ("adjudicator", "principal", "hold"), glossed once;
 // "owner" stays for addresses and keys only, so the pages do not use it.
 const REFUSED = [/\bsecure(?:d|ly)?\b/i, /\baudited\b/i, /\bindependent(?:ly)?\b/i, /\bprivate deals?\b/i, /\bconfidential deals?\b/i, /no one can freeze/i, /\binsur(?:ance|ed|er)\b/i, /\barbitrat/i, /\bguarantee/i, /\bcompliant\b/i, /single point of failure/i, /\bpay by card\b/i, /\bowners?\b/i];
-for (const file of ['trust.html', 'status.html']) {
+for (const file of ['trust.html', 'status.html', 'trust.txt', 'status.json']) {
   if (!existsSync(here(file))) continue;
-  const text = shownText(read(file));
+  const text = file.endsWith('.html') ? shownText(read(file)) : read(file);
   for (const w of REFUSED) for (const m of text.matchAll(new RegExp(w.source, 'gi'))) expect(false, `site/${file} says "${m[0]}": a refused word (crow-private strategy/2026-11-14-crow-ontology.md)`);
 }
 // The two pages are FAQs for an agent reader (Rafa, 2026-11-14): each heading is one question, each answer stands alone
@@ -398,6 +398,9 @@ const faq = (file, h) => {
     const q = /<h3>([\s\S]*?)<\/h3>/.exec(body)?.[1] ?? '';
     expect(/\?$/.test(shownText(q).trim()), `site/${file} #${id}: the heading is not a question: ${shownText(q).trim()}`);
     expect(/<p class="source">Source: <a href="https:\/\//.test(body), `site/${file} #${id} has no Source line with a full link`);
+    // A yes-or-no question gets "Yes" or "No" as its first word.
+    const answer = shownText(/<\/h3>\s*<p>([\s\S]*?)<\/p>/.exec(body)?.[1] ?? '').trim();
+    if (/^(Does|Is|Can|Has|Are|Do)\b/.test(shownText(q).trim())) expect(/^(Yes|No)\b/.test(answer), `site/${file} #${id}: a yes-or-no question whose answer does not start with Yes or No`);
   }
   const toc = /<nav class="toc"[^>]*>([\s\S]*?)<\/nav>/.exec(h)?.[1] ?? '';
   const listed = [...toc.matchAll(/href="#([a-z0-9-]+)"/g)].map((m) => m[1]);
@@ -424,6 +427,9 @@ if (existsSync(here('status.html')) && existsSync(here('status.json'))) {
   const ids = [...read('status.html').matchAll(/data-check="([a-z0-9]+)"/g)].map((m) => m[1]);
   let services = [];
   try { services = JSON.parse(read('status.json')).services ?? []; } catch { expect(false, 'site/status.json does not parse'); }
+  let live;
+  try { live = JSON.parse(read('status.json')).live; } catch { live = undefined; }
+  expect(live === false, 'site/status.json must say live: false: the checks run in the reader\'s browser, so the file carries no state');
   expect(JSON.stringify(services.map((x) => x.id)) === JSON.stringify(ids) && services.every((x) => /^https:\/\//.test(x.address ?? '')), 'site/status.json does not list the status page\'s services, each with its full address');
   expect(read('status.html').includes(`href="${BASE}status.json"`), 'site/status.html does not link its JSON copy');
 }
