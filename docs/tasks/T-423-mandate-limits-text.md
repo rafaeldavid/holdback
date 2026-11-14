@@ -5,7 +5,7 @@
 - **Depends on:** T-415 (ADR-0038, D69)
 - **Paths this task may touch:** `docs/neutrality.md`, and on the coordinator's word for T-410's lines: one decision line in `docs/decisions-today.md` and the Status field of `docs/tasks/T-410-routine-redeploy.md`;, `docs/architecture.md`, `docs/operations.md`, `docs/api.md`, `site/ref/limits.txt`, the `next` text of `scope_exceeded` (it lives in `apps/operator/src/problems.ts`; `packages/core/src/problem.ts`, which the brief names, holds only the type names), this task file. `CLAUDE.md` in a separate draft pull request only.
 - **Human gate:** the site deploy runs under Rafa's standing word for this wave ("merge and deploy when ready"). The `CLAUDE.md` line waits for Rafa's word.
-- **Status:** review
+- **Status:** done (pull request 520 merged 2026-11-14 11:30 UTC as `0746a888`)
 - **Agent/session:** T-423 session of the second wave, 2026-11-14
 
 ## Intent
@@ -89,5 +89,7 @@ Non-goals: any code path, schema, contract or fixture change; the files of other
 - `site/llms.txt` line 74 describes `ref/limits.txt` as "honest limits, reporting a problem, the sources". It could add "where your agent's limits hold", but the buyer's first-deal path is at 5,000 of 5,000 tokens (measured), so that waits for the lane that owns the guides' budget.
 
 **For Rafa:** the hard rule in `CLAUDE.md` ("checked against the agent's address and scope", and the adjudicator as a checker of the `Delegation`) is ADR-0038's question 2; this task changes neither. The reviewer recommends a short review by a model of another family of the new definition of a valid commitment in `docs/neutrality.md` (on a chain a deal funded outside an agent's scope is valid) and of residual 12's bound; it was not run, since this wave's brief asks for one reviewer pass.
+
+**Site deploy (measured, 2026-11-14 11:31 UTC).** `pnpm site:deploy` from a detached worktree at `0746a888`: pass. crow-site `0818c983-3757-46f0-a41e-6e980228a4c8`, rollback target `b5375383-de79-49f8-86df-96782f526e10` (the previous live version, commit `cb214d44`, deployed 10:45 UTC). It carried only this task's two changes; `site/try.mjs` and `site/buy.mjs` are unchanged, so no handed-out command stops working. Live checks by GET: `version.json` names `0746a888`; `/ref/limits.txt` serves "Where your agent's limits hold" and its table; `/problems/scope_exceeded` serves the new text and names no `categories`; `/` answers 200.
 
 **Deploy:** the site carries `site/ref/limits.txt` and the problem page at `crow.direct/problems/scope_exceeded`. The operators carry the problem text with T-422's deploy or the next one.
