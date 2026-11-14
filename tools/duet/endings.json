@@ -1,0 +1,45 @@
+{
+  "about": "Three live test deals on Sepolia, one per ending, shown under the demo's player (T-427). Taken from docs/tasks/T-420-outsider-scenarios.md, 'One live deal per scenario', and each deal's public record on the live API (offeredAt and endedAt are the record's commitment.offered and settlement event times; tx is the settlement event's transaction). A refresh is a change of this file and one publish.",
+  "date": "2026-11-14",
+  "record": "https://api.crow.direct/v1/commitments/",
+  "explorer": "https://sepolia.etherscan.io/tx/",
+  "endings": [
+    {
+      "key": "passes",
+      "title": "The work passes",
+      "rule": "The seller is paid, and the buyer gets the key to the work in the same step.",
+      "measure": "from the seller's offer to the payment",
+      "amount": { "base": "10000000", "label": "paid to the seller" },
+      "how": "The agreed checks ran first. The first reviewer asked for a second look, and a panel of 5 AI judges from 2 model makers passed the work, 5 of 5.",
+      "commitment": "0xf3d68191f957109f95f0c8b1599fcb0818dc0936a83e42c01f37b7806ae7a8cd",
+      "offeredAt": "2026-11-14T11:39:28Z",
+      "endedAt": "2026-11-14T11:40:36Z",
+      "tx": "0xe8094b1e1972b040b89b877629b4f2b013e1a93adc1888fcce88f2f1221fee08"
+    },
+    {
+      "key": "fails",
+      "title": "The work fails",
+      "rule": "The price goes back to the buyer, and the work stays locked.",
+      "measure": "from the seller's offer to the refund",
+      "amount": { "base": "10000000", "label": "back to the buyer" },
+      "how": "The same terms as the deal that passed; only the delivered text differed. A panel of 3 AI judges rejected it, 3 of 3, and the reviewer kept its fee of 1 test dollar.",
+      "commitment": "0x3b35c932b51a420686748bf5265044fdb5e7356ebb760cfa407e5c6e5653f249",
+      "offeredAt": "2026-11-14T11:40:41Z",
+      "endedAt": "2026-11-14T11:41:12Z",
+      "tx": "0xb0706d46ec333513fb7e4700b0d38f7bed3c8c1738cc57dce0330ff86177b5e1"
+    },
+    {
+      "key": "silent",
+      "title": "The seller goes silent",
+      "rule": "Nothing arrived by the deadline, so the whole payment went back to the buyer, without the buyer asking.",
+      "measure": "from the seller's offer to the refund",
+      "amount": { "base": "26000000", "label": "back to the buyer: the price and the reviewer's fee" },
+      "how": "The seller took the deal and never delivered. The terms gave it 5 minutes from the offer; the payment went back 65 seconds after that deadline.",
+      "commitment": "0x2b6e735a4a96c0094f0fe8fb138122bc4047a26e64daded5364557c9b4030b9b",
+      "offeredAt": "2026-11-14T11:41:19Z",
+      "deliverBy": "2026-11-14T11:46:19Z",
+      "endedAt": "2026-11-14T11:47:24Z",
+      "tx": "0xe8ee3145ccb7c297d010c4b8c3a1aeeb75567b62b7ef38c41f994cc72c0af33a"
+    }
+  ]
+}

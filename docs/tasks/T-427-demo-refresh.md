@@ -4,10 +4,10 @@
 - **Phase:** 2, settlement on EVM (stable EVM operations, D53)
 - **Kind:** 1 (copy), with the demo generator's tests (`tools/duet/duet.test.ts`), from the Change recipes in `docs/team.md`; one `reviewer` pass, told to check every statement on the page against the live service; no red team
 - **Depends on:** T-391 (the two-agent demo), T-418 (the ontology's words), T-420 (the test seller's live endings)
-- **Paths this task may touch:** `site/demo/index.html`, `tools/duet/replay.ts`, `tools/duet/scenarios.ts` (one note), `tools/duet/duet.test.ts`, `tools/duet/README.md`, this file. Never: `site/build.mjs`, `site/check.mjs`, `site/footer.ts`, the header, the trust and status pages (T-421), the guides, `site/brand/`, `site/try.mjs`, `site/buy.mjs`.
-- **Human gate:** no for the merge and the site deploy (Rafa's word for the wave of 2026-11-14: merge and deploy when ready). The proposal below waits for Rafa.
-- **Status:** done (PR 536, merged as `d3ce4cf3`; site deployed 2026-11-14 13:14 UTC)
-- **Agent/session:** the T-427 session, 2026-11-14, branch `t-427-demo-refresh`
+- **Paths this task may touch:** `site/demo/index.html`, `tools/duet/replay.ts`, `tools/duet/endings.ts` and `tools/duet/endings.json` (part 2), `tools/duet/scenarios.ts` (one note), `tools/duet/duet.test.ts`, `tools/duet/README.md`, this file. Never: `site/build.mjs`, `site/check.mjs`, `site/footer.ts`, the header, the trust and status pages (T-421), the guides, `site/brand/`, `site/try.mjs`, `site/buy.mjs`.
+- **Human gate:** no for the merge and the site deploy (Rafa's word for the wave of 2026-11-14: merge and deploy when ready). The proposal below was answered by Rafa on 2026-11-14 ("Yes, build it") and built in part 2.
+- **Status:** review (part 2: the three endings, on Rafa's word). Part 1 done: PR 536, merged as `d3ce4cf3`; site deployed 2026-11-14 13:14 UTC
+- **Agent/session:** the T-427 session, 2026-11-14, branches `t-427-demo-refresh` (part 1), `t-427-record`, `t-427-three-endings` (part 2)
 
 ## Intent
 
@@ -49,7 +49,7 @@ The refund scenario's note in `tools/duet/scenarios.ts` and the README's table o
 5. **Does it lead to the next step?** Early access twice, Learn more, and the guides under Resources. It never says a reader can run a test deal; the front page's line under Resources now says "Where an AI agent starts, and the one command for a test deal". The proposal adds a "Try one yourself" line.
 6. **Looks and behaves like the site?** Yes (above). The page's share description ("set the payment aside and settle when the work passes") lives in `site/footer.ts`, outside this task's paths; it is not wrong, so it stays.
 
-## The proposal (waits for Rafa)
+## The proposal (answered: built in part 2)
 
 **Three ways a deal ends, on the public test network.** Under the player, a section with a three-way switch: "The work passes", "The work fails", "The seller goes silent". One card shows at a time, each with its rule in one sentence, two measured numbers and a link to that deal's public record on the live API. The replay above stays as it is.
 
@@ -58,6 +58,21 @@ The refund scenario's note in `tools/duet/scenarios.ts` and the README's table o
 - **What it takes:** a block in `replay.ts` with the three deals' IDs and numbers from a small data file (filled from T-420's table), its styles, a test, and one publish; about half a day of a session, kind 1 [guessed]. The three records are public already. The numbers are one run each; a later refresh could take them from T-425's 20 timed deals.
 - **The alternative:** a switch above the player that replays a whole scripted run per ending (`pnpm duet run --scenario refund` exists; a silent seller does not yet). Fuller, but local only, with no public record, and three runs in one 90 KB page.
 - **The decision for Rafa:** add the three-endings section under the player, linking the three live test deals' public records?
+
+## Part 2: three ways a deal ends (built on Rafa's word)
+
+**Rafa answered the proposal on 2026-11-14, relayed by the coordinator: "Yes, build it".** The section went in as proposed, not the alternative.
+
+- **What:** under the player, "Three ways a deal ends": a three-way switch (the work passes, the work fails, the seller goes silent), one card at a time, each with its rule in one sentence, its time from the seller's offer to the payment or refund, its amount, how it was decided, and two links: the deal's record on the live API and its final transaction on Sepolia's Etherscan. The replay above is unchanged.
+- **Data:** `tools/duet/endings.json`, from T-420's table of live deals and each deal's public record (the `commitment.offered` and settlement event times, and the settlement transaction). The seconds are computed from those times, so a reader can check them against the linked record; T-420's own seconds count from the buyer's request, a few seconds earlier. `checkEndings` refuses a malformed file. T-425's median was not on `main` when this was built, so the passing card cites its one deal only.
+- **Without scripts** the three cards stack, all readable, and the switch stays hidden; **with scripts** the switch shows one card at a time, and the arrow, Home and End keys move between its tabs. The focus ring is the brand's (2 px accent). Nothing animates.
+- **The cards as built** (measured from each record on 2026-11-14):
+
+| Card | Rule | Time | Amount | Record |
+| --- | --- | --- | --- | --- |
+| The work passes | The seller is paid, and the buyer gets the key to the work in the same step. | 68 s, offer 11:39:28 to release 11:40:36 UTC | 10 test dollars paid to the seller | `0xf3d68191…a8cd`, transaction `0xe8094b1e…ee08` |
+| The work fails | The price goes back to the buyer, and the work stays locked. | 31 s, offer 11:40:41 to refund 11:41:12 UTC | 10 test dollars back to the buyer; the reviewer kept its 1 test dollar fee | `0x3b35c932…f249`, transaction `0xb0706d46…b5e1` |
+| The seller goes silent | Nothing arrived by the deadline, so the whole payment went back to the buyer, without the buyer asking. | 6 min 5 s, offer 11:41:19 to reclaim 11:47:24 UTC; deadline 11:46:19 | 26 test dollars back to the buyer: the price and the reviewer's fee | `0x2b6e735a…0b9b`, transaction `0xe8ee3145…f33a` |
 
 ## Evidence
 
@@ -81,12 +96,29 @@ One `reviewer` pass on commit `482023d8`, told to check every statement on the p
 
 After the fixes: `pnpm exec vitest run tools/duet` 32 of 32, `node site/check.mjs` PASS.
 
+### Part 2 evidence
+
+- **Test first:** with the section's module and tests in place and the page not yet wired, 5 tests failed (the four scenario pages and the committed page); after wiring `replay.ts` and inserting the section into `site/demo/index.html` (`reports/scratch/t427/insert-endings.ts`, the same three places), `pnpm exec vitest run tools/duet` passed 37 of 37. The committed page must contain exactly what `endingsSection()`, `ENDINGS_CSS` and `ENDINGS_SCRIPT` write.
+- **Site checks:** `node site/build.mjs --op1 https://api.crow.direct --op2 https://api2.crow.direct --out reports/site-out && node site/check.mjs` PASS; `try.mjs` SHA-256 `04ef4434…75c8`, unchanged; `eslint` and `tsc` on `tools/duet` clean.
+- **In the browser (the built page, 2026-11-14):** at 1,280 px and 375 px the section sits under the player across the page's width; clicking "The seller goes silent" showed only that card; ArrowLeft moved focus and the card to "The work fails"; at 375 px the page is 375 px wide (no sideways scroll) and the switch shows as three equal columns.
+
+### Part 2 review
+
+One `reviewer` pass on commit `200e3443`, told to open each deal's public record and compare it with its card: ISSUES, all low. It measured every card's outcome, time, amount, fee, panel size and transaction against the records (`/v1/commitments/<id>`, its events and its judgment record): all match. Etherscan answered 403 to its plain GET, so the transactions were matched to the API's settlement events, not read on chain. What became of each finding:
+
+1. The Handoff and line 8 still said the proposal waited for Rafa: fixed.
+2. The task file named only part 1's branch: fixed.
+3. Without scripts the cards carried tab-panel roles pointing at hidden tabs: fixed. The cards are plain articles named by their headings; the script adds the roles when it turns the switch on (test added).
+4. `checkEndings` did not check the keys, or that `deliverBy` exists for the silent card and falls between the offer and the end: fixed, with three test cases.
+
+After the fixes: `pnpm exec vitest run tools/duet` 37 of 37; `node site/check.mjs` PASS; `try.mjs` hash unchanged.
+
 ## Handoff
 
-**Done; the proposal waits for Rafa.**
+**Part 1 done; part 2 in review (PR 543).**
 
 - **Merged:** PR 536 as `d3ce4cf3`, by hand, after all 14 checks that ran passed, `check` and `gitleaks` among them (2 contract suites skipped: no contract change).
 - **Site deploy 2026-11-14 13:14 UTC, commit `d3ce4cf` on a detached HEAD: pass.** crow-site `610258b8-a9a7-4761-927a-c44d9f228c6d` (rollback target `b0c3a3d3-448d-40dd-a112-38e0cce332de`). It also carried PR 531 (the buyer guide's shorter wording, `site/buy.txt`, `site/llms.txt`, two `site/ref/` files), merged by another session and not deployed before.
 - **Live checks (plain GETs, 13:15 UTC, measured):** `version.json` reads commit `d3ce4cf3` and version `610258b8…`; `https://crow.direct/demo/` holds each of the six new sentences and no "independent" or "Neither side can take"; `try.mjs` SHA-256 `04ef4434…` and `buy.mjs` `e74ff223…`, both unchanged, so no copy of the try command or the install line handed out stops working.
-- **For Rafa:** the proposal above (three ways a deal ends) and its one question. Mock: `reports/scratch/t427/mock-three-endings.html` in the main checkout.
+- **Part 2 (PR 543):** the three endings, built on Rafa's word. Left: merge, `pnpm site:deploy` from `origin/main`, and a live check that `https://crow.direct/demo/` carries the section with its three cards. To refresh the cards later: change `tools/duet/endings.json` (from each deal's public record), then republish the page; the test fails until `site/demo/index.html` carries the new section.
 - **Follow-ups, not built:** the share description in `site/footer.ts` could add the refund rule (the footer's lane); review finding 3 (what the page says of who the reviewers are) goes with the proposal.

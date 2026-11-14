@@ -11,6 +11,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { measure } from './measures.ts';
 import { buyerBriefDirect, scenario, sellerBriefDirect } from './scenarios.ts';
 import { limitsFor, overLimits } from './tickets.ts';
+import { checkEndings, ENDINGS, ENDINGS_CSS, ENDINGS_SCRIPT, endingsSection, seconds } from './endings.ts';
 import { CROW_MARK, EARLY_ACCESS, ENGINEERS, forPublishing, HERO, JOIN, PITCH, replayPage } from './replay.ts';
 import { startWorld } from './world.ts';
 import { runAgent } from './loop.ts';
@@ -123,6 +124,12 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       // with its release rule, the refund included, since the buyer's worry is getting the money back.
       expect(readerText(page)).not.toMatch(REFUSED);
       expect(readerText(page)).toMatch(/If the work never arrives, the buyer takes the whole payment back after the deadline/);
+      // Three ways a deal ends (T-427): under the player, inside the demo view, with its styles and its switch.
+      expect(page).toContain(endingsSection());
+      expect(page).toContain(ENDINGS_CSS);
+      expect(page).toContain(ENDINGS_SCRIPT);
+      expect(page.indexOf('id="demo-run"')).toBeLessThan(page.indexOf('id="endings"'));
+      expect(page.indexOf('id="endings"')).toBeLessThan(page.indexOf('<main id="learn-more">'));
       expect(events.some((e) => e.role === 'buyer') && events.some((e) => e.role === 'seller')).toBe(true);
       for (const b of PITCH.beats) expect(page).toContain(`<span class="beat-label">${b.label}</span>`);
       // The proof beat tells what this run did: Rafa's sentence when the work passed, what happened instead otherwise.
@@ -206,6 +213,57 @@ describe('the published demo page (site/demo/index.html, edited beside replay.ts
     expect(text).toMatch(/If the work never arrives, the buyer takes the whole payment back after the deadline/);
     expect(text).toContain('The price is released to the seller when the work passes, and comes back to the buyer if the work fails or misses its deadline.');
     expect(banned(text)).toEqual([]);
+  });
+  it('carries the section "Three ways a deal ends" as replay.ts writes it, with its styles and its switch (T-427)', () => {
+    const html = readFileSync(new URL('../../site/demo/index.html', import.meta.url), 'utf8');
+    expect(html).toContain(endingsSection());
+    expect(html).toContain(ENDINGS_CSS);
+    expect(html).toContain(ENDINGS_SCRIPT);
+    expect(html.indexOf('id="demo-run"')).toBeLessThan(html.indexOf('id="endings"'));
+    expect(html.indexOf('id="endings"')).toBeLessThan(html.indexOf('<main id="learn-more">'));
+  });
+});
+
+describe('three ways a deal ends (T-427): live test deals under the player', () => {
+  const html = endingsSection();
+  it('shows three cards, all readable without scripts, and a switch that only the script turns on', () => {
+    expect(html.match(/<article class="ending"/g)).toHaveLength(3);
+    expect(html).not.toMatch(/<article[^>]*hidden/);
+    expect(html).toMatch(/<div class="endings-switch" role="tablist"[^>]*hidden>/);
+    expect(html.match(/role="tab"/g)).toHaveLength(3);
+    expect(ENDINGS_SCRIPT).toContain('bar.hidden=false');
+    expect(ENDINGS_CSS).not.toMatch(/animation|transition/);
+    // Without scripts the cards are plain articles named by their headings; the script adds the tab roles.
+    expect(html).not.toMatch(/role="tabpanel"/);
+    expect(ENDINGS_SCRIPT).toContain("setAttribute('role','tabpanel')");
+  });
+  it("gives each card its rule, the record's own times and amounts, and links to its public record and transaction", () => {
+    const want: Record<string, [string, string]> = { passes: ['68 s', '10 test dollars'], fails: ['31 s', '10 test dollars'], silent: ['6 min 5 s', '26 test dollars'] };
+    for (const x of ENDINGS.endings) {
+      const cardHtml = html.slice(html.indexOf(`id="ending-${x.key}"`), html.indexOf('</article>', html.indexOf(`id="ending-${x.key}"`)));
+      expect(cardHtml).toContain(`<dd>${want[x.key]![0]}</dd>`);
+      expect(cardHtml).toContain(`<dd>${want[x.key]![1]}</dd>`);
+      expect(cardHtml).toContain(`href="https://api.crow.direct/v1/commitments/${x.commitment}"`);
+      expect(cardHtml).toContain(`href="https://sepolia.etherscan.io/tx/${x.tx}"`);
+    }
+    const silent = ENDINGS.endings.find((x) => x.key === 'silent')!;
+    expect(silent.how).toContain(`${seconds(silent.deliverBy!, silent.endedAt)} seconds after that deadline`);
+    expect(silent.how).toContain(`${seconds(silent.offeredAt, silent.deliverBy!) / 60} minutes from the offer`);
+    expect(readerText(html)).toContain('14 November 2026');
+  });
+  it("uses the page's words: no refused claim, no protocol word", () => {
+    expect(readerText(html)).not.toMatch(REFUSED);
+    expect(banned(readerText(html))).toEqual([]);
+  });
+  it('refuses a data file it cannot show honestly', () => {
+    const bad = (f: (e: typeof ENDINGS) => void) => { const e = structuredClone(ENDINGS); f(e); return () => checkEndings(e); };
+    expect(bad((e) => { e.endings[0]!.tx = '0x1234'; })).toThrow(/32-byte/);
+    expect(bad((e) => { e.endings[1]!.endedAt = e.endings[1]!.offeredAt; })).toThrow(/ends before/);
+    expect(bad((e) => { e.record = 'https://example.com/'; })).toThrow(/live API/);
+    expect(bad((e) => { e.endings.pop(); })).toThrow(/three endings/);
+    expect(bad((e) => { e.endings[1]!.key = 'passes'; })).toThrow(/passes, fails and silent/);
+    expect(bad((e) => { delete e.endings[2]!.deliverBy; })).toThrow(/deliverBy is the deadline/);
+    expect(bad((e) => { e.endings[2]!.deliverBy = e.endings[2]!.endedAt; })).toThrow(/between the offer and the end/);
   });
 });
 
