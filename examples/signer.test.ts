@@ -164,9 +164,10 @@ describe('A7: changed terms (B6, B8)', () => {
     refused(await s.post(payment(termsFor(c, { acceptance: { ...ACCEPTANCE, deterministicChecks: ACCEPTANCE.deterministicChecks.slice(1) } }))), 'B6', /a check was changed, added or removed/);
     refused(await s.post(payment(termsFor(c, { acceptance: { ...ACCEPTANCE, rubric: { criteria: [{ id: 'q', description: 'good', weight: 1 }], passThreshold: 1 } } }))), 'B6', /has a rubric/);
     refused(await s.post(payment(termsFor(c, { deliverable: { kind: 'dataset', description: 'something else', format: 'text/csv' } }))), 'B6', /not a product this seller is listed for/);
-    const now = Date.now();
-    refused(await s.post(payment(termsFor(c, { timing: { offerExpiresAt: iso(Math.floor(now / 1000) * 1000 + 301_000) } }))), 'B8', /301 s after the one before, above the 300 s/);
-    refused(await s.post(payment(termsFor(c, { timing: { fundBy: iso(Math.floor(now / 1000) * 1000 + 601_000) } }))), 'B8', /above the 600 s/);
+    // One second for every date these cases send: termsFor's createdAt and the shifted deadline (T-442).
+    const now = Date.now(), base = Math.floor(now / 1000) * 1000;
+    refused(await s.post(payment(termsFor(c, { createdAt: base, timing: { offerExpiresAt: iso(base + 301_000) } }))), 'B8', /301 s after the one before, above the 300 s/);
+    refused(await s.post(payment(termsFor(c, { createdAt: base, timing: { fundBy: iso(base + 601_000) } }))), 'B8', /above the 600 s/);
     refused(await s.post(payment(termsFor(c, { createdAt: now + 120_000 }))), 'B8', /ahead of the signer's clock/);
     refused(await s.post(payment(termsFor(c, { createdAt: now - 301_000 }))), 'B8', /the offer expired at/);
     refused(await s.post(payment(termsFor(c, { timing: { appealDecideSec: 3600 } }))), 'B6', /appealDecideSec/);
@@ -496,5 +497,48 @@ describe('the review and red team of PR 555: each finding, as an attack that now
     refused(await s.post(payment(termsFor(c))), 'B4', /mandate's 15000000 a day/);
     await s.kill();
     await expect(startSigner({ ...c, keys: { ...c.keys, buying: generatePrivateKey() } }, rulesFor(c, { reads: [reads.url] }), await mandateFor(c))).rejects.toThrow(/is not the rules' standingKey/);
+  });
+});
+
+describe('B8 at each bound, with the signer\'s clock injected: one time for the test and the signer (T-442)', () => {
+  /** A fresh signer at time t, the terms for one case, and the signer's answer: each pair runs on its own signer. */
+  const at = async (t: number, terms: (c: Cast) => J, signerAt = t) => {
+    const now = { t: signerAt };
+    const { c, post } = await inProcess(now);
+    return post(payment(terms(c)));
+  };
+  const T = Math.floor(Date.now() / 1000) * 1000;
+  const w = V1.buying.windows;
+  /** The default deadlines from createdAt T, with `shift` moving one of them and those after it by the same amount. */
+  const timing = (o: { offer?: number; fund?: number; deliver?: number; judge?: number; fallback?: number } = {}) => {
+    const offer = T + (o.offer ?? w.offerExpiresInSec) * 1000, fund = T + (o.fund ?? w.fundWithinSec) * 1000, deliver = T + (o.deliver ?? w.deliverWithinSec) * 1000;
+    const judge = deliver + (o.judge ?? 60) * 1000, fallback = judge + (o.fallback ?? 60) * 1000;
+    return { offerExpiresAt: iso(offer), fundBy: iso(fund), deliverBy: iso(deliver), judgeBy: iso(judge), fallbackBy: iso(fallback) };
+  };
+  const cases: Array<[string, J, J]> = [
+    ['the offer window', { offer: w.offerExpiresInSec }, { offer: w.offerExpiresInSec + 1 }],
+    ['the funding window', { fund: w.fundWithinSec }, { fund: w.fundWithinSec + 1 }],
+    ['the delivery window', { deliver: w.deliverWithinSec }, { deliver: w.deliverWithinSec + 1 }],
+    ['the judging window', { judge: w.judgeWithinSec }, { judge: w.judgeWithinSec + 1 }],
+    ['the fallback window', { fallback: w.fallbackWithinSec }, { fallback: w.fallbackWithinSec + 1 }],
+    ['the offer against the funding deadline', { offer: 300, fund: 300 }, { offer: 300, fund: 299 }],
+  ];
+  for (const [name, inside, outside] of cases) {
+    it(`${name}: at the bound it signs, one second past it refuses`, async () => {
+      signed(await at(T, (c) => termsFor(c, { createdAt: T, timing: timing(inside) })));
+      refused(await at(T, (c) => termsFor(c, { createdAt: T, timing: timing(outside) })), 'B8');
+    });
+  }
+
+  it(`createdAt ahead of the signer's clock: ${V1.buying.clockSkewSec} s signs, one second more refuses`, async () => {
+    const ahead = V1.buying.clockSkewSec * 1000;
+    signed(await at(T + ahead, (c) => termsFor(c, { createdAt: T + ahead }), T));
+    refused(await at(T + ahead + 1000, (c) => termsFor(c, { createdAt: T + ahead + 1000 }), T), 'B8', /ahead of the signer's clock/);
+  });
+
+  it('the offer\'s expiry by the signer\'s clock: 1 ms before it signs, at it refuses', async () => {
+    const expires = T + w.offerExpiresInSec * 1000;
+    signed(await at(T, (c) => termsFor(c, { createdAt: T }), expires - 1));
+    refused(await at(T, (c) => termsFor(c, { createdAt: T }), expires), 'B8', /the offer expired at/);
   });
 });
