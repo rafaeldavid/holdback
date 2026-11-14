@@ -5,7 +5,7 @@
 - **Depends on:** T-404 (Crow Control's rebuild, private), T-066 (the metrics format)
 - **Paths this task may touch:** `apps/test-agents/`, `apps/early-access/`, `apps/site/`, `scripts/metrics/ops-cost*` (and its schema under `scripts/metrics/schemas/`), `site/check.mjs` (one block of its own), a new `site/guide-budget.mjs`, `docs/decisions-today.md` (a status line on each entry only), new tests under `tests/`, `tests/metrics/ops-cost*`, this file
 - **Human gate:** yes for the three deploys (site, test agents, early access). Nothing is deployed by this task.
-- **Status:** done (merged; deploys of the site, test agents and early access follow, on Rafa's word of 2026-11-14)
+- **Status:** done (merged in PR 505, `e90b27a`; the site, the test agents and early access deployed on 2026-11-14, on Rafa's word)
 - **Agent/session:** the T-413 session, started 2026-11-14 by the coordinator's wave (sister task T-414 reads these sources into the console)
 - **Kind:** 1 (the site check), 2 (the decisions record), 4 (Worker code), with the metrics script; one `reviewer` pass
 
@@ -53,6 +53,18 @@ All measured on 2026-11-14 in this branch's worktree unless marked otherwise.
 - **4. Gas per deal:** run as the console's build runs it (a copy with no `node_modules`, `env -i PATH HOME`, Node 22.22.2): `deal-timing.mjs` in 486 ms, `ops-cost.mjs` in 251 ms. 15 Released deals in the 7-day window, all 46 of their Crow-sent transactions' gas read from Sepolia receipts, 0 mismatches with the event log; a deal's own gas 926,312 (median), 1,117,319 with a new visitor's faucet mint and the adjudicators' setup share. The file passed `node scripts/metrics/check.mjs ops-cost`. The console's own build at 07:55 UTC (crow-private Actions job 132382146575) already read 926,312 gas a deal for the deal lanes from `ops-cost.json`.
 
 - **Review** (one `reviewer` pass on `55f930d5`): ISSUES, no Critical or High. Fixed: (Medium) a deal whose transactions carry no gas figure read as a measured 0 in the median and the new source; it now stays out, with a gap line, and the gas reads unknown when no deal has a figure (two new tests). (Low) a failed second token count in `site/check.mjs`'s new block could fail a passing check; it now falls back to the estimate and says so. (Low) D60's status cited no source; it now cites the 2026-11-12 log. (Low) the status words changed after the review began; committed, with the test. Added from its notes: a HEAD test for each `version.json`.
+
+- **Deploys** (Rafa, 2026-11-14: "merge and deploy as appropriate"; each from a detached worktree at `origin/main`, with the repository's own script; measured):
+
+  | Worker | Commit | Version | Replaced | `deployedAt` |
+  | --- | --- | --- | --- | --- |
+  | crow-test-agents | `c179141` | `13cb42b5-12c3-4579-a0b5-ced3bfab89a9` | `4b675edd-e6bb-4b61-b473-b8305b1b0303` | 2026-11-14T09:29:23Z |
+  | crow-early-access | `c179141` | `b33bf8dd-1625-40ee-9a39-a84fc46acbfd` | `99c500b2-c49e-4fb9-8348-083d0b939233` | 2026-11-14T09:29:54Z |
+  | crow-site | `b37ea0a` | `27ae8e86-e7ed-4b17-ae5f-c9c003fe96b9` | `f17f3355-2da9-4038-8570-e9440e395232` | 2026-11-14T10:00:08Z |
+
+  - Live checks after the deploys, plain GETs: all four `version.json` addresses answer 200 with `crow.build/1`, `no-store` and the deployed commit. `https://crow.direct/guide-budget.json` answers 200 with `crow.guide-budget/1`: buyer 4,965 of 5,000 tokens (9,930 basis points), seller 4,218 (8,436), by the estimate. The test seller's and test buyer's health and the seller's card answer 200, and the seller reads operational. Early access answers its preflight with 204 and a malformed address with 400, so nothing was stored. The old hosts forward with a 301.
+  - The site deploy also carried T-411's and the pilot lane's guide changes, merged on `main`. `try.mjs` and `buy.mjs` hash the same before and after it, so no try command or install line already handed out changed.
+  - A full `pnpm verify` before the deploys failed two steps on this Mac: `forge build`, while it fetched the contract libraries into the fresh worktree, and the one test that runs it (`packages/settlement/evm/deploy-script.test.ts`). CI passed both on the same commits [the cause is inferred]. Every other step passed.
 
 ## Handoff
 
