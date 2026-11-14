@@ -3,6 +3,12 @@ Title: Conventional Commits, `type(scope): subject`, imperative, no trailing per
 Body: a one-minute briefing for a reviewer who has the diff. Short sentences. Drop a section with nothing to say, except Scope.
 -->
 
+Task: T-
+<!-- The task this pull request works on: its T-number, whose file is in docs/tasks/. Add "Closes T-nnn" on a line of its own when it finishes the task. Work with no task writes "no ticket" here, with one sentence on why (the ID check ignores this comment). -->
+
+Roadmap row:
+<!-- The row the task file's "- **Roadmap row:**" line names, several separated by commas, or "none". The ID check reads the task file, so write the same IDs here. -->
+
 ## Why
 <!-- The problem and the approach in 1 to 3 sentences. Name the task ID (T-xxx). -->
 
