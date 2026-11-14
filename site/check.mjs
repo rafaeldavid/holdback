@@ -43,6 +43,10 @@
 //    icon link, the kit's icon files are current against the mark, and a publish build serves each at the site's root.
 //    Without a publish build it checks the pages it knows by name; with one (site/deploy.mjs builds before it checks),
 //    every .html file the build wrote, so a page added to the publish step alone is caught at the latest at deploy.
+// 18. The content security policy (T-451): no page carries an inline event handler or a javascript: URL, and only the
+//    visual walkthrough a style attribute; with a publish build, csp-hashes.json is current against its pages, and
+//    every inline script and style of every page it wrote is allowed by the policy the site Worker sends for that
+//    page's path (apps/site/headers.js), as is every script and stylesheet it loads from elsewhere.
 // 12. The budget (T-393): each role's first-deal path, the front door plus its page, is within FIRST_DEAL_BUDGET
 //    (site/guides.mjs). With HOLDBACK_AGENT_ANTHROPIC_API_KEY set it counts with Anthropic's count_tokens for the
 //    pinned model; without it, bytes divided by four. It says which.
@@ -512,6 +516,42 @@ expect(typeof trust.SECURITY_CONTACT === 'string' && read('../SECURITY.md').incl
   }
 }
 
+// 18. The content security policy (T-451).
+{
+  const csp = await import('./csp.mjs');
+  const headers = await import('../apps/site/headers.js');
+  /** The path the site Worker serves a built file at: index.html as its folder, x.html without the extension. */
+  const served = (f) => (f === 'index.html' ? '/' : f.endsWith('/index.html') ? `/${f.slice(0, -'index.html'.length)}` : `/${f.replace(/\.html$/, '')}`);
+  const walkthrough = (f) => /(^|\/)visualdemo\//.test(f);
+  const markup = (f, h) => {
+    expect(!/\son[a-z]+\s*=\s*\\?["']/i.test(h), `${f} carries an inline event handler (on…=), which the content security policy blocks: use addEventListener in a script`);
+    expect(!/javascript:/i.test(h), `${f} carries a javascript: URL, which the content security policy blocks`);
+    expect(walkthrough(f) || !/<[a-z][^>]*\sstyle\s*=|\sstyle=\\"/i.test(h), `${f} carries a style attribute, which the content security policy blocks outside the visual walkthrough: use a class`);
+  };
+  for (const [path, h] of new Map([...built, ...problems])) markup(path, h);
+  const site = here('../reports/site-out/');
+  if (existsSync(new URL('llms.txt', site))) {
+    const dir = fileURLToPath(site);
+    const file = new URL('csp-hashes.json', site);
+    const written = existsSync(file) ? headers.parseHashes(JSON.parse(readFileSync(file, 'utf8'))) : null;
+    expect(written !== null && JSON.stringify(written) === JSON.stringify(csp.inlineHashesOf(dir)), 'reports/site-out/csp-hashes.json is missing, malformed or stale against the pages it sits beside: build with --out again');
+    for (const f of csp.htmlFiles(dir)) {
+      const h = readFileSync(join(dir, f), 'utf8');
+      markup(`reports/site-out/${f}`, h);
+      const policy = headers.contentSecurityPolicy(written, served(f));
+      const directive = (name) => (policy.split('; ').find((d) => d.startsWith(`${name} `)) ?? '').split(' ').slice(1);
+      const { scripts, styles } = csp.inlineBlocks(h);
+      for (const s of scripts) expect(directive('script-src').includes(`'${csp.cspHash(s)}'`), `reports/site-out/${f}: an inline script (${csp.cspHash(s).slice(0, 19)}…) is not in the policy's script-src`);
+      for (const s of styles) expect(directive('style-src').includes(`'${csp.cspHash(s)}'`) || directive('style-src').includes("'unsafe-inline'"), `reports/site-out/${f}: an inline style (${csp.cspHash(s).slice(0, 19)}…) is not in the policy's style-src`);
+      for (const [, src] of h.matchAll(/<script\b[^>]*\ssrc="([^"]+)"/gi)) expect(!/^(https?:)?\/\//i.test(src) || directive('script-src').includes(new URL(src, SITE_URL).origin), `reports/site-out/${f} loads a script from ${src}, which the policy's script-src does not allow`);
+      for (const [tag] of h.matchAll(/<link\b[^>]*rel="stylesheet"[^>]*>/gi)) {
+        const href = /href="([^"]+)"/.exec(tag)?.[1] ?? '';
+        expect(!/^(https?:)?\/\//i.test(href) || directive('style-src').includes(new URL(href, SITE_URL).origin), `reports/site-out/${f} loads a stylesheet from ${href}, which the policy's style-src does not allow`);
+      }
+    }
+  }
+}
+
 // 12. The budget (T-393).
 let measured = [];
 try {
@@ -548,4 +588,4 @@ if (existsSync(here('../reports/site-out/llms.txt'))) {
   console.log(`wrote reports/site-out/${GUIDE_BUDGET_FILE}: ${body.paths.map((p) => `${p.role} ${p.tokens} of ${body.budget.tokens} tokens (${p.method})`).join(', ')}`);
 }
 for (const m of measured) console.log(`first-deal path, ${m.role}: ${m.files.join(' + ')}, ${m.bytes} bytes, ${m.tokens} of ${FIRST_DEAL_BUDGET.tokens} tokens (${m.method})${m.counted === null ? '' : `; the estimate, bytes divided by four, is ${m.estimate}`}`);
-console.log(`site check PASS: one source, placeholders in place, links resolve under ${BASE}, content agrees with docs/api.md and examples/verify.ts, try.mjs current and its command in llms.txt, the test seller and the test buyer as apps/test-agents runs them, the role pages, the guides together, the trust surfaces (trust and status pages, footer links, security.txt), and each role's first-deal path within its budget`);
+console.log(`site check PASS: one source, placeholders in place, links resolve under ${BASE}, content agrees with docs/api.md and examples/verify.ts, try.mjs current and its command in llms.txt, the test seller and the test buyer as apps/test-agents runs them, the role pages, the guides together, the trust surfaces (trust and status pages, footer links, security.txt), the content security policy, and each role's first-deal path within its budget`);

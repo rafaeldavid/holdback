@@ -58,7 +58,8 @@ describe('the site Worker (crow-site), T-421 routes', () => {
     const env = { ASSETS: { fetch: async (r: Request) => (asked.push(new URL(r.url).pathname), new Response('ok', { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } })) } };
     await (site as Fetcher).fetch(new Request('https://crow.direct/trust'), env, { waitUntil() {} });
     await (site as Fetcher).fetch(new Request('https://crow.direct/status'), env, { waitUntil() {} });
-    expect(asked).toEqual(['/trust', '/status']);
+    // T-451: a page's answer also reads the build's inline hashes once (apps/site/headers.js).
+    expect(asked.filter((p) => p !== '/csp-hashes.json')).toEqual(['/trust', '/status']);
   });
 });
 

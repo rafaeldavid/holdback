@@ -20,6 +20,7 @@ import { rolldown } from 'rolldown';
 import { JOIN_URL } from './drawer.ts';
 import { CARDS, cardTags, FOOTER_CSS, footerHtml } from './footer.ts';
 import { headerBar, ICON_FILES, iconBytes, iconLinks, iconTags, kitCss, listRows, sectionHead, TOKENS } from './brand/kit.mjs';
+import { writeInlineHashes } from './csp.mjs';
 import { guideFiles, guideSource } from './guides.mjs';
 import { PAGES_CSS, securityTxt, statusJson, statusPage, trustPage, trustText } from './trust.mjs';
 
@@ -804,6 +805,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const problems = await problemPages();
     mkdirSync(join(out, 'problems'), { recursive: true });
     for (const [path, html] of problems) writeFileSync(join(out, path), html);
+    // T-451: the hashes of every page's inline scripts and styles, last, once every page is written: the site Worker's
+    // content security policy names them (apps/site/headers.js).
+    writeInlineHashes(out);
     console.log(`wrote ${guides.size} guides (${[...guides.keys()].join(', ')}), ${join(out, 'index.html')}, ${join(out, 'try.mjs')} (sha256 ${trySha256()}) and ${problems.size} problem pages: publish them under ${SITE_URL}`);
   }
 }
