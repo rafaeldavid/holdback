@@ -147,8 +147,9 @@ export interface SellerAdapterConfig {
    * Adds a top-level `salt` of 32 random bytes (`0x` and 64 hex digits) to each JSON report, after the mapping and
    * before the checks run (T-431). A delivery's SHA-256 is public, so anyone who can guess a report could confirm the
    * guess from it; the salt stops that, and two deliveries of the same report no longer look equal. The adapter draws
-   * one salt a deal and keeps it in the journal, so a retried delivery carries the same bytes. Your template's checks
-   * must allow the field, as the shipped template's do. On with the shipped template; with your own, off unless set.
+   * one salt a deal when it makes the offer and keeps it in the journal, so a retried delivery carries the same bytes
+   * and a deal offered without one is delivered without one. Your template's checks must allow the field, as the
+   * shipped template's do. Left out: on with the shipped template, off with any other.
    */
   reportSalt?: boolean;
   /**
@@ -217,7 +218,6 @@ export const config: SellerAdapterConfig = {
     result: 'http://127.0.0.1:8790/jobs/{jobId}/result',
   },
   template: fileURLToPath(new URL('./seller-adapter.template.json', import.meta.url)),
-  reportSalt: true, // the shipped template allows a top-level `salt`
   scope: {
     commit: { type: 'string', pattern: '^[0-9a-f]{40}$' },
     files: { type: 'strings', pattern: '^[A-Za-z0-9_./-]{1,200}$', min: 1, max: 50 },
@@ -337,8 +337,7 @@ export function loadConfig(file: string): SellerAdapterConfig {
     sellerApi: { ...(api.baseUrl === undefined ? {} : { baseUrl: api.baseUrl }), ...(api.auth === undefined ? {} : { auth: api.auth }), quote: api.quote, start: api.start, result: api.result },
     template: own ? beside(f.template, 'template') : config.template,
     ...(f.reportMapping === undefined ? {} : { reportMapping: beside(f.reportMapping, 'reportMapping') }),
-    // The salt belongs to a template that allows it: the shipped one, or yours when you say so.
-    ...((f.reportSalt ?? (own ? undefined : config.reportSalt)) === undefined ? {} : { reportSalt: f.reportSalt ?? config.reportSalt }),
+    ...pass('reportSalt'),
     scope: f.scope ?? config.scope,
     ...(own ? { ...pass('options'), ...pass('termsRules') } : { options: f.options ?? config.options, termsRules: f.termsRules ?? config.termsRules }),
     timing: { ...config.timing, ...(f.timing ?? {}) },
@@ -365,7 +364,7 @@ export function addSalt(report: Uint8Array, salt: string): Uint8Array {
     throw new SaltNotAdded('the report is not UTF-8 text');
   }
   try {
-    value = JSON.parse(text);
+    value = JSON.parse(text.replace(/^\uFEFF/, '')); // a leading byte-order mark stays, as the adjudicator's intake drops it
   } catch {
     throw new SaltNotAdded('the report is not JSON');
   }
@@ -397,7 +396,7 @@ export interface Deal {
   note?: string;
   /** Distinct results refused so far (T-329). */
   refusals?: number;
-  /** The salt this deal's report carries (T-431), drawn once so a retried delivery sends the same bytes. */
+  /** The salt this deal's report carries (T-431), drawn with the offer so a retried delivery sends the same bytes. */
   salt?: string;
   /** SHA-256 of the last refused result's bytes, hex: the same bytes again raise no second alert. */
   refusedSha256?: string;
@@ -832,7 +831,9 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     timing: c.timing, ...(template.fee === undefined ? {} : { fee: template.fee }), scope: c.scope, options: c.options ?? {},
   });
   const reportMapping = c.reportMapping === undefined ? undefined : loadReportMapping(c.reportMapping);
-  if (c.reportSalt === true && template.deliverable?.format !== 'application/json') {
+  // The salt belongs to a template that allows it: the shipped one, or yours when you say so (T-431).
+  const salting = c.reportSalt ?? c.template === config.template;
+  if (salting && template.deliverable?.format !== 'application/json') {
     throw new Error(`reportSalt adds a field to a JSON report, and the template's deliverable is ${plain(String(template.deliverable?.format)).slice(0, 60)}: set reportSalt to false`);
   }
   const log = (line: string) => (c.log ?? console.log)(`${new Date().toISOString()} ${line}`);
@@ -1029,7 +1030,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     const { id, terms } = offer;
     // Agent.offer signed only terms it rebuilt from this request; this says so again where it matters most.
     if (String(terms.sellerPayoutAddress).toLowerCase() !== payout) throw new Error(`the signed offer ${id} names ${terms.sellerPayoutAddress} as the payout address, not the configured ${payout}`);
-    journal.deals[id] = { id, stage: 'offered', terms, scope, ...(options === undefined ? {} : { options }), ...(typeof quoted.quoteId === 'string' ? { quoteId: quoted.quoteId } : {}), times: { offered: new Date().toISOString() } };
+    journal.deals[id] = { id, stage: 'offered', terms, scope, ...(options === undefined ? {} : { options }), ...(typeof quoted.quoteId === 'string' ? { quoteId: quoted.quoteId } : {}), ...(salting ? { salt: `0x${randomBytes(32).toString('hex')}` } : {}), times: { offered: new Date().toISOString() } };
     save();
     emit('deal.offered', { commitmentId: id, price: terms.price, ...(quoted.units === undefined ? {} : { units: quoted.units }), deliverWithinSec: Math.round((Date.parse(terms.timing.deliverBy) - Date.parse(terms.createdAt)) / 1000), sellerApiQuoteMs });
     log(`${id} is offered to ${terms.buyer} for ${terms.price.amount} base units of ${plain(terms.price.token)}; the offer expires ${terms.timing.offerExpiresAt}.`);
@@ -1189,12 +1190,9 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
           return refuse(deal, now, resultSha256, { result: 'not_converted', conversion: e.message, checks: [] }, `the report mapping cannot convert it: ${e.message}`);
         }
       }
-      if (c.reportSalt === true) {
-        // The salt (T-431): one a deal, kept before it is used, so every retry delivers the same bytes.
-        if (deal.salt === undefined) {
-          deal.salt = `0x${randomBytes(32).toString('hex')}`;
-          save();
-        }
+      if (deal.salt !== undefined) {
+        // The salt (T-431), drawn with the offer: every retry delivers the same bytes, and a deal offered without one
+        // (another template, or before the salt) gets none, whatever the configuration says now.
         try {
           const before = bytes.length;
           bytes = addSalt(bytes, deal.salt);

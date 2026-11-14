@@ -1214,7 +1214,7 @@ describe('seller adapter: the report salt (T-431)', () => {
   });
   const SALT_HEX = `0x${'ab'.repeat(32)}`;
   const bytes = (t: string) => new TextEncoder().encode(t);
-  const text = (b: Uint8Array) => new TextDecoder().decode(b);
+  const text = (b: Uint8Array) => new TextDecoder('utf-8', { ignoreBOM: true }).decode(b);
   const sha = (t: string) => createHash('sha256').update(t, 'utf8').digest('hex');
 
   it('puts the salt first and keeps every other byte of the report as it was', () => {
@@ -1223,6 +1223,8 @@ describe('seller adapter: the report salt (T-431)', () => {
     expect(text(addSalt(bytes('{"a":1}'), SALT_HEX))).toBe(`{"salt": "${SALT_HEX}","a":1}`);
     expect(text(addSalt(bytes(' { } '), SALT_HEX))).toBe(` {"salt": "${SALT_HEX}" } `);
     expect(JSON.parse(text(addSalt(bytes(' { } '), SALT_HEX)))).toEqual({ salt: SALT_HEX });
+    // A leading byte-order mark stays where it was; the adjudicator's intake drops it before the checks.
+    expect(text(addSalt(bytes('\uFEFF{"a":1}'), SALT_HEX))).toBe(`\uFEFF{"salt": "${SALT_HEX}","a":1}`);
   });
 
   it('refuses a report that is not a JSON object in UTF-8, or already has a salt', () => {
@@ -1259,19 +1261,40 @@ describe('seller adapter: the report salt (T-431)', () => {
       writeFileSync(f, JSON.stringify({ sellerApi: stub?.api ?? { quote: 'http://127.0.0.1:1/q', start: 'http://127.0.0.1:1/s', result: 'http://127.0.0.1:1/r/{jobId}' }, ...extra }));
       return f;
     };
-    expect(loadConfig(file({})).reportSalt).toBe(true); // the shipped template
+    expect(loadConfig(file({})).reportSalt).toBeUndefined(); // left out: on with the shipped template, off with another
     expect(loadConfig(file({ template: 'template.json', scope: shipped.scope })).reportSalt).toBeUndefined();
     expect(loadConfig(file({ template: 'template.json', scope: shipped.scope, reportSalt: true })).reportSalt).toBe(true);
     expect(loadConfig(file({ reportSalt: false })).reportSalt).toBe(false);
     expect(() => loadConfig(file({ reportSalt: 'yes' }))).toThrow('reportSalt must be true or false');
 
-    const { running } = await adapter({ reportSalt: false });
+    // A template of your own, given in code with the shipped configuration spread under it: no salt.
+    const { running } = await adapter({ template: join(dir, 'template.json') });
     const buyer = agent('buyer-1');
     const { body: q } = await quoteFor(running, buyer);
     const id = q.commitmentId as Hex;
     await fund(buyer, id);
     expect((await buyer.waitFor(id, ['Released', 'Refunded', 'Escalated'])).escrowState).toBe('Released');
     expect(JSON.parse(await buyer.openDelivery(id)).salt).toBeUndefined();
+  }, 60_000);
+
+  it('follows the terms each deal was offered under, whatever the configuration says later', async () => {
+    const journal = join(mkdtempSync(join(tmpdir(), 't431-')), 'journal.json');
+    const first = await adapter({ journal, reportSalt: false });
+    const buyer = agent('buyer-1');
+    const { body: q } = await quoteFor(first.running, buyer);
+    const id = q.commitmentId as Hex;
+    expect(first.running.deals().find((d) => d.id === id)!.salt).toBeUndefined();
+    await first.running.close();
+    adapters.splice(adapters.indexOf(first.running), 1);
+
+    // The salt on again: the open deal was offered without one, so it is delivered without one.
+    const second = await adapter({ journal });
+    await fund(buyer, id);
+    expect((await buyer.waitFor(id, ['Released', 'Refunded', 'Escalated'])).escrowState).toBe('Released');
+    expect(JSON.parse(await buyer.openDelivery(id)).salt).toBeUndefined();
+    // A deal offered now holds its salt from the offer on.
+    const { body: q2 } = await quoteFor(second.running, agent('buyer-2'));
+    expect(second.running.deals().find((d) => d.id === q2.commitmentId)!.salt).toMatch(/^0x[0-9a-f]{64}$/);
   }, 60_000);
 
   it('refuses to start with the salt on and a deliverable that is not JSON', async () => {
