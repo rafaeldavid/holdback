@@ -49,7 +49,7 @@
 // signs under the settlement layer those operators serve, which must be one pinned in verify.ts: SimChain, Sepolia,
 // or the deployment in HOLDBACK_DEPLOYMENT. Your API prices in that layer's token: `tUSD` on SimChain, the token's
 // address on a chain (discovery, `demo.token.id`). Test tokens only: nothing here is real money.
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -923,6 +923,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   const holding = perDeal ? new Agent(operators, holdingKeyOf(sellerKey), new Uint8Array(32)).address : undefined;
   /** The agent that signs each deal: HOLDBACK_KEY's, or the deal key the terms' nonce derives. One per deal, kept in memory only. */
   const signers = new Map<string, Agent>();
+  let dealGrantAfter = 0; // local time before which no deal key is granted again, after the faucet refused one
   const signerOf = (deal: Deal): Agent => {
     let a = signers.get(deal.id);
     if (!a) signers.set(deal.id, (a = String(deal.terms.seller).toLowerCase() === seller.address ? seller : signerFor(sellerKey, operators, pin, deal.terms)));
@@ -1015,7 +1016,13 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
    * a wait until every operator lists the mandate. Throws when the faucet refuses; the quote then answers 503.
    */
   async function grantDealKey(address: string): Promise<void> {
-    const granted: J = await seller.call('POST', '/v1/faucet', { address, amount: '1', paymentAddress: holding });
+    // As Agent.call sends it, and keeping the answer's Retry-After for the backoff after a refusal.
+    const res = await fetch(`${operators[0]}/v1/faucet`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': randomUUID() }, body: JSON.stringify({ address, amount: '1', paymentAddress: holding }) });
+    const granted: J = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const retry = Number(res.headers.get('retry-after'));
+      throw Object.assign(new Error(`POST /v1/faucet: ${plain(String(granted?.type))}: ${plain(String(granted?.detail)).slice(0, 200)}`), Number.isSafeInteger(retry) && retry > 0 ? { retryAfterSec: retry } : {});
+    }
     const now = await seller.settlementNow();
     const waitFor = granted?.clubId === clubId ? 12 : 1;
     for (let tries = 1; ; tries++) {
@@ -1031,7 +1038,12 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     }
   }
   if (!perDeal) await ensureMandate(await seller.settlementNow()); // no mandate, no start
-  else log(`Signing key: a fresh key for each deal, derived from HOLDBACK_KEY; its own address ${seller.address} signs no deal. Each quote takes one faucet grant for its deal key.`);
+  else {
+    log(`Signing key: a fresh key for each deal, derived from HOLDBACK_KEY; its own address ${seller.address} signs no deal. Each quote takes one faucet grant for its deal key.`);
+    // Advisory, never a refusal: what still links the deals, and who can spend the faucet's grants.
+    if (c.quoteAuth === undefined && c.quoteRateLimit === undefined) log('Warning: per-deal keys with no quoteAuth and no quoteRateLimit: anyone who reaches /quote spends a faucet grant with each quote, and past the faucet\'s limit a buyer is refused until it resets. Set one of them, or limit /quote in your proxy.');
+    if (c.payoutAddress === undefined) log(`Warning: every deal names HOLDBACK_KEY's address ${seller.address} as its payout address, which links the deals in their terms and on the chain. Set payoutAddress to an address of its own to keep HOLDBACK_KEY out of them.`);
+  }
   // ADR-0033 §7: one line on where payments go, and the advisory warnings for an odd payout address. None stops the start.
   if (perDeal) log(`Payout address: ${payout}${c.payoutAddress === undefined ? ", HOLDBACK_KEY's address, as payoutAddress is not set" : ''}. Every deal names it; the deal keys receive none.`);
   else if (c.payoutAddress === undefined) log(`Payout address: not set. Payments go to the signing address ${seller.address}.`);
@@ -1089,14 +1101,19 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     let nonce: Hex | undefined;
     let grantMs: number | null = null;
     if (perDeal) {
+      // After a refusal the faucet is not asked again until its own Retry-After has passed, however many quotes come in.
+      const waitSec = Math.ceil((dealGrantAfter - Date.now()) / 1000);
+      if (waitSec > 0) throw new Refused(503, 'seller_unavailable', 'the seller cannot take a key for a new deal now; try again later', { 'retry-after': String(waitSec) });
       nonce = freshNonce().toLowerCase() as Hex;
       signer = new Agent(operators, dealKeyOf(sellerKey, nonce), new Uint8Array(32), pin.domain, pin.chain);
       const asked = Date.now();
       try {
         await grantDealKey(signer.address);
       } catch (e) {
-        log(`Quote refused: the faucet gave the deal key ${signer.address} no mandate (${plain((e as Error).message)}). No offer is signed with HOLDBACK_KEY instead.`);
-        throw new Refused(503, 'seller_unavailable', 'the seller cannot take a key for a new deal now; try again later', { 'retry-after': '60' });
+        const retryAfterSec = Math.max(60, (e as { retryAfterSec?: number }).retryAfterSec ?? 0);
+        dealGrantAfter = Date.now() + retryAfterSec * 1000;
+        log(`Quote refused: the faucet gave the deal key ${signer.address} no mandate (${plain((e as Error).message)}). No offer is signed with HOLDBACK_KEY instead; the faucet is asked again in ${retryAfterSec} s at the earliest.`);
+        throw new Refused(503, 'seller_unavailable', 'the seller cannot take a key for a new deal now; try again later', { 'retry-after': String(retryAfterSec) });
       }
       grantMs = Date.now() - asked;
     }
@@ -1519,7 +1536,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   wake(); // deals the journal left open
   log(`Seller adapter for ${perDeal ? `a fresh key each deal, from HOLDBACK_KEY at ${seller.address},` : seller.address} serves POST ${url}/quote; journal ${plain(c.journal)}, ${Object.keys(journal.deals).length} deals.`);
   const source = (yes: boolean) => (yes ? 'from discovery' : 'from the configuration');
-  log(`Offers name club ${plain(clubId)} and its adjudicators ${fromDiscovery.club === fromDiscovery.adjudicators ? source(fromDiscovery.club) : `${source(fromDiscovery.adjudicators)}, the club ${source(fromDiscovery.club)}`}: primary ${adjudicators.primary}, fallback ${adjudicators.fallback}, appeal ${adjudicators.appeal}. The mandate ends ${at(mandateUntil)}${faucet ? '; the faucet renews it' : ''}.`);
+  log(`Offers name club ${plain(clubId)} and its adjudicators ${fromDiscovery.club === fromDiscovery.adjudicators ? source(fromDiscovery.club) : `${source(fromDiscovery.adjudicators)}, the club ${source(fromDiscovery.club)}`}: primary ${adjudicators.primary}, fallback ${adjudicators.fallback}, appeal ${adjudicators.appeal}. ${perDeal ? 'Each deal key takes its own mandate from the faucet with its quote' : `The mandate ends ${at(mandateUntil)}${faucet ? '; the faucet renews it' : ''}`}.`);
   log(`A refused result alerts by the log${refusal.callback ? ' and the callback' : ''}${refusal.secret ? ', signed' : ''}; the adapter fetches it again ${refusal.refetchEverySec === undefined ? 'only when you say' : `every ${refusal.refetchEverySec} s`}${refusal.ready ? ', and on POST /deals/<commitmentId>/ready' : ''}, until deliverBy.`);
   if (!sellerApi.startRepeatable) log(`The seller API's start is sent at most once a deal: ${sellerApi.startOneShotBecause}. A start sent with no answer holds the deal at start-unknown${refusal.ready ? ', until you name the job with POST /deals/<commitmentId>/job' : '; with no ready credential set (redelivery.readyAuth) nobody can name the job, and the deal closes at deliverBy'}.`);
   const limit = c.quoteRateLimit?.overall;

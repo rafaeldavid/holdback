@@ -37,7 +37,7 @@ The research pass is `t-432-fresh-seller-key-research.md` in the coordinator's n
 - [x] **No stored keys.** The journal gains no field. After a restart the adapter derives the deal key again from the signed terms, and `examples/seal.ts` does the same from the bare terms. A key that neither matches the terms' seller nor derives from their nonce is refused.
 - [x] **Payments.** Every per-deal offer names `sellerPayoutAddress`: `payoutAddress`, or `HOLDBACK_KEY`'s address.
 - [x] **Done when (N127):** three quotes give three seller keys. `party=` on each key returns that key's one deal on both operators, and `party=` on `HOLDBACK_KEY`'s address returns none.
-- [x] **Faucet refusals.** A refused grant answers the quote 503 `seller_unavailable` with `Retry-After: 60`. The adapter never signs with `HOLDBACK_KEY` instead.
+- [x] **Faucet refusals.** A refused grant answers the quote 503 `seller_unavailable` with the faucet's own `Retry-After`, at least 60 s. No quote asks the faucet again until that time has passed. The adapter never signs with `HOLDBACK_KEY` instead.
 - [x] **Start refusal.** Per-deal mode with no faucet for the club, or with `mandate.fromFaucet: false`, stops the start and says why.
 - [x] **No secrets written.** No private key appears in the journal, the events file or the log. `deal.offered` gains `grantMs`, the faucet's time.
 
@@ -52,14 +52,23 @@ The research pass is `t-432-fresh-seller-key-research.md` in the coordinator's n
 ## Evidence
 
 - Commands run and results (measured, 2026-11-14, worktree `.worktrees/t-432-fresh-seller-key` from `t-431-report-salt`):
-  - `npx vitest run examples/seller-adapter-keys.test.ts`: 6 passed, on the demo world (`PublicWorld`) behind two origins with its faucet. The six tests:
+  - `npx vitest run examples/seller-adapter-keys.test.ts`: 7 passed (after the review), on the demo world (`PublicWorld`) behind two origins with its faucet. The six tests:
     - the done-when line (three keys; `party=` one deal each on both operators, none for the long-term address);
     - a funded deal Released across a restart, its delivery event's actor the deal key, and no key in the journal, the events or the log;
+    - mixed modes across restarts: a deal offered in standing mode and one in per-deal mode, both delivered by a standing-mode run, each by the key it was offered with;
     - a replayed quote making one deal;
-    - the faucet's limit at 1 an hour: the second quote answers 503 with `Retry-After: 60` and no deal by the long-term key;
+    - the faucet's limit at 1 an hour: the second quote answers 503 with the faucet's Retry-After, the third asks no faucet, and no deal is signed by the long-term key;
     - the start refused with `mandate.fromFaucet: false`;
     - `signerFor`.
-  - `npx vitest run examples/`: 442 passed, 24 skipped, 0 failed.
+  - `npx vitest run examples/`: 443 passed, 24 skipped, 0 failed (after the review).
+  - `pnpm test` before the review fixes: 4,002 passed, 4 failed, 234 skipped. The four failures were in three files this change does not touch: `apps/adjudicator/src/hung-read.test.ts`, `apps/demo-cloud/src/limits.attack.test.ts` and `examples/buyer-signer-addresses.test.ts`. They ran while the red team ran tests on the same machine. Alone, the three files passed 40 of 40 (measured); the cause is inferred to be load.
+- Review (red team; the change touches key handling): ISSUES, four Low and nothing High or Medium. All are fixed in the second commit:
+  - Low: an open `/quote` lets a stranger spend the faucet's grants. The start now warns when neither `quoteAuth` nor `quoteRateLimit` is set; this is advisory, per D31.
+  - Low: `Retry-After` was a fixed 60 s with no backoff. The adapter now passes on the faucet's own Retry-After, at least 60 s, and asks the faucet no more until then. It reads that header with its own fetch: a change to `agent.ts` would change the published `try.mjs` and `buy.mjs` bundles.
+  - Low: the start line said "The mandate ends 1970-01-01". It now says each deal key takes its own mandate.
+  - Low: mixed modes were not tested. The test above now covers them.
+  - Added from its notes: a start warning when `payoutAddress` is unset, since every deal then names `HOLDBACK_KEY`'s address.
+  - The red team also measured that five parallel quotes gave five distinct keys, and that the operators cannot swap the offer's nonce (`own()` in `verify.ts`).
   - `pnpm typecheck` and `pnpm lint`: pass. `node site/build.mjs && node site/check.mjs`: PASS.
   - `pnpm test`: see the PR.
 - Not measured: a live run on Sepolia. On a chain, a grant whose holding address already holds the unit mints nothing and waits for no block (inferred from `world.ts`). The first grant after a fresh install waits for one mint, about 10 to 17 s (measured on 2026-11-13 for grants that mint).

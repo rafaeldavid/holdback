@@ -103,6 +103,11 @@ describe('seller adapter: a fresh key for each deal (T-432)', () => {
     const out = lines.join('\n');
     expect(out).toMatch(/Signing key: a fresh key for each deal, derived from HOLDBACK_KEY; its own address 0x[0-9a-f]{40} signs no deal/);
     expect(out).toMatch(/is offered, signed by its deal key 0x[0-9a-f]{40}, to /);
+    expect(out).toMatch(/Each deal key takes its own mandate from the faucet with its quote\./);
+    expect(out).not.toMatch(/The mandate ends 1970/);
+    // Advisories, never refusals: an open /quote spends grants, and the default payout address links the deals.
+    expect(out).toMatch(/Warning: per-deal keys with no quoteAuth and no quoteRateLimit/);
+    expect(out).toMatch(/Warning: every deal names HOLDBACK_KEY's address 0x[0-9a-f]{40} as its payout address/);
   }, 60_000);
 
   it('a funded deal ends Released, delivered by its deal key after a restart, with no key in the journal, the events or the log', async () => {
@@ -136,6 +141,35 @@ describe('seller adapter: a fresh key for each deal (T-432)', () => {
     expect(Number.isSafeInteger(offered.grantMs)).toBe(true); // the faucet's time, for the seller's own metrics
   }, 90_000);
 
+  it('a deal keeps the key it was offered with when the mode changes across a restart, either way', async () => {
+    const key = generatePrivateKey();
+    const longTerm = privateKeyToAccount(key).address.toLowerCase();
+    const journal = join(mkdtempSync(join(tmpdir(), 't432-')), 'journal.json');
+    const [b1, b2] = [buyerAgent(), buyerAgent()];
+    for (const b of [b1, b2]) await b.call('POST', '/v1/faucet', { address: b.address });
+    // Deal 1 offered in standing mode, deal 2 in per-deal mode; each is funded while the adapter is down.
+    const one = await start({ key, journal, over: { signingKey: 'standing' } });
+    const id1 = (await quote(one.r, b1)).body.commitmentId as Hex;
+    await one.r.close();
+    running.splice(running.indexOf(one.r), 1);
+    const two = await start({ key, journal });
+    const id2 = (await quote(two.r, b2)).body.commitmentId as Hex;
+    await two.r.close();
+    running.splice(running.indexOf(two.r), 1);
+    for (const [b, id] of [[b1, id1], [b2, id2]] as const) {
+      await b.waitFor(id, ['AcceptedByAdjudicator']);
+      await b.agreeAndFund(await termsOf(b, id), 200_000_000n);
+    }
+    // Run 3 in standing mode delivers both: deal 1 with HOLDBACK_KEY, deal 2 with the key its nonce derives.
+    const three = await start({ key, journal, over: { signingKey: 'standing' } });
+    for (const [b, id] of [[b1, id1], [b2, id2]] as const) expect((await b.waitFor(id, ['Released', 'Refunded', 'Escalated'])).escrowState).toBe('Released');
+    await until('both deliveries recorded', () => three.r.deals().every((d) => d.stage === 'delivered'));
+    const actor = async (b: Agent, id: string) => String(((await b.call('GET', `/v1/commitments/${id}/events?limit=200`)) as J).items.find((e: J) => e.type === 'delivery.submitted').actor).toLowerCase();
+    expect(await actor(b1, id1)).toBe(longTerm);
+    const t2 = await termsOf(b2, id2);
+    expect(await actor(b2, id2)).toBe(privateKeyToAccount(dealKeyOf(key, t2.nonce)).address.toLowerCase());
+  }, 120_000);
+
   it('a replayed quote takes no second key and no second grant', async () => {
     const { r } = await start({ key: generatePrivateKey() });
     const buyer = buyerAgent();
@@ -156,7 +190,12 @@ describe('seller adapter: a fresh key for each deal (T-432)', () => {
       const refused = await quote(r, buyerAgent(own.served.urls));
       expect(refused.status).toBe(503);
       expect(refused.body.type ?? refused.body.error ?? refused.body.code).toBe('seller_unavailable');
-      expect(refused.headers.get('retry-after')).toBe('60');
+      // The faucet's own wait (its hour, here) rides through, and the next quote asks no faucet until it passes.
+      expect(Number(refused.headers.get('retry-after'))).toBeGreaterThanOrEqual(60);
+      const again = await quote(r, buyerAgent(own.served.urls));
+      expect(again.status).toBe(503);
+      expect(Number(again.headers.get('retry-after'))).toBeGreaterThan(0);
+      expect(lines.filter((l) => /the faucet gave the deal key/.test(l))).toHaveLength(1);
       expect(r.deals()).toHaveLength(1);
       for (const op of own.served.urls) expect(await dealsOf(op, privateKeyToAccount(key).address.toLowerCase())).toEqual([]);
       expect(lines.join('\n')).toMatch(/the faucet gave the deal key 0x[0-9a-f]{40} no mandate .*No offer is signed with HOLDBACK_KEY instead/);
