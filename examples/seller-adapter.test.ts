@@ -1198,6 +1198,7 @@ describe('seller adapter: a refused report waits for the fixed one (T-329)', () 
       await until('the log to name the redirect', () => lines.some((l) => l.includes(`${id} the alert callback answered 307 to delivery.refused, a redirect, which the adapter never follows`)));
       await new Promise((r) => setTimeout(r, 200));
       expect(hook.got.map((g) => g.path)).toEqual(['/crow-alerts']);
+      expect(hook.got[0]!.headers['x-crow-signature']).toBe(hmac('alert-secret-3', hook.got[0]!.raw)); // the signed body reached the configured address
       await running.close();
     } finally {
       await world.close();

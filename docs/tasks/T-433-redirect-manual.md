@@ -25,12 +25,16 @@ Non-goals: any other part of the hosted build (T-434 to T-436).
 
 All measured on 2026-11-14 on branch `t-433-redirect-manual`, from `origin/main` at `0250676`.
 
-- `pnpm exec vitest run examples/seller-adapter`: 4 files, 94 tests passed, run twice. The three new tests are included: a 302 from the seller's API refused with its status named and the target never requested; `fetch` asked for `redirect: 'manual'`; an alert callback that answers 307 logged as a redirect, with the signed body sent only to `/crow-alerts`.
+- `pnpm exec vitest run examples/seller-adapter`: 4 files, 94 tests passed, run twice; 95 after the review fixes below. The three new tests are included: a 302 from the seller's API refused with its status named and the target never requested; `fetch` asked for `redirect: 'manual'`; an alert callback that answers 307 logged as a redirect, with the signed body sent only to `/crow-alerts`.
 - `pnpm exec vitest run examples/buy-with-signer.test.ts examples/audit-deal.test.ts examples/one-token.test.ts`: 40 tests passed.
 - `pnpm typecheck` and ESLint on the four changed files: clean.
 - The redirect test for the alert callback runs in a simulated world of its own. In the shared one, the deals before it had spent both test buyers' balances (`insufficient_funds`).
 - `site/try.mjs` and `site/buy.mjs` are unchanged: SHA-256 `04ef4434…` and `e74ff223…`.
 - Snapshot diffs: none.
+- **Review** (the `reviewer` agent, PASS with two Low findings, both fixed):
+  - A `result.status` list could name a 3xx code, which a refused redirect could never match. The configuration is now refused at load, naming the list. Tested.
+  - The redirect's body cancel now swallows its own error, so the redirect message is the one reported.
+  - The alert test also checks the `x-crow-signature` header on the one request received.
 
 ## Handoff
 

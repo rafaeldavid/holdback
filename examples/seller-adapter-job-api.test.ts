@@ -441,6 +441,14 @@ describe('seller adapter, a job API of another shape (T-366): answers', () => {
     expect(stub.requests.map((r) => r.path)).toEqual(['/api/v2/moved']);
   });
 
+  it('refuses a status list that names a 3xx code, which a refused redirect could never match (T-433)', () => {
+    const base = jobStubSellerApi('http://127.0.0.1:1/api/v2/');
+    for (const k of ['running', 'failed']) {
+      const api = { ...base, result: { ...base.result, status: { by: 'http', [k]: [302] } } };
+      expect(() => client(api), k).toThrow(`sellerApi.result.status.${k} names a 3xx code`);
+    }
+  });
+
   it('asks the runtime for no redirect handling of its own: redirect "manual", which the Workers runtime accepts (T-433)', async () => {
     stub = await startJobStub({ key: KEY });
     const api = client(jobStubSellerApi(stub.base));

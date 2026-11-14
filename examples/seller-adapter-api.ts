@@ -389,6 +389,8 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
       const codes = (k: string, d: number[]): number[] => {
         const x = st[k] ?? d;
         if (!Array.isArray(x) || !x.every((n: J) => Number.isSafeInteger(n) && n >= 200 && n <= 599)) throw new Error(`sellerApi.result.status.${k} must be a list of HTTP status codes`);
+        // Under a base URL every 3xx is a redirect the adapter refuses (T-433), so a list that names one could never match.
+        if (x.some((n: number) => n >= 300 && n <= 399)) throw new Error(`sellerApi.result.status.${k} names a 3xx code: the adapter refuses every redirect, so that code can never mean a job's state`);
         return x;
       };
       status = { by: 'http', running: codes('running', [202]), done: codes('done', [200]), failed: codes('failed', []) };
@@ -448,7 +450,7 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
     // unfollowed and the adapter refuses it here, because the Workers runtime does not implement `error` (T-433).
     const res = await fetch(url, { method: p.method, headers, ...(payload === undefined ? {} : { body: payload }), redirect: strict ? 'manual' : 'follow', signal: AbortSignal.timeout(30_000) });
     if (strict && isRedirect(res)) {
-      await res.body?.cancel();
+      await res.body?.cancel().catch(() => {}); // the redirect is the error to report, not a failed cancel
       throw new Error(`the seller API answered ${res.status} to ${p.label}, a redirect, which the adapter never follows: it could carry the credential elsewhere`);
     }
     return { status: res.status, bytes: await body(res, p.label, cap) };
