@@ -25,8 +25,13 @@ export interface CallMapping {
   body?: J;
 }
 export interface QuoteMapping extends CallMapping {
-  /** JSON pointers into the answer. Left out: today's `/price/amount`, `/price/token`, `/quoteId`, `/deliverWithinSec`. */
-  read?: { amount?: string; token?: string; quoteId?: string; deliverWithinSec?: string; validForSec?: string };
+  /**
+   * JSON pointers into the answer. Left out: today's `/price/amount`, `/price/token`, `/quoteId`, `/deliverWithinSec`.
+   * `units` instead of `amount`: the answer counts units (credits, hours), and the price is that count times `unitPrice`.
+   */
+  read?: { amount?: string; units?: string; token?: string; quoteId?: string; deliverWithinSec?: string; validForSec?: string };
+  /** With `read.units`: the price of one unit, in the token's base units as a decimal string (T-406). */
+  unitPrice?: string;
 }
 export interface StartMapping extends CallMapping {
   /** A JSON pointer to the job's ID in the answer. Left out: `/jobId`. */
@@ -329,8 +334,16 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
 
   // ---- The quote ----
   const q = api.quote;
-  const quote = prepare('sellerApi.quote', q, 'quote', { method: 'POST', body: { scope: '{{scope}}', options: '{{options}}' } }, ['read'], []);
-  const quoteRead = pointers('sellerApi.quote.read', isRecord(q) ? q.read : undefined, { amount: '/price/amount', token: '/price/token', quoteId: '/quoteId', deliverWithinSec: '/deliverWithinSec', validForSec: '' });
+  const quote = prepare('sellerApi.quote', q, 'quote', { method: 'POST', body: { scope: '{{scope}}', options: '{{options}}' } }, ['read', 'unitPrice'], []);
+  const quoteRead = pointers('sellerApi.quote.read', isRecord(q) ? q.read : undefined, { amount: '/price/amount', units: '', token: '/price/token', quoteId: '/quoteId', deliverWithinSec: '/deliverWithinSec', validForSec: '' });
+  // T-406: a quote that counts units, such as credits, priced at a fixed price per unit. No arithmetic beyond one
+  // whole-number product, in base units, with no float anywhere.
+  const unitsAt = isRecord(q) && isRecord(q.read) && q.read.units !== undefined ? String(q.read.units) : undefined;
+  const unitPrice: J = isRecord(q) ? q.unitPrice : undefined;
+  if (unitPrice !== undefined && unitsAt === undefined) throw new Error('sellerApi.quote.unitPrice needs sellerApi.quote.read.units, the pointer to the count the answer prices');
+  if (unitsAt !== undefined && unitPrice === undefined) throw new Error('sellerApi.quote.read.units needs sellerApi.quote.unitPrice, the price of one unit in base units');
+  if (unitsAt !== undefined && isRecord(q) && q.read.amount !== undefined) throw new Error('sellerApi.quote.read takes units or amount, not both');
+  if (unitPrice !== undefined && (typeof unitPrice !== 'string' || !/^(0|[1-9][0-9]{0,77})$/.test(unitPrice))) throw new Error('sellerApi.quote.unitPrice must be base units as a decimal string, such as "1500000" for 1.50 of a 6-decimal token');
   // In today's shape the token is in the answer; a mapping whose `read` names no token prices in the layer's token.
   const readsToken = !isRecord(q) || q.read === undefined || q.read.token !== undefined;
   const validFor = isRecord(q) && q.read?.validForSec !== undefined;
@@ -424,7 +437,7 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
 
   return {
     readsToken,
-    describe: `The seller API is ${base ? `under ${base.href}` : 'at the three configured addresses'}, with ${auth ? `a credential from ${auth.env} in header ${auth.header}` : 'no credential'}; its job state is read by ${status.by === 'http' ? 'HTTP status' : 'a status field'}${files ? `, and a result's further files are added at ${plain(rm.files.into)}` : ''}.`,
+    describe: `The seller API is ${base ? `under ${base.href}` : 'at the three configured addresses'}, with ${auth ? `a credential from ${auth.env} in header ${auth.header}` : 'no credential'}${unitsAt !== undefined ? `; a quote prices ${plain(unitsAt)} units at ${unitPrice} base units each` : ''}; its job state is read by ${status.by === 'http' ? 'HTTP status' : 'a status field'}${files ? `, and a result's further files are added at ${plain(rm.files.into)}` : ''}.`,
 
     async quote(v) {
       const { status: code, bytes } = await send(quote, v);
@@ -432,7 +445,15 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
       const a = json(bytes, 'the quote');
       const read = (k: string) => pick(a, quoteRead[k]!);
       const quoteId = read('quoteId');
-      return { price: { token: readsToken ? read('token') : undefined, amount: read('amount') }, quoteId: Number.isSafeInteger(quoteId) ? String(quoteId) : quoteId, deliverWithinSec: read('deliverWithinSec'), ...(validFor ? { validForSec: read('validForSec') } : {}) };
+      let amount: J = unitsAt === undefined ? read('amount') : undefined;
+      if (unitsAt !== undefined) {
+        const units = read('units');
+        const whole = (typeof units === 'number' && Number.isSafeInteger(units) && units >= 0) || (typeof units === 'string' && /^(0|[1-9][0-9]{0,30})$/.test(units));
+        if (!whole) throw new Error(`the quote's ${plain(unitsAt)} is not a whole number of units, as a JSON number or digits with no leading zero: ${short(JSON.stringify(units ?? null))}`);
+        amount = (BigInt(units) * BigInt(unitPrice)).toString();
+        if (amount.length > 78) throw new Error(`the quote's price, ${units} units at ${unitPrice} base units, is larger than base units can hold`);
+      }
+      return { price: { token: readsToken ? read('token') : undefined, amount }, quoteId: Number.isSafeInteger(quoteId) ? String(quoteId) : quoteId, deliverWithinSec: read('deliverWithinSec'), ...(validFor ? { validForSec: read('validForSec') } : {}) };
     },
 
     async start(v) {
