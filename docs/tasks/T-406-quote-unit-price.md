@@ -6,7 +6,7 @@
 - **Depends on:** T-366 (the adapter calls a seller's job API through a mapping); found by T-399 (the pilot rehearsal on the live deployment)
 - **Paths this task may touch:** `examples/seller-adapter-api.ts`, `examples/seller-adapter-job-api.test.ts`, `site/ref/seller-adapter.txt`, this file. Never: settlement, judgment, auth or the operators.
 - **Human gate:** no. Rafa set the rule on 2026-11-14: the seller's API returns a quote in credits, and the adapter converts it at a fixed price per credit. Nothing deploys; the guide reaches crow.direct with the next site deploy, which is Rafa's.
-- **Status:** review (this pull request)
+- **Status:** done (PR 497, merge commit `f2376e2`)
 - **Agent/session:** the T-399 session, 2026-11-14, branch `t-406-quote-unit-price`
 
 ## Intent
