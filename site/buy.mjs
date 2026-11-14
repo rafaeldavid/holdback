@@ -2761,10 +2761,10 @@ function saveWatched(store, address, w) {
 	writeFileSync(`${file}.tmp`, `${JSON.stringify(w, null, 2)}\n`, { mode: 384 });
 	renameSync(`${file}.tmp`, file);
 }
-/** `read`, and again after each pause while it throws `operators disagree on ...`; then that error. Any other error at once. */
+/** `read(attempt)`, and again after each pause while it throws `operators disagree on ...`; then that error. Any other error at once. */
 async function agreeing(read, pauses = AGREE_PAUSES_MS) {
 	for (let i = 0;; i++) try {
-		return await read();
+		return await read(i);
 	} catch (e) {
 		if (i >= pauses.length || !/^operators disagree on /.test(String(e?.message))) throw e;
 		await sleep(pauses[i]);
@@ -3167,10 +3167,15 @@ var init_buyer_signer = __esmMin((() => {
 				}
 			}))).filter((a) => a !== null);
 		}
-		/** One value every answering operator agrees on (on `pick`); it stops when none answers or two disagree. */
-		async #agreed(sources, path, pick) {
+		/**
+		* One value every answering operator agrees on (on `pick`); it stops when none answers or two disagree. `again`: a
+		* read after the operators disagreed, which takes at least two answers, so the value one of them served is never
+		* taken alone once another contradicted it.
+		*/
+		async #agreed(sources, path, pick, again = false) {
 			const answers = await this.#answers(sources, path);
 			if (answers.length === 0) throw new Error(`no operator answered GET ${path} (${sources.join(", ")})`);
+			if (again && answers.length < 2) throw new Error(`operators disagree on ${path}; do not proceed (after they differed, ${answers.length} answered)`);
 			const picked = answers.map((a) => pick(a.body));
 			if (new Set(picked.map((p) => jcs(lowerHex(p)))).size !== 1) throw new Error(`operators disagree on ${path}; do not proceed`);
 			return picked[0];
@@ -3963,7 +3968,7 @@ var init_buyer_signer = __esmMin((() => {
 			const { agent, pin } = await this.#connect();
 			const sources = agent.sources();
 			const path = `/v1/commitments/${id}/events?limit=200`;
-			const events = await agreeing(() => this.#agreed(sources, path, (x) => x.items.map((e) => ({
+			const events = await agreeing((n) => this.#agreed(sources, path, (x) => x.items.map((e) => ({
 				seq: e.seq,
 				type: e.type,
 				hash: e.hash,
@@ -3972,7 +3977,7 @@ var init_buyer_signer = __esmMin((() => {
 					uri: e.payload?.ciphertext?.uri,
 					plaintextSha256: e.payload?.plaintextSha256
 				} : null
-			}))));
+			})), n > 0));
 			events.sort((a, b) => a.seq - b.seq);
 			let work = null;
 			let plaintextSha256 = null;
@@ -4041,7 +4046,7 @@ var init_buyer_signer = __esmMin((() => {
 				...typedOf("Delivery", d, agent.domain),
 				signature: d.signature
 			}).catch(() => "")).toLowerCase() !== String(terms.seller).toLowerCase()) throw new Error("the delivery you passed is not signed by the deal's seller");
-			const released = await agreeing(() => this.#agreed(agent.sources(), `/v1/commitments/${id}/key?recipient=${this.address}`, (x) => Array.isArray(x?.items) ? x.items.map((k) => k.ciphertext) : []));
+			const released = await agreeing((n) => this.#agreed(agent.sources(), `/v1/commitments/${id}/key?recipient=${this.address}`, (x) => Array.isArray(x?.items) ? x.items.map((k) => k.ciphertext) : [], n > 0));
 			const mine = (Array.isArray(d.encryptedKeys) ? d.encryptedKeys : []).filter((k) => String(k?.recipient).toLowerCase() === this.address);
 			if (mine.length !== 1 || !released.includes(mine[0].ciphertext)) throw new Error("the key the settlement released is not your envelope in the delivery you passed: it is not the delivery that settled");
 			const uri = String(d.ciphertext?.uri);
@@ -4163,7 +4168,7 @@ var init_pay_from_wallet = __esmMin((async () => {
 
 // examples/buy-with-signer.ts
 var buy_with_signer_exports = /* @__PURE__ */ __exportAll({});
-var args, stop, at, termsFile, dl, deliveryFile, first, store, third, fourth, defaults, options, usage, asked, say, expect, sh, finish, testFunds, pay;
+var args, stop, at, termsFile, dl, deliveryFile, first, store, third, fourth, defaults, options, usage, asked, say, expect, sh, approveOf, finish, testFunds, pay;
 var init_buy_with_signer = __esmMin((async () => {
 	init_help();
 	init_buyer_signer();
@@ -4185,6 +4190,15 @@ var init_buy_with_signer = __esmMin((async () => {
 	say = (x) => console.error(printable(JSON.stringify(x)));
 	expect = () => ({ expect: JSON.parse(process.env["CROW_EXPECT"] || "{}") });
 	sh = (s) => /^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`;
+	approveOf = (id) => [
+		...["HOLDBACK_OPERATORS", "CROW_EXPECT"].filter((k) => process.env[k]).map((k) => `${k}=${sh(process.env[k])}`),
+		command$1("buy-with-signer", import.meta.url),
+		"approve",
+		sh(store),
+		id,
+		fourth,
+		...stop ? ["--stop-after-funding"] : []
+	].join(" ");
 	finish = async (s) => {
 		const done = await s.openDelivery(s.commitmentId, {
 			onReport: say,
@@ -4202,7 +4216,7 @@ var init_buy_with_signer = __esmMin((async () => {
 	};
 	testFunds = (s, amount) => s.testFunds(amount).then(() => true, (e) => {
 		if (!(e instanceof FaucetLimited)) throw e;
-		console.error(printable(`Stopped: the faucet's grants for this client are used (429: ${e.detail}). It grants again ${e.retryAfterSec === null ? "within the hour" : `in ${e.retryAfterSec} s`}. Nothing is signed or paid: run the approve command again then, before offerExpiresAt.`));
+		console.error(printable(`Stopped: the faucet refused a grant (429: ${e.detail}). It grants again ${e.retryAfterSec === null ? "within the hour" : `in ${e.retryAfterSec} s`}. Nothing is signed or paid. Then, before offerExpiresAt, run: ${approveOf(s.commitmentId)}`));
 		process.exitCode = 1;
 		return false;
 	});
@@ -4297,15 +4311,7 @@ var init_buy_with_signer = __esmMin((async () => {
 			process.exitCode = 1;
 		} else if (own && differences.length === 0) await pay(signer, offer, fourth);
 		else {
-			const approve = [
-				...["HOLDBACK_OPERATORS", "CROW_EXPECT"].filter((k) => process.env[k]).map((k) => `${k}=${sh(process.env[k])}`),
-				command$1("buy-with-signer", import.meta.url),
-				"approve",
-				sh(store),
-				offer.commitmentId,
-				fourth,
-				...stop ? ["--stop-after-funding"] : []
-			].join(" ");
+			const approve = approveOf(offer.commitmentId);
 			console.log(printable(JSON.stringify({
 				approval: "needed",
 				budget: fourth,

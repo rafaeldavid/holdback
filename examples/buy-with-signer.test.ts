@@ -217,7 +217,8 @@ describe('buy-with-signer.ts: the approval stop', () => {
       const r = await buy(['approve', store, shown.commitmentId, BUDGET], [relay.url, world.info.operators[1]!]);
       expect(r.code, r.err).toBe(1);
       expect(r.err).not.toMatch(/^\s+at /m); // no stack trace
-      expect(r.err.trimEnd().split('\n')).toEqual(['Stopped: the faucet\'s grants for this client are used (429: too many faucet grants from this client; retry later). It grants again in 2264 s. Nothing is signed or paid: run the approve command again then, before offerExpiresAt.']);
+      // The line names the approve command: an unattended run (--expect-terms) printed none before.
+      expect(r.err.trimEnd().split('\n')).toEqual([`Stopped: the faucet refused a grant (429: too many faucet grants from this client; retry later). It grants again in 2264 s. Nothing is signed or paid. Then, before offerExpiresAt, run: HOLDBACK_OPERATORS=${relay.url},${world.info.operators[1]} node examples/buy-with-signer.ts approve ${store} ${shown.commitmentId} ${BUDGET}`]);
       expect(r.out).toBe('');
       expect(await events(shown.commitmentId)).not.toContain('hold.funded');
     } finally {
@@ -258,6 +259,30 @@ describe('buy-with-signer.ts: the approval stop', () => {
       await lag.close();
     }
   }, 150_000);
+
+  it('after the operators disagreed, does not take one operator\'s answer alone when the other stops answering', async () => {
+    // After the release the second operator answers the watch's read of its events, contradicts the first operator on
+    // the next one (openDelivery's comparison), then answers its events with 503.
+    let down = false, reads = 0;
+    const flaky = await front(world.info.operators[1]!, {
+      answer: (_method, path) => (down && /\/events/.test(path) ? { status: 503, headers: {}, body: { type: 'unavailable', status: 503, detail: 'down' } } : null),
+      rewrite: (path, body) => {
+        if (!/^\/v1\/commitments\/0x[0-9a-f]{64}\/events/.test(path) || !body.items?.some((e: J) => e.type === 'settlement.released') || ++reads < 2) return body;
+        down = true;
+        return { ...body, items: body.items.slice(0, -1) };
+      },
+    });
+    try {
+      const operators = [world.info.operators[0]!, flaky.url];
+      const store = dir();
+      const shown = stopped(await buy([quoteUrl(), store, SCOPE, BUDGET], operators));
+      const r = await buy(['approve', store, shown.commitmentId, BUDGET], operators);
+      expect(r.code).toBe(1);
+      expect(r.err).toContain(`operators disagree on /v1/commitments/${shown.commitmentId}/events?limit=200; do not proceed (after they differed, 1 answered)`);
+    } finally {
+      await flaky.close();
+    }
+  }, 90_000);
 
   it('approves and stops after funding; resume, in a later process, opens the delivered work', async () => {
     const store = dir();

@@ -372,11 +372,11 @@ export class FaucetLimited extends Error {
  * catch up (T-399 Finding 5). Every answer still has to agree; one that still differs after them stops the run.
  */
 export const AGREE_PAUSES_MS: readonly number[] = [1000, 2000, 4000, 8000];
-/** `read`, and again after each pause while it throws `operators disagree on ...`; then that error. Any other error at once. */
-export async function agreeing<T>(read: () => Promise<T>, pauses: readonly number[] = AGREE_PAUSES_MS): Promise<T> {
+/** `read(attempt)`, and again after each pause while it throws `operators disagree on ...`; then that error. Any other error at once. */
+export async function agreeing<T>(read: (attempt: number) => Promise<T>, pauses: readonly number[] = AGREE_PAUSES_MS): Promise<T> {
   for (let i = 0; ; i++) {
     try {
-      return await read();
+      return await read(i);
     } catch (e) {
       if (i >= pauses.length || !/^operators disagree on /.test(String((e as Error)?.message))) throw e;
       await sleep(pauses[i]!);
@@ -646,10 +646,15 @@ export class BuyerSigner {
     return got.filter((a): a is { api: string; body: J } => a !== null);
   }
 
-  /** One value every answering operator agrees on (on `pick`); it stops when none answers or two disagree. */
-  async #agreed<T>(sources: string[], path: string, pick: (x: J) => T): Promise<T> {
+  /**
+   * One value every answering operator agrees on (on `pick`); it stops when none answers or two disagree. `again`: a
+   * read after the operators disagreed, which takes at least two answers, so the value one of them served is never
+   * taken alone once another contradicted it.
+   */
+  async #agreed<T>(sources: string[], path: string, pick: (x: J) => T, again = false): Promise<T> {
     const answers = await this.#answers(sources, path);
     if (answers.length === 0) throw new Error(`no operator answered GET ${path} (${sources.join(', ')})`);
+    if (again && answers.length < 2) throw new Error(`operators disagree on ${path}; do not proceed (after they differed, ${answers.length} answered)`);
     const picked = answers.map((a) => pick(a.body));
     if (new Set(picked.map((p) => jcs(lowerHex(p)))).size !== 1) throw new Error(`operators disagree on ${path}; do not proceed`);
     return picked[0]!;
@@ -1242,7 +1247,7 @@ export class BuyerSigner {
     const { agent, pin } = await this.#connect();
     const sources = agent.sources();
     const path = `/v1/commitments/${id}/events?limit=200`;
-    const events = (await agreeing(() => this.#agreed(sources, path, (x) => x.items.map((e: J) => ({ seq: e.seq, type: e.type, hash: e.hash, tx: typeof e.payload?.tx === 'string' ? e.payload.tx : null, delivery: e.type === 'delivery.submitted' ? { uri: e.payload?.ciphertext?.uri, plaintextSha256: e.payload?.plaintextSha256 } : null }))))) as J[];
+    const events = (await agreeing((n) => this.#agreed(sources, path, (x) => x.items.map((e: J) => ({ seq: e.seq, type: e.type, hash: e.hash, tx: typeof e.payload?.tx === 'string' ? e.payload.tx : null, delivery: e.type === 'delivery.submitted' ? { uri: e.payload?.ciphertext?.uri, plaintextSha256: e.payload?.plaintextSha256 } : null })), n > 0))) as J[];
     events.sort((a, b) => a.seq - b.seq);
     let work: string | null = null;
     let plaintextSha256: string | null = null;
@@ -1291,7 +1296,7 @@ export class BuyerSigner {
     if (lowerHex(d?.commitmentId) !== id) throw new Error(`the delivery you passed is for ${shown(d?.commitmentId ?? null)}, not ${id}`);
     const signer = await recoverTypedDataAddress({ ...typedOf('Delivery', d, agent.domain), signature: d.signature }).catch(() => '');
     if (signer.toLowerCase() !== String(terms.seller).toLowerCase()) throw new Error("the delivery you passed is not signed by the deal's seller");
-    const released = (await agreeing(() => this.#agreed(agent.sources(), `/v1/commitments/${id}/key?recipient=${this.address}`, (x) => (Array.isArray(x?.items) ? x.items.map((k: J) => k.ciphertext) : [])))) as string[];
+    const released = (await agreeing((n) => this.#agreed(agent.sources(), `/v1/commitments/${id}/key?recipient=${this.address}`, (x) => (Array.isArray(x?.items) ? x.items.map((k: J) => k.ciphertext) : []), n > 0))) as string[];
     const mine = (Array.isArray(d.encryptedKeys) ? d.encryptedKeys : []).filter((k: J) => String(k?.recipient).toLowerCase() === this.address);
     if (mine.length !== 1 || !released.includes(mine[0].ciphertext)) throw new Error('the key the settlement released is not your envelope in the delivery you passed: it is not the delivery that settled');
     const uri = String(d.ciphertext?.uri);
