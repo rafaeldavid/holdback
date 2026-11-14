@@ -34,6 +34,7 @@ Rafa chose the Hasenheide palette on 2026-11-13 and the brand kit in `site/brand
   - the contract stack, phase one, https://claude.ai/artifact/WTgsSSvHRCcGiJK9ztKhQ4: version 5 (1794655099-9620), the live page's HTML restyled (it has no generator);
   - the roadmap, https://claude.ai/artifact/8qoP6eBhJ9GTcfc9Doy26i: version 66 (1794655208-e110), built from crow-private 55c3047.
 - Crow Control's `/map` and `/contracts` change at its next build: PR 518 changed the contract stack's inputs, so the push job sends the new page (inferred from crow-private `control/README.md`; not seen yet).
+- **Second part, on Rafa's word (2026-11-14: "update Contract Stack so it reflects the capabilities of current contract set"):** the contract stack's hand-written text now states what the phase-one contracts deployed on 2026-11-13 do and the page left out: the two money addresses (`buyerPaymentAddress`, `sellerPayoutAddress`), one token per deployment, the refusals at funding, the stored closing reason and decider (`dealOf`), the ERC-8183 event names, and the beacon's margin. `plain.json` words `IHoldbackRules.sol` (the sources table showed a cut-off sentence) and drops `SimBeacon`, which left `contracts/src`. A new test fails when a file in `contracts/src` has no plain wording or a wording names a file that is gone (on `origin/main` it fails: `SimBeacon` listed, `IHoldbackRules` missing; measured). `npx vitest run tests/contract-stack.test.ts tests/design-map.test.ts`: 50 passed (measured).
 
 ## Handoff
 

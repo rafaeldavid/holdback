@@ -21,6 +21,12 @@ describe('contract-stack page', () => {
     }
   });
 
+  it('words every file in contracts/src in tools/contract-stack/plain.json, and no file that is gone', () => {
+    const words = plain().contracts as Record<string, string>;
+    const names = readdirSync(new URL('contracts/src/', root)).filter((f) => f.endsWith('.sol')).map((f) => f.replace(/\.sol$/, '')).sort();
+    expect(Object.keys(words).sort()).toEqual(names);
+  });
+
   it('marks the contracts the live record deployed', () => {
     const deployed = data.contracts.filter((c: { deployed: boolean }) => c.deployed).map((c: { name: string }) => c.name);
     for (const name of ['HoldbackRules', 'DrandQuicknetBeacon']) expect(deployed).toContain(name);
