@@ -26,15 +26,24 @@ Non-goals: checking that a row ID exists (the console does, as a build note); th
 
 ## Evidence
 
-- **Tests** [measured, 2026-11-14]: `npx vitest run tests/id-check.test.ts`: 39 of 39 pass. That is 8 for the rule and 31 for the backfill, one per task file from T-402 on. Before the backfill, the 31 failed and the 8 passed.
-- **The backfill** [measured]: 31 files. Rows come from the roadmap's `publicId` and `alsoIds`, its Starts text, and the files' own "roadmap row" mentions. Where none of those named a row, the row is matched by label [inferred], or the file says `none`:
-  - **From the roadmap:** T-402, T-424 and T-428 N103; T-409 N80, N92; T-412 B1; T-413 N108; T-415 N117, N115; T-416 N30; T-420 N70; T-421 N109, N119; T-422 N19; T-423 N117; T-431 N128; T-432 N127; T-433 (the mandate tool) N131.
-  - **By label** [inferred]: T-406, T-407, T-408, T-417, T-433 (redirect), T-434, T-435 and T-436 to N37 (the seller adapter; the last five are its hosted Worker); T-426 and T-427 (buyer path headroom) to T-252 (the agent guides); T-427 (demo refresh) to N102.
+- **Tests** [measured, 2026-11-14]: `npx vitest run tests/id-check.test.ts`: 42 of 42 pass. That is 9 for the rule and 33 for the backfill: one test that files exist, and one per task file from T-402 on (this file included). Before the backfill, the 31 older files' tests failed and the rule's passed.
+- **The rule's cases** [measured, the tests]: one row, several, or `none` pass. These fail with what to add and where: a missing line, a malformed one, a line below `## Intent`, and two lines in one header ("keep one": a merge can leave both). When two files share a number, each is checked. Closed HTML comments in the body are ignored, and an unclosed `<!--`, often code in backticks, stays as text. A PR that names no task fails with the message both repositories share.
+- **The backfill** [measured]: 31 files, each line after the file's Agent/session line, where today's open branches put it. Rows come from the roadmap's `publicId` and `alsoIds`, its Starts text, and the files' own "roadmap row" mentions. Where none of those named a row, the row is matched by label [inferred], or the file says `none`:
+  - **From the roadmap or the file:** T-402, T-424 and T-428 N103; T-409 N80, N92; T-412 B1; T-413 N108; T-415 N117, N115; T-416 N30; T-420 N70; T-421 N109, N119; T-422 N19; T-423 N117; T-431 N128; T-432 N127; T-433 (the mandate tool) N131, from its own Lane line.
+  - **N134, the hosted seller adapter** (a row the coordinator added on 2026-11-14): T-433 (redirect), T-434 (core split) and T-435 (the Worker) [measured: their open branches name it]; T-407 and T-436 [inferred from their titles].
+  - **By label** [inferred]: T-406, T-408 and T-417 to N37 (the seller adapter); T-426 and T-427 (buyer path headroom) to T-252 (the agent guides); T-427 (demo refresh) to N102.
   - **`none`:** T-410, T-411, T-418, T-425, T-430.
+- **The open branches, merged onto this one** [measured, `git merge-tree`, 2026-11-14]:
+  - PRs 555 (T-434, the signer's buying half) and 558 (T-435, Crow's buying agent) merge cleanly. Each adds a task file with no `Roadmap row:` line, so the check fails them until they add one; both files say "roadmap row N131" in their Lane line.
+  - PRs 553, 556 and 557 (the hosted seller adapter) conflict on one header line in T-434's, T-435's and T-436's files. Their branches edit the Status and Agent/session lines beside the inserted `- **Roadmap row:** N134`. The resolution: keep the branch's Status and Agent/session lines and one `- **Roadmap row:** N134`.
 - **The workflow** [measured]: `.github/workflows/id-check.yml` runs `node scripts/id-check.mjs` and is unchanged.
+- **Review** (one `reviewer` pass): ISSUES. Fixed:
+  - The backfill named N37 where the open branches name N134 (Medium). The line now sits where they put it, and the check fails a header with two lines.
+  - This Handoff named the wrong pull requests (Medium).
+  - Stale Evidence; an unclosed `<!--` dropped the rest of the body; the backfill test repeated a regular expression instead of importing `ROW_LINE` (all Low).
 
 ## Handoff
 
-- **Open branches** must add the line to their task files before their next push, or the check fails them: holdback pull requests 553 (T-434) and 555 (T-434, the signer's buying half, whose task file is on its own branch).
+- **Before the next push,** the sessions behind PRs 555 and 558 add `- **Roadmap row:** N131` to their task files, and the sessions behind PRs 553, 556 and 557 resolve the one-line conflict above.
 - **The pull request template** gets a "Task:" and a "Roadmap row:" line in a separate draft pull request, Rafa's word.
-- **The required check:** `id-check` is not required on `main`; adding it to the ruleset is Rafa's setting.
+- **The required check:** `main`'s ruleset requires `check` and `gitleaks`, not `id-check`. Adding `id-check` to its required status checks is Rafa's setting.

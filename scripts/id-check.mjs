@@ -50,6 +50,8 @@ export function rowProblems(id, dir = TASKS) {
     const head = readFileSync(join(dir, f), 'utf8').split(/^## /m)[0];
     const m = ROW_LINE.exec(head);
     const file = `docs/tasks/${f}`;
+    const count = head.match(new RegExp(ROW_LINE.source, 'gim'))?.length ?? 0;
+    if (count > 1) return [`${id}'s task file ${file} has ${count} "Roadmap row:" lines in its header: keep one, ${HOW}`];
     if (!m) return [`${id}'s task file ${file} names no roadmap row: add the line "- **Roadmap row:** N70" to its header, above "## Intent", ${HOW}`];
     if (!rowLine(m[1]).ok) return [`${id}'s task file ${file} has a "Roadmap row:" line that is not a list of row IDs or "none": write "- **Roadmap row:** N70", ${HOW}`];
     return [];
@@ -57,9 +59,10 @@ export function rowProblems(id, dir = TASKS) {
 }
 
 // { ok, ids, reason }
-// The body without its HTML comments: the pull request template's guidance ("write no ticket …", "T-xxx") is not
-// the author's answer, and GitHub keeps the comments in the body.
-export const uncommented = (text) => String(text ?? '').replace(/<!--[\s\S]*?(?:-->|$)/g, ' ');
+// The body without its closed HTML comments: the pull request template's guidance ("write no ticket …", "T-xxx") is
+// not the author's answer, and GitHub keeps the comments in the body. An unclosed "<!--" (often code in backticks)
+// stays, text and all.
+export const uncommented = (text) => String(text ?? '').replace(/<!--[\s\S]*?-->/g, ' ');
 export function checkPr({ title = '', branch = '', body: raw = '' } = {}, ids = taskIds(), dir = TASKS) {
   const body = uncommented(raw);
   const named = [...new Set([...`${branch} ${title} ${body}`.matchAll(T_ID)].map((m) => `T-${m[1]}`))].filter((id) => ids.has(id));
