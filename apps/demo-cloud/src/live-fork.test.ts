@@ -34,8 +34,13 @@ describe.skipIf(!forkReady)(`the public world on a Sepolia fork${forkReady ? '' 
         s.close(() => resolve(p));
       });
     });
+    // A few blocks behind the head: a load-balanced public node answers "block not found" for its newest block from a
+    // backend that lags, and anvil then fails to start (measured on publicnode, 2026-11-14). Five blocks is a minute.
+    const remote = (await (await fetch(forkRpc!, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_blockNumber', params: [] }) })).json()) as { result?: string };
+    if (typeof remote.result !== 'string') throw new Error('SEPOLIA_FORK_RPC answered no block number');
+    const pin = String(BigInt(remote.result) - 5n);
     // Prague, as Sepolia runs: the drand verifier needs EIP-2537's BLS precompiles (T-206, measured).
-    anvil = spawn('anvil', ['--fork-url', forkRpc!, '--hardfork', 'prague', '--host', '127.0.0.1', '--port', String(port), '--block-time', '2', '--silent'], { stdio: 'ignore' });
+    anvil = spawn('anvil', ['--fork-url', forkRpc!, '--fork-block-number', pin, '--hardfork', 'prague', '--host', '127.0.0.1', '--port', String(port), '--block-time', '2', '--silent'], { stdio: 'ignore' });
     rpc = `http://127.0.0.1:${port}`;
     const call = (method: string, params: unknown[]) => fetch(rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) }).then((r) => r.json() as Promise<{ result?: unknown }>);
     // anvil forks over the public RPC, which can take a while to answer.
