@@ -6,7 +6,7 @@
 - **Depends on:** the live test service on Sepolia (`https://api.crow.direct`, `https://api2.crow.direct`), Crow's test seller (`https://crow.direct/agents/test-seller`), `examples/try.ts`, and the anvil world of `examples/e2e-world.ts`
 - **Paths this task may touch:** `scripts/metrics/pitch-evidence*`, `tests/metrics/pitch-evidence*`, this file. Scratch under `reports/scratch/t-425/` (not committed). The results go to the private repository, one new file `strategy/2026-11-14-machine-first-evidence.md`.
 - **Human gate:** no. The live run makes test deals on the public test service like anyone running the try command; the operators pay its gas in test ETH. The two other measurements run on a local anvil chain only. Nothing is deployed.
-- **Status:** done (pull request number in the Handoff)
+- **Status:** done (pull request 544)
 - **Agent/session:** the T-425 side session of 2026-11-14, worktree `.worktrees/holdback-T-425`, branch `t-425-pitch-evidence`
 
 ## Intent
