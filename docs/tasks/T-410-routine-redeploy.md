@@ -7,6 +7,7 @@
 - **Human gate:** no for this pull request; a CI job for `site/walkthrough.mjs` is a workflow file, a separate draft pull request for Rafa's word
 - **Status:** done (pull request 514 merged 2026-11-14 as `0ed11a8`)
 - **Agent/session:** T-410 session, 2026-11-14
+- **Roadmap row:** none
 
 ## Intent
 

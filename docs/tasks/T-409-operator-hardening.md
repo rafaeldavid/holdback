@@ -9,6 +9,7 @@
 - **Human gate:** no for the code. The operators change only with a deploy, which waits for Rafa.
 - **Status:** done (pull request 512, merged 2026-11-14; both operators deployed 10:43 UTC)
 - **Agent/session:** the T-409 session, 2026-11-14, branch `t-409-operator-hardening`, worktree `.worktrees/holdback-T-409`
+- **Roadmap row:** N80, N92
 
 ## Intent
 

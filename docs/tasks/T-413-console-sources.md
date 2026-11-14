@@ -7,6 +7,7 @@
 - **Human gate:** yes for the three deploys (site, test agents, early access). Nothing is deployed by this task.
 - **Status:** done (merged in PR 505, `e90b27a`; the site, the test agents and early access deployed on 2026-11-14, on Rafa's word)
 - **Agent/session:** the T-413 session, started 2026-11-14 by the coordinator's wave (sister task T-414 reads these sources into the console)
+- **Roadmap row:** N108
 - **Kind:** 1 (the site check), 2 (the decisions record), 4 (Worker code), with the metrics script; one `reviewer` pass
 
 ## Intent

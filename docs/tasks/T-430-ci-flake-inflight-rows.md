@@ -7,6 +7,7 @@
 - **Human gate:** no
 - **Status:** done
 - **Agent/session:** root-cause session started from Crow Control's failed-run flag, 2026-11-14
+- **Roadmap row:** none (a CI fix)
 
 ## Intent
 
