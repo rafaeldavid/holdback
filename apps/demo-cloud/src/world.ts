@@ -227,8 +227,9 @@ const LANE_FLOOR = 10_000_000_000_000_000n;
 const LANE_TOP_UP = 30_000_000_000_000_000n;
 /**
  * New addresses the faucet grants one client (IP address) per window, an hour by default: 50, so one agent can run a
- * series of test deals (one grant a deal with Crow's test seller, two when it plays both sides) without waiting out
- * the hour; it was 10 until 2026-11-14 (Rafa). FAUCET_MINTS_PER_DAY still bounds the relayer's gas for everyone.
+ * series of test deals without waiting out the hour (one grant a deal as the try command's buyer, two when it plays
+ * both sides). It was 10 until 2026-11-14 (Rafa), when a series of 20 try deals waited out the hour twice (T-425).
+ * FAUCET_MINTS_PER_DAY still bounds the relayer's gas for everyone, and the test seller keeps its own caps.
  */
 const FAUCET_PER_CLIENT = 50;
 /** Faucet mints a day on a chain: about 0.08 to 0.14 test ETH on Sepolia at a 1 gwei tip (130,000 to 240,000 gas a mint, measured). */
