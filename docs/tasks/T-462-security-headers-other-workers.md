@@ -56,6 +56,20 @@ None of the security headers appears on any answer below: no `Strict-Transport-S
 
 **Pinned hashes (measured, live):** `try.mjs` `04ef4434fb4b5635bb3c49df69c7547f3200c6c41f903237ee37098be23f75c8`, `buy.mjs` `e74ff2230f0d4fd426525095731e42d50b65b55ab7792a43cab73c302b22eb88`.
 
+### What each Worker will send (from the code; measured in the tests and a local run)
+
+- **crow-test-agents, every answer:** the operators' set, imported from `apps/demo-cloud/src/headers.ts`: `Strict-Transport-Security: max-age=31536000; includeSubDomains`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, `Referrer-Policy: no-referrer`, `Cross-Origin-Resource-Policy: same-origin`, and the permissions policy. CORS (`*`, and the two preflights' methods and headers), `no-store`, statuses and bodies are as before.
+- **The two cards (HTML):** the same, with `Cross-Origin-Opener-Policy: same-origin` and the card policy in place of the operators' one: `default-src 'none'; style-src 'sha256-…'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`. The hash is of `CARD_STYLE` in `apps/test-agents/src/headers.ts`, which both page templates now take their one style from.
+- **crow-early-access, every answer:** the operators' set unchanged. CORS stays as it was: the allowed origin echoed, `POST, OPTIONS`, `content-type`, `vary: origin`, and `*` on `/version.json`.
+- **Plain HTTP on both:** GET and HEAD get a 301 and other methods a 308 to the same path on HTTPS, before anything reaches the agents or the store. `escrow.stream` and `join.escrow.stream` keep their redirects to crow.direct.
+
+### Tests and checks (measured)
+
+- `apps/test-agents/src/headers.test.ts` (4 tests) and `tests/early-access-headers.test.ts` (3 tests): all 7 fail on `origin/main`'s Workers (on the header assertions) and pass on the branch. They run a real Agents object behind the Worker, hash the card's style as served, and check CORS, `no-store` and bodies on each kind of answer. The full test-agents suite, `tests/forwarding.test.ts` and `tests/early-access-deploy.test.ts` pass: 100 tests in 10 files.
+- `pnpm typecheck` and ESLint on the changed files: clean. `node site/build.mjs`: `site/try.mjs` `04ef4434…` and `site/buy.mjs` `e74ff223…` are unchanged, and `node site/check.mjs` passes.
+- **The sign-up form, in a browser engine:** headless Chromium (Playwright 1.65.1, Chromium headless shell 1234) opened live `https://crow.direct/trust` and `https://crow.direct/`, filled the drawer and the home form, and submitted each. Every request to join.crow.direct went to a local crow-early-access (`wrangler dev`, local KV, not the live namespace), and its answer came back with its own headers. The browser accepted both answers (`access-control-allow-origin: https://crow.direct` beside the new `same-origin` resource policy and `DENY`), and the pages showed "Thank you" with no policy or CORS error. Playwright did not route the preflight itself; its answer, with the new headers and the same CORS headers, was measured with curl against the local run and in the test. Nothing reached the live store.
+- **The test cards, in a browser engine:** the seller's and the buyer's card, as the Worker answers them (body and headers, written by a throwaway test), loaded in Chromium with their style applied by hash, their JSON block read, and no console message.
+
 ## Handoff
 
 - The deploys (the coordinator's): `node apps/test-agents/scripts/deploy.mjs` and `node apps/early-access/deploy.mjs`, each from a detached worktree at `origin/main`.
