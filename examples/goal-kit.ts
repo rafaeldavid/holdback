@@ -216,7 +216,7 @@ export async function checkOffer(w: World, buyer: Agent, id: Hex, seller: string
   // address in the terms, which the card does not list (the test seller's is its signing address).
   const fields: Array<[string, J, J]> = [
     ['buyer', terms.buyer, buyer.address], ['buyerPaymentAddress', terms.buyerPaymentAddress, buyer.address], ['buyerEncryptionPublicKey', terms.buyerEncryptionPublicKey, buyer.encryptionPublicKey],
-    ['price', terms.price, want.price], ['clubId', terms.clubId, w.clubId], ['deliverable', terms.deliverable, want.deliverable],
+    ['price', terms.price, want.price], ['settlement', terms.settlement, { mode: 'guaranteed_on_decision', token: want.price.token }], ['clubId', terms.clubId, w.clubId], ['deliverable', terms.deliverable, want.deliverable],
     ['acceptance', terms.acceptance, { deterministicChecks: want.checks, rubric: want.rubric }],
     ['adjudicators', [terms.adjudication.adjudicator, terms.adjudication.fallbackAdjudicator, terms.adjudication.appealAdjudicator], [w.adjudicators.primary, w.adjudicators.fallback, w.adjudicators.appeal]],
     ['adjudication.fee', terms.adjudication.fee, (await buyer.registration(w.adjudicators.primary)).fee.min],

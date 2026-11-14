@@ -10873,6 +10873,14 @@ async function checkOffer(w, buyer, id, seller, want) {
 			want.price
 		],
 		[
+			"settlement",
+			terms.settlement,
+			{
+				mode: "guaranteed_on_decision",
+				token: want.price.token
+			}
+		],
+		[
 			"clubId",
 			terms.clubId,
 			w.clubId
