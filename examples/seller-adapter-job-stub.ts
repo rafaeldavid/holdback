@@ -6,6 +6,8 @@
 // Under <url>/api/v2/, each call with `X-Api-Key: <key>`:
 //   POST estimates            {target, depth, client}           -> {estimate: {id, cost: {units}, validSeconds, turnaroundSeconds}}
 //   POST runs                 {estimate, reference, input}      -> 201 {run: {id}}; the same X-Request-Key gives the same run
+//                                                               (with `ignoresKey`: a new run each time, and 409 while one
+//                                                               for the same reference is queued or running)
 //   GET  runs/<id>                                              -> {run: {id, state}, output?}; state queued, running, complete or error
 //   GET  runs/<id>/files/<path>                                 -> the file's bytes
 // The price is made up for the tests: 100.00 tUSD plus 50.00 tUSD per depth, one day per depth. Test data only.
@@ -23,6 +25,13 @@ export interface JobStubOptions {
   fail?: boolean;
   /** The first start makes the run, then answers 503: a crash between the seller's work and its answer. */
   failFirstStart?: boolean;
+  /** The first start answers 503 and makes no run: the seller's API was down. */
+  downFirstStart?: boolean;
+  /**
+   * The stub ignores X-Request-Key (T-407), as some job APIs do: each start makes and charges a new run, except
+   * while a run for the same reference is queued or running, when it answers 409 and names that run.
+   */
+  ignoresKey?: boolean;
   /** The files the finished run names, in order. Default two proof files. */
   fileList?: J;
   /** Files by path. Default a short text for each default path. */
@@ -42,6 +51,8 @@ export interface JobStub {
   requests: Array<{ method: string; path: string; apiKey: string | undefined; requestKey: string | undefined; body: J }>;
   /** The runs made: one for each distinct X-Request-Key. */
   runs(): Array<{ id: J; key: string; reference: string }>;
+  /** Every run is complete: its next read says so, and a start for its reference is no longer refused. */
+  finishRuns(): void;
   fixFiles(): void;
   close(): Promise<void>;
 }
@@ -57,6 +68,9 @@ export async function startJobStub(o: JobStubOptions): Promise<JobStub> {
   let broken = new Set(o.brokenFiles ?? []);
   let startsSeen = 0;
   const files = o.files ?? DEFAULT_FILES;
+  let finished = false;
+  /** How many reads of a run answer queued or running; 0 once every run is finished. */
+  const until = () => (finished ? 0 : (o.readsUntilComplete ?? 2));
 
   const server = createServer((req, res) => {
     const send = (status: number, body: unknown) => res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
@@ -79,6 +93,16 @@ export async function startJobStub(o: JobStubOptions): Promise<JobStub> {
         const units = (100_000_000n + 50_000_000n * BigInt(depth)).toString();
         return send(200, { estimate: { id: `est-${requests.length}`, cost: { units }, validSeconds: 600, turnaroundSeconds: 86_400 * depth, ...o.estimateOverride } });
       }
+      if (req.method === 'POST' && route === 'runs' && o.ignoresKey) {
+        startsSeen++;
+        if (o.downFirstStart && startsSeen === 1) return send(503, { detail: 'the service is down; no run was made' });
+        const live = [...runs.values()].find((r) => r.reference === body?.reference && r.reads < until());
+        if (live) return send(409, { detail: 'a run for this reference is queued or running', run: { id: live.id } });
+        const key = `run-${runs.size + 1}`;
+        runs.set(key, { id: o.runId ?? 41 + runs.size, key, reference: body?.reference, input: body?.input, reads: 0 });
+        if (o.failFirstStart && startsSeen === 1) return send(503, { detail: 'the run was made, but the answer was lost' });
+        return send(201, { run: { id: runs.get(key)!.id } });
+      }
       if (req.method === 'POST' && route === 'runs') {
         const key = header('x-request-key');
         if (!key) return send(400, { detail: 'POST runs needs X-Request-Key' });
@@ -100,8 +124,7 @@ export async function startJobStub(o: JobStubOptions): Promise<JobStub> {
         const run = [...runs.values()].find((r) => String(r.id) === decodeURIComponent(read[1]!));
         if (!run) return send(404, { detail: 'no such run' });
         const n = run.reads++;
-        const until = o.readsUntilComplete ?? 2;
-        if (n < until) return send(200, { run: { id: run.id, state: n === 0 ? 'queued' : 'running' } });
+        if (n < until()) return send(200, { run: { id: run.id, state: n === 0 ? 'queued' : 'running' } });
         if (o.fail) return send(200, { run: { id: run.id, state: 'error' }, detail: 'the job ran out of memory' });
         const output = { summary: `Reviewed ${run.input?.target} to depth ${run.input?.depth}.`, target: run.input?.target, proofs: o.fileList ?? Object.keys(DEFAULT_FILES) };
         return send(200, { run: { id: run.id, state: 'complete' }, output });
@@ -119,6 +142,7 @@ export async function startJobStub(o: JobStubOptions): Promise<JobStub> {
     base: `${url}/api/v2/`,
     requests,
     runs: () => [...runs.values()].map(({ id, key, reference }) => ({ id, key, reference })),
+    finishRuns: () => void (finished = true),
     fixFiles: () => void (broken = new Set()),
     close: () => new Promise<void>((resolve) => { server.closeAllConnections(); server.close(() => resolve()); }),
   };

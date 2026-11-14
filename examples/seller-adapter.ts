@@ -29,6 +29,8 @@
 //           `amount` is base units as a decimal string ("2000000000" is 2,000.00 of a 6-decimal token).
 //   start:  POST <start>   {commitmentId, quoteId, scope, options?} -> {jobId}, with `Idempotency-Key: <commitmentId>`.
 //           The same key must return the same job: after a crash the adapter sends the start again.
+//           An API that ignores the key sets `start.repeatable: false`: the adapter then sends the start at most once,
+//           and after a lost answer waits for POST /deals/<commitmentId>/job with the job's ID (T-407).
 //   result: GET  <result>  ({jobId} in the address)       -> 202 while the job runs; 200 with the result's bytes.
 //           After a refusal, the same address answers with your fixed report once you have one.
 // An API of another shape needs no service in between (T-366, seller-adapter-api.ts): `sellerApi` can name a base
@@ -330,11 +332,12 @@ export function loadConfig(file: string): SellerAdapterConfig {
   } as SellerAdapterConfig;
 }
 
-export type Stage = 'offered' | 'starting' | 'started' | 'refused' | 'delivering' | 'delivered' | 'closed';
+export type Stage = 'offered' | 'starting' | 'start-unknown' | 'started' | 'refused' | 'delivering' | 'delivered' | 'closed';
 /**
  * One deal in the journal. `refused`: the last result failed preflight; the adapter holds the delivery and waits
  * for a fixed report until `deliverBy`. `delivering`: recorded just before the delivery call, so a restart reads
- * the settlement layer before it delivers again.
+ * the settlement layer before it delivers again. `start-unknown` (T-407): a start your API cannot repeat was sent and
+ * its answer was lost; the adapter sends no second one and waits for a person to give it the job's ID.
  */
 export interface Deal {
   id: Hex;
@@ -353,6 +356,8 @@ export interface Deal {
   nextFetchAt?: string | undefined;
   /** The seller said a fixed report is ready: the next pass fetches it. */
   ready?: boolean;
+  /** A start your API cannot repeat was sent for this deal (T-407): recorded before the call, so it is never sent twice. */
+  startSent?: boolean;
 }
 interface Journal {
   deals: Record<string, Deal>;
@@ -1010,8 +1015,33 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
       if (state !== 'Held') return record(deal, { stage: 'closed', note: `the offer ended ${state} with no job started` });
       record(deal, { stage: 'starting', note: 'every operator shows the hold funded' }); // recorded before the call, so a crash here repeats it under the same key
     }
+    if (deal.stage === 'starting' && deal.startSent === true && !sellerApi.startRepeatable) {
+      // The one start was sent and its answer was lost (T-407). Your API ignores the idempotency key, so a second
+      // start could make, and charge, a second job once the first ends: the adapter waits for a person instead.
+      const deliverBy: string = deal.terms.timing.deliverBy;
+      const how = refusal.ready
+        ? `find the job at your API and POST {"jobId": "<its ID>"} to /deals/${id}/job, or {"startAgain": true} if no job was made`
+        : `find the job at your API; to give the adapter its ID, set redelivery.readyAuth and POST {"jobId": "<its ID>"} to /deals/${id}/job`;
+      const said = `the start was sent once and its answer was lost; your API takes no repeated start, so the adapter sends none. To go on, ${how}. With no job by deliverBy ${deliverBy}, the deal closes and the buyer may reclaim the hold`;
+      record(deal, { stage: 'start-unknown', note: said });
+      return alert({ type: 'job.start_unknown', commitmentId: id, deliverBy }, said);
+    }
+    if (deal.stage === 'start-unknown') {
+      // Waiting for a person: the deal closes when the hold ends or the delivery deadline passes.
+      const state = await escrowState();
+      if (state !== 'Held') return record(deal, { stage: 'closed', note: `the deal ended ${state} with no job recorded` });
+      if (Date.parse(deal.terms.timing.deliverBy) <= (await passNow())) return record(deal, { stage: 'closed', note: `the delivery deadline ${deal.terms.timing.deliverBy} passed with no job recorded` });
+      return;
+    }
     if (deal.stage === 'starting') {
-      // The idempotency key is the deal's ID, so a start repeated after a crash returns the same job.
+      // Before a start: the hold is still funded and the delivery deadline still ahead (T-407). A deal resumed at
+      // `starting` after a restart may have been refunded or have run past its deadline meanwhile.
+      const state = await escrowState();
+      if (state !== 'Held') return record(deal, { stage: 'closed', note: `the deal ended ${state} with no job started` });
+      if (Date.parse(deal.terms.timing.deliverBy) <= (await passNow())) return record(deal, { stage: 'closed', note: `the delivery deadline ${deal.terms.timing.deliverBy} passed with no job started` });
+      // With a repeatable start the idempotency key is the deal's ID, so a start repeated after a crash returns the
+      // same job. Without one, the attempt is recorded first, so it is never sent twice.
+      if (!sellerApi.startRepeatable) record(deal, { startSent: true, note: 'sending the one start your API takes' });
       const jobId = await sellerApi.start({ commitmentId: id, quoteId: deal.quoteId, buyer: deal.terms.buyer, scope: deal.scope, options: deal.options });
       record(deal, { stage: 'started', jobId, note: `job ${jobId}` });
     }
@@ -1171,7 +1201,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     }
     for (const deal of Object.values(journal.deals)) {
       if (closed) return;
-      if (!['offered', 'starting', 'started', 'refused', 'delivering'].includes(deal.stage)) continue;
+      if (!['offered', 'starting', 'start-unknown', 'started', 'refused', 'delivering'].includes(deal.stage)) continue;
       try {
         await advance(deal, passNow, full);
         lastError.delete(deal.id);
@@ -1213,6 +1243,38 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     return send(202, { commitmentId: id, stage: deal.stage, detail: 'the adapter fetches the result again now' });
   }
 
+  /**
+   * POST /deals/<commitmentId>/job (T-407): a person gives the adapter what became of a start whose answer was lost.
+   * `{"jobId": "<ID>"}`: the job your API made, found there by the deal's ID or name; the adapter goes on from
+   * `started`. `{"startAgain": true}`: your API made no job, so the adapter may send one more start. Behind the same
+   * credential as /ready. The adapter takes the job's ID from this request only, never from your API's other answers.
+   */
+  async function jobSignal(req: IncomingMessage, commitmentId: string, send: (status: number, body: unknown, headers?: Record<string, string>) => void): Promise<void> {
+    if (req.method !== 'POST') {
+      req.resume();
+      return send(405, { type: 'method_not_allowed', detail: 'this route takes POST' });
+    }
+    if (!bearerOk(req, refusal.ready!)) {
+      req.resume();
+      return send(401, { type: 'unauthorized', detail: 'this route needs Authorization: Bearer <credential>' }, { 'www-authenticate': 'Bearer realm="ready"' });
+    }
+    const body = await readJson(req);
+    const id = commitmentId.toLowerCase();
+    const deal = Object.hasOwn(journal.deals, id) ? journal.deals[id]! : undefined;
+    if (!deal) return send(404, { type: 'not_found', detail: 'this adapter holds no such deal' });
+    if (deal.stage !== 'start-unknown') return send(409, { type: 'not_waiting', detail: `the deal is ${deal.stage}, not waiting for a job's ID` });
+    const keys = isRecord(body) ? Object.keys(body) : [];
+    if (keys.length === 1 && keys[0] === 'jobId' && typeof body.jobId === 'string' && /^[\x21-\x7e]{1,200}$/.test(body.jobId)) {
+      record(deal, { stage: 'started', jobId: body.jobId, note: `job ${body.jobId}, given by a person after the start's answer was lost` });
+    } else if (keys.length === 1 && keys[0] === 'startAgain' && body.startAgain === true) {
+      record(deal, { stage: 'starting', startSent: false, note: 'a person says your API made no job: the adapter may send one more start' });
+    } else {
+      return send(400, { type: 'invalid_request', detail: 'send {"jobId": "<the job\'s ID, 1 to 200 printable characters>"} or {"startAgain": true}' });
+    }
+    wake();
+    return send(202, { commitmentId: id, stage: deal.stage, ...(deal.jobId === undefined ? {} : { jobId: deal.jobId }) });
+  }
+
   const server = createServer((req, res) => {
     const send = (status: number, body: unknown, headers: Record<string, string> = {}) => res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...headers }).end(JSON.stringify(body));
     const path = new URL(req.url ?? '/', 'http://adapter').pathname;
@@ -1220,6 +1282,14 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     if (path === '/defaults' && req.method === 'GET') return void res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'max-age=300' }).end(defaults);
     const readyFor = refusal.ready ? /^\/deals\/(0x[0-9a-fA-F]{64})\/ready$/.exec(path)?.[1] : undefined;
     if (readyFor) return void readySignal(req, readyFor, send);
+    const jobFor = refusal.ready ? /^\/deals\/(0x[0-9a-fA-F]{64})\/job$/.exec(path)?.[1] : undefined;
+    if (jobFor) {
+      return void jobSignal(req, jobFor, send).catch((e) => {
+        if (e instanceof Refused) return send(e.status, { type: e.type, detail: e.message }, e.headers);
+        log(`The job route failed: ${plain((e as Error).message)}.`);
+        send(500, { type: 'internal', detail: 'the adapter could not record this' });
+      });
+    }
     if (path !== '/quote') return void send(404, { type: 'not_found', detail: 'this adapter serves POST /quote and GET /defaults' });
     if (req.method !== 'POST') return void send(405, { type: 'method_not_allowed', detail: 'this adapter serves POST /quote' });
     const refused = admit(req); // the rate limit and the credential, before the body is read
