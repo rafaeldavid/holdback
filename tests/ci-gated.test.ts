@@ -26,6 +26,10 @@ const EXEMPT: Record<string, string> = {
   'examples/e2e-scenarios-appeal.test.ts': "the round driver's anvil half: minutes long and load-sensitive; runs locally",
   'examples/e2e-scenarios-silent.test.ts': "the round driver's anvil half: minutes long and load-sensitive; runs locally",
   'examples/e2e-settle.test.ts': "the round driver's anvil half: minutes long and load-sensitive; runs locally",
+  // T-425's local measurements for the pitch: each writes a record when run by scripts/metrics/pitch-evidence.mjs.
+  // They measure; the contract and demo-world behaviour they rely on is gated by the anvil job's own suites.
+  'tests/metrics/pitch-evidence-direct.test.ts': 'a measurement run by scripts/metrics/pitch-evidence.mjs direct, not a regression gate (T-425)',
+  'tests/metrics/pitch-evidence-leak.test.ts': 'a measurement run by scripts/metrics/pitch-evidence.mjs leak, not a regression gate (T-425)',
   // Gated on the platform, not on a tool: the cases run in the test shards, on Linux as a user who is not root.
   'packages/core/src/store/store.test.ts': 'gated on mkfifo and on not being root: both hold on the CI runners',
   // A wall-clock run at 10 MB, off unless HOLDBACK_PERF=1: tests do not assert on wall-clock time (docs/team.md).
