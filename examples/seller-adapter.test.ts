@@ -1201,6 +1201,17 @@ describe('seal.ts', () => {
 });
 
 describe('seller adapter: the report salt (T-431)', () => {
+  // A world of its own, as for the refused reports above: the shared one has run many deals by now.
+  let shared: SimWorld;
+  beforeAll(async () => {
+    shared = world;
+    world = await startSimWorld({ env: {}, onError: () => {} });
+  });
+  afterAll(async () => {
+    for (const a of adapters.splice(0)) await a.close();
+    await world.close();
+    world = shared;
+  });
   const SALT_HEX = `0x${'ab'.repeat(32)}`;
   const bytes = (t: string) => new TextEncoder().encode(t);
   const text = (b: Uint8Array) => new TextDecoder().decode(b);
