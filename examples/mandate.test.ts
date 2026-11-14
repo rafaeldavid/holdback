@@ -2,10 +2,11 @@
 // verifies a signed one, and prints the digest. The keys here are made in memory for the test and signed with as a
 // hardware wallet would sign the file; the tool itself never sees them.
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { MemoryStorage, PublicWorld } from '@holdback/demo-cloud';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -13,7 +14,7 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import { default as addFormats } from 'ajv-formats';
 import { serveTwoOrigins } from './two-origins.ts';
 import { SEPOLIA } from './deployments.ts';
-import { buildDelegation, buildMandate, buildRevocation, documentOfFile, fileOf, LAST_TIME, MANDATE_TYPES, pinFor, verifyDocument, verifyFile, type Kind } from './mandate.ts';
+import { buildDelegation, buildMandate, buildRevocation, digestOf, documentOfFile, fileOf, LAST_TIME, MANDATE_TYPES, parseStrictJson, pinFor, RevocationUnreadable, sentenceOf, verifyDocument, verifyFile, type Kind } from './mandate.ts';
 import { Refusal, TYPES } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -28,6 +29,7 @@ const dealKey = privateKeyToAccount(generatePrivateKey()).address.toLowerCase();
 const ENC = 'A'.repeat(43);
 const NOW = Date.parse('2026-11-14T12:00:00Z');
 const lc = (a: string) => a.toLowerCase();
+const iso = (ms: number) => new Date(Math.floor(ms / 1000) * 1000).toISOString().replace('.000Z', 'Z');
 /** spec/schemas in one Ajv instance, strict, as scripts/spec.mjs loads them. */
 const spec = (() => {
   const ajv = new Ajv2020({ strict: true, allErrors: true });
@@ -49,6 +51,21 @@ const delegation = (o: Partial<{ role: 'buyer' | 'seller'; cap: string; expiresA
   buildDelegation({ principal: o.principal ?? principal.address, agent: o.agent ?? agent.address, dealKey, dealEncryptionKey: ENC, clubId: o.clubId ?? 'demo-club', role: o.role ?? 'buyer', cap: o.cap ?? '10000000', token: TOKEN, expiresAt: o.expiresAt ?? '2026-11-14T12:05:00Z' });
 
 describe('the three messages, built for a signature made elsewhere', () => {
+  it("hash, every kind, to the digest the core's messageDigest gives: the operators' own encoding (with and without categories)", async () => {
+    const core = await import(pathToFileURL(createRequire(join(here, '../apps/operator/package.json')).resolve('@holdback/core')).href);
+    for (const d of [domain, pinFor({ sim: true }).domain]) {
+      const cd = core.holdbackDomain(d.chainId, d.verifyingContract);
+      const m = mandate();
+      expect(digestOf('Mandate', m, d)).toBe(core.messageDigest(cd, { type: 'Mandate', ...m }));
+      const withCategories = { ...m, scope: { ...m.scope, categories: ['data', 'audit'] } };
+      expect(digestOf('Mandate', withCategories, d)).toBe(core.messageDigest(cd, { type: 'Mandate', ...withCategories }));
+      const del = delegation();
+      expect(digestOf('Delegation', del, d)).toBe(core.messageDigest(cd, del));
+      const r = buildRevocation({ principal: principal.address, agent: agent.address });
+      expect(digestOf('AgentRevocation', r, d)).toBe(core.messageDigest(cd, r));
+    }
+  });
+
   it("verify accepts the mandate the operators' own code signs (the faucet's, served by GET /v1/agents/<address>), and the pinned types are verify.ts's", async () => {
     const demo = await serveTwoOrigins(await PublicWorld.open({ storage: new MemoryStorage(), env: {}, faucetPerClient: 10 }), { tickMs: 100 });
     try {
@@ -124,7 +141,7 @@ describe('attacks on verify: each must be refused, naming the reason', () => {
     const renamed = { ...file, types: { ...file.types, Mandate: file.types.Mandate.map((x: J) => (x.name === 'agent' ? { ...x, name: 'delegate' } : x)) }, message: { ...Object.fromEntries(Object.entries(file.message).filter(([k]) => k !== 'agent')), delegate: file.message.agent } };
     expect(await refusal(verifyFile(renamed, sig, domain))).toMatch(/Mandate lacks agent/);
     expect(await refusal(verifyDocument('Mandate', { ...mandate(), clubId: 'Demo Club', signature: sig }, domain))).toMatch(/clubId "Demo Club" is not a club ID/);
-    expect(await refusal(verifyDocument('Mandate', { ...mandate(), issuedAt: '2026-11-14T12:00:00.500Z', signature: sig }, domain))).toMatch(/not a UTC time in whole seconds/);
+    expect(await refusal(verifyDocument('Mandate', { ...mandate(), issuedAt: '2026-11-14T12:00:00.500Z', signature: sig }, domain))).toMatch(/not a date-time on a whole second/);
     expect(await refusal(verifyDocument('Mandate', { ...mandate(), signature: '0x12' }, domain))).toMatch(/not 65 bytes/);
   });
 
@@ -164,6 +181,62 @@ describe('attacks on verify: each must be refused, naming the reason', () => {
   });
 });
 
+describe('attacks from the red team and the review of PR 552', () => {
+  it('a mandate a key mints for itself verifies as signed, and is refused once the principal is pinned', async () => {
+    const self = privateKeyToAccount(generatePrivateKey());
+    const own = buildMandate({ principal: self.address, agent: agent.address, clubId: 'demo-club', role: 'buyer', maxPerDeal: '999999999999', maxPerDay: '999999999999', token: TOKEN, now: NOW });
+    const doc = { ...own, signature: await signFile(self, fileOf('Mandate', own, domain)) };
+    expect(await refusal(verifyDocument('Mandate', doc, domain, { at: NOW }))).toBeNull();
+    expect(await refusal(verifyDocument('Mandate', doc, domain, { at: NOW, principal: principal.address }))).toMatch(/names principal 0x[0-9a-f]{40}, not the 0x[0-9a-f]{40} you expect/);
+  });
+
+  it('a delegation counts only under its mandate; a revocation that ends the mandate says so', async () => {
+    const d = await signed('Delegation', delegation());
+    expect(await refusal(verifyDocument('Delegation', d, domain, { at: NOW }))).toMatch(/counts only under its mandate/);
+    const m = await signed('Mandate', mandate());
+    const r = await signed('AgentRevocation', buildRevocation({ principal: principal.address, agent: agent.address }));
+    expect((await verifyDocument('AgentRevocation', r, domain, { at: NOW, mandate: m, principal: principal.address })).revokesMandate).toBe(true);
+  });
+
+  it('a revocation with a time past year 9999 is unreadable, never "not revoked"; times with an offset or a zero fraction verify as the same integer', async () => {
+    const r = buildRevocation({ principal: principal.address, agent: agent.address });
+    const file = fileOf('AgentRevocation', r, domain);
+    const huge = { ...file, message: { ...file.message, expiresAt: '18446744073709551615' } };
+    const e = await verifyFile(huge, await signFile(principal, huge), domain, { at: NOW }).then(() => null, (x: unknown) => x);
+    expect(e).toBeInstanceOf(RevocationUnreadable);
+    const offset = { ...r, expiresAt: '2026-12-01T01:00:00+01:00' };
+    const signedOffset = { ...offset, signature: await signFile(principal, fileOf('AgentRevocation', { ...r, expiresAt: '2026-12-01T00:00:00Z' }, domain)) };
+    expect((await verifyDocument('AgentRevocation', signedOffset, domain, { at: NOW })).document.expiresAt).toBe('2026-12-01T00:00:00Z');
+    expect((await verifyDocument('AgentRevocation', { ...signedOffset, expiresAt: '2026-12-01T00:00:00.000Z' }, domain, { at: NOW })).inEffectUntil).toBe('2026-12-01T00:00:00Z');
+  });
+
+  it('a malleable twin of a signature is refused; v as 0 or 1 reads as 27 or 28', async () => {
+    const m = mandate();
+    const sig = await signFile(principal, fileOf('Mandate', m, domain));
+    const n = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+    const s = BigInt(`0x${sig.slice(66, 130)}`), v = parseInt(sig.slice(130), 16);
+    const twin = `${sig.slice(0, 66)}${(n - s).toString(16).padStart(64, '0')}${(v === 27 ? 28 : 27).toString(16)}`;
+    expect(await refusal(verifyDocument('Mandate', { ...m, signature: twin }, domain, { at: NOW }))).toMatch(/high s/);
+    const zero = `${sig.slice(0, 130)}${(v - 27).toString(16).padStart(2, '0')}`;
+    expect((await verifyDocument('Mandate', { ...m, signature: zero }, domain, { at: NOW })).document.signature).toBe(sig);
+  });
+
+  it('a file that names a key twice, or uses __proto__, is refused; verify runs only under a pinned chain', async () => {
+    expect(() => parseStrictJson('{"amount":"999999999999","amount":"10000000"}')).toThrow(/names the key "amount" twice/);
+    expect(() => parseStrictJson('{"a":{"__proto__":{}}}')).toThrow(/__proto__/);
+    expect(parseStrictJson(String.raw`{"a":[1,{"b":"x\\y"}],"c":"}"}`)).toEqual({ a: [1, { b: 'x\\y' }], c: '}' });
+    const m = await signed('Mandate', mandate());
+    expect(await refusal(verifyDocument('Mandate', m, { ...domain, chainId: 1 }, { at: NOW }))).toMatch(/not Holdback 0.8 on Ethereum Sepolia or a local chain/);
+  });
+
+  it('free text reaches the terminal printable only, and a mandate that ends before it is issued is refused', async () => {
+    const m = mandate();
+    const odd = { ...m, scope: { ...m.scope, maxPerCommitment: { token: 'tUSD\u001b[2K', amount: '1' } } };
+    expect(sentenceOf('Mandate', odd)).not.toMatch(/\u001b/);
+    expect(await refusal(verifyDocument('Mandate', { ...m, issuedAt: '2026-11-22T00:00:00Z', signature: await signFile(principal, fileOf('Mandate', m, domain)) }, domain, { at: NOW }))).toMatch(/ends before it is issued/);
+  });
+});
+
 describe('the command line', () => {
   const run = (args: string[], env: Record<string, string> = {}) => {
     const r = spawnSync(process.execPath, [join(here, 'mandate.ts'), ...args], { encoding: 'utf8', env: { PATH: process.env['PATH'] ?? '', ...env } });
@@ -176,7 +249,7 @@ describe('the command line', () => {
     const file = JSON.parse(r.out);
     expect(file.primaryType).toBe('Mandate');
     expect(file.domain).toEqual({ name: 'Holdback', version: '0.8', chainId: SEPOLIA!.chainId, verifyingContract: lc(SEPOLIA!.rules) });
-    const digest = r.err.match(/^digest (0x[0-9a-f]{64}): /)![1];
+    const digest = r.err.match(/^digest (0x[0-9a-f]{64}) /)![1];
     expect(r.err).toContain(`${lc(principal.address)} lets ${lc(agent.address)} act as buyer in club demo-club, at most 10000000 base units (10.000000 tUSDC)`);
     const dir = mkdtempSync(join(tmpdir(), 'mandate-'));
     dirs.push(dir);
@@ -187,6 +260,35 @@ describe('the command line', () => {
     const bad = run(['verify', join(dir, 'm.json'), await signFile(agent, file)]);
     expect(bad.code).toBe(3);
     expect(bad.err).toMatch(/^refusing: the Mandate is signed by/);
+  });
+
+  it('verify --mandate takes the mandate as verify printed it, and --principal pins the principal', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mandate-'));
+    dirs.push(dir);
+    const built = run(['mandate', principal.address, agent.address, 'demo-club', 'buyer', '10000000', '60000000']);
+    writeFileSync(join(dir, 'm.typed.json'), built.out);
+    const printed = run(['verify', join(dir, 'm.typed.json'), await signFile(principal, JSON.parse(built.out)), '--principal', principal.address]);
+    expect(JSON.parse(printed.out)).toMatchObject({ ok: true, principalChecked: true });
+    writeFileSync(join(dir, 'm.verified.json'), printed.out);
+    const del = run(['delegation', principal.address, agent.address, dealKey, ENC, 'demo-club', 'buyer', '10000000', iso(Date.now() + 300_000)]);
+    writeFileSync(join(dir, 'd.typed.json'), del.out);
+    const ok = run(['verify', join(dir, 'd.typed.json'), await signFile(agent, JSON.parse(del.out)), '--mandate', join(dir, 'm.verified.json'), '--principal', principal.address]);
+    expect(ok.code, ok.err).toBe(0);
+    expect(JSON.parse(ok.out)).toMatchObject({ kind: 'Delegation', fitsMandate: true });
+    const without = run(['verify', join(dir, 'd.typed.json'), await signFile(agent, JSON.parse(del.out))]);
+    expect(without.code).toBe(3);
+    const stranger = privateKeyToAccount(generatePrivateKey());
+    const wrong = run(['verify', join(dir, 'm.typed.json'), await signFile(principal, JSON.parse(built.out)), '--principal', stranger.address]);
+    expect(wrong.code).toBe(3);
+  });
+
+  it('takes no key in any spelling: 0X, padded with spaces, or bare', () => {
+    const key = generatePrivateKey();
+    for (const k of [key, key.replace('0x', '0X'), ` ${key} `, key.slice(2)]) {
+      const r = run(['revocation', principal.address, agent.address, '--expires-at', k]);
+      expect(r.code).toBe(3);
+      expect(r.err).not.toContain(key.slice(2));
+    }
   });
 
   it('takes no key: a 32-byte hex argument is refused, and nothing is read from the environment', () => {
