@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "constraintsVersion": "1",
+  "chain": {
+    "network": "sepolia"
+  },
+  "floatAddress": "0x0000000000000000000000000000000000000000",
+  "buying": {
+    "principal": "0x0000000000000000000000000000000000000000",
+    "standingKey": "0x0000000000000000000000000000000000000000",
+    "mandatePath": "mandate.json",
+    "maxPerDeal": "10000000",
+    "maxPerDay": "60000000",
+    "maxOpenDeals": 3,
+    "maxOpenTotal": "30000000",
+    "clubId": "demo-club",
+    "rulebookHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "reviewers": {
+      "adjudicator": "0x0000000000000000000000000000000000000000",
+      "fallbackAdjudicator": "0x0000000000000000000000000000000000000000",
+      "appealAdjudicator": "0x0000000000000000000000000000000000000000",
+      "policyId": "demo-policy",
+      "policyHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "registryHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "fee": "0"
+    },
+    "terms": {
+      "schemaVersion": "0.8",
+      "settlementMode": "guaranteed_on_decision",
+      "onReject": "full_refund",
+      "disclosure": "public",
+      "maxSubmissions": 1,
+      "appealWindowSec": 0,
+      "appealDecideSec": 60
+    },
+    "windows": {
+      "offerExpiresInSec": 300,
+      "fundWithinSec": 600,
+      "deliverWithinSec": 3600,
+      "judgeWithinSec": 3600,
+      "fallbackWithinSec": 3600
+    },
+    "clockSkewSec": 60,
+    "sellers": [
+      {
+        "seller": "0x0000000000000000000000000000000000000000",
+        "payoutAddress": "0x0000000000000000000000000000000000000000",
+        "deliverableHashes": [
+          "0x0000000000000000000000000000000000000000000000000000000000000000"
+        ],
+        "acceptanceHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ]
+  },
+  "reads": {
+    "operators": [
+      "https://api.crow.direct",
+      "https://api2.crow.direct"
+    ]
+  }
+}
