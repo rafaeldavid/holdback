@@ -122,7 +122,7 @@ describe('read-after-write lint rule: the red team bypasses (T-232)', () => {
     expect(await messages(`${head}${read}\n`, `packages/settlement/evm/probe.${ext}`)).not.toEqual([]);
   });
 
-  // Known limits (docs/team.md): the rule sees syntax, not types or values. Each passes lint today; a typed reader that
+  // Known limits: the rule sees syntax, not types or values. Each passes lint today; a typed reader that
   // hides publicClient would close them, and is out of this PR's scope.
   it.each([
     ['a blockNumber that may be undefined at run time', 'chain.publicClient.readContract({ address: "0x", abi: [], functionName: "dealOf", args: [], blockNumber: b });'],

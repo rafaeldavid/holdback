@@ -7,7 +7,7 @@
 - **Roadmap:** N80 ("A delivery with no stored ciphertext can't stall the adjudicator for other deals") and N92 ("The read-after-write attacks run against the phase-one adapter"), both marked "before design partner A's first deal"
 - **Paths this task may touch:** `apps/demo-cloud/` and its tests; the operator's relay and read paths in `packages/settlement/evm/` (`live.ts`, `sync.ts`, `timeouts.ts`, `errors.ts`, `chain.ts`, the read model in `evm-settlement.ts`) and their tests; `tests/read-after-write*.test.ts`; the read-after-write rule in `eslint.config.js`; this file. Never: `contracts/src/`, `spec/schemas/`, `examples/seller-adapter*.ts`.
 - **Human gate:** no for the code. The operators change only with a deploy, which waits for Rafa.
-- **Status:** in progress
+- **Status:** review
 - **Agent/session:** the T-409 session, 2026-11-14, branch `t-409-operator-hardening`, worktree `.worktrees/holdback-T-409`
 
 ## Intent
@@ -66,6 +66,8 @@ All runs on 2026-11-14, on branch `t-409-operator-hardening`, from `origin/main`
   - The three settlement files run in the anvil job's settlement leg, which runs `packages/settlement/evm` and fails on a skip.
   - The lint test runs in the test shards, since `vitest.config.ts` includes `tests/**/*.test.ts`.
 - **Types and lint (measured).** `pnpm typecheck` and `pnpm lint` exit 0 on the branch, with the stricter rule, which covers `apps/*/src`.
+- **The red team's findings as regression tests (measured).** `packages/settlement/evm/t409-redteam.test.ts`: 15 of 15 failed at `9901060`, before the fixes; 16 of 16 pass at the tip. After the fixes: `packages/settlement` and both lint tests, with anvil, pass 23 of 23 files and 362 of 362 tests, 0 skipped. `pnpm typecheck` and `pnpm lint` exit 0. The M1 fix changed two existing expectations (`ff4f9f0`): a direct reclaim now reaches the book at the timeout pass's `WrongStage`, so the next sync finds it already applied (`applied: 0`, not 1). Both tests still assert that nothing is sent and the deal ends Refunded.
+- **The rest of CI's world leg, which the nonce and sync changes reach (measured by the reviewer, before the red-team fixes).** `live.test.ts`, `lanes.test.ts`, `one-world.anvil.test.ts` and `registration.anvil.test.ts` in `apps/demo-cloud/src`: 4 of 4 files and 12 of 12 tests passed. `timeouts.anvil.test.ts`: 2 of 2 tests passed in 292 s.
 
 ## Decisions
 
@@ -90,8 +92,58 @@ All runs on 2026-11-14, on branch `t-409-operator-hardening`, from `origin/main`
 
 ## Review and red team
 
-(filled in after the passes)
+**Reviewer (one pass, 2026-11-14): ISSUES, all Low or Info; nothing blocking.** Its runs are in the Evidence.
+- **Fixed:**
+  - Low 1: the lint test's comment pointed at `docs/team.md` for the rule's known limits, but that doc does not list them. The pointer is gone.
+  - Low 4: the evidence for the other world-leg files is added.
+- **Recorded, not fixed:**
+  - Low 1: `docs/team.md:146` (Rules and checks, "A chain read after a transaction") still says a trailing sync "reads nothing". It also names neither the stricter lint rule nor best-effort answers. That doc is outside this task's paths (Handoff).
+  - Low 2: the lint rule has more syntax bypasses. The red team found them too (L4 below).
+  - Low 3: one nonce case lost its floor. The red team proved it (L3 below), and it is fixed.
+  - Info: `docs/neutrality.md:27` names only the in-memory `neutrality.store-hangs` (Handoff).
+
+**Red team (one pass, 2026-11-14): no Critical or High findings; 1 Medium and 4 Low.** Its probes are in `reports/scratch/t-409/redteam/`.
+- **Fixed, each with a regression test in `packages/settlement/evm/t409-redteam.test.ts`:**
+  - **M1, a sync gap (older than this branch).** One sync pass whose `eth_getLogs` came from a backend more than 3 blocks behind moved the cursor past a direct reclaim. The operator's book then said Held for good, while the chain said Refunded. Now a `WrongStage` answer to a due timeout reads that one deal's transactions from the chain again.
+  - **L2, a missing block read as a revert (older than this branch).** A node's "no such block" answer that carries `data` was read as a contract revert by the timeout check and by the relay's simulation. Now both check for a missing block first. This reverses part of Decision 4.
+  - **L3, a reused nonce on the funding lane (caused by this branch).** A receipt whose block read then failed dropped the funding lane's nonce cache, and the next send on a trailing node reused the mined nonce. Now the cache stays once a receipt is found.
+- **Recorded, not fixed:**
+  - **L1.** The relay check passes a delivery whose URI does not end in its signed hash, and the demo adjudicators read by that tail. Only the seller, who chose the URI, loses (D32). The deal defaults to a refund, and the buyer gets no key. Follow-up: the demo store's reader falls back to the signed hash, or the relay refuses a URI whose tail differs.
+  - **L4.** The lint rule still has 18 syntactic bypasses (casts, `.call` and `.bind`, aliases made by assignment, template members, `null` or `void 0` blocks, `getCode` and `getProof`). The covered files use none of them today [measured by grep]. The rule is a guard against our own mistakes, not a runtime defence. Follow-up: a typed reader that hides `publicClient`.
+- **What held:**
+  - One wrong head does not raise the floor.
+  - An answer to a mined write survives a failed balance read.
+  - A trailing head throws, and nothing depends on the old null.
+  - A hung store costs only its own deal on the contract.
+  - Wrong bytes from a store are refused twice: by the store's hash check and at intake.
+  - A relay refusal is not stored as an idempotent replay.
 
 ## Handoff
 
-(filled in at the end)
+**Done.**
+- N80: T-372 had built all four open items, and they hold on today's `main`. A new anvil test shows a hung store read costing only its own deal on the phase-one contract.
+- N92: every T-232 review-round attack runs against the phase-one adapter in CI; none fails to apply. The three fixes those attacks need, and the lint hardening, are ported.
+- The red team's M1, L2 and L3 are fixed, each with a regression test.
+
+**What an operator deploy changes** (`pnpm demo-cloud:deploy`; both operators). No new variable, secret or contract.
+- The relay answers a mined write even when the balance read after it fails. Before, a retry with the same key was refused `invalid_state`, and the deal's lane stayed blocked.
+- A lane's nonce after a refusal, a give-up or a reorg is read from the chain at the pinned block, not remembered.
+- A sync pass against an RPC that trails this node logs one `demo world:` line instead of skipping silently. Expect more such lines in the Worker log when Sepolia's RPC lags.
+- A due timeout that the contract refuses with `WrongStage` makes the operator read that deal's transactions again. A book that missed a direct transaction then heals. Each such read costs one log scan from the deployment's first block (inferred: a few `eth_getLogs` calls).
+- A node's "no such block" answer is retried and reported as an RPC failure, never as a contract refusal.
+
+**How to check it live, after the deploy** (plain GETs):
+1. The script's own smoke deal (`examples/try.ts`) ends Released within 180 s.
+2. `GET https://api.crow.direct/.well-known/holdback.json` and the same on `api2`: `demo.build.commit` names the deployed commit.
+3. `GET https://api.crow.direct/v1/status`, and the same on `api2`, answers 200.
+
+**Follow-ups not built:**
+- **L1:** the relay check and the demo adjudicators disagree on which hash a delivery's URI names.
+- **L4:** the lint rule's remaining syntactic bypasses (a typed reader would close them).
+- **M1, broader:** the sync cursor still trusts one `eth_getLogs` answer. M1 heals a deal only when a due timeout meets the gap. Reading the logs and the head from the same backend would close it at the source.
+- **The resync's trigger:** it matches the adapter's wording (`FUNDED_ON_CHAIN`); a typed refusal code would remove that dependency.
+- **`docs/team.md:146`:** describe the stricter lint rule, the throwing sync and best-effort answers.
+- **`docs/neutrality.md:27`:** name the on-contract `neutrality.store-hangs`.
+- **The roadmap:** N80's `starts` field still lists items T-372 built; the coordinator owns `roadmap/`.
+
+**How to resume.** Run `pnpm build`, then `pnpm exec vitest run packages/settlement/evm/t409-redteam.test.ts packages/settlement/evm/t232-redteam.test.ts apps/demo-cloud/src/timeouts.anvil.test.ts` with anvil and `contracts/out`.
