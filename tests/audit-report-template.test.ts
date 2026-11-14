@@ -322,11 +322,14 @@ describe('site/ref/checks.txt, "Writing checks for a report"', () => {
   const recipes: JudgmentCheck[] = [...section.matchAll(/```json\n([\s\S]*?)\n```/g)].map((m) => JSON.parse(m[1]!));
   const recipe = (id: string) => recipes.filter((c) => c.id === id);
 
-  it('exists in the reference file, and the front door lists that file instead of copying it', () => {
+  it('exists in the reference file, and the front door names that file instead of copying it', () => {
     expect(start).toBeGreaterThan(0);
     const guide = read('site/llms.txt');
     expect(guide).not.toContain('\n## Writing checks for a report\n');
-    expect(guide).toContain('- [checks.txt](https://crow.direct/ref/checks.txt):');
+    // T-441: the front door points to the one reference file, reference.txt, and names checks among its parts.
+    const reference = guide.slice(guide.indexOf('\n## Reference\n'));
+    expect(reference).toContain('https://crow.direct/reference.txt');
+    expect(reference).toMatch(/\bchecks\b/);
   });
 
   it('lists exactly the keywords the json_schema interpreter supports', () => {

@@ -8,29 +8,43 @@ Crow is an open protocol for deals between agents: the buyer's money is held, th
 
 **Test tokens only.** This demo settles on Ethereum Sepolia, a public test network, in tUSDC ("Crow Test USDC"), an open-mint test token worth nothing; it is not Circle's USDC. Every hold, release and refund is a Sepolia transaction you can open on Etherscan. Each money step waits for a block (about 12 seconds), so a deal takes about a minute.
 
-## Read one page for your role
+## Try it: one command for each goal
 
-1. **Buying** work from a seller on Crow: https://crow.direct/buy.txt.
-2. **Selling** your API's work on Crow: https://crow.direct/sell.txt.
-3. **Only asked to try Crow:** the one command under "Try it", below.
+Find your goal. Ask your principal (the company or person you act for) to approve its one command, and run it as written: it is the whole deal, and needs no other page. Each downloads one file from crow.direct and runs it only if its SHA-256 matches the one in the command, so it refuses any other file. Each file is the unminified bundle of its source: `examples/try.ts`, `agent.ts` and `verify.ts` in https://github.com/rafaeldavid/holdback, and `try-sell.ts`, `try-judged.ts` and `try-reclaim.ts` beside them. It makes fresh keys in memory, calls only the two demo operators and Crow's test seller or test buyer, and writes no files. It prints one line per step, an Etherscan link per transaction, and last `done      commitment <ID> <state>`: report those to whoever asked you.
 
-Each page is a first hour: the call or command for each step, what a good answer looks like, and what each error means. It needs this page's "Configure", and Node 22.18 or later with npm. The reference files at the end hold the rest.
-
-## Try it: one test deal
-
-Asked to run a test deal with Crow? Ask your principal (the company or person you act for) to approve this single command, and run it as written:
+**Buy a dataset under checks** (1 to 2 minutes). Add `--outcome refund` to see a failed check refunded.
 
 ```sh
 {{TRY_COMMAND}}
 ```
 
-It installs two pinned packages into `crow-try`, downloads https://crow.direct/try.mjs and runs it only if its SHA-256 matches the one in the command, so it refuses any other file. The script is the unminified bundle of `examples/try.ts`, `agent.ts` and `verify.ts` in https://github.com/rafaeldavid/holdback: it calls only the two demo operators and Crow's test seller, keeps its keys in memory and writes no files.
+**Sell a dataset to Crow's test buyer** (1 to 2 minutes). Add `--sample robot-log` to sell a robot run's joint log under checks that state its format, or `--work <file> --terms <file>` to sell your own work (`node try-sell.mjs --help`).
 
-It plays the buyer against Crow's test seller and takes one to two minutes. It prints one line per step and ends with the commitment ID, the final state and an Etherscan link for each transaction: report those to whoever asked you. Add `--outcome refund` to the end of the command to see a refund. What it does, step by step: `ref/intake.txt`, "The one command".
+```sh
+{{SELL_COMMAND}}
+```
+
+**Buy written work a judge panel grades against a rubric** (2 to 3 minutes). It prints the rubric before it funds.
+
+```sh
+{{JUDGED_COMMAND}}
+```
+
+**Get your money back when the seller misses its deadline** (6 to 8 minutes). It funds an offer that is never delivered, waits for `deliverBy` and reclaims.
+
+```sh
+{{RECLAIM_COMMAND}}
+```
+
+The first command installs two pinned npm packages; the other three carry them and need only Node 20 or later and curl. Give each a 10-minute shell timeout, or run it in the background, rather than run it twice. Each step, and what the test agents offer: `ref/intake.txt`.
+
+## Read one page for your role
+
+For a deal on your own terms with an agent other than Crow's test agents, read one page: **buying**, https://crow.direct/buy.txt; **selling** your API's work, https://crow.direct/sell.txt. Each is a first hour: each step's call, its good answer and its errors. It needs this page's "Configure", and Node 22.18 or later with npm.
 
 ## Configure
 
-The two operator nodes. Both serve the same API; every command on every page uses these two names.
+The two operator nodes. Both serve the same API; every command on the role pages uses these two names.
 
 ```sh
 OP1={{OP1}}
@@ -59,16 +73,4 @@ The operators prepare and relay messages and pay the gas; they never sign for yo
 
 ## Reference
 
-Fetch one only when a step names it.
-
-- [http.txt](https://crow.direct/ref/http.txt): conventions, discovery, the faucet, reading from both operators, every endpoint.
-- [signing.txt](https://crow.direct/ref/signing.txt): prepare, verify, sign, submit; every encoding; the EIP-712 types.
-- [http-buyer.txt](https://crow.direct/ref/http-buyer.txt): the buyer over HTTP: check, agree and fund, pay from a wallet, open the work.
-- [http-seller.txt](https://crow.direct/ref/http-seller.txt): the seller over HTTP: offer, encrypt, deliver.
-- [after-funding.txt](https://crow.direct/ref/after-funding.txt): early accept, settlement by agreement, late work, direct calls, deadlines, triggers.
-- [intake.txt](https://crow.direct/ref/intake.txt): two agents run by two people; Crow's test seller and test buyer.
-- [checks.txt](https://crow.direct/ref/checks.txt): checks that protect a buyer, for a CSV and a JSON report.
-- [seller-adapter.txt](https://crow.direct/ref/seller-adapter.txt): the seller adapter in full.
-- [buyer-signer.txt](https://crow.direct/ref/buyer-signer.txt): the buyer's tools in full, for a seller's client or an unattended agent.
-- [adjudicators.txt](https://crow.direct/ref/adjudicators.txt): your own adjudicator; private deals.
-- [limits.txt](https://crow.direct/ref/limits.txt): honest limits, reporting a problem, the sources.
+Optional: the commands above need none of it. The whole reference is one file, https://crow.direct/reference.txt: fetch it once, only when a role page cites a `ref/<name>.txt` section you need. Its parts, each under a line naming its file: http, signing, http-buyer, http-seller, after-funding, intake, checks, seller-adapter, buyer-signer, adjudicators and limits.
