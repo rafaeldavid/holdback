@@ -6,7 +6,7 @@
 - **Depends on:** T-391 (the two-agent demo), T-418 (the ontology's words), T-420 (the test seller's live endings)
 - **Paths this task may touch:** `site/demo/index.html`, `tools/duet/replay.ts`, `tools/duet/endings.ts` and `tools/duet/endings.json` (part 2), `tools/duet/scenarios.ts` (one note), `tools/duet/duet.test.ts`, `tools/duet/README.md`, this file. Never: `site/build.mjs`, `site/check.mjs`, `site/footer.ts`, the header, the trust and status pages (T-421), the guides, `site/brand/`, `site/try.mjs`, `site/buy.mjs`.
 - **Human gate:** no for the merge and the site deploy (Rafa's word for the wave of 2026-11-14: merge and deploy when ready). The proposal below was answered by Rafa on 2026-11-14 ("Yes, build it") and built in part 2.
-- **Status:** review (part 2: the three endings, on Rafa's word). Part 1 done: PR 536, merged as `d3ce4cf3`; site deployed 2026-11-14 13:14 UTC
+- **Status:** done. Part 1: PR 536, merged as `d3ce4cf3`, site deployed 2026-11-14 13:14 UTC. Part 2: PR 543, merged as `080920cf`, site deployed 2026-11-14 13:46 UTC
 - **Agent/session:** the T-427 session, 2026-11-14, branches `t-427-demo-refresh` (part 1), `t-427-record`, `t-427-three-endings` (part 2)
 
 ## Intent
@@ -115,10 +115,13 @@ After the fixes: `pnpm exec vitest run tools/duet` 37 of 37; `node site/check.mj
 
 ## Handoff
 
-**Part 1 done; part 2 in review (PR 543).**
+**Done: both parts merged and live.**
 
 - **Merged:** PR 536 as `d3ce4cf3`, by hand, after all 14 checks that ran passed, `check` and `gitleaks` among them (2 contract suites skipped: no contract change).
 - **Site deploy 2026-11-14 13:14 UTC, commit `d3ce4cf` on a detached HEAD: pass.** crow-site `610258b8-a9a7-4761-927a-c44d9f228c6d` (rollback target `b0c3a3d3-448d-40dd-a112-38e0cce332de`). It also carried PR 531 (the buyer guide's shorter wording, `site/buy.txt`, `site/llms.txt`, two `site/ref/` files), merged by another session and not deployed before.
 - **Live checks (plain GETs, 13:15 UTC, measured):** `version.json` reads commit `d3ce4cf3` and version `610258b8…`; `https://crow.direct/demo/` holds each of the six new sentences and no "independent" or "Neither side can take"; `try.mjs` SHA-256 `04ef4434…` and `buy.mjs` `e74ff223…`, both unchanged, so no copy of the try command or the install line handed out stops working.
-- **Part 2 (PR 543):** the three endings, built on Rafa's word. Left: merge, `pnpm site:deploy` from `origin/main`, and a live check that `https://crow.direct/demo/` carries the section with its three cards. To refresh the cards later: change `tools/duet/endings.json` (from each deal's public record), then republish the page; the test fails until `site/demo/index.html` carries the new section.
+- **Part 2 merged:** PR 543 as `080920cf`, by hand, after all 14 checks that ran passed, `check` and `gitleaks` among them.
+- **Site deploy 2026-11-14 13:46 UTC, commit `189b581` on a detached HEAD: pass.** crow-site `79053bf0-9b26-4d00-ad8d-331b87a57253` (rollback target `48891106-bb0d-4992-9f54-8cfd163ea187`, the trust pages' deploy of 13:30 UTC; this one waited out the 15 minutes). It also carried one-line edits to `site/ref/checks.txt`, `site/ref/limits.txt` and `site/ref/seller-adapter.txt` from PRs 538 and 542.
+- **Part 2 live checks (plain GETs, 13:47 UTC, measured):** `version.json` reads commit `189b581a`, version `79053bf0…`; `https://crow.direct/demo/` carries the section with 3 cards, the switch `hidden` in the served HTML and no tab roles until the script runs; the cards read 68 s and 10 test dollars, 31 s and 10 test dollars, 6 min 5 s and 26 test dollars, each linking its record and its transaction; `try.mjs` `04ef4434…` and `buy.mjs` `e74ff223…`, unchanged.
+- **To refresh the cards later:** change `tools/duet/endings.json` from each deal's public record, then put the section into `site/demo/index.html` again (the test fails until the committed page carries what `endings.ts` writes).
 - **Follow-ups, not built:** the share description in `site/footer.ts` could add the refund rule (the footer's lane); review finding 3 (what the page says of who the reviewers are) goes with the proposal.
