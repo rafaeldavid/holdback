@@ -5,7 +5,7 @@
 - **Depends on:** ADR-0037 (Accepted 2026-11-14, D68), T-407
 - **Paths this task may touch:** `examples/seller-adapter.ts`, `examples/seller-adapter-api.ts`, `examples/seller-adapter.test.ts`, `examples/seller-adapter-job-api.test.ts`, this file and the task files T-434 to T-436 (claimed here)
 - **Human gate:** no
-- **Status:** review
+- **Status:** done (PR 551, merged as `bd29e77`)
 - **Agent/session:** the T-407 session, on Rafa's word of 2026-11-14 ("Yes, start both")
 
 ## Intent
