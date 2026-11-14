@@ -21,7 +21,7 @@ import { JOIN_URL } from './drawer.ts';
 import { CARDS, cardTags, FOOTER_CSS, footerHtml } from './footer.ts';
 import { headerBar, kitCss, listRows, sectionHead, TOKENS } from './brand/kit.mjs';
 import { guideFiles, guideSource } from './guides.mjs';
-import { PAGES_CSS, securityTxt, statusPage, trustPage } from './trust.mjs';
+import { PAGES_CSS, securityTxt, statusJson, statusPage, trustPage, trustText } from './trust.mjs';
 
 export const SITE_URL = 'https://crow.direct/';
 /** The path the site is served under ('/' on crow.direct); every link is absolute from it. */
@@ -751,7 +751,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     writeFileSync(here('trust.html'), trustPage({ site: SITE_URL, base: BASE }));
     writeFileSync(here('status.html'), statusPage({ site: SITE_URL, base: BASE }));
     writeFileSync(here('pages.css'), PAGES_CSS);
-    console.log(`wrote site/try.mjs (sha256 ${trySha256()}), site/buy.mjs (sha256 ${buySha256()}), site/index.html, site/home.css, site/home.js, site/404.html, site/trust.html, site/status.html and site/pages.css`);
+    writeFileSync(here('trust.txt'), trustText({ site: SITE_URL }));
+    writeFileSync(here('status.json'), statusJson({ site: SITE_URL }));
+    console.log(`wrote site/try.mjs (sha256 ${trySha256()}), site/buy.mjs (sha256 ${buySha256()}), site/index.html, site/home.css, site/home.js, site/404.html, site/trust.html, site/trust.txt, site/status.html, site/status.json and site/pages.css`);
   } else {
     // Publish exactly the committed bundle, and only while it is current: the sha256 below is of that file.
     if (readFileSync(here('try.mjs'), 'utf8') !== bundle) throw new Error('site/try.mjs is stale against examples/: run node site/build.mjs, commit, then publish');
@@ -769,6 +771,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     writeFileSync(join(out, 'trust.html'), trustPage({ site: SITE_URL, base: BASE }));
     writeFileSync(join(out, 'status.html'), statusPage({ site: SITE_URL, base: BASE }));
     writeFileSync(join(out, 'pages.css'), PAGES_CSS);
+    writeFileSync(join(out, 'trust.txt'), trustText({ site: SITE_URL }));
+    writeFileSync(join(out, 'status.json'), statusJson({ site: SITE_URL }));
     writeFileSync(join(out, 'security.txt'), securityTxt(new Date(), SITE_URL));
     writeFileSync(join(out, 'try.mjs'), readFileSync(here('try.mjs')));
     writeFileSync(join(out, 'buy.mjs'), readFileSync(here('buy.mjs')));

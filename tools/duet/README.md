@@ -134,6 +134,8 @@ The published page differs from the local one in two ways:
 
 The record's secret list has already been applied to everything on the page.
 
+**Three ways a deal ends.** Under the player, the page shows three live test deals on Sepolia, one per ending: the work passes, the work fails, the seller goes silent (T-427). `endings.ts` writes the section; its deals, times, amounts and transactions are in `endings.json`, taken from each deal's public record on the live API, so a refresh is a change of that file and one publish. The seconds on the cards are computed from the record's own times. Without scripts the three cards stack; with scripts a switch shows one at a time.
+
 The early-access controls open the site's sign-up pop-up (`site/drawer.ts`) when scripts run, and fall back to that link when they do not.
 
 ## The demo page, for engineers
@@ -154,8 +156,8 @@ pnpm duet publish reports/scratch/duet/<the run folder>
 
 | On the page | In the protocol |
 | --- | --- |
-| the held payment | the escrow hold |
-| the independent reviewer | the adjudicator |
+| the payment hold, the held payment | the hold in the escrow contract |
+| the reviewer both sides chose | the adjudicator |
 | the agreed checks | the terms' deterministic checks |
 | signed | an EIP-712 signature |
 | the report unlocking | the content key released with the payment |

@@ -1,6 +1,6 @@
 # ADR-0038: A mandate is a permission others check; a spending limit lives with the money
 
-- **Status:** Proposed, 2026-11-14 (D69). Adopted by T-415 under the repository's autonomy rule; Rafa may overrule any line. Nothing here is built.
+- **Status:** Proposed, 2026-11-14 (D69). Adopted by T-415 under the repository's autonomy rule; Rafa answered its seven questions on 2026-11-14 ("Not decided here"). Nothing here is built.
 - **Raised by:** T-415. Enterprise-readiness research on 2026-11-13 (kept privately, `docs/private-materials.md`) found four gaps between what a mandate says and what stops an agent. Rafa asked on 2026-11-14 for the work that is ready. Research: this note (code read at the commit below; nothing run), a research pass by a second agent at the highest effort, a dated check of outside standards, and one reviewer pass (last section).
 - **Builds on:** ADR-0001 (neutrality), ADR-0002 (the hold), ADR-0015 (user choice), ADR-0017 (the mandate is the standing approval), ADR-0024 section 7 (per-deal keys and the `Delegation`), ADR-0031 (the phase-one contracts; contract signers stay), ADR-0033 (the payment address); D22, D26, D31, D32, D35.
 - **Amends:** no ADR. It records that two checks ADR-0024 section 7 names are not built (section 1), and it lists the standing texts that describe the bound on a loss differently (the build's step 1).
@@ -297,6 +297,18 @@ Questions only Rafa can answer:
 5. **Should a later contract version offer an on-chain revocation as an opt-in?** It is the one part an enterprise may ask for that the wallet cannot give: a stop that binds a counterparty that does not check.
 6. **May the guide name wallet products?** The table in section 1 is useful with examples of a policy service and a smart account. Naming one is a recommendation Crow would stand behind.
 7. **For counsel: who bears the loss when a revoked agent deals with a counterparty that did not check?** The guide's sentence on revocation has legal weight.
+
+**Rafa's answers (Rafa, 2026-11-14; D69):**
+
+1. **Optional in an open club.** A signed company permission is optional in an open club unless the club's rulebook requires it. Steps 4 and 5 are built for the companies and clubs that use one.
+2. **The hard rule is reworded** to what is enforced: settlement checks the signature; the operators and the counterparty check the permission; the adjudicator's check is planned. `CLAUDE.md` changed with this answer.
+3. **Step 3 waits.** The mandate checks move to the relay layer only after the pilot's first deal, and the contracts partner is asked first. Recorded as a deferred step; no code now.
+4. **`maxDaily` leaves with `categories`,** both in one schema version. The schema change is a later task through the ADR and version-bump rule (roadmap row N132).
+5. **No on-chain switch-off is scheduled.** The contract-wallet path (step 2) comes first; revisit on a real enterprise request.
+6. **The guide names kinds of wallet and standards only.** Later it may name a product that Crow's own agents have run, with the test that shows it.
+7. **The guide states facts only.** The loss question goes on the counsel list (roadmap row N113). Later the parties may set it in their terms.
+
+**Follow-up, the research's gap:** a test where the paying wallet refuses an over-limit funding (roadmap row N133).
 
 ## How others carry the same ideas
 

@@ -5,8 +5,10 @@
 //
 //   node apps/test-agents/scripts/play-offers.ts [--offer <id>]... [--seller <intake URL>]
 //
-// Without --offer it plays all four, one after another. Each uses one faucet grant and one of the test seller's
-// requests (3 an hour per IP address); the judged offers use one panel each of the demo's daily live judge calls.
+// Without --offer it plays all four, one after another, with one buyer: one faucet grant (retried while the faucet
+// limits this client) pays for every deal. Each deal uses one of the test seller's requests (3 an hour per IP
+// address: a fourth in the same hour gets a 429 and is reported as failed, so play it with --offer after the hour).
+// The judged offers use one or two panels each of the demo's daily live judge calls.
 import nacl from 'tweetnacl';
 import type { Hex } from 'viem';
 import { generatePrivateKey } from 'viem/accounts';
@@ -37,17 +39,33 @@ async function until(agent: Agent, id: Hex, states: string[], timeoutMs: number)
   throw new Error(`${id} still ${seen.map((s) => s.escrowState).join(' / ')} after ${timeoutMs / 1000} s, waiting for ${states.join(' or ')}`);
 }
 
-async function play(offerId: string): Promise<J> {
+/**
+ * One fresh buyer for the run, funded once by the faucet. A grant refused for this client's rate is retried every 60 s
+ * for 30 minutes; one refused because the day's mints are spent is not, since none come back before midnight UTC.
+ */
+async function freshBuyer(): Promise<Agent> {
+  const reader = new Agent(OPERATORS, generatePrivateKey(), nacl.randomBytes(32));
+  const found = await reader.trusted('/.well-known/holdback.json', (x) => ({ domain: x.domain }));
+  const pin = knownPins().find((p) => jcs(p.domain).toLowerCase() === jcs(found.domain).toLowerCase());
+  if (!pin) throw new Error(`the operators serve EIP-712 domain ${jcs(found.domain)}, which this script does not pin`);
+  const buyer = new Agent(OPERATORS, generatePrivateKey(), nacl.randomBytes(32), pin.domain, pin.chain);
+  for (const end = Date.now() + 30 * 60_000; ; await sleep(60_000)) {
+    try {
+      await buyer.call('POST', '/v1/faucet', { address: buyer.address });
+      return buyer;
+    } catch (e) {
+      const why = (e as Error).message;
+      if (!/rate_limited/.test(why) || /mints for today/.test(why) || Date.now() > end) throw e;
+      console.error(`the faucet limits this client; trying again in 60 s`);
+    }
+  }
+}
+
+async function play(buyer: Agent, offerId: string): Promise<J> {
   const t0 = Date.now();
   const card = await get(`${SELLER}/agent.json`);
   const offer = card.offers?.find((o: J) => o.id === offerId);
   if (!offer) throw new Error(`the card lists no offer ${offerId}; it lists ${card.offers?.map((o: J) => o.id).join(', ')}`);
-  const reader = new Agent(OPERATORS, generatePrivateKey(), nacl.randomBytes(32));
-  const found = await reader.trusted('/.well-known/holdback.json', (x) => ({ domain: x.domain, adjudicators: x.demo?.adjudicators }));
-  const pin = knownPins().find((p) => jcs(p.domain).toLowerCase() === jcs(found.domain).toLowerCase());
-  if (!pin) throw new Error(`the operators serve EIP-712 domain ${jcs(found.domain)}, which this script does not pin`);
-  const buyer = new Agent(OPERATORS, generatePrivateKey(), nacl.randomBytes(32), pin.domain, pin.chain);
-  await buyer.call('POST', '/v1/faucet', { address: buyer.address });
 
   const proposal = { type: 'crow-proposal', buyer: buyer.address, buyerEncryptionPublicKey: buyer.encryptionPublicKey, offer: offerId, want: offer.ends, budget: { ...offer.terms.price, covers: 'price' }, terms: offer.terms };
   const key = crypto.getRandomValues(new Uint8Array(32));
@@ -109,10 +127,11 @@ async function play(offerId: string): Promise<J> {
 const wanted = opt('--offer');
 const card = await get(`${SELLER}/agent.json`);
 const ids: string[] = wanted.length ? wanted : card.offers.map((o: J) => o.id);
+const buyer = await freshBuyer();
 let failed = 0;
 for (const offerId of ids) {
   try {
-    console.log(JSON.stringify(await play(offerId)));
+    console.log(JSON.stringify(await play(buyer, offerId)));
   } catch (e) {
     failed++;
     console.log(JSON.stringify({ offer: offerId, error: (e as Error).message }));

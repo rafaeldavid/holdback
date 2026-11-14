@@ -199,7 +199,7 @@ describe('examples/audit-deal.ts', () => {
 });
 
 describe('examples/audit-deal.ts with a seller\'s own report and terms (T-326)', () => {
-  // The world's faucet grants 10 times per client per hour of world time, and each deal takes 2 grants. This world's
+  // The world's faucet grants 50 times per client per hour of world time, and each deal takes 2 grants. This world's
   // clock is the test's, so each test starts a fresh window.
   beforeEach(() => world.advanceClock(3601));
   it('released: a two-file report under its own terms, 1,234.56 tUSD and a 2-day window, ends Released and the buyer opens the exact bytes', async () => {
