@@ -5,7 +5,7 @@
 - **Depends on:** T-412 (the benchmark harness, its six live records of 2026-11-14)
 - **Paths this task may touch:** `tools/one-click/bench.mjs`, `tools/one-click/bench-live.mjs`, `tools/one-click/bench-record.mjs`, `tools/one-click/README.md`, `scripts/metrics/one-click-summary.mjs`, `scripts/metrics/schemas/one-click*.schema.json`, `tests/metrics/one-click*`, this file
 - **Human gate:** yes for the live runs only (Rafa's key and Sepolia test funds), as in T-412
-- **Status:** review
+- **Status:** done (PR 563, merged 2026-11-14; the console reads both modes since crow-private PR 75)
 - **Agent/session:** the session that landed T-412's live records, branch `t-441-bench-sandbox-auto`
 - **Roadmap row:** B1
 - **Change kind:** 4 (tool code with its tests): the metrics tests, `pnpm typecheck`, `pnpm lint`; one `reviewer` pass. It touches how the harness keeps the agent key from the agent, so the review asks the secrets questions by name.
@@ -104,6 +104,6 @@ node tools/one-click/bench.mjs --scenario s6 --live --permissions sandbox-auto -
 
 The records land in `reports/scratch/one-click-bench/live-sandbox-auto/`.
 
-**Waits for the console** (crow-private `control/bench.mjs`). Today the console's reader ignores `agent.permissions`, so a `sandbox-auto` record in `control/metrics/bench/` would join the prompt-mode medians. Commit none there until the console reads the field. The same session is making that change, with each mode's numbers, their history by run date and a copy-prompt button.
+**The console** (crow-private PR 75) reads `agent.permissions`. It keeps its four numbers and the Steering measures on the prompt mode and shows `sandbox-auto` as a second set of rows. It also shows the medians by run date, the date the next run is due (4 days after the last), and a **Copy prompt: run the benchmark** button. The button copies crow-private `control/bench-prompt.txt`, which runs both modes and lands the records. The rows and the button reach readers with the next Worker deploy (Rafa's).
 
 **Open:** whether the Steering target for approvals should move to `sandbox-auto` once both modes have records (Rafa's call).
