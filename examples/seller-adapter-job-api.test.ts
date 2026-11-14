@@ -307,6 +307,27 @@ describe('seller adapter, a job API of another shape (T-366): answers', () => {
     expect(stub.requests.map((r) => r.path)).toEqual(['/api/v2/moved']);
   });
 
+  it('prices a quote that counts units, such as credits, at a fixed price per unit (T-406)', async () => {
+    const answers: J[] = [{ quoted_price: 500, admission_charge: 0 }, { quoted_price: '7' }, { quoted_price: 1.5 }, { quoted_price: -3 }, {}];
+    const server = createServer((_req, res) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(answers.shift())));
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const b = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
+    const call = (quote: J) => client({ baseUrl: b, quote: { path: 'q', ...quote }, start: { path: 's' }, result: { path: 'jobs/{{jobId}}' } });
+    try {
+      const api = call({ read: { units: '/quoted_price' }, unitPrice: '1500000' }); // 1.50 of a 6-decimal token a unit
+      expect(api.describe).toContain('a quote prices /quoted_price units at 1500000 base units each');
+      expect((await api.quote({ scope: SCOPE })).price).toEqual({ token: undefined, amount: '750000000' }); // 500 units: 750.00
+      expect((await api.quote({ scope: SCOPE })).price.amount).toBe('10500000'); // a count written as text: 7 units
+      for (const bad of ['1.5', '-3', 'undefined']) await expect(api.quote({ scope: SCOPE }), bad).rejects.toThrow('the quote\'s /quoted_price is not a whole number of units');
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+    expect(() => call({ unitPrice: '1500000' })).toThrow('sellerApi.quote.unitPrice needs sellerApi.quote.read.units');
+    expect(() => call({ read: { units: '/quoted_price' } })).toThrow('sellerApi.quote.read.units needs sellerApi.quote.unitPrice');
+    expect(() => call({ read: { units: '/quoted_price', amount: '/price' }, unitPrice: '1500000' })).toThrow('sellerApi.quote.read takes units or amount, not both');
+    for (const p of ['1.5', '-1', '01', 1500000]) expect(() => call({ read: { units: '/quoted_price' }, unitPrice: p }), String(p)).toThrow('sellerApi.quote.unitPrice must be base units as a decimal string');
+  });
+
   it('reads the job state by HTTP status when the configuration says so', async () => {
     const codes = [202, 202, 410];
     const server = createServer((_req, res) => res.writeHead(codes.shift() ?? 200, { 'content-type': 'application/json' }).end('{"ok": true}'));
