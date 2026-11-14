@@ -19,11 +19,11 @@ This task adds an opt-in events file: one JSON line per event, with times and du
 
 | `type` | Fields | When |
 | --- | --- | --- |
-| `quote.answered` | `commitmentId`, `ms` | A quote became an offer, or a replay of one |
-| `quote.refused` | `status`, `reason` (the problem type), `ms` | The adapter refused a quote |
+| `quote.answered` | `commitmentId`, `ms`, `replayed` | A quote became an offer; `replayed` true when the same Idempotency-Key and body answered before |
+| `quote.refused` | `status`, `reason` (the problem type), `ms` | The adapter refused a quote, the credential and rate-limit refusals included |
 | `deal.offered` | `commitmentId`, `price` (token and base units), `units` (when priced per unit), `deliverWithinSec`, `sellerApiQuoteMs` | The offer is signed and journaled |
 | `deal.stage` | `commitmentId`, `stage`, `from`, `secSinceOffered`, `secSincePrevious`; `startAttempts` on `started`; `refusals` on `refused`, `delivered`, `closed` | A deal reaches a new stage |
-| `job.status` | `commitmentId`, `status` (the API's value, such as `queued`), `secSinceStarted` | The job reports a new status value |
+| `job.status` | `commitmentId`, `status` (the API's value, such as `queued`, one of the configured running values), `secSinceStarted` | The job reports a new status value; only when its state is read by a field |
 | `job.done` | `commitmentId`, `secSinceStarted`, `bytes` | The job's result arrives |
 | `delivery.refused` | `commitmentId`, `attempt`, `failedChecks` (IDs), `refusedCode` | The seller's check run refuses a result |
 
@@ -43,7 +43,8 @@ Measured on 2026-11-14 in the worktree `.worktrees/t-409-events`, cut from `orig
 - **End to end** (`examples/seller-adapter-job-api.test.ts`, "a funded deal starts one job…"): the file starts with `deal.offered` and `quote.answered` and holds `starting`, `started`, `job.status` `queued` before `running`, `job.done`, `delivering` and `delivered`; `deal.offered` carries the price in base units and `deliverWithinSec` 172,800; `delivered` carries `secSinceOffered`, `secSincePrevious` and `refusals` 0. The credential, the buyer's address in both cases, the scope's target, the report's text and a proof file's content are each absent from the file. The journal's `times` hold `offered`, `starting`, `started`, `jobDone`, `delivering` and `delivered`.
 - **A refused quote:** `quote.refused` with `status` 400 and `reason` `invalid_request`; the request's scope and address are absent.
 - **A refused delivery** (`examples/seller-adapter.test.ts`, the alert test): `delivery.refused` with `attempt` 1 and `failedChecks` `["coverage"]`.
-- **Tests.** The whole `examples/` suite: 34 files, 420 tests passed, 24 skipped. `tsc -b examples` exit 0; `eslint` on the changed files prints nothing. `node site/check.mjs` passed; no bundle changed.
+- **After the review (one reviewer: six minor points, none on privacy; all fixed).** A replayed quote is marked `replayed: true` (a test posts one key twice: `false`, then `true`); credential and rate-limit refusals are counted (a test: 401 gives `quote.refused` with `unauthorized`); `events` must be a file path (`1` is refused at load); a file in a missing folder logs one line and two quotes still answer 200 (test); the new status and completion records no longer repeat the stage's log line; the guide names the schema, the clock, the field-only status events and that the file holds commitment IDs and prices.
+- **Tests.** The whole `examples/` suite: 34 files, 421 tests passed, 24 skipped. `tsc -b examples` exit 0; `eslint` on the changed files prints nothing. `node site/check.mjs` passed; no bundle changed.
 
 ## Handoff
 

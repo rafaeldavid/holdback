@@ -177,6 +177,36 @@ describe('seller adapter, a job API of another shape (T-366): deals', () => {
     for (const secret of ['secret-target', '0x00000000000000000000000000000000000000aa']) expect(text).not.toContain(secret);
   }, 30_000);
 
+  it('a replayed quote is marked, a refused credential is counted, and an unwritable file never stops the adapter (T-417)', async () => {
+    const here = await startJobStub({ key: KEY });
+    stub = here;
+    const events = join(mkdtempSync(join(tmpdir(), 't417-')), 'events.jsonl');
+    const { running } = await adapter(configFile(here.base, { events }));
+    const buyer = agent('buyer-2');
+    const body = JSON.stringify({ buyer: buyer.address, buyerEncryptionPublicKey: buyer.encryptionPublicKey, scope: SCOPE });
+    const post = () => fetch(`${running.url}/quote`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'k-t417' }, body });
+    expect((await post()).status).toBe(200);
+    expect((await post()).status).toBe(200);
+    const answered = readFileSync(events, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.type === 'quote.answered');
+    expect(answered.map((e) => e.replayed)).toEqual([false, true]);
+
+    // A quote route with a credential: a refusal there is counted too.
+    const guarded = join(mkdtempSync(join(tmpdir(), 't417-')), 'events.jsonl');
+    const lines: string[] = [];
+    const g = await startSellerAdapter({ ...loadConfig(configFile(here.base, { events: guarded, quoteAuth: { kind: 'bearer', env: 'QUOTE_CREDENTIALS' } })), log: (l) => lines.push(l) }, { HOLDBACK_KEY: acct('seller-1').privateKey, HOLDBACK_OPERATORS: world.info.operators.join(','), JOBS_API_KEY: KEY, QUOTE_CREDENTIALS: 'q-1' });
+    adapters.push(g);
+    expect((await fetch(`${g.url}/quote`, { method: 'POST', headers: { 'content-type': 'application/json' }, body })).status).toBe(401);
+    expect(JSON.parse(readFileSync(guarded, 'utf8').trim())).toMatchObject({ type: 'quote.refused', status: 401, reason: 'unauthorized' });
+
+    // A file in a folder that does not exist: one log line, and quotes still answer.
+    const broken: string[] = [];
+    const b = await startSellerAdapter({ ...loadConfig(configFile(here.base, { events: join(tmpdir(), 't417-missing-folder', 'events.jsonl') })), log: (l) => broken.push(l) }, { HOLDBACK_KEY: acct('seller-1').privateKey, HOLDBACK_OPERATORS: world.info.operators.join(','), JOBS_API_KEY: KEY });
+    adapters.push(b);
+    for (const key of ['k-b1', 'k-b2']) expect((await fetch(`${b.url}/quote`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': key }, body })).status).toBe(200);
+    expect(broken.filter((l) => l.includes('Events: cannot write'))).toHaveLength(1);
+    expect(() => loadConfig(configFile(here.base, { events: 1 }))).toThrow('events must be a file path');
+  }, 30_000);
+
   it('a start whose answer is lost, then a restart, starts one job under the same key and delivers once', async () => {
     stub = await startJobStub({ key: KEY, failFirstStart: true, readsUntilComplete: 0 });
     const file = configFile(stub.base);

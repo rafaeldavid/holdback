@@ -309,6 +309,7 @@ export function loadConfig(file: string): SellerAdapterConfig {
   if (f.port !== undefined && !(wholeAtLeast(f.port, 0) && f.port <= 65_535)) throw new Error(`${file}: port must be a whole number from 0 to 65535`);
   if (f.pollMs !== undefined && !wholeAtLeast(f.pollMs, 1)) throw new Error(`${file}: pollMs must be a positive whole number of milliseconds`);
   if (f.journal !== undefined && (typeof f.journal !== 'string' || f.journal === '')) throw new Error(`${file}: journal must be a file path`);
+  if (f.events !== undefined && (typeof f.events !== 'string' || f.events === '')) throw new Error(`${file}: events must be a file path`);
   if (own && Array.isArray(f.termsRules) && f.termsRules.some((r: J) => r?.rubric === true)) {
     // A rule that adds the optional rubric needs a template that holds one: refuse the file, not a buyer's quote.
     let t: J;
@@ -798,7 +799,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   // ---- Events (T-417): one JSON line each, for the seller's product metrics; never content, keys or identities ----
   let eventsBroken = false;
   const emit = (type: string, fields: Record<string, unknown>) => {
-    if (c.events === undefined) return;
+    if (typeof c.events !== 'string' || c.events === '') return;
     try {
       appendFileSync(c.events, `${JSON.stringify({ schema: 'crow.seller-adapter.event/1', at: new Date().toISOString(), type, ...fields })}\n`);
     } catch (e) {
@@ -996,7 +997,8 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   }
 
   const inFlight = new Map<string, { bodyHash: string; answer: Promise<J> }>();
-  async function quote(req: IncomingMessage): Promise<J> {
+  /** `replayed`: the same Idempotency-Key and body answered before, so the answer is the stored one (T-417). */
+  async function quote(req: IncomingMessage): Promise<{ answer: J; replayed: boolean }> {
     const body = await readJson(req);
     const { buyer, buyerEncryptionPublicKey, buyerPaymentAddress, scope, options } = body ?? {};
     if (typeof buyer !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(buyer)) throw new Refused(400, 'invalid_request', 'buyer must be an address: 0x and 40 hex characters');
@@ -1006,19 +1008,19 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     const wrong = fieldsError('scope', scope, c.scope) ?? (options === undefined ? null : fieldsError('options', options, c.options ?? {}));
     if (wrong) throw new Refused(400, 'invalid_request', wrong);
     const idempotencyKey = req.headers['idempotency-key'];
-    if (idempotencyKey === undefined) return offerFor(buyer.toLowerCase(), buyerEncryptionPublicKey, paying, scope, options);
+    if (idempotencyKey === undefined) return { answer: await offerFor(buyer.toLowerCase(), buyerEncryptionPublicKey, paying, scope, options), replayed: false };
     // The same key with the same body replays the answer; with another body it is a conflict.
     if (typeof idempotencyKey !== 'string' || !/^[\x21-\x7e]{1,200}$/.test(idempotencyKey)) throw new Refused(400, 'invalid_request', 'Idempotency-Key must be 1 to 200 printable characters');
     const bodyHash = createHash('sha256').update(jcs({ buyer: buyer.toLowerCase(), buyerEncryptionPublicKey, ...(paying === undefined ? {} : { buyerPaymentAddress: paying }), scope, ...(options === undefined ? {} : { options }) })).digest('hex');
     const seen = journal.quotes[idempotencyKey] ?? inFlight.get(idempotencyKey);
     if (seen && seen.bodyHash !== bodyHash) throw new Refused(409, 'idempotency_conflict', 'this Idempotency-Key was used with another request');
-    if (seen) return seen.answer;
+    if (seen) return { answer: await seen.answer, replayed: true };
     const answer = offerFor(buyer.toLowerCase(), buyerEncryptionPublicKey, paying, scope, options);
     inFlight.set(idempotencyKey, { bodyHash, answer });
     try {
       journal.quotes[idempotencyKey] = { bodyHash, answer: await answer };
       save();
-      return await answer;
+      return { answer: await answer, replayed: false };
     } finally {
       inFlight.delete(idempotencyKey);
     }
@@ -1100,7 +1102,8 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
         // The job still runs. A new status value (`queued`, then `running`) is an event: the queue's time shows.
         if (job.status !== undefined && job.status !== deal.jobStatus) {
           const now = new Date().toISOString();
-          record(deal, { jobStatus: job.status });
+          deal.jobStatus = job.status;
+          save();
           emit('job.status', { commitmentId: id, status: job.status, secSinceStarted: secBetween(deal.times?.started, now) });
         }
         return;
@@ -1114,7 +1117,8 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
       const result = job.bytes;
       if (deal.times?.jobDone === undefined) {
         const now = new Date().toISOString();
-        record(deal, { times: { ...deal.times, jobDone: now } });
+        deal.times = { ...deal.times, jobDone: now };
+        save();
         emit('job.done', { commitmentId: id, secSinceStarted: secBetween(deal.times?.started, now), bytes: result.length });
       }
       const resultSha256 = createHash('sha256').update(result).digest('hex');
@@ -1332,12 +1336,13 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     const refused = admit(req); // the rate limit and the credential, before the body is read
     if (refused) {
       req.resume();
+      emit('quote.refused', { status: refused.status, reason: refused.type, ms: 0 });
       return void send(refused.status, { type: refused.type, detail: refused.message }, refused.headers);
     }
     const asked = Date.now();
     quote(req).then(
-      (answer) => {
-        emit('quote.answered', { commitmentId: answer.commitmentId, ms: Date.now() - asked });
+      ({ answer, replayed }) => {
+        emit('quote.answered', { commitmentId: answer.commitmentId, ms: Date.now() - asked, replayed });
         return send(200, answer);
       },
       (e: Error) => {
