@@ -1,6 +1,5 @@
 # T-438: the mandate tool
 
-- **Roadmap row:** N131
 - **Lane:** demo (Crow's own agents, roadmap row N131, build row 2)
 - **Phase:** 2
 - **Depends on:** ADR-0038 and D69 (Rafa's answers of 2026-11-14); the own-agents design in crow-private (`company-ops/own-agents/design.md`, decisions 1 to 6 taken by Rafa on 2026-11-14)
@@ -8,6 +7,7 @@
 - **Human gate:** no (nothing is deployed by this task; the site deploy after merge follows the wave's "merge and deploy when ready" rule)
 - **Status:** review
 - **Agent/session:** own-agents build session, started by the coordinator on 2026-11-14 ("Yes, start both")
+- **Roadmap row:** N131
 
 ## Intent
 

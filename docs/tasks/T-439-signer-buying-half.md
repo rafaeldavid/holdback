@@ -1,6 +1,5 @@
 # T-439: Crow's signer, the buying half
 
-- **Roadmap row:** N131
 - **Lane:** demo (Crow's own agents, roadmap row N131, build row 3)
 - **Phase:** 2
 - **Depends on:** T-438 (the mandate tool: the signer verifies its mandate and revocations with it); the own-agents design and its constraints, version 1, in crow-private (`company-ops/own-agents/design.md`, `constraints.md`; Rafa's decisions 1 to 6 of 2026-11-14)
@@ -8,6 +7,7 @@
 - **Human gate:** no. Nothing is deployed and no real key exists; Rafa makes the keys and the machines (design, "Actions only you can take")
 - **Status:** review
 - **Agent/session:** own-agents build session, started by the coordinator on 2026-11-14 ("Yes, start both")
+- **Roadmap row:** N131
 
 ## Intent
 
