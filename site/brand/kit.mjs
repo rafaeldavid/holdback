@@ -43,9 +43,20 @@ export const iconBytes = (name) => {
   if (!ICON_FILES.includes(name)) throw new Error(`the kit has no icon file "${name}"`);
   return readFileSync(new URL(`./icons/${name}`, import.meta.url));
 };
+/**
+ * The icon-like <link> tags in a page's <head>, as written: any <link> whose rel names icon, apple-touch-icon, mask-icon
+ * or manifest, whatever the attribute order, quotes or case. The build removes them from a page kept as it was made;
+ * the site's check compares them with iconLinks().
+ */
+export function iconTags(html) {
+  const end = html.search(/<\/head>/i);
+  const head = end < 0 ? html : html.slice(0, end);
+  const rel = (tag) => (/\srel\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(tag) ?? []).slice(1).find((v) => v !== undefined) ?? '';
+  return [...head.matchAll(/<link\b[^>]*>/gi)].map((m) => m[0]).filter((tag) => rel(tag).toLowerCase().split(/\s+/).some((t) => ['icon', 'apple-touch-icon', 'mask-icon', 'manifest'].includes(t)));
+}
 /** The icon links for a page's <head>, with `base` the path the icon files are served under ("/" by default). */
 export const iconLinks = ({ base = '/' } = {}) => [
-  `<link rel="icon" href="${esc(base)}favicon.ico" sizes="48x48">`,
+  `<link rel="icon" href="${esc(base)}favicon.ico" sizes="32x32">`,
   `<link rel="icon" type="image/svg+xml" href="${esc(base)}favicon.svg">`,
   `<link rel="icon" type="image/png" sizes="32x32" href="${esc(base)}favicon-32.png">`,
   `<link rel="icon" type="image/png" sizes="16x16" href="${esc(base)}favicon-16.png">`,

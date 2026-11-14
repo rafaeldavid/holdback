@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { rolldown } from 'rolldown';
 import { JOIN_URL } from './drawer.ts';
 import { CARDS, cardTags, FOOTER_CSS, footerHtml } from './footer.ts';
-import { headerBar, ICON_FILES, iconBytes, iconLinks, kitCss, listRows, sectionHead, TOKENS } from './brand/kit.mjs';
+import { headerBar, ICON_FILES, iconBytes, iconLinks, iconTags, kitCss, listRows, sectionHead, TOKENS } from './brand/kit.mjs';
 import { guideFiles, guideSource } from './guides.mjs';
 import { PAGES_CSS, securityTxt, statusJson, statusPage, trustPage, trustText } from './trust.mjs';
 
@@ -511,7 +511,8 @@ export const FAVICON_LINKS = iconLinks({ base: BASE });
 export function withIcons(html) {
   const at = html.indexOf('</head>');
   if (at < 0) throw new Error('withIcons: the page has no </head>');
-  const head = html.slice(0, at).replace(/<link rel="(?:icon|shortcut icon|apple-touch-icon|manifest)"[^>]*>\n?/g, '');
+  let head = html.slice(0, at);
+  for (const tag of iconTags(html)) head = head.includes(`${tag}\n`) ? head.replace(`${tag}\n`, '') : head.replace(tag, '');
   return `${head}${FAVICON_LINKS}\n${html.slice(at)}`;
 }
 

@@ -8,6 +8,7 @@ export declare function markDataUri(): string;
 export declare const ICON_FILES: readonly string[];
 export declare function iconBytes(name: string): Buffer;
 export declare function iconLinks(o?: { base?: string }): string;
+export declare function iconTags(html: string): string[];
 export declare function icon(name: 'chevron' | 'close'): string;
 type Link = [href: string, label: string];
 export declare function headerBar(o: { home: string; name?: string; links?: Link[]; button?: { label: string; href: string } }): string;

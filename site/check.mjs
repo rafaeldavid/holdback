@@ -41,6 +41,8 @@
 //    carries its five fields with an Expires less than a year away, and the new pages use none of the refused words.
 // 17. The favicon (T-428): every HTML page the build writes carries the brand kit's icon links in its head and no other
 //    icon link, the kit's icon files are current against the mark, and a publish build serves each at the site's root.
+//    Without a publish build it checks the pages it knows by name; with one (site/deploy.mjs builds before it checks),
+//    every .html file the build wrote, so a page added to the publish step alone is caught at the latest at deploy.
 // 12. The budget (T-393): each role's first-deal path, the front door plus its page, is within FIRST_DEAL_BUDGET
 //    (site/guides.mjs). With HOLDBACK_AGENT_ANTHROPIC_API_KEY set it counts with Anthropic's count_tokens for the
 //    pinned model; without it, bytes divided by four. It says which.
@@ -348,8 +350,9 @@ for (const [p, text] of filledGuides) if (!nonAscii(guides.get(p) ?? '').length)
 // The sources of the home page, the 404 and problem pages, the footer, the early-access dialog and the demo page, and
 // the kit's own components.css, write none: they read the tokens. Nothing is allow-listed today; an entry needs its
 // reason beside it. site/visualdemo/ and site/og.html (the share image's source, drawn once by hand) are not read here.
-const KIT_READERS = ['build.mjs', 'footer.ts', 'drawer.ts', 'home.js', 'trust.mjs', '../tools/duet/replay.ts', 'brand/components.css', 'brand/kit.mjs'];
-const KIT_ALLOWED = new Map(); // 'path' -> the reason it may write a colour or a font stack
+const KIT_READERS = ['build.mjs', 'footer.ts', 'drawer.ts', 'home.js', 'trust.mjs', '../tools/duet/replay.ts', 'brand/components.css', 'brand/kit.mjs', 'brand/icons.mjs'];
+// 'path' -> the reason it may write a colour or a font stack
+const KIT_ALLOWED = new Map([['brand/icons.mjs', 'the favicon\'s plain white square (#ffffff, Rafa 2026-11-14, T-428): the icon sits on a browser\'s tab bar, not on a page, so no page token applies; the crow is --ink']]);
 const COLOUR = /(?<![\w&/-])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])|\b(?:rgba?|hsla?)\(/g;
 const FONT_STACK = /-apple-system|BlinkMacSystemFont|Helvetica|Arial|Garamond|Menlo|\bsans-serif\b|\bmonospace\b|"SF (?:Pro|Mono)/g;
 for (const p of KIT_READERS) {
@@ -491,10 +494,7 @@ expect(typeof trust.SECURITY_CONTACT === 'string' && read('../SECURITY.md').incl
   const kit = await import('./brand/kit.mjs');
   const want = typeof kit.iconLinks === 'function' ? kit.iconLinks({ base: BASE }).split('\n') : [];
   expect(want.length > 0, 'site/brand/kit.mjs exports no iconLinks(): the pages have no one place for the favicon links');
-  const iconsIn = (h) => {
-    const head = h.slice(0, Math.max(0, h.indexOf('</head>')));
-    return [...head.matchAll(/<link rel="(?:icon|shortcut icon|apple-touch-icon|manifest)"[^>]*>/g)].map((m) => m[0]);
-  };
+  const iconsIn = (h) => (typeof kit.iconTags === 'function' && h.includes('</head>') ? kit.iconTags(h) : []);
   const pages = new Map([...built, ...problems]);
   pages.delete('demo/index.html'); // the committed replay; the publish build adds the links (demoPage, below)
   if (typeof siteBuild.demoPage === 'function') pages.set('demo/index.html (published)', siteBuild.demoPage(read('demo/index.html')));

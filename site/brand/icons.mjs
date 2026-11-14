@@ -2,9 +2,11 @@
 // square, so it reads on a light and on a dark browser tab bar alike. One source, every size, no dependency: this file
 // reads the mark's one path, writes the SVG, and draws each PNG itself (even-odd fill, 4 x 4 samples a pixel).
 // Usage: node site/brand/icons.mjs        writes site/brand/icons/ (commit the result)
-//        node site/brand/icons.mjs --check exits 1 when a committed file differs from what this script writes
+//        node site/brand/icons.mjs --check exits 1 when a committed file differs from what this script writes: the
+//        text files byte for byte, the PNGs (and each PNG inside the .ico) by size and pixels, since zlib's compressed
+//        bytes may differ between machines
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { deflateSync } from 'node:zlib';
+import { deflateSync, inflateSync } from 'node:zlib';
 import { ICON_FILES, TOKENS } from './kit.mjs';
 
 const here = (f) => new URL(f, import.meta.url);
@@ -110,9 +112,35 @@ const files = {
 };
 if (Object.keys(files).sort().join() !== [...ICON_FILES].sort().join()) throw new Error('kit.mjs ICON_FILES and this script name different files');
 
+// What --check compares: a PNG's IHDR and its inflated pixel rows; an .ico's image count, sizes and those of each PNG.
+const pngPixels = (buf) => {
+  const parts = [];
+  let ihdr = '', p = 8;
+  while (p + 8 <= buf.length) {
+    const len = buf.readUInt32BE(p), type = buf.toString('latin1', p + 4, p + 8);
+    if (type === 'IHDR') ihdr = buf.subarray(p + 8, p + 8 + len).toString('hex');
+    if (type === 'IDAT') parts.push(buf.subarray(p + 8, p + 8 + len));
+    p += 12 + len;
+  }
+  return `${ihdr}:${inflateSync(Buffer.concat(parts)).toString('base64')}`;
+};
+const icoPixels = (buf) => Array.from({ length: buf.readUInt16LE(4) }, (_, n) => {
+  const e = 6 + 16 * n, size = buf.readUInt32LE(e + 8), at = buf.readUInt32LE(e + 12);
+  return `${buf[e]}x${buf[e + 1]}:${pngPixels(buf.subarray(at, at + size))}`;
+}).join('|');
+const same = (f, a, b) => {
+  try {
+    if (f.endsWith('.png')) return pngPixels(a) === pngPixels(b);
+    if (f.endsWith('.ico')) return icoPixels(a) === icoPixels(b);
+    return a.equals(b);
+  } catch {
+    return false;
+  }
+};
+
 const dir = here('./icons/');
 if (process.argv.includes('--check')) {
-  const stale = Object.entries(files).filter(([f, data]) => { try { return !readFileSync(new URL(f, dir)).equals(data); } catch { return true; } }).map(([f]) => f);
+  const stale = Object.entries(files).filter(([f, data]) => { try { return !same(f, readFileSync(new URL(f, dir)), data); } catch { return true; } }).map(([f]) => f);
   if (stale.length) { console.error(`site/brand/icons/ is stale: ${stale.join(', ')}. Run node site/brand/icons.mjs and commit the result.`); process.exit(1); }
   console.log(`site/brand/icons/: ${Object.keys(files).length} files match the mark`);
 } else {
