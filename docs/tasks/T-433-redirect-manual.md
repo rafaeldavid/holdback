@@ -7,6 +7,7 @@
 - **Human gate:** no
 - **Status:** done (PR 551, merged as `bd29e77`)
 - **Agent/session:** the T-407 session, on Rafa's word of 2026-11-14 ("Yes, start both")
+- **Roadmap row:** N134
 
 ## Intent
 

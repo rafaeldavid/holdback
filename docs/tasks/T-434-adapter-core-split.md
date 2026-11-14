@@ -7,6 +7,7 @@
 - **Human gate:** no
 - **Status:** review
 - **Agent/session:** the T-407 session, on Rafa's word of 2026-11-14 ("Yes, start both")
+- **Roadmap row:** N134
 
 ## Intent
 

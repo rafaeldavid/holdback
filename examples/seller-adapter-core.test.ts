@@ -207,9 +207,14 @@ describe('seller adapter, the Node shell (T-434): requests it answers itself', (
       const req = httpRequest(url, { method, headers: body ? { 'content-length': String(body.length) } : {} }, (res) => {
         let b = '';
         res.on('data', (c) => (b += c));
-        res.on('end', () => resolve({ status: res.statusCode ?? 0, ms: Date.now() - t, body: b }));
+        res.on('end', () => {
+          resolve({ status: res.statusCode ?? 0, ms: Date.now() - t, body: b });
+          req.destroy(); // the answer is in: stop uploading the rest
+        });
       });
-      req.on('error', (e) => ((e as NodeJS.ErrnoException).code === 'ECONNRESET' || (e as NodeJS.ErrnoException).code === 'EPIPE' ? undefined : reject(e)));
+      const quiet = (e: NodeJS.ErrnoException) => (['ECONNRESET', 'EPIPE'].includes(e.code ?? '') ? undefined : reject(e));
+      req.on('error', quiet);
+      req.on('socket', (socket) => socket.on('error', quiet));
       if (body) req.end(body);
       else req.end();
     });
