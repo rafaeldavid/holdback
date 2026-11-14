@@ -54,22 +54,41 @@ function outcome(body, decided) {
   return { choice: option ?? `Option ${letter[1]}`, detail: rest ? capitalize(rest) : '' };
 }
 
-export function decisions() {
-  const text = read('docs/decisions-today.md');
+// The first line that is not blank under each "## Dnn." heading is "**Status:** <state>, <YYYY-MM-DD>." (T-413). The
+// state sets the status: "needs Rafa" or "open" waits on Rafa (open), "deferred" is deferred, and "adopted", "decided"
+// and "superseded" are settled (decided). An entry without a Status line in that form falls back to its bold
+// "Decided …" or "Open." lead, as entries were read before T-413. The Status line wins over the lead, so a Decided line
+// that says something stays "deferred" (D70) does not make the entry deferred.
+const STATUS_LINE = /^\*\*Status:\*\* ([a-zA-Z ]+?), (\d{4}-\d{2}-\d{2})\.$/;
+const STATE_STATUS = { 'needs rafa': 'open', open: 'open', deferred: 'deferred', adopted: 'decided', decided: 'decided', superseded: 'decided' };
+
+export function decisionsFrom(text) {
   const parts = text.split(/^## (D\d+)\. (.+)$/m);
   const result = [];
   for (let i = 1; i < parts.length; i += 3) {
     const [id, heading, body] = [parts[i], parts[i + 1], parts[i + 2]];
+    const first = body.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
+    const state = STATUS_LINE.exec(first)?.[1].toLowerCase() ?? null;
     const decided = body.match(/\*\*Decided [^*]*\*\*\s*(.+)/);
     const open = body.match(/\*\*Open\.\*\*\s*(.+)/);
     const adr = heading.match(/ADR-\d{4}/g) ?? [];
+    const title = heading.replace(/\s*\(ADR[^)]*\)\s*$/, '');
     let status = 'open';
-    if (decided) status = /deferred/i.test(decided[1]) ? 'deferred' : 'decided';
-    const { choice, detail } = decided ? outcome(body, decided[1]) : { choice: '', detail: open?.[1] ?? '' };
-    result.push({ id, title: heading.replace(/\s*\(ADR[^)]*\)\s*$/, ''), adr, status, choice, detail });
+    if (state && STATE_STATUS[state]) status = STATE_STATUS[state];
+    else if (decided) status = /deferred/i.test(decided[1]) ? 'deferred' : 'decided';
+    // the lead paragraph after the Status line ("**Proposed 2026-11-14 by T-407; …**"), for an entry with no Decided line
+    const lead = body.split('\n').map((l) => l.trim()).find((l) => /^\*\*/.test(l) && !/^\*\*Status:\*\*/.test(l))?.replace(/\*\*/g, '') ?? '';
+    let choice = '';
+    let detail = open?.[1] ?? '';
+    if (decided) ({ choice, detail } = outcome(body, decided[1]));
+    else if (status === 'decided') choice = title;
+    else detail = detail || lead;
+    result.push({ id, title, adr, state, status, choice, detail });
   }
   return result;
 }
+
+export const decisions = () => decisionsFrom(read('docs/decisions-today.md'));
 
 export function adrs() {
   return list('docs/decisions', /^ADR-\d{4}.*\.md$/).map((file) => {

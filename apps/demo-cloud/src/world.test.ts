@@ -136,7 +136,7 @@ describe('public mode', () => {
     const { urls } = await serve({ env: { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '4710000' } });
     const d = await discovery(urls);
     const cap = DEMO_FAUCET_MAX_GRANT.toString();
-    expect(d.demo.faucet).toEqual({ path: '/v1/faucet', grant: { token: 'tUSD', amount: '1000000000' }, maxGrant: { token: 'tUSD', amount: cap }, perAddressEverySec: 3600, perClientPerWindow: 10 });
+    expect(d.demo.faucet).toEqual({ path: '/v1/faucet', grant: { token: 'tUSD', amount: '1000000000' }, maxGrant: { token: 'tUSD', amount: cap }, perAddressEverySec: 3600, perClientPerWindow: 50 });
     expect(d.notes.join('\n')).toMatch(/"amount"/);
     const [buyer, seller] = [freshAgent(urls), freshAgent(urls)];
     // Above the cap: refused by name, nothing granted, and the address keeps its turn in the window.
@@ -241,7 +241,7 @@ describe('public mode', () => {
       expect(notes).toMatch(/POST \/v1\/faucet/);
       expect(notes).toMatch(/scripted/i);
       expect(d.limits).toEqual({ reads: { limit: 1200, windowSec: 60, per: 'client' }, writes: { limit: 120, windowSec: 60, per: 'signer' }, maxCiphertextBytes: 1_048_576, idempotency: { replays: 'success-only', retention: 'process' } });
-      expect(d.demo).toMatchObject({ clubId: 'demo-club', operators: urls, token: { id: 'tUSD', decimals: 6 }, minWindowSec: 2, faucet: { path: '/v1/faucet', grant: { token: 'tUSD', amount: '1000000000' }, perAddressEverySec: 3600, perClientPerWindow: 10 } });
+      expect(d.demo).toMatchObject({ clubId: 'demo-club', operators: urls, token: { id: 'tUSD', decimals: 6 }, minWindowSec: 2, faucet: { path: '/v1/faucet', grant: { token: 'tUSD', amount: '1000000000' }, perAddressEverySec: 3600, perClientPerWindow: 50 } });
       expect(d.demo.adjudicators.map((a: J) => a.role)).toEqual(['primary', 'fallback', 'appeal']);
       const root = (await (await fetch(`${u}/`)).json()) as J;
       expect(Object.keys(root).sort()).toEqual(Object.keys(d).sort());

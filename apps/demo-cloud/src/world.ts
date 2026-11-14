@@ -91,7 +91,7 @@ export interface PublicWorldOptions {
   faucetMaxAmount?: bigint;
   /** One grant per address per window. Default one hour. */
   faucetWindowSec?: number;
-  /** Grants per client (IP address) per window. Default 10. */
+  /** Grants per client (IP address) per window. Default FAUCET_PER_CLIENT, 50. */
   faucetPerClient?: number;
   /** Per-client operator throttle. Default RATE_WRITES_PER_MIN and RATE_READS_PER_MIN from `env`, else 120 writes and 1,200 reads a minute. */
   rateLimit?: { writes: number; reads: number; windowMs: number };
@@ -225,6 +225,13 @@ const SEPOLIA_EXPLORER = 'https://sepolia.etherscan.io';
 /** A deal lane below 0.01 test ETH gets 0.03 from the funding lane: about 19 test deals on Sepolia at a 1 gwei tip (1.56 million gas a deal, measured). */
 const LANE_FLOOR = 10_000_000_000_000_000n;
 const LANE_TOP_UP = 30_000_000_000_000_000n;
+/**
+ * New addresses the faucet grants one client (IP address) per window, an hour by default: 50, so one agent can run a
+ * series of test deals without waiting out the hour (one grant a deal as the try command's buyer, two when it plays
+ * both sides). It was 10 until 2026-11-14 (Rafa), when a series of 20 try deals waited out the hour twice (T-425).
+ * FAUCET_MINTS_PER_DAY still bounds the relayer's gas for everyone, and the test seller keeps its own caps.
+ */
+const FAUCET_PER_CLIENT = 50;
 /** Faucet mints a day on a chain: about 0.08 to 0.14 test ETH on Sepolia at a 1 gwei tip (130,000 to 240,000 gas a mint, measured). */
 const FAUCET_MINTS_PER_DAY = 600;
 /** How long a demo adjudicator's own registration runs (T-221), and how close to its end a world signs a new one at open. */
@@ -769,7 +776,7 @@ export class PublicWorld {
     const faucetMaxAmount = o.faucetMaxAmount ?? DEMO_FAUCET_MAX_GRANT;
     if (faucetAmount > faucetMaxAmount) throw new Error(`faucetAmount ${faucetAmount} is above faucetMaxAmount ${faucetMaxAmount}`);
     const faucetWindowSec = o.faucetWindowSec ?? 3600;
-    const faucetPerClient = o.faucetPerClient ?? 10;
+    const faucetPerClient = o.faucetPerClient ?? FAUCET_PER_CLIENT;
     const tokenAmount = (v: bigint): TokenAmount => ({ token, amount: v.toString() }) as TokenAmount;
     // Bonds are not in phase one: on a chain the pool reads zero for every address (ADR-0031 §8); SimChain keeps them.
     const bondOf = (p: { junior: bigint; senior: bigint; reserved: bigint }): Bond => ({ junior: tokenAmount(p.junior), senior: tokenAmount(p.senior), reserved: tokenAmount(p.reserved) });
