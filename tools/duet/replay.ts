@@ -13,6 +13,7 @@ import type { Summary } from './measures.ts';
 import type { Event } from './record.ts';
 import type { Over } from './tickets.ts';
 import { AGENT_NAME } from './scenarios.ts';
+import { ENDINGS_CSS, ENDINGS_SCRIPT, endingsSection } from './endings.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 type Lane = 'buyer' | 'crow' | 'seller';
@@ -515,6 +516,7 @@ pre{font-family:var(--mono);font-size:11px;white-space:pre-wrap;overflow-wrap:an
 @media (max-width:820px){.steps{grid-template-columns:repeat(2,1fr)}.facts{grid-template-columns:repeat(2,1fr)}.fact:nth-child(3){border-left:0;padding-left:0}.resources{grid-template-columns:1fr 1fr}dl.specs{grid-template-columns:1fr}}
 @media (max-width:600px){.headline{font-size:40px}.intro,.page-intro{font-size:18px}.page-title{font-size:36px}.demo-heads,.navlink{display:none}.step{max-width:88%}.steps,.features,.resources{grid-template-columns:1fr}.beat{grid-template-columns:1fr;gap:6px}.spec{grid-template-columns:1fr;gap:2px}main{padding-top:36px}}
 @media (prefers-reduced-motion:reduce){.demo-frame{scroll-behavior:auto}.step.reveal{animation:none}.typing .bubble i{animation:none}}
+${ENDINGS_CSS}
 </style>
 </head>
 <body>
@@ -534,6 +536,7 @@ ${AFTER}
 ${demoList.map(demoItem).join('\n')}
 </ol></div>
 </section>
+${endingsSection()}
 </main>
 
 <main id="learn-more">
@@ -685,6 +688,7 @@ ${drawerScript()}(function(){
   if(location.hash==='#learn-more'){route('#learn-more')}else if('IntersectionObserver' in window){new IntersectionObserver(function(es,o){if(es.some(function(e){return e.isIntersecting})){o.disconnect();start()}},{threshold:.25}).observe(frame);demo.hidden=false;learn.hidden=true}else{learn.hidden=true;start()}
   setIcon();
 })();
+${ENDINGS_SCRIPT}
 </script>
 </body>
 </html>
