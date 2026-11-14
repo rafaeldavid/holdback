@@ -71,7 +71,8 @@ None of the six security headers appears on any answer below: no `Strict-Transpo
 | `/demo/` | 2 (the drawer; the player and the endings switch) | 1 | none | `join.crow.direct` |
 | `/trust` | 1 (the drawer) | none | none | `join.crow.direct` |
 | `/status` | 2 (the checks; the drawer) | none | none | same origin (`/version.json`, `/status/operators.json`, `/agents/test-seller/health`), `eth-sepolia.blockscout.com` |
-| `/problems/*` (32 pages), `/404.html` | none | 1 each, the same | none | nothing |
+| `/problems/*` (32 pages) | none | 1 each, the same | none | nothing |
+| `/404.html` | none | none (`/home.css`) | none | nothing |
 | `/visualdemo/` | 1 | 2 | 4 (legend swatches) | `fonts.googleapis.com` (stylesheet), `fonts.gstatic.com` (font files) |
 
 No page carries an inline event handler, a `javascript:` URL, an iframe, a worker, a `data:` URL or a `<form action>`. Scripts set styles through the CSSOM only (`el.style.height`), which a policy does not block.

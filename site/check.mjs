@@ -46,7 +46,8 @@
 // 18. The content security policy (T-451): no page carries an inline event handler or a javascript: URL, and only the
 //    visual walkthrough a style attribute; with a publish build, csp-hashes.json is current against its pages, and
 //    every inline script and style of every page it wrote is allowed by the policy the site Worker sends for that
-//    page's path (apps/site/headers.js), as is every script and stylesheet it loads from elsewhere.
+//    page's path (apps/site/headers.js), as is every script and stylesheet it loads from elsewhere, every outside
+//    origin its scripts fetch and every image it shows.
 // 12. The budget (T-393): each role's first-deal path, the front door plus its page, is within FIRST_DEAL_BUDGET
 //    (site/guides.mjs). With HOLDBACK_AGENT_ANTHROPIC_API_KEY set it counts with Anthropic's count_tokens for the
 //    pinned model; without it, bytes divided by four. It says which.
@@ -544,6 +545,10 @@ expect(typeof trust.SECURITY_CONTACT === 'string' && read('../SECURITY.md').incl
       for (const s of scripts) expect(directive('script-src').includes(`'${csp.cspHash(s)}'`), `reports/site-out/${f}: an inline script (${csp.cspHash(s).slice(0, 19)}…) is not in the policy's script-src`);
       for (const s of styles) expect(directive('style-src').includes(`'${csp.cspHash(s)}'`) || directive('style-src').includes("'unsafe-inline'"), `reports/site-out/${f}: an inline style (${csp.cspHash(s).slice(0, 19)}…) is not in the policy's style-src`);
       for (const [, src] of h.matchAll(/<script\b[^>]*\ssrc="([^"]+)"/gi)) expect(!/^(https?:)?\/\//i.test(src) || directive('script-src').includes(new URL(src, SITE_URL).origin), `reports/site-out/${f} loads a script from ${src}, which the policy's script-src does not allow`);
+      // Outside origins a page fetches (its inline scripts and the site's own scripts it loads) and the images it shows.
+      const own = [...h.matchAll(/<script\b[^>]*\ssrc="(\/[^"/][^"]*)"/gi)].map(([, src]) => join(dir, src)).filter((p) => existsSync(p)).map((p) => readFileSync(p, 'utf8'));
+      for (const code of [...scripts, ...own]) for (const [, url] of code.matchAll(/fetch\(\s*['"`](https?:\/\/[^'"`/]+)/g)) expect(directive('connect-src').includes(new URL(url).origin), `reports/site-out/${f} fetches ${url}, which the policy's connect-src does not allow: add the origin in apps/site/headers.js`);
+      for (const [, src] of h.matchAll(/<img\b[^>]*\ssrc="([^"]+)"/gi)) expect(!/^(https?:|data:)|^\/\//i.test(src), `reports/site-out/${f} shows an image from ${src.slice(0, 60)}, which the policy's img-src ('self') does not allow`);
       for (const [tag] of h.matchAll(/<link\b[^>]*rel="stylesheet"[^>]*>/gi)) {
         const href = /href="([^"]+)"/.exec(tag)?.[1] ?? '';
         expect(!/^(https?:)?\/\//i.test(href) || directive('style-src').includes(new URL(href, SITE_URL).origin), `reports/site-out/${f} loads a stylesheet from ${href}, which the policy's style-src does not allow`);

@@ -1,7 +1,7 @@
 // T-451: every answer of the site Worker (crow-site) carries the security headers; HTML pages carry a content security
 // policy that names the build's inline hashes, and nothing else about an answer changes: its body's bytes, its
 // Cache-Control and its CORS header stay as the asset server or the route sent them.
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error -- plain ESM Worker without type declarations
 import site from '../apps/site/worker.js';
 // @ts-expect-error -- plain ESM module without type declarations
@@ -37,7 +37,10 @@ function common(r: Response) {
   expect(r.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
 }
 
-afterEach(() => forgetHashes());
+afterEach(() => {
+  forgetHashes();
+  vi.unstubAllGlobals();
+});
 
 describe('the security headers on the site Worker (T-451)', () => {
   it('each kind of page carries the policy with the build’s hashes, no unsafe-inline for scripts, and no framing', async () => {
@@ -92,6 +95,34 @@ describe('the security headers on the site Worker (T-451)', () => {
     expect(moved.status).toBe(301);
     expect(moved.headers.get('location')).toBe('https://crow.direct/trust?x=1');
     common(moved);
+  });
+
+  it('the status relay keeps its CORS header and its 15 s cache, and its 405 carries the headers too', async () => {
+    const relayed = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=15', 'access-control-allow-origin': '*' };
+    vi.stubGlobal('caches', { default: { match: async () => new Response('{"operators":[]}\n', { headers: relayed }), put: async () => undefined } });
+    const { env } = assets();
+    const r = await get('https://crow.direct/status/operators.json', env);
+    common(r);
+    expect([r.headers.get('content-type'), r.headers.get('cache-control'), r.headers.get('access-control-allow-origin')]).toEqual(Object.values(relayed));
+    expect(await r.text()).toBe('{"operators":[]}\n');
+    const refused = await (site as Fetcher).fetch(new Request('https://crow.direct/status/operators.json', { method: 'POST', body: 'x' }), env, { waitUntil: () => undefined });
+    expect(refused.status).toBe(405);
+    common(refused);
+  });
+
+  it('requests that arrive while a failed hashes read is in flight all get the fail-closed policy, none an error', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const env = { ASSETS: { fetch: async (r: Request) => (new URL(r.url).pathname === '/csp-hashes.json' ? (await gate, new Response('busy', { status: 503 })) : new Response('page', { headers: { 'content-type': 'text/html' } })) } };
+    const answers = Promise.all([1, 2, 3].map(() => get('https://crow.direct/', env)));
+    release();
+    for (const r of await answers) {
+      expect(r.status).toBe(200);
+      expect(r.headers.get('content-security-policy')).toContain("script-src 'self';");
+    }
+    // The failure is not kept: the next request reads the file again.
+    const ok = assets();
+    expect((await get('https://crow.direct/', ok.env)).headers.get('content-security-policy')).toContain(`'${S}'`);
   });
 
   it('reads the hashes once per instance; without a readable hashes file, pages run no inline script or style (fail closed)', async () => {

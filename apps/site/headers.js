@@ -103,12 +103,14 @@ export function inlineHashes(request, env) {
     if (!parsed) throw new Error(`${HASHES_PATH} answered ${r.status} or not in the shape site/csp.mjs writes`);
     return parsed;
   })();
-  cached = reading;
-  return reading.catch((e) => {
-    if (cached === reading) cached = undefined;
+  // Every caller, those that arrive while the read is in flight included, gets the same promise, which never rejects.
+  const settled = reading.catch((e) => {
+    if (cached === settled) cached = undefined;
     console.error(`crow-site: no inline hashes, so pages run no inline script or style: ${e.message}`);
     return null;
   });
+  cached = settled;
+  return settled;
 }
 
 /** Tests only: forget the cached hashes. */
