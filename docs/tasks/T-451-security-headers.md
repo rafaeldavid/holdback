@@ -5,7 +5,7 @@
 - **Depends on:** none (the `security.txt` half of the row went live with T-421)
 - **Paths this task may touch:** the response-header code in `apps/site/` and `apps/demo-cloud/` and their tests; `site/build.mjs` and `site/check.mjs` only for the script hashes and the new check; the new `site/csp.mjs`; one line in `tests/site-status.test.ts` (it counts the site Worker's asset reads); this task file; one paragraph in `docs/operations.md`
 - **Human gate:** no for the pull request; the site deploy runs on Rafa's standing word for this wave (coordinator brief 2026-11-14, "Merge and deploy when ready"); the operator deploy waits for the coordinator's go
-- **Status:** in progress
+- **Status:** done (the operator deploy handed to the coordinator, below)
 - **Agent/session:** T-451 side session, started by the coordinator on 2026-11-14
 - **Roadmap row:** N52
 
@@ -112,6 +112,35 @@ The reviewer (ISSUES, one Medium, three Low) and the red team (ISSUES, three Med
 | Second red-team pass on the reader, 37 pages against Chromium: no script ran that the policy should not allow. 5 inputs fail safe (the browser blocks a script the build hashed): a comment ended by `--!>`, CDATA inside `<svg>`, an HTML integration point inside `<svg>`, a NUL, `srcdoc` (Medium and Low) | red team | Fixed: comments end at `-->` or `--!>`; CDATA and integration points inside `<svg>` or `<math>`, `srcdoc` and NUL are refused; a test per input. Measured: the red team's 37 pages now each match Chromium or are refused. `<template>` keeps its hash (its script runs only when cloned, under the same hash) |
 | What a scanner may still report: no COEP, `style-src 'unsafe-inline'` on `/visualdemo/`, no report endpoint, the hosts above (note) | red team | Recorded below |
 
+### After: the site deployed (measured, 2026-11-14 17:23 UTC, plain GETs with curl)
+
+The site deploy: `pnpm site:deploy` from a detached worktree at `1225046` (pull request 564's merge), crow-site version `861e4b28-9717-4f06-a1a4-4e82b81e1e2b`, rollback target `c8f7cc47-d844-4972-b290-c39ac85fe070` (the previous live version, deployed 16:35 UTC). It carried no other lane's change to the site: since the live commit `76b053c7`, only T-451 touched `site/` or `apps/site/`.
+
+| Answer | Before | After |
+| --- | --- | --- |
+| HTML pages (`/`, `/demo/`, `/trust`, `/status`, `/problems/not_found`, the 404) | none of the headers | HSTS `max-age=31536000; includeSubDomains`, `nosniff`, `X-Frame-Options: DENY`, `strict-origin-when-cross-origin`, Permissions-Policy, COOP and CORP `same-origin`, the hashed policy below |
+| `/visualdemo/` | none | the same, with the walkthrough's style exception |
+| `/llms.txt`, `/try.mjs`, `/buy.mjs`, `/favicon.ico`, `/status.json`, `/.well-known/security.txt` | none | the common five, `default-src 'none'; frame-ancestors 'none'`, CORP `cross-origin` |
+| `/version.json`, `/status/operators.json` | `access-control-allow-origin: *` | the same CORS header, plus the headers of the row above |
+| `http://crow.direct/llms.txt`, `http://escrow.stream/` | 200 over plain HTTP, and a 301 to crow.direct | 301 to `https://crow.direct/…` |
+| Cache-Control | as in the Before table | unchanged (one exception, below) |
+
+The policy as served on the pages:
+
+```
+default-src 'none'; script-src 'self' 'sha256-YjyLX/z/im/hWZuTyV1jh113HH8EjtIdDIBwvgXGYmo=' 'sha256-Z4FVCc3i5l/W78kYxfSOVu6+2lCTXRwq4AQ3+F+igAU=' 'sha256-l/vGkIISD/2IDhWdSLvdYsh6H0sHJG6RuxQ5VFxl9Og=' 'sha256-sd0m337JoC5BWo+lrbWBoMk7bx9khDGxg+apvpvd9xs='; style-src 'self' 'sha256-67MFF17muXwm6TzUlc4K2D/tNaouaVIo3kxyV08qJ+U=' 'sha256-MQhxHU3uuGnd8k1wf831tnxo2I2YP1QpwZeLFxOZV9k=' 'sha256-XpcGiTJDoQKddj/Za2E//7gi+rlDW5c3uXhmkEPx0xo=' 'sha256-vuBN7O3hUhnH3Y6JG6M5/ONYqo8NGP6f26UmftlueQo='; img-src 'self'; font-src 'self'; connect-src 'self' https://join.crow.direct https://eth-sepolia.blockscout.com; manifest-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'
+```
+
+On `/visualdemo/` it differs in two directives: `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com` and `font-src https://fonts.gstatic.com`. The policy is enforced, not report-only, on every page.
+
+- Pinned hashes after (measured, live): `try.mjs` `04ef4434fb4b5635bb3c49df69c7547f3200c6c41f903237ee37098be23f75c8` and `buy.mjs` `e74ff2230f0d4fd426525095731e42d50b65b55ab7792a43cab73c302b22eb88`, the same as before. `llms.txt` `d81dc1ea…`, `buy.txt` `6d38aee2…`, `sell.txt` `f93a726d…`, `trust.txt` `043e8993…` and `ref/http.txt` `ac33dc2d…` are also the same as before.
+- Live in a browser engine (measured, headless Chromium against https://crow.direct, sign-ups answered by a Playwright stand-in so nothing was sent): 8 page kinds, 0 policy violations. The status page's five checks read operational, the test seller included (161 ms). The demo's player advanced, its endings switch showed an ending, the drawer and the home form posted, and the walkthrough loaded its font. An injected inline script, an outside script and an outside fetch were refused, and a frame from another origin was refused.
+- One Cache-Control value differs by path, not by this change (measured): `/status/operators.json` answers `public, max-age=15` when the Worker builds it, and `public, max-age=14400` on a hit in Cloudflare's cache (`cf-cache-status: HIT`). The relay returns the cached copy as the cache hands it back, before and after this change, and this task's code copies headers untouched. Inferred: the Before row caught a fresh answer. The status page reads it with `cache: 'no-store'`, so the page is not affected; a browser that opens the JSON directly may keep it for 4 h. Handoff.
+
+### The operators: handed to the coordinator (2026-11-14 17:40 UTC)
+
+The coordinator gave the go at about 17:35 UTC. This session's permission check refused `pnpm demo-cloud:deploy` on a relayed word, so the coordinator deploys (the brief's fallback). What that deploy carries, measured with `git diff 011ce6ac..1225046b`: live holdback-op1 is version `ceb012e0-20d1-43fa-b872-e7291cdb5b52` (14:55 UTC), and both nodes report build `011ce6ac`. Since then `apps/demo-cloud/` changed only in T-451's `src/headers.ts`, `src/headers.test.ts` and `src/worker.ts`, and `packages/` is unchanged, so the deploy carries T-451 alone. The API's after table and the try deal go in the coordinator's deploy record.
+
 ## Handoff
 
 - The test seller's and test buyer's cards at `crow.direct/agents/*` are served by crow-test-agents (T-420's lane, `apps/test-agents/`), whose route runs before crow-site, so they carry none of these headers. The same headers belong there; not in this task's paths.
@@ -122,4 +151,5 @@ The reviewer (ISSUES, one Medium, three Low) and the red team (ISSUES, three Med
 - Group 18 does not read font origins or `setAttribute('style', …)` in scripts.
 - An error the World throws reaches the caller as Cloudflare's 1101 page; wrapping `forward()` in a secured 500 problem would carry the headers there too.
 - A scanner may still report: no `Cross-Origin-Embedder-Policy` (not set: no page needs it, and it would block the walkthrough's font); `style-src 'unsafe-inline'` on `/visualdemo/` only; no `report-to` endpoint for the policy.
+- `/status/operators.json` (`apps/site/status.js`): on a cache hit Cloudflare hands back `max-age=14400`. Setting the header again after `cache.match` would keep it at 15 s.
 - HSTS `preload`: not added. Submitting crow.direct to the preload list is an outward action for Rafa.
