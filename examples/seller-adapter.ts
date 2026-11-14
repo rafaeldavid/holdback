@@ -60,7 +60,7 @@ import { preflightDelivery } from '@holdback/judgment';
 import { plain } from '@holdback/testkit';
 import { Agent } from './agent.ts';
 import { convertReport, loadReportMapping, ReportNotConverted } from './report-converter.ts';
-import { FilesNotAdded, sellerApiClient, type SellerApiConfig } from './seller-adapter-api.ts';
+import { FilesNotAdded, isRedirect, sellerApiClient, type SellerApiConfig } from './seller-adapter-api.ts';
 import { freshNonce, isAddressText, jcs, knownPins, moneyAddressWarnings, operatorFeeOf } from './verify.ts';
 import { help, helpAsked } from './help.ts';
 
@@ -1354,10 +1354,13 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     const text = JSON.stringify(body);
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     if (refusal.secret) headers['x-crow-signature'] = `sha256=${createHmac('sha256', refusal.secret).update(text, 'utf8').digest('hex')}`;
-    const sent: Promise<void> = fetch(refusal.callback, { method: 'POST', headers, body: text, redirect: 'error', signal: AbortSignal.any([alertsAbort.signal, AbortSignal.timeout(refusal.timeoutMs)]) })
+    // `manual`: a redirect comes back unfollowed, and counts as a failed callback (T-433). The body and its signature
+    // go only to the configured address.
+    const sent: Promise<void> = fetch(refusal.callback, { method: 'POST', headers, body: text, redirect: 'manual', signal: AbortSignal.any([alertsAbort.signal, AbortSignal.timeout(refusal.timeoutMs)]) })
       .then(async (res) => {
         await res.body?.cancel();
-        if (!res.ok) log(`${body.commitmentId} the alert callback answered ${res.status} to ${body.type}; the ALERT line is the record.`);
+        if (isRedirect(res)) log(`${body.commitmentId} the alert callback answered ${res.status} to ${body.type}, a redirect, which the adapter never follows; the ALERT line is the record.`);
+        else if (!res.ok) log(`${body.commitmentId} the alert callback answered ${res.status} to ${body.type}; the ALERT line is the record.`);
       })
       .catch((e: Error & { cause?: { code?: string } }) => {
         if (alertsAbort.signal.aborted) return;

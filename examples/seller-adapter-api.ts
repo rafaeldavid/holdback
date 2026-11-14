@@ -120,6 +120,11 @@ const RESERVED_HEADERS = ['host', 'content-length', 'transfer-encoding', 'connec
 const CONTROL = /[\0-\x1f\x7f]/;
 const OMIT = Symbol('omit');
 const isRecord = (v: J): boolean => v !== null && typeof v === 'object' && !Array.isArray(v);
+/**
+ * Whether an answer fetched with `redirect: 'manual'` is a redirect: a 3xx status, or the opaque redirect a browser's
+ * fetch returns in its place (status 0). The adapter follows none (T-433).
+ */
+export const isRedirect = (res: Response): boolean => res.type === 'opaqueredirect' || (res.status >= 300 && res.status <= 399);
 const short = (v: J) => plain(String(v)).slice(0, 80);
 
 /** The names each call may use. `scope` and `options` stand alone only, as a whole body value. */
@@ -384,6 +389,8 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
       const codes = (k: string, d: number[]): number[] => {
         const x = st[k] ?? d;
         if (!Array.isArray(x) || !x.every((n: J) => Number.isSafeInteger(n) && n >= 200 && n <= 599)) throw new Error(`sellerApi.result.status.${k} must be a list of HTTP status codes`);
+        // Under a base URL every 3xx is a redirect the adapter refuses (T-433), so a list that names one could never match.
+        if (x.some((n: number) => n >= 300 && n <= 399)) throw new Error(`sellerApi.result.status.${k} names a 3xx code: the adapter refuses every redirect, so that code can never mean a job's state`);
         return x;
       };
       status = { by: 'http', running: codes('running', [202]), done: codes('done', [200]), failed: codes('failed', []) };
@@ -439,8 +446,13 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
     }
     Object.assign(headers, extra);
     if (auth) headers[auth.header] = auth.value;
-    // Redirects are refused under a base URL: a redirect could carry the credential elsewhere.
-    const res = await fetch(url, { method: p.method, headers, ...(payload === undefined ? {} : { body: payload }), redirect: strict ? 'error' : 'follow', signal: AbortSignal.timeout(30_000) });
+    // Redirects are refused under a base URL: a redirect could carry the credential elsewhere. `manual` returns the 3xx
+    // unfollowed and the adapter refuses it here, because the Workers runtime does not implement `error` (T-433).
+    const res = await fetch(url, { method: p.method, headers, ...(payload === undefined ? {} : { body: payload }), redirect: strict ? 'manual' : 'follow', signal: AbortSignal.timeout(30_000) });
+    if (strict && isRedirect(res)) {
+      await res.body?.cancel().catch(() => {}); // the redirect is the error to report, not a failed cancel
+      throw new Error(`the seller API answered ${res.status} to ${p.label}, a redirect, which the adapter never follows: it could carry the credential elsewhere`);
+    }
     return { status: res.status, bytes: await body(res, p.label, cap) };
   };
   const ok2xx = (what: string, status: number) => {
