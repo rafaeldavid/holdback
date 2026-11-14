@@ -1,0 +1,21 @@
+name: id-check
+
+# A pull request names its task (a T-number with a file in docs/tasks/) or says "no ticket" (T-405).
+# Prepared as a draft: a workflow file is tier 3, Rafa's word. It reads the PR event and the checkout only.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  id-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The PR names its task or says no ticket
+        run: node scripts/id-check.mjs
