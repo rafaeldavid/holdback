@@ -189,11 +189,28 @@ describe('a hosted seller (T-435): a start that cannot be repeated', () => {
   }, 45_000);
 });
 
+describe('a hosted seller (T-435): a deal keeps the start it was priced with', () => {
+  it('a redeploy that pins another account sends no start for a deal priced before it: the deal waits and the seller is told', async () => {
+    const first = await seller();
+    const buyer = agent('buyer-2');
+    const id = (await quote(first.object, buyer)).body.commitmentId as Hex;
+    await fund(buyer, id);
+    const moved = bundleFor(stub!.base);
+    (moved.config as J).sellerApi.workspace.id = 'ws-hosted-2';
+    const second = await seller({ storage: first.storage, bundle: moved });
+    await alarmsUntil(second.object, first.storage, 'start-unknown', async () => (await stageOf(first.storage, id)) === 'start-unknown');
+    expect(stub!.workspacesNamed).toEqual([WS]); // the quote only: no start went to either account
+    expect(stub!.runs()).toEqual([]);
+    expect(logs.join('\n')).toContain(`ALERT ${id} job.config_changed`);
+  }, 45_000);
+});
+
 describe('a hosted seller (T-435): refusals', () => {
   it('a stray HOLDBACK_ variable, a SELLER_URL for another seller, or unreachable operators: degraded, and the alarm never throws', async () => {
     for (const [env, reason] of [
       [envFor({ HOLDBACK_DEPLOYMENT: '{}' }), 'HOLDBACK_DEPLOYMENT is set on this Worker'],
       [envFor({ SELLER_URL: 'https://crow.direct/agents/someone-else' }), 'SELLER_URL is https://crow.direct/agents/someone-else'],
+      [envFor({ SELLER_URL: `https://elsewhere.example/agents/${SLUG}` }), 'a hosted seller lives at https://crow.direct/agents/'],
       [envFor({ OPERATOR_URLS: 'http://127.0.0.1:9,http://localhost:9' }), 'did not start'],
     ] as const) {
       const { object, storage } = await seller({ env });
@@ -212,10 +229,11 @@ describe('a hosted seller (T-435): refusals', () => {
     const base = 'http://127.0.0.1:1/api/v2/';
     expect(() => checkBundle(bundleFor(base, { config: { quoteAuth: { kind: 'bearer', env: 'OPERATOR_URLS' } } }))).toThrow('names OPERATOR_URLS for a credential, which the Worker keeps for itself');
     expect(() => checkBundle(bundleFor(base, { config: { redelivery: { readyAuth: { kind: 'bearer', env: 'HOLDBACK_SPARE' } } } }))).toThrow('names HOLDBACK_SPARE for a credential');
-    for (const slug of ['test-seller', 'test-buyer-2', 'Upper', 'a--b', '-a', 'x'.repeat(41)]) expect(() => checkBundle(bundleFor(base, { slug })), slug).toThrow(/^slug /);
+    for (const slug of ['test-seller', 'test-buyer-2', 'test-sellers', 'test-buyerbot', 'Upper', 'a--b', '-a', 'x'.repeat(41)]) expect(() => checkBundle(bundleFor(base, { slug })), slug).toThrow(/^slug /);
     for (const k of ['journal', 'port', 'events']) expect(() => checkBundle(bundleFor(base, { config: { [k]: 'x' } })), k).toThrow(`config.${k} is for the adapter on Node`);
     expect(() => checkBundle(bundleFor(base, { config: { template: 'missing.json' } }))).toThrow('names missing.json, and the bundle holds no such file');
     expect(() => checkBundle(bundleFor(base, { card: { name: 'x', item: 'a b' } }))).toThrow('card.item must be');
+    for (const name of ['Audits \u202eevil', 'a\u200bb', 'tag\u{e0049}', 'x\u0085y', 'line\u2028two']) expect(() => checkBundle(bundleFor(base, { card: { name, item: 'audit' } })), JSON.stringify(name)).toThrow('card.name must be');
     expect(checkBundle(bundleFor(base)).credentialVars.sort()).toEqual(['JOBS_API_KEY', 'QUOTE_CREDENTIALS', 'READY_CREDENTIALS']);
   });
 

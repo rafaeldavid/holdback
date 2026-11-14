@@ -127,7 +127,30 @@ describe('the workspace guard (T-435): the mapping', () => {
   it('refuses the account written as text in a path, so the two can never differ', () => {
     const api = pinnedApi(base);
     api.result.path = `workspaces/${encodeURIComponent(WS)}/runs/{{jobId}}`;
-    expect(() => client(api)).toThrow('sellerApi.result: a path names the workspace as text; write {{workspace}}');
+    expect(() => client(api)).toThrow('names an account under workspaces that is not {{workspace}}');
+    const elsewhere = pinnedApi(base);
+    elsewhere.result.path = `runs/{{jobId}}/${encodeURIComponent(WS)}`;
+    expect(() => client(elsewhere)).toThrow('sellerApi.result: a path names the workspace as text; write {{workspace}}');
+  });
+
+  it('refuses another account under the accounts\' collection, before or after the placeholder (T-435 red team)', () => {
+    for (const path of ['workspaces/ws-beta/estimates/{{workspace}}', 'workspaces/{{workspace}}/estimates/workspaces/ws-beta']) {
+      const api = pinnedApi(base);
+      api.quote.path = path;
+      expect(() => client(api), path).toThrow(/names an account under workspaces that is not \{\{workspace\}\}|name the account under different segments/);
+    }
+  });
+
+  it('with an account pinned, the report call and the files carry it too, and the client checks them at run time (T-435 red team)', () => {
+    const api = pinnedApi(base);
+    api.result.files = { list: '/proofs', path: '{{file}}', into: '/proofs', maxCount: 5, maxTotalBytes: 65_536 };
+    expect(() => client(api)).toThrow('sellerApi.result.files.path must carry {{workspace}} as one whole path segment');
+    const report = pinnedApi(base);
+    report.result.reportCall = { path: 'exports/{{jobId}}' };
+    expect(() => client(report)).toThrow('sellerApi.result.reportCall.path must carry {{workspace}} as one whole path segment');
+    const ok = pinnedApi(base);
+    ok.result.files = { list: '/proofs', path: 'workspaces/{{workspace}}/files/{{file}}', into: '/proofs', maxCount: 5, maxTotalBytes: 65_536 };
+    expect(() => client(ok)).not.toThrow();
   });
   it('refuses {{workspace}} with no account named, and an account that is not one path segment', () => {
     const api = pinnedApi(base);

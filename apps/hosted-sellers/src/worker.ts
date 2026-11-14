@@ -156,6 +156,9 @@ export class HostedSellerObject {
     this.core ??= (async () => {
       const base = new URL(this.env.SELLER_URL);
       if (base.pathname.replace(/\/+$/, '') !== `/agents/${s.slug}`) throw new Error(`SELLER_URL is ${base.href}, and this seller's address is /agents/${s.slug}`);
+      // Crow's address, or this machine for a local run: the card never sends a buyer to another host.
+      const local = base.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(base.hostname);
+      if (!(base.protocol === 'https:' && base.host === 'crow.direct') && !local) throw new Error(`SELLER_URL is ${base.href}: a hosted seller lives at https://crow.direct/agents/${s.slug}`);
       const store = journalStore(this.state.storage, (line) => console.log(line));
       const core = await createSellerAdapter({ ...s.config, log: (line) => console.log(`${new Date().toISOString()} ${line}`) }, this.coreEnv(s), {
         readText: (name) => {

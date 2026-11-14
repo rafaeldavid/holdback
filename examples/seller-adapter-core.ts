@@ -367,6 +367,11 @@ export interface Deal {
   ready?: boolean;
   /** Start calls sent for this deal, recorded before each call (T-408). */
   startAttempts?: number;
+  /**
+   * SHA-256 of what decides where the deal's start goes, when it was priced: the base URL, the start mapping and the
+   * pinned workspace (T-435). A start under another is never sent. Absent in a journal from before T-435.
+   */
+  startConfig?: string;
   /** When the deal first reached each stage, and when the job finished, by this machine's clock (T-417). */
   times?: Partial<Record<Stage | 'jobDone', string>>;
   /** The job's last status value read by a status field, such as `queued` or `running` (T-417). */
@@ -891,6 +896,8 @@ export async function createSellerAdapter(c: SellerAdapterConfig, env: Readonly<
     if (other) throw new Error(`${at} and ${other} both name ${name}: each credential needs a variable of its own, so one secret never reaches two audiences`);
     seenVar.set(name.toUpperCase(), at);
   }
+  // What decides where a start goes (T-435): each deal records it when priced, and a start under another is not sent.
+  const startConfig = createHash('sha256').update(jcs({ baseUrl: isRecord(c.sellerApi) ? (c.sellerApi.baseUrl ?? null) : null, start: isRecord(c.sellerApi) ? (c.sellerApi.start ?? null) : null, workspace: isRecord(c.sellerApi) ? (c.sellerApi.workspace ?? null) : null }), 'utf8').digest('hex');
   // Your API: its mapping and its credential, checked before anything is sent or signed (T-366).
   const sellerApi = sellerApiClient(c.sellerApi, env, { scope: Object.keys(c.scope ?? {}), options: Object.keys(isRecord(c.options) ? c.options! : {}) });
   const admit = gate(c, env); // refuses a malformed limit or a missing credential before anything is signed
@@ -1210,7 +1217,7 @@ export async function createSellerAdapter(c: SellerAdapterConfig, env: Readonly<
     if (perDeal) signers.set(id, signer);
     // Agent.offer signed only terms it rebuilt from this request; this says so again where it matters most.
     if (String(terms.sellerPayoutAddress).toLowerCase() !== payout) throw new Error(`the signed offer ${id} names ${terms.sellerPayoutAddress} as the payout address, not the configured ${payout}`);
-    journal.deals[id] = { id, stage: 'offered', terms, scope, ...(options === undefined ? {} : { options }), ...(typeof quoted.quoteId === 'string' ? { quoteId: quoted.quoteId } : {}), ...(salting ? { salt: `0x${randomBytes(32).toString('hex')}` } : {}), times: { offered: new Date().toISOString() } };
+    journal.deals[id] = { id, stage: 'offered', startConfig, terms, scope, ...(options === undefined ? {} : { options }), ...(typeof quoted.quoteId === 'string' ? { quoteId: quoted.quoteId } : {}), ...(salting ? { salt: `0x${randomBytes(32).toString('hex')}` } : {}), times: { offered: new Date().toISOString() } };
     save();
     emit('deal.offered', { commitmentId: id, price: terms.price, ...(quoted.units === undefined ? {} : { units: quoted.units }), deliverWithinSec: Math.round((Date.parse(terms.timing.deliverBy) - Date.parse(terms.createdAt)) / 1000), sellerApiQuoteMs, ...(perDeal ? { grantMs } : {}) });
     log(`${id} is offered${perDeal ? `, signed by its deal key ${signer.address},` : ''} to ${terms.buyer} for ${terms.price.amount} base units of ${plain(terms.price.token)}; the offer expires ${terms.timing.offerExpiresAt}.`);
@@ -1275,6 +1282,14 @@ export async function createSellerAdapter(c: SellerAdapterConfig, env: Readonly<
       // Recorded before the call. A repeatable start sent again after a crash carries the same key; a one-shot start
       // counts its attempts from 0 here, so a journal without the count (written before T-408) reads as attempted.
       record(deal, { stage: 'starting', startAttempts: 0, note: 'every operator shows the hold funded' });
+    }
+    if (deal.stage === 'starting' && deal.startConfig !== undefined && deal.startConfig !== startConfig) {
+      // T-435: the configuration that decides where the start goes changed after this deal was priced, by a redeploy
+      // or an edit. A start now could run the job in another account, or look new to an API that dedups by key. The
+      // adapter sends none: a person checks and names the job, or lets deliverBy pass.
+      const deliverBy: string = deal.terms.timing.deliverBy;
+      record(deal, { stage: 'start-unknown', note: `the start's configuration changed since this deal was priced; no start was sent. Name the job with POST /deals/${id}/job before ${deliverBy}, or let the deadline pass` });
+      return alert({ type: 'job.config_changed', commitmentId: id, deliverBy }, `the base URL, the start mapping or the workspace changed since this deal was priced, so the adapter sent no start; name the job with POST /deals/${id}/job before ${deliverBy}, or let the deadline pass and the buyer reclaim`);
     }
     if (deal.stage === 'starting') {
       // A `starting` deal with no count comes from a journal written before T-408, whose start went out at least once.

@@ -297,10 +297,34 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
     if (!isRecord(w)) throw new Error('sellerApi.workspace must be an object: id and an optional resultPointer');
     for (const k of Object.keys(w)) if (!['id', 'resultPointer'].includes(k)) throw new Error(`sellerApi.workspace has a field the adapter does not take: ${short(k)}`);
     if (typeof w.id !== 'string' || !/^[\x21-\x7e]{1,200}$/.test(w.id) || w.id.includes('/') || w.id === '.' || w.id === '..') throw new Error('sellerApi.workspace.id must be 1 to 200 printable characters with no slash');
+    const segmentsOf = (path: string): string[] => path.split(/[?#]/)[0]!.split('/');
+    const carries = (path: unknown) => typeof path === 'string' && segmentsOf(path).includes('{{workspace}}');
+    // A whole segment of the path, not part of one or of the query: the client checks the built path for it.
     for (const k of ['quote', 'start'] as const) {
       const call = api[k];
-      // A whole segment of the path, not part of one or of the query: the client checks the built path for it.
-      if (!isRecord(call) || typeof call.path !== 'string' || !call.path.split(/[?#]/)[0]!.split('/').includes('{{workspace}}')) throw new Error(`sellerApi.${k}.path must carry {{workspace}} as one whole path segment: sellerApi.workspace pins the account every quote and start runs in`);
+      if (!isRecord(call) || !carries(call.path)) throw new Error(`sellerApi.${k}.path must carry {{workspace}} as one whole path segment: sellerApi.workspace pins the account every quote and start runs in`);
+    }
+    // The report call and the files carry the credential too, and a file's path comes from the job's answer: with an
+    // account pinned, they name it as well, or a job's output could send the credential into another account (T-435).
+    const rmap: J = isRecord(api.result) ? api.result : {};
+    if (isRecord(rmap.reportCall) && !carries(rmap.reportCall.path)) throw new Error('sellerApi.result.reportCall.path must carry {{workspace}} as one whole path segment, as the quote and start do');
+    if (isRecord(rmap.files) && !carries(rmap.files.path)) throw new Error('sellerApi.result.files.path must carry {{workspace}} as one whole path segment, as the quote and start do');
+    // The segment before {{workspace}} (such as "workspaces") is the accounts' collection: no path may name another
+    // account in it as text, before or after the placeholder.
+    const parentIn = (path: string) => {
+      const segs = segmentsOf(path);
+      return segs[segs.indexOf('{{workspace}}') - 1];
+    };
+    const parent = parentIn((api.quote as J).path as string);
+    if (parent !== parentIn((api.start as J).path as string)) throw new Error('sellerApi.quote.path and sellerApi.start.path name the account under different segments: both write <collection>/{{workspace}}');
+    if (parent !== undefined && parent !== '' && !parent.includes('{{')) {
+      const all = [api.quote, api.start, api.result, rmap.reportCall, rmap.files].map((cl: J) => (typeof cl === 'string' ? cl : isRecord(cl) ? cl.path : undefined)).filter((x): x is string => typeof x === 'string');
+      for (const path of all) {
+        const segs = segmentsOf(path);
+        segs.forEach((seg, i) => {
+          if (seg === parent && segs[i + 1] !== '{{workspace}}') throw new Error(`sellerApi: the path ${short(path)} names an account under ${short(parent)} that is not {{workspace}}`);
+        });
+      }
     }
     for (const k of ['quote', 'start', 'result'] as const) {
       const call = api[k];
@@ -476,7 +500,7 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
     // The workspace comes from the configuration only: whatever a caller passed under that name is replaced.
     const v: Values = { ...given, workspace: workspace?.id };
     const url = urlFor(p.what, p.url, v, base);
-    if (workspace && (p.what === 'sellerApi.quote' || p.what === 'sellerApi.start') && !url.pathname.split('/').includes(workspace.segment)) {
+    if (workspace && ['sellerApi.quote', 'sellerApi.start', 'sellerApi.result.reportCall', 'sellerApi.result.files'].includes(p.what) && !url.pathname.split('/').includes(workspace.segment)) {
       throw new Error(`${p.label} would go to ${url.pathname}, which does not name the pinned workspace: nothing was sent`);
     }
     const headers: Record<string, string> = Object.create(null);

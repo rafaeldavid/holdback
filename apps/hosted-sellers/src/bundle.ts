@@ -41,7 +41,8 @@ export const WORKER_VARIABLES: readonly string[] = ['SELLER', 'OPERATOR_URLS', '
 /** Fields of a Node configuration the Worker has no use for: it keeps no journal file, opens no port, writes no event file. */
 const NODE_ONLY = ['journal', 'port', 'events'];
 const isRecord = (v: J): boolean => v !== null && typeof v === 'object' && !Array.isArray(v);
-const text = (v: J, max: number) => typeof v === 'string' && v.length >= 1 && v.length <= max && !/[\0-\x1f\x7f]/.test(v);
+/** Text a buyer's agent reads on the card: no control, format, line-separator or tag character, which could hide or reorder words. */
+const text = (v: J, max: number) => typeof v === 'string' && v.length >= 1 && v.length <= max && !/[\p{Cc}\p{Cf}\u2028\u2029]/u.test(v);
 
 /** The SHA-256 a bundle is known by, hex: the same bytes the deploy script hashes. */
 export function bundleSha256(b: HostedBundle): string {
@@ -54,7 +55,8 @@ export function checkBundle(raw: unknown): HostedSeller {
   const b = raw as HostedBundle;
   for (const k of Object.keys(b)) if (!['slug', 'card', 'config', 'files'].includes(k)) throw new Error(`the bundle has a field the Worker does not take: ${String(k).slice(0, 40)}`);
   if (typeof b.slug !== 'string' || b.slug.length > 40 || !SLUG.test(b.slug)) throw new Error('slug must be 1 to 40 lowercase letters, digits and single hyphens, such as "acme-audits"');
-  if (RESERVED_SLUGS.some((r) => b.slug === r || b.slug.startsWith(`${r}-`))) throw new Error(`slug ${b.slug} would share a path with Crow's ${b.slug.startsWith('test-buyer') ? 'test buyer' : 'test seller'}: choose another`);
+  // The test agents' routes are prefixes (crow.direct/agents/test-seller*), so any slug that starts with one is theirs.
+  if (RESERVED_SLUGS.some((r) => b.slug.startsWith(r))) throw new Error(`slug ${b.slug} would share a path with Crow's ${b.slug.startsWith('test-buyer') ? 'test buyer' : 'test seller'}: choose another`);
   const card = b.card as J;
   if (!isRecord(card)) throw new Error('card must be an object: name, item and an optional description');
   for (const k of Object.keys(card)) if (!['name', 'item', 'description'].includes(k)) throw new Error(`card has a field the Worker does not take: ${String(k).slice(0, 40)}`);
