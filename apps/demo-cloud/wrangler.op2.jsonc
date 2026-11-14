@@ -7,6 +7,10 @@
 // signed messages, which many clients will not resend after a redirect, and the EIP-712 domain names no host.
 // The addresses the nodes advertise (OPERATOR_URLS, crow.direct) live with holdback-op1 too: this Worker reads only
 // NODE_INDEX, SETTLEMENT and the WORLD binding (T-313).
+// T-422 (docs/operator-threat-model.md): FLOOD is this node's flood ceiling, 500 requests per 10 s per client (an IPv4
+// address or an IPv6 /64) in each Cloudflare location, answered 429 before the World object; each node has its own
+// namespace, so one refusing a client leaves the other's count alone. limits.ts FLOOD_CEILING states the same numbers.
+// CF_VERSION_METADATA gives discovery's demo.build.deployedAt (T-413).
 {
   "name": "holdback-op2",
   "main": "dist/worker.js",
@@ -19,6 +23,8 @@
   ],
   "preview_urls": false,
   "vars": { "NODE_INDEX": "1", "SETTLEMENT": "sepolia" },
+  "ratelimits": [{ "name": "FLOOD", "namespace_id": "4222", "simple": { "limit": 500, "period": 10 } }],
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
   "durable_objects": { "bindings": [{ "name": "WORLD", "class_name": "World", "script_name": "holdback-op1" }] },
   "alias": { "node:fs": "./worker/fs-shim.js" },
   "define": { "import.meta.url": "\"file:///holdback/bundle/a/b/worker.js\"" },

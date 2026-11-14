@@ -32,11 +32,17 @@ const post = (url: string, body: unknown, key?: string, extra: Record<string, st
   fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...(key ? { 'idempotency-key': key } : {}), ...extra }, body: JSON.stringify(body) });
 const postBytes = (url: string, bytes: Uint8Array, key: string) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/octet-stream', 'idempotency-key': key }, body: bytes });
 
+/** Addresses the faucet granted: one grant per address an hour. */
+const granted = new Set<string>();
 /** A checks-only offer from a fresh seller to `buyer`, accepted by the demo primary; both agents hold faucet tokens. */
 async function acceptedOffer(urls: string[], buyer: Agent) {
   const index = ((await (await fetch(`${urls[0]}/`)).json()) as J).demo;
   const seller = freshAgent(urls);
-  for (const a of [buyer, seller]) await a.call('POST', '/v1/faucet', { address: a.address });
+  for (const a of [buyer, seller]) {
+    if (granted.has(a.address)) continue;
+    await a.call('POST', '/v1/faucet', { address: a.address });
+    granted.add(a.address);
+  }
   const [primary, fallback, appeal] = index.adjudicators.map((a: J) => a.address);
   const offer = await seller.offer({
     template: 'checks-only',

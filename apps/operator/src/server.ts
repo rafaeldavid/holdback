@@ -65,7 +65,8 @@ import type { Registry } from './registry.js';
 export { statusOf } from './problems.js';
 export const API_VERSION = 'v1';
 export const SCHEMA_VERSION = '0.11';
-const MAX_BODY_BYTES = 1_048_576;
+/** The largest JSON body a write takes, in bytes; the demo Workers refuse a larger declared one before it streams in (T-422). */
+export const MAX_BODY_BYTES = 1_048_576;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 const SSE_POLL_MS = 50;
@@ -707,9 +708,12 @@ export class Operator {
   private async write(ctx: Ctx): Promise<void> {
     const budget = this.o.rateLimit?.writes ?? 0;
     const client = `w:${this.client(ctx)}`;
-    this.throttle(client, budget);
+    const known = this.knownKey(ctx);
+    if (!known) this.throttle(client, budget);
     const s = ctx.segments;
-    const raw = await this.body(ctx, s.join('/') === 'v1/adjudicators' ? MAX_REGISTRATION_BYTES : MAX_BODY_BYTES);
+    const raw = await this.countedIfRefused(known, client, budget, () => this.body(ctx, s.join('/') === 'v1/adjudicators' ? MAX_REGISTRATION_BYTES : MAX_BODY_BYTES));
+    if (known && this.replayed(ctx, raw)) return;
+    if (known) this.throttle(client, budget);
     const dryRun = validateOnly(ctx.url.searchParams);
     if (s.join('/') === 'v1/faucet') return this.idempotent(ctx, raw, () => this.faucet(ctx, raw));
     if (s.join('/') === 'v1/adjudicators') return this.registerAdjudicator(ctx, raw, dryRun);
@@ -994,6 +998,34 @@ export class Operator {
     return entry ? { ...out, parties: { buyer: entry.buyer, seller: entry.seller, adjudicators: entry.adjudicators } } : out;
   }
 
+  /**
+   * T-422: a write whose Idempotency-Key already succeeded here may be a replay, which no service limit refuses. It is
+   * counted against the throttle only once its body shows it is not one. A dry run is never a replay.
+   */
+  private knownKey(ctx: Ctx): boolean {
+    const key = ctx.req.headers['idempotency-key'];
+    return typeof key === 'string' && !ctx.url.searchParams.has('validateOnly') && this.idempotency.has(key);
+  }
+
+  /** Answers a replay from the stored response, before any limit; false when `raw` is another request than the key's. */
+  private replayed(ctx: Ctx, raw: unknown): boolean {
+    const stored = this.idempotency.replay(ctx.req.headers['idempotency-key'] as string, fingerprint('POST', ctx.url.pathname, raw));
+    if (!stored) return false;
+    if (this.o.dropResponses) ctx.res.socket?.destroy();
+    else this.send(ctx, stored);
+    return true;
+  }
+
+  /** Reads a body under a known key: a read the operator refuses is counted as a write, as it would have been at entry. */
+  private async countedIfRefused<T>(known: boolean, bucket: string, budget: number, read: () => Promise<T>): Promise<T> {
+    try {
+      return await read();
+    } catch (e) {
+      if (known) this.throttle(bucket, budget);
+      throw e;
+    }
+  }
+
   private async idempotent(ctx: Ctx, raw: unknown, handler: (key: string) => Promise<StoredResponse>): Promise<void> {
     const key = ctx.req.headers['idempotency-key'];
     if (typeof key !== 'string' || key.length < 1 || key.length > 255) fail('invalid_terms', 'mutating requests need an Idempotency-Key header (1 to 255 characters)', { field: 'Idempotency-Key' });
@@ -1215,16 +1247,22 @@ export class Operator {
       return void ctx.res.end(Buffer.from(bytes));
     }
     if (ctx.method !== 'POST' || s.length !== 2) fail('not_found', `no route ${ctx.method} ${ctx.url.pathname}`);
-    this.throttle(`w:${this.client(ctx)}`, this.o.rateLimit?.writes ?? 0);
-    const chunks: Buffer[] = [];
-    let size = 0;
-    for await (const chunk of ctx.req as AsyncIterable<Buffer>) {
-      size += chunk.length;
-      if (size > this.maxCiphertextBytes) fail('payload_too_large', `this node stores a ciphertext of at most ${this.maxCiphertextBytes} bytes (limits.maxCiphertextBytes in discovery)`, { maxBytes: this.maxCiphertextBytes });
-      chunks.push(chunk);
-    }
-    const bytes = new Uint8Array(Buffer.concat(chunks));
-    if (bytes.length === 0) fail('invalid_terms', 'POST the ciphertext bytes as the body (application/octet-stream)');
+    const known = this.knownKey(ctx);
+    if (!known) this.throttle(`w:${this.client(ctx)}`, this.o.rateLimit?.writes ?? 0);
+    const bytes = await this.countedIfRefused(known, `w:${this.client(ctx)}`, this.o.rateLimit?.writes ?? 0, async () => {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      for await (const chunk of ctx.req as AsyncIterable<Buffer>) {
+        size += chunk.length;
+        if (size > this.maxCiphertextBytes) fail('payload_too_large', `this node stores a ciphertext of at most ${this.maxCiphertextBytes} bytes (limits.maxCiphertextBytes in discovery)`, { maxBytes: this.maxCiphertextBytes });
+        chunks.push(chunk);
+      }
+      const read = new Uint8Array(Buffer.concat(chunks));
+      if (read.length === 0) fail('invalid_terms', 'POST the ciphertext bytes as the body (application/octet-stream)');
+      return read;
+    });
+    if (known && this.replayed(ctx, { sha256: sha256(bytes) })) return;
+    if (known) this.throttle(`w:${this.client(ctx)}`, this.o.rateLimit?.writes ?? 0);
     // Content-addressed, so the fingerprint is the hash: the same key with other bytes is a conflict.
     return this.idempotent(ctx, { sha256: sha256(bytes) }, async () => {
       let id: Sha256;
@@ -1259,16 +1297,20 @@ export class Operator {
       return this.send(ctx, await answer(() => desk.status(s[2]!)));
     }
     if (ctx.method !== 'POST' || s.length !== 2) fail('not_found', `no route ${ctx.method} ${ctx.url.pathname}`);
-    this.throttle(`w:${this.client(ctx)}`, this.o.rateLimit?.writes ?? 0);
+    const known = this.knownKey(ctx);
+    if (!known) this.throttle(`w:${this.client(ctx)}`, this.o.rateLimit?.writes ?? 0);
     // Size-capped on the wire and parsed before anything hashes it, as a write is shape-checked first.
-    const raw = await this.body(ctx, MAX_REPORT_BYTES);
-    let report: Report;
-    try {
-      report = parseReport(raw);
-    } catch (e) {
-      if (e instanceof FeedbackError) throw new HttpProblem(e.problem);
-      throw e;
-    }
+    const report = await this.countedIfRefused(known, `w:${this.client(ctx)}`, this.o.rateLimit?.writes ?? 0, async () => {
+      const raw = await this.body(ctx, MAX_REPORT_BYTES);
+      try {
+        return parseReport(raw);
+      } catch (e) {
+        if (e instanceof FeedbackError) throw new HttpProblem(e.problem);
+        throw e;
+      }
+    });
+    if (known && this.replayed(ctx, report)) return;
+    if (known) this.throttle(`w:${this.client(ctx)}`, this.o.rateLimit?.writes ?? 0);
     if (validateOnly(ctx.url.searchParams)) return this.send(ctx, await answer(() => desk.check(report, this.client(ctx))));
     return this.idempotent(ctx, report, () => answer(() => desk.submit(report, this.client(ctx)), 202));
   }

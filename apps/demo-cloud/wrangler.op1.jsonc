@@ -17,6 +17,14 @@
 // Each node answers on its crow.direct and its escrow.stream hostname alike, with no redirect (T-312): agents POST
 // signed messages, which many clients will not resend after a redirect, and the EIP-712 domain names no host.
 // OPERATOR_URLS is what the nodes advertise: crow.direct.
+// T-422 (docs/operator-threat-model.md): FLOOD is this node's flood ceiling, 500 requests per 10 s per client (an IPv4
+// address or an IPv6 /64) in each Cloudflare location, answered 429 before the World object; each node has its own
+// namespace, so one refusing a client leaves the other's count alone. limits.ts FLOOD_CEILING states the same numbers.
+// CF_VERSION_METADATA gives discovery's demo.build.deployedAt (T-413).
+// The World object's limits run with this Worker's variables, for both nodes, each node counting apart:
+// RATE_READS_PER_MIN and RATE_WRITES_PER_MIN (requests per 60 s), FUNDED_DEALS_PER_CLIENT_PER_DAY (deals the relayer
+// funds, about 1.56 million gas each), CIPHERTEXT_BYTES_PER_CLIENT_PER_DAY (new bytes stored; 268435456 is 256 MiB).
+// The day is UTC. They protect this operator's service; none caps a value the parties negotiate (D31).
 {
   "name": "holdback-op1",
   "main": "dist/worker.js",
@@ -28,7 +36,9 @@
     { "pattern": "api.escrow.stream", "custom_domain": true }
   ],
   "preview_urls": false,
-  "vars": { "OPERATOR_URLS": "https://api.crow.direct,https://api2.crow.direct", "NODE_INDEX": "0", "SETTLEMENT": "sepolia", "MIN_WINDOW_SEC": "60", "OPERATOR_FEE_BPS": "0", "OPERATOR_FEE_MIN": "0", "OPERATOR_FEE_GAS": "0" },
+  "vars": { "OPERATOR_URLS": "https://api.crow.direct,https://api2.crow.direct", "NODE_INDEX": "0", "SETTLEMENT": "sepolia", "MIN_WINDOW_SEC": "60", "OPERATOR_FEE_BPS": "0", "OPERATOR_FEE_MIN": "0", "OPERATOR_FEE_GAS": "0", "RATE_READS_PER_MIN": "1200", "RATE_WRITES_PER_MIN": "120", "FUNDED_DEALS_PER_CLIENT_PER_DAY": "100", "CIPHERTEXT_BYTES_PER_CLIENT_PER_DAY": "268435456" },
+  "ratelimits": [{ "name": "FLOOD", "namespace_id": "4221", "simple": { "limit": 500, "period": 10 } }],
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
   "durable_objects": { "bindings": [{ "name": "WORLD", "class_name": "World" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["World"] }],
   "alias": { "node:fs": "./worker/fs-shim.js" },
