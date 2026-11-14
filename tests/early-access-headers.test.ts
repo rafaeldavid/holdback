@@ -20,8 +20,9 @@ function hasAll(r: Response) {
   expect(r.headers.get('strict-transport-security')).toBe('max-age=31536000; includeSubDomains');
   expect(r.headers.get('x-frame-options')).toBe('DENY');
 }
-const corsOf = (r: Response) => ['access-control-allow-origin', 'access-control-allow-methods', 'access-control-allow-headers', 'vary'].map((k) => r.headers.get(k));
-const CORS_CROW = ['https://crow.direct', 'POST, OPTIONS', 'content-type', 'origin'];
+const corsOf = (r: Response) => ['access-control-allow-origin', 'access-control-allow-methods', 'access-control-allow-headers', 'vary', 'cache-control'].map((k) => r.headers.get(k));
+// The CORS answer as before, and no Cache-Control, as before.
+const CORS_CROW = ['https://crow.direct', 'POST, OPTIONS', 'content-type', 'origin', null];
 
 describe('the security headers on crow-early-access (T-462)', () => {
   it('a sign-up from crow.direct, its preflight, a refusal and a 404 carry them, with CORS and bodies as before', async () => {
@@ -30,6 +31,7 @@ describe('the security headers on crow-early-access (T-462)', () => {
     expect(pre.status).toBe(204);
     hasAll(pre);
     expect(corsOf(pre)).toEqual(CORS_CROW);
+    expect(pre.headers.get('content-type')).toBeNull();
     const ok = await call(`${J}/early-access`, post('https://crow.direct', { email: 'A@Example.com', page: '/trust' }), env);
     expect(ok.status).toBe(200);
     hasAll(ok);
@@ -75,5 +77,14 @@ describe('the security headers on crow-early-access (T-462)', () => {
     const local = await call('http://127.0.0.1:8791/early-access', post('https://crow.direct', { email: 'e@example.com' }), env);
     expect(local.status).toBe(200);
     expect(env.store.size).toBe(1);
+  });
+
+  it('a failed store write is a 500 with the headers and the CORS answer, so the form can show its message', async () => {
+    const env = { EMAILS: { get: async () => null, put: async () => Promise.reject(new Error('KV write limit')) } };
+    const r = await call(`${J}/early-access`, post('https://crow.direct', { email: 'f@example.com' }), env);
+    expect(r.status).toBe(500);
+    hasAll(r);
+    expect(corsOf(r)).toEqual(CORS_CROW);
+    expect((await r.json()).error).toMatch(/try again/);
   });
 });

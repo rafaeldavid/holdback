@@ -5,7 +5,7 @@
 - **Depends on:** T-451 (its header sets in `apps/demo-cloud/src/headers.ts`, merged in pull request 564)
 - **Paths this task may touch:** the response-header code in `apps/test-agents/` and `apps/early-access/` and their tests; the test agents' two page templates (`apps/test-agents/src/seller.ts`, `buyer.ts`) only to take their one style from the shared constant; this task file
 - **Human gate:** no for the pull request; the two deploys are the coordinator's, on Rafa's word ("You can go ahead"), which the coordinator holds first hand
-- **Status:** in progress
+- **Status:** done (the two deploys are the coordinator's, Handoff)
 - **Agent/session:** the T-451 side session, on the coordinator's brief of 2026-11-14
 - **Roadmap row:** N52
 
@@ -19,15 +19,15 @@ Non-goals: the site, the operators, the guides, the pinned `site/try.mjs` and `s
 
 ## Acceptance criteria
 
-- [ ] Every answer of crow-test-agents and crow-early-access carries the operators' set: HSTS, nosniff, `X-Frame-Options: DENY`, `default-src 'none'; frame-ancestors 'none'`, `no-referrer`, a same-origin resource policy and the permissions policy, imported from `apps/demo-cloud/src/headers.ts`.
-- [ ] The test seller's and test buyer's HTML cards carry a policy that allows their one inline style by hash and nothing else to run; the JSON data block a card carries still reads.
-- [ ] Plain HTTP gets a 301 (GET, HEAD) or a 308 (other methods) to the same path on HTTPS; local runs stay on HTTP.
-- [ ] CORS and Cache-Control on both Workers are unchanged, byte for byte.
-- [ ] A test per Worker fails before the change and asserts each header on each kind of answer.
-- [ ] The sign-up form on a crow.direct page posts under the new headers in a real browser engine, against a local run, with no policy or CORS error; nothing reaches the live store.
-- [ ] The test seller's card loads in a real browser engine with no policy violation.
-- [ ] `site/try.mjs` and `site/buy.mjs` keep their SHA-256.
-- [ ] The two deploys are handed to the coordinator with the after-checks.
+- [x] Every answer of crow-test-agents and crow-early-access carries the operators' set: HSTS, nosniff, `X-Frame-Options: DENY`, `default-src 'none'; frame-ancestors 'none'`, `no-referrer`, a same-origin resource policy and the permissions policy, imported from `apps/demo-cloud/src/headers.ts`.
+- [x] The test seller's and test buyer's HTML cards carry a policy that allows their one inline style by hash and nothing else to run; the JSON data block a card carries still reads.
+- [x] Plain HTTP gets a 301 (GET, HEAD) or a 308 (other methods) to the same path on HTTPS; local runs stay on HTTP.
+- [x] CORS and Cache-Control on both Workers are unchanged, byte for byte.
+- [x] A test per Worker fails before the change and asserts each header on each kind of answer.
+- [x] The sign-up form on a crow.direct page posts under the new headers in a real browser engine, against a local run, with no policy or CORS error; nothing reaches the live store.
+- [x] The test seller's card loads in a real browser engine with no policy violation.
+- [x] `site/try.mjs` and `site/buy.mjs` keep their SHA-256.
+- [x] The two deploys are handed to the coordinator with the after-checks.
 
 ## Evidence
 
@@ -70,6 +70,30 @@ None of the security headers appears on any answer below: no `Strict-Transport-S
 - **The sign-up form, in a browser engine:** headless Chromium (Playwright 1.65.1, Chromium headless shell 1234) opened live `https://crow.direct/trust` and `https://crow.direct/`, filled the drawer and the home form, and submitted each. Every request to join.crow.direct went to a local crow-early-access (`wrangler dev`, local KV, not the live namespace), and its answer came back with its own headers. The browser accepted both answers (`access-control-allow-origin: https://crow.direct` beside the new `same-origin` resource policy and `DENY`), and the pages showed "Thank you" with no policy or CORS error. Playwright did not route the preflight itself; its answer, with the new headers and the same CORS headers, was measured with curl against the local run and in the test. Nothing reached the live store.
 - **The test cards, in a browser engine:** the seller's and the buyer's card, as the Worker answers them (body and headers, written by a throwaway test), loaded in Chromium with their style applied by hash, their JSON block read, and no console message.
 
+### Review and red team
+
+The reviewer passed the change (PASS, three minor issues). The red team found nothing blocking: the cards cannot be framed, nothing runs on them, and no caller can reach their markup. Agents' plain clients ignore the headers. The sign-up form posted from crow.direct, www.crow.direct and npc.here.now in Chromium with real preflights (the red team's own run, behind a local HTTPS server with host-resolver rules, no Playwright route), which closes the gap the form check above left.
+
+| Finding | From | What was done |
+| --- | --- | --- |
+| An answer that throws (a storage error, a failed KV write, an operator's malformed fee) leaves as Cloudflare's error page, with no headers and no CORS (Low; the same before this change) | both | Fixed: each Worker turns a throw into a 500 JSON answer with the headers and its own CORS, and logs the message; a test per Worker with a stub that throws |
+| The tests did not assert that `Cache-Control` stays absent where it was absent (minor) | reviewer | Fixed: the early-access answers and both Workers' preflights are checked for no `Cache-Control` and no type |
+| `isLocal` and the redirect are written in each Worker (minor) | reviewer | Kept: only the header set must be shared; a dev run reached on a LAN address gets the HTTPS redirect |
+| Plain HTTP on escrow.stream went straight to crow.direct, another host (note) | red team | Fixed: the test agents upgrade to HTTPS on the same host first, as early access does |
+| Agents that used plain HTTP now get a 301 or 308; plain `curl` without `-L`, `httpx` and `urllib` on a 308 POST do not follow (note) | red team | Intended: no client in the repository uses plain HTTP (measured by grep) |
+| Firefox and WebKit not tried (note) | red team | Not run: only Chromium is installed. By the Fetch standard, a resource policy applies to no-cors requests only, so it cannot block the CORS sign-up (inferred) |
+
+**What a scanner would still flag** (inferred from the scanners' rule sets): `access-control-allow-origin: *` on the test agents' JSON (OWASP ZAP 10098; by design, agents call them from anywhere); no `Cross-Origin-Embedder-Policy`, `X-Permitted-Cross-Domain-Policies` or `Clear-Site-Data` (Nuclei, informational); no `Cache-Control` on early access's 400, 403 and 404 (ZAP, informational, unchanged); no HSTS preload; and the early-access Worker's `workers.dev` host, which serves the same Worker with the same headers.
+
 ## Handoff
 
-- The deploys (the coordinator's): `node apps/test-agents/scripts/deploy.mjs` and `node apps/early-access/deploy.mjs`, each from a detached worktree at `origin/main`.
+- **The deploys (the coordinator's, on Rafa's word):** from a detached worktree at `origin/main` after `pnpm install --frozen-lockfile`, `node apps/test-agents/scripts/deploy.mjs` (it waits for the seller's health to read operational and rolls back on its own) and `node apps/early-access/deploy.mjs` (it waits for `/version.json` to name the commit and rolls back on its own).
+- **The after-checks, plain requests only:**
+  1. `/Users/rafa/Documents/escrow/reports/scratch/t-462/measure.sh` for the full after table (GETs and OPTIONS only).
+  2. Every answer carries the seven headers; the two cards carry `style-src 'sha256-…'` in place of `default-src 'none'` alone, and `Cross-Origin-Opener-Policy: same-origin`.
+  3. CORS and Cache-Control match the Before table.
+  4. `http://crow.direct/agents/test-seller/agent.json` and `http://join.crow.direct/version.json` answer 301 to HTTPS.
+  5. `curl -s https://crow.direct/agents/test-seller/health` reads operational, and `https://crow.direct/status` shows the test seller operational.
+  6. `node apps/test-agents/scripts/sell-to-test-buyer.mjs` ends `released`, which shows the buyer still buys; the try command in `https://crow.direct/llms.txt` buys from the test seller, which shows the seller still sells.
+  7. Do not post to the live sign-up form: the form was checked against a local run.
+- An answer that throws in a Durable Object is now a 500 with the headers; the same gap on the operators and the site (T-451's Handoff) stays open.

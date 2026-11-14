@@ -30,8 +30,15 @@ const isLocal = (host) => host === 'localhost' || host === '127.0.0.1' || host =
 
 export default {
   // T-462: every answer leaves through secured(), the one place the security headers are set.
+  // An answer that throws (a failed KV write) becomes a 500 with the headers and the CORS answer, so the form shows its
+  // own message, instead of Cloudflare's error page, which carries neither.
   async fetch(request, env) {
-    return secured(await route(request, env));
+    return secured(
+      await route(request, env).catch((e) => {
+        console.error(`crow-early-access: ${e instanceof Error ? e.message : String(e)}`);
+        return json(500, { error: 'That didn’t go through. Please try again.' }, request.headers.get('origin') ?? '');
+      }),
+    );
   },
 };
 

@@ -75,6 +75,7 @@ describe('the security headers on crow-test-agents (T-462)', () => {
     expect(pre.status).toBe(204);
     hasAll(pre);
     expect([pre.headers.get('access-control-allow-origin'), pre.headers.get('access-control-allow-methods'), pre.headers.get('access-control-allow-headers')]).toEqual(['*', 'GET, POST, OPTIONS', 'content-type']);
+    expect([pre.headers.get('content-type'), pre.headers.get('cache-control')]).toEqual([null, null]);
     const buyerPre = await call(env, `${B}/offers`, { method: 'OPTIONS' });
     expect(buyerPre.headers.get('access-control-allow-headers')).toBe('content-type, idempotency-key');
     hasAll(buyerPre);
@@ -96,5 +97,16 @@ describe('the security headers on crow-test-agents (T-462)', () => {
     hasAll(old);
     expect((await call(env, 'http://127.0.0.1:8790/agents/test-seller/health')).status).toBe(200);
     expect(reached()).toBe(1);
+  });
+
+  it('an answer that throws is a 500 with the headers and the agents’ CORS, not the platform’s error page', async () => {
+    const env: Env = { AGENTS: { idFromName: (n: string) => n, get: () => ({ fetch: async () => Promise.reject(new Error('storage reset')) }) }, OPERATOR_URLS: '', SELLER_URL: S };
+    const r = await call(env, `${S}/health`);
+    expect(r.status).toBe(500);
+    hasAll(r);
+    expect([r.headers.get('access-control-allow-origin'), r.headers.get('cache-control')]).toEqual(['*', 'no-store']);
+    expect(await r.json()).toEqual({ error: 'internal error' });
+    // Plain HTTP on the old hostname goes to HTTPS on the same host first.
+    expect((await call(env, 'http://escrow.stream/agents/test-seller')).headers.get('location')).toBe('https://escrow.stream/agents/test-seller');
   });
 });
