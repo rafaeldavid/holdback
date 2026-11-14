@@ -799,7 +799,7 @@ export interface AdapterIO {
   saveJournal(journal: Journal): void;
   /** Appends one event line (T-417). Left out: no events. */
   appendEvent?(line: string): void;
-  /** The journal's path as a seller would type it, for the manual-delivery note. Left out: `<journal>`. */
+  /** The journal's path as a seller would type it, for the manual-delivery note. Left out: the note names no manual path. */
   journalPath?: string;
 }
 
@@ -1451,7 +1451,9 @@ export async function createSellerAdapter(c: SellerAdapterConfig, env: Readonly<
     const ways = [every === undefined ? null : `fetches the result again at ${nextFetchAt}`, refusal.ready ? `fetches it when you POST /deals/${deal.id}/ready` : null].filter(Boolean);
     const waits = ways.length
       ? `The adapter holds the delivery until ${deliverBy} and ${ways.join(', and ')}`
-      : `The adapter holds the delivery until ${deliverBy}; set redelivery to have it fetch a fixed report, or deliver a fixed file by hand: node examples/check-delivery.ts <terms.json> <file>, then node examples/seal.ts ${io.journalPath ?? '<journal>'} <file> ${deal.id}`;
+      : io.journalPath === undefined
+        ? `The adapter holds the delivery until ${deliverBy}; set redelivery to have it fetch a fixed report` // a hosted seller has no journal file to seal from
+        : `The adapter holds the delivery until ${deliverBy}; set redelivery to have it fetch a fixed report, or deliver a fixed file by hand: node examples/check-delivery.ts <terms.json> <file>, then node examples/seal.ts ${io.journalPath} <file> ${deal.id}`;
     if (deal.refusedSha256 === resultSha256) {
       // The same bytes as last time: the seller has been told. Wait for the next fetch.
       Object.assign(deal, { stage: 'refused', ready: false, nextFetchAt });

@@ -45,7 +45,7 @@ try {
   writeFileSync(`${OUT}/bundle.json`, JSON.stringify(bundle));
   const base = `http://127.0.0.1:${WORKER_PORT}/agents/${bundle.slug}`;
   writeFileSync(`${OUT}/wrangler.jsonc`, JSON.stringify({
-    name: 'crow-seller-local-run', main: here('../src/entry.ts'), compatibility_date: '2025-09-15', compatibility_flags: ['nodejs_compat'],
+    name: 'crow-seller-local-run', main: here('../src/entry.ts'), compatibility_date: '2025-09-15', compatibility_flags: ['nodejs_compat', 'nodejs_compat_do_not_populate_process_env', 'disallow_importable_env'],
     alias: { 'crow-hosted-seller-bundle': `${OUT}/bundle.json` },
     vars: { OPERATOR_URLS: world.info.operators.join(','), SELLER_URL: base },
     durable_objects: { bindings: [{ name: 'SELLER', class_name: 'HostedSeller' }], code_update_strategy: { mode: 'deferred', max_delay: 300 } },
@@ -91,7 +91,8 @@ try {
   say(`settled ${state}; ${deliveries} delivery; the stub made ${stub.runs().length} run in ${JSON.stringify(stub.workspacesNamed)}; health ${JSON.stringify(health)}`);
   const leaked = Object.values({ HOLDBACK_KEY: seller.privateKey, ...KEYS }).filter((v) => devLog.includes(v));
   if (leaked.length) say(`a key appears in the Worker's log: ${leaked.length}`);
-  code = state === 'Released' && deliveries === 1 && stub.runs().length === 1 && leaked.length === 0 ? 0 : 1;
+  const pinned = stub.workspacesNamed.length === 2 && stub.workspacesNamed.every((w) => w === bundle.config.sellerApi.workspace.id);
+  code = state === 'Released' && deliveries === 1 && stub.runs().length === 1 && pinned && leaked.length === 0 ? 0 : 1;
   say(code === 0 ? 'pass' : 'fail');
 } catch (e) {
   say(`fail: ${(e as Error).message}`);

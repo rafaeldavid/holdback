@@ -154,11 +154,13 @@ describe('a hosted seller (T-435): deals', () => {
     expect(keys).not.toContain('journal');
   }, 45_000);
 
-  it('a reset of the object between the funded hold and the delivery starts no second job and delivers once', async () => {
+  it('a reset of the object after the job started starts no second job and delivers once', async () => {
+    stub = await startJobStub({ key: SECRETS.JOBS_API_KEY, readsUntilComplete: 50, workspaces: true }); // the job runs a while
     const first = await seller();
     const buyer = agent('buyer-2');
     const id = (await quote(first.object, buyer)).body.commitmentId as Hex;
     await fund(buyer, id);
+    await alarmsUntil(first.object, first.storage, 'the start', async () => (await stageOf(first.storage, id)) === 'started');
     // The object resets: nothing in memory survives; a new instance reads the same storage.
     const second = await seller({ storage: first.storage });
     await alarmsUntil(second.object, first.storage, 'the delivery', async () => (await stageOf(first.storage, id)) === 'delivered');
@@ -167,17 +169,40 @@ describe('a hosted seller (T-435): deals', () => {
   }, 45_000);
 });
 
+describe('a hosted seller (T-435): a start that cannot be repeated', () => {
+  it('a lost start answer, then a reset of the object: no second start, and the deal waits for a person', async () => {
+    stub = await startJobStub({ key: SECRETS.JOBS_API_KEY, readsUntilComplete: 1, workspaces: true, failFirstStart: true });
+    const b = bundleFor(stub.base);
+    (b.config as J).sellerApi.start.repeatable = false; // the company's API would charge a second start
+    const first = await seller({ bundle: b });
+    const buyer = agent('buyer-1');
+    const id = (await quote(first.object, buyer)).body.commitmentId as Hex;
+    await fund(buyer, id);
+    await alarmsUntil(first.object, first.storage, 'start-unknown', async () => (await stageOf(first.storage, id)) === 'start-unknown');
+    const second = await seller({ storage: first.storage, bundle: b });
+    for (let i = 0; i < 5; i++) await second.object.alarm();
+    expect(await stageOf(first.storage, id)).toBe('start-unknown');
+    expect(stub!.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/runs'))).toHaveLength(1);
+    expect(stub!.runs()).toHaveLength(1);
+    const health = (await (await get(second.object, '/health')).json()) as J;
+    expect(health.stages).toEqual({ 'start-unknown': 1 });
+  }, 45_000);
+});
+
 describe('a hosted seller (T-435): refusals', () => {
   it('a stray HOLDBACK_ variable, a SELLER_URL for another seller, or unreachable operators: degraded, and the alarm never throws', async () => {
     for (const [env, reason] of [
       [envFor({ HOLDBACK_DEPLOYMENT: '{}' }), 'HOLDBACK_DEPLOYMENT is set on this Worker'],
       [envFor({ SELLER_URL: 'https://crow.direct/agents/someone-else' }), 'SELLER_URL is https://crow.direct/agents/someone-else'],
-      [envFor({ OPERATOR_URLS: 'http://127.0.0.1:9,http://localhost:9' }), ''],
+      [envFor({ OPERATOR_URLS: 'http://127.0.0.1:9,http://localhost:9' }), 'did not start'],
     ] as const) {
       const { object, storage } = await seller({ env });
       const health = await get(object, '/health');
       expect(health.status).toBe(503);
-      expect(((await health.json()) as J).reason).toContain(reason);
+      expect(((await health.json()) as J).reason).toBe('the seller could not start; its log says why'); // the detail is the log's
+      expect(logs.join('\n')).toContain(reason);
+      const again = await get(object, '/quote'); // within the minute after a failed start: 503 at once, no second start
+      expect(again.status).toBe(503);
       await expect(object.alarm()).resolves.toBeUndefined();
       expect(storage.alarm).not.toBeNull(); // it tries again later
     }

@@ -117,6 +117,13 @@ describe('the workspace guard (T-435): the mapping', () => {
       expect(() => client(api), k).toThrow(`sellerApi.${k}.path must carry {{workspace}}`);
     }
   });
+  it('refuses {{workspace}} in the query or inside a segment: it must be one whole path segment', () => {
+    for (const path of ['estimates?ws={{workspace}}', 'ws-{{workspace}}/estimates']) {
+      const api = pinnedApi(base);
+      api.quote.path = path;
+      expect(() => client(api), path).toThrow('sellerApi.quote.path must carry {{workspace}} as one whole path segment');
+    }
+  });
   it('refuses the account written as text in a path, so the two can never differ', () => {
     const api = pinnedApi(base);
     api.result.path = `workspaces/${encodeURIComponent(WS)}/runs/{{jobId}}`;

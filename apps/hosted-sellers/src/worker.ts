@@ -132,6 +132,8 @@ export function setupOf(bundle: HostedBundle): Setup {
 export class HostedSellerObject {
   private core: Promise<SellerAdapterCore> | undefined;
   private failure: string | undefined;
+  /** When a failed start may be tried again: until then a request answers 503 at once and fetches nothing. */
+  private retryAt = 0;
   constructor(
     private readonly state: DurableObjectState,
     private readonly env: Env,
@@ -150,6 +152,7 @@ export class HostedSellerObject {
 
   /** The core, started once: on the first request or alarm, and again after a start that failed. */
   private open(s: HostedSeller): Promise<SellerAdapterCore> {
+    if (!this.core && Date.now() < this.retryAt) return Promise.reject(new Error(this.failure ?? 'not started'));
     this.core ??= (async () => {
       const base = new URL(this.env.SELLER_URL);
       if (base.pathname.replace(/\/+$/, '') !== `/agents/${s.slug}`) throw new Error(`SELLER_URL is ${base.href}, and this seller's address is /agents/${s.slug}`);
@@ -162,7 +165,6 @@ export class HostedSellerObject {
         loadJournal: () => store.load(),
         // Not awaited: the output gate holds the next outgoing request until the writes are stored.
         saveJournal: (journal) => store.save(journal),
-        journalPath: 'the Durable Object storage',
       });
       if (!TEST_CHAINS.includes(core.chainId)) {
         await core.close();
@@ -174,6 +176,7 @@ export class HostedSellerObject {
     })().catch((e: Error) => {
       this.core = undefined;
       this.failure = e.message;
+      this.retryAt = Date.now() + RETRY_MS;
       console.log(`The hosted seller ${s.slug} did not start: ${e.message}`);
       throw e;
     });
@@ -213,10 +216,13 @@ export class HostedSellerObject {
       } catch {
         // reported below
       }
+      // The open deals by stage; delivered and closed ones are done and not counted.
       const stages: Partial<Record<Stage, number>> = {};
-      for (const d of core?.deals() ?? []) stages[d.stage] = (stages[d.stage] ?? 0) + 1;
+      const open = (core?.deals() ?? []).filter((d) => !['delivered', 'closed'].includes(d.stage));
+      for (const d of open) stages[d.stage] = (stages[d.stage] ?? 0) + 1;
       if (core?.hasOpen()) await this.schedule(Date.now() + core.pollMs);
-      return json(core ? 200 : 503, { status: core ? 'operational' : 'degraded', seller: seller.slug, configSha256: seller.configSha256, ...(core ? { open: core.deals().filter((d) => !['delivered', 'closed'].includes(d.stage)).length, stages } : { reason: this.failure ?? 'not started' }) });
+      // Why it did not start stays in the log: the public answer says only that it did not.
+      return json(core ? 200 : 503, { status: core ? 'operational' : 'degraded', seller: seller.slug, configSha256: seller.configSha256, ...(core ? { open: open.length, stages } : { reason: 'the seller could not start; its log says why' }) });
     }
     let core: SellerAdapterCore;
     try {
@@ -261,7 +267,11 @@ ${seller.card.description === undefined ? '' : `<p>${escapeHtml(seller.card.desc
     } catch {
       next = Date.now() + RETRY_MS;
     }
-    if (next !== null) await this.state.storage.setAlarm(next);
+    try {
+      if (next !== null) await this.state.storage.setAlarm(next);
+    } catch (e) {
+      console.log(`The next alarm could not be set: ${(e as Error).message}. Any request sets it again.`);
+    }
   }
 }
 
@@ -269,8 +279,8 @@ ${seller.card.description === undefined ? '' : `<p>${escapeHtml(seller.card.desc
 export function workerFor(setup: Setup) {
   return {
     async fetch(request: Request, env: Env): Promise<Response> {
-      const { seller, bundleError, under } = setup;
-      if (!seller) return json(503, { type: 'unavailable', detail: `this seller is not set up: ${bundleError}` });
+      const { seller, under } = setup;
+      if (!seller) return json(503, { type: 'unavailable', detail: 'this seller is not set up; its log says why' });
       if (under(new URL(request.url).pathname) === undefined) return json(404, { type: 'not_found', detail: `this Worker serves /agents/${seller.slug} only` });
       return env.SELLER.get(env.SELLER.idFromName(objectName(seller.slug))).fetch(request);
     },

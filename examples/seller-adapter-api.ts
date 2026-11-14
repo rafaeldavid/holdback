@@ -299,7 +299,8 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
     if (typeof w.id !== 'string' || !/^[\x21-\x7e]{1,200}$/.test(w.id) || w.id.includes('/') || w.id === '.' || w.id === '..') throw new Error('sellerApi.workspace.id must be 1 to 200 printable characters with no slash');
     for (const k of ['quote', 'start'] as const) {
       const call = api[k];
-      if (!isRecord(call) || typeof call.path !== 'string' || !call.path.includes('{{workspace}}')) throw new Error(`sellerApi.${k}.path must carry {{workspace}}: sellerApi.workspace pins the account every quote and start runs in`);
+      // A whole segment of the path, not part of one or of the query: the client checks the built path for it.
+      if (!isRecord(call) || typeof call.path !== 'string' || !call.path.split(/[?#]/)[0]!.split('/').includes('{{workspace}}')) throw new Error(`sellerApi.${k}.path must carry {{workspace}} as one whole path segment: sellerApi.workspace pins the account every quote and start runs in`);
     }
     for (const k of ['quote', 'start', 'result'] as const) {
       const call = api[k];
