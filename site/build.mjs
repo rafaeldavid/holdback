@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { rolldown } from 'rolldown';
 import { JOIN_URL } from './drawer.ts';
 import { CARDS, cardTags, FOOTER_CSS, footerHtml } from './footer.ts';
-import { headerBar, kitCss, listRows, sectionHead, TOKENS } from './brand/kit.mjs';
+import { headerBar, ICON_FILES, iconBytes, iconLinks, iconTags, kitCss, listRows, sectionHead, TOKENS } from './brand/kit.mjs';
 import { guideFiles, guideSource } from './guides.mjs';
 import { PAGES_CSS, securityTxt, statusJson, statusPage, trustPage, trustText } from './trust.mjs';
 
@@ -502,6 +502,21 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid 
 `;
 
 /**
+ * The favicon links every page's head carries (T-428): the crow on a white square, from the brand kit (site/brand/icons/,
+ * iconLinks()). A page this build writes puts ${FAVICON_LINKS} in its head; a page kept as it was made (the demo, the visual
+ * walkthrough) goes through withIcons(), which takes out its own icon links and adds these. site/check.mjs group 17
+ * fails the build when a built page lacks them.
+ */
+export const FAVICON_LINKS = iconLinks({ base: BASE });
+export function withIcons(html) {
+  const at = html.indexOf('</head>');
+  if (at < 0) throw new Error('withIcons: the page has no </head>');
+  let head = html.slice(0, at);
+  for (const tag of iconTags(html)) head = head.includes(`${tag}\n`) ? head.replace(`${tag}\n`, '') : head.replace(tag, '');
+  return `${head}${FAVICON_LINKS}\n${html.slice(at)}`;
+}
+
+/**
  * 404.html: what the site answers for an address it does not have (Cloudflare serves it with status 404). A visitor
  * gets Crow's header and the ways back; an agent that guessed an address gets the same pointers to the guides first,
  * in plain words, so one wrong guess costs it little.
@@ -517,7 +532,7 @@ export function notFoundPage() {
 <meta name="robots" content="noindex">
 <title>${esc(CARDS.notFound.title)}</title>
 ${cardTags({ site: SITE_URL, ...CARDS.notFound })}
-<link rel="icon" type="image/svg+xml" href="${BASE}crow-mark.svg">
+${FAVICON_LINKS}
 <link rel="stylesheet" href="${BASE}home.css">
 </head>
 <body>
@@ -559,9 +574,7 @@ export function page(md, command = tryCommand()) {
 <link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="${BASE}llms.txt">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(CARDS.home.title)}</title>
-<link rel="icon" type="image/svg+xml" href="${BASE}crow-mark.svg">
-<link rel="icon" type="image/png" href="${BASE}favicon.png">
-<link rel="apple-touch-icon" href="${BASE}favicon.png">
+${FAVICON_LINKS}
 <link rel="canonical" href="${SITE_URL}">
 <meta name="theme-color" content="${TOKENS.page}">
 ${cardTags({ site: SITE_URL, ...CARDS.home })}
@@ -605,7 +618,7 @@ export async function problemPages() {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>
 ${cardTags({ site: SITE_URL, path, title, description: CARDS.problems.description })}
-<link rel="icon" type="image/png" href="${BASE}favicon.png">
+${FAVICON_LINKS}
 <link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="${BASE}llms.txt">
 <style>
 ${kitCss({ parts: ['pill', 'footer'] })}/* the problem pages: still the earlier paper look, in tokens of their own (T-402 lists it for Rafa) */
@@ -682,7 +695,7 @@ export function visualdemoPage(html) {
     .replace('</head>', `<style>${FOOTER_CSS}</style>\n</head>`)
     .replace('</body>', `${footerHtml({ base: BASE })}\n</body>`);
   if (!out.includes('og:image') || !out.includes('class="ck-foot"')) throw new Error('site/visualdemo/index.html changed shape: its title, description, head or body was not found');
-  return out;
+  return withIcons(out);
 }
 
 /**
@@ -693,7 +706,7 @@ export function visualdemoPage(html) {
 export function demoPage(html) {
   const at = html.indexOf('<footer class="ck-foot">'), end = html.indexOf('</footer>', at);
   if (at < 0 || end < 0 || html.indexOf('<footer class="ck-foot">', at + 1) >= 0) throw new Error('site/demo/index.html changed shape: it no longer holds exactly one site footer');
-  return `${html.slice(0, at)}${footerHtml({ base: BASE, current: 'demo' }).trimEnd()}${html.slice(end + '</footer>'.length)}`;
+  return withIcons(`${html.slice(0, at)}${footerHtml({ base: BASE, current: 'demo' }).trimEnd()}${html.slice(end + '</footer>'.length)}`);
 }
 
 /**
@@ -780,6 +793,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     // tree has uncommitted changes or git cannot answer.
     writeFileSync(join(out, 'version.json'), `${JSON.stringify({ commit: buildCommit() }, null, 2)}\n`);
     for (const f of ASSETS) writeFileSync(join(out, f), readFileSync(here(f)));
+    // T-428: the favicon set from the brand kit, at the site's root, so /favicon.ico answers a client that asks blind.
+    for (const f of ICON_FILES) writeFileSync(join(out, f), iconBytes(f));
     // The visual walkthrough of a real two-agent deal, served at /visualdemo.
     mkdirSync(join(out, 'visualdemo'), { recursive: true });
     writeFileSync(join(out, 'visualdemo', 'index.html'), visualdemoPage(readFileSync(here('visualdemo/index.html'), 'utf8')));

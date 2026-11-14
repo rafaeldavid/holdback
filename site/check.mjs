@@ -39,13 +39,19 @@
 //    renders, every statement on the trust page links its source and every repository link names a file that exists,
 //    the site's one footer links both pages, the status page reads public endpoints only, security.txt (RFC 9116)
 //    carries its five fields with an Expires less than a year away, and the new pages use none of the refused words.
+// 17. The favicon (T-428): every HTML page the build writes carries the brand kit's icon links in its head and no other
+//    icon link, the kit's icon files are current against the mark, and a publish build serves each at the site's root.
+//    Without a publish build it checks the pages it knows by name; with one (site/deploy.mjs builds before it checks),
+//    every .html file the build wrote, so a page added to the publish step alone is caught at the latest at deploy.
 // 12. The budget (T-393): each role's first-deal path, the front door plus its page, is within FIRST_DEAL_BUDGET
 //    (site/guides.mjs). With HOLDBACK_AGENT_ANTHROPIC_API_KEY set it counts with Anthropic's count_tokens for the
 //    pinned model; without it, bytes divided by four. It says which.
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { OG_IMAGE } from './footer.ts';
+import { ICON_FILES } from './brand/kit.mjs';
 import { ASSETS, BASE, BUY_COMMANDS, HOME_CSS, HOME_JS, notFoundPage, visualdemoPage, BUY_MJS_URL, BUY_URL, buyBundle, buyInstall, buySha256, filled, page, pins, problemPages, publishedGuides, SELL_URL, SITE_URL, strip, TEST_SELLER_URL, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
 import { apiRoutes, citedSections, duplicateSentences, hasSection, FIRST_DEAL_BUDGET, guideFiles, guideSource, measurePaths, namedCalls, namedReferences, referenceFiles, nonAscii, routeKnown } from './guides.mjs';
 
@@ -135,7 +141,9 @@ for (const [, url] of html.matchAll(/(?:href|src|srcset)="([^"]*)"/g)) {
   const resolved = new URL(url, `${SITE_URL}index.html`);
   // A path without an extension may name a page: the assets serve trust.html at /trust (html_handling, T-421).
   const file = resolved.pathname.slice(BASE.length) || 'index.html';
-  const ok = resolved.origin === new URL(SITE_URL).origin && resolved.pathname.startsWith(BASE) && (existsSync(here(file)) || (!/\.[a-z0-9]+$/.test(file) && existsSync(here(`${file}.html`))));
+  // The favicon set (T-428) lives in the brand kit, site/brand/icons/, and a publish build copies it to the root.
+  const icon = ICON_FILES.includes(file) && existsSync(here(`brand/icons/${file}`));
+  const ok = resolved.origin === new URL(SITE_URL).origin && resolved.pathname.startsWith(BASE) && (icon || existsSync(here(file)) || (!/\.[a-z0-9]+$/.test(file) && existsSync(here(`${file}.html`))));
   expect(ok, `link ${url} does not resolve to a site file under ${BASE}`);
   expect(!/^[a-z]/i.test(url) || url.startsWith('https://'), `link ${url} is page-relative; use ${BASE}… so it works without a trailing slash`);
 }
@@ -342,8 +350,9 @@ for (const [p, text] of filledGuides) if (!nonAscii(guides.get(p) ?? '').length)
 // The sources of the home page, the 404 and problem pages, the footer, the early-access dialog and the demo page, and
 // the kit's own components.css, write none: they read the tokens. Nothing is allow-listed today; an entry needs its
 // reason beside it. site/visualdemo/ and site/og.html (the share image's source, drawn once by hand) are not read here.
-const KIT_READERS = ['build.mjs', 'footer.ts', 'drawer.ts', 'home.js', 'trust.mjs', '../tools/duet/replay.ts', 'brand/components.css', 'brand/kit.mjs'];
-const KIT_ALLOWED = new Map(); // 'path' -> the reason it may write a colour or a font stack
+const KIT_READERS = ['build.mjs', 'footer.ts', 'drawer.ts', 'home.js', 'trust.mjs', '../tools/duet/replay.ts', 'brand/components.css', 'brand/kit.mjs', 'brand/icons.mjs'];
+// 'path' -> the reason it may write a colour or a font stack
+const KIT_ALLOWED = new Map([['brand/icons.mjs', 'the favicon\'s plain white square (#ffffff, Rafa 2026-11-14, T-428): the icon sits on a browser\'s tab bar, not on a page, so no page token applies; the crow is --ink']]);
 const COLOUR = /(?<![\w&/-])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])|\b(?:rgba?|hsla?)\(/g;
 const FONT_STACK = /-apple-system|BlinkMacSystemFont|Helvetica|Arial|Garamond|Menlo|\bsans-serif\b|\bmonospace\b|"SF (?:Pro|Mono)/g;
 for (const p of KIT_READERS) {
@@ -479,6 +488,29 @@ if (existsSync(here('../reports/site-out/llms.txt'))) {
   if (existsSync(here('../reports/site-out/security.txt'))) secOk(read('../reports/site-out/security.txt'), 'reports/site-out/security.txt');
 }
 expect(typeof trust.SECURITY_CONTACT === 'string' && read('../SECURITY.md').includes(trust.SECURITY_CONTACT) && read('../SECURITY.md').includes(`${SITE_URL}.well-known/security.txt`), 'SECURITY.md does not name the contact that security.txt names, or does not point to security.txt');
+
+// 17. The favicon (T-428).
+{
+  const kit = await import('./brand/kit.mjs');
+  const want = typeof kit.iconLinks === 'function' ? kit.iconLinks({ base: BASE }).split('\n') : [];
+  expect(want.length > 0, 'site/brand/kit.mjs exports no iconLinks(): the pages have no one place for the favicon links');
+  const iconsIn = (h) => (typeof kit.iconTags === 'function' && h.includes('</head>') ? kit.iconTags(h) : []);
+  const pages = new Map([...built, ...problems]);
+  pages.delete('demo/index.html'); // the committed replay; the publish build adds the links (demoPage, below)
+  if (typeof siteBuild.demoPage === 'function') pages.set('demo/index.html (published)', siteBuild.demoPage(read('demo/index.html')));
+  for (const [path, h] of pages) expect(want.length > 0 && JSON.stringify(iconsIn(h)) === JSON.stringify(want), `${path} does not carry exactly the favicon links of iconLinks() (site/brand/kit.mjs) in its head`);
+  const files = ICON_FILES;
+  for (const f of files) expect(existsSync(here(`brand/icons/${f}`)), `site/brand/icons/${f} is missing: run node site/brand/icons.mjs`);
+  const stale = spawnSync(process.execPath, [fileURLToPath(here('brand/icons.mjs')), '--check'], { encoding: 'utf8' });
+  expect(stale.status === 0, `site/brand/icons/ is stale against site/crow-mark.svg: ${(stale.stderr || stale.stdout).trim()}`);
+  // a publish build: every HTML file it wrote, wherever it sits, and every icon file at the root as the kit has it
+  const site = here('../reports/site-out/');
+  if (existsSync(new URL('llms.txt', site))) {
+    const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : e.name.endsWith('.html') ? [join(dir, e.name)] : []));
+    for (const f of walk(fileURLToPath(site))) expect(JSON.stringify(iconsIn(readFileSync(f, 'utf8'))) === JSON.stringify(want), `reports/site-out/${f.slice(fileURLToPath(site).length)} does not carry exactly the favicon links in its head: build with --out again`);
+    for (const f of files) expect(existsSync(new URL(f, site)) && readFileSync(new URL(f, site)).equals(kit.iconBytes(f)), `reports/site-out/${f} is missing or differs from site/brand/icons/${f}: build with --out again`);
+  }
+}
 
 // 12. The budget (T-393).
 let measured = [];
