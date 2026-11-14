@@ -5,7 +5,7 @@
 - **Depends on:** none (the `security.txt` half of the row went live with T-421)
 - **Paths this task may touch:** the response-header code in `apps/site/` and `apps/demo-cloud/` and their tests; `site/build.mjs` and `site/check.mjs` only for the script hashes and the new check; the new `site/csp.mjs`; one line in `tests/site-status.test.ts` (it counts the site Worker's asset reads); this task file; one paragraph in `docs/operations.md`
 - **Human gate:** no for the pull request; the site deploy runs on Rafa's standing word for this wave (coordinator brief 2026-11-14, "Merge and deploy when ready"); the operator deploy waits for the coordinator's go
-- **Status:** done (the operator deploy handed to the coordinator, below)
+- **Status:** done (the operator deploy waits for Rafa, through the coordinator, below)
 - **Agent/session:** T-451 side session, started by the coordinator on 2026-11-14
 - **Roadmap row:** N52
 
@@ -139,7 +139,7 @@ On `/visualdemo/` it differs in two directives: `style-src 'self' 'unsafe-inline
 
 ### The operators: handed to the coordinator (2026-11-14 17:40 UTC)
 
-The coordinator gave the go at about 17:35 UTC. This session's permission check refused `pnpm demo-cloud:deploy` on a relayed word, so the coordinator deploys (the brief's fallback). What that deploy carries, measured with `git diff 011ce6ac..1225046b`: live holdback-op1 is version `ceb012e0-20d1-43fa-b872-e7291cdb5b52` (14:55 UTC), and both nodes report build `011ce6ac`. Since then `apps/demo-cloud/` changed only in T-451's `src/headers.ts`, `src/headers.test.ts` and `src/worker.ts`, and `packages/` is unchanged, so the deploy carries T-451 alone. The API's after table and the try deal go in the coordinator's deploy record.
+The coordinator gave the go at about 17:35 UTC. This session's permission check refused `pnpm demo-cloud:deploy` on a relayed word, so the coordinator put the deploy to Rafa and deploys on his answer. What that deploy carries, measured with `git diff 011ce6ac..1225046b`: live holdback-op1 is version `ceb012e0-20d1-43fa-b872-e7291cdb5b52` (14:55 UTC), and both nodes report build `011ce6ac`. Since then `apps/demo-cloud/` changed only in T-451's `src/headers.ts`, `src/headers.test.ts` and `src/worker.ts`, and `packages/` is unchanged, so the deploy carries T-451 alone. The API's after table and the try deal go in the coordinator's deploy record.
 
 ## Handoff
 
