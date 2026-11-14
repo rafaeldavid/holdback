@@ -1,7 +1,6 @@
 # T-417: the seller adapter emits events for the seller's product metrics
 
 - **Lane:** demo (examples), the seller adapter
-- **Roadmap row:** N37 (the seller adapter)
 - **Phase:** 2, settlement on EVM (stable EVM operations, D53)
 - **Kind:** 4 (API and example code), from the Change recipes in `docs/team.md`: the examples' tests, one reviewer
 - **Depends on:** T-366 (the job API mapping), T-406 (unit pricing), T-408 (the one-shot start)
@@ -9,6 +8,7 @@
 - **Human gate:** no. Rafa, 2026-11-14: "Make sure the adapter and API have the right emissions of data to help the product development." Nothing deploys.
 - **Status:** done (PR 507, merge commit `cdb4163`)
 - **Agent/session:** the T-399 session, 2026-11-14, branch `t-417-adapter-events`
+- **Roadmap row:** N37 (the seller adapter)
 
 ## Intent
 

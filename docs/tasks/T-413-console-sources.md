@@ -1,13 +1,13 @@
 # T-413: Sources for the console's missing signals, public side
 
 - **Lane:** infra
-- **Roadmap row:** N108
 - **Phase:** 2
 - **Depends on:** T-404 (Crow Control's rebuild, private), T-066 (the metrics format)
 - **Paths this task may touch:** `apps/test-agents/`, `apps/early-access/`, `apps/site/`, `scripts/metrics/ops-cost*` (and its schema under `scripts/metrics/schemas/`), `site/check.mjs` (one block of its own), a new `site/guide-budget.mjs`, `docs/decisions-today.md` (a status line on each entry only), new tests under `tests/`, `tests/metrics/ops-cost*`, this file
 - **Human gate:** yes for the three deploys (site, test agents, early access). Nothing is deployed by this task.
 - **Status:** done (merged in PR 505, `e90b27a`; the site, the test agents and early access deployed on 2026-11-14, on Rafa's word)
 - **Agent/session:** the T-413 session, started 2026-11-14 by the coordinator's wave (sister task T-414 reads these sources into the console)
+- **Roadmap row:** N108
 - **Kind:** 1 (the site check), 2 (the decisions record), 4 (Worker code), with the metrics script; one `reviewer` pass
 
 ## Intent

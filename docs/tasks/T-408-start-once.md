@@ -1,7 +1,6 @@
 # T-408: the seller adapter sends a start it cannot repeat safely at most once a deal
 
 - **Lane:** demo (examples), the seller adapter
-- **Roadmap row:** N37 (the seller adapter)
 - **Phase:** 2, settlement on EVM (stable EVM operations, D53)
 - **Kind:** 4 (API and example code), from the Change recipes in `docs/team.md`: the examples' tests, one reviewer
 - **Depends on:** T-366 (the adapter calls a seller's job API through a mapping); the High finding and the design are ADR-0037, section 6 (T-407, pull request 499, Proposed)
@@ -9,6 +8,7 @@
 - **Human gate:** no. Rafa, 2026-11-14: "Go ahead on next steps that are possible", after the fix was recommended before the pilot's two scans. Nothing deploys.
 - **Status:** done (PR 501, merge commit `f6b30a8`)
 - **Agent/session:** the T-399 session, 2026-11-14, branch `t-408-start-once`
+- **Roadmap row:** N37 (the seller adapter)
 
 ## Intent
 

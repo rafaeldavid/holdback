@@ -1,7 +1,6 @@
 # T-421: The site's trust surfaces: a trust page, a security contact and a status page
 
 - **Lane:** site (roadmap rows N109, "Security questionnaire answers and a trust page", and N119, "The enterprise API's written promises", in the private repository)
-- **Roadmap row:** N109, N119
 - **Phase:** 2, settlement on EVM (stable EVM operations, D53)
 - **Kind:** 1 (copy and agent docs: `site/`), with a small route in the site Worker (`apps/site/worker.js`) and its test
 - **Depends on:** the privacy baseline (T-416, `docs/privacy-baseline.md`), which holds the facts about what a deal reveals
@@ -9,6 +8,7 @@
 - **Human gate:** the site deploy. Rafa's word for this wave, "merge and deploy when ready", covers it inside the wave brief's six limits.
 - **Status:** done (holdback pull request 521, merge commit `9415caa9`; crow-private pull request 61, merge commit `60183d07`; site deployed 2026-11-14 12:03 UTC)
 - **Agent/session:** the T-421 session, 2026-11-14, branch `t-421-trust-surfaces`
+- **Roadmap row:** N109, N119
 
 ## Intent
 

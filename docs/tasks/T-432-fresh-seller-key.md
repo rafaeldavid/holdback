@@ -1,13 +1,13 @@
 # T-432: a fresh seller key for each deal
 
 - **Lane:** demo (the seller adapter)
-- **Roadmap row:** N127
 - **Phase:** 2
 - **Depends on:** T-431 (the same file; this branch starts from it), T-416 (the privacy baseline)
 - **Paths this task may touch:** `examples/seller-adapter.ts`, `examples/seal.ts`, `examples/seller-adapter-keys.test.ts`, `site/ref/seller-adapter.txt`, this file
 - **Human gate:** no
 - **Status:** done
 - **Agent/session:** T-399 session (roadmap row N127, Rafa 2026-11-14: "Yes build both")
+- **Roadmap row:** N127
 
 ## Intent
 

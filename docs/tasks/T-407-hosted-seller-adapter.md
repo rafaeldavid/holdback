@@ -1,13 +1,13 @@
 # T-407: A hosted seller adapter on Crow's Cloudflare account
 
 - **Lane:** infra
-- **Roadmap row:** N37 (the seller adapter, hosted)
 - **Phase:** 2
 - **Depends on:** T-406 (a quote priced per unit, PR 497), T-399 (the live rehearsal of a design partner's two scans)
 - **Paths this task may touch:** `docs/decisions/ADR-0037-hosted-seller-adapter.md`, `docs/decisions-today.md` (one entry), this file; after Rafa picks the design: `examples/seller-adapter*.ts`, `examples/report-converter.ts`, a new `apps/hosted-sellers/`, `pnpm-workspace.yaml`, `fixtures/` for the new tests, `docs/operations.md` (a "how to deploy" section only)
 - **Human gate:** yes for any deploy and every secret. The build itself is confined to the repository.
 - **Status:** review (the design record; nothing is built)
 - **Agent/session:** the T-407 session, started 2026-11-14 by the pilot coordinator
+- **Roadmap row:** N134
 
 ## Intent
 

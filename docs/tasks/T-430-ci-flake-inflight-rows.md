@@ -1,13 +1,13 @@
 # T-430: The in-flight rows test read a receipt anvil had not mined yet
 
 - **Lane:** settlement
-- **Roadmap row:** none (a CI fix)
 - **Phase:** 2
 - **Depends on:** T-219, T-035
 - **Paths this task may touch:** `packages/settlement/evm/`, this task file
 - **Human gate:** no
 - **Status:** done
 - **Agent/session:** root-cause session started from Crow Control's failed-run flag, 2026-11-14
+- **Roadmap row:** none (a CI fix)
 
 ## Intent
 

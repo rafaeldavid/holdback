@@ -1,7 +1,6 @@
 # T-427: the demo page, reviewed against the pilot and this week's work
 
 - **Lane:** site (the demo page's own files)
-- **Roadmap row:** N102
 - **Phase:** 2, settlement on EVM (stable EVM operations, D53)
 - **Kind:** 1 (copy), with the demo generator's tests (`tools/duet/duet.test.ts`), from the Change recipes in `docs/team.md`; one `reviewer` pass, told to check every statement on the page against the live service; no red team
 - **Depends on:** T-391 (the two-agent demo), T-418 (the ontology's words), T-420 (the test seller's live endings)
@@ -9,6 +8,7 @@
 - **Human gate:** no for the merge and the site deploy (Rafa's word for the wave of 2026-11-14: merge and deploy when ready). The proposal below was answered by Rafa on 2026-11-14 ("Yes, build it") and built in part 2.
 - **Status:** done. Part 1: PR 536, merged as `d3ce4cf3`, site deployed 2026-11-14 13:14 UTC. Part 2: PR 543, merged as `080920cf`, site deployed 2026-11-14 13:46 UTC
 - **Agent/session:** the T-427 session, 2026-11-14, branches `t-427-demo-refresh` (part 1), `t-427-record`, `t-427-three-endings` (part 2)
+- **Roadmap row:** N102
 
 ## Intent
 

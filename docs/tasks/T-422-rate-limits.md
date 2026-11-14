@@ -1,7 +1,6 @@
 # T-422: Rate limits and abuse controls on the API, with a threat model
 
 - **Lane:** security
-- **Roadmap row:** N19
 - **Phase:** 2, stable EVM operations on Sepolia (D53)
 - **Roadmap:** N19, "Rate limits and abuse controls on the REST API, with a threat model for operator nodes"
 - **Depends on:** T-409 (operator hardening, PR 512), T-413 (the `deployedAt` field, PR 505)
@@ -9,6 +8,7 @@
 - **Human gate:** none for the code. The deploy runs on Rafa's standing word for this wave ("merge and deploy when ready").
 - **Status:** done (merged in PR 524, `f432892`; both operators deployed on 2026-11-14 at 11:55 UTC, on Rafa's word for this wave)
 - **Agent/session:** the T-422 session, 2026-11-14, branch `t-422-rate-limits`, worktree `.worktrees/holdback-T-422`
+- **Roadmap row:** N19
 - **Kind:** 4, API and operator code; one `reviewer` pass and one `red-teamer` pass
 
 ## Intent

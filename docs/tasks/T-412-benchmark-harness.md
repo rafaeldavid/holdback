@@ -1,13 +1,13 @@
 # T-412: The benchmark harness (roadmap B1)
 
 - **Lane:** test (agent access)
-- **Roadmap row:** B1
 - **Phase:** 2 (roadmap stage 1, "Outsiders can use it", its third bar: "each run records success, approvals, tokens, time, API calls, errors and doc gaps")
 - **Depends on:** T-066 and T-370 (the One-Click harness, `tools/one-click/run.mjs`), T-328 (the outsider runner, `tools/one-click/outsider.mjs`), T-222 and T-239 (Crow's test seller and test buyer)
 - **Paths this task may touch:** `tools/one-click/`, `scripts/metrics/one-click*`, `scripts/metrics/schemas/one-click*`, `tests/metrics/one-click*`, this file. Two shared lines outside them, named under Decisions: `scripts/metrics/schemas/common.schema.json` (the envelope's version pattern) and `tests/metrics/schemas.test.ts` (the list of schema names).
 - **Human gate:** yes for the live runs only. They spend Rafa's model key and Sepolia test funds, so Rafa starts them (Handoff). Scripted runs need no key and no network.
 - **Status:** done (PR 506, merged 2026-11-14; the six live runs recorded on 2026-11-14, crow-private PR 68)
 - **Agent/session:** T-412 side session of the 2026-11-14 wave, worktree `.worktrees/holdback-T-412`, branch `t-412-benchmark-harness`
+- **Roadmap row:** B1
 - **Change kind:** 4 (tool code with its tests): the metrics tests, `pnpm typecheck`, `pnpm lint`; one `reviewer` pass (the wave's rule 8)
 
 ## Intent

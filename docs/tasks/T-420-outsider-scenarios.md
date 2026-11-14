@@ -1,13 +1,13 @@
 # T-420: The test seller plays every outsider scenario (roadmap N70)
 
 - **Lane:** agent-access
-- **Roadmap row:** N70
 - **Phase:** 2
 - **Depends on:** T-222 (Crow's test seller), T-328 (the outsider design tests and findings F1, F2, F3, F9), T-413 (the Worker's `version.json`)
 - **Paths this task may touch:** `apps/test-agents/` (its code, tests and scripts), `site/ref/intake.txt` (the test seller's offers only), this file
 - **Human gate:** no. Rafa's word for this wave (2026-11-14): merge and deploy when ready, inside the wave brief's limits. Test tokens only.
 - **Status:** done (PR 519 merged as `b630609f`; the test seller and the site deployed on 2026-11-14; one live deal per scenario recorded)
 - **Agent/session:** the T-420 session, second wave of 2026-11-14, worktree `.worktrees/holdback-T-420`, branch `t-420-outsider-scenarios`, then `t-420-record` for the live record
+- **Roadmap row:** N70
 - **Kind:** 4 (the test seller's Worker code), 1 (`site/ref/intake.txt`), 9 (one live deal per scenario on Sepolia); one `reviewer` pass
 
 ## Intent

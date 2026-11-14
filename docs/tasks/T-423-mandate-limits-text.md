@@ -1,13 +1,13 @@
 # T-423: Where an agent's limits hold, in plain text, and three doc fixes
 
 - **Lane:** docs (kind: docs, plus one operator message text)
-- **Roadmap row:** N117
 - **Phase:** 2
 - **Depends on:** T-415 (ADR-0038, D69)
 - **Paths this task may touch:** `docs/neutrality.md`, and on the coordinator's word for T-410's lines: one decision line in `docs/decisions-today.md` and the Status field of `docs/tasks/T-410-routine-redeploy.md`;, `docs/architecture.md`, `docs/operations.md`, `docs/api.md`, `site/ref/limits.txt`, the `next` text of `scope_exceeded` (it lives in `apps/operator/src/problems.ts`; `packages/core/src/problem.ts`, which the brief names, holds only the type names), this task file. `CLAUDE.md` in a separate draft pull request only.
 - **Human gate:** the site deploy runs under Rafa's standing word for this wave ("merge and deploy when ready"). The `CLAUDE.md` line waits for Rafa's word.
 - **Status:** done (pull request 520 merged 2026-11-14 11:30 UTC as `0746a888`)
 - **Agent/session:** T-423 session of the second wave, 2026-11-14
+- **Roadmap row:** N117
 
 ## Intent
 

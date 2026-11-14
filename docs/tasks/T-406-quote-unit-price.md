@@ -1,7 +1,6 @@
 # T-406: the seller adapter prices a quote that counts units at a fixed price per unit
 
 - **Lane:** demo (examples), the seller adapter
-- **Roadmap row:** N37 (the seller adapter)
 - **Phase:** 2, settlement on EVM (stable EVM operations, D53)
 - **Kind:** 4 (API and example code), from the Change recipes in `docs/team.md`: the examples' tests, one reviewer
 - **Depends on:** T-366 (the adapter calls a seller's job API through a mapping); found by T-399 (the pilot rehearsal on the live deployment)
@@ -9,6 +8,7 @@
 - **Human gate:** no. Rafa set the rule on 2026-11-14: the seller's API returns a quote in credits, and the adapter converts it at a fixed price per credit. Nothing deploys; the guide reaches crow.direct with the next site deploy, which is Rafa's.
 - **Status:** done (PR 497, merge commit `f2376e2`)
 - **Agent/session:** the T-399 session, 2026-11-14, branch `t-406-quote-unit-price`
+- **Roadmap row:** N37 (the seller adapter)
 
 ## Intent
 
