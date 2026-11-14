@@ -141,6 +141,7 @@
         "principal",
         "standingKey",
         "mandatePath",
+        "revocationsPath",
         "maxPerDeal",
         "maxPerDay",
         "maxOpenDeals",
@@ -166,6 +167,11 @@
           "type": "string",
           "pattern": "^[A-Za-z0-9._/-]{1,200}$",
           "description": "The principal's signed mandate for the standing key, as examples/mandate.ts verify prints its document; relative to this file"
+        },
+        "revocationsPath": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._/-]{1,200}$",
+          "description": "The folder where the administrator puts the principal's signed revocations, relative to this file. It must exist; every .json file in it must be a revocation this signer can read, or the signer refuses"
         },
         "maxPerDeal": {
           "$ref": "#/$defs/amount",
@@ -350,7 +356,8 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "operators"
+        "operators",
+        "lagSec"
       ],
       "properties": {
         "operators": {
@@ -361,6 +368,12 @@
             "type": "string",
             "pattern": "^https?://[A-Za-z0-9.:\\[\\]-]{1,253}(/[A-Za-z0-9._~/-]*)?$"
           }
+        },
+        "lagSec": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400,
+          "description": "How long after a deal's fundBy, beyond clockSkewSec, the signer waits before it believes reads that say the deal was never funded: the time the read endpoints may lag the chain"
         }
       }
     }

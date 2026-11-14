@@ -2,7 +2,7 @@
 // rules built from examples/signer-rules.v1.json (constraints version 1), a principal's mandate signed by a key made
 // in memory, and terms in the shape the operators serve. Not a test file and not a tool: only tests import it.
 // Every key here is made in memory for one test run and guards nothing.
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -55,7 +55,7 @@ export function rulesFor(c: Cast, o: { reads: string[]; chain?: J; sellers?: J[]
       reviewers: o.reviewers ?? c.reviewers,
       sellers: o.sellers ?? [{ seller: c.seller, payoutAddress: c.payout, deliverableHashes: [jcsHash(DELIVERABLE)], acceptanceHash: jcsHash(ACCEPTANCE) }],
     },
-    reads: { operators: o.reads },
+    reads: { ...V1.reads, operators: o.reads },
   };
 }
 
@@ -108,7 +108,7 @@ export type Running = { url: string; dir: string; rulesPath: string; statePath: 
  * flag ("run") and state in a temporary folder of its own. The test process never holds the signer's keys after this
  * call returns, except where a test says it plays the signer's administrator.
  */
-export async function startSigner(c: Cast, rules: J, mandate: J, o: { dir?: string; flag?: string; revocations?: boolean } = {}): Promise<Running> {
+export async function startSigner(c: Cast, rules: J, mandate: J, o: { dir?: string; flag?: string } = {}): Promise<Running> {
   const dir = o.dir ?? mkdtempSync(join(tmpdir(), 'crow-signer-'));
   const rulesPath = join(dir, 'rules.json'), statePath = join(dir, 'state'), flagPath = join(dir, 'flag'), revocationsPath = join(dir, 'revocations');
   if (!o.dir) {
@@ -117,7 +117,8 @@ export async function startSigner(c: Cast, rules: J, mandate: J, o: { dir?: stri
     writeFileSync(flagPath, o.flag ?? 'run\n');
     mkdirSync(revocationsPath);
   }
-  const args = [here('./signer.ts'), 'serve', '--rules', rulesPath, '--state', statePath, '--flag', flagPath, '--listen', '127.0.0.1:0', ...(o.revocations === false ? [] : ['--revocations', revocationsPath])];
+  if (!o.dir) spawnSync(process.execPath, [here('./signer.ts'), 'init', '--state', statePath], { env: { PATH: process.env['PATH'] ?? '' } });
+  const args = [here('./signer.ts'), 'serve', '--rules', rulesPath, '--state', statePath, '--flag', flagPath, '--listen', '127.0.0.1:0'];
   const proc = spawn(process.execPath, args, { env: { PATH: process.env['PATH'] ?? '', CROW_SIGNER_FLOAT_KEY: c.keys.float, CROW_SIGNER_BUYING_KEY: c.keys.buying }, stdio: ['ignore', 'pipe', 'pipe'] });
   let err = '';
   proc.stderr!.on('data', (d) => (err += String(d)));
@@ -139,7 +140,7 @@ export async function startSigner(c: Cast, rules: J, mandate: J, o: { dir?: stri
     url, dir, rulesPath, statePath, flagPath, revocationsPath, proc, stderr: () => err,
     post: (body) => call('POST', '/v1/sign', typeof body === 'string' ? body : JSON.stringify(body)),
     get: (path) => call('GET', path),
-    restart: async () => (await kill(), startSigner(c, rules, mandate, { dir, ...(o.revocations === false ? { revocations: false } : {}) })),
+    restart: async () => (await kill(), startSigner(c, rules, mandate, { dir })),
     kill,
   };
   return running;

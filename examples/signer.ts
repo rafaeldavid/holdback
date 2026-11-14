@@ -2,7 +2,8 @@
 // the payment key and signs one thing: a deal's funding, and only inside its rules. The agent holds no key that can
 // move Crow's money; it asks this program, and this program decides from the signed terms, its own rules file, its
 // own clock, its own ledger and its own reads of each deal. Test tokens only (Sepolia, a local chain or SimChain).
-//   node examples/signer.ts serve --rules <file> --state <dir> --flag <file> [--revocations <dir>] [--listen <host:port>]
+//   node examples/signer.ts init --state <dir>      makes the state folder and an empty ledger, once; serve refuses without them
+//   node examples/signer.ts serve --rules <file> --state <dir> --flag <file> [--listen <host:port>]
 //       serves POST /v1/sign and GET /v1/status, default on 127.0.0.1:8547. Keys from the environment only:
 //       CROW_SIGNER_FLOAT_KEY (the payment address's key) and CROW_SIGNER_BUYING_KEY (the buying agent's standing key).
 //   node examples/signer.ts check-rules <file>     validates a rules file against examples/signer-rules.schema.json and prints its SHA-256
@@ -10,9 +11,10 @@
 // It refuses every request unless the flag file reads exactly "run"; a missing or unreadable flag is a stop.
 // It signs no transfer but a deal's funding to the escrow's collector: the operator-fee message is refused (B14).
 // Every decision, signed or refused, goes to <state>/decisions.jsonl with the rule and the value it saw; the day's
-// ledger is <state>/ledger.json and the public status <state>/status.json. Exit status 0, 2 on a wrong call, 3 on a refusal.
+// ledger is <state>/ledger.json and the public status <state>/status.json. One signer serves a state folder at a time
+// (<state>/lock). The principal's revocations go in the folder the rules name. Exit status 0, 2 on a wrong call, 3 on a refusal.
 import { createHash } from 'node:crypto';
-import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, statSync, writeSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
@@ -113,6 +115,12 @@ export function loadRules(path: string): { rules: Rules; sha256: string; bytes: 
   return { rules, sha256: createHash('sha256').update(bytes).digest('hex'), bytes };
 }
 
+/** The folder of the principal's revocations, as the rules name it, beside the rules file. */
+const revocationsFolder = (rulesPath: string, r: Rules) => resolve(dirname(rulesPath), r.buying.revocationsPath);
+/** Two tokens are one when equal, or when both are addresses that differ only in letter case (as the commitment ID hashes them). */
+const sameToken = (a: J, b: string) => typeof a === 'string' && (a === b || (/^0x[0-9a-fA-F]{40}$/.test(a) && /^0x[0-9a-fA-F]{40}$/.test(b) && a.toLowerCase() === b.toLowerCase()));
+const printable = (x: string) => x.replace(/[^\x20-\x7e]/g, '?').slice(0, 200);
+
 /** The settlement layer the rules pin: Sepolia, a local chain or SimChain. */
 export function pinOfRules(r: Rules): Pin {
   if (r.chain.network === 'simchain') return { domain: SIMCHAIN_DOMAIN, token: { id: 'tUSD', symbol: 'tUSD', decimals: 6 } };
@@ -125,7 +133,9 @@ export function pinOfRules(r: Rules): Pin {
 }
 
 /** One payment the signer signed: what the day and the open holds count. */
-type Entry = { commitmentId: string; total: string; signedAt: string; day: string; seller: string; payoutAddress: string; fundBy: string; endsBy: string; endedAt?: string; ended?: string };
+type Entry = { commitmentId: string; total: string; signedAt: string; day: string; seller: string; payoutAddress: string; dealKey: string; delegation: J; fundBy: string; endsBy: string; endedAt?: string; ended?: string };
+/** SimChain's own expiry margin, in seconds: a hold there can still pay out until fallbackBy + appealDecideSec + this. */
+const SIMCHAIN_EXPIRY_MARGIN_SEC = 86_400;
 type Ledger = { version: 1; entries: Entry[] };
 
 const iso = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -152,7 +162,6 @@ export type OpenOptions = {
   rulesPath: string;
   statePath: string;
   flagPath: string;
-  revocationsPath?: string | undefined;
   /** The two keys, from the environment of the signer's own process. */
   keys: { float: string; buying: string };
   /** The signer's clock in ms; the command line always uses the machine's. */
@@ -192,17 +201,35 @@ export class Signer {
     if (float !== loaded.rules.floatAddress) throw new Error(`the float key's address ${float} is not the rules' floatAddress ${loaded.rules.floatAddress}`);
     if (buying !== loaded.rules.buying.standingKey) throw new Error(`the buying key's address ${buying} is not the rules' standingKey ${loaded.rules.buying.standingKey}`);
     if (float === buying) throw new Error('the float key and the buying key are one key: keep them apart');
-    mkdirSync(o.statePath, { recursive: true, mode: 0o700 });
     const path = join(o.statePath, 'ledger.json');
-    let ledger: Ledger = { version: 1, entries: [] };
-    if (existsSync(path)) {
-      try {
-        ledger = JSON.parse(readFileSync(path, 'utf8'));
-      } catch {
-        throw new Error(`the ledger ${path} is unreadable: refusing to start without it (it counts the day and the open holds)`);
-      }
-      if (ledger?.version !== 1 || !Array.isArray(ledger.entries)) throw new Error(`the ledger ${path} is not a ledger of version 1`);
+    // A missing ledger is a doubt, not a first start: `init` makes it once, and a mistyped --state finds none.
+    if (!existsSync(path)) throw new Error(`there is no ledger at ${path}: refusing to start (run init once for a new state folder; a ledger that went missing would reset the day and the open holds)`);
+    let ledger: Ledger;
+    try {
+      ledger = JSON.parse(readFileSync(path, 'utf8'));
+    } catch {
+      throw new Error(`the ledger ${path} is unreadable: refusing to start without it (it counts the day and the open holds)`);
     }
+    if (ledger?.version !== 1 || !Array.isArray(ledger.entries)) throw new Error(`the ledger ${path} is not a ledger of version 1`);
+    try {
+      if (!statSync(revocationsFolder(o.rulesPath, loaded.rules)).isDirectory()) throw new Error('not a folder');
+    } catch {
+      throw new Error(`the revocations folder ${loaded.rules.buying.revocationsPath} the rules name is not a folder the signer can read: refusing to start`);
+    }
+    // One signer per state folder: two would each count their own day.
+    const lock = join(o.statePath, 'lock');
+    try {
+      writeFileSync(lock, `${process.pid}\n`, { flag: 'wx', mode: 0o600 });
+    } catch {
+      throw new Error(`${lock} exists: another signer serves this state folder, or one stopped without removing it. Remove the file only when no signer runs on it`);
+    }
+    process.once('exit', () => {
+      try {
+        rmSync(lock);
+      } catch {
+        // gone already
+      }
+    });
     const s = new Signer(o, loaded, ledger);
     await s.#mandate(s.#now()); // a mandate that does not verify stops the start too
     s.#writeStatus();
@@ -266,7 +293,7 @@ export class Signer {
     const r = this.#rules.buying;
     const m = await this.#mandate(now);
     // B12: the deal is on the pinned chain and token.
-    if (lc(t.price.token) !== lc(this.#pin.token.id) || lc(t.settlement.token) !== lc(this.#pin.token.id) || lc(t.adjudication.fee.token) !== lc(this.#pin.token.id)) no('B12', `the terms are in ${t.price.token}, and the pinned token is ${this.#pin.token.id}`);
+    for (const [name, v] of [['price.token', t.price.token], ['settlement.token', t.settlement.token], ['adjudication.fee.token', t.adjudication.fee.token]] as const) if (!sameToken(v, this.#pin.token.id)) no('B12', `${name} is ${printable(JSON.stringify(v))}, and the pinned token is ${this.#pin.token.id}`);
     // The float pays, and refunds return to it.
     if (lc(t.buyerPaymentAddress) !== this.floatAddress) no('B5', `the terms name ${t.buyerPaymentAddress} as the payment address, not the float ${this.floatAddress}`);
     // B5: a listed seller, with its own payout address.
@@ -304,6 +331,9 @@ export class Signer {
     if (total > BigInt(m.scope.maxPerCommitment.amount)) no('B3', `the deal's total is ${total} base units, above the mandate's ${m.scope.maxPerCommitment.amount} a deal`);
     // B9 and B4: the signer's own ledger. A payment for a deal it signed before counts once.
     const known = this.#ledger.entries.find((e) => e.commitmentId === id);
+    // B13: one deal key, one deal. A key the signer certified for another deal is not certified again.
+    const reused = this.#ledger.entries.find((e) => e.dealKey === lc(t.buyer) && e.commitmentId !== id);
+    if (reused) no('B13', `the deal key ${lc(t.buyer)} was certified for deal ${reused.commitmentId}: one deal key serves one deal`);
     await this.#refresh(now);
     if (!known) {
       const open = this.#ledger.entries.filter((e) => !e.ended), openTotal = open.reduce((s, e) => s + BigInt(e.total), 0n);
@@ -315,18 +345,24 @@ export class Signer {
     }
     // B2: the file is exactly the funding these terms give on the pinned layer, from the float, to the collector.
     const checked = checkPaymentFile(file, t, { kind: 'funding', domain: this.#pin.domain, chain: this.#pin.chain, buyer: lc(t.buyer), token: this.#pin.token });
-    const funding = await this.#float.signTypedData(file);
+    // The float signs the digest checkPaymentFile rebuilt from the terms and the pin: exactly what was checked.
+    const funding = await this.#float.sign({ hash: checked.digest });
     // B13: a delegation to the deal's key, only beside this payment, capped at its price, ending with its offer.
-    const delegation = buildDelegation({ principal: m.principal, agent: r.standingKey, dealKey: t.buyer, dealEncryptionKey: t.buyerEncryptionPublicKey, clubId: r.clubId, role: 'buyer', cap: t.price.amount, token: this.#pin.token.id, expiresAt: t.timing.offerExpiresAt });
-    const delegationSignature = await signTypedData({ privateKey: this.#buyingKey, ...mandateTyped('Delegation', delegation, this.#pin.domain) });
+    // A repeat gets the one it got first.
+    let delegation: J = known?.delegation;
+    if (!delegation) {
+      const d = buildDelegation({ principal: m.principal, agent: r.standingKey, dealKey: t.buyer, dealEncryptionKey: t.buyerEncryptionPublicKey, clubId: r.clubId, role: 'buyer', cap: t.price.amount, token: this.#pin.token.id, expiresAt: t.timing.offerExpiresAt });
+      delegation = { ...d, signature: await signTypedData({ privateKey: this.#buyingKey, ...mandateTyped('Delegation', d, this.#pin.domain) }) };
+    }
     if (!known) {
-      const entry: Entry = { commitmentId: id, total: total.toString(), signedAt: iso(now), day: iso(now).slice(0, 10), seller: lc(t.seller), payoutAddress: lc(t.sellerPayoutAddress), fundBy: t.timing.fundBy, endsBy: iso(Date.parse(t.timing.fallbackBy) + (t.timing.appealDecideSec + (this.#pin.chain?.expiryMarginSec ?? 0)) * 1000) };
+      const margin = this.#pin.chain?.expiryMarginSec ?? SIMCHAIN_EXPIRY_MARGIN_SEC;
+      const entry: Entry = { commitmentId: id, total: total.toString(), signedAt: iso(now), day: iso(now).slice(0, 10), seller: lc(t.seller), payoutAddress: lc(t.sellerPayoutAddress), dealKey: lc(t.buyer), delegation, fundBy: t.timing.fundBy, endsBy: iso(Date.parse(t.timing.fallbackBy) + (t.timing.appealDecideSec + margin) * 1000) };
       this.#ledger = { version: 1, entries: [...this.#ledger.entries, entry] };
       writeDurably(join(this.#o.statePath, 'ledger.json'), `${JSON.stringify(this.#ledger, null, 2)}\n`); // the count is on disk before the signature leaves
     }
     saw({ digest: checked.digest, replay: Boolean(known) });
     this.#writeStatus();
-    return { commitmentId: id, funding, digest: checked.digest, summary: checked.summary, delegation: { ...delegation, signature: delegationSignature }, ledger: this.#counts(now) };
+    return { commitmentId: id, funding, digest: checked.digest, summary: checked.summary, delegation, ledger: this.#counts(now) };
   }
 
   /** X1 and X4: the stop flag reads exactly "run", and the rules file is the one the signer started with. */
@@ -337,7 +373,7 @@ export class Signer {
     } catch {
       return no('X1', `the stop flag ${this.#o.flagPath} cannot be read: the signer is stopped`);
     }
-    if (flag.trim() !== 'run') no('X1', 'the signer is stopped: its flag does not read "run"');
+    if (flag !== 'run' && flag !== 'run\n') no('X1', 'the signer is stopped: its flag does not read exactly "run"');
     let now: Buffer;
     try {
       now = readFileSync(this.#o.rulesPath);
@@ -366,32 +402,34 @@ export class Signer {
     if (lc(m.agent) !== r.standingKey) no('mandate', `the mandate is for ${m.agent}, not the standing key ${r.standingKey}`);
     if (m.clubId !== r.clubId || !m.scope.roles.includes('buyer')) no('mandate', 'the mandate does not allow the buyer role in the pinned club');
     if (lc(m.scope.maxPerCommitment.token) !== lc(this.#pin.token.id)) no('mandate', 'the mandate caps another token');
-    if (this.#o.revocationsPath !== undefined) {
-      let names: string[];
+    const folder = revocationsFolder(this.#o.rulesPath, this.#rules);
+    let names: string[];
+    try {
+      names = readdirSync(folder).filter((n) => n.endsWith('.json'));
+    } catch {
+      return no('mandate', `the revocations folder ${r.revocationsPath} cannot be read`);
+    }
+    for (const n of names) {
+      // Every file must be a revocation this signer can read: as its document, or as mandate.ts verify prints it.
+      let rev: J;
       try {
-        names = readdirSync(this.#o.revocationsPath).filter((n) => n.endsWith('.json'));
+        const x = parseStrictJson(readFileSync(join(folder, n), 'utf8'), n);
+        rev = x && typeof x === 'object' && x.ok === true && x.kind === 'AgentRevocation' ? x.document : x;
       } catch {
-        return no('mandate', `the revocations folder ${this.#o.revocationsPath} cannot be read`);
+        return no('mandate', `the revocation ${n} cannot be read: the signer refuses until it can`);
       }
-      for (const n of names) {
-        let rev: J;
-        try {
-          rev = parseStrictJson(readFileSync(join(this.#o.revocationsPath, n), 'utf8'), n);
-        } catch {
-          return no('mandate', `the revocation ${n} cannot be read: the signer refuses until it can`);
-        }
-        // One that names another principal or agent ends nothing here (ADR-0038 section 4). One that names this mandate
-        // and does not verify is a doubt, and a doubt refuses: it is never read as "not revoked".
-        if (lc(rev?.principal) !== lc(m.principal) || lc(rev?.agent) !== lc(m.agent)) continue;
-        let ends: boolean;
-        try {
-          ends = (await verifyDocument('AgentRevocation', rev, this.#pin.domain, { at: now, mandate: doc, principal: r.principal })).revokesMandate === true;
-        } catch (e) {
-          if (/ended at/.test((e as Error).message)) continue; // a revocation whose own end has passed: the mandate applies again
-          return no('mandate', `the revocation ${n} names this mandate and does not verify (${(e as Error).message}): the signer refuses until its administrator removes it`);
-        }
-        if (ends) no('mandate', `the principal revoked the mandate (${n}): nothing is signed`);
+      const shaped = rev && typeof rev === 'object' && !Array.isArray(rev) && rev.type === 'AgentRevocation' && typeof rev.principal === 'string' && typeof rev.agent === 'string' && typeof rev.expiresAt === 'string' && Number.isFinite(Date.parse(rev.expiresAt));
+      if (!shaped) no('mandate', `${n} in the revocations folder is not a signed AgentRevocation document: the signer refuses until its administrator fixes or removes it`);
+      // One that names another principal or agent ends nothing here (ADR-0038 section 4), nor one whose own end has
+      // passed. One that names this mandate and does not verify is a doubt, and a doubt refuses.
+      if (lc(rev.principal) !== lc(m.principal) || lc(rev.agent) !== lc(m.agent)) continue;
+      if (!(now < Date.parse(rev.expiresAt))) continue;
+      try {
+        await verifyDocument('AgentRevocation', rev, this.#pin.domain, { at: now, mandate: doc, principal: r.principal });
+      } catch (e) {
+        return no('mandate', `the revocation ${n} names this mandate and does not verify (${(e as Error).message}): the signer refuses until its administrator removes it`);
       }
+      no('mandate', `the principal revoked the mandate (${n}): nothing is signed`);
     }
     return { ...m, digest: v.digest };
   }
@@ -404,7 +442,38 @@ export class Signer {
     if (extra.length || missing.length) no('B6', `the terms ${extra.length ? `hold fields public terms do not: ${extra.join(', ')}` : `lack ${missing.join(', ')}`}`);
     if (!t.timing || Object.keys(t.timing).some((k) => !TIMING_KEYS.includes(k)) || TIMING_KEYS.some((k) => !Object.hasOwn(t.timing, k))) no('B6', `timing holds exactly ${TIMING_KEYS.join(', ')}`);
     if (!t.adjudication || Object.keys(t.adjudication).some((k) => !ADJUDICATION_KEYS.includes(k)) || ADJUDICATION_KEYS.some((k) => !Object.hasOwn(t.adjudication, k))) no('B7', `adjudication holds exactly ${ADJUDICATION_KEYS.join(', ')}`);
-    for (const k of ['buyer', 'seller', 'buyerPaymentAddress', 'sellerPayoutAddress']) if (typeof t[k] !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(t[k])) no('request', `${k} is not an address`);
+    // Every field has its type before anything is hashed: a list or a number where a string goes hashes as something else.
+    const type = (v: J, want: 'string' | 'address' | 'hex32' | 'time' | 'amount' | 'uint', name: string) => {
+      const ok =
+        want === 'uint' ? Number.isSafeInteger(v) && v >= 0
+        : typeof v === 'string' && (want === 'string' ? v.length > 0 && v.length <= 256 : want === 'address' ? /^0x[0-9a-fA-F]{40}$/.test(v) : want === 'hex32' ? /^0x[0-9a-f]{64}$/.test(v) : want === 'time' ? TIME.test(v) : DEC.test(v));
+      if (!ok) no('request', `${name} is not ${want === 'uint' ? 'a whole number' : `a ${want}`}`);
+    };
+    const exact = (v: J, keys: string[], name: string) => {
+      if (!v || typeof v !== 'object' || Array.isArray(v) || Object.keys(v).length !== keys.length || keys.some((k) => !Object.hasOwn(v, k))) no('request', `${name} holds exactly ${keys.join(', ')}`);
+    };
+    for (const k of ['buyer', 'seller', 'buyerPaymentAddress', 'sellerPayoutAddress']) type(t[k], 'address', k);
+    for (const k of ['schemaVersion', 'clubId', 'buyerEncryptionPublicKey']) type(t[k], 'string', k);
+    for (const k of ['rulebookHash', 'nonce']) type(t[k], 'hex32', k);
+    type(t.createdAt, 'time', 'createdAt');
+    for (const [v, name] of [[t.price, 'price'], [t.adjudication.fee, 'adjudication.fee']] as const) {
+      exact(v, ['token', 'amount'], name);
+      type(v.token, 'string', `${name}.token`);
+      type(v.amount, 'amount', `${name}.amount`);
+    }
+    for (const k of ['adjudicator', 'fallbackAdjudicator', 'appealAdjudicator']) type(t.adjudication[k], 'address', `adjudication.${k}`);
+    for (const k of ['registryHash', 'policyHash']) type(t.adjudication[k], 'hex32', `adjudication.${k}`);
+    type(t.adjudication.policyId, 'string', 'adjudication.policyId');
+    for (const k of ['offerExpiresAt', 'fundBy', 'deliverBy', 'judgeBy', 'fallbackBy']) type(t.timing[k], 'time', `timing.${k}`);
+    for (const k of ['appealWindowSec', 'appealDecideSec', 'maxSubmissions']) type(t.timing[k], 'uint', `timing.${k}`);
+    exact(t.settlement, ['mode', 'token'], 'settlement');
+    type(t.settlement.mode, 'string', 'settlement.mode');
+    type(t.settlement.token, 'string', 'settlement.token');
+    exact(t.remedy, ['onReject'], 'remedy');
+    type(t.remedy.onReject, 'string', 'remedy.onReject');
+    exact(t.disclosure, ['level'], 'disclosure');
+    type(t.disclosure.level, 'string', 'disclosure.level');
+    for (const k of ['deliverable', 'acceptance']) if (!t[k] || typeof t[k] !== 'object' || Array.isArray(t[k])) no('request', `${k} is not an object`);
     let id: string;
     try {
       id = commitmentIdOf(t);
@@ -427,7 +496,9 @@ export class Signer {
       const states = await Promise.all(this.#rules.reads.operators.map((op: string) => readState(op, e.commitmentId)));
       if (states.some((s) => s === null)) continue;
       if (states.every((s) => ENDED.includes(s!))) Object.assign(e, { ended: states[0], endedAt: iso(now) });
-      else if (now >= Date.parse(e.fundBy) && states.every((s) => UNFUNDED.includes(s!))) Object.assign(e, { ended: 'never funded', endedAt: iso(now) });
+      // Never funded: only once the reads have had time to see a funding sent just before fundBy (reads.lagSec), and
+      // the clocks may differ (clockSkewSec). Until then the deal stays open.
+      else if (now >= Date.parse(e.fundBy) + (this.#rules.reads.lagSec + this.#rules.buying.clockSkewSec) * 1000 && states.every((s) => UNFUNDED.includes(s!))) Object.assign(e, { ended: 'never funded', endedAt: iso(now) });
       else continue;
       changed = true;
     }
@@ -538,7 +609,8 @@ export async function serve(signer: Signer, host = '127.0.0.1', port = 8547): Pr
   return { url: `http://${a.family === 'IPv6' ? `[${a.address}]` : a.address}:${a.port}`, server };
 }
 
-const USAGE = `node examples/signer.ts serve --rules <file> --state <dir> --flag <file> [--revocations <dir>] [--listen <host:port>]
+const USAGE = `node examples/signer.ts init --state <dir>
+node examples/signer.ts serve --rules <file> --state <dir> --flag <file> [--listen <host:port>]
 node examples/signer.ts check-rules <file>
 node examples/signer.ts stop --flag <file>
 node examples/signer.ts run --flag <file>
@@ -550,26 +622,35 @@ async function main(argv: string[]): Promise<number> {
     const i = args.indexOf(name);
     return i < 0 ? undefined : args.splice(i, 2)[1];
   };
-  const rulesPath = flag('--rules'), statePath = flag('--state'), flagPath = flag('--flag'), revocationsPath = flag('--revocations'), listen = flag('--listen');
+  const rulesPath = flag('--rules'), statePath = flag('--state'), flagPath = flag('--flag'), listen = flag('--listen');
   const [command, extra] = args;
   if (command === 'check-rules' && extra && args.length === 2) {
     const { rules, sha256 } = loadRules(extra);
     console.log(JSON.stringify({ ok: true, sha256, constraintsVersion: rules.constraintsVersion, floatAddress: rules.floatAddress }));
     return 0;
   }
+  if (command === 'init' && statePath && args.length === 1) {
+    mkdirSync(statePath, { recursive: true, mode: 0o700 });
+    const ledger = join(statePath, 'ledger.json');
+    if (existsSync(ledger)) throw new Refused('init', `${ledger} exists: init makes a new ledger once, and never over an old one`);
+    writeDurably(ledger, `${JSON.stringify({ version: 1, entries: [] }, null, 2)}\n`);
+    console.error(`A new, empty ledger at ${ledger}.`);
+    return 0;
+  }
   if ((command === 'stop' || command === 'run') && flagPath && args.length === 1) {
     writeDurably(flagPath, `${command}\n`);
-    console.error(command === 'stop' ? `Stopped: ${flagPath} reads "stop". Nothing new is signed. A payment signed before can still fund until its offer expires.` : `Running: ${flagPath} reads "run".`);
+    console.error(command === 'stop' ? `Stopped: ${flagPath} reads "stop". Nothing new is signed. A payment signed before can still fund: on a chain until its offer expires, on SimChain until its fundBy.` : `Running: ${flagPath} reads "run".`);
     return 0;
   }
   if (command === 'serve' && rulesPath && statePath && flagPath && args.length === 1) {
     const keys = { float: process.env['CROW_SIGNER_FLOAT_KEY'] ?? '', buying: process.env['CROW_SIGNER_BUYING_KEY'] ?? '' };
     delete process.env['CROW_SIGNER_FLOAT_KEY'];
     delete process.env['CROW_SIGNER_BUYING_KEY'];
-    const signer = await Signer.open({ rulesPath, statePath, flagPath, ...(revocationsPath ? { revocationsPath } : {}), keys });
+    const signer = await Signer.open({ rulesPath, statePath, flagPath, keys });
     const m = /^(.+):([0-9]{1,5})$/.exec(listen ?? '127.0.0.1:8547');
     if (!m) throw new Error('--listen takes <host:port>');
     const { url } = await serve(signer, m[1]!.replace(/^\[|\]$/g, ''), Number(m[2]));
+    for (const sig of ['SIGTERM', 'SIGINT'] as const) process.once(sig, () => process.exit(0)); // so the lock goes with it
     console.log(`listening ${url}`);
     console.error(`Signing from ${signer.floatAddress} inside ${rulesPath}. Stop: node examples/signer.ts stop --flag ${flagPath}`);
     return -1; // keeps serving
