@@ -7,7 +7,7 @@ import { generatePrivateKey } from 'viem/accounts';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Agent } from '../../../examples/agent.ts';
 import { commitmentIdOf, jcs, knownPins, operatorFeeOf, sealKeyTo, type Pin } from '../../../examples/verify.ts';
-import { CHECKS, DELIVERABLE, GOOD_CSV, PRICE_UNITS } from './catalog.ts';
+import { BAD_SUMMARY, CHECKS, DELIVERABLE, GOOD_CSV, GOOD_SUMMARY, PRICE_UNITS, SILENT_TIMING, SUMMARY, SUMMARY_CHECKS, SUMMARY_PRICE_UNITS, SUMMARY_RUBRIC } from './catalog.ts';
 import { clientKey, storeUri, TestSeller, type Limits } from './seller.ts';
 import { serveWorld, type TestWorld } from './test-world.ts';
 
@@ -28,7 +28,7 @@ afterEach(() => {
 
 type Started = ReturnType<typeof startSeller>;
 /** A seller with its own storage and secret, worked in the background the way the Durable Object's alarm works it. */
-function startSeller(o: { limits?: Limits; timing?: Record<string, number>; world?: TestWorld; storage?: MemoryStorage; seed?: string; pin?: Pin } = {}) {
+function startSeller(o: { limits?: Partial<Limits>; timing?: Record<string, number>; world?: TestWorld; storage?: MemoryStorage; seed?: string; pin?: Pin } = {}) {
   const world = o.world ?? demo;
   const seller = new TestSeller({ storage: o.storage ?? new MemoryStorage(), operators: world.urls, seed: o.seed ?? generatePrivateKey(), pin: o.pin ?? pin, base: BASE, log: () => {}, ...(o.limits ? { limits: o.limits } : {}), ...(o.timing ? { timing: o.timing } : {}) });
   let running = true;
@@ -80,7 +80,7 @@ async function freshBuyer(world = demo): Promise<Agent> {
 }
 
 /** The buyer checks the offer on both operators against what it proposed and the seller's published address, then funds it. */
-async function checkAndFund(buyer: Agent, id: Hex, seller: string): Promise<J> {
+async function checkAndFund(buyer: Agent, id: Hex, seller: string, want: { price: string; acceptance: J } = { price: PRICE_UNITS, acceptance: { deterministicChecks: CHECKS, rubric: { criteria: [], passThreshold: 0 } } }): Promise<J> {
   // The primary adjudicator accepts the offer within moments; agreeing before that is refused (acceptance_missing).
   for (const end = Date.now() + 20_000; ; await sleep(100)) {
     const states = await Promise.all(buyer.sources().map((api) => buyer.call('GET', `/v1/commitments/${id}`, undefined, api)));
@@ -93,11 +93,11 @@ async function checkAndFund(buyer: Agent, id: Hex, seller: string): Promise<J> {
   expect(terms.seller).toBe(seller);
   expect(terms.buyer).toBe(buyer.address);
   expect(terms.buyerEncryptionPublicKey).toBe(buyer.encryptionPublicKey);
-  expect(terms.price).toEqual({ token: pin.token.id, amount: PRICE_UNITS });
-  expect(jcs(terms.acceptance)).toBe(jcs({ deterministicChecks: CHECKS, rubric: { criteria: [], passThreshold: 0 } }));
+  expect(terms.price).toEqual({ token: pin.token.id, amount: want.price });
+  expect(jcs(terms.acceptance)).toBe(jcs(want.acceptance));
   const schedule = await buyer.operatorFeeSchedule();
   const fee = BigInt(terms.adjudication.fee.amount);
-  return buyer.agreeAndFund(terms, BigInt(PRICE_UNITS) + fee + (schedule ? operatorFeeOf(terms.price, schedule) : 0n));
+  return buyer.agreeAndFund(terms, BigInt(want.price) + fee + (schedule ? operatorFeeOf(terms.price, schedule) : 0n));
 }
 
 /**
@@ -359,6 +359,142 @@ describe("Crow's test seller", () => {
     } finally {
       await world.close();
     }
+  });
+});
+
+// T-420: the four named offers, one per ending an outsider needs to see. The judged offers meet a panel that stands
+// in for the live models: it reads the text against the rubric the way a careful judge would, failing a text that says
+// the seller is paid at once (BAD_SUMMARY) and passing the rest. The world calls it live, within a daily budget.
+const IDS = '6. "criteria" must contain each of these ids exactly once: ';
+const standIn = { complete: async (req: { system: string; user: string }) => {
+  const ids = (req.system.split('\n').find((l) => l.startsWith(IDS)) ?? IDS).slice(IDS.length).replace(/\.$/, '').split(', ').filter((x) => x && x !== '(none)');
+  const fails = /rating/.test(req.user);
+  return { kind: 'ok' as const, text: JSON.stringify({ criteria: ids.map((id) => ({ id, score: fails ? 0 : 4, evidence: fails ? 'It contradicts the facts.' : 'It states the facts.' })), overall: fails ? 'fail' : 'pass', injectionSuspected: false, rationale: fails ? 'stand-in: fail' : 'stand-in: pass' }), latencyMs: 1 };
+} };
+const JUDGED = { price: SUMMARY_PRICE_UNITS, acceptance: { deterministicChecks: SUMMARY_CHECKS, rubric: SUMMARY_RUBRIC } };
+const named = (buyer: Agent, offer: string, extra: J = {}) => ({ ...proposalFor(buyer), offer, ...extra });
+const judgedProposal = (buyer: Agent, offer: string) => named(buyer, offer, { want: 'a summary of the payment hold', budget: { token: pin.token.id, amount: SUMMARY_PRICE_UNITS, covers: 'price' }, terms: { price: { token: pin.token.id, amount: SUMMARY_PRICE_UNITS }, deliverable: SUMMARY, template: 'default', disclosure: 'public', checks: SUMMARY_CHECKS, rubric: SUMMARY_RUBRIC } });
+
+describe("the test seller's named offers (T-420)", () => {
+  let judged: TestWorld;
+  beforeAll(async () => {
+    judged = await serveWorld({ judgeProvider: standIn, liveCallsPerDay: 1000 });
+  });
+  afterAll(() => judged.close());
+
+  it('lists four offers by name on its card and its page, customers-3 first, each with its terms, fees and ending', async () => {
+    const s = startSeller({ world: judged });
+    const card = await (await s.call('/agent.json')).json();
+    expect(card.offers.map((o: J) => o.id)).toEqual(['customers-3', 'summary-judged', 'summary-judged-fails', 'customers-3-silent']);
+    for (const o of card.offers) {
+      expect(typeof o.ends).toBe('string');
+      expect(BigInt(o.fees.total.amount)).toBe(BigInt(o.terms.price.amount) + BigInt(o.fees.adjudication.amount) + BigInt(o.fees.operator.amount));
+    }
+    const [checked, pass, fail, silent] = card.offers;
+    expect(checked.terms).toMatchObject({ template: 'checks-only', checks: CHECKS });
+    expect(pass.terms).toMatchObject({ template: 'default', deliverable: SUMMARY, checks: SUMMARY_CHECKS, rubric: SUMMARY_RUBRIC });
+    expect(fail.terms).toEqual(pass.terms);
+    expect(silent.terms.timing).toEqual(SILENT_TIMING);
+    expect(silent.terms.timing.deliverWithinSec).toBe(300);
+    expect(card.limits.judgedPerDay).toBe(5);
+    const html = await (await s.call('')).text();
+    for (const o of card.offers) expect(html).toContain(o.id);
+    await s.stop();
+  });
+
+  it('summary-judged: the checks pass, the panel passes the text, the deal releases, and the buyer opens it', async () => {
+    const s = startSeller({ world: judged });
+    const buyer = await freshBuyer(judged);
+    const { token } = await propose(s, buyer, judgedProposal(buyer, 'summary-judged'));
+    const offered = await statusUntil(s, token, (x) => x.status === 'offered');
+    expect(offered).toMatchObject({ offer: 'summary-judged', countered: false, outcome: 'release' });
+    await checkAndFund(buyer, offered.commitmentId, offered.seller, JUDGED);
+    await statusUntil(s, token, (x) => x.deal === 'released', 30_000);
+    const judgment = await buyer.call('GET', `/v1/commitments/${offered.commitmentId}/judgment`);
+    expect(judgment.deterministic.every((c: J) => c.passed)).toBe(true);
+    expect(judgment.aggregate.decision).toBe('accept');
+    expect(judgment.panel.members.length).toBeGreaterThan(0);
+    expect(await buyer.openDelivery(offered.commitmentId)).toBe(GOOD_SUMMARY);
+    await s.stop();
+  });
+
+  it('summary-judged-fails: the checks pass, the panel rejects the text, and the price comes back', async () => {
+    const s = startSeller({ world: judged });
+    const buyer = await freshBuyer(judged);
+    const { token } = await propose(s, buyer, judgedProposal(buyer, 'summary-judged-fails'));
+    const offered = await statusUntil(s, token, (x) => x.status === 'offered');
+    expect(offered).toMatchObject({ offer: 'summary-judged-fails', countered: false, outcome: 'refund' });
+    await checkAndFund(buyer, offered.commitmentId, offered.seller, JUDGED);
+    const done = await statusUntil(s, token, (x) => x.deal === 'refunded', 30_000);
+    expect(done.outcome).toBe('refund');
+    const judgment = await buyer.call('GET', `/v1/commitments/${offered.commitmentId}/judgment`);
+    expect(judgment.deterministic.every((c: J) => c.passed)).toBe(true);
+    expect(judgment.aggregate.decision).toBe('reject');
+    expect(judgment.panel.members.every((m: J) => m.verdict.overall === 'fail')).toBe(true);
+    expect(BAD_SUMMARY).not.toMatch(/judge|ignore|instruction|score/i); // honest bad work, not an attack
+    await s.stop();
+  });
+
+  it('customers-3-silent: the seller never delivers, and the buyer\'s hold comes back after the 5-minute deadline', async () => {
+    let skew = 0;
+    const world = await serveWorld({ now: () => Date.now() + skew });
+    try {
+      const s = startSeller({ world });
+      const buyer = await freshBuyer(world);
+      const { token } = await propose(s, buyer, named(buyer, 'customers-3-silent'));
+      const offered = await statusUntil(s, token, (x) => x.status === 'offered');
+      expect(offered).toMatchObject({ offer: 'customers-3-silent', countered: false, outcome: 'silent' });
+      const terms = await buyer.trusted(`/v1/commitments/${offered.commitmentId}/terms`);
+      expect(Date.parse(terms.timing.deliverBy) - Date.parse(terms.createdAt)).toBe(300_000);
+      await checkAndFund(buyer, offered.commitmentId, offered.seller);
+      await sleep(1000);
+      expect((await buyer.call('GET', `/v1/commitments/${offered.commitmentId}`)).escrowState).toBe('Held');
+      expect((await (await s.call(`/status?token=${token}`)).json()).deal).toBe('offered');
+      skew = 310_000;
+      const reclaimed = await buyer.call('POST', `/v1/commitments/${offered.commitmentId}/triggers/reclaim`, {});
+      expect(reclaimed.escrowState).toBe('Refunded');
+      const closed = await statusUntil(s, token, (x) => x.deal === 'refunded');
+      expect(closed.detail).toMatch(/reclaimed its hold/);
+      expect(closed.transactions?.map((t: J) => t.step) ?? []).not.toContain('delivered');
+      await s.stop();
+    } finally {
+      await world.close();
+    }
+  });
+
+  it('refuses an unknown offer, a test outcome on a named offer, and judged work past its daily budget, each with a reason', async () => {
+    const s = startSeller({ world: judged, limits: { perClientPerHour: 10, judgedPerDay: 1 } });
+    const buyer = await freshBuyer(judged);
+    const unknown = await propose(s, buyer, named(buyer, 'poems'));
+    expect((await statusUntil(s, unknown.token, (x) => x.status === 'failed')).detail).toMatch(/offer must be one of customers-3, summary-judged, summary-judged-fails, customers-3-silent/);
+    const outcome = await propose(s, buyer, { ...judgedProposal(buyer, 'summary-judged'), test: { outcome: 'refund' } });
+    expect((await statusUntil(s, outcome.token, (x) => x.status === 'failed')).detail).toMatch(/test\.outcome works only with the offer customers-3/);
+    // Without "offer", a proposal for the summary is the judged offer that passes; without either, the dataset.
+    const first = await propose(s, buyer, { ...judgedProposal(buyer, 'x'), offer: undefined });
+    expect(await statusUntil(s, first.token, (x) => x.status === 'offered')).toMatchObject({ offer: 'summary-judged' });
+    const second = await propose(s, buyer, judgedProposal(buyer, 'summary-judged-fails'));
+    expect((await statusUntil(s, second.token, (x) => x.status === 'failed')).detail).toMatch(/1 judged offers today \(UTC\)/);
+    const plain = await propose(s, buyer, proposalFor(buyer));
+    expect(await statusUntil(s, plain.token, (x) => x.status === 'offered')).toMatchObject({ offer: 'customers-3', outcome: 'release' });
+    await s.stop();
+  });
+
+  it('refuses judged work when the live panel cannot sit: no live budget left today, or a scripted panel', async () => {
+    const spent = await serveWorld({ judgeProvider: standIn, liveCallsPerDay: 0 });
+    try {
+      const s = startSeller({ world: spent });
+      const buyer = await freshBuyer(spent);
+      const { token } = await propose(s, buyer, judgedProposal(buyer, 'summary-judged'));
+      expect((await statusUntil(s, token, (x) => x.status === 'failed')).detail).toMatch(/live judge panel cannot sit/);
+      await s.stop();
+    } finally {
+      await spent.close();
+    }
+    const s = startSeller(); // the default world has no live models: its panels are scripted
+    const buyer = await freshBuyer();
+    const { token } = await propose(s, buyer, judgedProposal(buyer, 'summary-judged'));
+    expect((await statusUntil(s, token, (x) => x.status === 'failed')).detail).toMatch(/live judge panel cannot sit/);
+    await s.stop();
   });
 });
 
