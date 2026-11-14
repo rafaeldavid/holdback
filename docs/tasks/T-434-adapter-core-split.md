@@ -8,6 +8,7 @@
 - **Status:** review
 - **Agent/session:** the T-407 session, on Rafa's word of 2026-11-14 ("Yes, start both")
 
+- **Roadmap row:** N134
 ## Intent
 
 The hosted seller adapter (T-435) has to run the same deal logic as the adapter on a seller's own machine, in a Worker where there is no file system, no `node:http` server and no `setInterval` that outlives a request. This task moves every rule of the adapter into `examples/seller-adapter-core.ts`, which imports no Node module but `node:crypto` (the Workers runtime provides it with `nodejs_compat`). It leaves `examples/seller-adapter.ts` as the Node shell: the journal file, the server on 127.0.0.1, the poll, the command line. The core takes an `AdapterIO` (read a file the configuration names; load and save the journal; append an event line) and answers standard `Request`s with `Response`s. A pass moves every open deal as far as it can.

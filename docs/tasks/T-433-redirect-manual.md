@@ -8,6 +8,7 @@
 - **Status:** done (PR 551, merged as `bd29e77`)
 - **Agent/session:** the T-407 session, on Rafa's word of 2026-11-14 ("Yes, start both")
 
+- **Roadmap row:** N134
 ## Intent
 
 The adapter refuses redirects from the seller's API because a redirect could carry the API credential elsewhere. It does so with `redirect: 'error'`, which the Workers runtime does not implement: it throws a `TypeError` before sending (ADR-0037 section 1; documented in Cloudflare's Request API). The same holds for the alert callback, which carries an HMAC signature. This task switches both to `redirect: 'manual'` and has the adapter refuse any 3xx itself, so the hosted adapter (T-435) can call the same code. A seller running the adapter on its own machine sees no change except a clearer error line.
