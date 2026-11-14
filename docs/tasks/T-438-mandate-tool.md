@@ -1,4 +1,4 @@
-# T-433: the mandate tool
+# T-438: the mandate tool
 
 - **Lane:** demo (Crow's own agents, roadmap row N131, build row 2)
 - **Phase:** 2
@@ -19,7 +19,7 @@ Crow's principal key lives on Rafa's hardware wallet, and no tool may hold it. T
 
 The signature is made elsewhere. The tool never takes, reads or makes a private key.
 
-Non-goals: a route that posts a mandate or a revocation to an operator (ADR-0038 steps 4 and 5, not built); any change to the signed types (`spec/schemas/` is untouched); the signer (T-434); the buyer's tools and their pinned bundle.
+Non-goals: a route that posts a mandate or a revocation to an operator (ADR-0038 steps 4 and 5, not built); any change to the signed types (`spec/schemas/` is untouched); the signer (T-439); the buyer's tools and their pinned bundle.
 
 ## Context
 
@@ -43,7 +43,7 @@ Non-goals: a route that posts a mandate or a revocation to an operator (ADR-0038
 | Constraint | Rung | What enforces it | The attack that fails |
 | --- | --- | --- | --- |
 | The principal's key is on no machine the tools run on | 1, by construction | The tool takes no key: it writes the message and checks a signature | `mandate.test.ts`, "takes no key": every command's arguments are scanned for a 32-byte hex value, and none is read from the environment |
-| A mandate counts only with the principal's signature, under the pinned domain | 3, for whoever runs `verify` with `--principal` (the signer of T-434 pins it in its rules; a counterparty that checks) | `verify` recovers the signature over the message it rebuilds and compares the principal with the one expected | `mandate.test.ts`: another signer, a changed field, another chain or rules contract, a self-minted mandate under `--principal` |
+| A mandate counts only with the principal's signature, under the pinned domain | 3, for whoever runs `verify` with `--principal` (the signer of T-439 pins it in its rules; a counterparty that checks) | `verify` recovers the signature over the message it rebuilds and compares the principal with the one expected | `mandate.test.ts`: another signer, a changed field, another chain or rules contract, a self-minted mandate under `--principal` |
 | Without `--principal`, `verify` shows only that some key signed | 4, soft | Nothing: the output says `principalChecked: false` and the sentence asks for `--principal` | none: stated |
 | A delegation stays inside its mandate | 3, for whoever runs `verify` | `verify --mandate` compares role, cap, club, expiry, principal and agent | `mandate.test.ts`: each field widened in turn |
 | A revocation ends only its own principal's mandate | 3, for whoever runs `verify` | `verify --mandate` compares the principal and the agent | `mandate.test.ts`: a revocation signed by a key that names itself as principal |
@@ -52,7 +52,7 @@ Non-goals: a route that posts a mandate or a revocation to an operator (ADR-0038
 ## Out of scope
 
 - Posting a mandate or a revocation to an operator; ADR-0038 steps 4 and 5.
-- The signed hash of `constraints.md` (a plain `personal_sign` message): the design names it; the signer (T-434) prints the rules file's SHA-256 for it.
+- The signed hash of `constraints.md` (a plain `personal_sign` message): the design names it; the signer (T-439) prints the rules file's SHA-256 for it.
 
 ## Evidence
 
@@ -74,7 +74,7 @@ The `reviewer` agent and the `red-teamer` agent read `CLAUDE.md`, ADR-0038, `doc
 | Finding | Severity | What changed |
 | --- | --- | --- |
 | Red team M-1: `verify` shows that some key signed, not that Crow's principal did; a self-signed delegation passed without its mandate | Medium | `--principal` (and `principal` in the library) pins the principal; a delegation needs `--mandate`; the output says `principalChecked`; a revocation that ends the mandate prints `revokesMandate` |
-| Red team M-2: a real revocation with a time past year 9999 threw an error that reads as "not revoked"; offsets and zero fractions were refused | Medium | Such a revocation throws `RevocationUnreadable`, for a caller to treat as a stop (T-434 does); any RFC 3339 time on a whole second verifies and prints in UTC |
+| Red team M-2: a real revocation with a time past year 9999 threw an error that reads as "not revoked"; offsets and zero fractions were refused | Medium | Such a revocation throws `RevocationUnreadable`, for a caller to treat as a stop (T-439 does); any RFC 3339 time on a whole second verifies and prints in UTC |
 | Review 1: no test against the core's digest for every kind | Medium | A test hashes all three kinds against `messageDigest` |
 | Review 2: no evidence in this file | Medium | This section |
 | Review 3: the digest is not what a hardware wallet shows when it cannot display the fields | Medium | Each command also prints the domain hash and the message hash |
