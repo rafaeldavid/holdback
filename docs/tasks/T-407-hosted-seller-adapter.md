@@ -46,18 +46,21 @@ Inputs: one adapter configuration per seller in the `loadConfig` shape. Outputs:
 
 Fill this in before review. Label each item measured, inferred or guessed.
 
-- Commands run and results:
-- Snapshot diffs:
-- Metrics:
+- **The start fix (ADR-0037 section 6), its own PR, 2026-11-14** [measured, at the fix's commit on `t-407-one-shot-start`]:
+  - The bug on `main`: against the job stub in its new key-ignoring mode, a lost start answer and then the end of the first job gave 2 starts and 2 runs, and the deal delivered the second run. Run as a scratch copy of the first new test with `repeatable` removed and `main`'s adapter, not committed.
+  - With the fix: `pnpm exec vitest run examples/seller-adapter` passed 4 files, 82 tests, the 8 new ones in `examples/seller-adapter-one-shot.test.ts` included. One start and one run; the job ID given at `POST /deals/<id>/job` delivered once; a restart sent no second start.
+  - `pnpm exec vitest run examples/buy-with-signer.test.ts examples/audit-deal.test.ts examples/one-token.test.ts`: 3 files, 37 tests passed. `pnpm typecheck` and ESLint on the four changed files: clean. `node site/build.mjs && node site/check.mjs`: PASS.
+- Snapshot diffs: none.
 
 ## Decisions
 
 - 2026-11-14: the design record first, the build after Rafa picks (the task's brief).
+- 2026-11-14: the start fix ships first, on its own, before the pilot's two scans (ADR-0037 open question 6; answered "Yes, fix it first" in this session). It applies only with `sellerApi.start.repeatable: false`: an API that honours the idempotency key keeps today's behaviour.
 - 2026-11-14: one independent research pass (a separate agent, at maximum effort) compared the runtimes from the code and Cloudflare's documentation. It recommends the same option and found the High finding below; ADR-0037 section 9 records it.
 
 ## Handoff
 
 **State: review.** ADR-0037 is Proposed and waits for Rafa's pick (its section 12). Nothing is built.
 
-- **High, for the pilot's scans on the Mac too:** `examples/seller-adapter.ts:1013-1017` sends the partner's start again at every poll while a deal is at `starting` with no recorded job ID [inferred from reading, not run]. After a lost start answer, the first poll after the scan ends starts and charges a second scan. ADR-0037 section 6 is the fix; its open question 6 asks whether to ship it as a small change before the two scans.
-- **To resume after Rafa picks:** build in this order: the start-at-most-once rule and the `redirect: 'manual'` change in the current file with tests; the core split (section 7) with every existing adapter test unchanged; `apps/hosted-sellers/` with the Worker-shell tests of section 11; the deploy and secret scripts; then the red-team review.
+- **High, for the pilot's scans on the Mac too:** `examples/seller-adapter.ts:1013-1017` sends the partner's start again at every poll while a deal is at `starting` with no recorded job ID [inferred from reading, not run]. After a lost start answer, the first poll after the scan ends starts and charges a second scan. Fixed by the start-at-most-once change (Evidence above), effective only when the configuration sets `sellerApi.start.repeatable: false`. **The pilot kit's adapter configuration must add that line before either scan**, and its runbook's 409 paragraph then reads: the deal holds at `start-unknown`, and Rafa posts the job's ID to `/deals/<id>/job` with the ready credential (`redelivery.readyAuth` must be set).
+- **To resume after Rafa picks:** build in this order: the `redirect: 'manual'` change in the current file with tests; the core split (section 7) with every existing adapter test unchanged; `apps/hosted-sellers/` with the Worker-shell tests of section 11; the deploy and secret scripts; then the red-team review.
