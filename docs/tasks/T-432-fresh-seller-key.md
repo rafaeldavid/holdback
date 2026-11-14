@@ -5,7 +5,7 @@
 - **Depends on:** T-431 (the same file; this branch starts from it), T-416 (the privacy baseline)
 - **Paths this task may touch:** `examples/seller-adapter.ts`, `examples/seal.ts`, `examples/seller-adapter-keys.test.ts`, `site/ref/seller-adapter.txt`, this file
 - **Human gate:** no
-- **Status:** review
+- **Status:** done
 - **Agent/session:** T-399 session (roadmap row N127, Rafa 2026-11-14: "Yes build both")
 
 ## Intent
