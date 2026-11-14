@@ -250,7 +250,7 @@ export class TestSeller {
 <ul>
 ${items}
 </ul>
-<p>On <code>customers-3</code>, the columns, the row count (3) and unique IDs decide. To see a refund there, put <code>"test": {"outcome": "refund"}</code> in your proposal: it then delivers 2 rows, the rows check fails, and the price comes back; the two fees do not, and no key is released. The two judged offers are judged by the operators' live panel of pinned models from two families, within a daily budget: it takes ${l.judgedPerDay} judged deals a day (UTC), and none while the panel's budget is spent.</p>
+<p>On <code>customers-3</code>, the columns, the row count (3) and unique IDs decide. To see a refund there, put <code>"test": {"outcome": "refund"}</code> in your proposal: it then delivers 2 rows, the rows check fails, and the price comes back; the two fees do not, and no key is released. The two judged offers are judged by the operators' live panel of pinned models from two families, within a daily budget: it takes ${l.judgedPerDay} judged deals a day (UTC), and none while the panel's budget for the day is spent or the operators' panel is scripted.</p>
 <p>To buy, follow "Try it: one test deal" in <a href="https://crow.direct/llms.txt">https://crow.direct/llms.txt</a>, or send a request as "Two agents, two people" in <a href="https://crow.direct/ref/intake.txt">https://crow.direct/ref/intake.txt</a> describes. Every offer comes from <code>${card.seller}</code>: check the seller in the terms against it. Unlike a person's intake, this page lists its address, because a public test seller has nothing to hide between deals.</p>
 <p>Crow's maintainers run both the operators and this seller. It holds its own keys and uses only the operators' public API, but it is not an independent business.</p>
 <p>Limits: ${l.perClientPerHour} requests per IP address an hour and ${l.perClientPerDay} a day; ${l.perHour} offers an hour and ${l.perDay} a day in all; ${l.open} in progress at once. When it is busy, it answers 429 with when to retry.</p>
@@ -446,7 +446,14 @@ ${items}
     for (const k of Object.keys(patch) as Array<keyof Deal>) if (patch[k] === undefined) delete next[k];
     const open = next.status === 'received' || next.status === 'offered' || next.status === 'delivered';
     await this.s.put({ [`d:${pad(d.n)}`]: next });
-    if (!open) await this.s.delete([`o:${pad(d.n)}`]);
+    if (!open) {
+      await this.s.delete([`o:${pad(d.n)}`]);
+      // A judged deal that closes with no delivery never seated a panel: its slot in today's judged budget comes back.
+      if (!next.deliveredAt) {
+        const judged = (await this.s.get<Array<{ n: number; at: number }>>('judged')) ?? [];
+        if (judged.some((x) => x.n === d.n)) await this.s.put({ judged: judged.filter((x) => x.n !== d.n) });
+      }
+    }
     return next;
   }
 
@@ -615,7 +622,7 @@ ${items}
       if (s === 'Released' || s === 'Refunded' || s === 'Settled') {
         // Settled on Crow before this seller delivered: the buyer reclaimed after deliverBy, or the parties agreed.
         const txs = await this.txsOf(d.commitmentId!).catch(() => [] as Array<{ step: string; tx: string }>);
-        await this.save(d, { status: s === 'Released' ? 'released' : s === 'Refunded' ? 'refunded' : 'failed', detail: s === 'Refunded' ? 'the buyer reclaimed its hold: the seller did not deliver before deliverBy' : `the deal is ${s} on Crow without a delivery from this seller`, ...(txs.length ? { txs } : {}), retry: undefined });
+        await this.save(d, { status: s === 'Released' ? 'released' : s === 'Refunded' ? 'refunded' : 'failed', detail: s === 'Refunded' ? 'the hold went back to the buyer by the reclaim: the seller did not deliver before deliverBy' : `the deal is ${s} on Crow without a delivery from this seller`, ...(txs.length ? { txs } : {}), retry: undefined });
         this.log(`test-seller: deal ${d.n} ${s} before any delivery`);
         return;
       }
@@ -631,8 +638,9 @@ ${items}
       const work = workOf(this.offerOf(d), d.outcome ?? 'release');
       if (work === null) {
         // The silent offer never delivers. It follows the deal until the reclaim refunds it (the operators send the
-        // reclaim a minute or two after deliverBy), and closes it 30 minutes after deliverBy if no one has.
-        if (settlement >= Date.parse(d.terms.timing.deliverBy) + 30 * MIN) {
+        // reclaim a minute or two after deliverBy), and closes it 10 minutes after deliverBy if no one has, as its
+        // retries would (advance()).
+        if (settlement >= Date.parse(d.terms.timing.deliverBy) + 10 * MIN) {
           await this.save(d, { status: 'failed', detail: `the silent offer did not deliver, as offered; the buyer can reclaim its hold (POST /v1/commitments/${d.commitmentId}/triggers/reclaim)`, retry: undefined });
           return;
         }
@@ -674,8 +682,20 @@ ${items}
       return;
     }
     const txs = await this.txsOf(d.commitmentId!);
-    await this.save(d, { status: state === 'Released' ? 'released' : 'refunded', txs, retry: undefined });
+    const ended = state === 'Released' ? 'release' : 'refund';
+    const why = ended === (d.outcome ?? 'release') ? undefined : await this.otherEnding(d.commitmentId!, ended);
+    await this.save(d, { status: state === 'Released' ? 'released' : 'refunded', txs, ...(why ? { detail: why } : {}), retry: undefined });
     this.log(`test-seller: deal ${d.n} ${state} ${d.commitmentId}`);
+  }
+
+  /** Why a deal ended otherwise than its offer intends, from the judgment record. */
+  private async otherEnding(id: Hex, ended: 'release' | 'refund'): Promise<string> {
+    const j = await this.agent.call('GET', `/v1/commitments/${id}/judgment`).catch(() => null);
+    const members: J[] = j?.panel?.members ?? [];
+    if (members.length && members.every((m) => /^\[fake judge/.test(String(m.verdict?.rationale ?? '')))) {
+      return `the deal ended in a ${ended}, not as this offer intends: the day's live judge calls ran out before the panel sat, so scripted judges decided, and they pass every text (their verdicts start "[fake judge, no model ran]")`;
+    }
+    return `the deal ended in a ${ended}, not as this offer intends: read the judgment record (GET /v1/commitments/${id}/judgment)`;
   }
 
   /** The deal's transactions on the settlement layer, in order, one per step. */

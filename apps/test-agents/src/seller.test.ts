@@ -353,7 +353,7 @@ describe("Crow's test seller", () => {
       // The seller comes back and closes the deal it can no longer act on, freeing its slot.
       const back = startSeller({ world, timing, storage, seed });
       const closed = await statusUntil(back, token, (x) => x.deal === 'refunded');
-      expect(closed.detail).toMatch(/reclaimed its hold/);
+      expect(closed.detail).toMatch(/went back to the buyer by the reclaim/);
       expect(await (await back.call('/health')).json()).toEqual({ status: 'operational', open: 0 });
       await back.stop();
     } finally {
@@ -368,7 +368,7 @@ describe("Crow's test seller", () => {
 const IDS = '6. "criteria" must contain each of these ids exactly once: ';
 const standIn = { complete: async (req: { system: string; user: string }) => {
   const ids = (req.system.split('\n').find((l) => l.startsWith(IDS)) ?? IDS).slice(IDS.length).replace(/\.$/, '').split(', ').filter((x) => x && x !== '(none)');
-  const fails = /rating/.test(req.user);
+  const fails = /paid at once/.test(req.user);
   return { kind: 'ok' as const, text: JSON.stringify({ criteria: ids.map((id) => ({ id, score: fails ? 0 : 4, evidence: fails ? 'It contradicts the facts.' : 'It states the facts.' })), overall: fails ? 'fail' : 'pass', injectionSuspected: false, rationale: fails ? 'stand-in: fail' : 'stand-in: pass' }), latencyMs: 1 };
 } };
 const JUDGED = { price: SUMMARY_PRICE_UNITS, acceptance: { deterministicChecks: SUMMARY_CHECKS, rubric: SUMMARY_RUBRIC } };
@@ -454,7 +454,7 @@ describe("the test seller's named offers (T-420)", () => {
       const reclaimed = await buyer.call('POST', `/v1/commitments/${offered.commitmentId}/triggers/reclaim`, {});
       expect(reclaimed.escrowState).toBe('Refunded');
       const closed = await statusUntil(s, token, (x) => x.deal === 'refunded');
-      expect(closed.detail).toMatch(/reclaimed its hold/);
+      expect(closed.detail).toMatch(/went back to the buyer by the reclaim/);
       expect(closed.transactions?.map((t: J) => t.step) ?? []).not.toContain('delivered');
       await s.stop();
     } finally {
@@ -488,6 +488,41 @@ describe("the test seller's named offers (T-420)", () => {
     const plain = await propose(again, buyer, proposalFor(buyer));
     expect(await statusUntil(again, plain.token, (x) => x.status === 'offered')).toMatchObject({ offer: 'customers-3', outcome: 'release' });
     await again.stop();
+  });
+
+  it('gives a judged slot back when the deal closes with no delivery: an offer the buyer never funds', async () => {
+    let skew = 0;
+    const world = await serveWorld({ judgeProvider: standIn, liveCallsPerDay: 1000, now: () => Date.now() + skew });
+    try {
+      const s = startSeller({ world, limits: { perClientPerHour: 10, judgedPerDay: 1 } });
+      const buyer = await freshBuyer(world);
+      const first = await propose(s, buyer, judgedProposal(buyer, 'summary-judged'));
+      await statusUntil(s, first.token, (x) => x.status === 'offered');
+      skew = 2 * 3_600_000; // past fundBy: the offer expires unfunded, and no panel sat
+      await statusUntil(s, first.token, (x) => x.deal === 'expired');
+      const second = await propose(s, buyer, judgedProposal(buyer, 'summary-judged'));
+      expect(await statusUntil(s, second.token, (x) => x.status === 'offered')).toMatchObject({ offer: 'summary-judged' });
+      await s.stop();
+    } finally {
+      await world.close();
+    }
+  });
+
+  it('says why when a judged deal ends otherwise than its offer intends', async () => {
+    const lenient = await serveWorld({ judgeProvider: { complete: async (req: { system: string; user: string }) => standIn.complete({ ...req, user: '' }) }, liveCallsPerDay: 1000 });
+    try {
+      const s = startSeller({ world: lenient });
+      const buyer = await freshBuyer(lenient);
+      const { token } = await propose(s, buyer, judgedProposal(buyer, 'summary-judged-fails'));
+      const offered = await statusUntil(s, token, (x) => x.status === 'offered');
+      await checkAndFund(buyer, offered.commitmentId, offered.seller, JUDGED);
+      const done = await statusUntil(s, token, (x) => x.deal === 'released', 30_000);
+      expect(done.outcome).toBe('refund');
+      expect(done.detail).toMatch(/ended in a release, not as this offer intends: read the judgment record/);
+      await s.stop();
+    } finally {
+      await lenient.close();
+    }
   });
 
   it('refuses judged work when the live panel cannot sit: no live budget left today, or a scripted panel', async () => {

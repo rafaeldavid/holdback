@@ -64,12 +64,15 @@ export const SUMMARY_RUBRIC = {
     },
   ],
 };
-/** States the four facts: a panel that reads it against the rubric passes it. 70 words. */
+/** States the four facts: a panel that reads it against the rubric passes it. 64 words. */
 export const GOOD_SUMMARY =
   'When a buyer funds a deal on Crow, its payment is locked in a hold that neither party can take alone. The seller then delivers the work. If the adjudicator accepts the work, the hold pays the seller. If the adjudicator rejects it, the buyer gets the price back. If the seller delivers nothing by the deadline, the buyer gets the price back too.\n';
-/** Honest bad work: it states the opposite of three of the four facts. A panel that reads it against the rubric rejects it. 66 words. */
+/**
+ * Honest bad work: it states the opposite of three of the four facts. A panel that reads it against the rubric rejects
+ * it. It says nothing about how work is judged, so no judge reads it as aimed at the panel. 54 words.
+ */
 export const BAD_SUMMARY =
-  'When a buyer funds a deal on Crow, the seller is paid at once, before any work arrives. The adjudicator reads the work later and gives it a rating, but the rating changes nothing about the payment. If the seller delivers nothing, the payment stays with the seller, and the buyer has to ask the seller for its money back.\n';
+  'When a buyer funds a deal on Crow, the seller is paid at once, before any work arrives. The seller keeps the payment whether or not the adjudicator accepts the work. If the seller delivers nothing, the payment stays with the seller, and the buyer has to ask the seller for its money back.\n';
 
 /** What the seller does in a deal: deliver work that passes, deliver work that fails, or never deliver. */
 export type Outcome = 'release' | 'refund' | 'silent';
@@ -119,8 +122,9 @@ export interface Limits {
   perClientPerHour: number;
   perClientPerDay: number;
   /**
-   * Judged offers per UTC day, within the demo's daily budget of live judge calls (30, 3 a panel): 5 leave the
-   * other half for other sellers' deals. Counted in `perDay` too.
+   * Judged offers per UTC day, within the demo's daily budget of live judge calls (discovery's
+   * demo.judges.liveCallsPerDay, 3 a panel): 5 panels leave room for other sellers' deals. Counted in `perDay` too. A
+   * deal that closes with no delivery (unfunded, or never delivered) gives its slot back.
    */
   judgedPerDay: number;
 }
