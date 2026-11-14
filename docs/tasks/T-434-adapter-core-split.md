@@ -5,7 +5,7 @@
 - **Depends on:** T-433 (`redirect: 'manual'`), ADR-0037 sections 4 and 7 (Accepted 2026-11-14, D68)
 - **Paths this task may touch:** `examples/seller-adapter*.ts` and their tests, `examples/plain.ts`, `site/ref/seller-adapter.txt`, this file. The coordinator's brief lists `site/ref/seller-adapter.txt` for a change a seller reads: the new refusal is one. `examples/report-converter.ts` needed no change.
 - **Human gate:** no
-- **Status:** review
+- **Status:** done (PR 553, merged as `6efc9c7`)
 - **Agent/session:** the T-407 session, on Rafa's word of 2026-11-14 ("Yes, start both")
 - **Roadmap row:** N134
 

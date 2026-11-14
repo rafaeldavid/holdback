@@ -87,6 +87,7 @@ export function checkBundle(raw: unknown): HostedSeller {
     c.alerts?.secretEnv,
     c.redelivery?.readyAuth?.env,
   ].filter((v): v is string => typeof v === 'string');
+  if (new Set(credentialVars).size !== credentialVars.length) throw new Error(`the ${b.slug} configuration names one variable for two credentials: each needs its own`);
   for (const v of credentialVars) {
     if (v.startsWith('HOLDBACK_') || SHELL_VARIABLES.includes(v) || WORKER_VARIABLES.includes(v)) throw new Error(`the ${b.slug} configuration names ${v} for a credential, which the Worker keeps for itself: name a variable of its own`);
   }

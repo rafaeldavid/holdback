@@ -5,7 +5,7 @@
 - **Depends on:** T-434 (the adapter's core), ADR-0037 sections 3 to 7 and 11 (Accepted 2026-11-14, D68)
 - **Paths this task may touch:** `apps/hosted-sellers/`, `examples/seller-adapter-api.ts`, `examples/seller-adapter-core.ts`, `examples/seller-adapter-job-stub.ts`, `examples/seller-adapter-workspace.test.ts`, the root `tsconfig.json` (one reference), `pnpm-lock.yaml`, this file
 - **Human gate:** yes for any deploy and every secret; this task deploys nothing
-- **Status:** review
+- **Status:** done (PR 556, merged as `6eb7b9f`)
 - **Agent/session:** the T-407 session, on Rafa's word of 2026-11-14 ("Yes, start both")
 - **Roadmap row:** N134
 
