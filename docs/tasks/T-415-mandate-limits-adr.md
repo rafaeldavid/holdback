@@ -32,14 +32,14 @@ Inputs: the code on `origin/main`, the ADRs above, and the standards other agent
 
 ## Acceptance criteria
 
-- [ ] The ADR states, for each of the five scope fields, where it is enforced today, with file and line, each labelled measured or inferred.
-- [ ] The ADR gives one recommendation for each of the five questions, with the options weighed against the three litmus tests.
-- [ ] Each recommendation names the fixtures and the schema changes it needs, with the version bump named and not made.
-- [ ] The ADR gives the build order and what must not be built before the pilot.
-- [ ] The ADR compares the decision with current agent-payment and authorization standards, each with a version or date and a link.
-- [ ] `docs/decisions-today.md` has one new entry, adopted and open to Rafa's overrule.
-- [ ] One reviewer pass; findings fixed or answered.
-- [ ] No file outside this task's paths changes.
+- [x] The ADR states, for each of the five scope fields, where it is enforced today, with file and line, each labelled measured or inferred.
+- [x] The ADR gives one recommendation for each of the five questions, with the options weighed against the three litmus tests.
+- [x] Each recommendation names the fixtures and the schema changes it needs, with the version bump named and not made.
+- [x] The ADR gives the build order and what must not be built before the pilot.
+- [x] The ADR compares the decision with current agent-payment and authorization standards, each with a version or date and a link.
+- [x] `docs/decisions-today.md` has one new entry, adopted and open to Rafa's overrule.
+- [x] One reviewer pass; findings fixed or answered.
+- [x] No file outside this task's paths changes.
 
 ## Out of scope
 
@@ -49,12 +49,41 @@ Inputs: the code on `origin/main`, the ADRs above, and the standards other agent
 
 ## Evidence
 
-Filled in before review.
+Nothing was run except the checks below. Kind 10 has no required local checks (`docs/team.md`).
+
+- **The record** [measured]: `docs/decisions/ADR-0038-mandate-limits-and-revocation.md`, Proposed, and entry D69 in `docs/decisions-today.md`, adopted and open to Rafa's overrule.
+- **Each acceptance criterion:**
+  - The five scope fields, with file and line and a label: the table "What enforces each field today" and the eleven facts under it. The reviewer opened the cited lines at `b9e33a9b` and confirmed them; three line numbers it found off by one are corrected [measured by the reviewer].
+  - One recommendation per question, with options against the litmus tests: sections 1 to 5, each with an option table.
+  - Fixtures and schema changes per recommendation, with the bump named and not made: the "Fixtures" and "Schema" lines of each section.
+  - The build order and what must not be built before the pilot: "The build, in order".
+  - Outside standards with a version or date and a link: "How others carry the same ideas", thirteen rows. A research pass opened each source on 2026-11-14 [checked by that pass; the reviewer fetched the links and matched the six EIP statuses, and did not verify the AP2 and x402 dates or the wallet services' policy claims].
+  - One reviewer pass: ISSUES, 4 High, 6 Medium, 8 Low, no Critical. All 18 are fixed in the text or answered in the record's last section.
+  - No file outside the task's paths: `git diff origin/main --stat` shows three files [measured].
+- **Commands run** [measured]:
+  - `node scripts/id-check.mjs --branch t-415-mandate-limits-adr`: pass.
+  - `pnpm vitest run tests/design-map.test.ts tests/cut-feature-alignment.test.ts`: 2 files, 34 tests pass.
+- **The research pass** found the draft in the worktree while it read, so it is a second reading, not a blind one. It confirmed the five answers and added seven findings, listed in the record's last section.
 
 ## Decisions
 
-The decisions are the ADR's. Choices about this task itself are listed here before review.
+- **The amendment to ADR-0024 section 7 was withdrawn after review.** The first draft made the adjudicator's check of a `Delegation` optional. A hard rule in `CLAUDE.md` names that check, and its wording is Rafa's. The record now states the gap and asks him.
+- **`maxDaily` stays for now.** The research pass would remove it with `categories`. The record keeps it as a statement and asks Rafa.
+- **The status line on D69** follows T-413's new check (`tests/decisions-status.test.ts`, on its branch): `**Status:** adopted, 2026-11-14.`
 
 ## Handoff
 
-Filled in before review.
+**Done:** the record and the D69 entry. **Not done:** everything the record describes; nothing is built.
+
+**Follow-ups, none started.** Each needs its own task file.
+
+1. Text: the guide's table of what stops an agent, the corrected `scope_exceeded` problem, and the standing texts the record lists. It touches `site/ref/limits.txt` (T-416's file in this wave), `apps/operator/src/problems.ts` (T-409's lane), `docs/neutrality.md`, `docs/architecture.md`, `docs/api.md`, `docs/judgment-and-defenses.md` and `docs/audit/known-issues.md`.
+2. The wallet path: an additive schema version so a contract wallet's signature funds through an operator.
+3. The mandate checks move to the operator layer, with the testkit's book per operator. It waits for Rafa's word.
+4. The route for a company's own mandate, then revocation, then the reference clients' check.
+5. The design record for the richer mandate.
+6. ADR-0024 needs a back-pointer to this record at section 7; that file is outside this task's paths.
+
+**Waiting on Rafa:** the seven questions under "Not decided here" in the record. The first decides whether the mandate route and revocation are built at all.
+
+**To resume:** read the record's summary and "The build, in order". The research notes are outside the repository, in the wave's scratch folder (`reports/scratch/t-415/`): the standards check and the research pass.
