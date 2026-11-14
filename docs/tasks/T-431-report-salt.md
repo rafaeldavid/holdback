@@ -7,6 +7,7 @@
 - **Human gate:** no
 - **Status:** done
 - **Agent/session:** T-399 session (roadmap row N128, Rafa 2026-11-14: "Yes build both")
+- **Roadmap row:** N128
 
 ## Intent
 

@@ -7,6 +7,7 @@
 - **Human gate:** yes: the first deploy creates a Worker and needs secrets, which are Rafa's
 - **Status:** todo (claimed by the T-407 session on 2026-11-14)
 - **Agent/session:** the T-407 session
+- **Roadmap row:** N134
 
 ## Intent
 

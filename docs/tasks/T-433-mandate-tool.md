@@ -7,6 +7,7 @@
 - **Human gate:** no (nothing is deployed by this task; the site deploy after merge follows the wave's "merge and deploy when ready" rule)
 - **Status:** review
 - **Agent/session:** own-agents build session, started by the coordinator on 2026-11-14 ("Yes, start both")
+- **Roadmap row:** N131
 
 ## Intent
 

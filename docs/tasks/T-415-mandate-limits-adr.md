@@ -7,6 +7,7 @@
 - **Human gate:** no. Nothing leaves the repository; Rafa may overrule the decision.
 - **Status:** done (pull request 508, merged 2026-11-14: the decision record ADR-0038; Rafa answered its questions the same day, D69; the build is later tasks)
 - **Agent/session:** the T-415 session, started 2026-11-14 by the coordinator of that day's wave
+- **Roadmap row:** N117, N115
 - **Kind:** 10, research and decisions (`docs/team.md`, Change recipes)
 
 ## Intent

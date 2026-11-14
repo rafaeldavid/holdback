@@ -7,6 +7,7 @@
 - **Human gate:** no. Rafa's standing word for the wave of 2026-11-14 is "merge and deploy when ready", inside the brief's six limits.
 - **Status:** done (pull request 525, merged 2026-11-14; the site deployed 12:03 UTC)
 - **Agent/session:** T-426's session, kind 1 (docs)
+- **Roadmap row:** T-252 (the agent guides)
 
 ## Intent
 
