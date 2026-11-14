@@ -11,7 +11,7 @@ import { preflightDelivery } from '@holdback/judgment';
 import { plain } from './plain.ts';
 import { Agent } from './agent.ts';
 import { convertReport, parseReportMapping, ReportNotConverted, type ReportMapping } from './report-converter.ts';
-import { FilesNotAdded, isRedirect, sellerApiClient, type SellerApiConfig } from './seller-adapter-api.ts';
+import { FilesNotAdded, isRedirect, sellerApiClient, WrongWorkspace, type SellerApiConfig } from './seller-adapter-api.ts';
 import { freshNonce, isAddressText, jcs, knownPins, moneyAddressWarnings, operatorFeeOf } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -261,7 +261,7 @@ export function configFrom(f: J, file: string, files: ConfigFiles): SellerAdapte
   if (!isRecord(api)) throw new Error(`${file}: sellerApi is required: your API's quote, start and result addresses`);
   // An address in today's shape, or a mapping (T-366), which the start checks whole, with the credential.
   for (const k of ['quote', 'start', 'result']) if (!isRecord(api[k]) && !httpAddress(api[k])) throw new Error(`${file}: sellerApi.${k} must be an http or https address, or a call mapping`);
-  for (const k of Object.keys(api)) if (!['quote', 'start', 'result', 'baseUrl', 'auth'].includes(k)) throw new Error(`${file}: sellerApi has a field the adapter does not take: ${plain(k).slice(0, 60)}`);
+  for (const k of Object.keys(api)) if (!['quote', 'start', 'result', 'baseUrl', 'auth', 'workspace'].includes(k)) throw new Error(`${file}: sellerApi has a field the adapter does not take: ${plain(k).slice(0, 60)}`);
   const beside = (p: J, at: string): string => {
     if (typeof p !== 'string' || p === '') throw new Error(`${file}: ${at} must be a file path`);
     return files.beside(p);
@@ -295,7 +295,7 @@ export function configFrom(f: J, file: string, files: ConfigFiles): SellerAdapte
   const pass = (k: string) => (f[k] === undefined ? {} : { [k]: f[k] });
   return {
     port: f.port ?? DEFAULTS.port,
-    sellerApi: { ...(api.baseUrl === undefined ? {} : { baseUrl: api.baseUrl }), ...(api.auth === undefined ? {} : { auth: api.auth }), quote: api.quote, start: api.start, result: api.result },
+    sellerApi: { ...(api.baseUrl === undefined ? {} : { baseUrl: api.baseUrl }), ...(api.auth === undefined ? {} : { auth: api.auth }), ...(api.workspace === undefined ? {} : { workspace: api.workspace }), quote: api.quote, start: api.start, result: api.result },
     template: own ? beside(f.template, 'template') : files.shippedTemplate,
     ...(f.reportMapping === undefined ? {} : { reportMapping: beside(f.reportMapping, 'reportMapping') }),
     ...pass('reportSalt'), ...pass('signingKey'),
@@ -1318,7 +1318,14 @@ export async function createSellerAdapter(c: SellerAdapterConfig, env: Readonly<
       }
       // The address is the configuration's; only named values, such as the job's ID from your API, go into it.
       const values = { commitmentId: id, quoteId: deal.quoteId, jobId: deal.jobId!, buyer: deal.terms.buyer, scope: deal.scope, options: deal.options };
-      const job = await sellerApi.result(values);
+      let job: Awaited<ReturnType<typeof sellerApi.result>>;
+      try {
+        job = await sellerApi.result(values);
+      } catch (e) {
+        if (!(e instanceof WrongWorkspace)) throw e;
+        // A job from another account is never delivered (T-435): the deal holds, and the seller hears of it once.
+        return refuse(deal, now, createHash('sha256').update(`wrong-workspace ${e.message}`, 'utf8').digest('hex'), { result: 'wrong_workspace', workspace: e.message, checks: [] }, `the job did not run in the pinned workspace: ${e.message}`);
+      }
       if (job.state === 'running') {
         // The job still runs. A new status value (`queued`, then `running`) is an event: the queue's time shows.
         if (job.status !== undefined && job.status !== deal.jobStatus) {
