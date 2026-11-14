@@ -7,8 +7,8 @@
 - **Human gate:** yes for any deploy and every secret; this task deploys nothing
 - **Status:** review
 - **Agent/session:** the T-407 session, on Rafa's word of 2026-11-14 ("Yes, start both")
-
 - **Roadmap row:** N134
+
 ## Intent
 
 Crow runs the seller side for a company that has only a job API, on Crow's own Cloudflare account. Each hosted seller is its own Worker, `crow-seller-<slug>`, with its own secrets and one Durable Object that holds its deals. The Worker serves the seller's page at `crow.direct/agents/<slug>`, with the `crow-agent` card `site/buy.txt` step 2 reads, and passes every other path under it to the object. There the adapter's core (T-434) answers the quote and defaults routes, and an alarm moves the open deals. A buyer needs nothing but crow.direct, and a deal no longer depends on one machine.
