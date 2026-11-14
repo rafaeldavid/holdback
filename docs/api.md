@@ -303,7 +303,7 @@ A private deal keeps the terms bodies, the work and the judgment off every opera
    - the club and role match, the price is within `scope.maxPerCommitment`, and the certificate is unexpired;
    - `agent` holds a mandate from `principal` in that club, read from at least two operators (`GET /v1/agents/{agent}`).
 
-   Settlement does not check scope or membership for a key with no mandate. It admits one only at `private` or `judgment`, under a rulebook whose `identityModes` lists `pseudonymous`, and only for this commitment's price. Fund the deal key however you choose: a transfer from your treasury links the two on chain (residual 11).
+   An operator does not check scope or membership for a key with no mandate (the contracts read no mandate for any key). It admits one only at `private` or `judgment`, under a rulebook whose `identityModes` lists `pseudonymous`, and only for this commitment's price. Fund the deal key however you choose: a transfer from your treasury links the two on chain (residual 11).
 2. **The client-side prepare recipe** (`privateOfferTerms` in `examples/verify.ts`). It needs no operator call. Inputs are the agent's own or read from at least two operators:
    - **From two operators:** the club's `rulebookHash`; the primary's registration (`policy.id`, `policyHash`, which must equal keccak256 of the RFC 8785 JSON of `policy`, `registry.hash`, and `fee.min` unless you set `fee`); `createdAt` as settlement-layer time in whole seconds (`settlementTime` from `/.well-known/holdback.json`, which must agree within 5 s).
    - **Your own:** 32 random bytes each for `nonce`, `deliverable.salt` and `acceptance.salt`; your per-deal `sellerEncryptionPublicKey`.
@@ -350,18 +350,18 @@ What is not private yet: the work's ciphertext pointer and hashes, amounts, per-
 | GET | `/v1/funding/sessions/{id}` (planned: 501 today; ADR-0026 §4) | — | Session `state` and `next` |
 | GET | `/v1/clubs/{id}` | — | Club with its rulebook and `rulebookHash`, so a party can check the rulebook it signs under |
 | GET | `/v1/clubs/{id}/members/{principal}` | — | Member: admitted or revoked, with the signed admission |
-| GET | `/v1/agents/{address}` | — | `{address, status, mandates}`: every mandate this node holds for the agent, each with its `mandateHash`. `status` reads `active` today: no route takes a revocation yet (`apps/operator/src/server.ts`, the agent read) |
+| GET | `/v1/agents/{address}` | — | `{address, status, mandates}`: every mandate this node holds for the agent, each with its `mandateHash`. `status` reads `active`: no route takes a revocation today (`apps/operator/src/server.ts`, the agent read). The served shape differs from `agent.schema.json`; ADR-0038 §4 reconciles them |
 | GET | `/v1/status` | — | Operator status (`operator-status.schema.json`): EIP-712 domain, receipt signer, settlement target, versions, head and lag, and `fees.operator` when this node charges an operator fee (ADR-0023) |
 
 **Where a mandate's limits hold (ADR-0038).** The guide's version, with the table of what a principal can set and who can get around it, is `site/ref/limits.txt`, "Where your agent's limits hold".
 
 - The contracts read no mandate. They fund a deal on the signatures of the seller, the primary adjudicator, the buyer and the buyer's payment address.
-- Each operator checks the mandate as its own relay policy: the role, `maxPerCommitment` and `expiresAt` at the offer, the agreement and the funding, and `maxDaily` at the agreement, answering 403 `scope_exceeded` or `mandate_expired`. The same signed messages sent to another operator, or straight to the contracts, do not pass this operator's check. SimChain checks the mandate at settlement.
-- The daily cap is counted per operator, per buyer signing address and UTC day, over the agreements that operator relays. A deal funded through another operator or straight at the contracts is not counted, and a per-deal key starts at 0.
+- Each operator checks the mandate as its own relay policy, the seller's at the offer and the buyer's at the agreement and the funding: the role, `maxPerCommitment` and `expiresAt` at the offer, the agreement and the funding, and `maxDaily` at the agreement, answering 403 `scope_exceeded` or `mandate_expired`. The same signed messages sent to another operator, or straight to the contracts, do not pass this operator's check. SimChain checks the mandate at settlement.
+- On a chain the daily cap is counted per operator, per buyer signing address and UTC day, over the agreements that operator relays. A deal funded through another operator or straight at the contracts is not counted, and a per-deal key starts at 0. The two live nodes share one count, since one process runs both. SimChain keeps one count for every operator.
 - Nothing checks `categories`. The field is signed and not enforced.
-- A counterparty can check the mandate before it signs. The reference clients do not run this check in their flows yet.
+- A counterparty can check the mandate before it signs. The reference clients do not run this check in their flows today.
 - The spending limit is the payment address: its balance, who signs for it, and the principal's own wallet policy.
-- To stop an agent today, the principal moves the balance off the payment address, or stops signing for it. A principal cannot revoke a mandate yet: `POST /v1/agents/{address}/revoke` answers 501, and the mandate ends at its `expiresAt`. A hold already funded is not touched.
+- To stop an agent today, the principal moves the balance off the payment address, or stops signing for it. A principal cannot revoke a mandate today: `POST /v1/agents/{address}/revoke` answers 501, and the mandate ends at its `expiresAt`. A hold already funded is not touched.
 
 ### Commitments
 
