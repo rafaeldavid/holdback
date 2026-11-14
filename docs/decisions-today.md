@@ -1153,3 +1153,19 @@ The full text is kept privately (`docs/private-materials.md`).
 - **A one-shot start** (no idempotency key) is sent at most once per deal. Today the adapter resends it at every poll until it records a job ID, which can charge a partner a second scan (High, found by the research pass). The fix is in the shared core, so the Mac gets it too; a person supplies a lost job ID.
 - **Deploys:** deferred code updates, and the deploy script refuses while a deal is between a funded hold and a recorded job ID.
 - **Litmus tests.** Neutrality, the hold and defended judgment: unchanged. The hosted adapter is a party that reaches the operators over the public API, like the test seller (D47).
+
+## D69. A mandate's limits: the payment address holds the spending limit, the mandate is a permission others check, and a revocation is a signed notice (ADR-0038, T-415)
+
+**Adopted 2026-11-14 by T-415,** after a research pass, a dated check of outside standards and one review. Rafa may overrule any line. ADR-0038 is Proposed; nothing is built.
+
+Today the operators that relay a deal check a mandate's roles, cap per deal, daily cap and expiry. The contracts fund a deal on four signatures and read no mandate, so an agent with a signing key and a funded payment address is not held to it. Nothing checks `categories`, and no route takes a revocation.
+
+- **Where limits are enforced.** The spending limit is the payment address: its balance, who can sign for it, and the company's own wallet policy. The mandate is a signed permission that the counterparty checks before it signs and that each operator checks before it relays, as that operator's stated policy. The contracts read no mandate. The guide says which is which.
+- **`categories`.** It leaves the scope with the next schema version that changes a signed struct. The mandate's club already names the market. Until then the guide says nothing checks it, and the operator's `scope_exceeded` text stops naming it.
+- **The daily cap.** Each operator counts the deals it relays, and the guide says so. No shared count. The hard daily limit is the balance on the payment address.
+- **Revocation.** `AgentRevocation`, signed by the mandate's principal, is a notice. Any operator takes it from anyone, serves it and stops relaying new offers and agreements for that agent. It never changes a funded deal. A counterparty treats an agent as revoked when any one operator serves a valid revocation. The company's hard stop is the payment address.
+- **The richer mandate** changes none of this. The protocol carries the format of a permission and its revocation; the company's wallet and signing tools enforce amounts, co-signatures and allow-lists. Delegation to sub-agents is a chain the relying party intersects. Its design is a separate record.
+- **Litmus tests.** Neutrality: no mandate check sits where a party cannot route around it, and a revocation cannot reach a funded deal; two new `neutrality.*` fixtures show it. The hold: unchanged. Defended judgment: not affected.
+- **What it changes when built:** guide text first; then the revocation route with one additive schema version; then the reference clients' check. `categories` leaves with the richer mandate's fields in one version that moves the EIP-712 domain and redeploys the contracts.
+- **Not before the pilot:** any change under `contracts/src/`, any change to a signed struct, a shared daily count, a registry on chain.
+- **For Rafa:** whether an operator needs a mandate at all to relay for a funded address; whether `maxDaily` leaves with `categories`; whether a later contract version offers an on-chain revocation as an opt-in; whether the guide may name wallet products; whether a revoked key may return.
