@@ -5,7 +5,7 @@
 - **Depends on:** T-421's follow-up (holdback pull request 532), which owns `site/build.mjs`, `site/check.mjs` and `site/trust.mjs` until it merges
 - **Paths this task may touch:** new icon files and one README line in `site/brand/`, `site/brand/kit.mjs` and `kit.d.mts` (the icon links), one small change in `site/build.mjs`, `site/trust.mjs` and `site/check.mjs` after T-421's follow-up merges, this task file; in crow-private the console's head, its Worker's icon route and a test under `control/`
 - **Human gate:** no for the pull requests; the deploys run on Rafa's standing word for this wave (coordinator brief 2026-11-14, "Merge and deploy when ready")
-- **Status:** review
+- **Status:** done
 - **Agent/session:** T-428 side session, started by the coordinator on 2026-11-14
 
 ## Intent
@@ -44,6 +44,9 @@ Labels: measured, inferred, guessed.
 - Lint and unit tests (measured): ESLint on the five changed scripts reports nothing; `vitest run` on the site, design-map and contract-stack tests: 86 of 86 pass.
 - Crow Control (measured, crow-private pull request 64): `control/test/icons.test.mjs` 7 of 7 pass; the console's head links the icons, the Worker serves them, `/map` and `/contracts` carry them as data: URIs.
 - Crow Control deploy (measured, 2026-11-14 about 13:25 UTC): `npx -y wrangler@4.151.3 deploy --config reports/crow-private/control/wrangler.access.jsonc` from the main checkout with crow-private at 277b9017 (`origin/main`, which carried nothing else new beyond the coordinator's own commits). Version ffe9557d-6bf1-4735-88fc-4e3ef20e370a; previous 9981b3a0-be45-401c-8636-e4b20a3bc9fd. Signed out, `/favicon.ico`, `/favicon.svg` and `/` answer 302 to the Access login. Signed in (Rafa's Chrome): the console's head links the five icon files; `/favicon.ico` is `image/x-icon`, 48 x 48 px largest image; `/apple-touch-icon.png` is `image/png`, 180 x 180 px. `/map` and `/contracts` get the icon at the next hourly push (not checked).
+- Holdback pull request 541 merged 2026-11-14 14:06 UTC, merge commit db7dcf12; all 14 CI checks passed (2 skipped by design).
+- Site deploy (measured, 2026-11-14 14:06 UTC): `pnpm site:deploy` from a detached worktree at `origin/main` (db7dcf12), after `pnpm install --frozen-lockfile`. crow-site version 49d9faa2-af62-4f80-ba18-eced852bb792; previous 79053bf0-9b26-4d00-ad8d-331b87a57253 (deployed 13:46 UTC, 20 minutes before). The deploy carried nothing else to the site: the only other change since the live commit was T-427's task file. The script's live check passed.
+- Live checks (measured, plain GETs after the deploy): `/favicon.ico` 200 `image/vnd.microsoft.icon` 1,681 bytes; `/favicon.svg` 200 `image/svg+xml` 7,435 bytes; `/favicon-16.png`, `/favicon-32.png`, `/apple-touch-icon.png`, `/icon-192.png`, `/icon-512.png` 200 `image/png`; `/site.webmanifest` 200 `application/manifest+json`. `favicon.ico`, `favicon.svg` and `apple-touch-icon.png` match the kit's bytes. `/`, `/404`, `/trust`, `/status`, `/demo/`, `/visualdemo/`, `/problems/` and `/problems/rate_limited` each link `/favicon.svg` once. `version.json` names commit db7dcf12.
 - Looked at (measured, a screenshot in the in-app browser): 16 px PNG, 16 px SVG and 32 px PNG on a dark (`#202124`) and a light (`#dee1e6`) tab bar, and the 180 px icon with rounded corners. The crow reads at 16 px on both; the white square shows on the dark bar.
 
 ## Decisions
@@ -56,7 +59,7 @@ Labels: measured, inferred, guessed.
 
 ## Handoff
 
-Done: the icon set, the kit's `iconLinks()`, the site's pages and group 17, and Crow Control (crow-private pull request 64, merge commit 277b9017, merged before this one so the contracts page is pushed with the icon when this merge changes `site/brand/`).
+Done and deployed (crow.direct 49d9faa2, Crow Control ffe9557d): the icon set, the kit's `iconLinks()`, the site's pages and group 17, and Crow Control (crow-private pull request 64, merge commit 277b9017, merged before this one so the contracts page is pushed with the icon when this merge changes `site/brand/`).
 
 Follow-ups, not built:
 - The test agents' own pages (`apps/test-agents/src/buyer.ts` and `seller.ts`, served on their own routes) have no favicon. They are another lane's files; a link to `https://crow.direct/favicon.ico` would do.
