@@ -388,11 +388,28 @@ for (const file of ['trust.html', 'status.html']) {
   const text = shownText(read(file));
   for (const w of REFUSED) for (const m of text.matchAll(new RegExp(w.source, 'gi'))) expect(false, `site/${file} says "${m[0]}": a refused word (crow-private strategy/2026-11-14-crow-ontology.md)`);
 }
+// Sources are footnotes (Rafa, 2026-11-14): every claim paragraph carries a superscript that links a numbered entry in
+// the Sources list at the foot of the page; every entry is cited and links back to each place that cites it.
+const footnoted = (file, h) => {
+  const claims = [...h.matchAll(/<p class="claim">([\s\S]*?)<\/p>/g)].map((m) => m[1]);
+  expect(claims.length > 0, `site/${file} states nothing as a claim paragraph`);
+  for (const c of claims) expect(/<sup class="fn"><a href="#src-\d+"/.test(c), `a claim on site/${file} cites no source: ${shownText(c).trim().slice(0, 80)}`);
+  expect(!/class="src"|Source: <a/.test(h), `site/${file} still puts source links inside the text: they belong in the Sources list`);
+  const entries = new Set([...h.matchAll(/<li id="(src-\d+)">/g)].map((m) => m[1]));
+  const cited = [...h.matchAll(/<a href="#(src-\d+)" id="(ref-[\d-]+)"/g)];
+  expect(entries.size > 0 && /<h2 id="sources">Sources<\/h2>/.test(h), `site/${file} has no Sources list`);
+  for (const [, target] of cited) expect(entries.has(target), `site/${file} cites #${target}, which no Sources entry has`);
+  for (const e of entries) expect(cited.some(([, t]) => t === e), `site/${file}'s Sources entry ${e} is cited nowhere`);
+  const refIds = new Set(cited.map(([, , id]) => id));
+  const backs = [...h.matchAll(/<a class="back" href="#(ref-[\d-]+)"/g)].map((m) => m[1]);
+  expect(backs.length === refIds.size && backs.every((b) => refIds.has(b)), `site/${file}'s back links do not match its citations one for one`);
+};
+// The title and the lede wrap with no word alone on a line (Rafa, 2026-11-14): balanced, at a reading measure.
+expect(typeof trust.PAGES_CSS === 'string' && /\.doc \.ck-title \{[^}]*text-wrap: balance/.test(trust.PAGES_CSS) && /\.doc \.ck-lede \{[^}]*max-width: 65ch[^}]*text-wrap: balance/.test(trust.PAGES_CSS), 'site/pages.css does not balance the pages\' title and lede at a 65-character measure');
+if (existsSync(here('status.html'))) footnoted('status.html', read('status.html'));
 if (existsSync(here('trust.html'))) {
   const t = read('trust.html');
-  const items = [...t.matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => m[1]);
-  expect(items.length > 0, 'site/trust.html states nothing');
-  for (const it of items) expect(/<p class="src">Source: <a href="https:\/\//.test(it), `a statement on site/trust.html has no source link: ${shownText(it).trim().slice(0, 80)}`);
+  footnoted('trust.html', t);
   for (const w of ['Coming soon', 'outside audit', 'SOC 2', 'test network']) expect(shownText(t).includes(w), `site/trust.html no longer says "${w}": it states plainly what is not there yet`);
   // The notice's call to action (Rafa, 2026-11-14): the kit's one filled button opens the early-access drawer (site/drawer.ts).
   expect((t.match(/class="ck-btn"/g) ?? []).length === 1 && /<a class="ck-btn" href="[^"]*#join-form" data-join>Request early access<\/a>/.test(t) && t.includes('join-drawer'), 'site/trust.html lacks its one filled button, Request early access, opening the early-access drawer');

@@ -43,119 +43,132 @@ export function trustFacts() {
 }
 
 /**
- * The trust page's sections: a heading, then statements, each with the links to its sources. A statement's text is
- * HTML written here (it may hold <code>); a source is [label, url].
+ * The trust page's sections, written for a person on a company's security or procurement team (Rafa, 2026-11-14):
+ * plain active sentences, subject first, in the order things happen. Models read llms.txt and ref/limits.txt.
+ *
+ * A section is a heading and blocks. A block is a paragraph, a list of sentences, each [html, sources], where sources
+ * is a list of [label, url] cited as footnotes after that sentence; or { lead, items }, a lead paragraph and a plain
+ * list the lead's sources cover. Sentence HTML is written here (it may hold <code>).
  */
 export function trustSections(f = trustFacts()) {
-  const record = src('contracts/deployments/sepolia.json');
-  const limits = ['The agent docs: limits', 'https://crow.direct/ref/limits.txt'];
-  const baseline = (anchor) => ['The privacy baseline', src('docs/privacy-baseline.md', anchor)];
-  const neutrality = (anchor) => ['Neutrality', src('docs/neutrality.md', anchor)];
-  const ops = (anchor, label = 'Operations') => [label, src('docs/operations.md', anchor)];
+  const record = ['The deployment record (contracts/deployments/sepolia.json)', src('contracts/deployments/sepolia.json')];
+  const limits = ['Agent docs: honest limits (ref/limits.txt)', 'https://crow.direct/ref/limits.txt'];
+  const baseline = (anchor, label) => [`Privacy baseline: ${label}`, src('docs/privacy-baseline.md', anchor)];
+  const neutrality = (anchor, label) => [`Neutrality: ${label}`, src('docs/neutrality.md', anchor)];
+  const ops = (anchor, label) => [`Operations: ${label}`, src('docs/operations.md', anchor)];
+  const scope = (anchor, label) => [`Audit scope${label ? `: ${label}` : ''}`, src('docs/audit/scope.md', anchor)];
+  const adr3 = ['ADR-0003: why Crow uses this escrow', src('docs/decisions/ADR-0003-escrow-contract-base.md')];
+  const policy = ['Security policy (SECURITY.md)', SECURITY_POLICY];
   return [
     {
       title: 'Where the money sits',
-      items: [
-        [`From funding on, a deal’s payment sits in an escrow contract on Ethereum Sepolia, a public test network. It is Coinbase’s Commerce Payments escrow, used unchanged. No account of Crow’s sits between the buyer’s payment and the escrow. The escrow keeps the tokens in a token store it creates for Crow’s rules contract, so Etherscan shows the balance there, not at the escrow’s own address.`,
-          [['The deployment record', record], ['The escrow on Etherscan', etherscan(f.escrow)], ['The escrow’s code (getTokenStore)', CPP_ESCROW], ['Why this escrow (ADR-0003)', src('docs/decisions/ADR-0003-escrow-contract-base.md')]]],
-        [`The payment hold opens only in one of five ways the deal’s terms set: the reviewer’s signed decision (accept pays the seller, reject refunds the buyer), the buyer’s signed early accept, a settlement both parties sign, a refund when the seller misses its delivery deadline, or the default outcome when no reviewer decides in time, which on the live service refunds the buyer. As a last backstop, from ${f.expiryMarginHours} hours after the deal’s last decision deadline, the buyer’s payment address can take back whatever is still held, straight from the escrow.`,
-          [neutrality('the-test'), ['The audit scope: the rules contract', src('docs/audit/scope.md', 'in-scope')], ['The rules contract (_escrowExpiry)', src('contracts/src/HoldbackRules.sol')], ['The rules contract on Etherscan', etherscan(f.rules)]]],
-        [`Anyone may send the last two, the late-delivery refund and the default outcome, once they are due. Crow’s operators send them on their own, at their own gas.`,
-          [neutrality('control-point-analysis'), limits]],
-        [`The reviewer’s fee, when the terms set one, is paid from the hold at the decision, to the reviewer that decided. The price goes only to the seller’s payout address or back to the buyer’s payment address.`,
-          [neutrality('control-point-analysis'), ['The audit scope', src('docs/audit/scope.md', 'the-phase-one-scope')]]],
-        [`The money is a test token, tUSDC. Anyone can mint it, it is worth nothing, and it is not Circle’s USDC. No real money can enter.`,
-          [ops('sepolia-contracts-t-206', 'Operations: Sepolia contracts'), ['The token on Etherscan', etherscan(f.token)], limits]],
+      blocks: [
+        [[`When the buyer funds a deal, the payment goes straight into an escrow contract on Ethereum Sepolia, a public test network.`, [record, ['The escrow contract on Etherscan', etherscan(f.escrow)]]],
+          [`The escrow is Coinbase’s Commerce Payments escrow, used without changes.`, [adr3]],
+          [`The payment never passes through an account that Crow controls.`, null],
+          [`Inside the escrow, the tokens sit in a token store that the escrow creates for Crow’s rules contract. Etherscan shows the balance there, not at the escrow’s own address.`, [['Coinbase’s escrow code at the pinned commit (getTokenStore)', CPP_ESCROW]]]],
+        { lead: [`The payment hold opens in only five ways, all set by the deal’s terms:`, [neutrality('the-test', 'the test'), scope('in-scope', 'the rules contract'), ['The rules contract on Etherscan', etherscan(f.rules)]]],
+          items: [
+            'the reviewer signs a decision: accept pays the seller, and reject refunds the buyer;',
+            'the buyer signs an early accept;',
+            'both parties sign a settlement;',
+            'the seller misses its delivery deadline, and the buyer gets a refund;',
+            'no reviewer decides in time, and the default outcome applies, which on the live service refunds the buyer.',
+          ] },
+        [[`As a last backstop, if money is still held ${f.expiryMarginHours} hours after the deal’s last decision deadline, the buyer’s payment address can take it back directly from the escrow.`, [['The rules contract’s code (_escrowExpiry)', src('contracts/src/HoldbackRules.sol')]]]],
+        [[`Anyone can trigger the late-delivery refund or the default outcome once it is due. Crow’s operators do it on their own and pay the gas themselves.`, [neutrality('control-point-analysis', 'who can do what'), limits]]],
+        [[`The price only ever goes to the seller’s payout address or back to the buyer’s payment address. If the terms set a reviewer’s fee, the reviewer that decides is paid that fee from the hold when it decides.`, [neutrality('control-point-analysis', 'who can do what'), scope('the-phase-one-scope', 'the phase-one scope')]]],
+        [[`The money is a test token called tUSDC. Anyone can mint it, it is worth nothing, and it is not Circle’s USDC. No real money can enter Crow today.`, [ops('sepolia-contracts-t-206', 'Sepolia contracts'), ['The tUSDC token on Etherscan', etherscan(f.token)], limits]]],
       ],
     },
     {
-      title: 'Who can move it, and who cannot',
-      items: [
-        [`No one at Crow can move a held payment outside the deal’s terms. The contracts have no admin key, no pause and no upgrade path, and the key that deployed them only paid the gas.`,
-          [ops('sepolia-contracts-t-206', 'Operations: Sepolia contracts'), ['The no-admin test', src('contracts/test/fuzz/NoAdmin.fuzz.t.sol')]]],
-        [`Crow’s operators relay the parties’ signed messages and pay the gas. Their keys have no role in any contract: the rules contract checks every signature itself, so a relayed step that changes a field fails.`,
-          [neutrality('control-point-analysis')]],
-        [`Crow runs the reviewers the live service offers. A reviewer’s signed decision does move the payment, to the seller or back to the buyer, as the terms say. The parties name all three reviewers in the terms they sign, and each decision is final when it settles.`,
-          [['The audit scope: assumptions', src('docs/audit/scope.md', 'the-phase-one-scope')], neutrality('residual-control-points'), limits]],
-        [`If Crow’s operators refuse or go offline, a party can send the same signed messages straight to the contracts, with Sepolia ETH of its own. The two operators share one process today, so most failures hit both. Crow’s reviewers run inside the same service: while it is down, a deal that named them closes by its timeouts with the default refund, unless the buyer accepts early or both parties sign a settlement.`,
-          [neutrality('escape-hatch-requirements'), ops('what-is-live', 'Operations: what is live'), limits]],
-        [`With a real stablecoin, its issuer could freeze its own token; no one at Crow can. Each deployment settles the one token it was deployed with.`,
-          [neutrality('residual-control-points')]],
+      title: 'Who can move the money, and who cannot',
+      blocks: [
+        [[`No one at Crow can move a held payment outside the deal’s terms. The contracts have no admin key, no pause switch and no way to upgrade them, and the key that deployed them only paid the gas.`, [ops('sepolia-contracts-t-206', 'Sepolia contracts'), ['The no-admin test (contracts/test/fuzz/NoAdmin.fuzz.t.sol)', src('contracts/test/fuzz/NoAdmin.fuzz.t.sol')]]]],
+        [[`Crow’s operators pass the parties’ signed messages to the contracts and pay the gas. Their keys have no role in any contract. The rules contract checks every signature itself, so a message that was changed on the way fails.`, [neutrality('control-point-analysis', 'who can do what')]]],
+        [[`Crow runs the reviewers on the live service, and a reviewer’s signed decision does move the payment: to the seller, or back to the buyer, as the terms say. The buyer and the seller name all three reviewers in the terms they sign, and each decision is final once it settles.`, [scope('the-phase-one-scope', 'the phase-one scope'), neutrality('residual-control-points', 'what remains'), limits]]],
+        [[`If Crow’s operators refuse a deal or go offline, either party can send the same signed messages straight to the contracts, using its own Sepolia ETH. Today the two operators share one process, so most failures hit both.`, [neutrality('escape-hatch-requirements', 'the escape hatch'), limits]],
+          [`Crow’s reviewers run in the same service. While it is down, a deal that named them ends at its deadlines with the default refund, unless the buyer accepts early or both parties sign a settlement.`, [ops('what-is-live', 'what is live'), neutrality('escape-hatch-requirements', 'the escape hatch')]]],
+        [[`With a real stablecoin, the issuer could freeze its own token. No one at Crow can. Each deployment works with the one token it was deployed with.`, [neutrality('residual-control-points', 'what remains')]]],
       ],
     },
     {
       title: 'What Crow holds, and what it does not',
-      items: [
-        [`Crow holds none of your company’s keys. Your agents sign with keys they keep: the buyer’s tool makes each deal’s keys on your machine and sends none of them anywhere.`,
-          [['The buyer’s tool', src('examples/buyer-signer.ts')], ['The signing rule', src('CLAUDE.md', 'hard-rules')]]],
-        [`On the test service, every agent key’s mandate, the standing approval of what it may sign, is signed by Crow’s demo principal, so the authority that stands for your company there is a Crow key. In a club of its own, a company signs its agents’ mandates itself.`,
-          [baseline('level-public-the-only-level-the-live-service-judges'), ['Mandates (ADR-0038)', src('docs/decisions/ADR-0038-mandate-limits-and-revocation.md')]]],
-        [`Crow’s operators never write a party’s message. Every step that changes a deal carries the party’s own signature, which anyone can check.`,
-          [neutrality('control-point-analysis')]],
-        [`Crow keeps secrets of its own, as Cloudflare Worker secrets and never in the repository: the operators’ gas key on Sepolia, the model providers’ keys for the reviewers’ judges, and the test seller’s seed. The reviewers’ and the operators’ signing keys, which sign the decisions that move payments, derive from a random secret the operators’ Durable Object keeps in its own storage, not in a Worker secret.`,
-          [ops('secrets', 'Operations: secrets'), ['The keys’ code (world.ts)', src('apps/demo-cloud/src/world.ts')]]],
-        [`The seller encrypts the work before it leaves, to the first reviewer and the buyer; a backup reviewer gets the key only if it takes over. The reviewer opens it to judge it, and the buyer opens it once it has paid. Crow runs the live service’s reviewers, so Crow can read the work of the deals it reviews.`,
-          [baseline('what-the-encrypted-delivery-hides-and-what-it-does-not'), neutrality('residual-control-points')]],
+      blocks: [
+        [[`Crow holds none of your company’s keys. Your agents sign with keys they keep, and the buyer’s tool creates each deal’s keys on your machine and never sends them anywhere.`, [['The buyer’s tool (examples/buyer-signer.ts)', src('examples/buyer-signer.ts')], ['The signing rule (CLAUDE.md, hard rules)', src('CLAUDE.md', 'hard-rules')]]]],
+        [[`On the test service, Crow’s demo principal signs every agent’s mandate, the standing approval of what the agent may sign. So on the test service, the authority that stands for your company is a Crow key. When a company runs its own club, it signs its agents’ mandates itself.`, [baseline('level-public-the-only-level-the-live-service-judges', 'what each observer learns'), ['ADR-0038: where a mandate’s limits hold', src('docs/decisions/ADR-0038-mandate-limits-and-revocation.md')]]]],
+        [[`Crow’s operators never write a message on a party’s behalf. Every step that changes a deal carries that party’s own signature, and anyone can check it.`, [neutrality('control-point-analysis', 'who can do what')]]],
+        [[`Crow keeps its own secrets as Cloudflare Worker secrets, never in the code repository: the operators’ gas key on Sepolia, the model providers’ keys for the reviewers’ judges, and the test seller’s seed.`, [ops('secrets', 'secrets')]],
+          [`The reviewers’ and the operators’ signing keys, which sign the decisions that move payments, work differently: they come from a random secret that the operators’ Durable Object keeps in its own storage.`, [['The keys’ code (apps/demo-cloud/src/world.ts)', src('apps/demo-cloud/src/world.ts')]]]],
+        [[`The seller encrypts the work before sending it, for the first reviewer and the buyer. A backup reviewer gets the key only if it takes over. The reviewer opens the work to judge it, and the buyer opens it after paying. Crow runs the reviewers on the live service, so Crow can read the work in the deals it reviews.`, [baseline('what-the-encrypted-delivery-hides-and-what-it-does-not', 'what encryption hides'), neutrality('residual-control-points', 'what remains')]]],
       ],
     },
     {
       title: 'What a deal makes public',
-      items: [
-        [`Every deal on the live service is public today. Anyone can read its terms: the scope, the checks, the price, the deadlines, the reviewers and every address.`,
-          [baseline('the-answer')]],
-        [`The work stays encrypted, but anyone sees its exact size, when it arrived, and a fingerprint that confirms a guessed copy.`,
-          [baseline('what-the-encrypted-delivery-hides-and-what-it-does-not')]],
-        [`With a rubric, two model providers read the work, and the judges’ public notes quote its findings. A checks-only deal sends the work to no model provider.`,
-          [baseline('what-a-design-partner-should-be-told-before-its-first-deal')]],
-        [`The chain shows the amounts, the time of each step, and ties each payment and payout address to the deal’s signing key. Use a fresh key and fresh addresses for each deal.`,
-          [baseline('what-a-design-partner-should-be-told-before-its-first-deal')]],
+      blocks: [
+        [[`Every deal on the live service is public today. Anyone can read its terms: the scope, the checks, the price, the deadlines, the reviewers and every address.`, [baseline('the-answer', 'the answer')]]],
+        [[`The work itself stays encrypted. Even so, anyone can see its exact size, when it arrived, and a fingerprint that confirms a guessed copy.`, [baseline('what-the-encrypted-delivery-hides-and-what-it-does-not', 'what encryption hides')]]],
+        [[`If the terms include a rubric, two model providers read the work, and the judges’ public notes quote its findings. A deal judged by checks alone sends the work to no model provider.`, [baseline('what-a-design-partner-should-be-told-before-its-first-deal', 'what to tell a partner')]]],
+        [[`The chain shows the amounts and the time of each step, and links each payment and payout address to the deal’s signing key. Use a fresh key and fresh addresses for each deal.`, [baseline('what-a-design-partner-should-be-told-before-its-first-deal', 'what to tell a partner')]]],
       ],
     },
     {
       title: 'What the operators keep, and for how long',
-      items: [
-        [`A request log: one line per request, with its ID, time, node, method, route, status and duration. It holds no body, no header, no IP address and no path. Each line is kept ${f.requestLogDays} days, then deleted.`,
-          [ops('telemetry-t-031', 'Operations: telemetry'), ['The code', src('apps/demo-cloud/src/telemetry.ts')]]],
-        [`Hourly and daily summary lines (counts, timings, the deal funnel), with no address in them, and error lines, in Cloudflare’s Workers Logs, which keeps them 7 days. Request headers are not logged.`,
-          [ops('telemetry-t-031', 'Operations: telemetry')]],
-        [`The operators see each caller’s IP address while they relay. They do not write it to the request log.`,
-          [ops('telemetry-t-031', 'Operations: telemetry'), baseline('leaks-no-choice-closes-today-most-serious-first')]],
-        [`The live operators take no problem reports yet: their report route, <code>POST /v1/feedback</code>, is not switched on, so they keep none.`,
-          [ops('feedback-triage-t-032', 'Operations: feedback triage')]],
-        [`The deal records (terms, events, receipts) stay while the contracts they settle on are in use, and start over only when the contracts are deployed again. The chain keeps its part for good. Keep your own copy of the terms you sign.`,
-          [limits]],
-        [`An early-access sign-up keeps the email address, the time and the page, with no IP address and no cookie. No deletion date is set yet.`,
-          [['The sign-up service', src('apps/early-access/worker.js')]]],
+      blocks: [
+        [[`The operators keep a request log with one line per request: its ID, the time, the node, the method, the route, the status and how long it took. The log never holds a request body, a header, an IP address or a path. Each line is deleted after ${f.requestLogDays} days.`, [ops('telemetry-t-031', 'telemetry'), ['The request log’s code (apps/demo-cloud/src/telemetry.ts)', src('apps/demo-cloud/src/telemetry.ts')]]]],
+        [[`They also write hourly and daily summaries (counts, timings and the deal funnel, with no addresses in them) and error lines to Cloudflare’s Workers Logs, which keeps them for 7 days. Request headers are not logged.`, [ops('telemetry-t-031', 'telemetry')]]],
+        [[`The operators see each caller’s IP address while they pass on its request, but they do not write it to the request log.`, [ops('telemetry-t-031', 'telemetry'), baseline('leaks-no-choice-closes-today-most-serious-first', 'leaks no choice closes')]]],
+        [[`The live operators do not accept problem reports yet. Their report route, <code>POST /v1/feedback</code>, is switched off, so they keep no reports.`, [ops('feedback-triage-t-032', 'feedback triage')]]],
+        [[`Deal records (the terms, the events and the receipts) stay as long as the contracts they settle on are in use, and start over only when the contracts are deployed again. The chain keeps its part for good, so keep your own copy of the terms you sign.`, [limits]]],
+        [[`The early-access sign-up keeps your email address, the time and the page you signed up from. It keeps no IP address and sets no cookie, and it has no deletion date yet.`, [['The sign-up service’s code (apps/early-access/worker.js)', src('apps/early-access/worker.js')]]]],
       ],
     },
     {
       title: 'What has been reviewed from outside, and what has not',
-      items: [
-        [`Coinbase’s escrow contract, which holds the money, has outside reviews: Cantina reviewed it in April 2025, with one critical finding fixed before release, and reviewed its last code change (PR 90) in July 2026 at the exact commit Crow deploys, with three informational findings. One later change, PR 71’s renames, has no review.`,
-          [['The cross-check of the published audits', src('docs/reviews/2026-11-03-public-audit-crosscheck.md')], ['The pinned commit', src('contracts/lib/commerce-payments/')], ['Why this escrow (ADR-0003)', src('docs/decisions/ADR-0003-escrow-contract-base.md')]]],
-        [`Crow’s own rules contract, which decides when the escrow pays, has no outside audit yet. Models from two families reviewed it, and the scope an auditor needs is written.`,
-          [ops('sepolia-contracts-t-206', 'Operations: Sepolia contracts'), ['The audit scope', src('docs/audit/scope.md')]]],
-        [`Crow’s own checks: unit, fuzz and invariant tests of the contracts, a TLA+ model of a deal’s states, and attack and neutrality scenarios for the judging and the operators.`,
-          [['The contract tests', src('contracts/test/')], ['The TLA+ model', src('formal/')], ['The scenarios', src('fixtures/scenarios/')]]],
-        [`Each contract’s source is published on Sourcify, and the deployment record names the commit and the compiler settings, so anyone can rebuild the bytecode and compare it.`,
-          [ops('sepolia-contracts-t-206', 'Operations: Sepolia contracts'), ['The deployment record', record]]],
-        [`Not yet: a penetration test, SOC 2, ISO 27001 or any other certification, and a bug bounty. A bounty sized to the funds at risk starts before any deployment with real money.`,
-          [['The security policy', SECURITY_POLICY]]],
+      blocks: [
+        [[`Coinbase’s escrow contract, which holds the money, has had outside reviews. Cantina reviewed the whole contract in April 2025 and found one critical issue, which was fixed before release. In July 2026, Cantina reviewed its last code change, PR 90, at the exact commit Crow deploys, and found three informational issues. One later change, the renames in PR 71, has not been reviewed.`, [['Cross-check of the published audits', src('docs/reviews/2026-11-03-public-audit-crosscheck.md')], ['The pinned commit (contracts/lib/commerce-payments)', src('contracts/lib/commerce-payments/')], adr3]]],
+        [[`Crow’s own rules contract, which decides when the escrow pays out, has not had an outside audit yet. Models from two AI families have reviewed it, and the scope an auditor would need is written up.`, [ops('sepolia-contracts-t-206', 'Sepolia contracts'), scope('', '')]]],
+        [[`Crow also runs its own checks: unit, fuzz and invariant tests of the contracts, a TLA+ model of a deal’s states, and attack and neutrality scenarios for the judging and the operators.`, [['The contract tests (contracts/test)', src('contracts/test/')], ['The TLA+ model (formal)', src('formal/')], ['The scenarios (fixtures/scenarios)', src('fixtures/scenarios/')]]]],
+        [[`Each contract’s source code is published on Sourcify. The deployment record names the commit and the compiler settings, so anyone can rebuild the bytecode and compare it.`, [ops('sepolia-contracts-t-206', 'Sepolia contracts'), record]]],
+        [[`Not done yet: a penetration test, SOC 2, ISO 27001 or any other certification, and a bug bounty. A bug bounty sized to the funds at risk will start before any deployment with real money.`, [policy]]],
       ],
     },
     {
       title: 'How to report a problem',
-      items: [
-        [`A security problem: report it privately through GitHub’s private vulnerability reporting for Crow’s repository. Crow acknowledges a report within 3 business days and does not take legal action against research that follows the policy.`,
-          [['Report a vulnerability', SECURITY_CONTACT], ['The security policy', SECURITY_POLICY], ['security.txt', 'https://crow.direct/.well-known/security.txt']]],
-        [`Any other problem with a call or a guide: open an issue on Crow’s public repository. Issues are public, so leave out keys and anything you need kept. The operators’ own report route is not switched on yet.`,
-          [['Open an issue', `${CODE_URL}/issues`], ['Operations: feedback triage', src('docs/operations.md', 'feedback-triage-t-032')]]],
-        [`Whether Crow answers right now: the status page checks each part when you open it.`,
-          [['The status page', 'https://crow.direct/status']]],
+      blocks: [
+        [[`If you find a security problem, report it privately through GitHub’s private vulnerability reporting for Crow’s repository. Crow acknowledges each report within 3 business days and will not take legal action over research that follows the policy.`, [['Report a vulnerability on GitHub', SECURITY_CONTACT], policy, ['security.txt', 'https://crow.direct/.well-known/security.txt']]]],
+        [[`For any other problem with a call or a guide, open an issue on Crow’s public repository. Issues are public, so leave out keys and anything you need to keep to yourself. The operators’ own report route is not switched on yet.`, [['Issues on GitHub', `${CODE_URL}/issues`], ops('feedback-triage-t-032', 'feedback triage')]]],
+        [[`To see whether Crow is answering right now, open the status page. It checks each part when you open it.`, [['The status page', 'https://crow.direct/status']]]],
       ],
     },
   ];
 }
+
+/**
+ * Footnotes: each source gets one number, in the order it is first cited. cite() returns the superscript for a
+ * sentence; list() returns the Sources list, each entry linking its source and back to every place that cites it.
+ */
+export function footnotes() {
+  const entries = [], byUrl = new Map();
+  const cite = (list) => {
+    if (!list || !list.length) return '';
+    const links = list.map(([label, url]) => {
+      if (!byUrl.has(url)) byUrl.set(url, entries.push({ label, url, refs: [] }));
+      const n = byUrl.get(url), e = entries[n - 1], id = `ref-${n}-${e.refs.length + 1}`;
+      e.refs.push(id);
+      return `<a href="#src-${n}" id="${id}">${n}</a>`;
+    });
+    return `<sup class="fn">${links.join(', ')}</sup>`;
+  };
+  const list = () => `<h2 id="sources">Sources</h2>
+<ol class="sources">
+${entries.map((e, i) => `<li id="src-${i + 1}"><a href="${esc(e.url)}">${esc(e.label)}</a> ${e.refs.map((r, k) => `<a class="back" href="#${r}" aria-label="Back to citation ${k + 1} of source ${i + 1}">↩</a>`).join(' ')}</li>`).join('\n')}
+</ol>`;
+  return { cite, list };
+}
+
+/** One paragraph of [html, sources] sentences, each followed by its footnotes. */
+const paragraph = (sentences, cite) => `<p class="claim">${sentences.map(([html, list]) => `${html}${cite(list)}`).join(' ')}</p>`;
 
 /** The two pages' styles, served as pages.css: the kit's parts they use, then their own layout. */
 export const PAGES_CSS = kitCss({ parts: ['bar', 'button', 'pill', 'head', 'table', 'notice', 'dialog', 'footer'] }) + `/* the trust and status pages (site/trust.mjs, T-421): light only, one column, the kit's tokens */
@@ -166,16 +179,26 @@ a { color: inherit; }
 a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 code { font: .9em var(--mono); }
 .doc { max-width: 760px; margin: 0 auto; padding: 72px var(--gutter) 88px; }
+/* the title and the lede wrap with no word alone on a line, at a reading measure (Rafa, 2026-11-14) */
+.doc .ck-title { text-wrap: balance; }
+.doc .ck-lede { max-width: 65ch; text-wrap: balance; }
 .doc .ck-notice { margin-top: 32px; }
-.doc .ck-notice + .src { margin-top: 8px; }
 .doc .cta { margin: 20px 0 0; }
 .doc h2 { margin: 56px 0 0; font-family: var(--display); font-size: var(--size-lede); line-height: 1.3; font-weight: var(--weight-bold); letter-spacing: -.01em; }
-.claims { margin: 16px 0 0; padding: 0; list-style: none; border-top: 1px solid var(--hair); }
-.claims li { padding: 16px 0; border-bottom: 1px solid var(--hair); }
-.claims p { margin: 0; }
-.src { margin: 6px 0 0; font-size: var(--size-note); color: var(--ink-3); }
-.src a { color: var(--ink-2); text-underline-offset: 2px; }
-.src a + a::before { content: "\\00b7"; display: inline-block; margin: 0 8px; color: var(--ink-3); }
+/* prose with footnotes: a superscript after each sourced sentence, the Sources list at the foot */
+.claim, .ways { max-width: 68ch; margin: 16px 0 0; text-wrap: pretty; }
+.ways { padding-left: 1.25em; }
+.ways li { margin-top: 4px; }
+.doc h2 + .claim { margin-top: 12px; }
+sup.fn { font-size: .68em; line-height: 0; margin-left: 1px; color: var(--ink-3); white-space: nowrap; }
+sup.fn a { color: var(--ink-2); text-decoration: none; }
+sup.fn a:hover { text-decoration: underline; }
+.sources { margin: 16px 0 0; padding-left: 1.6em; font-size: var(--size-note); color: var(--ink-2); }
+.sources li { margin-top: 6px; overflow-wrap: anywhere; }
+.sources a { color: var(--ink-2); text-underline-offset: 2px; }
+.sources a.back { text-decoration: none; color: var(--ink-3); }
+:target { scroll-margin-top: 24px; }
+.note { display: block; font-size: var(--size-note); color: var(--ink-3); }
 .checked { margin-top: 48px; font-size: var(--size-note); color: var(--ink-3); }
 .status-table { margin-top: 32px; overflow-x: auto; }
 .status-table td:nth-child(2), .status-table td.at { white-space: nowrap; }
@@ -206,22 +229,23 @@ ${cardTags({ site, ...card })}
 <body>
 ${headerBar({ home: base, links: [[`${base}demo/`, 'Demo'], [`${base}llms.txt`, 'Agent docs']] })}`;
 
-const sources = (list) => `<p class="src">Source: ${list.map(([label, url]) => `<a href="${esc(url)}">${esc(label)}</a>`).join('')}</p>`;
-
 /** The trust page, /trust. */
 export function trustPage({ site = 'https://crow.direct/', base = '/', facts = trustFacts() } = {}) {
+  const { cite, list } = footnotes();
   const sections = trustSections(facts);
+  const comingSoon = notice({ title: 'Coming soon', text: 'An outside audit of Crow’s own contracts, a penetration test, a certification such as SOC 2 or ISO 27001, a bug bounty, and deals with real money. Today Crow runs on a test network, with test tokens only.' });
+  const noticeCites = cite([['Security policy: status', `${SECURITY_POLICY}#status`], ['Audit scope', src('docs/audit/scope.md')]]);
+  const body = sections.map((s) => `<h2>${esc(s.title)}</h2>
+${s.blocks.map((b) => (Array.isArray(b) ? paragraph(b, cite) : `${paragraph([b.lead], cite)}
+<ul class="ways">${b.items.map((i) => `<li>${i}</li>`).join('')}</ul>`)).join('\n')}`).join('\n');
   return `${head({ site, base, card: CARDS.trust })}
 <main class="doc">
-${sectionHead({ eyebrow: 'Trust', title: 'How Crow handles money, keys and data', lede: 'Plain answers for your company’s security team, each with its source. Crow runs on the Sepolia test network, with test tokens only.' })}
-${notice({ title: 'Coming soon', text: 'An outside audit of Crow’s own contracts, a penetration test, a certification such as SOC 2 or ISO 27001, a bug bounty, and deals with real money. Today Crow runs on a test network, with test tokens only.' })}
-${sources([['The security policy: status', `${SECURITY_POLICY}#status`], ['The audit scope', src('docs/audit/scope.md')]])}
+${sectionHead({ eyebrow: 'Trust', title: 'How Crow handles money, keys and data', lede: 'Plain answers for your company’s security team, with sources at the end. Crow runs on the Sepolia test network, with test tokens only.' })}
+${comingSoon.replace(/<\/p><\/div>$/, `${noticeCites}</p></div>`)}
 <p class="cta">${button({ label: 'Request early access', href: `${base}#join-form`, attrs: 'data-join' })}</p>
-${sections.map((s) => `<h2>${esc(s.title)}</h2>
-<ul class="claims">
-${s.items.map(([text, list]) => `<li><p>${text}</p>${sources(list)}</li>`).join('\n')}
-</ul>`).join('\n')}
-<p class="checked">Each line was checked against its source on ${TRUST_CHECKED}. The addresses and the retention periods are read from the deployment record and the code each time the site is built.</p>
+${body}
+<p class="checked">Each answer was checked against its source on ${TRUST_CHECKED}. The addresses and the retention periods come from the deployment record and the code each time the site is built.</p>
+${list()}
 </main>
 ${footerHtml({ base, current: 'trust' })}
 <script>
@@ -302,28 +326,29 @@ const STATUS_JS = `(function () {
 
 /** The status page, /status. */
 export function statusPage({ site = 'https://crow.direct/', base = '/' } = {}) {
-  const limits = 'https://crow.direct/ref/limits.txt';
+  const { cite, list } = footnotes();
+  const limits = ['Agent docs: honest limits (ref/limits.txt)', 'https://crow.direct/ref/limits.txt'];
+  const code = ['This page’s code (site/trust.mjs)', src('site/trust.mjs')];
   return `${head({ site, base, card: CARDS.status })}
 <main class="doc">
-${sectionHead({ eyebrow: 'Status', title: 'Is Crow answering?', lede: 'This page checks each part of Crow when you open it, with one plain GET, and shows the time of each check. It keeps no history.' })}
+${sectionHead({ eyebrow: 'Status', title: 'Is Crow answering?', lede: 'This page checks each part of Crow when you open it and shows when each check ran. It keeps no history.' })}
 <div class="status-table">
 <table class="ck-table" aria-label="Status of each part of Crow">
 <thead><tr><th scope="col">Part</th><th scope="col">State</th><th scope="col">Checked</th><th scope="col">How</th></tr></thead>
 <tbody>
-${STATUS_CHECKS.map((c) => `<tr data-check="${c.id}"><td>${esc(c.name)}<br><span class="note src"></span></td><td><span class="ck-pill">Not checked</span></td><td class="at"></td><td class="how">${c.how}</td></tr>`).join('\n')}
+${STATUS_CHECKS.map((c) => `<tr data-check="${c.id}"><td>${esc(c.name)}<span class="note"></span></td><td><span class="ck-pill">Not checked</span></td><td class="at"></td><td class="how">${c.how}</td></tr>`).join('\n')}
 </tbody>
 </table>
 </div>
 <p class="again">${button({ label: 'Check again', variant: 'outlined', size: 'compact', attrs: 'id="again"' })}</p>
 <noscript><p>This page checks with a script in your browser. Without it, read each source yourself: <a href="${base}version.json">the site</a>, <a href="https://api.crow.direct/.well-known/holdback.json">operator 1</a>, <a href="https://api2.crow.direct/.well-known/holdback.json">operator 2</a>, <a href="${base}agents/test-seller/health">the test seller</a>.</p></noscript>
 <h2>What this page can tell you, and what it cannot</h2>
-<ul class="claims">
-<li><p>It tells you whether each part answers a plain GET right now: from your browser, or for the two operators from Cloudflare’s network, through the site’s Worker.</p>${sources([['The relay’s code', src('apps/site/status.js')], ['This page’s code', src('site/trust.mjs')]])}</li>
-<li><p>It cannot tell you whether a deal will go through. A part can answer a GET and still fail a step of a deal. The test deal in the agent docs checks the whole path.</p>${sources([['The agent docs', `${site}llms.txt`]])}</li>
-<li><p>The two operators are two Workers that share one process today, so most failures hit both.</p>${sources([['The agent docs: limits', limits]])}</li>
-<li><p>The Sepolia row reads Blockscout, a public explorer. When Blockscout does not answer, the row says Unknown, not Down. A newest block older than ${NETWORK_STALE_SEC} s reads Degraded: Sepolia makes a block about every 12 s.</p>${sources([['Blockscout for Sepolia', 'https://eth-sepolia.blockscout.com/']])}</li>
-<li><p>It reads only public endpoints, the same ones any agent can read. It keeps nothing but the site Worker’s 15 s cache of the operators’ answer, and it sends no alerts.</p>${sources([['This page’s code', src('site/trust.mjs')]])}</li>
-</ul>
+${paragraph([[`It tells you whether each part of Crow answers a plain request right now. Your browser checks the site, the test seller and Sepolia itself. For the two operators, the site’s Worker checks from Cloudflare’s network and passes the answer on.`, [['The relay’s code (apps/site/status.js)', src('apps/site/status.js')], code]]], cite)}
+${paragraph([[`It cannot tell you whether a deal will go through: a part can answer and still fail a step of a deal. The test deal in the agent docs checks the whole path.`, [['Agent docs (llms.txt)', `${site}llms.txt`]]]], cite)}
+${paragraph([[`The two operators are two Workers that share one process today, so most failures hit both.`, [limits]]], cite)}
+${paragraph([[`The Sepolia row reads Blockscout, a public block explorer. If Blockscout does not answer, the row says Unknown, not Down. If the newest block is more than ${NETWORK_STALE_SEC} s old, the row says Degraded, because Sepolia normally makes a block about every 12 s.`, [['Blockscout for Sepolia', 'https://eth-sepolia.blockscout.com/']]]], cite)}
+${paragraph([[`The page reads only public addresses, the same ones any agent can read. It stores nothing except the site Worker’s 15-second cache of the operators’ answer, and it sends no alerts.`, [code]]], cite)}
+${list()}
 </main>
 ${footerHtml({ base, current: 'status' })}
 <script>

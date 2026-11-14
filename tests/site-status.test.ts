@@ -72,10 +72,15 @@ describe('the trust surfaces (site/trust.mjs)', () => {
     expect(fields.get('Policy')).toEqual(['https://github.com/rafaeldavid/holdback/blob/main/SECURITY.md']);
     expect(() => parseSecurityTxt('Contact https://x\n')).toThrow(/not "Field: value"/);
   });
-  it('gives every statement on the trust page a source link', () => {
-    const items = [...String(trustPage()).matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => m[1]);
-    expect(items.length).toBeGreaterThan(20);
-    for (const it of items) expect(it).toMatch(/<p class="src">Source: <a href="https:\/\//);
+  it('gives every claim on the trust page a footnote that resolves to a numbered source, and cites every source', () => {
+    const page = String(trustPage());
+    const claims = [...page.matchAll(/<p class="claim">([\s\S]*?)<\/p>/g)].map((m) => m[1]);
+    expect(claims.length).toBeGreaterThan(20);
+    for (const c of claims) expect(c).toMatch(/<sup class="fn"><a href="#src-\d+" id="ref-\d+-\d+">/);
+    const entries = [...page.matchAll(/<li id="(src-\d+)"><a href="https:\/\//g)].map((m) => m[1]);
+    const cited = new Set([...page.matchAll(/<a href="#(src-\d+)" id="ref-/g)].map((m) => m[1]));
+    expect(entries.length).toBeGreaterThan(20);
+    expect(new Set(entries)).toEqual(cited);
   });
   it('has the status page read its listed public sources only', () => {
     const script = /<script\b[^>]*>([\s\S]*?)<\/script\b[^>]*>/i.exec(statusPage())![1]!;

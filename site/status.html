@@ -33,29 +33,35 @@
 <a class="ck-nav" href="/llms.txt">Agent docs</a>
 </div></header>
 <main class="doc">
-<div class="ck-head"><p class="ck-eyebrow">Status</p><h1 class="ck-title">Is Crow answering?</h1><p class="ck-lede">This page checks each part of Crow when you open it, with one plain GET, and shows the time of each check. It keeps no history.</p></div>
+<div class="ck-head"><p class="ck-eyebrow">Status</p><h1 class="ck-title">Is Crow answering?</h1><p class="ck-lede">This page checks each part of Crow when you open it and shows when each check ran. It keeps no history.</p></div>
 <div class="status-table">
 <table class="ck-table" aria-label="Status of each part of Crow">
 <thead><tr><th scope="col">Part</th><th scope="col">State</th><th scope="col">Checked</th><th scope="col">How</th></tr></thead>
 <tbody>
-<tr data-check="site"><td>The site, crow.direct<br><span class="note src"></span></td><td><span class="ck-pill">Not checked</span></td><td class="at"></td><td class="how">Your browser reads <code>/version.json</code>.</td></tr>
-<tr data-check="op1"><td>Operator 1, api.crow.direct<br><span class="note src"></span></td><td><span class="ck-pill">Not checked</span></td><td class="at"></td><td class="how">The site’s Worker reads <code>/.well-known/holdback.json</code> and passes the answer on.</td></tr>
-<tr data-check="op2"><td>Operator 2, api2.crow.direct<br><span class="note src"></span></td><td><span class="ck-pill">Not checked</span></td><td class="at"></td><td class="how">The same, on operator 2.</td></tr>
-<tr data-check="seller"><td>Crow’s test seller<br><span class="note src"></span></td><td><span class="ck-pill">Not checked</span></td><td class="at"></td><td class="how">Your browser reads <code>/agents/test-seller/health</code>.</td></tr>
-<tr data-check="network"><td>Ethereum Sepolia, where deals settle<br><span class="note src"></span></td><td><span class="ck-pill">Not checked</span></td><td class="at"></td><td class="how">Your browser reads the newest blocks from Blockscout, a public explorer.</td></tr>
+<tr data-check="site"><td>The site, crow.direct<span class="note"></span></td><td><span class="ck-pill">Not checked</span></td><td class="at"></td><td class="how">Your browser reads <code>/version.json</code>.</td></tr>
+<tr data-check="op1"><td>Operator 1, api.crow.direct<span class="note"></span></td><td><span class="ck-pill">Not checked</span></td><td class="at"></td><td class="how">The site’s Worker reads <code>/.well-known/holdback.json</code> and passes the answer on.</td></tr>
+<tr data-check="op2"><td>Operator 2, api2.crow.direct<span class="note"></span></td><td><span class="ck-pill">Not checked</span></td><td class="at"></td><td class="how">The same, on operator 2.</td></tr>
+<tr data-check="seller"><td>Crow’s test seller<span class="note"></span></td><td><span class="ck-pill">Not checked</span></td><td class="at"></td><td class="how">Your browser reads <code>/agents/test-seller/health</code>.</td></tr>
+<tr data-check="network"><td>Ethereum Sepolia, where deals settle<span class="note"></span></td><td><span class="ck-pill">Not checked</span></td><td class="at"></td><td class="how">Your browser reads the newest blocks from Blockscout, a public explorer.</td></tr>
 </tbody>
 </table>
 </div>
 <p class="again"><button class="ck-btn ck-btn-out ck-btn-s" type="button" id="again">Check again</button></p>
 <noscript><p>This page checks with a script in your browser. Without it, read each source yourself: <a href="/version.json">the site</a>, <a href="https://api.crow.direct/.well-known/holdback.json">operator 1</a>, <a href="https://api2.crow.direct/.well-known/holdback.json">operator 2</a>, <a href="/agents/test-seller/health">the test seller</a>.</p></noscript>
 <h2>What this page can tell you, and what it cannot</h2>
-<ul class="claims">
-<li><p>It tells you whether each part answers a plain GET right now: from your browser, or for the two operators from Cloudflare’s network, through the site’s Worker.</p><p class="src">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/apps/site/status.js">The relay’s code</a><a href="https://github.com/rafaeldavid/holdback/blob/main/site/trust.mjs">This page’s code</a></p></li>
-<li><p>It cannot tell you whether a deal will go through. A part can answer a GET and still fail a step of a deal. The test deal in the agent docs checks the whole path.</p><p class="src">Source: <a href="https://crow.direct/llms.txt">The agent docs</a></p></li>
-<li><p>The two operators are two Workers that share one process today, so most failures hit both.</p><p class="src">Source: <a href="https://crow.direct/ref/limits.txt">The agent docs: limits</a></p></li>
-<li><p>The Sepolia row reads Blockscout, a public explorer. When Blockscout does not answer, the row says Unknown, not Down. A newest block older than 120 s reads Degraded: Sepolia makes a block about every 12 s.</p><p class="src">Source: <a href="https://eth-sepolia.blockscout.com/">Blockscout for Sepolia</a></p></li>
-<li><p>It reads only public endpoints, the same ones any agent can read. It keeps nothing but the site Worker’s 15 s cache of the operators’ answer, and it sends no alerts.</p><p class="src">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/site/trust.mjs">This page’s code</a></p></li>
-</ul>
+<p class="claim">It tells you whether each part of Crow answers a plain request right now. Your browser checks the site, the test seller and Sepolia itself. For the two operators, the site’s Worker checks from Cloudflare’s network and passes the answer on.<sup class="fn"><a href="#src-1" id="ref-1-1">1</a>, <a href="#src-2" id="ref-2-1">2</a></sup></p>
+<p class="claim">It cannot tell you whether a deal will go through: a part can answer and still fail a step of a deal. The test deal in the agent docs checks the whole path.<sup class="fn"><a href="#src-3" id="ref-3-1">3</a></sup></p>
+<p class="claim">The two operators are two Workers that share one process today, so most failures hit both.<sup class="fn"><a href="#src-4" id="ref-4-1">4</a></sup></p>
+<p class="claim">The Sepolia row reads Blockscout, a public block explorer. If Blockscout does not answer, the row says Unknown, not Down. If the newest block is more than 120 s old, the row says Degraded, because Sepolia normally makes a block about every 12 s.<sup class="fn"><a href="#src-5" id="ref-5-1">5</a></sup></p>
+<p class="claim">The page reads only public addresses, the same ones any agent can read. It stores nothing except the site Worker’s 15-second cache of the operators’ answer, and it sends no alerts.<sup class="fn"><a href="#src-2" id="ref-2-2">2</a></sup></p>
+<h2 id="sources">Sources</h2>
+<ol class="sources">
+<li id="src-1"><a href="https://github.com/rafaeldavid/holdback/blob/main/apps/site/status.js">The relay’s code (apps/site/status.js)</a> <a class="back" href="#ref-1-1" aria-label="Back to citation 1 of source 1">↩</a></li>
+<li id="src-2"><a href="https://github.com/rafaeldavid/holdback/blob/main/site/trust.mjs">This page’s code (site/trust.mjs)</a> <a class="back" href="#ref-2-1" aria-label="Back to citation 1 of source 2">↩</a> <a class="back" href="#ref-2-2" aria-label="Back to citation 2 of source 2">↩</a></li>
+<li id="src-3"><a href="https://crow.direct/llms.txt">Agent docs (llms.txt)</a> <a class="back" href="#ref-3-1" aria-label="Back to citation 1 of source 3">↩</a></li>
+<li id="src-4"><a href="https://crow.direct/ref/limits.txt">Agent docs: honest limits (ref/limits.txt)</a> <a class="back" href="#ref-4-1" aria-label="Back to citation 1 of source 4">↩</a></li>
+<li id="src-5"><a href="https://eth-sepolia.blockscout.com/">Blockscout for Sepolia</a> <a class="back" href="#ref-5-1" aria-label="Back to citation 1 of source 5">↩</a></li>
+</ol>
 </main>
 <footer class="ck-foot">
 <div class="ck-foot-row"><a class="ck-brand" href="/"><span class="ck-mark" aria-hidden="true"></span>Crow</a>
