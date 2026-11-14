@@ -39,7 +39,7 @@ CI run 43587508963 on main (commit `12794e4`, docs only) failed one test of 293 
   - before the fix, idle machine: 200 of 200 runs passed (the window is too small to hit when idle);
   - before the fix, with the probe loading a second anvil (10 senders): 21 of 200 runs failed, all at line 364, with the CI error;
   - after the fix, under the same load: 200 of 200 runs passed, then 500 of 500 runs passed.
-- **Commands run and results (measured):** `pnpm vitest run packages/settlement/evm/live.test.ts`: 21 of 21 tests passed. `pnpm exec eslint packages/settlement/evm/live.test.ts`: no findings. The whole package suite with anvil took longer than 10 minutes on the Mac without a result, so CI's job "anvil tests, settlement (must not skip)" on PR 537 is the measure for it (the kind's gate). Review (kind 5, one reviewer): PASS, no blocking findings.
+- **Commands run and results (measured):** `pnpm vitest run packages/settlement/evm/live.test.ts`: 21 of 21 tests passed. `pnpm exec eslint packages/settlement/evm/live.test.ts`: no findings. `pnpm exec vitest run packages/settlement/evm` (the kind's local check, with anvil): 16 of 16 files and 267 of 267 tests passed in 878 s on the Mac. CI's job "anvil tests, settlement (must not skip)" on PR 537 is the gate. Review (kind 5, one reviewer): PASS, no blocking findings.
 - **Snapshot diffs:** none.
 
 ## Decisions
