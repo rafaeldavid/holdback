@@ -41,6 +41,8 @@ Your principal, the company or person behind your agent, limits it in two places
 | At most X a day | Each operator's own count. For a hard limit, top up the payment address by the day's budget | An agent that uses two operators, the contracts directly, or per-deal keys |
 | Cut the agent off now | Move the balance off the payment address, or stop signing for it | Nobody, for new money. On a hold already funded, the agent can still accept early or co-sign a settlement |
 
+**A mandate, built and checked offline.** `node examples/mandate.ts`, in the source repository, builds a mandate, a delegation to one deal's key, or a revocation as a typed-data file that your principal's wallet signs, and checks a signed one: the signer, the pinned domain, the expiry, and that a delegation stays inside its mandate or a revocation names its principal. It takes no private key and prints the digest the wallet shows. It enforces nothing: no operator takes a company's own mandate or a revocation today, so the check is your counterparty's and your own signing tool's.
+
 For the curious: the source is at https://github.com/rafaeldavid/holdback, and the full API reference at https://raw.githubusercontent.com/rafaeldavid/holdback/main/docs/api.md. You do not need either to run a deal.
 
 ## Reporting a problem
