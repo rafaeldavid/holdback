@@ -70,7 +70,7 @@ import type { TimeoutKind } from '@holdback/settlement';
 import { mandateFor, SIM_CHAIN_ID, SIM_RULEBOOK, simClub, SimChain, TOKEN, wideScope, type Genesis, type JournalEntry } from '@holdback/settlement/sim';
 import { panelConfig, type JudgeProvider, type PanelConfig } from './judges.js';
 import { StorageLanes } from './lanes.js';
-import { capOf, DailyCaps, MAX_BODY_BYTES, DEFAULT_DAILY_CAPS, DEFAULT_RATE, FLOOD_CEILING, problemResponse, wholeNumberVar } from './limits.js';
+import { capOf, DailyCaps, MAX_BODY_BYTES, routedUrl, DEFAULT_DAILY_CAPS, DEFAULT_RATE, FLOOD_CEILING, problemResponse, wholeNumberVar } from './limits.js';
 import type { WorldStorage } from './storage.js';
 import { dealFacts, Telemetry, type DayFacts, type TelemetryOptions } from './telemetry.js';
 
@@ -1358,7 +1358,7 @@ export class PublicWorld {
    */
   private async limited(request: Request, via: Via): Promise<Response | { request: Request; settle?: (accepted: boolean) => Promise<void> }> {
     const caps = this.caps;
-    const url = new URL(request.url);
+    const url = routedUrl(new URL(request.url));
     const cap = caps ? capOf(request.method, url) : null;
     const key = request.headers.get('idempotency-key');
     // Without a key the operator refuses the write before any relay, so it spends nothing.
@@ -1372,24 +1372,30 @@ export class PublicWorld {
       if (bytes.length === 0) return { request: forward };
       const t = await caps.takeBytes(n, via.client, bytes.length, async () => (await this.telemetry.storage.get(`ct:${sha256(bytes)}`)) !== undefined);
       if (!t.ok) return problemResponse('rate_limited', `this operator stores at most ${caps.limits.ciphertextBytes} bytes of new ciphertext a day (UTC) per client (an IPv4 address or an IPv6 /64), and this upload of ${bytes.length} bytes would pass it. Retry after 00:00 UTC, upload to another operator, or keep the ciphertext in a store of your own: the delivery names its URI`, { retryAfterSec: t.retryAfterSec });
-      return { request: forward, settle: (ok) => caps.settleBytes(n, via.client, t.counted ?? 0, ok) };
+      return t.counted ? { request: forward, settle: (ok) => caps.settleBytes(n, via.client, bytes.length, ok) } : { request: forward };
     }
     let body: unknown;
     let fingerprint: string;
     try {
-      body = JSON.parse(new TextDecoder().decode(bytes));
+      // Decoded as the operator decodes it (Buffer#toString keeps a byte-order mark), so both read the same JSON or neither does.
+      body = JSON.parse(new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes));
       fingerprint = canonicalKeccak({ idempotencyKey: key, path: url.pathname, body: body ?? null });
     } catch {
       return { request: forward }; // not JSON the operator could relay: it refuses it before any relay
     }
     // An agree funds only with `fund` beside it.
     if (cap === 'agree' && (typeof body !== 'object' || body === null || (body as Record<string, unknown>)['fund'] === undefined)) return { request: forward };
+    // A deal already past funding costs the relayer no funding gas: the settlement layer replays or refuses it. So a replay
+    // of an accepted funding is never counted, after 00:00 UTC or from another address too (T-422 review and red team, F4).
+    const id = cap === 'funding' && url.pathname.endsWith('/holds') ? ((body as { commitment?: { id?: unknown } }).commitment?.id ?? null) : url.pathname.split('/').filter(Boolean)[2];
+    const state = typeof id === 'string' && /^0x[0-9a-fA-F]{64}$/.test(id) ? await this.chain.state(id as Hex32).catch(() => null) : null;
+    if (state && !PRE_FUNDING_STATES.has(state.escrowState)) return { request: forward };
     const t = await caps.takeFunding(n, via.client, fingerprint);
     if (!t.ok) {
       const d = caps.limits.fundedDeals;
       return problemResponse('rate_limited', `this operator relays at most ${d} funded deal${d === 1 ? '' : 's'} a day (UTC) per client (an IPv4 address or an IPv6 /64), and this client has reached it. Nothing about the deal changed: retry after 00:00 UTC, send the same signed request to another operator, or submit it to the settlement layer (on Sepolia, the rules contract) yourself`, { retryAfterSec: t.retryAfterSec });
     }
-    return { request: forward, settle: (ok) => caps.settleFunding(n, via.client, fingerprint, ok) };
+    return t.counted ? { request: forward, settle: (ok) => caps.settleFunding(n, via.client, fingerprint, ok) } : { request: forward };
   }
 
   async fetch(request: Request, via: Via): Promise<Response> {
@@ -1706,6 +1712,9 @@ export function notesFor(
       : ['State is journaled and replayed after a restart, but this is a demo: it may be reset at any time.']),
   ];
 }
+
+/** The states before funding: a funding relayed for a deal in any other spends no funding gas (T-422). */
+const PRE_FUNDING_STATES: ReadonlySet<string> = new Set(['Offered', 'AcceptedByAdjudicator', 'Agreed']);
 
 /** A request's body, or null when it is longer than `max` bytes: read no further than that (T-422). */
 async function readCapped(request: Request, max: number): Promise<Uint8Array | null> {

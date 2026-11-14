@@ -15,7 +15,7 @@ import { PROBLEM_BASE, PROBLEMS } from '@holdback/operator';
 import { LiveChain, SEPOLIA_PUBLIC_RPCS, type DeploymentFile } from '@holdback/settlement/live';
 import { PublicWorld, type LiveSettlement, type Via } from './world.js';
 import { KvFeedbackStore, type KvNamespace } from './feedback-store.js';
-import { clientKey, flooded, oversized } from './limits.js';
+import { admitted, clientKey, emptySegment, flooded, oversized } from './limits.js';
 import type { WorldStorage } from './storage.js';
 
 // The few Workers runtime types used here, declared locally so the package needs no Workers type package.
@@ -243,9 +243,9 @@ export default {
     // T-422: limits the World object never sees, so a flood or a large body costs it nothing (docs/operator-threat-model.md).
     // The binding fails open: a rate-limit outage must not stop the API.
     const client = clientKey(request.headers.get('cf-connecting-ip') ?? 'unknown');
-    if (env.FLOOD && !(await env.FLOOD.limit({ key: client }).catch(() => ({ success: true }))).success) return flooded();
-    const tooLarge = oversized(request, url.pathname);
-    if (tooLarge) return tooLarge;
+    if (env.FLOOD && !(await admitted(env.FLOOD, client))) return flooded();
+    const refused = emptySegment(url) ?? oversized(request, url.pathname);
+    if (refused) return refused;
     // Set by this Worker only: whatever a caller sent under these names is replaced.
     headers.set(NODE, env.NODE_INDEX === '1' ? '1' : '0');
     headers.set(ORIGIN, url.origin);

@@ -90,6 +90,22 @@ export function oversized(request: Request, path: string): Response | null {
   return problemResponse('payload_too_large', `request bodies to ${path} are limited to ${cap} bytes at this operator; this one declares ${declared}`, { maxBytes: cap });
 }
 
+/** The Worker's 404 for a path with an empty segment (`//`, or a backslash, which URL parsing turns into one): no route has one. */
+export function emptySegment(url: URL): Response | null {
+  return url.pathname.includes('//') ? problemResponse('not_found', `no route ${url.pathname}: a path here has no empty segment`) : null;
+}
+
+/** Whether the flood binding admits a client: it fails open after `timeoutMs`, or on an error, so an outage of it never stops the API. */
+export async function admitted(flood: { limit(o: { key: string }): Promise<{ success: boolean }> }, key: string, timeoutMs = 100): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const open = new Promise<boolean>((resolve) => (timer = setTimeout(() => resolve(true), timeoutMs)));
+  try {
+    return await Promise.race([flood.limit({ key }).then((r) => r.success, () => true), open]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** The Worker's 429 when the flood ceiling refuses a client. */
 export function flooded(): Response {
   return problemResponse(
@@ -108,7 +124,8 @@ interface CapRow {
   bytes: number;
 }
 
-export type Take = { ok: true } | { ok: false; retryAfterSec: number };
+/** A take: refused with when to retry, or admitted, saying whether this request took a count (and so may give it back). */
+export type Take = { ok: true; counted: boolean } | { ok: false; retryAfterSec: number };
 
 /**
  * The daily caps, one storage row per client, operator and UTC day: `lc:<YYYY-MM-DD>:<node>:<client hash>`. The client
@@ -153,18 +170,22 @@ export class DailyCaps {
     return { ok: false, retryAfterSec: secondsToUtcMidnight(this.now()) };
   }
 
-  /** Takes one funded deal for this client at this operator, unless `fingerprint` was already counted today. */
+  /**
+   * Takes one funded deal for this client at this operator, unless `fingerprint` was already counted today. Only a take
+   * with `counted: true` may be given back: a copy of a counted funding that the relay refuses gives nothing back
+   * (T-422 review and red team, F2).
+   */
   async takeFunding(node: number, client: string, fingerprint: string): Promise<Take> {
     const { key, row } = await this.row(node, client);
-    if (row.seen.includes(fingerprint)) return { ok: true };
+    if (row.seen.includes(fingerprint)) return { ok: true, counted: false };
     if (row.funded >= this.limits.fundedDeals) return this.refused();
     row.funded++;
     row.seen.push(fingerprint);
     await this.storage.put({ [key]: row });
-    return { ok: true };
+    return { ok: true, counted: true };
   }
 
-  /** After the relay: a refused funding gives its count back, so a corrected request can use it. */
+  /** After the relay: a refused funding this request counted gives its count back, so a corrected request can use it. */
   async settleFunding(node: number, client: string, fingerprint: string, accepted: boolean): Promise<void> {
     if (accepted) return;
     const { key, row } = await this.row(node, client);
@@ -176,12 +197,13 @@ export class DailyCaps {
   }
 
   /** Takes `bytes` of new ciphertext for this client at this operator; bytes the store already holds take nothing. */
-  async takeBytes(node: number, client: string, bytes: number, stored: () => Promise<boolean>): Promise<Take & { counted?: number }> {
+  async takeBytes(node: number, client: string, bytes: number, stored: () => Promise<boolean>): Promise<Take> {
+    if (await stored()) return { ok: true, counted: false };
     const { key, row } = await this.row(node, client);
-    if (row.bytes + bytes > this.limits.ciphertextBytes) return (await stored()) ? { ok: true } : this.refused();
+    if (row.bytes + bytes > this.limits.ciphertextBytes) return this.refused();
     row.bytes += bytes;
     await this.storage.put({ [key]: row });
-    return { ok: true, counted: bytes };
+    return { ok: true, counted: true };
   }
 
   /** After the upload: a refused one gives its bytes back. */
@@ -193,7 +215,13 @@ export class DailyCaps {
   }
 }
 
-/** Which daily cap a POST draws on, from its path and query: a funded agree is told apart by its body. */
+/**
+ * The URL the operator routes: it parses the path and query alone against a placeholder origin (apps/operator/src/
+ * fetch.ts and server.ts), so `//x/v1/…` routes as `/v1/…`. The caps read the same URL (T-422 red team, F1).
+ */
+export const routedUrl = (url: URL): URL => new URL(`${url.pathname}${url.search}`, 'http://operator.invalid');
+
+/** Which daily cap a POST draws on, from its routed path and query: a funded agree is told apart by its body. */
 export function capOf(method: string, url: URL): 'funding' | 'agree' | 'ciphertext' | null {
   if (method !== 'POST' || url.searchParams.get('validateOnly') === 'true') return null;
   const s = url.pathname.split('/').filter(Boolean);

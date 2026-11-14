@@ -998,23 +998,22 @@ export class Operator {
   }
 
   /**
-   * T-422: a write whose Idempotency-Key already succeeded here may be a replay, which no service limit refuses. It is
-   * counted against the throttle only once its body shows it is not one. A dry run is never a replay.
+   * T-422: a write whose Idempotency-Key already succeeded here may be a replay, which the read and write budgets never
+   * refuse. Every such request is counted at entry against a replay budget of its own, the size of the write budget per
+   * window per client, so reading and hashing its body is bounded as a write's was (red team F3). It is counted against
+   * the write budget too once its body shows it is not a replay. A dry run is never a replay.
    */
   private knownKey(ctx: Ctx): boolean {
     const key = ctx.req.headers['idempotency-key'];
-    return typeof key === 'string' && !ctx.url.searchParams.has('validateOnly') && this.idempotency.has(key);
+    const known = typeof key === 'string' && !ctx.url.searchParams.has('validateOnly') && this.idempotency.has(key);
+    if (known) this.throttle(`p:${this.client(ctx)}`, this.o.rateLimit?.writes ?? 0);
+    return known;
   }
 
-  /**
-   * Answers a replay from the stored response, before the read and write budgets; false when `raw` is another request
-   * than the key's. Replays have a budget of their own, ten times the write budget per window per client (1,200 a
-   * minute at the demo's defaults): generous, since a replay spends no gas, but a flood of them still stops.
-   */
+  /** Answers a replay from the stored response, before the read and write budgets; false when `raw` is another request than the key's. */
   private replayed(ctx: Ctx, raw: unknown): boolean {
     const stored = this.idempotency.replay(ctx.req.headers['idempotency-key'] as string, fingerprint('POST', ctx.url.pathname, raw));
     if (!stored) return false;
-    this.throttle(`p:${this.client(ctx)}`, (this.o.rateLimit?.writes ?? 0) * 10);
     if (this.o.dropResponses) ctx.res.socket?.destroy();
     else this.send(ctx, stored);
     return true;

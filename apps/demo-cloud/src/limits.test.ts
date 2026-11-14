@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { Agent } from '../../../examples/agent.ts';
 import { serveTwoOrigins } from '../../../examples/two-origins.ts';
 import { MemoryStorage, PublicWorld, type PublicWorldOptions } from './index.js';
-import { DailyCaps, FLOOD_CEILING, MAX_BODY_BYTES, clientKey, secondsToUtcMidnight } from './limits.js';
+import { DailyCaps, FLOOD_CEILING, MAX_BODY_BYTES, admitted, clientKey, secondsToUtcMidnight } from './limits.js';
 import worker, { World, type Env } from './worker.js';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -210,12 +210,12 @@ describe('no service limit refuses a replay (the operator\'s throttle)', () => {
 });
 
 describe('the replay path is bounded and opens no way around a limit (the coordinator\'s conditions, T-422)', () => {
-  it('a replay flood meets its own budget, ten times the write budget, while another client still writes', async () => {
-    const { urls, other } = await serveWorld({ rateLimit: { writes: 2, reads: 1000, windowMs: 60_000 } });
+  it('a replay flood meets its own budget, the size of the write budget, while another client still writes', async () => {
+    const { urls, other } = await serveWorld({ rateLimit: { writes: 3, reads: 1000, windowMs: 60_000 } });
     const a = freshAgent(urls);
     const body = { address: a.address };
     expect((await post(`${urls[0]}/v1/faucet`, body, 'flood-1')).status).toBe(200);
-    for (let i = 0; i < 20; i++) expect((await post(`${urls[0]}/v1/faucet`, body, 'flood-1')).status, `replay ${i + 1}`).toBe(200);
+    for (let i = 0; i < 3; i++) expect((await post(`${urls[0]}/v1/faucet`, body, 'flood-1')).status, `replay ${i + 1}`).toBe(200);
     const stopped = await post(`${urls[0]}/v1/faucet`, body, 'flood-1');
     expectRateLimited(stopped.status, stopped.headers, await stopped.json());
     // The flood spent only its own client's replay budget: another client writes and replays in the same window.
@@ -350,6 +350,22 @@ describe('each Worker, before the World object', () => {
     expect(answers.at(-1)).toBe(429);
     expect((await worker.fetch(at('/v1/status', { ip: '203.0.113.9' }), env)).status).toBe(200);
     expect(forwarded.filter((c) => c === '203.0.113.9')).toHaveLength(1);
+  });
+
+  it('answers 404 for a path with an empty segment or a backslash, which the operator would route as another path', async () => {
+    const e = edge();
+    for (const path of ['//x/v1/commitments/0x01/agree', '/\\x/v1/ciphertext', '/v1//holds']) {
+      const r = await worker.fetch(at(path, { method: 'POST', body: '{}' }), e.env('0'));
+      expect(r.status, path).toBe(404);
+      expect((await r.json()).type).toBe('not_found');
+    }
+    expect(e.forwarded).toHaveLength(0);
+  });
+
+  it('fails open when the flood binding hangs or throws', async () => {
+    expect(await admitted({ limit: () => new Promise(() => undefined) }, 'k', 20)).toBe(true);
+    expect(await admitted({ limit: () => Promise.reject(new Error('down')) }, 'k', 20)).toBe(true);
+    expect(await admitted({ limit: async () => ({ success: false }) }, 'k', 20)).toBe(false);
   });
 
   it('counts an IPv6 /64 as one client and forwards that key as the client', async () => {
