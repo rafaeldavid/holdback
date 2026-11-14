@@ -63,7 +63,7 @@ describe('a missing source never reads 0', () => {
 
 describe('metrics schemas', () => {
   it('loads every schema under Ajv strict', () => {
-    expect(schemas.names.sort()).toEqual(['deal-timing', 'model-prices', 'one-click', 'ops-cost', 'ops-cost-prices', 'throughput']);
+    expect(schemas.names.sort()).toEqual(['deal-timing', 'model-prices', 'one-click', 'one-click-summary', 'ops-cost', 'ops-cost-prices', 'throughput']);
   });
 
   it('accepts what the scripts write', () => {
