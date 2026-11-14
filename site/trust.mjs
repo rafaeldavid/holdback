@@ -202,7 +202,15 @@ const comingSoonSources = () => [['SECURITY.md, “Status”', `${SECURITY_POLIC
 /** A Source line: each source's label linked to its full address. */
 const sourceLine = (list) => `<p class="source">Source: ${list.map(([label, url]) => `<a href="${esc(url)}">${esc(label)}</a>`).join('; ')}</p>`;
 /** HTML to plain text: tags out, entities and typographic quotes to ASCII. */
-const plain = (html) => String(html).replace(/<[^>]*>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
+const plain = (html) => {
+  // Tags come out until none is left (CodeQL js/incomplete-multi-character-sanitization), as slug() in build.mjs does.
+  let text = String(html), before;
+  do {
+    before = text;
+    text = text.replace(/<[^>]*>/g, '');
+  } while (text !== before);
+  return text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
+};
 /** A list of the questions at the top, grouped, each linking its answer. */
 const toc = (groups) => `<nav class="toc" aria-label="Questions">
 ${groups.map((g) => `<p class="toc-group">${esc(g.group)}</p>
