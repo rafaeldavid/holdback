@@ -7,8 +7,8 @@
   - the `control/` folder and its hourly workflow in the founders' private repository (the console's code, tests and runbook live there, never here);
   - here: `docs/operations.md` and `docs/costs.md` (once the passcode retires), `docs/decisions-today.md` (D45 notes only), `docs/tasks/T-059-control-access-switch.md`.
 - **Human gate:** **yes.** The Access settings, the service tokens, the GitHub secrets, the storage namespace, the encryption key and every Worker deploy are outside this repository. Rafa does the dashboard steps himself; agents deploy only on his go-ahead, given in chat and recorded in Handoff with the date.
-- **Status:** in progress (live at `control.escrow.stream` since 2026-11-04; criterion 5, the passcode's retirement, met on 2026-11-05; left: the other founder's confirmation of Strategy, Costs and Keys (criterion 1), two scheduled builds without a failed run, which replaced the 24 hours of hourly runs under D52 (criterion 4), a red-team pass on the live console (criterion 6), and the agents' small items in Handoff)
-- **Agent/session:** coordinator side session, 2026-11-04
+- **Status:** paused, 2026-11-14. The console is live behind Access at `control.crow.direct` (since 2026-11-11; `control.escrow.stream` still answers 302 to the same sign-in). Criteria 2 to 5 are met (Evidence, 2026-11-14). Two items are left, and neither is an agent's next step: the other founder's sign-in (criterion 1) waits on that founder, and the red-team pass on the deployed console (criterion 6) waits until the console's rebuild stops changing it daily. Resume when either is ready.
+- **Agent/session:** coordinator side session, 2026-11-04; refreshed by a side session on 2026-11-14
 
 ## Intent
 
@@ -78,6 +78,15 @@ All 2026-11-04.
 **2026-11-06**
 - **Two scheduled builds under D52 passed** (measured, `gh run list --repo rafaeldavid/crow-private --workflow control-hourly.yml`, read at about 21:10 UTC): runs started at 14:10 and 20:49 UTC, both `schedule` and `success`. Both started hours after the 06:07 and 15:07 UTC slots, as GitHub may delay a scheduled run (D52). Criterion 4 also needs the private push checked; this entry does not check it.
 
+**2026-11-14, read at about 12:30 UTC**
+- **The host.** The console moved to `control.crow.direct` on 2026-11-11 (crow-console `001cb560`, `docs/operations.md`). The criteria below read with that host.
+- **Criterion 2 met (measured).** `curl -sI https://control.crow.direct/` answers `302` to the Access sign-in. A `POST` to `/_push/public.json` with a wrong service token answers `401`. `control.escrow.stream/` also answers `302` to the sign-in.
+- **Criterion 3 met (measured).** `escrow.stream/control` answers `301` to `crow.direct/control`. `crow.direct/control`, `/control/map` and `/control/contracts` each answer `404`.
+- **Criterion 4 met (measured).** The 20 newest scheduled runs of `control-hourly`, from 2026-11-05 15:30 UTC to 2026-11-14 06:56 UTC, all ended `success`. No scheduled run has failed (`gh run list --repo rafaeldavid/crow-private --workflow control-hourly.yml --event schedule --status failure` lists none). The private push answered `HTTP 204` at about 03:30 UTC on 2026-11-14 (the private daily log of 2026-11-13, measured there).
+- **Criterion 1, half met.** Rafa signs in and works in the console daily (the private daily logs). The other founder's confirmation is not recorded anywhere (searched: the private daily logs from 2026-11-05 to 2026-11-14).
+- **Criterion 6, not met.** The red-team pass of 2026-11-14 on the console's sources (crow-private PR 59, T-414: 0 High, 6 Medium, 8 Low, all fixed or recorded) read the code, not the deployed console. It does not meet this criterion.
+- **Handoff items checked.** The "No data" message now names `console.mjs`, not the removed `build.mjs` (crow-private `control/console.html`). `docs/operations.md` describes the console at `control.crow.direct`; `docs/costs.md` no longer exists in this repository.
+
 ## Handoff
 
 The console is live; the runbook in the console's folder describes how it runs. Left:
@@ -85,13 +94,14 @@ The console is live; the runbook in the console's folder describes how it runs. 
 1. **Rafa:**
    - ~~delete `CROW_CONTROL_PASSCODE` from holdback `.env`~~ (done 2026-11-05, Evidence);
    - ~~update `keys.json` in the cost directory from the template (the passcode row is gone; the two service tokens, the encryption key and `GH_READ` are in, expiring about 2027-02-02)~~ (done 2026-11-05, Evidence);
-   - add the daily private push to the cost routine (T-055);
-   - confirm that both founders see Strategy, Costs and Keys (criterion 1): the other founder's confirmation is still open.
+   - ~~add the daily private push to the cost routine (T-055)~~ (it runs with the costs: the push answered `HTTP 204`, "costs included", on 2026-11-14, Evidence; that it runs from the cost routine is inferred);
+   - ask the other founder to sign in at `https://control.crow.direct` and say whether Strategy, Costs and Keys show (criterion 1), then record the answer here.
 2. **Agents:**
-   - after two scheduled builds under D52, check the runs and the private push (criterion 4); "Run workflow" on `control-hourly` covers a run GitHub's scheduler skips;
-   - run a red-team pass against the live console (criterion 6), best once T-066's remaining slices land (paused under D53);
-   - with the next Worker deploy, change the page's "No data" message, which still names the removed `build.mjs`;
-   - update `docs/operations.md` and `docs/costs.md` if they describe the console.
+   - ~~after two scheduled builds under D52, check the runs and the private push (criterion 4)~~ (met 2026-11-14, Evidence);
+   - run a red-team pass against the deployed console at `control.crow.direct` (criterion 6) once the console's rebuild settles; until then the task stays paused;
+   - ~~change the page's "No data" message, which named the removed `build.mjs`~~ (done, Evidence 2026-11-14);
+   - ~~update `docs/operations.md` and `docs/costs.md` if they describe the console~~ (done, Evidence 2026-11-14).
+3. **To close the task:** once criteria 1 and 6 are met, set the Status to done and open the PR with a line "Closes T-059".
 
 Open questions for Rafa:
 - Should the strategy questions move into the encrypted private part?
