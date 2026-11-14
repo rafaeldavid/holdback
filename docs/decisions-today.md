@@ -1156,7 +1156,7 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D69. A mandate's limits: the payment address holds the spending limit, the mandate is a permission others check, and a revocation is a signed notice (ADR-0038, T-415)
 
-**Status:** adopted, may overrule, 2026-11-14.
+**Status:** adopted, 2026-11-14.
 
 **Adopted 2026-11-14 by T-415,** after a research pass, a dated check of outside standards and one review. Rafa may overrule any line. ADR-0038 is Proposed; nothing is built.
 
