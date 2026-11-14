@@ -1,5 +1,5 @@
 // T-413: every entry in docs/decisions-today.md carries one machine-readable status line, so Crow Control can age the
-// decisions that wait for Rafa apart from the ones agents adopted and he may overrule. The line sits right under the
+// decisions that wait for Rafa apart from the ones agents adopted, which he may overrule. The line sits right under the
 // entry's heading:
 //
 //   **Status:** <state>, <YYYY-MM-DD>.
@@ -8,8 +8,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-const STATES = ['needs Rafa', 'adopted, may overrule', 'decided', 'deferred', 'unclear'] as const;
-const STATUS_LINE = /^\*\*Status:\*\* (needs Rafa|adopted, may overrule|decided|deferred|unclear), (\d{4}-\d{2}-\d{2})\.$/;
+const STATES = ['needs Rafa', 'adopted', 'decided', 'deferred', 'superseded'] as const;
+const STATUS_LINE = /^\*\*Status:\*\* (needs Rafa|adopted|decided|deferred|superseded), (\d{4}-\d{2}-\d{2})\.$/;
 
 const text = readFileSync(new URL('../docs/decisions-today.md', import.meta.url), 'utf8');
 const parts = text.split(/^## (D\d+)\. (.+)$/m);

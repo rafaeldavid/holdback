@@ -4,7 +4,7 @@ Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (
 
 Still open (2026-11-06): ADR-0025, Proposed, to be decided with T-033's schema bump, in Phase 6 since D53 (schemas 0.9 and 0.10 shipped without it); ADR-0027, Proposed (T-308: judgment report, verifiable inference, tuning releases; four open questions, none needed before Phase 3); the ADR-0023 amendment on fee bundling, Proposed (D37); and dispute clauses as selectable terms, deferred until after the demo (D29).
 
-Each entry opens with one status line, `**Status:** <state>, <YYYY-MM-DD>.`, which Crow Control reads (T-413). The state is one of: `needs Rafa` (it waits for him), `adopted, may overrule` (an agent adopted it under the autonomy rule, or its last point for Rafa is answered; he may overrule it), `decided` (its "Decided" line records the decision), `deferred` or `unclear`. The date is the day the entry reached that state. A new entry adds its own line; `tests/decisions-status.test.ts` fails on an entry without one.
+Each entry opens with one status line, `**Status:** <state>, <YYYY-MM-DD>.`, which Crow Control reads (T-413). The state is one of: `needs Rafa` (it waits for him), `adopted` (an agent adopted it under the autonomy rule, or its last point for Rafa is answered; Rafa may overrule it), `decided` (its "Decided" line records the decision), `deferred` or `superseded`. The date is the day the entry reached that state. A new entry adds its own line; `tests/decisions-status.test.ts` fails on an entry without one.
 
 Shortened on 2026-11-11: D40, D42, D45, D52, D53, D54 and D56, and one passage under D4, state the decision only. The maintainers keep the full text of each privately (`docs/private-materials.md`).
 
@@ -435,7 +435,7 @@ Rafa first asked that both parties be able to change any term, as in a regular c
 
 ## D25. Build review: what to do before the dry run (docs/reviews/2026-10-31-build-and-simplification-review.md)
 
-**Status:** adopted, may overrule, 2026-10-31.
+**Status:** adopted, 2026-10-31.
 
 **Decided 2026-10-31 under the autonomy rule, for Rafa to overrule.** An independent review (Fable, max effort, PR 49) measured the build (`pnpm verify` green, `pnpm demo` in 1.9 s) and found the demo does not yet show its two strongest claims: beat 7 (neutrality) and the injection half of beat 6 are stand-in. It also found one defense gap (L3-1): the appeal adjudicator cannot decide a screen-flagged case, so the default outcome would pay an injecting seller from the appeal bond.
 
@@ -478,7 +478,7 @@ Recorded in `CLAUDE.md` and `docs/PRD.md` (Design principle). D22 (no principal 
 
 ## D27. The default clause set for appeals: a flagged appeal accepts only unanimously, else rejects (red-team review of PR 52)
 
-**Status:** adopted, may overrule, 2026-10-31.
+**Status:** adopted, 2026-10-31.
 
 **Decided 2026-10-31 under the autonomy rule, for Rafa to overrule.**
 
@@ -631,7 +631,7 @@ Wording owed elsewhere if accepted: the scope hard rule in `CLAUDE.md` and the n
 
 ## D37. Rules contract design (T-202)
 
-**Status:** adopted, may overrule, 2026-11-01.
+**Status:** adopted, 2026-11-01.
 
 **Decided 2026-11-01 in T-202 under "autonomy inside the repo"; Rafa may overrule.** The four design questions of `docs/tasks/T-202-escrow-rules-contract.md`, answered from the built contract and its measured tests. Details, measurements and the SimChain differences for T-205 are in the task file.
 
@@ -757,7 +757,7 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D44. Decisions, early accepts and judgment records name the delivery they settle (ADR-0029)
 
-**Status:** adopted, may overrule, 2026-11-03.
+**Status:** adopted, 2026-11-03.
 
 **Decided 2026-11-03 under "autonomy inside the repo", after a Fable max-effort research pass (ADR-0029's draft); Rafa may overrule any line.** This is the second high finding of the contract review (§8) that D43 left to its own entry, and T-212 item 3. A seller who signed two deliveries for one attempt could settle a decision or an early accept about one body with the other, so the chain named a delivery nobody judged or opened. Rafa asked for the fix in the contracts.
 
@@ -821,7 +821,7 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D47. Crow runs a standing test seller on the Sepolia test environment (T-222)
 
-**Status:** adopted, may overrule, 2026-11-04.
+**Status:** adopted, 2026-11-04.
 
 **Decided 2026-11-04 under "autonomy inside the repo", after a Fable max-effort research pass (`docs/research/2026-11-04-test-counterparties.md`); Rafa may overrule any line.** Rafa asked: "For the test environment, feels like we should have a standing buyer / seller test identity that people can do test escrow with no?" Today `try.mjs` plays both sides of a deal with fresh keys, so a visitor never deals with another party.
 
@@ -845,7 +845,7 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D48. Appeal bonds move by a relayed token permit; agents never need Sepolia ETH to appeal (T-224)
 
-**Status:** adopted, may overrule, 2026-11-04.
+**Status:** adopted, 2026-11-04.
 
 **Decided 2026-11-04 under "autonomy inside the repo", after a Fable max-effort research pass (`docs/research/2026-11-04-visitor-gas.md`); Rafa may overrule any line.** Rafa asked for the plan: "Yes, plan it", to my proposal of a way for new visitors to appeal without their own Sepolia ETH. Today `llms.txt` says an appeal on Sepolia needs the appellant's own test ETH. The reason: `HoldbackBonds.takeAppealBond` pulls the bond with `transferFrom`, so the appellant must first send its own `approve` transaction. Every other step a visitor takes is relayed and free (measured).
 
@@ -1126,7 +1126,7 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D59. The beacon rounds for escalation and fallback leave a margin of 29 s (ADR-0032)
 
-**Status:** adopted, may overrule, 2026-11-12.
+**Status:** adopted, 2026-11-12.
 
 **Proposed 2026-11-11 by T-348,** after a research pass and a red-team pass. ADR-0032 is Proposed; Rafa may overrule any line. It answers finding X-1 of the drand verifier's review (Medium), the fallback's round of the private hardening task T-225, and finding F-2 of the state model. The contract refinement plan's package R8 builds it.
 
@@ -1142,7 +1142,7 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D60. The signed terms name a payment address for the buyer and a payout address for the seller (ADR-0033)
 
-**Status:** adopted, may overrule, 2026-11-12.
+**Status:** adopted, 2026-11-12.
 
 **Proposed 2026-11-11 by T-350,** after a research pass and a red-team pass. It designs what Rafa decided the same day (D58 item 5 and its amendment). ADR-0033 is Proposed; Rafa may overrule any line. Nothing is built: the contract package and the two tooling packages build from the ADR.
 
@@ -1225,7 +1225,7 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D64. The screen flags what text asks of the judges, and passes honest audit reports (ADR-0035)
 
-**Status:** adopted, may overrule, 2026-11-12.
+**Status:** adopted, 2026-11-12.
 
 **Adopted 2026-11-12 by T-367** (roadmap row N87), after T-361 measured nine honest audit lines each flagging a whole report, and one red-team pass. Rafa may overrule any line.
 
@@ -1238,7 +1238,7 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D65. A deal is judged under the policy it bound, on every later build (ADR-0036)
 
-**Status:** adopted, may overrule, 2026-11-12.
+**Status:** adopted, 2026-11-12.
 
 **Proposed 2026-11-12 by T-373,** after T-367 (PR 386) found that an operator deploy that changes the screen leaves a deal accepted before it without a judge. ADR-0036 is Proposed; Rafa may overrule any line. Nothing is built.
 
@@ -1256,7 +1256,7 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D66. How the beacon margin reaches core, the EVM adapter and the adjudicator service (T-380, building ADR-0032)
 
-**Status:** adopted, may overrule, 2026-11-12.
+**Status:** adopted, 2026-11-12.
 
 **Adopted 2026-11-12 by T-380** (package R8, fix 2), for the choices ADR-0032 left open. Rafa may overrule any line.
 
@@ -1268,7 +1268,7 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D67. The rules contract's declarations move into an interface file, and `decide` checks the outcome by value (T-384, holdback PR 433)
 
-**Status:** adopted, may overrule, 2026-11-12.
+**Status:** adopted, 2026-11-12.
 
 **Adopted 2026-11-12 by the coordinator,** within Rafa's condition of 2026-11-12 that the move leave the compiled runtime code identical. Rafa may overrule any line.
 
