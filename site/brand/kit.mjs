@@ -34,6 +34,25 @@ export function kitCss({ parts = PARTS, scope = ':root', mark } = {}) {
 /** Crow's mark (site/crow-mark.svg) as a data: URI, for a page that must stay one file. */
 export const markDataUri = () => `data:image/svg+xml,${encodeURIComponent(read('../crow-mark.svg'))}`;
 
+/**
+ * The favicon set (T-428): the mark on a white square, written by site/brand/icons.mjs into site/brand/icons/. A site
+ * serves each file at its root; ICON_FILES names them, iconBytes(name) reads one, iconLinks() is the head's lines.
+ */
+export const ICON_FILES = Object.freeze(['favicon.svg', 'favicon.ico', 'favicon-16.png', 'favicon-32.png', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png', 'site.webmanifest']);
+export const iconBytes = (name) => {
+  if (!ICON_FILES.includes(name)) throw new Error(`the kit has no icon file "${name}"`);
+  return readFileSync(new URL(`./icons/${name}`, import.meta.url));
+};
+/** The icon links for a page's <head>, with `base` the path the icon files are served under ("/" by default). */
+export const iconLinks = ({ base = '/' } = {}) => [
+  `<link rel="icon" href="${esc(base)}favicon.ico" sizes="48x48">`,
+  `<link rel="icon" type="image/svg+xml" href="${esc(base)}favicon.svg">`,
+  `<link rel="icon" type="image/png" sizes="32x32" href="${esc(base)}favicon-32.png">`,
+  `<link rel="icon" type="image/png" sizes="16x16" href="${esc(base)}favicon-16.png">`,
+  `<link rel="apple-touch-icon" href="${esc(base)}apple-touch-icon.png">`,
+  `<link rel="manifest" href="${esc(base)}site.webmanifest">`,
+].join('\n');
+
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /** The kit's icons: one family, stroked at 1.6 in the text's colour. */

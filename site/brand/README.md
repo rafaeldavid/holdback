@@ -10,6 +10,7 @@ The kit is light only. It has no dark theme and no component framework.
 | `components.css` | The twelve components below, each in a section marked `/* part: name */`. Every class starts with `ck-`. |
 | `kit.mjs` | The CSS for a page (`kitCss`), each token's value (`TOKENS`), and one function per component that returns its HTML. |
 | `kit.d.mts` | The functions' types, for the TypeScript pages. |
+| `icons/` | The favicon set: the mark in ink on a white square (SVG, `.ico`, 16, 32, 180, 192 and 512 px PNGs, a web manifest). `iconLinks()` in `kit.mjs` writes the head's links. Regenerate with `node site/brand/icons.mjs` after the mark changes; `--check` fails when a file is stale. |
 
 ## The tokens
 
