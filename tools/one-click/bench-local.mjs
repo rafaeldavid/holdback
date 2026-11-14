@@ -104,15 +104,26 @@ export function runScripted({ script, args, operators, party, needs, probe, time
   });
 }
 
+/** What the operator reports for a commitment: its escrowState, or null when it cannot be read. */
+export async function operatorState(operator, id) {
+  try {
+    const r = await fetch(`${operator}/v1/commitments/${id}`, { signal: AbortSignal.timeout(10_000) });
+    const j = r.ok ? await r.json() : null;
+    return typeof j?.escrowState === 'string' ? j.escrowState : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The scripted agent's outcome from its output: the last `done commitment <id> <state>` line, and whether Crow's test agent took part. */
 export function scriptedOutcome(run, scenario) {
   const done = [...run.out.matchAll(/^done +commitment (0x[0-9a-fA-F]{64}) (Released|Refunded)$/gm)].pop();
   const errors = [];
   // try.ts plays both sides when the test seller fails; the scenario then did not happen as written.
-  const selfPlayed = scenario.party === 'test-seller' && !/with Crow's test seller as the other party/.test(run.out);
-  if (selfPlayed) errors.push("the test seller did not take part: the script played both sides");
+  const selfPlayed = !!done && scenario.party === 'test-seller' && !/with Crow's test seller as the other party/.test(run.out);
+  if (selfPlayed) errors.push('the test seller did not take part: the script played both sides');
   if (run.timedOut) errors.push('the scripted agent ran out of time');
-  if (run.code !== 0) errors.push(`the scripted agent exited ${run.code}`);
+  else if (run.code !== 0) errors.push(`the scripted agent exited ${run.code}`);
   const stoppedAt = /^(?:stopped|refused) at:? ?(.*)$/m.exec(run.out)?.[0] ?? (run.code !== 0 ? run.out.trim().split('\n').pop() : null);
   const state = run.timedOut ? 'timedOut' : done && run.code === 0 && !selfPlayed ? done[2] : 'stopped';
   return { state, commitmentId: done?.[1] ?? null, stoppedAt, errors };

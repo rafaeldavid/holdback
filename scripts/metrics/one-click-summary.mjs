@@ -38,7 +38,7 @@ export function buildSummary({ records, invalid = [], v1 = 0, generatedAtMs, com
   if (invalid.length) gaps.push(`${invalid.length} file(s) failed the one-click schema and are left out: ${invalid.slice(0, 5).join(', ')}.`);
   if (v1) gaps.push(`${v1} version 1 run file(s) (the homepage run, run.mjs) are left out: they are not one of the six scenarios.`);
   const newestFirst = [...records].sort((a, b) => (a.runId < b.runId ? 1 : a.runId > b.runId ? -1 : 0));
-  const live = newestFirst.filter((r) => r.mode === 'live');
+  const live = newestFirst.filter((r) => r.mode === 'live' && r.agent.kind === 'claude-code' && r.world.engine === 'sepolia');
   const deals = live.filter((r) => r.outcome.success).slice(0, MEDIAN_OF);
   if (!live.length) gaps.push('No live record yet, so every headline number reads missing. Scripted records prove the harness and never fill one.');
   else if (!deals.length) gaps.push(`${live.length} live record(s), none of which reached its end state, so every headline number reads missing.`);
@@ -49,7 +49,7 @@ export function buildSummary({ records, invalid = [], v1 = 0, generatedAtMs, com
   const byScenario = {};
   for (const id of SCENARIO_IDS) {
     const mine = newestFirst.filter((r) => r.scenario.id === id);
-    const ownLive = mine.filter((r) => r.mode === 'live');
+    const ownLive = mine.filter((r) => live.includes(r));
     const lastScripted = mine.find((r) => r.mode === 'scripted') ?? null;
     byScenario[id] = {
       live: ownLive.length,
@@ -65,7 +65,7 @@ export function buildSummary({ records, invalid = [], v1 = 0, generatedAtMs, com
     runs: { records: records.length, live: live.length, scripted: records.length - live.length, liveCompleted: live.filter((r) => r.outcome.success).length, invalid: invalid.length, versionOne: v1 },
     headline: {
       approvalsPerDeal: { state: state(deals.length), value: median(deals.map((r) => r.approvals.total)), deals: deals.length },
-      tokensPerDeal: { state: state(deals.length), in: median(deals.map((r) => r.tokens.in)), out: median(deals.map((r) => r.tokens.out)), total: median(deals.map((r) => r.tokens.in + r.tokens.out)), deals: deals.length },
+      tokensPerDeal: { state: state(deals.length), in: median(deals.map((r) => r.tokens.in)), uncachedIn: median(deals.map((r) => Object.values(r.tokens.byModel).reduce((n, t) => n + t.input, 0))), out: median(deals.map((r) => r.tokens.out)), total: median(deals.map((r) => r.tokens.in + r.tokens.out)), deals: deals.length },
       timeWithoutUserMs: { state: state(deals.length), value: median(deals.map((r) => r.time.withoutUserMs)), deals: deals.length },
       costPerDealUsdMicros: { state: state(costs.length), value: bigMedian(costs), deals: costs.length },
     },

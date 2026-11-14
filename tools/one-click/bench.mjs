@@ -59,8 +59,8 @@ if (!args.scenario || !ids.every((id) => SCENARIOS[id])) fail(`--scenario is one
 if (args.live && ids.length !== 1) fail('--live runs one scenario at a time');
 
 // The key check comes before anything else a live run does, the SDK import included. The key is never printed.
-const key = args.live ? process.env[KEY_VAR] ?? '' : '';
-if (args.live && !key.trim()) fail(`a live run needs ${KEY_VAR} in the environment (the agents' own key, never the judges'), and it is not set; nothing was sent`);
+const key = args.live ? (process.env[KEY_VAR] ?? '').trim() : '';
+if (args.live && !key) fail(`a live run needs ${KEY_VAR} in the environment (the agents' own key, never the judges'), and it is not set; nothing was sent`);
 if (!args.live && process.env[KEY_VAR]) console.error(`bench: scripted run; ${KEY_VAR} is set and is not used`);
 if (args.live && !REQUESTED_MODEL_ID.test(args.model)) fail('--model is a model ID: lower-case letters, digits, dots and dashes');
 if (args.live && !EFFORTS.includes(args.effort)) fail(`--effort is one of ${EFFORTS.join(', ')}`);
@@ -114,17 +114,27 @@ async function scripted(id) {
     return { record: buildBenchRecord({ ...base, agent: {}, outcome: { state: 'blocked', blockedBy: scenario.scripted.blockedBy }, book: { wallMs: 0 }, generatedAtMs: Date.now() }), complete: false };
   }
   const { script, args: argv, needs } = scenario.scripted;
-  const { runScripted, scriptedOutcome, startLocal } = await import('./bench-local.mjs');
+  const { operatorState, runScripted, scriptedOutcome, startLocal } = await import('./bench-local.mjs');
   const probeDir = mkdtempSync(join(tmpdir(), 'crow-bench-scripted-'));
   const probe = writeFetchProbe(probeDir);
   const world = await startLocal(needs);
   let run;
+  let outcome;
   try {
     run = await runScripted({ script, args: argv, operators: world.operators, party: world.party, needs, probe: probe.path });
+    outcome = scriptedOutcome(run, scenario);
+    // The script's own "done" line is not enough: the operator must report the same end state for the same commitment.
+    if (outcome.commitmentId && ['Released', 'Refunded'].includes(outcome.state)) {
+      const seen = await operatorState(world.operators[0], outcome.commitmentId);
+      if (seen !== outcome.state) {
+        outcome.errors.push(`the script said ${outcome.state}, the operator reports ${seen ?? 'nothing'}`);
+        outcome.stoppedAt = 'the operator does not report the end state the script printed';
+        outcome.state = 'stopped';
+      }
+    }
   } finally {
     await world.close();
   }
-  const outcome = scriptedOutcome(run, scenario);
   const calls = readCalls({ fetchLog: probe.log });
   rmSync(probeDir, { recursive: true, force: true });
   const record = buildBenchRecord({ ...base, agent: { script }, outcome, book: { wallMs: run.wallMs, errors: outcome.errors, timedOut: run.timedOut }, calls, generatedAtMs: Date.now() });

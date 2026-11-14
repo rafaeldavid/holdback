@@ -31,7 +31,7 @@ describe('the summary', () => {
     const s = buildSummary({ records: [scripted('s1', 1), scripted('s4', 2)], generatedAtMs: NOW, commit: COMMIT });
     expect(s.headline).toEqual({
       approvalsPerDeal: { state: 'missing', value: null, deals: 0 },
-      tokensPerDeal: { state: 'missing', in: null, out: null, total: null, deals: 0 },
+      tokensPerDeal: { state: 'missing', in: null, uncachedIn: null, out: null, total: null, deals: 0 },
       timeWithoutUserMs: { state: 'missing', value: null, deals: 0 },
       costPerDealUsdMicros: { state: 'missing', value: null, deals: 0 },
     });
@@ -52,7 +52,7 @@ describe('the summary', () => {
     // Approvals 2, 3, 4: median 3. Time without the user: 98,000, 198,000, 298,000 ms (2,000 ms approval wait each).
     expect(s.headline.approvalsPerDeal).toEqual({ state: 'measured', value: 3, deals: 3 });
     expect(s.headline.timeWithoutUserMs).toEqual({ state: 'measured', value: 198_000, deals: 3 });
-    expect(s.headline.tokensPerDeal).toEqual({ state: 'measured', in: 111_000, out: 2_000, total: 113_000, deals: 3 });
+    expect(s.headline.tokensPerDeal).toEqual({ state: 'measured', in: 111_000, uncachedIn: 1_000, out: 2_000, total: 113_000, deals: 3 });
     expect(s.headline.costPerDealUsdMicros).toEqual({ state: 'measured', value: '144000', deals: 3 });
     expect(s.runs).toEqual({ records: 5, live: 4, scripted: 1, liveCompleted: 3, invalid: 0, versionOne: 0 });
     expect(s.byScenario.s6).toMatchObject({ live: 1, liveCompleted: 0, latestLive: { state: 'stopped', success: false } });

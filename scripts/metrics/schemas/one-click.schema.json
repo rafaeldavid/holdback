@@ -794,12 +794,17 @@
           "additionalProperties": false,
           "required": [
             "usdMicros",
+            "sdkReportedUsdMicros",
             "byModel",
             "priceTable"
           ],
           "properties": {
             "usdMicros": {
               "$ref": "common.schema.json#/$defs/UsdMicrosOrNull"
+            },
+            "sdkReportedUsdMicros": {
+              "$ref": "common.schema.json#/$defs/UsdMicrosOrNull",
+              "description": "the SDK's own total_cost_usd of the last result message, as a cross-check"
             },
             "byModel": {
               "type": "object",
@@ -938,7 +943,64 @@
         "timedOut": {
           "type": "boolean"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "const": "live"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "agent": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "claude-code"
+                  }
+                }
+              },
+              "world": {
+                "type": "object",
+                "properties": {
+                  "engine": {
+                    "const": "sepolia"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "type": "object",
+            "properties": {
+              "agent": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "scripted"
+                  }
+                }
+              },
+              "world": {
+                "type": "object",
+                "properties": {
+                  "engine": {
+                    "const": "local"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     "Tokens": {
       "type": "object",

@@ -14,7 +14,7 @@
 // writes passes through scrubSecrets() first.
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scrubSecrets } from './bench-record.mjs';
 import { ENV_KEEP, deniedRequest, summaryOf } from './metrics.mjs';
@@ -26,8 +26,28 @@ export const KEY_VAR = 'HOLDBACK_AGENT_ANTHROPIC_API_KEY';
 const OPERATORS = ['https://api.crow.direct', 'https://api2.crow.direct'];
 const REPLY = 'Yes, go ahead.';
 // Reading the environment would show the key to the agent: denied, on top of metrics.mjs's DENY list.
-const ENV_READS = [/\bprocess\.env\b/, /\bos\.environ\b/, /\/proc\/[^/\s]+\/environ\b/, /\$\{?[A-Z_]*(ANTHROPIC|API_KEY|CLAUDE)[A-Z_]*\}?/, /(^|[\s;&|(])(set|export|declare\s+-[px])(\s*$|\s*[;&|])/];
+const ENV_READS = [
+  /\bprocess\.env\b/,
+  /\bos\.(environ|getenv)\b/,
+  /\bENV\[/,
+  /\/proc\/[^/\s]+\/environ\b/,
+  /\$\{?[A-Z_]*(ANTHROPIC|API_KEY|CLAUDE)[A-Z_]*\}?/,
+  /(^|[\s;&|(])(set|export|declare\s+-[px])(\s*$|\s*[;&|>])/,
+  /(^|[\s;&|(])env\s*[>|]/,
+  /\bps\b[^;&|]*\be/,
+];
 export const readsEnv = (tool, input) => ENV_READS.some((re) => re.test(tool === 'Bash' ? String(input?.command ?? '') : JSON.stringify(input ?? {})));
+
+// The OS sandbox fences Bash only. File tools may touch only the run's own folders (T-412 review, finding 2).
+const FILE_TOOLS = ['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Glob', 'Grep', 'LS'];
+/** True when a file tool names a path outside `roots` (absolute, real paths), or names none it can be checked by. */
+export function outsideRoots(tool, input, roots, cwd) {
+  if (!FILE_TOOLS.includes(tool)) return false;
+  const p = input?.file_path ?? input?.notebook_path ?? input?.path ?? cwd;
+  if (typeof p !== 'string' || !p) return true;
+  const abs = resolve(cwd, p.replace(/^~(?=\/|$)/, process.env.HOME ?? '/nonexistent'));
+  return !roots.some((r) => abs === r || abs.startsWith(`${r}/`));
+}
 
 function inputQueue() {
   const pending = [];
@@ -59,7 +79,6 @@ function inputQueue() {
   };
 }
 
-const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((b) => (b.type === 'text' ? b.text : '')).join('\n') : '');
 const asks = (s) => /\?\s*$/.test(s.trim()) || /\b(would you like|shall i|should i|do you want|want me to|let me know if|confirm)\b/i.test(s.slice(-600));
 
 /**
@@ -103,7 +122,7 @@ export async function runLive(o) {
         allowUnsandboxedCommands: false,
         filesystem: {
           allowWrite: writable,
-          denyRead: ['Documents', 'Desktop', 'Downloads', 'Projects', '.ssh', '.aws', '.config', '.claude', '.npmrc', '.netrc', '.gitconfig', '.git-credentials', '.wrangler', '.docker', '.kube', '.gnupg', 'Library/Keychains', 'Library/Preferences', 'Library/Application Support', 'crow-costs-private', 'crow-costs', 'crow-data'].map((d) => join(HOME, d)),
+          denyRead: ['Documents', 'Desktop', 'Downloads', 'Projects', '.zsh_history', '.bash_history', '.zshrc', '.zshenv', '.zprofile', '.bashrc', '.bash_profile', '.profile', '.node_repl_history', '.python_history', '.lesshst', '.local', '.cache', '.ssh', '.aws', '.config', '.claude', '.npmrc', '.netrc', '.gitconfig', '.git-credentials', '.wrangler', '.docker', '.kube', '.gnupg', 'Library/Keychains', 'Library/Preferences', 'Library/Application Support', 'crow-costs-private', 'crow-costs', 'crow-data'].map((d) => join(HOME, d)),
         },
         network: {
           strictAllowlist: true,
@@ -113,7 +132,7 @@ export async function runLive(o) {
     : undefined;
 
   const book = { permissionRequests: [], questions: [], chatReplies: [], errors: [], timedOut: false, approvalWaitMs: 0 };
-  const texts = [];
+  const said = []; // the assistant's own words only: the doc gaps come from these, never from a tool result
   const results = [];
   const effortSeen = new Set();
   let init = null;
@@ -134,7 +153,7 @@ export async function runLive(o) {
       o.note('question card answered');
       return { behavior: 'allow', updatedInput: { ...toolInput, answers }, toolUseID: opts.toolUseID };
     }
-    if (deniedRequest(toolName, toolInput) || readsEnv(toolName, toolInput)) {
+    if (deniedRequest(toolName, toolInput) || readsEnv(toolName, toolInput) || outsideRoots(toolName, toolInput, writable, workdir)) {
       book.errors.push(`denied a ${toolName} request that named a local path or read the environment`);
       o.note(`denied: ${toolName}`);
       return { behavior: 'deny', message: 'Not allowed: that names files or settings outside this task.', toolUseID: opts.toolUseID };
@@ -210,21 +229,21 @@ export async function runLive(o) {
       raw('sdk', { msg });
       if (msg.type === 'system' && msg.subtype === 'init') {
         init = msg;
-        o.note(`init: model ${msg.model}, Claude Code ${msg.claude_code_version}`);
+        o.note(`init: model ${msg.model}, Claude Code ${msg.claude_code_version}, key source ${String(msg.apiKeySource ?? 'unreported').slice(0, 20)}`);
       } else if (msg.type === 'assistant') {
         clearTimeout(idleTimer);
         for (const block of msg.message?.content ?? []) {
-          if (block.type === 'text' && block.text.trim()) texts.push(block.text);
+          if (block.type === 'text' && block.text.trim()) {
+            said.push(block.text);
+          }
           if (block.type === 'tool_use' && block.input?.run_in_background) backgroundStarted += 1;
         }
-      } else if (msg.type === 'user' && Array.isArray(msg.message?.content)) {
-        for (const block of msg.message.content) if (block.type === 'tool_result') texts.push(textOf(block.content).slice(0, 4000));
       } else if (msg.type === 'result') {
         results.push(msg);
         o.note(`turn ended (${msg.subtype})`);
         if (msg.is_error) book.errors.push(`result ${String(msg.subtype).slice(0, 60)}`);
         if (finished || msg.is_error) break;
-        const last = texts[texts.length - 1] ?? '';
+        const last = said[said.length - 1] ?? '';
         if (asks(last) && replies < o.maxReplies) {
           replies += 1;
           book.chatReplies.push({ atMs: at() });
@@ -255,15 +274,14 @@ export async function runLive(o) {
   book.wallMs = at();
   if (idleStop) book.errors.push('stopped: the agent was idle after a turn ended');
 
-  // The commitment: the ID most often in commitment paths, else in the agent's text and tool output; its state from
-  // the operators, as outsider.mjs reads it.
+  // The commitment: the ID most often in the agent's own calls to commitment routes (the probes' logs), never one that
+  // only appears in text, which could be a docs example, another deal or a key; its state from the operators.
   const calls = readCalls({ fetchLog: fetchProbe.log, curlLog: shell.curlLog });
   const counts = {};
   for (const c of calls) {
     const m = /\/commitments\/(0x[0-9a-fA-F]{64})/.exec(c.path ?? '');
     if (m) counts[m[1].toLowerCase()] = (counts[m[1].toLowerCase()] ?? 0) + 2;
   }
-  for (const t of texts) for (const m of t.matchAll(/0x[0-9a-fA-F]{64}(?![0-9a-fA-F])/g)) counts[m[0].toLowerCase()] = (counts[m[0].toLowerCase()] ?? 0) + 1;
   const candidates = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([id]) => id);
   const sources = [];
   let outcome = { state: 'stopped', commitmentId: null, stoppedAt: book.timedOut ? 'timed out' : 'no commitment reached its end state' };
@@ -293,11 +311,14 @@ export async function runLive(o) {
     book,
     results,
     calls,
-    texts,
+    texts: said,
     outcome,
     sources: sources.slice(0, 20),
     secrets,
     agent: { requested: o.model, reported: init?.model ?? null, effortRequested: o.effort, effortApplied: levels.length === 1 ? levels[0] : null, claudeCodeVersion: init?.claude_code_version ?? null, sdkVersion },
-    gaps: levels.length > 1 ? [`The hooks reported more than one effort: ${levels.join(', ')}.`] : levels.length ? [] : ['No hook reported the applied effort.'],
+    gaps: [
+      ...(levels.length > 1 ? [`The hooks reported more than one effort: ${levels.join(', ')}.`] : levels.length ? [] : ['No hook reported the applied effort.']),
+      `Claude Code reported its key source as ${String(init?.apiKeySource ?? 'unreported').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 20) || 'unreported'}; the run passes only ${KEY_VAR}, as ANTHROPIC_API_KEY.`,
+    ],
   };
 }

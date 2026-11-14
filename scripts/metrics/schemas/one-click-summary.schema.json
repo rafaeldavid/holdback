@@ -33,10 +33,11 @@
         "tokensPerDeal": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["state", "in", "out", "total", "deals"],
+          "required": ["state", "in", "uncachedIn", "out", "total", "deals"],
           "properties": {
             "state": { "enum": ["measured", "missing"] },
-            "in": { "$ref": "common.schema.json#/$defs/CountOrNull" },
+            "in": { "$ref": "common.schema.json#/$defs/CountOrNull", "description": "input, cache writes and cache reads" },
+            "uncachedIn": { "$ref": "common.schema.json#/$defs/CountOrNull", "description": "input tokens that were neither written to nor read from the cache" },
             "out": { "$ref": "common.schema.json#/$defs/CountOrNull" },
             "total": { "$ref": "common.schema.json#/$defs/CountOrNull" },
             "deals": { "$ref": "common.schema.json#/$defs/Count" }

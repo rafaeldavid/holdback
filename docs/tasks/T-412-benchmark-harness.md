@@ -68,6 +68,14 @@ All measured on 2026-11-14 in the worktree, on Node 22.22.2, unless labelled oth
 - **Version 1 unchanged** [measured]: the old schema body, read with `git show origin/main:…`, equals `$defs.V1` and `$defs.Tokens` of the new file, compared as JSON. The 107 metrics tests that existed before this task pass unchanged.
 - **The summary on scripted records** [measured]: `node scripts/metrics/one-click-summary.mjs --runs <the scripted folder> --out …` wrote a valid file with all four headline numbers `"state": "missing"`, value null, and the gap "No live record yet".
 - **Checks** [measured]: `pnpm typecheck` passes; `pnpm exec eslint tools/one-click scripts/metrics tests/metrics` exits 0. The two scripted agents type-check (`tsc` with the repository's base config: exit 0). `node --check` passes on `bench.mjs` and `bench-live.mjs`.
+- **Review** (one `reviewer` pass): ISSUES, 2 High, 4 Medium, 6 Low. The first High (an empty Handoff) read the tree before the Handoff commit. Fixed in the review commit, each with a test:
+  - High: in live mode a file tool could read the home folder (`.zsh_history`, a Grep over `~`). File tools now stay inside the run's two folders, and the sandbox's read denials add the shell history and rc files, `.local` and `.cache`.
+  - Medium: more environment reads denied (`env >`, `os.getenv`, `ps e`); the key source Claude Code reports goes into the record's gaps. The key is trimmed before use.
+  - Medium: tokens come from the last result message, not a sum over them (if `modelUsage` is a running total, a sum counts turns twice; which one it is is guessed). The record keeps the SDK's own `total_cost_usd` and flags a difference over 5 percent.
+  - Medium: the live commitment is taken only from the agent's own API calls, never from an ID that appears in text.
+  - Low: the schema ties `mode` to `agent.kind` and `world.engine`, and the summary checks all three; a scripted success also needs the operator to report the same end state; a crash is named as a crash; doc gaps come from the agent's own words only; a missing price table and Haiku's long-prompt tier get gap lines; the summary adds uncached input.
+  - The same file-tool gap exists in `run.mjs` and `outsider.mjs` (Handoff, follow-ups).
+  - After the fixes [measured]: `pnpm exec vitest run tests/metrics`: 9 files, 151 tests passed; eslint exit 0; `pnpm typecheck` passes.
 - **Not run** [measured]: no live run. `bench-live.mjs` is written from `outsider.mjs`, which ran four times on 2026-11-11, but its own code has run only up to the key check. Whether Claude Code honours `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` is a guess.
 
 ## Decisions
@@ -84,7 +92,7 @@ All measured on 2026-11-14 in the worktree, on Node 22.22.2, unless labelled oth
 
 **Done:** the harness, its scripted runs of all six scenarios in CI, the live mode (not run), the summary script and the README.
 
-**Waits for Rafa: the live runs.** Each spends his model key (billed as API usage, not the Claude subscription) and Sepolia test funds from the public faucet; no real money. From `/Users/rafa/Documents/escrow`, on `main` after this merges, with `HOLDBACK_AGENT_ANTHROPIC_API_KEY` set in the shell (or `node --env-file=<his env file>` in place of `node`):
+**Waits for Rafa: the live runs.** Use a dedicated, spend-capped key for them and rotate it after: the agent runs with every request approved, and only plain-sight reads of the environment are denied. Each run spends that key (billed as API usage, not the Claude subscription) and Sepolia test funds from the public faucet; no real money. From `/Users/rafa/Documents/escrow`, on `main` after this merges, with `HOLDBACK_AGENT_ANTHROPIC_API_KEY` set in the shell (or `node --env-file=<his env file>` in place of `node`):
 
 ```
 cd /Users/rafa/Documents/escrow
@@ -117,4 +125,4 @@ The estimates assume `llms.txt` is still about the size it was on 2026-11-11 (90
 - **The console** (T-414 or the coordinator, `control/`): run the summary in the build, `node scripts/metrics/one-click-summary.mjs --runs control/metrics/bench --out <out>/metrics/one-click-summary.json`, and read its four headline numbers. Committing `/2` records to their own folder, `control/metrics/bench/` (a suggestion), keeps them out of the `/1` reader's gap lines.
 - **N70** (the test seller): a rubric-judged item and an outcome that never delivers. Then replace `blockedBy` for s2 and s5 in `tools/one-click/scenarios.mjs` with their scripted agents.
 
-**Follow-ups not built:** Cloudflare request counts (`run.mjs --tail`) in the `/2` record; telling a reclaim from a rejection in a live s5 record; a CI run of the live mode with a capped key (T-068).
+**Follow-ups not built:** the file-tool fence and the shell-history read denials in `run.mjs` and `outsider.mjs`, which have the gap the review found in this harness (for the triage note); Cloudflare request counts (`run.mjs --tail`) in the `/2` record; telling a reclaim from a rejection in a live s5 record; a CI run of the live mode with a capped key (T-068).

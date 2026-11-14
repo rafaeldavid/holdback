@@ -37,13 +37,14 @@ So a scripted record proves the harness and the scenario's path through today's 
 A live run gives a fresh Claude Code one sentence of goal (the scenario's `goal`, naming `https://crow.direct/llms.txt`) and nothing else about Crow, as T-328 did:
 
 - an empty folder, default permissions, no settings files, no MCP servers and a filtered environment;
-- Claude Code's OS sandbox by default: writes only in its folders, no reads of this user's folders, network only to Crow's, npm's and Sepolia's hosts;
-- every permission request answered "allow" and counted, except a request that names this user's files or logins, or reads the environment, which is denied and listed in `errors`;
+- Claude Code's OS sandbox around its Bash commands by default: writes only in its folders, no reads of this user's main folders, shell history and rc files, network only to Crow's, npm's and Sepolia's hosts;
+- file tools (Read, Write, Edit, Glob, Grep and the rest) only inside the run's two folders, since the OS sandbox fences Bash only;
+- every permission request answered "allow" and counted, except a request that names this user's files or logins, reads the environment, or points a file tool outside the run's folders, which is denied and listed in `errors`;
 - a question card answered with its "yes" option, and "Yes, go ahead." when a turn ends with a question, up to `--max-replies` times; each counts as an approval.
 
 The goal also asks the agent to write a `GUESS:` line whenever the docs leave it unsure. Those lines are the record's `docGaps`.
 
-**The key.** The run reads `HOLDBACK_AGENT_ANTHROPIC_API_KEY`, the agents' own key that `tools/duet` also uses, never the judges'. Without it the run stops before it imports the SDK or sends anything. The key reaches only the SDK's Claude Code process, as `ANTHROPIC_API_KEY`. It is never printed, and every string the harness writes (the record, and the raw log with `--logs`) passes through `scrubSecrets()` first. Claude Code's commands could still read their own environment; the harness denies the commands that do so in plain sight (`printenv`, `env`, `process.env`, `$ANTHROPIC…`), but a capped key is the real fence.
+**The key.** The run reads `HOLDBACK_AGENT_ANTHROPIC_API_KEY`, the agents' own key that `tools/duet` also uses, never the judges'. Without it the run stops before it imports the SDK or sends anything. The key reaches only the SDK's Claude Code process, as `ANTHROPIC_API_KEY`. It is never printed, and every string the harness writes (the record, and the raw log with `--logs`) passes through `scrubSecrets()` first. Claude Code's commands could still read their own environment; the harness denies the commands that do so in plain sight (`printenv`, `env`, `ps e`, `process.env`, `os.getenv`, `$ANTHROPIC…`), but a dedicated, spend-capped key, rotated after the runs, is the real fence. The record's gaps name the key source Claude Code reported, so a run billed to another login shows.
 
 | Option (live) | Default | What it does |
 | --- | --- | --- |
@@ -64,17 +65,18 @@ One file per run, `<runId>.json`, checked against `scripts/metrics/schemas/one-c
 | Field | Meaning | Source |
 | --- | --- | --- |
 | `mode` | `scripted` or `live` | the command line |
-| `outcome.success` | the deal reached the scenario's end state | scripted: the script's last `done` line; live: the operators' `escrowState` for the commitment the agent used most |
+| `outcome.success` | the deal reached the scenario's end state | scripted: the script's last `done` line, confirmed by the operator's `escrowState`; live: the operators' `escrowState` for the commitment the agent called most in its own API calls |
 | `outcome.state` | `Released`, `Refunded`, `stopped`, `timedOut` or `blocked` (with `blockedBy`) | as above |
 | `approvals` | what a person would have answered: tool permissions, question cards, chat replies | the harness's own count |
-| `tokens` | `in` (input, cache writes and reads) and `out`, and each model's split | the SDK's result messages, summed |
+| `tokens` | `in` (input, cache writes and reads) and `out`, and each model's split | the last SDK result message, taken as the session's running total (a gap line says so when a run had several) |
 | `cost.usdMicros` | each model's tokens at its own price in `config/model-prices.json`, in micro-USD | integer arithmetic; null if a model has no price |
+| `cost.sdkReportedUsdMicros` | the SDK's own `total_cost_usd`, as a cross-check; a gap line flags a difference over 5 percent | the last result message |
 | `time.withoutUserMs` | wall time less the time spent waiting on an approval: processing time that is not user delay | the harness's clock |
 | `apiCalls` | calls by host and status, and Crow's 4xx and 5xx by route; model vendors and npm left out | the fetch and curl probes (`probes.mjs`) |
 | `errors` | what stopped or slowed the run, scrubbed | the harness |
-| `docGaps` | each place the agent had to guess | the agent's `GUESS:` lines |
+| `docGaps` | each place the agent had to guess | the `GUESS:` lines in the agent's own words, never in a tool result |
 
-**The summary** (`scripts/metrics/one-click-summary.mjs`, `crow.metrics.one-click-summary/1`) turns the records into the four headline numbers: approvals per deal, tokens per deal, time without the user and cost per deal. Each is the median of the newest 10 live records that reached their end state. With none, it reads `"state": "missing"` and `null`, never 0.
+**The summary** (`scripts/metrics/one-click-summary.mjs`, `crow.metrics.one-click-summary/1`) turns the records into the four headline numbers: approvals per deal, tokens per deal (with the uncached input apart), time without the user and cost per deal. Each is the median of the newest 10 live records that reached their end state. With none, it reads `"state": "missing"` and `null`, never 0.
 
 ### Rerun a scenario
 

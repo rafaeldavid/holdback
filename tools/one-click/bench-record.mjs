@@ -2,7 +2,8 @@
 // scripts/metrics/schemas/one-click.schema.json. Pure: it turns the run's bookkeeping into the record, with no model,
 // no network and no clock of its own. Every number is a field of its inputs or integer arithmetic on them:
 // - approvals: the permission requests the harness answered, the question cards and the chat replies it sent;
-// - tokens: the SDK result's modelUsage, per model, summed over the run's result messages;
+// - tokens: the last SDK result message's modelUsage, per model (taken as the session's running total: guessed, and
+//   checked against the SDK's own total_cost_usd, which the record keeps beside the computed cost);
 // - cost: each model's tokens at its own entry in config/model-prices.json (micro-USD per million tokens), rounded once
 //   to the micro-dollar; a model the table does not price leaves the total null, with a gap line;
 // - time: wall time, the time the run waited on an approval, and the rest: the time without the user;
@@ -10,7 +11,7 @@
 // - doc gaps: each "GUESS:" line the agent wrote (scenarios.mjs, GUESS_RULE).
 // A scripted run's record says mode "scripted"; one-click-summary.mjs never takes a headline number from it.
 import { HEX32, divRound, iso } from '../../scripts/metrics/lib.mjs';
-import { MODEL_ID, priceNumerator, scrub, tokensOf } from './metrics.mjs';
+import { MODEL_ID, decimalToMicros, priceNumerator, scrub, tokensOf } from './metrics.mjs';
 
 const MILLION = 1_000_000n;
 const count = (v) => (Number.isSafeInteger(v) && v >= 0 ? v : 0);
@@ -30,7 +31,7 @@ export function priceFor(prices, model) {
   return key ? { key, price: models[key] } : null;
 }
 
-/** Tokens by model, summed over every result message of the run (each reports its own turn: outsider.mjs, run s1). */
+/** Tokens by model, summed over the result messages given. bench.mjs passes the last one only (see the header). */
 export function tokensByModel(results) {
   const byModel = {};
   for (const r of results ?? []) {
@@ -51,13 +52,19 @@ export function costOf(byModel, prices) {
   const out = {};
   let total = 0n;
   let priced = true;
+  if (!prices?.models) gaps.push('config/model-prices.json could not be read, so the run\'s cost reads unknown.');
   for (const [model, tokens] of Object.entries(byModel)) {
-    const p = priceFor(prices, model);
+    const p = prices?.models ? priceFor(prices, model) : null;
+    if (!prices?.models) {
+      priced = false;
+      continue;
+    }
     if (!p) {
       priced = false;
       gaps.push(`config/model-prices.json has no entry for ${model}, so the run's cost reads unknown.`);
       continue;
     }
+    if (p.price.overPromptTokens) gaps.push(`${model} is priced at its base tier; a turn over its long-prompt threshold costs more.`);
     const n = priceNumerator(tokens, p.price);
     out[model] = divRound(n, MILLION).toString();
     total += n;
@@ -135,16 +142,24 @@ export function buildBenchRecord({ mode, scenario, world, agent, outcome, book, 
     const tool = String(r.tool).replace(/[^A-Za-z0-9_]/g, '').slice(0, 64) || 'unknown';
     byTool[tool] = (byTool[tool] ?? 0) + 1;
   }
-  const byModel = tokensByModel(results);
+  const last = results.length ? results[results.length - 1] : null;
+  const byModel = tokensByModel(last ? [last] : []);
   const cost = costOf(byModel, prices);
   gaps.push(...cost.gaps);
+  const sdkMicros = typeof last?.total_cost_usd === 'number' && Number.isFinite(last.total_cost_usd) && last.total_cost_usd >= 0 ? decimalToMicros(String(last.total_cost_usd)) : null;
+  const sdkReported = sdkMicros === null ? null : sdkMicros.toString();
+  if (results.length > 1) gaps.push(`${results.length} result messages: tokens, cost and model time are the last one's, taken as the session's running total (guessed); compare cost.sdkReportedUsdMicros.`);
+  if (sdkMicros !== null && cost.usdMicros !== null && sdkMicros > 0n) {
+    const diff = BigInt(cost.usdMicros) - sdkMicros;
+    if ((diff < 0n ? -diff : diff) * 20n > sdkMicros) gaps.push(`The computed cost (${cost.usdMicros} micro-USD) differs from the SDK's own (${sdkReported}) by more than 5 percent.`);
+  }
   let tokensIn = 0;
   let tokensOut = 0;
   for (const t of Object.values(byModel)) {
     tokensIn += t.input + t.cacheWrite5m + t.cacheWrite1h + t.cacheRead;
     tokensOut += t.output;
   }
-  const modelMs = results.length && results.every((r) => Number.isSafeInteger(r?.duration_api_ms)) ? results.reduce((n, r) => n + r.duration_api_ms, 0) : null;
+  const modelMs = Number.isSafeInteger(last?.duration_api_ms) && last.duration_api_ms >= 0 ? last.duration_api_ms : null;
   const wallMs = count(book.wallMs);
   const approvalWaitMs = Math.min(wallMs, count(book.approvalWaitMs));
   const state = book.timedOut ? 'timedOut' : STATES.includes(outcome.state) ? outcome.state : 'stopped';
@@ -181,7 +196,7 @@ export function buildBenchRecord({ mode, scenario, world, agent, outcome, book, 
     },
     approvals: { total: requests.length + questions.length + replies.length, toolPermission: requests.length, questionCards: questions.length, chatReplies: replies.length, byTool },
     tokens: { in: tokensIn, out: tokensOut, byModel },
-    cost: { usdMicros: cost.usdMicros, byModel: cost.byModel, priceTable: { file: 'config/model-prices.json', readOn: /^\d{4}-\d{2}-\d{2}$/.test(prices?.readOn ?? '') ? prices.readOn : '1970-01-01' } },
+    cost: { usdMicros: cost.usdMicros, sdkReportedUsdMicros: sdkReported, byModel: cost.byModel, priceTable: { file: 'config/model-prices.json', readOn: /^\d{4}-\d{2}-\d{2}$/.test(prices?.readOn ?? '') ? prices.readOn : '1970-01-01' } },
     time: { wallMs, approvalWaitMs, withoutUserMs: wallMs - approvalWaitMs, modelMs },
     apiCalls: apiCallsOf(calls),
     errors: (book.errors ?? []).slice(0, 20).map(scrub),

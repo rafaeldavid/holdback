@@ -8,13 +8,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { check } from '../../scripts/metrics/check.mjs';
-import { readsEnv } from '../../tools/one-click/bench-live.mjs';
+import { outsideRoots, readsEnv } from '../../tools/one-click/bench-live.mjs';
+import { scriptedOutcome } from '../../tools/one-click/bench-local.mjs';
 import { apiCallsOf, costOf, docGapsOf, priceFor, scrubSecrets, tokensByModel } from '../../tools/one-click/bench-record.mjs';
 import { SCENARIOS, SCENARIO_IDS } from '../../tools/one-click/scenarios.mjs';
 import { ROOT, config } from './helpers';
 import { liveRecord } from './one-click-records';
 
 const prices = config('model-prices.json');
+const USAGE_ = { inputTokens: 1_000, outputTokens: 2_000, cacheReadInputTokens: 100_000, cacheCreationInputTokens: 10_000, cacheCreationEphemeral1hInputTokens: 10_000 };
 const BENCH = join(ROOT, 'tools/one-click/bench.mjs');
 const KEY_VAR = 'HOLDBACK_AGENT_ANTHROPIC_API_KEY';
 // Not shaped like an Anthropic key, so metrics.mjs's scrub() (which drops sk-… runs) does not hide it and the test shows scrubSecrets() at work.
@@ -118,24 +120,76 @@ describe('the live mode, before it sends anything', () => {
     expect(readsEnv('Bash', { command: 'echo $ANTHROPIC_API_KEY' })).toBe(true);
     expect(readsEnv('Bash', { command: 'cat /proc/self/environ' })).toBe(true);
     expect(readsEnv('Bash', { command: 'set' })).toBe(true);
+    expect(readsEnv('Bash', { command: 'env > e.txt' })).toBe(true);
+    expect(readsEnv('Bash', { command: `python3 -c "import os;print(os.getenv('X'))"` })).toBe(true);
+    expect(readsEnv('Bash', { command: 'ps eww $$' })).toBe(true);
     expect(readsEnv('Bash', { command: 'curl -sS https://crow.direct/llms.txt' })).toBe(false);
     expect(readsEnv('Bash', { command: 'node try.mjs --seller https://crow.direct/agents/test-seller' })).toBe(false);
   });
 });
 
 
+describe('the live mode keeps file tools inside the run folders', () => {
+  const roots = ['/tmp/crow-bench-abc', '/tmp/crow-bench-probe-xyz'];
+  const cwd = roots[0];
+  it.each([
+    ['Read', { file_path: '/Users/someone/.zsh_history' }],
+    ['Read', { file_path: '~/.zshrc' }],
+    ['Read', { file_path: '../../etc/passwd' }],
+    ['Grep', { pattern: 'API_KEY', path: '/Users/someone' }],
+    ['Glob', { pattern: '**/*.pem', path: '/Users/someone' }],
+    ['Write', { file_path: '/tmp/elsewhere/x.txt' }],
+  ])('denies %s %j', (tool, input) => expect(outsideRoots(tool, input, roots, cwd)).toBe(true));
+  it.each([
+    ['Read', { file_path: '/tmp/crow-bench-abc/keys.json' }],
+    ['Write', { file_path: 'buyer.mjs' }],
+    ['Grep', { pattern: 'x' }],
+    ['Bash', { command: 'ls /Users' }],
+  ])('allows %s %j (Bash is the OS sandbox\'s)', (tool, input) => expect(outsideRoots(tool, input, roots, cwd)).toBe(false));
+});
+
+describe('the scripted outcome', () => {
+  const seller = { ...SCENARIOS.s1, id: 's1' };
+  const id = `0x${'12'.repeat(32)}`;
+  it('fails a run that played both sides', () => {
+    const o = scriptedOutcome({ code: 0, timedOut: false, out: `done      commitment ${id} Released\n`, wallMs: 1 }, seller);
+    expect(o).toMatchObject({ state: 'stopped', errors: ['the test seller did not take part: the script played both sides'] });
+  });
+  it('names a crash as a crash, and a timeout as a timeout', () => {
+    expect(scriptedOutcome({ code: 1, timedOut: false, out: 'stopped at: no seller', wallMs: 1 }, seller).errors).toEqual(['the scripted agent exited 1']);
+    expect(scriptedOutcome({ code: null, timedOut: true, out: '', wallMs: 1 }, seller)).toMatchObject({ state: 'timedOut', errors: ['the scripted agent ran out of time'] });
+  });
+});
+
 describe('the record, from fixed bookkeeping', () => {
+  it("keeps the SDK's own total beside the computed cost", () => {
+    expect(liveRecord().cost.sdkReportedUsdMicros).toBe('144000');
+  });
+
+  it('takes the last of several result messages as the running total, and says so', () => {
+    const first = { modelUsage: { 'claude-opus-5-5': { inputTokens: 10, outputTokens: 10 } }, duration_api_ms: 1_000, total_cost_usd: 0.00024 };
+    const r = liveRecord({ results: [first, { modelUsage: { 'claude-opus-5-5': USAGE_ }, duration_api_ms: 60_000, total_cost_usd: 0.144 }] });
+    expect(r.tokens).toMatchObject({ in: 111_000, out: 2_000 });
+    expect(r.time.modelMs).toBe(60_000);
+    expect(r.gaps.some((g: string) => g.startsWith('2 result messages'))).toBe(true);
+  });
+
+  it("flags a computed cost more than 5 percent from the SDK's", () => {
+    const r = liveRecord({ results: [{ modelUsage: { 'claude-opus-5-5': USAGE_ }, total_cost_usd: 0.3 }] });
+    expect(r.gaps.some((g: string) => g.includes('differs from the SDK'))).toBe(true);
+  });
+
   it('prices each model at its own entry, by hand', () => {
     // Opus 5.5: 1,000 × 4 + 10,000 × 8 (1 h writes) + 100,000 × 0.20 + 2,000 × 20 = 144,000 µUSD.
     const r = liveRecord();
-    expect(r.cost).toEqual({ usdMicros: '144000', byModel: { 'claude-opus-5-5': '144000' }, priceTable: { file: 'config/model-prices.json', readOn: '2026-11-05' } });
+    expect(r.cost).toEqual({ usdMicros: '144000', sdkReportedUsdMicros: '144000', byModel: { 'claude-opus-5-5': '144000' }, priceTable: { file: 'config/model-prices.json', readOn: '2026-11-05' } });
     expect(r.tokens).toMatchObject({ in: 111_000, out: 2_000 });
   });
 
   it('prices a Haiku side call at Haiku prices, not Opus', () => {
     const byModel = tokensByModel([{ modelUsage: { 'claude-haiku-5-5': { inputTokens: 1_194, outputTokens: 17 } } }]);
     // 1,194 × 0.10 + 17 × 0.50 = 127.9, rounded once to 128 µUSD.
-    expect(costOf(byModel, prices)).toEqual({ usdMicros: '128', byModel: { 'claude-haiku-5-5': '128' }, gaps: [] });
+    expect(costOf(byModel, prices)).toEqual({ usdMicros: '128', byModel: { 'claude-haiku-5-5': '128' }, gaps: ['claude-haiku-5-5 is priced at its base tier; a turn over its long-prompt threshold costs more.'] });
   });
 
   it('sums tokens over every result message', () => {
@@ -197,6 +251,10 @@ describe('the schema, version 2 beside version 1', () => {
     expect(check('one-click', { ...r, extra: 1 }).ok).toBe(false);
     expect(check('one-click', { ...r, mode: 'simulated' }).ok).toBe(false);
     expect(check('one-click', { ...r, cost: { ...r.cost, usdMicros: 0.144 } }).ok).toBe(false);
+  });
+  it('refuses a live record whose agent is a script or whose world is local', () => {
+    expect(check('one-click', { ...r, agent: { ...r.agent, kind: 'scripted' } }).ok).toBe(false);
+    expect(check('one-click', { ...r, world: { ...r.world, engine: 'local' } }).ok).toBe(false);
   });
   it('refuses a version 2 record shaped as version 1, and a run ID outside the six scenarios', () => {
     expect(check('one-click', { ...r, runId: '2026-11-14T10-00-00Z-buyer' }).ok).toBe(false);
