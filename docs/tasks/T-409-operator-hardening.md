@@ -67,6 +67,7 @@ All runs on 2026-11-14, on branch `t-409-operator-hardening`, from `origin/main`
   - The lint test runs in the test shards, since `vitest.config.ts` includes `tests/**/*.test.ts`.
 - **Types and lint (measured).** `pnpm typecheck` and `pnpm lint` exit 0 on the branch, with the stricter rule, which covers `apps/*/src`.
 - **The red team's findings as regression tests (measured).** `packages/settlement/evm/t409-redteam.test.ts`: 15 of 15 failed at `9901060`, before the fixes; 16 of 16 pass at the tip. After the fixes: `packages/settlement` and both lint tests, with anvil, pass 23 of 23 files and 362 of 362 tests, 0 skipped. `pnpm typecheck` and `pnpm lint` exit 0. The M1 fix changed two existing expectations (`ff4f9f0`): a direct reclaim now reaches the book at the timeout pass's `WrongStage`, so the next sync finds it already applied (`applied: 0`, not 1). Both tests still assert that nothing is sent and the deal ends Refunded.
+- **CI's whole world leg at the tip, after the red-team fixes (measured).** The eight files the anvil job's world leg names, plus `refusals.test.ts`, `hung-read.test.ts` and `relay-store.test.ts`: 11 of 11 files and 71 of 71 tests passed.
 - **The rest of CI's world leg, which the nonce and sync changes reach (measured by the reviewer, before the red-team fixes).** `live.test.ts`, `lanes.test.ts`, `one-world.anvil.test.ts` and `registration.anvil.test.ts` in `apps/demo-cloud/src`: 4 of 4 files and 12 of 12 tests passed. `timeouts.anvil.test.ts`: 2 of 2 tests passed in 292 s.
 
 ## Decisions
