@@ -19,7 +19,7 @@
 // writes passes through scrubSecrets() first.
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PERMISSION_MODES, scrubSecrets } from './bench-record.mjs';
 import { ENV_KEEP, deniedRequest, summaryOf } from './metrics.mjs';
@@ -48,10 +48,31 @@ const FILE_TOOLS = ['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Glob'
 /** True when a file tool names a path outside `roots` (absolute, real paths), or names none it can be checked by. */
 export function outsideRoots(tool, input, roots, cwd) {
   if (!FILE_TOOLS.includes(tool)) return false;
-  const p = input?.file_path ?? input?.notebook_path ?? input?.path ?? cwd;
-  if (typeof p !== 'string' || !p) return true;
-  const abs = resolve(cwd, p.replace(/^~(?=\/|$)/, process.env.HOME ?? '/nonexistent'));
-  return !roots.some((r) => abs === r || abs.startsWith(`${r}/`));
+  const paths = [input?.file_path ?? input?.notebook_path ?? input?.path ?? cwd];
+  // a Glob pattern that is itself a path (absolute or ~) names where it looks (T-441 review, finding 1)
+  if (tool === 'Glob' && typeof input?.pattern === 'string' && /^[~/]/.test(input.pattern)) paths.push(input.pattern.replace(/[*?[{].*$/, '') || '/');
+  const real = roots.map(realOf);
+  return paths.some((p) => {
+    if (typeof p !== 'string' || !p) return true;
+    const abs = realOf(resolve(cwd, p.replace(/^~(?=\/|$)/, process.env.HOME ?? '/nonexistent')));
+    return !real.some((r) => abs === r || abs.startsWith(`${r}/`));
+  });
+}
+// The real path, following symlinks through the nearest part that exists, so a link the agent made inside its folder
+// cannot point a file tool outside it (T-441 review, finding 1). Applied to the roots too.
+function realOf(abs) {
+  let head = abs;
+  const tail = [];
+  for (;;) {
+    try {
+      return join(realpathSync(head), ...tail.reverse());
+    } catch {
+      const up = dirname(head);
+      if (up === head) return abs;
+      tail.push(basename(head));
+      head = up;
+    }
+  }
 }
 
 /** True when the harness denies this request in any mode: this user's files or logins, the environment, or a file tool outside `roots`. */
@@ -100,6 +121,29 @@ export function sessionOptions({ permissions, sandboxed, writable, home }) {
           credentials: { envVars: [{ name: 'ANTHROPIC_API_KEY', mode: 'deny' }, { name: KEY_VAR, mode: 'deny' }] },
         }
       : undefined,
+  };
+}
+
+/**
+ * The options a live run passes to the SDK's query(). Pure, so a test can see the wiring (T-441 review, finding 2):
+ * the fence on every tool call (a PreToolUse entry with no matcher), the mode's permission mode and the sandbox.
+ */
+export function queryOptions({ cwd, permissions, sandboxed, writable, home, canUseTool, env, model, effort, fence, recordEffort, stderr }) {
+  const { permissionMode, sandbox } = sessionOptions({ permissions, sandboxed, writable, home });
+  return {
+    cwd,
+    permissionMode,
+    settingSources: [],
+    strictMcpConfig: true,
+    mcpServers: {},
+    systemPrompt: { type: 'preset', preset: 'claude_code' },
+    canUseTool,
+    env,
+    ...(sandbox ? { sandbox } : {}),
+    model,
+    effort,
+    hooks: { PreToolUse: [{ hooks: [fence, recordEffort] }], Stop: [{ hooks: [recordEffort] }] },
+    stderr,
   };
 }
 
@@ -168,7 +212,6 @@ export async function runLive(o) {
   if (o.sandboxed) env.NODE_USE_ENV_PROXY = '1';
   const HOME = process.env.HOME ?? '/Users/unknown';
   const writable = [...new Set([workdir, realpathSync(workdir), probeDir, realpathSync(probeDir)])];
-  const { permissionMode, sandbox } = sessionOptions({ permissions: o.permissions, sandboxed: o.sandboxed, writable, home: HOME });
 
   const book = { permissionRequests: [], questions: [], chatReplies: [], errors: [], timedOut: false, approvalWaitMs: 0 };
   const deny = (toolName, by) => {
@@ -218,21 +261,7 @@ export async function runLive(o) {
   const input = inputQueue();
   const q = query({
     prompt: input,
-    options: {
-      cwd: workdir,
-      permissionMode,
-      settingSources: [],
-      strictMcpConfig: true,
-      mcpServers: {},
-      systemPrompt: { type: 'preset', preset: 'claude_code' },
-      canUseTool,
-      env,
-      ...(sandbox ? { sandbox } : {}),
-      model: o.model,
-      effort: o.effort,
-      hooks: { PreToolUse: [{ hooks: [fence, recordEffort] }], Stop: [{ hooks: [recordEffort] }] },
-      stderr: (d) => raw('stderr', { bytes: String(d).length }),
-    },
+    options: queryOptions({ cwd: workdir, permissions: o.permissions, sandboxed: o.sandboxed, writable, home: HOME, canUseTool, env, model: o.model, effort: o.effort, fence, recordEffort, stderr: (d) => raw('stderr', { bytes: String(d).length }) }),
   });
 
   let finished = false;

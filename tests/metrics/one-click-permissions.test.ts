@@ -2,13 +2,13 @@
 // headline; sandbox-auto (Bash runs unprompted inside the OS sandbox, edits accepted) fills its own block. In both, the
 // harness's fences hold on every call, prompted or not, and the agent key is unset for every sandboxed command.
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { check } from '../../scripts/metrics/check.mjs';
 import { buildSummary } from '../../scripts/metrics/one-click-summary.mjs';
-import { PERMISSIONS, fenceHook, fenced, sessionOptions } from '../../tools/one-click/bench-live.mjs';
+import { PERMISSIONS, fenceHook, fenced, queryOptions, sessionOptions } from '../../tools/one-click/bench-live.mjs';
 import { COMMIT, NOW, ROOT } from './helpers';
 import { liveRecord } from './one-click-records';
 
@@ -94,7 +94,68 @@ describe('the fence hook holds on every call, prompted or not', () => {
   });
 });
 
+describe('the file-tool fence follows symlinks and absolute Glob patterns (review, finding 1)', () => {
+  it('denies a file tool through a link the agent made in its own folder, and allows a plain file there', () => {
+    const base = realpathSync(mkdtempSync(join(tmpdir(), 'crow-fence-')));
+    const root = join(base, 'run');
+    const outside = join(base, 'outside');
+    mkdirSync(root);
+    mkdirSync(outside);
+    writeFileSync(join(outside, 'id_ed25519'), 'not a key');
+    symlinkSync(outside, join(root, 'l'));
+    try {
+      expect(fenced('Read', { file_path: 'l/id_ed25519' }, [root], root)).toBe(true);
+      expect(fenced('Write', { file_path: join(root, 'l', 'new.txt') }, [root], root)).toBe(true);
+      expect(fenced('Edit', { file_path: join(root, 'l', 'id_ed25519') }, [root], root)).toBe(true);
+      expect(fenced('Write', { file_path: join(root, 'buy.mjs') }, [root], root)).toBe(false);
+      expect(fenced('Write', { file_path: join(root, 'deal-1', 'keys.json') }, [root], root)).toBe(false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it('denies a Glob whose pattern is an absolute path outside the run, and allows a relative one', () => {
+    expect(fenced('Glob', { pattern: '/etc/**' }, roots, cwd)).toBe(true);
+    expect(fenced('Glob', { pattern: '~/.ssh/*' }, roots, cwd)).toBe(true);
+    expect(fenced('Glob', { pattern: '**/*.mjs' }, roots, cwd)).toBe(false);
+    expect(fenced('Glob', { pattern: `${cwd}/**/*.json` }, roots, cwd)).toBe(false);
+  });
+});
+
+describe('the options passed to query() (review, finding 2)', () => {
+  const fence = async () => ({});
+  const recordEffort = async () => ({});
+  const opts = (permissions: 'prompt' | 'sandbox-auto', sandboxed = true) => queryOptions({ cwd, permissions, sandboxed, writable: roots, home: '/Users/someone', canUseTool: async () => ({}), env: {}, model: 'claude-opus-5-5', effort: 'medium', fence, recordEffort, stderr: () => {} });
+
+  it.each(PERMISSIONS)('%s: the fence runs on every tool call, with no matcher, and the sandbox is on', (permissions) => {
+    const o = opts(permissions);
+    expect(o.hooks.PreToolUse).toHaveLength(1);
+    expect(o.hooks.PreToolUse[0]).not.toHaveProperty('matcher');
+    expect(o.hooks.PreToolUse[0].hooks).toContain(fence);
+    expect(o.sandbox).toMatchObject({ enabled: true, autoAllowBashIfSandboxed: permissions === 'sandbox-auto' });
+    expect(o.permissionMode).toBe(permissions === 'sandbox-auto' ? 'acceptEdits' : 'default');
+    expect(o.settingSources).toEqual([]);
+    expect(o.mcpServers).toEqual({});
+  });
+
+  it('an unsandboxed prompt run has no sandbox and keeps the fence', () => {
+    const o = opts('prompt', false);
+    expect(o).not.toHaveProperty('sandbox');
+    expect(o.hooks.PreToolUse[0].hooks).toContain(fence);
+  });
+});
+
 describe('the records and the summary keep the two modes apart', () => {
+  it('an unknown mode throws rather than landing in the headline (review, finding 6)', () => {
+    expect(() => liveRecord({ permissions: 'bypassPermissions' })).toThrow(/agent\.permissions is one of/);
+  });
+
+  it("each scenario's latest live run names its mode (review, finding 4)", () => {
+    const s = buildSummary({ records: [liveRecord({ id: 's1', startedAtMs: at(1) }), liveRecord({ id: 's1', startedAtMs: at(2), permissions: 'sandbox-auto' })], generatedAtMs: NOW, commit: COMMIT });
+    expect(s.byScenario.s1.latestLive).toMatchObject({ permissions: 'sandbox-auto' });
+    expect(check('one-click-summary', s)).toEqual({ ok: true, errors: [] });
+  });
+
   it('a live record names its mode; one without the field (before T-441) still passes and reads as prompt', () => {
     const auto = liveRecord({ permissions: 'sandbox-auto' });
     expect(auto.agent.permissions).toBe('sandbox-auto');
@@ -140,10 +201,13 @@ describe('the --permissions flag, before anything is sent', () => {
     [['--scenario', 's1', '--live', '--permissions', 'bypassPermissions'], /--permissions is one of prompt, sandbox-auto/],
     [['--scenario', 's1', '--live', '--permissions', 'sandbox-auto', '--unsandboxed'], /needs the OS sandbox/],
     [['--scenario', 's1', '--permissions', 'sandbox-auto'], /--permissions is for live runs/],
+    [['--scenario', 's1', '--live', '--permissions', 'sandbox-auto', '--out', 'OUT/live'], /holds the other permission mode's records/],
+    [['--scenario', 's1', '--live', '--out', 'OUT/live-sandbox-auto'], /holds the other permission mode's records/],
   ])('refuses %j, writes nothing and never prints the key', (argv, message) => {
     const out = mkdtempSync(join(tmpdir(), 'crow-bench-perm-'));
     try {
-      const r = run([...argv, '--out', out]);
+      const own = argv.includes('--out') ? argv.map((a) => a.replace(/^OUT/, out)) : [...argv, '--out', out];
+      const r = run(own);
       expect(r.status, r.stderr).toBe(2);
       expect(r.stderr).toMatch(message);
       expect(r.stdout + r.stderr).not.toContain(SENTINEL.slice(8));

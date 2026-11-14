@@ -17,7 +17,7 @@
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve, sep } from 'node:path';
+import { basename, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { check } from '../../scripts/metrics/check.mjs';
@@ -84,6 +84,8 @@ if (logsDir && (logsDir === ROOT || logsDir.startsWith(ROOT + sep)) && !logsDir.
 // Scripted and live records never share a folder, so a scripted file is never collected as a measurement; nor do the
 // two live permission modes, so copying live/*.json never picks up a sandbox-auto record (T-441).
 const outDir = resolve(args.out ?? join(ROOT, 'reports/scratch/one-click-bench', !args.live ? 'scripted' : permissions === 'prompt' ? 'live' : `live-${permissions}`));
+// and an explicit --out may not put one mode's record in the other mode's folder (T-441 review, finding 5)
+if (args.live && basename(outDir) === (permissions === 'prompt' ? 'live-sandbox-auto' : 'live')) fail(`--out ${basename(outDir)}/ holds the other permission mode's records; a ${permissions} record goes to ${permissions === 'prompt' ? 'live' : 'live-sandbox-auto'}/`);
 
 // The scripted world imports TypeScript that Node's default type stripping does not take (constructor parameter
 // properties), so a scripted run starts itself again with --experimental-transform-types.

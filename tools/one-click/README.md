@@ -53,6 +53,20 @@ The goal also asks the agent to write a `GUESS:` line whenever the docs leave it
 | `prompt` (the default) | every Bash command and file edit: Claude Code's default mode | `reports/scratch/one-click-bench/live/` | the summary's `headline` |
 | `sandbox-auto` | only what the OS sandbox cannot hold: Bash runs unprompted inside it, file edits in the run's folders are accepted; other tools, question cards and chat replies still ask | `reports/scratch/one-click-bench/live-sandbox-auto/` | the summary's `sandboxAuto` |
 
+The six live runs in `sandbox-auto`, one at a time (the test seller takes 3 requests per client an hour, and s1, s2, s4 and s5 use it):
+
+```
+node tools/one-click/bench.mjs --scenario s1 --live --permissions sandbox-auto --logs reports/scratch/one-click-bench/logs
+node tools/one-click/bench.mjs --scenario s2 --live --permissions sandbox-auto --logs reports/scratch/one-click-bench/logs
+node tools/one-click/bench.mjs --scenario s3 --live --permissions sandbox-auto --logs reports/scratch/one-click-bench/logs
+node tools/one-click/bench.mjs --scenario s4 --live --permissions sandbox-auto --logs reports/scratch/one-click-bench/logs
+node tools/one-click/bench.mjs --scenario s5 --live --permissions sandbox-auto --logs reports/scratch/one-click-bench/logs
+node tools/one-click/bench.mjs --scenario s6 --live --permissions sandbox-auto --logs reports/scratch/one-click-bench/logs
+node scripts/metrics/one-click-summary.mjs --runs reports/scratch/one-click-bench/live-sandbox-auto --out reports/scratch/one-click-summary-sandbox-auto.json
+```
+
+Cost: about USD 6 for the six (guessed). The prompt-mode runs of 2026-11-14 cost USD 5.94 for the six [measured]; the agent does the same work, and only who answers the prompts changes.
+
 `sandbox-auto` is how a careful operator runs an unattended agent: the OS sandbox, not a list of allowed command texts, is what keeps it to Crow's, npm's and Sepolia's hosts and its own folder. It needs the sandbox, so it refuses `--unsandboxed`. Each live record names its mode in `agent.permissions`; a record from before T-441 has none and counts as `prompt`.
 
 **The key.** The run reads `HOLDBACK_AGENT_ANTHROPIC_API_KEY`, the agents' own key that `tools/duet` also uses, never the judges'. Without it the run stops before it imports the SDK or sends anything. The key reaches only the SDK's Claude Code process, as `ANTHROPIC_API_KEY`. It is never printed, and every string the harness writes (the record, and the raw log with `--logs`) passes through `scrubSecrets()` first. The sandbox unsets the key for every sandboxed command (`sandbox.credentials.envVars`, T-441), and the harness also denies the commands that read the environment in plain sight (`printenv`, `env`, `ps e`, `process.env`, `os.getenv`, `$ANTHROPIC…`). With `--unsandboxed` only the denials remain, so a dedicated, spend-capped key, rotated after the runs, stays the last fence. The record's gaps name the key source Claude Code reported, so a run billed to another login shows.

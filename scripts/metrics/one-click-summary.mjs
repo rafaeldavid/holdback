@@ -49,8 +49,11 @@ export function buildSummary({ records, invalid = [], v1 = 0, generatedAtMs, com
   else if (!prompt.length) gaps.push(`${live.length} live record(s), none in the prompt permission mode, so every headline number reads missing.`);
   else if (!deals.length) gaps.push(`${prompt.length} live prompt-mode record(s), none of which reached its end state, so every headline number reads missing.`);
   if (auto.length) gaps.push(`${auto.length} live sandbox-auto record(s) fill sandboxAuto, not the headline.`);
-  const costs = deals.map((r) => r.cost.usdMicros).filter((v) => v !== null);
-  if (deals.length && costs.length < deals.length) gaps.push(`${deals.length - costs.length} of ${deals.length} deal(s) have no cost: a model the price table does not price.`);
+  const autoDeals = auto.filter((r) => r.outcome.success).slice(0, MEDIAN_OF);
+  for (const [ds, what] of [[deals, 'deal(s)'], [autoDeals, 'sandbox-auto deal(s)']]) {
+    const priced = ds.filter((r) => r.cost.usdMicros !== null).length;
+    if (ds.length && priced < ds.length) gaps.push(`${ds.length - priced} of ${ds.length} ${what} have no cost: a model the price table does not price.`);
+  }
 
   const byScenario = {};
   for (const id of SCENARIO_IDS) {
@@ -60,7 +63,7 @@ export function buildSummary({ records, invalid = [], v1 = 0, generatedAtMs, com
     byScenario[id] = {
       live: ownLive.length,
       liveCompleted: ownLive.filter((r) => r.outcome.success).length,
-      latestLive: ownLive[0] ? { runId: ownLive[0].runId, state: ownLive[0].outcome.state, success: ownLive[0].outcome.success } : null,
+      latestLive: ownLive[0] ? { runId: ownLive[0].runId, state: ownLive[0].outcome.state, success: ownLive[0].outcome.success, permissions: permissionsOf(ownLive[0]) } : null,
       latestScripted: lastScripted ? { runId: lastScripted.runId, state: lastScripted.outcome.state, success: lastScripted.outcome.success, blockedBy: lastScripted.outcome.blockedBy } : null,
     };
   }
@@ -70,7 +73,7 @@ export function buildSummary({ records, invalid = [], v1 = 0, generatedAtMs, com
     medianOf: MEDIAN_OF,
     runs: { records: records.length, live: live.length, scripted: records.length - live.length, liveCompleted: live.filter((r) => r.outcome.success).length, invalid: invalid.length, versionOne: v1 },
     headline: headlineOf(deals),
-    sandboxAuto: { live: auto.length, liveCompleted: auto.filter((r) => r.outcome.success).length, headline: headlineOf(auto.filter((r) => r.outcome.success).slice(0, MEDIAN_OF)) },
+    sandboxAuto: { live: auto.length, liveCompleted: auto.filter((r) => r.outcome.success).length, headline: headlineOf(autoDeals) },
     byScenario,
   };
 }
