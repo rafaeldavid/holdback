@@ -1,7 +1,7 @@
 // T-422: the operators' limits on abuse of the public API (docs/operator-threat-model.md). Each Worker refuses a flood
 // and an oversized body before the World object; the World caps, per client and per operator, the deals the relayer
 // funds and the ciphertext bytes it stores each UTC day; and no service limit refuses a replay of an accepted request.
-// The limits are one operator's service protection: `neutrality.operator-rate-limits` shows a party one operator
+// The limits are one operator's service protection: `neutrality.operator-daily-cap` shows a party one operator
 // refuses completing its deal through the other.
 import { readFileSync } from 'node:fs';
 import nacl from 'tweetnacl';
@@ -85,7 +85,7 @@ const expectRateLimited = (status: number, headers: Headers, body: J, retryAfter
 };
 
 describe('the daily cap on deals the relayer funds, per client and per operator', () => {
-  it('neutrality.operator-rate-limits: refused at one operator, the same signed funding goes through the other, and the deal is Released', async () => {
+  it('neutrality.operator-daily-cap: refused at one operator, the same signed funding goes through the other, and the deal is Released', async () => {
     const { urls, other } = await serveWorld({ fundedDealsPerClientPerDay: 1 });
     const capture = captureAgrees();
     try {

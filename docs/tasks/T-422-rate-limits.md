@@ -6,7 +6,7 @@
 - **Depends on:** T-409 (operator hardening, PR 512), T-413 (the `deployedAt` field, PR 505)
 - **Paths this task may touch:** `apps/demo-cloud/` (both operator Workers, the World Durable Object, their Wrangler files and tests); the write path and the idempotency store of `apps/operator/src/` (`server.ts`, `idempotency.ts`) and their tests, which the brief calls operator code (kind 4 covers both packages; the coordinator was told); one new document, `docs/operator-threat-model.md`; this file. Never: `contracts/`, `spec/schemas/`, `docs/api.md`, `site/ref/limits.txt`, the guides' first-deal text, `site/try.mjs`, `site/buy.mjs`.
 - **Human gate:** none for the code. The deploy runs on Rafa's standing word for this wave ("merge and deploy when ready").
-- **Status:** in progress
+- **Status:** review
 - **Agent/session:** the T-422 session, 2026-11-14, branch `t-422-rate-limits`, worktree `.worktrees/holdback-T-422`
 - **Kind:** 4, API and operator code; one `reviewer` pass and one `red-teamer` pass
 
@@ -27,7 +27,7 @@ Every limit is one operator's service protection, stated as configuration with u
 - [ ] `docs/operator-threat-model.md` names each abuse (floods of reads, floods of gas-spending writes, draining the relayer with many small deals, replay storms, large bodies, slow requests, enumeration of other parties' deals), what each costs in units, what already stops it, and what this task adds.
 - [ ] A request over a limit gets `429` with `application/problem+json`, type `rate_limited`, `retryAfterSec`, and a `Retry-After` header in whole seconds. An oversized body gets `413` `payload_too_large` with `maxBytes`.
 - [ ] A replay of an accepted request, with the same Idempotency-Key and the same body, is answered from the stored response when its caller is over the read, write, funded-deal or ciphertext limit.
-- [ ] `neutrality.operator-rate-limits`: one operator refuses a party's funding at its daily cap; another client's deal funds through the same operator at the same time; the party's same signed funding goes through the other operator, and the deal ends Released.
+- [ ] `neutrality.operator-daily-cap` (the name `neutrality.operator-rate-limits` is the throttle's, in `apps/operator/src/neutrality.test.ts`): one operator refuses a party's funding at its daily cap; another client's deal funds through the same operator at the same time; the party's same signed funding goes through the other operator, and the deal ends Released.
 - [ ] Each limit, the replay rule and the fixture has a test that fails before the change (measured).
 - [ ] Discovery's `demo.build` carries `deployedAt` from each Worker's version-metadata binding, or null.
 - [ ] The defaults sit well above what the live flows were measured to need (below), and this file and the Handoff state them with units.
@@ -54,7 +54,7 @@ Each counts per client (an IPv4 address or an IPv6 /64) at each operator apart. 
 | Flood ceiling | 500 requests per 10 s | each Worker, before the World object (Cloudflare rate-limit binding, per location) | 27 per 10 s | 18 times | `ratelimits` in `wrangler.op1.jsonc` and `wrangler.op2.jsonc`; `limits.ts` `FLOOD_CEILING` |
 | Reads | 1,200 per 60 s | the operator, in the World object | 67 per 60 s | 17 times | `RATE_READS_PER_MIN` |
 | Writes | 120 per 60 s per signer (per client before the settlement layer accepts one) | the operator | 4 per deal | 30 times | `RATE_WRITES_PER_MIN` |
-| Replays of accepted requests | 10 times the write budget: 1,200 per 60 s per client | the operator, its own count | 0; 1 after a lost answer | 1,200 times | follows `RATE_WRITES_PER_MIN` |
+| Requests under a known Idempotency-Key, replays included | the write budget's size: 120 per 60 s per client, counted at entry | the operator, its own count | 0; 1 after a lost answer | 120 times | follows `RATE_WRITES_PER_MIN` |
 | Funded deals | 100 per UTC day | the World object, stored | 1; the test buyer funds at most 50 a day | 2 times the test buyer's own cap | `FUNDED_DEALS_PER_CLIENT_PER_DAY` |
 | New ciphertext stored | 256 MiB (268,435,456 bytes) per UTC day | the World object, stored | under 1 KB | more than 250 deliveries of the 1 MiB maximum | `CIPHERTEXT_BYTES_PER_CLIENT_PER_DAY` |
 | Body size | 1 MiB (1,048,576 bytes); 192 KiB (196,608 bytes) for `/v1/adjudicators` | each Worker by Content-Length, then the operator while it reads | 1,010 bytes | 1,000 times | code (`MAX_BODY_BYTES`, `MAX_REGISTRATION_BYTES`) |
@@ -63,12 +63,18 @@ The read and write throttle and its numbers are T-409's era and unchanged; this 
 
 ## Evidence
 
-To be filled in.
+All runs on 2026-11-14, in this worktree, on the Mac. Logs in `reports/scratch/t-422/`.
+
+- **The live flows' needs (measured):** the table above, from one try deal against the live operators (`try1.jsonl`).
+- **The tests fail before the change (measured).** The new tests were committed alone (`4d07b03f`). Run against the original operator, world and Worker files with only the new pure module in place (`before.txt`): 12 of 16 failed. The 4 that passed were the two `DailyCaps` unit tests and `clientKey` (pure functions of the new module) and the replay of an accepted funding over the cap, which passes trivially with no cap.
+- **The replay budget is needed (measured, a mutation run).** With the replay budget's `throttle` line removed from `server.ts`, the replay-flood test failed; restored, it passes.
+- **The red team's attacks fail before their fixes and pass after (measured).** At `bccef8b2` its file failed 11 of 32 tests (its report). At the fix commit, `limits.attack.test.ts` and `limits.test.ts` pass 34 of 34, with the attacks adapted as Decisions 2 and the Review section say.
+- **Checks at the fix commit `fe7ed893` (measured):** `pnpm build`, `pnpm typecheck` and `pnpm lint` exit 0; `pnpm test`: 201 files and 3,960 tests passed, 14 files and 217 tests skipped (the anvil and network ones, as on `main`); `pnpm snap`: 48 of 48; `pnpm validate:spec`: 35 of 35 examples, and `spec/openapi.json` fresh.
 
 ## Decisions
 
 1. **The flood ceiling stands in front of the World object, in each Worker.** Both nodes forward to one Durable Object, which answers one request at a time, so any refusal made inside it still costs every other caller a turn. A Cloudflare rate-limit binding counts in the Worker instead (Cloudflare's documentation: approximate, per location, a 10 s or 60 s period). Each node has its own namespace (4221 and 4222), so a client one refuses still has its full count at the other. The binding fails open: an outage of it must not stop the API.
-2. **A replay escapes the read and write budgets and the daily caps, and meets two limits of its own.** The coordinator asked on 2026-11-14 for a replay flood to meet a limit of its own, stated with units. Replays count in their own budget, ten times the write budget (1,200 per 60 s per client), and the flood ceiling counts every request: the Worker cannot tell a replay from a new request without the World object's idempotency store. A lost answer needs one replay, so both sit more than 100 times above that need.
+2. **A replay escapes the read and write budgets and the daily caps, and meets two limits of its own.** The coordinator asked on 2026-11-14 for a replay flood to meet a limit of its own, stated with units. Every request under a known Idempotency-Key counts at entry in a budget of its own, the size of the write budget (120 per 60 s per client), and the flood ceiling counts every request: the Worker cannot tell a replay from a new request without the World object's idempotency store. A lost answer needs one replay, so both sit 100 times or more above that need. The red team measured that ten times the write budget let one client keep the World object 1.5 s busy each second with 1 MB replays, so the budget is the write budget's size: the same bound on body work as before T-422. A funding for a deal already past funding is not counted at all (the settlement layer spends no funding gas on it), so a replay of one is answered after 00:00 UTC and from another address too.
 3. **Gas is capped as funded deals, not as gas units.** The relayer commits to a deal's gas when it funds it; the later steps are bounded per deal by the contract's stages (one delivery, one decision or settlement, one timeout). Counting fundings needs no change to the settlement adapter, and a funded deal costs about 1.56 million gas [measured on Sepolia, T-389]. 100 a day per client and operator is twice the test buyer's own cap. The steps of deals funded elsewhere (by the caller, at its own gas) are left to the write throttle: the caller pays real gas for each, so the loss is bounded [recorded in the threat model as a residual].
 4. **A storage cap on ciphertext is added.** The threat model found it: each upload of up to 1 MiB stays in the World object for good, and at 120 uploads a minute one client fills the object's 10 GB in about 85 minutes, after which every write fails and the world stops. 256 MiB a day per client and operator keeps that to about 20 client-days.
 5. **One client is an IPv4 address or an IPv6 /64**, by the rule the test agents already use (`clientKey`). The Worker forwards that key, so the operator's existing throttle and the faucet's per-client count change too: an IPv6 host can no longer take a fresh count for each address in its /64.
@@ -81,6 +87,28 @@ To be filled in.
 8. **`demo.build.deployedAt` is per node.** The World object runs holdback-op1's code, but each Worker in front has its own version; each forwards its binding's time in a header it sets itself (a caller's copy is dropped), and discovery shows the time of the Worker that answered. `spec/openapi/paths.json` gets the field and `demo.limits`, both additive (outside `spec/schemas/`; `pnpm openapi` regenerates `spec/openapi.json`).
 9. **A malformed limit variable refuses to start**, as a malformed fee schedule does. The deploy's live try deal would then fail, and the script rolls back by itself.
 
+## Review and red team
+
+**Reviewer (one pass, 2026-11-14): ISSUES; 1 High, 2 Medium, 6 Low or Info.** Report in `reports/scratch/t-422/review/reviewer.md`.
+- **Fixed:**
+  - High 1: a refused replay gave back an accepted funding's count. `takeFunding` now says whether it counted, and only a counted funding is given back.
+  - Medium 2: a replay after 00:00 UTC was refused at the cap. A funding for a deal past funding is no longer counted.
+  - Low 4: re-uploads were counted while under the cap. The stored check now runs first.
+  - Low 6: `neutrality.operator-rate-limits` was taken (the throttle's fixture in `apps/operator/src/neutrality.test.ts`). The new one is `neutrality.operator-daily-cap`.
+  - Low 7 and Info 9: the OpenAPI scope is in Decision 8; Evidence names the four tests that passed before.
+- **Recorded, not fixed:** Medium 3 (Workers share an address) and Lows 5 and 8 (offers and registrations, gas at higher tips) are residuals 6 to 8 in the threat model, with follow-ups.
+
+**Red team (one pass, 2026-11-14): 3 High, 2 Medium, 2 Low.** No attack moved held funds or changed what the contract accepts. Its tests are now `apps/demo-cloud/src/limits.attack.test.ts`.
+- **Fixed:**
+  - F1 High: `//x/v1/…` skipped both daily caps, because the operator routes the path against a placeholder origin. The caps read the routed URL, and each Worker answers 404 for an empty segment.
+  - F2 High: a refused copy of a counted funding, with a bad query or a byte-order mark, gave its count back; 10 deals funded at a cap of 1. Fixed with High 1 above, and the world now decodes as the operator does, keeping the byte-order mark.
+  - F3 High: requests under a known key did their body work before any limit: 75 ms for a 1 MB replay, 1.5 object-seconds a second at 1,200 replays a minute. Every known-key request is now counted at entry against a replay budget of the write budget's size.
+  - F4 Medium: a replay after midnight or from another address was refused. Fixed with Medium 2 above.
+  - F6 Low: a hanging flood binding hung the Worker. It now fails open after 100 ms.
+  - F7 Low: the same as the reviewer's Low 4.
+- **Recorded, not fixed:** F5 Medium, every Worker caller counting as one client: residual 8 in the threat model.
+- **The coordinator's question on the early replay answer** (red team): it cannot skip a limit by itself once F2 and F3 are fixed; it reads another party's stored answer only with that party's key and exact body, as before T-422, and those answers hold public receipts and states; it spends no gas, since it returns before any relay.
+
 ## Handoff
 
-To be filled in.
+To be filled in after the merge and the deploy.
