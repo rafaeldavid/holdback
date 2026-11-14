@@ -75,7 +75,7 @@ export function recordLine({ startedAt, commit, version, before, failure, rolled
  * Deploys the test seller and checks it:
  *   1. pre-flight: refuse a checkout with a tracked change, or one without origin/main's commits;
  *   2. read the live version, the rollback target; refuse when wrangler cannot say;
- *   3. upload with `wrangler deploy`;
+ *   3. upload with `wrangler deploy`, the commit as the variable BUILD_COMMIT (its /version.json names it, T-413);
  *   4. every 5 s for at most 120 s, read the seller's /health until it says operational, then its /agent.json until it
  *      is JSON, then the buyer's /health until it says operational;
  *   5. on a refused upload or a failed check, roll back when the live version changed;
@@ -102,9 +102,8 @@ export async function deploy({ args, config, sh, probe, sleep, now, log, error }
     error(`Refused: ${COMMAND} takes --dry-run or no argument (got ${args.join(' ')}), and it deploys for real.`);
     return 2;
   }
-  const upload = ['npx', ['-y', 'wrangler@4', 'deploy', '-c', config, ...args]];
   if (args.includes('--dry-run')) {
-    const r = await sh(...upload);
+    const r = await sh('npx', ['-y', 'wrangler@4', 'deploy', '-c', config, ...args]);
     return r.code === 0 ? 0 : (r.code ?? 1);
   }
   const { refused, commit } = await checkout(COMMAND, sh);
@@ -112,6 +111,8 @@ export async function deploy({ args, config, sh, probe, sleep, now, log, error }
     error(refused);
     return 2;
   }
+  // T-413: the Worker answers /version.json with the commit it was built from, for Crow Control.
+  const upload = ['npx', ['-y', 'wrangler@4', 'deploy', '-c', config, ...(/^[0-9a-f]{40}$/.test(commit) ? ['--var', `BUILD_COMMIT:${commit}`] : [])]];
   const live = () => liveVersion(WORKER, sh);
   const fail = (why) => {
     throw new Error(why);

@@ -50,7 +50,7 @@
 // or the deployment in HOLDBACK_DEPLOYMENT. Your API prices in that layer's token: `tUSD` on SimChain, the token's
 // address on a chain (discovery, `demo.token.id`). Test tokens only: nothing here is real money.
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { dirname, resolve } from 'node:path';
@@ -189,6 +189,12 @@ export interface SellerAdapterConfig {
   timing: { offerExpiresInSec: number; fundWithinSec: number; deliverWithinSec: number; judgeWithinSec: number; fallbackWithinSec: number; appealWindowSec: number; appealDecideSec: number };
   /** The journal file. Its directory must exist. */
   journal: string;
+  /**
+   * A file the adapter appends one JSON line to for each event (T-417): quotes, stage changes with their times, the
+   * job's states, refusals and deliveries. For the seller's own product metrics. No report content, key, credential,
+   * buyer address or scope goes into it. Left out: no events.
+   */
+  events?: string;
   /** How often the adapter polls the operators and your API, in milliseconds. */
   pollMs: number;
   log?: (line: string) => void;
@@ -236,7 +242,7 @@ export const config: SellerAdapterConfig = {
 // ---- End of the defaults. ----
 
 /** The fields a configuration file may set: every field of the configuration but `log`. */
-const FILE_KEYS = ['port', 'sellerApi', 'template', 'reportMapping', 'scope', 'options', 'termsRules', 'payoutAddress', 'clubId', 'adjudicators', 'mandate', 'timing', 'journal', 'pollMs', 'quoteAuth', 'quoteRateLimit', 'alerts', 'redelivery'];
+const FILE_KEYS = ['port', 'sellerApi', 'template', 'reportMapping', 'scope', 'options', 'termsRules', 'payoutAddress', 'clubId', 'adjudicators', 'mandate', 'events', 'timing', 'journal', 'pollMs', 'quoteAuth', 'quoteRateLimit', 'alerts', 'redelivery'];
 /** Options removed in T-331, each with what to do instead. A configuration that still sets one is refused. */
 const REMOVED: Array<[string, (c: J) => boolean, string]> = [
   ['stream', (c) => c?.stream !== undefined, 'the adapter learns of a funded hold by polling every pollMs; remove the field'],
@@ -303,6 +309,7 @@ export function loadConfig(file: string): SellerAdapterConfig {
   if (f.port !== undefined && !(wholeAtLeast(f.port, 0) && f.port <= 65_535)) throw new Error(`${file}: port must be a whole number from 0 to 65535`);
   if (f.pollMs !== undefined && !wholeAtLeast(f.pollMs, 1)) throw new Error(`${file}: pollMs must be a positive whole number of milliseconds`);
   if (f.journal !== undefined && (typeof f.journal !== 'string' || f.journal === '')) throw new Error(`${file}: journal must be a file path`);
+  if (f.events !== undefined && (typeof f.events !== 'string' || f.events === '')) throw new Error(`${file}: events must be a file path`);
   if (own && Array.isArray(f.termsRules) && f.termsRules.some((r: J) => r?.rubric === true)) {
     // A rule that adds the optional rubric needs a template that holds one: refuse the file, not a buyer's quote.
     let t: J;
@@ -324,17 +331,19 @@ export function loadConfig(file: string): SellerAdapterConfig {
     ...(own ? { ...pass('options'), ...pass('termsRules') } : { options: f.options ?? config.options, termsRules: f.termsRules ?? config.termsRules }),
     timing: { ...config.timing, ...(f.timing ?? {}) },
     journal: f.journal ?? config.journal,
+    ...(f.events === undefined ? {} : { events: f.events }),
     pollMs: f.pollMs ?? config.pollMs,
     redelivery: f.redelivery ?? config.redelivery,
     ...pass('payoutAddress'), ...pass('clubId'), ...pass('adjudicators'), ...pass('mandate'), ...pass('quoteAuth'), ...pass('quoteRateLimit'), ...pass('alerts'),
   } as SellerAdapterConfig;
 }
 
-export type Stage = 'offered' | 'starting' | 'started' | 'refused' | 'delivering' | 'delivered' | 'closed';
+export type Stage = 'offered' | 'starting' | 'start-unknown' | 'started' | 'refused' | 'delivering' | 'delivered' | 'closed';
 /**
  * One deal in the journal. `refused`: the last result failed preflight; the adapter holds the delivery and waits
  * for a fixed report until `deliverBy`. `delivering`: recorded just before the delivery call, so a restart reads
- * the settlement layer before it delivers again.
+ * the settlement layer before it delivers again. `start-unknown` (T-408): a start that cannot be repeated safely was
+ * sent and no job ID came back; the deal waits for a person to name the job (POST /deals/<id>/job) until `deliverBy`.
  */
 export interface Deal {
   id: Hex;
@@ -353,6 +362,12 @@ export interface Deal {
   nextFetchAt?: string | undefined;
   /** The seller said a fixed report is ready: the next pass fetches it. */
   ready?: boolean;
+  /** Start calls sent for this deal, recorded before each call (T-408). */
+  startAttempts?: number;
+  /** When the deal first reached each stage, and when the job finished, by this machine's clock (T-417). */
+  times?: Partial<Record<Stage | 'jobDone', string>>;
+  /** The job's last status value read by a status field, such as `queued` or `running` (T-417). */
+  jobStatus?: string;
 }
 interface Journal {
   deals: Record<string, Deal>;
@@ -781,10 +796,27 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     writeFileSync(`${c.journal}.tmp`, JSON.stringify(journal, null, 2));
     renameSync(`${c.journal}.tmp`, c.journal);
   };
+  // ---- Events (T-417): one JSON line each, for the seller's product metrics; never content, keys or identities ----
+  let eventsBroken = false;
+  const emit = (type: string, fields: Record<string, unknown>) => {
+    if (typeof c.events !== 'string' || c.events === '') return;
+    try {
+      appendFileSync(c.events, `${JSON.stringify({ schema: 'crow.seller-adapter.event/1', at: new Date().toISOString(), type, ...fields })}\n`);
+    } catch (e) {
+      if (!eventsBroken) log(`Events: cannot write ${plain(c.events)} (${plain((e as Error).message)}); the adapter goes on without them.`);
+      eventsBroken = true;
+    }
+  };
+  const secBetween = (from: string | undefined, to: string) => (from === undefined ? null : Math.round((Date.parse(to) - Date.parse(from)) / 1000));
   const record = (deal: Deal, change: Partial<Deal>) => {
+    const from = deal.stage;
     Object.assign(deal, change);
+    const now = new Date().toISOString();
+    const moved = change.stage !== undefined && change.stage !== from;
+    if (moved) deal.times = { ...deal.times, [deal.stage]: deal.times?.[deal.stage] ?? now };
     save();
     log(`${deal.id} is ${deal.stage}${deal.note ? `: ${plain(deal.note)}` : ''}.`);
+    if (moved) emit('deal.stage', { commitmentId: deal.id, stage: deal.stage, from, secSinceOffered: secBetween(deal.times?.offered, now), secSincePrevious: secBetween(deal.times?.[from], now), ...(deal.stage === 'started' ? { startAttempts: deal.startAttempts ?? null } : {}), ...(deal.stage === 'refused' || deal.stage === 'delivered' || deal.stage === 'closed' ? { refusals: deal.refusals ?? 0 } : {}) });
   };
 
   // ---- The mandate: every offer needs one in the club (T-331) ----
@@ -896,9 +928,12 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
       throw new Refused(503, 'seller_unavailable', 'the seller holds no mandate to offer now');
     }
     let quoted: J;
+    let sellerApiQuoteMs: number | null = null;
     try {
       // Your API's errors name the call and the status only; its body is your API's and may be anything.
+      const asked = Date.now();
       quoted = await sellerApi.quote({ buyer, scope, options });
+      sellerApiQuoteMs = Date.now() - asked;
     } catch (e) {
       log(`Quote failed: ${plain((e as Error).message)}.`);
       throw new Refused(502, 'seller_api_failed', 'the seller could not price this scope');
@@ -948,8 +983,9 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     const { id, terms } = offer;
     // Agent.offer signed only terms it rebuilt from this request; this says so again where it matters most.
     if (String(terms.sellerPayoutAddress).toLowerCase() !== payout) throw new Error(`the signed offer ${id} names ${terms.sellerPayoutAddress} as the payout address, not the configured ${payout}`);
-    journal.deals[id] = { id, stage: 'offered', terms, scope, ...(options === undefined ? {} : { options }), ...(typeof quoted.quoteId === 'string' ? { quoteId: quoted.quoteId } : {}) };
+    journal.deals[id] = { id, stage: 'offered', terms, scope, ...(options === undefined ? {} : { options }), ...(typeof quoted.quoteId === 'string' ? { quoteId: quoted.quoteId } : {}), times: { offered: new Date().toISOString() } };
     save();
+    emit('deal.offered', { commitmentId: id, price: terms.price, ...(quoted.units === undefined ? {} : { units: quoted.units }), deliverWithinSec: Math.round((Date.parse(terms.timing.deliverBy) - Date.parse(terms.createdAt)) / 1000), sellerApiQuoteMs });
     log(`${id} is offered to ${terms.buyer} for ${terms.price.amount} base units of ${plain(terms.price.token)}; the offer expires ${terms.timing.offerExpiresAt}.`);
     // What the buyer pays on top of the price: the adjudication fee, and the operators' fee when they publish one.
     const schedule = await seller.operatorFeeSchedule();
@@ -961,7 +997,8 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   }
 
   const inFlight = new Map<string, { bodyHash: string; answer: Promise<J> }>();
-  async function quote(req: IncomingMessage): Promise<J> {
+  /** `replayed`: the same Idempotency-Key and body answered before, so the answer is the stored one (T-417). */
+  async function quote(req: IncomingMessage): Promise<{ answer: J; replayed: boolean }> {
     const body = await readJson(req);
     const { buyer, buyerEncryptionPublicKey, buyerPaymentAddress, scope, options } = body ?? {};
     if (typeof buyer !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(buyer)) throw new Refused(400, 'invalid_request', 'buyer must be an address: 0x and 40 hex characters');
@@ -971,19 +1008,19 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     const wrong = fieldsError('scope', scope, c.scope) ?? (options === undefined ? null : fieldsError('options', options, c.options ?? {}));
     if (wrong) throw new Refused(400, 'invalid_request', wrong);
     const idempotencyKey = req.headers['idempotency-key'];
-    if (idempotencyKey === undefined) return offerFor(buyer.toLowerCase(), buyerEncryptionPublicKey, paying, scope, options);
+    if (idempotencyKey === undefined) return { answer: await offerFor(buyer.toLowerCase(), buyerEncryptionPublicKey, paying, scope, options), replayed: false };
     // The same key with the same body replays the answer; with another body it is a conflict.
     if (typeof idempotencyKey !== 'string' || !/^[\x21-\x7e]{1,200}$/.test(idempotencyKey)) throw new Refused(400, 'invalid_request', 'Idempotency-Key must be 1 to 200 printable characters');
     const bodyHash = createHash('sha256').update(jcs({ buyer: buyer.toLowerCase(), buyerEncryptionPublicKey, ...(paying === undefined ? {} : { buyerPaymentAddress: paying }), scope, ...(options === undefined ? {} : { options }) })).digest('hex');
     const seen = journal.quotes[idempotencyKey] ?? inFlight.get(idempotencyKey);
     if (seen && seen.bodyHash !== bodyHash) throw new Refused(409, 'idempotency_conflict', 'this Idempotency-Key was used with another request');
-    if (seen) return seen.answer;
+    if (seen) return { answer: await seen.answer, replayed: true };
     const answer = offerFor(buyer.toLowerCase(), buyerEncryptionPublicKey, paying, scope, options);
     inFlight.set(idempotencyKey, { bodyHash, answer });
     try {
       journal.quotes[idempotencyKey] = { bodyHash, answer: await answer };
       save();
-      return await answer;
+      return { answer: await answer, replayed: false };
     } finally {
       inFlight.delete(idempotencyKey);
     }
@@ -1008,12 +1045,34 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
       const state = await escrowState();
       if (BEFORE_HOLD.includes(state)) return;
       if (state !== 'Held') return record(deal, { stage: 'closed', note: `the offer ended ${state} with no job started` });
-      record(deal, { stage: 'starting', note: 'every operator shows the hold funded' }); // recorded before the call, so a crash here repeats it under the same key
+      // Recorded before the call. A repeatable start sent again after a crash carries the same key; a one-shot start
+      // counts its attempts from 0 here, so a journal without the count (written before T-408) reads as attempted.
+      record(deal, { stage: 'starting', startAttempts: 0, note: 'every operator shows the hold funded' });
     }
     if (deal.stage === 'starting') {
-      // The idempotency key is the deal's ID, so a start repeated after a crash returns the same job.
+      // A `starting` deal with no count comes from a journal written before T-408, whose start went out at least once.
+      if (!sellerApi.startRepeatable && (deal.startAttempts === undefined || deal.startAttempts > 0)) {
+        // T-408: the API cannot tell a repeat from a new job, so a second start could start (and charge) a second
+        // one. The adapter never sends it again: a person finds the job at the seller and names it.
+        const deliverBy: string = deal.terms.timing.deliverBy;
+        record(deal, { stage: 'start-unknown', note: `the start was sent and no job ID came back; name the job with POST /deals/${id}/job before ${deliverBy}` });
+        return alert({ type: 'job.start_unknown', commitmentId: id, deliverBy }, `the start was sent and no job ID came back; the adapter will not send it again. Find the job at the seller's API and name it with POST /deals/${id}/job before ${deliverBy}`);
+      }
+      if (!sellerApi.startRepeatable) {
+        // The one start: only while the hold is funded and the deadline is ahead.
+        const state = await escrowState();
+        if (state !== 'Held') return record(deal, { stage: 'closed', note: `the deal is ${state}; no job started` });
+        if (Date.parse(deal.terms.timing.deliverBy) <= (await seller.settlementNow())) return record(deal, { stage: 'closed', note: 'the delivery deadline passed before the job started' });
+      }
+      // Recorded before the call: a crash or a lost answer after it is seen on the next pass. A repeatable start
+      // carries the deal's ID as its key, so a repeat returns the same job.
+      record(deal, { startAttempts: (deal.startAttempts ?? 0) + 1 });
       const jobId = await sellerApi.start({ commitmentId: id, quoteId: deal.quoteId, buyer: deal.terms.buyer, scope: deal.scope, options: deal.options });
       record(deal, { stage: 'started', jobId, note: `job ${jobId}` });
+    }
+    if (deal.stage === 'start-unknown') {
+      if (Date.parse(deal.terms.timing.deliverBy) <= (await seller.settlementNow())) return record(deal, { stage: 'closed', note: 'the delivery deadline passed with no job named; the buyer may reclaim the hold' });
+      return;
     }
     if (deal.stage === 'started' || deal.stage === 'refused' || deal.stage === 'delivering') {
       // The settlement layer, not the journal, says whether a delivery is already there. After a crash at the
@@ -1039,7 +1098,16 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
       // The address is the configuration's; only named values, such as the job's ID from your API, go into it.
       const values = { commitmentId: id, quoteId: deal.quoteId, jobId: deal.jobId!, buyer: deal.terms.buyer, scope: deal.scope, options: deal.options };
       const job = await sellerApi.result(values);
-      if (job.state === 'running') return; // the job still runs
+      if (job.state === 'running') {
+        // The job still runs. A new status value (`queued`, then `running`) is an event: the queue's time shows.
+        if (job.status !== undefined && job.status !== deal.jobStatus) {
+          const now = new Date().toISOString();
+          deal.jobStatus = job.status;
+          save();
+          emit('job.status', { commitmentId: id, status: job.status, secSinceStarted: secBetween(deal.times?.started, now) });
+        }
+        return;
+      }
       if (job.state === 'failed') {
         // A failed job is never delivered. The deal closes, so the seller hears of it once.
         const said = `the seller's job ${deal.jobId} failed (${job.status}); nothing is delivered, and the buyer may reclaim the hold after deliverBy ${deliverBy}`;
@@ -1047,6 +1115,12 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
         return alert({ type: 'job.failed', commitmentId: id, jobId: deal.jobId!, status: job.status, deliverBy }, said);
       }
       const result = job.bytes;
+      if (deal.times?.jobDone === undefined) {
+        const now = new Date().toISOString();
+        deal.times = { ...deal.times, jobDone: now };
+        save();
+        emit('job.done', { commitmentId: id, secSinceStarted: secBetween(deal.times?.started, now), bytes: result.length });
+      }
       const resultSha256 = createHash('sha256').update(result).digest('hex');
       let bytes = result;
       try {
@@ -1143,6 +1217,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
       ...(typeof detail['conversion'] === 'string' ? [`NOT CONVERTED ${plain(detail['conversion'])}`] : []),
       ...(typeof detail['files'] === 'string' ? [`FILES NOT ADDED ${plain(detail['files'])}`] : []),
     ];
+    emit('delivery.refused', { commitmentId: deal.id, attempt, failedChecks: Array.isArray((detail as J).checks) ? (detail as J).checks.filter((x: J) => x.outcome !== 'pass').map((x: J) => String(x.checkId)) : [], refusedCode: (detail as J).refused?.code ?? null });
     alert({ type: 'delivery.refused', commitmentId: deal.id, deliverBy, attempt, ...detail, nextFetchAt: nextFetchAt ?? null }, `${reasons.join('; ') || plain(why)}. ${waits}.`);
   }
 
@@ -1171,7 +1246,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     }
     for (const deal of Object.values(journal.deals)) {
       if (closed) return;
-      if (!['offered', 'starting', 'started', 'refused', 'delivering'].includes(deal.stage)) continue;
+      if (!['offered', 'starting', 'start-unknown', 'started', 'refused', 'delivering'].includes(deal.stage)) continue;
       try {
         await advance(deal, passNow, full);
         lastError.delete(deal.id);
@@ -1213,6 +1288,40 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     return send(202, { commitmentId: id, stage: deal.stage, detail: 'the adapter fetches the result again now' });
   }
 
+  /**
+   * POST /deals/<commitmentId>/job, body {"jobId": "<ID>"} (T-408): a person names the job of a deal whose start was
+   * sent with no answer, after finding it at the seller's API. Behind the ready route's credential. The adapter then
+   * follows that job as if the start had answered.
+   */
+  async function jobNamed(req: IncomingMessage, commitmentId: string, send: (status: number, body: unknown, headers?: Record<string, string>) => void): Promise<void> {
+    if (req.method !== 'POST') return req.resume(), send(405, { type: 'method_not_allowed', detail: 'this route takes POST' });
+    if (!bearerOk(req, refusal.ready!)) return req.resume(), send(401, { type: 'unauthorized', detail: 'this route needs Authorization: Bearer <credential>' }, { 'www-authenticate': 'Bearer realm="job"' });
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const c of req) {
+      size += (c as Buffer).length;
+      if (size > 4096) return send(413, { type: 'too_large', detail: 'the body is a JSON object with one jobId' });
+      chunks.push(c as Buffer);
+    }
+    let jobId: unknown;
+    try {
+      jobId = JSON.parse(Buffer.concat(chunks).toString('utf8'))?.jobId;
+    } catch {
+      return send(400, { type: 'invalid_body', detail: 'the body is JSON: {"jobId": "<the job\'s ID>"}' });
+    }
+    if (Number.isSafeInteger(jobId) && (jobId as number) >= 0) jobId = String(jobId);
+    if (typeof jobId !== 'string' || !/^[\x21-\x7e]{1,200}$/.test(jobId)) return send(400, { type: 'invalid_body', detail: 'jobId is the job\'s ID: 1 to 200 printable characters, or a whole number' });
+    const id = commitmentId.toLowerCase();
+    const deal = Object.hasOwn(journal.deals, id) ? journal.deals[id]! : undefined;
+    if (!deal) return send(404, { type: 'not_found', detail: 'this adapter holds no such deal' });
+    if (deal.stage !== 'start-unknown') return send(409, { type: 'not_waiting', detail: `the deal is ${deal.stage}, not waiting for its job's ID` });
+    const holder = Object.values(journal.deals).find((d) => d.id !== deal.id && d.jobId === jobId);
+    if (holder) return send(409, { type: 'job_taken', detail: `job ${jobId} belongs to another deal in this journal, ${holder.id}` });
+    record(deal, { stage: 'started', jobId, note: `job ${jobId}, named by the seller's operator` });
+    wake();
+    return send(202, { commitmentId: id, stage: deal.stage, jobId });
+  }
+
   const server = createServer((req, res) => {
     const send = (status: number, body: unknown, headers: Record<string, string> = {}) => res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...headers }).end(JSON.stringify(body));
     const path = new URL(req.url ?? '/', 'http://adapter').pathname;
@@ -1220,16 +1329,24 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     if (path === '/defaults' && req.method === 'GET') return void res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'max-age=300' }).end(defaults);
     const readyFor = refusal.ready ? /^\/deals\/(0x[0-9a-fA-F]{64})\/ready$/.exec(path)?.[1] : undefined;
     if (readyFor) return void readySignal(req, readyFor, send);
+    const jobFor = refusal.ready ? /^\/deals\/(0x[0-9a-fA-F]{64})\/job$/.exec(path)?.[1] : undefined;
+    if (jobFor) return void jobNamed(req, jobFor, send).catch(() => send(400, { type: 'invalid_body', detail: 'the body could not be read' }));
     if (path !== '/quote') return void send(404, { type: 'not_found', detail: 'this adapter serves POST /quote and GET /defaults' });
     if (req.method !== 'POST') return void send(405, { type: 'method_not_allowed', detail: 'this adapter serves POST /quote' });
     const refused = admit(req); // the rate limit and the credential, before the body is read
     if (refused) {
       req.resume();
+      emit('quote.refused', { status: refused.status, reason: refused.type, ms: 0 });
       return void send(refused.status, { type: refused.type, detail: refused.message }, refused.headers);
     }
+    const asked = Date.now();
     quote(req).then(
-      (answer) => send(200, answer),
+      ({ answer, replayed }) => {
+        emit('quote.answered', { commitmentId: answer.commitmentId, ms: Date.now() - asked, replayed });
+        return send(200, answer);
+      },
       (e: Error) => {
+        emit('quote.refused', { status: e instanceof Refused ? e.status : 500, reason: e instanceof Refused ? e.type : 'internal', ms: Date.now() - asked });
         if (e instanceof Refused) return send(e.status, { type: e.type, detail: e.message }, e.headers);
         log(`Quote failed: ${plain(e.message)}.`);
         return send(500, { type: 'internal', detail: 'the adapter could not answer' });
@@ -1248,6 +1365,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   const source = (yes: boolean) => (yes ? 'from discovery' : 'from the configuration');
   log(`Offers name club ${plain(clubId)} and its adjudicators ${fromDiscovery.club === fromDiscovery.adjudicators ? source(fromDiscovery.club) : `${source(fromDiscovery.adjudicators)}, the club ${source(fromDiscovery.club)}`}: primary ${adjudicators.primary}, fallback ${adjudicators.fallback}, appeal ${adjudicators.appeal}. The mandate ends ${at(mandateUntil)}${faucet ? '; the faucet renews it' : ''}.`);
   log(`A refused result alerts by the log${refusal.callback ? ' and the callback' : ''}${refusal.secret ? ', signed' : ''}; the adapter fetches it again ${refusal.refetchEverySec === undefined ? 'only when you say' : `every ${refusal.refetchEverySec} s`}${refusal.ready ? ', and on POST /deals/<commitmentId>/ready' : ''}, until deliverBy.`);
+  if (!sellerApi.startRepeatable) log(`The seller API's start is sent at most once a deal: ${sellerApi.startOneShotBecause}. A start sent with no answer holds the deal at start-unknown${refusal.ready ? ', until you name the job with POST /deals/<commitmentId>/job' : '; with no ready credential set (redelivery.readyAuth) nobody can name the job, and the deal closes at deliverBy'}.`);
   const limit = c.quoteRateLimit?.overall;
   log(sellerApi.describe);
   log(`The quote route takes ${c.quoteAuth ? `a bearer credential from ${plain(c.quoteAuth.env)}` : 'no credential'}; rate limit ${limit ? `${limit.requests} per ${limit.windowSec} s` : 'none'}.`);

@@ -38,6 +38,12 @@ export interface StartMapping extends CallMapping {
   read?: { jobId?: string };
   /** The header that carries the deal's ID as the idempotency key. Left out: `Idempotency-Key`. */
   idempotencyHeader?: string;
+  /**
+   * Whether the API returns the same job when the start is sent again with the same key (T-408). Left out: true
+   * when the mapping names an `idempotencyHeader`, false when it names none. A start that is not repeatable is sent at
+   * most once a deal.
+   */
+  repeatable?: boolean;
 }
 /** How the result call says the job runs, is done or failed. Left out: HTTP 202 runs, 200 is done. */
 export type JobStatus =
@@ -88,13 +94,18 @@ export interface Values {
 /** A further file could not be fetched or added: the delivery waits, and the seller is alerted. */
 export class FilesNotAdded extends Error {}
 
-export type JobAnswer = { state: 'running' } | { state: 'failed'; status: string } | { state: 'done'; bytes: Uint8Array };
+/** `status`, when the state is read by a field: the field's value, such as `queued` or `running` (T-417, for the events). */
+export type JobAnswer = { state: 'running'; status?: string } | { state: 'failed'; status: string } | { state: 'done'; bytes: Uint8Array };
 
 export interface SellerApi {
   /** One log line: where the API is and how it is reached. Names the credential's variable, never its value. */
   describe: string;
   /** false: the quote's answer names no token, so the price is in the settlement layer's token. */
   readsToken: boolean;
+  /** false: a start sent again could start a second job, so the adapter sends it at most once a deal (T-408). */
+  startRepeatable: boolean;
+  /** Why a start is not repeatable, for the start-up line; absent when it is. */
+  startOneShotBecause?: string;
   quote(v: Values): Promise<J>;
   start(v: Values): Promise<string>;
   result(v: Values): Promise<JobAnswer>;
@@ -352,7 +363,12 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
   const s = api.start;
   const idem = isRecord(s) && s.idempotencyHeader !== undefined ? s.idempotencyHeader : 'Idempotency-Key';
   if (typeof idem !== 'string' || !TOKEN.test(idem) || RESERVED_HEADERS.includes(idem.toLowerCase()) || idem.toLowerCase() === auth?.header) throw new Error('sellerApi.start.idempotencyHeader must be a header name other than the credential\'s');
-  const start = prepare('sellerApi.start', s, 'start', { method: 'POST', body: { commitmentId: '{{commitmentId}}', quoteId: '{{quoteId}}', scope: '{{scope}}', options: '{{options}}' } }, ['read', 'idempotencyHeader'], [idem.toLowerCase()]);
+  const start = prepare('sellerApi.start', s, 'start', { method: 'POST', body: { commitmentId: '{{commitmentId}}', quoteId: '{{quoteId}}', scope: '{{scope}}', options: '{{options}}' } }, ['read', 'idempotencyHeader', 'repeatable'], [idem.toLowerCase()]);
+  // T-408: today's three addresses take the deal's ID as their key, so they repeat safely; a mapping repeats safely
+  // only when it names the header its API keys a start by, or says so.
+  if (isRecord(s) && s.repeatable !== undefined && typeof s.repeatable !== 'boolean') throw new Error('sellerApi.start.repeatable must be true or false');
+  const startRepeatable = !isRecord(s) ? true : s.repeatable ?? s.idempotencyHeader !== undefined;
+  const startOneShotBecause = startRepeatable ? undefined : isRecord(s) && s.repeatable === false ? 'the mapping says "repeatable": false' : 'the mapping names no idempotencyHeader';
   const startRead = pointers('sellerApi.start.read', isRecord(s) ? s.read : undefined, { jobId: '/jobId' });
 
   // ---- The result ----
@@ -437,6 +453,8 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
 
   return {
     readsToken,
+    startRepeatable,
+    ...(startOneShotBecause ? { startOneShotBecause } : {}),
     describe: `The seller API is ${base ? `under ${base.href}` : 'at the three configured addresses'}, with ${auth ? `a credential from ${auth.env} in header ${auth.header}` : 'no credential'}${unitsAt !== undefined ? `; a quote prices ${plain(unitsAt)} units at ${unitPrice} base units each` : ''}; its job state is read by ${status.by === 'http' ? 'HTTP status' : 'a status field'}${files ? `, and a result's further files are added at ${plain(rm.files.into)}` : ''}.`,
 
     async quote(v) {
@@ -446,14 +464,16 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
       const read = (k: string) => pick(a, quoteRead[k]!);
       const quoteId = read('quoteId');
       let amount: J = unitsAt === undefined ? read('amount') : undefined;
+      let unitsRead: string | undefined;
       if (unitsAt !== undefined) {
         const units = read('units');
         const whole = (typeof units === 'number' && Number.isSafeInteger(units) && units >= 0) || (typeof units === 'string' && /^(0|[1-9][0-9]{0,30})$/.test(units));
         if (!whole) throw new Error(`the quote's ${plain(unitsAt)} is not a whole number of units, as a JSON number or digits with no leading zero: ${short(JSON.stringify(units ?? null))}`);
         amount = (BigInt(units) * BigInt(unitPrice)).toString();
+        unitsRead = String(units);
         if (amount.length > 78) throw new Error(`the quote's price, ${units} units at ${unitPrice} base units, is larger than base units can hold`);
       }
-      return { price: { token: readsToken ? read('token') : undefined, amount }, quoteId: Number.isSafeInteger(quoteId) ? String(quoteId) : quoteId, deliverWithinSec: read('deliverWithinSec'), ...(validFor ? { validForSec: read('validForSec') } : {}) };
+      return { ...(unitsRead === undefined ? {} : { units: unitsRead }), price: { token: readsToken ? read('token') : undefined, amount }, quoteId: Number.isSafeInteger(quoteId) ? String(quoteId) : quoteId, deliverWithinSec: read('deliverWithinSec'), ...(validFor ? { validForSec: read('validForSec') } : {}) };
     },
 
     async start(v) {
@@ -476,7 +496,7 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
         ok2xx('the result', code);
         const word = pick(json(bytes, 'the result'), status.pointer);
         const w = typeof word === 'string' || typeof word === 'number' || typeof word === 'boolean' ? String(word) : undefined;
-        if (w !== undefined && status.running.includes(w)) return { state: 'running' };
+        if (w !== undefined && status.running.includes(w)) return { state: 'running', status: short(w) };
         if (w !== undefined && status.failed.includes(w)) return { state: 'failed', status: short(w) };
         if (w === undefined || !status.done.includes(w)) throw new Error(`the seller API's job status ${w === undefined ? 'is missing' : `"${short(w)}" is none of the configured values`}`);
       }

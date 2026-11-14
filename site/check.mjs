@@ -362,5 +362,27 @@ if (failures.length) {
   for (const f of failures) console.error(`FAIL ${f}`);
   process.exit(1);
 }
+
+// The budget as a file (T-413), for Crow Control: a publish build that passed writes each role's path, measured on the
+// built files, to reports/site-out/guide-budget.json, which the deploy serves at https://crow.direct/guide-budget.json
+// (shape: site/guide-budget.mjs and guide-budget.schema.json). Without a publish build nothing is written.
+if (existsSync(here('../reports/site-out/llms.txt'))) {
+  const { guideBudget, GUIDE_BUDGET_FILE } = await import('./guide-budget.mjs');
+  const { buildCommit } = await import('./build.mjs');
+  const { writeFileSync } = await import('node:fs');
+  const builtPaths = new Map([...new Set(Object.values(FIRST_DEAL_BUDGET.paths).flat())].map((p) => [p, read(`../reports/site-out/${p}`)]));
+  // A provider count that fails here (a 429, the network) falls back to the estimate, which the file names: the
+  // budget check above already passed, so the file never stops a build.
+  let paths;
+  try {
+    paths = await measurePaths(builtPaths);
+  } catch (e) {
+    console.log(`guide-budget.json counts by the estimate: the provider's count failed (${String(e.message).slice(0, 120)})`);
+    paths = await measurePaths(builtPaths, { key: '' });
+  }
+  const body = guideBudget(paths, { generatedAt: new Date(), commit: buildCommit() });
+  writeFileSync(here(`../reports/site-out/${GUIDE_BUDGET_FILE}`), `${JSON.stringify(body, null, 2)}\n`);
+  console.log(`wrote reports/site-out/${GUIDE_BUDGET_FILE}: ${body.paths.map((p) => `${p.role} ${p.tokens} of ${body.budget.tokens} tokens (${p.method})`).join(', ')}`);
+}
 for (const m of measured) console.log(`first-deal path, ${m.role}: ${m.files.join(' + ')}, ${m.bytes} bytes, ${m.tokens} of ${FIRST_DEAL_BUDGET.tokens} tokens (${m.method})${m.counted === null ? '' : `; the estimate, bytes divided by four, is ${m.estimate}`}`);
 console.log(`site check PASS: one source, placeholders in place, links resolve under ${BASE}, content agrees with docs/api.md and examples/verify.ts, try.mjs current and its command in llms.txt, the test seller and the test buyer as apps/test-agents runs them, the role pages, the guides together, and each role's first-deal path within its budget`);

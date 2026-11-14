@@ -67,6 +67,28 @@ const stopped = (r: Run) => {
   expect(r.err.trimEnd().split('\n').at(-1)).toBe(shown.approve);
   return shown;
 };
+/** A front to one operator: forwards every request, unless `answer` answers it; `rewrite` may change a JSON answer. */
+async function front(target: string, o: { answer?: (method: string, path: string) => { status: number; headers: Record<string, string>; body: J } | null; rewrite?: (path: string, body: J) => J }) {
+  const server = createServer(async (req, res) => {
+    const own = o.answer?.(req.method!, req.url ?? '/');
+    if (own) return void res.writeHead(own.status, { 'content-type': 'application/problem+json', ...own.headers }).end(JSON.stringify(own.body));
+    const chunks: Buffer[] = [];
+    for await (const c of req) chunks.push(c as Buffer);
+    const r = await fetch(`${target}${req.url}`, { method: req.method!, headers: { 'content-type': String(req.headers['content-type'] ?? 'application/json'), ...(req.headers['idempotency-key'] ? { 'idempotency-key': String(req.headers['idempotency-key']) } : {}) }, ...(chunks.length ? { body: Buffer.concat(chunks) } : {}) });
+    const type = r.headers.get('content-type') ?? 'application/json';
+    let body: string | Buffer = Buffer.from(await r.arrayBuffer());
+    if (o.rewrite && r.ok && type.includes('json')) body = JSON.stringify(o.rewrite(req.url ?? '/', JSON.parse(body.toString())));
+    res.writeHead(r.status, { 'content-type': type }).end(body);
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return {
+    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    close: () => new Promise<void>((resolve) => {
+      server.closeAllConnections();
+      server.close(() => resolve());
+    }),
+  };
+}
 const events = async (id: string) => ((await (await fetch(`${world.info.operators[0]}/v1/commitments/${id}/events?limit=200`)).json()) as { items: Array<{ type: string }> }).items.map((e) => e.type);
 const balance = async (address: string) => ((await (await fetch(`${world.info.operators[1]}/v1/balances/${address}`)).json()) as { amount: string }).amount;
 
@@ -183,6 +205,84 @@ describe('buy-with-signer.ts: the approval stop', () => {
     expect(budget.code).toBe(1);
     expect(budget.err).toContain('the most you pay is base units as a decimal string');
   }, 60_000);
+
+  it('stops on a faucet 429 with one plain line: the grants are used, the seconds until it grants again, nothing paid (T-399 Finding 2)', async () => {
+    const store = dir();
+    const shown = stopped(await buy([quoteUrl(), store, SCOPE, BUDGET]));
+    // The relay answers the faucet as the live one did at its 11th grant in an hour.
+    const relay = await front(world.info.operators[0]!, {
+      answer: (method, path) => (method === 'POST' && path === '/v1/faucet' ? { status: 429, headers: { 'retry-after': '2264' }, body: { type: 'rate_limited', status: 429, detail: 'too many faucet grants from this client; retry later', retryAfterSec: 2264 } } : null),
+    });
+    try {
+      const r = await buy(['approve', store, shown.commitmentId, BUDGET], [relay.url, world.info.operators[1]!]);
+      expect(r.code, r.err).toBe(1);
+      expect(r.err).not.toMatch(/^\s+at /m); // no stack trace
+      // The line names the approve command: an unattended run (--expect-terms) printed none before.
+      expect(r.err.trimEnd().split('\n')).toEqual([`Stopped: the faucet refused a grant (429: too many faucet grants from this client; retry later). It grants again in 2264 s. Nothing is signed or paid. Then, before offerExpiresAt, run: HOLDBACK_OPERATORS=${relay.url},${world.info.operators[1]} node examples/buy-with-signer.ts approve ${store} ${shown.commitmentId} ${BUDGET}`]);
+      expect(r.out).toBe('');
+      expect(await events(shown.commitmentId)).not.toContain('hold.funded');
+    } finally {
+      await relay.close();
+    }
+  }, 60_000);
+
+  it('reads the events again when one operator lags a few seconds behind, and still stops when it stays behind (T-399 Finding 5)', async () => {
+    // After the release, the second operator serves its event list without the last event: first three times, then always.
+    let lies = 0, limit = 3;
+    const lag = await front(world.info.operators[1]!, {
+      rewrite: (path, body) => {
+        if (!/^\/v1\/commitments\/0x[0-9a-f]{64}\/events/.test(path) || !body.items?.some((e: J) => e.type === 'settlement.released') || lies >= limit) return body;
+        lies++;
+        return { ...body, items: body.items.slice(0, -1) };
+      },
+    });
+    try {
+      const operators = [world.info.operators[0]!, lag.url];
+      const store = dir();
+      const shown = stopped(await buy([quoteUrl(), store, SCOPE, BUDGET], operators));
+      const done = await buy(['approve', store, shown.commitmentId, BUDGET], operators);
+      expect(done.code, done.err).toBe(0);
+      expect(lies).toBe(3);
+      expect(JSON.parse(done.out)).toMatchObject({ commitmentId: shown.commitmentId, outcome: 'Released' });
+
+      // An operator that stays behind is a real disagreement: the run stops, as before, after reading again for about 15 s.
+      lies = 0;
+      limit = Infinity;
+      const second = dir();
+      const again = stopped(await buy([quoteUrl(), second, SCOPE, BUDGET], operators));
+      const started = Date.now();
+      const stuck = await buy(['approve', second, again.commitmentId, BUDGET], operators);
+      expect(stuck.code).toBe(1);
+      expect(stuck.err).toContain(`operators disagree on /v1/commitments/${again.commitmentId}/events?limit=200; do not proceed`);
+      expect(Date.now() - started).toBeGreaterThan(15_000);
+    } finally {
+      await lag.close();
+    }
+  }, 150_000);
+
+  it('after the operators disagreed, does not take one operator\'s answer alone when the other stops answering', async () => {
+    // After the release the second operator answers the watch's read of its events, contradicts the first operator on
+    // the next one (openDelivery's comparison), then answers its events with 503.
+    let down = false, reads = 0;
+    const flaky = await front(world.info.operators[1]!, {
+      answer: (_method, path) => (down && /\/events/.test(path) ? { status: 503, headers: {}, body: { type: 'unavailable', status: 503, detail: 'down' } } : null),
+      rewrite: (path, body) => {
+        if (!/^\/v1\/commitments\/0x[0-9a-f]{64}\/events/.test(path) || !body.items?.some((e: J) => e.type === 'settlement.released') || ++reads < 2) return body;
+        down = true;
+        return { ...body, items: body.items.slice(0, -1) };
+      },
+    });
+    try {
+      const operators = [world.info.operators[0]!, flaky.url];
+      const store = dir();
+      const shown = stopped(await buy([quoteUrl(), store, SCOPE, BUDGET], operators));
+      const r = await buy(['approve', store, shown.commitmentId, BUDGET], operators);
+      expect(r.code).toBe(1);
+      expect(r.err).toContain(`operators disagree on /v1/commitments/${shown.commitmentId}/events?limit=200; do not proceed (after they differed, 1 answered)`);
+    } finally {
+      await flaky.close();
+    }
+  }, 90_000);
 
   it('approves and stops after funding; resume, in a later process, opens the delivered work', async () => {
     const store = dir();

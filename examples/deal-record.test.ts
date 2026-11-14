@@ -225,7 +225,7 @@ describe('deal-record.ts writes one verified record of a finished deal (T-333)',
 });
 
 /** A proxy in front of one operator that rewrites some answers: the escrow state, the terms' price, a ciphertext URI. */
-async function proxy(target: string, lie: { state?: string; tamperPrice?: string; ciphertextUri?: string; noPostings?: boolean }): Promise<{ url: string; close(): Promise<void> }> {
+async function proxy(target: string, lie: { state?: string; tamperPrice?: string; ciphertextUri?: string; noPostings?: boolean; txs?: Record<string, string> }): Promise<{ url: string; close(): Promise<void> }> {
   const server = createServer(async (req, res) => {
     const path = req.url ?? '/';
     const up = await realFetch(`${target}${path}`, { method: req.method! });
@@ -237,6 +237,8 @@ async function proxy(target: string, lie: { state?: string; tamperPrice?: string
       if (lie.ciphertextUri && /\/events/.test(path)) for (const e of body.items) if (e.type === 'delivery.submitted') e.payload.ciphertext.uri = lie.ciphertextUri;
       // A chain's events carry no postings (packages/settlement/evm/evm-settlement.ts:1538): the shape of the EVM world.
       if (lie.noPostings && /\/events/.test(path)) for (const e of body.items) if (e.payload) delete e.payload.postings;
+      // A chain's events carry the transaction that emitted them, and one transaction can emit several (a decision's).
+      if (lie.txs && /\/events/.test(path)) for (const e of body.items) if (lie.txs[e.type]) e.payload = { ...e.payload, tx: lie.txs[e.type] };
       text = JSON.stringify(body);
     }
     res.writeHead(up.status, { 'content-type': up.headers.get('content-type') ?? 'application/json' }).end(text);
@@ -263,6 +265,24 @@ describe('deal-record.ts when a release\'s event carries no postings (T-390)', (
       expect(by['postings conserve the hold']?.ok).toBe(false);
       expect(by['postings follow the outcome']?.ok).toBe(false);
       expect(r.row).toMatchObject({ outcome: 'Released', paidTo: null });
+    } finally {
+      await Promise.all(fronts.map((f) => f.close()));
+    }
+  }, 60_000);
+});
+
+describe('deal-record.ts lists each transaction once (T-399 Finding 6)', () => {
+  it('a decision that emits three events in one transaction is one transaction, under its first step', async () => {
+    const released = await deal(GOOD);
+    const fund = `0x${'1'.repeat(64)}`, decide = `0x${'2'.repeat(64)}`;
+    const txs = { 'hold.funded': fund, 'judgment.decided': decide, 'settlement.released': decide, 'key.released': decide };
+    const fronts = await Promise.all(world.info.operators.map((op) => proxy(op, { txs })));
+    try {
+      const r = await dealRecord(released.id, { operators: fronts.map((f) => f.url), party: 'buyer' });
+      // The step is the first of the three in the event order the operators serve (SimChain releases the key first).
+      const first = (r.steps as J[]).map((x) => x.step).find((x) => ['judgment.decided', 'settlement.released', 'key.released'].includes(x));
+      expect((r.settlement as J).transactions).toEqual([{ step: 'hold.funded', tx: fund, url: null }, { step: first, tx: decide, url: null }]);
+      expect(r.row.transactions).toEqual([fund, decide]);
     } finally {
       await Promise.all(fronts.map((f) => f.close()));
     }
