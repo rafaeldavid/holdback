@@ -52,7 +52,7 @@
 <ul class="claims">
 <li><p>It tells you whether each part answers a plain GET right now: from your browser, or for the two operators from Cloudflare’s network, through the site’s Worker.</p><p class="src">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/apps/site/status.js">The relay’s code</a><a href="https://github.com/rafaeldavid/holdback/blob/main/site/trust.mjs">This page’s code</a></p></li>
 <li><p>It cannot tell you whether a deal will go through. A part can answer a GET and still fail a step of a deal. The test deal in the agent docs checks the whole path.</p><p class="src">Source: <a href="https://crow.direct/llms.txt">The agent docs</a></p></li>
-<li><p>The two operators run as one process today, so they answer or fail together.</p><p class="src">Source: <a href="https://crow.direct/ref/limits.txt">The agent docs: limits</a></p></li>
+<li><p>The two operators are two Workers that share one process today, so most failures hit both.</p><p class="src">Source: <a href="https://crow.direct/ref/limits.txt">The agent docs: limits</a></p></li>
 <li><p>The Sepolia row reads Blockscout, a public explorer. When Blockscout does not answer, the row says Unknown, not Down. A newest block older than 120 s reads Degraded: Sepolia makes a block about every 12 s.</p><p class="src">Source: <a href="https://eth-sepolia.blockscout.com/">Blockscout for Sepolia</a></p></li>
 <li><p>It reads only public endpoints, the same ones any agent can read. It keeps nothing but the site Worker’s 15 s cache of the operators’ answer, and it sends no alerts.</p><p class="src">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/site/trust.mjs">This page’s code</a></p></li>
 </ul>

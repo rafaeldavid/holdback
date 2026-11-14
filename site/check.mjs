@@ -42,7 +42,9 @@
 // 12. The budget (T-393): each role's first-deal path, the front door plus its page, is within FIRST_DEAL_BUDGET
 //    (site/guides.mjs). With HOLDBACK_AGENT_ANTHROPIC_API_KEY set it counts with Anthropic's count_tokens for the
 //    pinned model; without it, bytes divided by four. It says which.
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { OG_IMAGE } from './footer.ts';
 import { ASSETS, BASE, BUY_COMMANDS, HOME_CSS, HOME_JS, notFoundPage, visualdemoPage, BUY_MJS_URL, BUY_URL, buyBundle, buyInstall, buySha256, filled, page, pins, problemPages, publishedGuides, SELL_URL, SITE_URL, strip, TEST_SELLER_URL, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
 import { apiRoutes, citedSections, duplicateSentences, hasSection, FIRST_DEAL_BUDGET, guideFiles, guideSource, measurePaths, namedCalls, namedReferences, referenceFiles, nonAscii, routeKnown } from './guides.mjs';
@@ -394,6 +396,9 @@ if (existsSync(here('trust.html'))) {
   for (const w of ['no outside audit', 'SOC 2', 'test network']) expect(shownText(t).includes(w), `site/trust.html no longer says "${w}": it states plainly what is not there yet`);
   const repo = 'https://github.com/rafaeldavid/holdback/';
   for (const m of t.matchAll(/href="https:\/\/github\.com\/rafaeldavid\/holdback\/(blob|tree)\/main\/([^"#]+)/g)) expect(existsSync(here(`../${m[2]}`)), `site/trust.html links ${repo}${m[1]}/main/${m[2]}, which is not in this checkout`);
+  // The page names Coinbase's escrow at the commit contracts/lib/commerce-payments pins.
+  const pin = spawnSync('git', ['-C', fileURLToPath(here('..')), 'ls-tree', 'HEAD', 'contracts/lib/commerce-payments'], { encoding: 'utf8' }).stdout.split(/\s+/)[2] ?? '';
+  expect(/^[0-9a-f]{40}$/.test(pin) && t.includes(`commerce-payments/blob/${pin}/`), `site/trust.html does not link Coinbase's escrow at the pinned commit ${pin || '(unread)'}`);
   const record = JSON.parse(read('../contracts/deployments/sepolia.json'));
   for (const a of [record.escrow, record.rules, record.token.address]) expect(t.includes(`https://sepolia.etherscan.io/address/${a}`), `site/trust.html does not link ${a} from contracts/deployments/sepolia.json`);
 }
@@ -402,7 +407,7 @@ if (existsSync(here('status.html'))) {
   for (const id of ['site', 'op1', 'op2', 'seller', 'network']) expect(st.includes(`data-check="${id}"`), `site/status.html has no row for ${id}`);
   const read_ = [...script.matchAll(/timed\('([^']+)'\)/g)].map((m) => m[1]);
   expect(read_.length === 4 && read_.every((u) => (trust.STATUS_SOURCES ?? []).includes(u)), `site/status.html's script reads ${read_.join(', ') || 'nothing'}, not its listed public sources`);
-  expect(!/https?:\/\/(?!eth-sepolia\.blockscout\.com\/)/.test(script), 'site/status.html\'s script names a host other than the site and Blockscout');
+  expect(!/(?:https?:)?\/\/(?!eth-sepolia\.blockscout\.com\/)/.test(script) && (script.match(/\bfetch\(/g) ?? []).length === 1, 'site/status.html\'s script names a host other than the site and Blockscout, or fetches outside timed()');
   expect(!/control\.crow\.direct|localStorage|sessionStorage|indexedDB/.test(st), 'site/status.html reads the private console or keeps state');
 }
 const secOk = (text, where) => {

@@ -47,6 +47,15 @@ From the wave brief and the done-when lines of N109 and N119, as far as this tas
 Fill this in before review. Label each item measured, inferred or guessed.
 
 - The security contact exists (measured, 2026-11-14 11:00 UTC): `gh api repos/rafaeldavid/holdback/private-vulnerability-reporting` answers `{"enabled":true}`, and `SECURITY.md` on `main` names it.
+- `site/check.mjs` before the build change (measured): 13 failures, among them `site/trust.html is not what site/build.mjs renders`, `index.html's footer does not link /trust`, `site/build.mjs exports no demoPage()` and `SECURITY.md does not name the contact that security.txt names`. After: `site check PASS`, on the source build and on a publish build into `reports/site-out`.
+- Tests (measured): `npx vitest run` on `tests/site-status.test.ts`, `forwarding.test.ts`, `build-info.test.ts`, `site-deploy.test.ts`, `site-guides.test.ts` and `health.test.ts`: 56 of 56 pass. `pnpm typecheck` exits 0; `eslint` on the changed files reports nothing.
+- Pinned files (measured): `site/try.mjs` sha256 `04ef4434fb4b5635bb3c49df69c7547f3200c6c41f903237ee37098be23f75c8` and `site/buy.mjs` sha256 `e74ff2230f0d4fd426525095731e42d50b65b55ab7792a43cab73c302b22eb88`, the same as `origin/main` at `12794e41`.
+- Layout (measured in the app's browser, local publish build): at 375 px wide both pages are 375 px wide, with no sideways scroll; at desktop width the status table shows its four columns.
+- Names (measured): the new pages and `SECURITY.md` match none of the 36 patterns in crow-private `roadmap/deny.txt`.
+- Review (one `reviewer` pass, 2026-11-14): ISSUES, one High, four Medium, seven Low. All fixed in the second commit:
+  - High: the page said the live operators take problem reports and keep them 90 days. They take none (measured: `GET https://api.crow.direct/v1/feedback/abc` answers 404, and discovery has no `feedback` key; `docs/operations.md`, Feedback triage). The page now says so and points to GitHub issues.
+  - Medium: the Cantina claim now says April 2025 for the whole contract and July 2026 for PR 90 at the pinned commit, names PR 71 as unreviewed, and links the cross-check and the pinned submodule; the payment hold's backstop (the buyer's payment address reclaims from the escrow `expiryMarginSec` after the last decision deadline) is stated; the reviewers' and operators' signing keys, derived from a secret in the operators' Durable Object storage, are named; the reviewers' outage while the service is down is stated.
+  - Low: the token store, error lines in Workers Logs, the first reviewer and the buyer as the work's recipients, the status check's regex (now refuses `//host` and any fetch outside `timed()`; measured: a mutation with `fetch('//evil.example/x')` now fails), "most failures hit both", the demo principal behind every test mandate.
 - The status page's sources answer a plain GET (measured, 2026-11-14 11:00 UTC): `https://api.crow.direct/.well-known/holdback.json` and `https://api2.crow.direct/.well-known/holdback.json` answer 200 with no `access-control-allow-origin` header; `https://crow.direct/version.json` and `https://crow.direct/agents/test-seller/health` answer 200 with `access-control-allow-origin: *`; `https://eth-sepolia.blockscout.com/api/v2/...` answers 200 with `access-control-allow-origin: *`.
 
 ## Decisions
@@ -57,4 +66,9 @@ Fill this in before review. Label each item measured, inferred or guessed.
 
 ## Handoff
 
-In progress.
+Built and reviewed; the live checks after the deploy go below.
+
+- **For T-423 (`site/ref/limits.txt` is its file in this wave):** "Reporting a problem" tells agents to `POST /v1/feedback`, kept 90 days. The live operators take no reports (measured above). The trust page no longer links that section for reporting; the line in `limits.txt` stays wrong until T-423 or a later task changes it.
+- **Row N109, what still stands between `enterprise/` and its done-when** (coordinator's scope note, 2026-11-14): the done-when asks for a completed SIG Lite or CAIQ and the CSA STAR Level 1 self-assessment. crow-private `enterprise/security-questionnaire.md` answers 47 common questions. A completed CAIQ v4 has about 260 questions across 17 domains (guessed from the public CAIQ; not downloaded, as the note asks); SIG Lite is a licensed Shared Assessments sheet, also not downloaded. A STAR Level 1 entry is a submission to the Cloud Security Alliance's public registry, which is Rafa's to make. Rows marked "Rafa answers" (entity, MFA, cover, staff checks, contract terms, providers' data terms) need his facts first.
+- **Row N119:** only the public status page is built. No uptime target is stated (Rafa's promise to make); dated API versions, a deprecation policy and an activity export are untouched.
+- **Follow-ups not built:** nothing watches the live `security.txt`'s Expires, which only a site deploy refreshes (180 days); a check in Crow Control could read it. The status page keeps no history; a history needs a store and is a different design.

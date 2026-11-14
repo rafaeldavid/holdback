@@ -28,15 +28,17 @@ export const SECURITY_TXT_DAYS = 180;
 /** A file or folder in the public repository, on main. */
 export const src = (path, anchor = '') => `${CODE_URL}/${path.endsWith('/') ? 'tree' : 'blob'}/main/${path.replace(/\/$/, '')}${anchor ? `#${anchor}` : ''}`;
 const etherscan = (address) => `https://sepolia.etherscan.io/address/${address}`;
+/** Coinbase's escrow at the commit the contracts pin (contracts/lib/commerce-payments). */
+const CPP_ESCROW = 'https://github.com/base/commerce-payments/blob/6b0a5ef3f0df973857f558e2d6b5dd645b5e97f9/src/AuthCaptureEscrow.sol';
 
 /** The values the trust page states, each read from its source. */
 export function trustFacts() {
   const record = JSON.parse(read('../contracts/deployments/sepolia.json'));
   const requestLogDays = /const RETENTION_MS = (\d+) \* DAY_MS;/.exec(read('../apps/demo-cloud/src/telemetry.ts'))?.[1];
-  const feedbackDays = /export const RETENTION_DAYS = (\d+);/.exec(read('../apps/operator/src/feedback.ts'))?.[1];
-  if (!requestLogDays || !feedbackDays) throw new Error('site/trust.mjs cannot read the retention from apps/demo-cloud/src/telemetry.ts or apps/operator/src/feedback.ts: their shape changed');
+  if (!requestLogDays) throw new Error('site/trust.mjs cannot read the request log\'s retention from apps/demo-cloud/src/telemetry.ts: its shape changed');
+  if (!Number.isInteger(record.expiryMarginSec) || record.expiryMarginSec <= 0 || record.expiryMarginSec % 3600 !== 0) throw new Error('contracts/deployments/sepolia.json names no expiryMarginSec in whole hours');
   if (record.chainId !== 11155111 || !/^0x[0-9a-fA-F]{40}$/.test(record.escrow ?? '') || !/^0x[0-9a-fA-F]{40}$/.test(record.rules ?? '')) throw new Error('contracts/deployments/sepolia.json names no Sepolia escrow and rules contract');
-  return { escrow: record.escrow, rules: record.rules, token: record.token.address, requestLogDays: Number(requestLogDays), feedbackDays: Number(feedbackDays) };
+  return { escrow: record.escrow, rules: record.rules, token: record.token.address, requestLogDays: Number(requestLogDays), expiryMarginHours: record.expiryMarginSec / 3600 };
 }
 
 /**
@@ -53,10 +55,10 @@ export function trustSections(f = trustFacts()) {
     {
       title: 'Where the money sits',
       items: [
-        [`From funding on, a deal’s payment sits in an escrow contract on Ethereum Sepolia, a public test network. It is Coinbase’s Commerce Payments escrow, used unchanged. No account of Crow’s sits between the buyer’s payment and the escrow.`,
-          [['The deployment record', record], ['The escrow on Etherscan', etherscan(f.escrow)], ['Why this escrow (ADR-0003)', src('docs/decisions/ADR-0003-escrow-contract-base.md')]]],
-        [`The payment hold opens only in one of five ways the deal’s terms set: the reviewer’s signed decision (accept pays the seller, reject refunds the buyer), the buyer’s signed early accept, a settlement both parties sign, a refund when the seller misses its delivery deadline, or the default outcome when no reviewer decides in time, which on the live service refunds the buyer.`,
-          [neutrality('the-test'), ['The audit scope: the rules contract', src('docs/audit/scope.md', 'in-scope')], ['The rules contract on Etherscan', etherscan(f.rules)]]],
+        [`From funding on, a deal’s payment sits in an escrow contract on Ethereum Sepolia, a public test network. It is Coinbase’s Commerce Payments escrow, used unchanged. No account of Crow’s sits between the buyer’s payment and the escrow. The escrow keeps the tokens in a token store it creates for Crow’s rules contract, so Etherscan shows the balance there, not at the escrow’s own address.`,
+          [['The deployment record', record], ['The escrow on Etherscan', etherscan(f.escrow)], ['The escrow’s code (getTokenStore)', CPP_ESCROW], ['Why this escrow (ADR-0003)', src('docs/decisions/ADR-0003-escrow-contract-base.md')]]],
+        [`The payment hold opens only in one of five ways the deal’s terms set: the reviewer’s signed decision (accept pays the seller, reject refunds the buyer), the buyer’s signed early accept, a settlement both parties sign, a refund when the seller misses its delivery deadline, or the default outcome when no reviewer decides in time, which on the live service refunds the buyer. As a last backstop, from ${f.expiryMarginHours} hours after the deal’s last decision deadline, the buyer’s payment address can take back whatever is still held, straight from the escrow.`,
+          [neutrality('the-test'), ['The audit scope: the rules contract', src('docs/audit/scope.md', 'in-scope')], ['The rules contract (_escrowExpiry)', src('contracts/src/HoldbackRules.sol')], ['The rules contract on Etherscan', etherscan(f.rules)]]],
         [`Anyone may send the last two, the late-delivery refund and the default outcome, once they are due. Crow’s operators send them on their own, at their own gas.`,
           [neutrality('control-point-analysis'), limits]],
         [`The reviewer’s fee, when the terms set one, is paid from the hold at the decision, to the reviewer that decided. The price goes only to the seller’s payout address or back to the buyer’s payment address.`,
@@ -74,8 +76,8 @@ export function trustSections(f = trustFacts()) {
           [neutrality('control-point-analysis')]],
         [`Crow runs the reviewers the live service offers. A reviewer’s signed decision does move the payment, to the seller or back to the buyer, as the terms say. The parties name all three reviewers in the terms they sign, and each decision is final when it settles.`,
           [['The audit scope: assumptions', src('docs/audit/scope.md', 'the-phase-one-scope')], neutrality('residual-control-points'), limits]],
-        [`If Crow’s operators refuse or go offline, a party can send the same signed messages straight to the contracts, with Sepolia ETH of its own. The two operators run as one process today, so they go down together.`,
-          [neutrality('control-point-analysis'), limits]],
+        [`If Crow’s operators refuse or go offline, a party can send the same signed messages straight to the contracts, with Sepolia ETH of its own. The two operators share one process today, so most failures hit both. Crow’s reviewers run inside the same service: while it is down, a deal that named them closes by its timeouts with the default refund, unless the buyer accepts early or both parties sign a settlement.`,
+          [neutrality('escape-hatch-requirements'), ops('what-is-live', 'Operations: what is live'), limits]],
         [`With a real stablecoin, its issuer could freeze its own token; no one at Crow can. Each deployment settles the one token it was deployed with.`,
           [neutrality('residual-control-points')]],
       ],
@@ -85,12 +87,14 @@ export function trustSections(f = trustFacts()) {
       items: [
         [`Crow holds none of your company’s keys. Your agents sign with keys they keep: the buyer’s tool makes each deal’s keys on your machine and sends none of them anywhere.`,
           [['The buyer’s tool', src('examples/buyer-signer.ts')], ['The signing rule', src('CLAUDE.md', 'hard-rules')]]],
+        [`On the test service, every agent key’s mandate, the standing approval of what it may sign, is signed by Crow’s demo principal, so the authority that stands for your company there is a Crow key. In a club of its own, a company signs its agents’ mandates itself.`,
+          [baseline('level-public-the-only-level-the-live-service-judges'), ['Mandates (ADR-0038)', src('docs/decisions/ADR-0038-mandate-limits-and-revocation.md')]]],
         [`Crow’s operators never write a party’s message. Every step that changes a deal carries the party’s own signature, which anyone can check.`,
           [neutrality('control-point-analysis')]],
-        [`Crow keeps secrets of its own, as Cloudflare Worker secrets and never in the repository: the operators’ gas key on Sepolia, the model providers’ keys for the reviewers’ judges, and the test seller’s seed.`,
-          [ops('secrets', 'Operations: secrets')]],
-        [`The seller encrypts the work before it leaves, to the reviewers and the buyer. The reviewer opens it to judge it, and the buyer opens it once it has paid. Crow runs the live service’s reviewers, so Crow can read the work of the deals it reviews.`,
-          [baseline('what-the-encrypted-delivery-hides-and-what-it-does-not')]],
+        [`Crow keeps secrets of its own, as Cloudflare Worker secrets and never in the repository: the operators’ gas key on Sepolia, the model providers’ keys for the reviewers’ judges, and the test seller’s seed. The reviewers’ and the operators’ signing keys, which sign the decisions that move payments, derive from a random secret the operators’ Durable Object keeps in its own storage, not in a Worker secret.`,
+          [ops('secrets', 'Operations: secrets'), ['The keys’ code (world.ts)', src('apps/demo-cloud/src/world.ts')]]],
+        [`The seller encrypts the work before it leaves, to the first reviewer and the buyer; a backup reviewer gets the key only if it takes over. The reviewer opens it to judge it, and the buyer opens it once it has paid. Crow runs the live service’s reviewers, so Crow can read the work of the deals it reviews.`,
+          [baseline('what-the-encrypted-delivery-hides-and-what-it-does-not'), neutrality('residual-control-points')]],
       ],
     },
     {
@@ -111,12 +115,12 @@ export function trustSections(f = trustFacts()) {
       items: [
         [`A request log: one line per request, with its ID, time, node, method, route, status and duration. It holds no body, no header, no IP address and no path. Each line is kept ${f.requestLogDays} days, then deleted.`,
           [ops('telemetry-t-031', 'Operations: telemetry'), ['The code', src('apps/demo-cloud/src/telemetry.ts')]]],
-        [`Hourly and daily summary lines (counts, timings, the deal funnel), with no address in them, in Cloudflare’s Workers Logs, which keeps them 7 days. Request headers are not logged.`,
+        [`Hourly and daily summary lines (counts, timings, the deal funnel), with no address in them, and error lines, in Cloudflare’s Workers Logs, which keeps them 7 days. Request headers are not logged.`,
           [ops('telemetry-t-031', 'Operations: telemetry')]],
         [`The operators see each caller’s IP address while they relay. They do not write it to the request log.`,
           [ops('telemetry-t-031', 'Operations: telemetry'), baseline('leaks-no-choice-closes-today-most-serious-first')]],
-        [`A problem report sent with <code>POST /v1/feedback</code> is kept ${f.feedbackDays} days in the operator’s own store. Sending one is your choice to share it.`,
-          [['The agent docs: reporting a problem', 'https://crow.direct/ref/limits.txt'], ['The code', src('apps/operator/src/feedback.ts')]]],
+        [`The live operators take no problem reports yet: their report route, <code>POST /v1/feedback</code>, is not switched on, so they keep none.`,
+          [ops('feedback-triage-t-032', 'Operations: feedback triage')]],
         [`The deal records (terms, events, receipts) stay while the contracts they settle on are in use, and start over only when the contracts are deployed again. The chain keeps its part for good. Keep your own copy of the terms you sign.`,
           [limits]],
         [`An early-access sign-up keeps the email address, the time and the page, with no IP address and no cookie. No deletion date is set yet.`,
@@ -126,8 +130,8 @@ export function trustSections(f = trustFacts()) {
     {
       title: 'What has been reviewed from outside, and what has not',
       items: [
-        [`Coinbase’s escrow contract, which holds the money, has an outside review: Cantina reviewed it in July 2026, at the exact commit Crow deploys, with three informational findings.`,
-          [['Why this escrow (ADR-0003)', src('docs/decisions/ADR-0003-escrow-contract-base.md')], ['The pinned commit', src('.gitmodules')]]],
+        [`Coinbase’s escrow contract, which holds the money, has outside reviews: Cantina reviewed it in April 2025, with one critical finding fixed before release, and reviewed its last code change (PR 90) in July 2026 at the exact commit Crow deploys, with three informational findings. One later change, PR 71’s renames, has no review.`,
+          [['The cross-check of the published audits', src('docs/reviews/2026-11-03-public-audit-crosscheck.md')], ['The pinned commit', src('contracts/lib/commerce-payments/')], ['Why this escrow (ADR-0003)', src('docs/decisions/ADR-0003-escrow-contract-base.md')]]],
         [`Crow’s own rules contract, which decides when the escrow pays, has no outside audit yet. Models from two families reviewed it, and the scope an auditor needs is written.`,
           [ops('sepolia-contracts-t-206', 'Operations: Sepolia contracts'), ['The audit scope', src('docs/audit/scope.md')]]],
         [`Crow’s own checks: unit, fuzz and invariant tests of the contracts, a TLA+ model of a deal’s states, and attack and neutrality scenarios for the judging and the operators.`,
@@ -143,8 +147,8 @@ export function trustSections(f = trustFacts()) {
       items: [
         [`A security problem: report it privately through GitHub’s private vulnerability reporting for Crow’s repository. Crow acknowledges a report within 3 business days and does not take legal action against research that follows the policy.`,
           [['Report a vulnerability', SECURITY_CONTACT], ['The security policy', SECURITY_POLICY], ['security.txt', 'https://crow.direct/.well-known/security.txt']]],
-        [`Any other problem with a call or a guide: send <code>POST /v1/feedback</code> to an operator, as the agent docs describe.`,
-          [['The agent docs: reporting a problem', 'https://crow.direct/ref/limits.txt']]],
+        [`Any other problem with a call or a guide: open an issue on Crow’s public repository. Issues are public, so leave out keys and anything you need kept. The operators’ own report route is not switched on yet.`,
+          [['Open an issue', `${CODE_URL}/issues`], ['Operations: feedback triage', src('docs/operations.md', 'feedback-triage-t-032')]]],
         [`Whether Crow answers right now: the status page checks each part when you open it.`,
           [['The status page', 'https://crow.direct/status']]],
       ],
@@ -310,7 +314,7 @@ ${STATUS_CHECKS.map((c) => `<tr data-check="${c.id}"><td>${esc(c.name)}<br><span
 <ul class="claims">
 <li><p>It tells you whether each part answers a plain GET right now: from your browser, or for the two operators from Cloudflare’s network, through the site’s Worker.</p>${sources([['The relay’s code', src('apps/site/status.js')], ['This page’s code', src('site/trust.mjs')]])}</li>
 <li><p>It cannot tell you whether a deal will go through. A part can answer a GET and still fail a step of a deal. The test deal in the agent docs checks the whole path.</p>${sources([['The agent docs', `${site}llms.txt`]])}</li>
-<li><p>The two operators run as one process today, so they answer or fail together.</p>${sources([['The agent docs: limits', limits]])}</li>
+<li><p>The two operators are two Workers that share one process today, so most failures hit both.</p>${sources([['The agent docs: limits', limits]])}</li>
 <li><p>The Sepolia row reads Blockscout, a public explorer. When Blockscout does not answer, the row says Unknown, not Down. A newest block older than ${NETWORK_STALE_SEC} s reads Degraded: Sepolia makes a block about every 12 s.</p>${sources([['Blockscout for Sepolia', 'https://eth-sepolia.blockscout.com/']])}</li>
 <li><p>It reads only public endpoints, the same ones any agent can read. It keeps nothing but the site Worker’s 15 s cache of the operators’ answer, and it sends no alerts.</p>${sources([['This page’s code', src('site/trust.mjs')]])}</li>
 </ul>
