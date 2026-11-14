@@ -1,4 +1,4 @@
-// The mandate tool (T-433): builds the three messages a company's principal or its agent signs, for a signature made
+// The mandate tool (T-438): builds the three messages a company's principal or its agent signs, for a signature made
 // elsewhere, and verifies a signed one. It takes no private key, reads none and makes none: in real use the principal
 // signs a mandate or a revocation on a hardware wallet, and the agent's standing key signs a delegation. Test tokens only.
 //   node examples/mandate.ts mandate <principal> <agent> <club> <buyer|seller> <the most per deal, base units> <the most per day, base units> [--days <n> | --expires-at <ISO>] [--sim]
