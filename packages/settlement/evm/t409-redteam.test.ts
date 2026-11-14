@@ -171,7 +171,7 @@ function standIn(base: LiveChain, f: Faults): LiveChain {
       if (prop === 'getTransactionCount') {
         return async (args: { address: Address; blockTag?: 'pending' | 'latest'; blockNumber?: bigint }) => {
           if (f.trailAt !== undefined && args.blockNumber === undefined) return target.getTransactionCount({ address: args.address, blockNumber: f.trailAt });
-          return target.getTransactionCount(args);
+          return target.getTransactionCount(args as unknown as Parameters<typeof target.getTransactionCount>[0]);
         };
       }
       if (prop === 'request') {

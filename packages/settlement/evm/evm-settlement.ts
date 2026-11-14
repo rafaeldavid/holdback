@@ -671,6 +671,18 @@ export class EvmSettlement implements Settlement {
     return b ? this.view(id, b) : null;
   }
 
+  /**
+   * Reads this deal's own transactions from the chain again, from the deployment's first block, and applies the ones
+   * this node has not (`catchUp`), inside the deal's lane. For a deal whose book disagrees with the contract: one sync
+   * pass whose eth_getLogs came from a backend more than OVERLAP blocks behind moves the cursor past a direct
+   * transaction, which no later pass reads again (T-409 red team, M1). A transaction already applied changes nothing.
+   * Nothing for an unknown deal; throws on an RPC error, having applied nothing.
+   */
+  async resync(id: Hex32): Promise<void> {
+    if (!this.books.has(id)) return;
+    await this.enqueue(id, async () => void (await this.catchUp(id)));
+  }
+
   async *events(fromSeq = 0): AsyncIterable<SettlementEvent> {
     for (const e of this.log_.slice(fromSeq)) yield e;
   }

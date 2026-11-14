@@ -96,6 +96,12 @@ const rankOf = (d: { stage: string }) => STAGES.indexOf(d.stage as (typeof STAGE
  * wall clock already passed (TooEarly), about one Sepolia block. Any other refusal at the pinned block means the book
  * disagrees with the chain until the next sync. A failure is an RPC error. A send that reverted on chain cost gas.
  */
+/**
+ * The adapter's refusal of an offer's expiry when the contract holds the deal funded (evm-settlement.ts, `expire_offer`):
+ * "the contract holds this deal <stage>: it was funded, so it is not an expired offer".
+ */
+const FUNDED_ON_CHAIN = /the contract holds this deal \w+: it was funded/;
+
 const BACKOFF = {
   early: { first: 12_000, max: 300_000 },
   refused: { first: 60_000, max: 3_600_000 },
@@ -294,6 +300,9 @@ export class OperatorTimeouts {
             if (!r.replayed && r.events.length > 0) report.marked.push({ commitmentId: id, kind: c.kind });
           } else {
             report.refused.push({ commitmentId: id, kind: c.kind, detail: `${r.problem.type}: ${r.problem.detail}` });
+            // The adapter's answer when the contract holds the deal funded and the book does not: a funding the sync
+            // missed (T-409 red team, M1). The deal's own transactions are read again.
+            if (FUNDED_ON_CHAIN.test(r.problem.detail)) await this.resync(id);
             this.backOff(w, now, BACKOFF.refused);
           }
           continue;
@@ -306,6 +315,9 @@ export class OperatorTimeouts {
         const why = await this.refusal(id, c.kind, block);
         if (why !== null) {
           report.refused.push({ commitmentId: id, kind: c.kind, detail: `contract revert ${why} at block ${block}` });
+          // The contract holds the deal at another stage than the book: a transaction the sync missed (a pass whose
+          // eth_getLogs came from a backend behind, T-409 red team, M1). The deal's own transactions are read again.
+          if (why === 'WrongStage') await this.resync(id);
           this.backOff(w, now, why === 'TooEarly' ? BACKOFF.early : BACKOFF.refused);
           continue;
         }
@@ -415,6 +427,11 @@ export class OperatorTimeouts {
       if (raw === undefined && !/revert/i.test(String((e as Error).message))) throw e;
       return revertName(chain.abis.rules, raw) ?? 'an unknown error';
     }
+  }
+
+  /** `evm.resync`, with its failure reported and not thrown: the pass goes on to the next deal. */
+  private async resync(id: Hex32): Promise<void> {
+    await this.evm.resync(id).catch((e: unknown) => this.o.onError?.(new Error(`the operators' re-read of ${id} after its refusal failed: ${(e as Error).message}`)));
   }
 
   private backOff(w: Watch, now: number, b: { first: number; max: number }): void {
