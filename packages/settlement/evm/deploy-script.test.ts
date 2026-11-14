@@ -110,9 +110,12 @@ export class Rehearsal {
     return body.result;
   }
 
-  /** The script's deploy mode, writing `record`. */
+  /**
+   * The script's deploy mode, writing `record`. anvil mines a block only for a transaction, so its finalized block
+   * stays 64 behind; a rehearsal takes `latest` unless a test names DEPLOY_FINALITY.
+   */
   deploy(record: string, env: Record<string, string> = {}): Promise<Run> {
-    return run('bash', [SCRIPT, this.rpc, this.keystore, this.passwordFile], { DEPLOY_RECORD: record, ...env });
+    return run('bash', [SCRIPT, this.rpc, this.keystore, this.passwordFile], { DEPLOY_RECORD: record, DEPLOY_FINALITY: 'latest', ...env });
   }
 
   /** The script with any arguments. */

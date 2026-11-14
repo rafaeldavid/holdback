@@ -11,16 +11,29 @@
 #        contracts/script/deploy-sepolia.sh --check <rpc-url>
 #        contracts/script/deploy-sepolia.sh --verify <rpc-url>
 #
-# --verify runs --check first, then publishes each of the five contracts' source on the block explorers with the
-# constructor arguments the checked record holds (`forge verify-contract`, T-383): Sourcify always, with no key and no
-# account, the pilot's verification; Etherscan too when ETHERSCAN_API_KEY is in the environment, which forge reads by
-# that name (it is never put on a command line). The Etherscan mode needs a key and a newer forge than the pinned 1.0.0;
-# it has not run. A contract already verified is skipped, so a rerun is safe. VERIFY_DRY_RUN=1 prints the commands
-# instead of running them.
+# --verify runs --check first, then verifies the five contracts' source on Sourcify through its API v2
+# (scripts/sourcify-verify.mjs, T-410): it compiles the five alone with the project's settings, checks each against its
+# code on the chain, sends nothing unless all five are exact, then sends them one at a time and prints, per contract,
+# whether Sourcify holds an exact match. No key and no account. Sending publishes the source, so it is part of the
+# run's go-ahead. VERIFY_DRY_RUN=1 runs the check and sends nothing. forge's own `verify-contract` is not used: forge
+# 1.0.0 calls Sourcify's API v1, which Sourcify removed.
+#
+# The deploy (T-410) sends each creation at an explicit nonce: it waits until the deployer's mined and pending nonces
+# agree, sends with `--nonce`, and the contract's address follows from the deployer and that nonce. When a send fails
+# ("replacement transaction underpriced" on 2026-11-13), it reads the chain before anything else: a transaction mined
+# at that nonce is the creation when it created the expected address; a pending one is waited for; only a nonce still
+# unused is sent again, at the same nonce. One nonce can be mined once, so a retry never creates a second copy of a
+# contract. Another transaction from the deployer during the run stops it. The record is written only once the last
+# creation's block is finalized (about 13 minutes on Sepolia), to a temporary file moved into place. A run that stops
+# before that writes no record and prints the contracts it created, as orphans; a rerun deploys all five anew.
 #
 # A rehearsal (T-383): the same routine on a local anvil (chain 31337, an RPC on 127.0.0.1 or localhost only), with
 # DEPLOY_RECORD naming the record to write or check, so a rehearsal never writes over contracts/deployments/sepolia.json.
-# It deploys Sepolia's values, the beacon margin included, and Multicall3's canonical code must be at its address.
+# It deploys Sepolia's values, the beacon margin included, and Multicall3's canonical code must be at its address. A
+# development node (anvil, Hardhat, Ganache) forking Sepolia answers chain 11155111 but is a rehearsal too (T-410):
+# it follows the local chain's record rules. A rehearsal alone may name DEPLOY_FINALITY (finalized, safe or latest; a
+# local node mines no block between transactions), DEPLOY_POLL_SEC, and a stand-in for forge in DEPLOY_FORGE (a test's).
+# scripts/deploy-rehearsal.mjs runs the whole redeploy this way and prints each step's Sepolia command.
 #
 # Every check fails closed. Bash ignores a failure inside `$(...)` used as an argument or inside `[ ]`, and inside a
 # function running in `$(...)` (bash 3.2 has no inherit_errexit), so each substitution is a plain assignment or ends
@@ -59,7 +72,6 @@ fail() {
 }
 
 VERIFY=no
-VERIFY_FORGE="${VERIFY_FORGE:-forge}"
 if [ "${1:-}" = --check ] || [ "${1:-}" = --verify ]; then
   [ "$#" -eq 2 ] || fail "usage: deploy-sepolia.sh $1 <rpc-url>"
   MODE=check
@@ -142,27 +154,63 @@ field() {
   jq -er "$1" "$OUT" || fail "the record $OUT has no $1"
 }
 
+# rehearsal_record: a rehearsal names its record in DEPLOY_RECORD, anywhere but contracts/deployments/.
+rehearsal_record() {
+  local out_dir deployments_dir
+  [ -n "${DEPLOY_RECORD:-}" ] || fail "a rehearsal on $1 needs DEPLOY_RECORD, the record to write or check"
+  # Compared as folders, resolved, not as strings: a relative or dotted spelling of sepolia.json names the same file.
+  # A rehearsal's record lives anywhere but contracts/deployments/, so it can never write over a kept record.
+  out_dir="$(cd "$(dirname "$OUT")" 2>/dev/null && pwd -P)" || fail "the folder of DEPLOY_RECORD ($OUT) does not exist"
+  deployments_dir="$(cd "$ROOT/deployments" && pwd -P)" || fail "contracts/deployments is missing"
+  [ "$out_dir" != "$deployments_dir" ] || fail "a rehearsal must not write or check a record in $deployments_dir; name a scratch file in DEPLOY_RECORD"
+  [ ! "$OUT" -ef "$SEPOLIA_RECORD" ] || fail "a rehearsal must not write or check $SEPOLIA_RECORD"
+}
+
 CHAIN="$(cast chain-id --rpc-url "$RPC")" || fail "reading the chain id failed"
+# The node's own name: on chain 11155111 a development node is a fork of Sepolia, not Sepolia.
+CLIENT="$(cast client --rpc-url "$RPC" 2>/dev/null)" || CLIENT=""
+REHEARSAL=no
 case "$CHAIN" in
 "$SEPOLIA")
-  # A Sepolia run writes and checks the one Sepolia record.
-  [ "$OUT" = "$SEPOLIA_RECORD" ] || fail "on Sepolia the record is $SEPOLIA_RECORD; unset DEPLOY_RECORD"
-  [ "$TABLE" = "$REPO_TABLE" ] || fail "on Sepolia the accepted-token table is $REPO_TABLE; unset ACCEPTED_TOKENS"
+  if [[ "$CLIENT" =~ ^([Aa]nvil|[Hh]ardhat|[Gg]anache) ]]; then
+    REHEARSAL=yes
+    rehearsal_record "a fork of Sepolia ($CLIENT)"
+  else
+    # A Sepolia run writes and checks the one Sepolia record.
+    [ "$OUT" = "$SEPOLIA_RECORD" ] || fail "on Sepolia the record is $SEPOLIA_RECORD; unset DEPLOY_RECORD"
+    [ "$TABLE" = "$REPO_TABLE" ] || fail "on Sepolia the accepted-token table is $REPO_TABLE; unset ACCEPTED_TOKENS"
+  fi
   ;;
 "$LOCAL")
   LOCAL_RPC='^http://(127\.0\.0\.1|localhost)(:[0-9]+)?/?$'
   # The URL stays out of the message: a hosted RPC's URL may carry its key.
   [[ "$RPC" =~ $LOCAL_RPC ]] || fail "chain id $LOCAL is a rehearsal on this machine only; the RPC URL is not a local RPC (http://127.0.0.1 or http://localhost)"
-  [ -n "${DEPLOY_RECORD:-}" ] || fail "a rehearsal on the local chain needs DEPLOY_RECORD, the record to write or check"
-  # Compared as folders, resolved, not as strings: a relative or dotted spelling of sepolia.json names the same file.
-  # A rehearsal's record lives anywhere but contracts/deployments/, so it can never write over a kept record.
-  OUT_DIR="$(cd "$(dirname "$OUT")" 2>/dev/null && pwd -P)" || fail "the folder of DEPLOY_RECORD ($OUT) does not exist"
-  DEPLOYMENTS_DIR="$(cd "$ROOT/deployments" && pwd -P)" || fail "contracts/deployments is missing"
-  [ "$OUT_DIR" != "$DEPLOYMENTS_DIR" ] || fail "a rehearsal must not write or check a record in $DEPLOYMENTS_DIR; name a scratch file in DEPLOY_RECORD"
-  [ ! "$OUT" -ef "$SEPOLIA_RECORD" ] || fail "a rehearsal must not write or check $SEPOLIA_RECORD"
+  REHEARSAL=yes
+  rehearsal_record "the local chain"
   ;;
 *) fail "chain id $CHAIN is not Sepolia ($SEPOLIA), nor the local chain ($LOCAL) for a rehearsal" ;;
 esac
+# The stand-ins and the knobs a rehearsal may set; Sepolia takes none of them.
+if [ "$REHEARSAL" = no ]; then
+  for knob in DEPLOY_FORGE DEPLOY_FINALITY DEPLOY_POLL_SEC DEPLOY_FINALITY_WAIT_SEC SOURCIFY_URL; do
+    [ -z "${!knob:-}" ] || fail "on Sepolia $knob is not taken; unset it"
+  done
+fi
+FORGE="${DEPLOY_FORGE:-forge}"
+FINALITY="${DEPLOY_FINALITY:-finalized}"
+case "$FINALITY" in finalized | safe | latest) ;; *) fail "DEPLOY_FINALITY is finalized, safe or latest, not $FINALITY" ;; esac
+POLL_SEC="${DEPLOY_POLL_SEC:-3}"
+[[ "$POLL_SEC" =~ ^[0-9]+$ ]] || fail "DEPLOY_POLL_SEC is a whole number of seconds"
+FINALITY_WAIT_SEC="${DEPLOY_FINALITY_WAIT_SEC:-3600}"
+[[ "$FINALITY_WAIT_SEC" =~ ^[0-9]+$ ]] || fail "DEPLOY_FINALITY_WAIT_SEC is a whole number of seconds"
+# On Sepolia the checkout holds every submodule, recursively: forge's remappings come from the folders under lib, and
+# a checkout of fewer gives another metadata hash, so Sourcify could give only a partial match (T-383, measured).
+if [ "$REHEARSAL" = no ]; then
+  SUBMODULES="$(git -C "$ROOT" submodule status --recursive)" || fail "reading the submodules failed"
+  if grep -qE '^[-+U]' <<<"$SUBMODULES"; then
+    fail "not every submodule is checked out at its commit, recursively; run git submodule update --init --recursive"
+  fi
+fi
 # foundry.toml pins chain_id 31337 for the local chain; every forge and cast call below signs for this chain instead.
 export FOUNDRY_CHAIN_ID=$CHAIN
 
@@ -182,19 +230,120 @@ DIRTY="$(git -C "$ROOT" status --porcelain --untracked-files=all -- "${BUILD_INP
 MULTICALL3_GOT="$(codehash "$MULTICALL3")"
 [ "$MULTICALL3_GOT" = "$MULTICALL3_CODEHASH" ] || fail "unexpected code at Multicall3"
 
-# create <path:Contract> [constructor args...]: deploys and prints "address tx".
+# nonce_at <latest|pending>: the deployer's nonce at that block tag, in decimal.
+nonce_at() {
+  local n
+  n="$(cast nonce "$DEPLOYER" --block "$1" --rpc-url "$RPC")" || fail "reading the deployer's $1 nonce failed"
+  [[ "$n" =~ ^[0-9]+$ ]] || fail "the deployer's $1 nonce reads $n"
+  printf '%s\n' "$n"
+}
+
+# settle_nonce <want>: waits until the deployer's mined and pending nonces both equal <want>: the run's earlier
+# creations are mined on this RPC, and nothing else from the deployer is in flight. A lagging backend reads lower and
+# is waited out; a higher nonce is another transaction from the deployer, which stops the run.
+settle_nonce() {
+  local want="$1" latest pending chain i
+  for ((i = 0; i < 100; i++)); do
+    chain="$(cast chain-id --rpc-url "$RPC")" || fail "reading the chain id failed"
+    [ "$chain" = "$CHAIN" ] || fail "the RPC now answers chain $chain, not $CHAIN"
+    latest="$(nonce_at latest)"
+    pending="$(nonce_at pending)"
+    if [ "$latest" -gt "$want" ] || [ "$pending" -gt "$want" ]; then
+      fail "the deployer's nonce is $latest mined and $pending pending, past the $want this run expects: another transaction from the deployer is in flight; a deployer key serves one run at a time"
+    fi
+    if [ "$latest" = "$want" ] && [ "$pending" = "$want" ]; then return 0; fi
+    sleep "$POLL_SEC"
+  done
+  fail "the deployer's nonce did not settle at $want (it reads $latest mined, $pending pending)"
+}
+
+# settle_send <name> <nonce> <from-block> <address>: after a failed send, what the chain says about <nonce>. Returns 0
+# and sets CREATED_TX when a transaction at that nonce is mined and created <address>; returns 1 when the nonce is
+# still unused and nothing is pending, so the same creation may go again at the same nonce; fails on anything else.
+settle_send() {
+  local name="$1" nonce="$2" from="$3" want="$4" latest pending head b tx receipt i
+  local nonce_hex
+  nonce_hex="$(printf '0x%x' "$nonce")"
+  for ((i = 0; i < 100; i++)); do
+    latest="$(nonce_at latest)"
+    if [ "$latest" -gt "$nonce" ]; then
+      # The nonce is used: find its transaction in the blocks since the first send of this creation.
+      head="$(cast block-number --rpc-url "$RPC")" || fail "reading the block number failed"
+      tx=""
+      for ((b = from; b <= head; b++)); do
+        tx="$(cast block "$b" --full --json --rpc-url "$RPC" | jq -r --arg from "$DEPLOYER_LOWER" --arg n "$nonce_hex" \
+          '[.transactions[] | select((.from | ascii_downcase) == $from and .nonce == $n) | .hash] | first // ""')" || fail "reading block $b failed"
+        [ -z "$tx" ] || break
+      done
+      [ -n "$tx" ] || fail "the deployer's nonce $nonce is used, but no transaction from the deployer at that nonce is in blocks $from to $head"
+      receipt="$(cast receipt "$tx" --json --rpc-url "$RPC")" || fail "no receipt for $tx"
+      [ "$(jq -r .status <<<"$receipt")" = 0x1 ] || fail "the creation of $name at nonce $nonce, transaction $tx, failed on chain"
+      [ "$(jq -r '.contractAddress // "" | ascii_downcase' <<<"$receipt")" = "$(tr '[:upper:]' '[:lower:]' <<<"$want")" ] ||
+        fail "the deployer's transaction at nonce $nonce, $tx, did not create $want: it is not this run's creation of $name"
+      CREATED_TX="$tx"
+      return 0
+    fi
+    pending="$(nonce_at pending)"
+    # Unused and nothing pending, from the third read on: the send did not reach the chain.
+    if [ "$pending" -le "$nonce" ] && [ "$i" -ge 2 ]; then return 1; fi
+    sleep "$POLL_SEC"
+  done
+  fail "the deployer's transaction at nonce $nonce is still pending; nothing was sent again. Wait until it is mined, then rerun"
+}
+
+# create <name> <path:Contract> [constructor args...]: creates one contract at the deployer's next nonce and sets
+# CREATED_ADDRESS, CREATED_TX and CREATED_BLOCK. It runs in this shell, not in `$(...)`, so `set -e` holds in it.
+CREATED_LIST=""
 create() {
-  local id="$1" json address tx
-  shift
+  local name="$1" id="$2" nonce want from attempt json status errfile receipt
+  shift 2
   local args=(--root "$ROOT" --rpc-url "$RPC" --keystore "$KEYSTORE" --password-file "$PASSWORD_FILE" --broadcast --json)
-  if [ "$#" -gt 0 ]; then
-    json="$(forge create "$id" "${args[@]}" --constructor-args "$@")" || fail "forge create $id failed"
-  else
-    json="$(forge create "$id" "${args[@]}")" || fail "forge create $id failed"
+  if [ "$#" -gt 0 ]; then args+=(--constructor-args "$@"); fi
+  nonce="$NEXT_NONCE"
+  want="$(cast compute-address "$DEPLOYER" --nonce "$nonce")" || fail "computing the address at nonce $nonce failed"
+  want="$(grep -oE '0x[0-9a-fA-F]{40}' <<<"$want")" || fail "cast compute-address printed no address"
+  settle_nonce "$nonce"
+  from="$(cast block-number --rpc-url "$RPC")" || fail "reading the block number failed"
+  errfile="$(mktemp)"
+  CREATED_TX=""
+  for attempt in 1 2 3; do
+    status=0
+    json="$("$FORGE" create "$id" --nonce "$nonce" "${args[@]}" 2>"$errfile")" || status=$?
+    if [ "$status" -eq 0 ]; then
+      CREATED_ADDRESS="$(jq -er '.deployedTo' <<<"$json")" || fail "forge create $name reported no address"
+      CREATED_TX="$(jq -er '.transactionHash' <<<"$json")" || fail "forge create $name reported no transaction"
+      [ "$(tr '[:upper:]' '[:lower:]' <<<"$CREATED_ADDRESS")" = "$(tr '[:upper:]' '[:lower:]' <<<"$want")" ] ||
+        fail "forge create $name deployed to $CREATED_ADDRESS, not $want, the address of nonce $nonce"
+      break
+    fi
+    echo "deploy-sepolia: forge create $name at nonce $nonce failed (exit $status): $(tail -n 3 "$errfile" | tr '\n' ' ')" >&2
+    if settle_send "$name" "$nonce" "$from" "$want"; then
+      echo "deploy-sepolia: the chain holds $name at $want from nonce $nonce ($CREATED_TX); nothing is sent again" >&2
+      CREATED_ADDRESS="$want"
+      break
+    fi
+    [ "$attempt" -lt 3 ] || { rm -f "$errfile"; fail "forge create $name failed 3 times and nonce $nonce is unused: nothing was created for it"; }
+    echo "deploy-sepolia: nonce $nonce is unused and nothing is pending; sending $name again at the same nonce (attempt $((attempt + 1)) of 3)" >&2
+  done
+  rm -f "$errfile"
+  receipt="$(cast receipt "$CREATED_TX" --json --rpc-url "$RPC")" || fail "no receipt for $CREATED_TX"
+  CREATED_BLOCK="$(jq -er .blockNumber <<<"$receipt")" || fail "no block for $CREATED_TX"
+  CREATED_BLOCK="$(cast to-dec "$CREATED_BLOCK")" || fail "bad block number for $CREATED_TX"
+  CREATED_LIST="$CREATED_LIST $name=$CREATED_ADDRESS@$CREATED_TX"
+  echo "deploy-sepolia: created $name at $CREATED_ADDRESS (nonce $nonce, transaction $CREATED_TX, block $CREATED_BLOCK)"
+  NEXT_NONCE=$((nonce + 1))
+  if [ "$CREATED_BLOCK" -gt "$LAST_BLOCK" ]; then LAST_BLOCK="$CREATED_BLOCK"; fi
+}
+
+# A run that stops after a creation and before the record names what it left on chain.
+RECORD_WRITTEN=no
+orphans() {
+  local status=$? item
+  if [ "$MODE" = deploy ] && [ "$RECORD_WRITTEN" = no ] && [ -n "$CREATED_LIST" ]; then
+    echo "deploy-sepolia: the run stopped before the record was written; nothing was written to $OUT. These contracts are on chain $CHAIN and unused (orphans); a rerun deploys all five anew:" >&2
+    for item in $CREATED_LIST; do echo "deploy-sepolia:   ${item%%=*} ${item#*=}" | sed 's/@/ in /' >&2; done
   fi
-  address="$(jq -er '.deployedTo' <<<"$json")" || fail "forge create $id reported no address"
-  tx="$(jq -er '.transactionHash' <<<"$json")" || fail "forge create $id reported no transaction"
-  echo "$address $tx"
+  exit "$status"
 }
 
 ESCROW_ID=lib/commerce-payments/src/AuthCaptureEscrow.sol:AuthCaptureEscrow
@@ -204,19 +353,41 @@ RULES_ID=src/HoldbackRules.sol:HoldbackRules
 TOKEN_ID=script/TestUSDC.sol:TestUSDC
 
 if [ "$MODE" = deploy ]; then
-  OUT_LINE="$(create "$ESCROW_ID")"
-  read -r ESCROW ESCROW_TX <<<"$OUT_LINE"
-  OUT_LINE="$(create "$C3009_ID" "$ESCROW" "$MULTICALL3")"
-  read -r C3009 C3009_TX <<<"$OUT_LINE"
-  OUT_LINE="$(create "$BEACON_ID")"
-  read -r BEACON BEACON_TX <<<"$OUT_LINE"
+  # The script's own TestUSDC goes first in the checks; it must be there before anything is sent.
+  [ -f "$ROOT/script/TestUSDC.sol" ] || fail "script/TestUSDC.sol is missing: the rules contract needs its token at deploy"
+  trap orphans EXIT
+  # The run's first nonce: the deployer's, once its mined and pending nonces agree.
+  START_NONCE="$(nonce_at latest)"
+  settle_nonce "$START_NONCE"
+  NEXT_NONCE="$START_NONCE"
+  LAST_BLOCK=0
+  create AuthCaptureEscrow "$ESCROW_ID"
+  ESCROW="$CREATED_ADDRESS" ESCROW_TX="$CREATED_TX"
+  create ERC3009PaymentCollector "$C3009_ID" "$ESCROW" "$MULTICALL3"
+  C3009="$CREATED_ADDRESS" C3009_TX="$CREATED_TX"
+  create DrandQuicknetBeacon "$BEACON_ID"
+  BEACON="$CREATED_ADDRESS" BEACON_TX="$CREATED_TX"
   # The demo's open-mint test token. A deployment serves one token, fixed in the rules contract's constructor
   # (ADR-0031 §2, SC-1), so the token comes first.
-  [ -f "$ROOT/script/TestUSDC.sol" ] || fail "script/TestUSDC.sol is missing: the rules contract needs its token at deploy"
-  OUT_LINE="$(create "$TOKEN_ID")"
-  read -r TOKEN TOKEN_TX <<<"$OUT_LINE"
-  OUT_LINE="$(create "$RULES_ID" "$ESCROW" "$C3009" "$EXPIRY_MARGIN" "$BEACON" "$TOKEN" "$BEACON_MARGIN")"
-  read -r RULES RULES_TX <<<"$OUT_LINE"
+  create TestUSDC "$TOKEN_ID"
+  TOKEN="$CREATED_ADDRESS" TOKEN_TX="$CREATED_TX"
+  create HoldbackRules "$RULES_ID" "$ESCROW" "$C3009" "$EXPIRY_MARGIN" "$BEACON" "$TOKEN" "$BEACON_MARGIN"
+  RULES="$CREATED_ADDRESS" RULES_TX="$CREATED_TX"
+  # The record pins these five, so it waits until the chain cannot drop them: the last creation's block finalized.
+  echo "deploy-sepolia: waiting until block $LAST_BLOCK is $FINALITY before the checks and the record (about 13 minutes on Sepolia)"
+  WAIT_UNTIL=$((SECONDS + FINALITY_WAIT_SEC))
+  NEXT_NOTE=$((SECONDS + 60))
+  while :; do
+    FINAL_BLOCK="$(cast block "$FINALITY" --field number --rpc-url "$RPC")" || fail "reading the $FINALITY block failed"
+    FINAL_BLOCK="$(cast to-dec "$FINAL_BLOCK")" || fail "bad $FINALITY block number"
+    [ "$FINAL_BLOCK" -lt "$LAST_BLOCK" ] || break
+    [ "$SECONDS" -lt "$WAIT_UNTIL" ] || fail "block $LAST_BLOCK is not $FINALITY after $FINALITY_WAIT_SEC s (the $FINALITY block is $FINAL_BLOCK)"
+    if [ "$SECONDS" -ge "$NEXT_NOTE" ]; then
+      echo "deploy-sepolia: the $FINALITY block is $FINAL_BLOCK; waiting for $LAST_BLOCK"
+      NEXT_NOTE=$((SECONDS + 60))
+    fi
+    sleep "$POLL_SEC"
+  done
 else
   ESCROW="$(field .contracts.AuthCaptureEscrow.address)"
   ESCROW_TX="$(field .contracts.AuthCaptureEscrow.tx)"
@@ -237,6 +408,12 @@ ESCROW_BLOCK="$(mined "$ESCROW_TX" "$ESCROW")"
 C3009_BLOCK="$(mined "$C3009_TX" "$C3009")"
 BEACON_BLOCK="$(mined "$BEACON_TX" "$BEACON")"
 RULES_BLOCK="$(mined "$RULES_TX" "$RULES")"
+if [ "$MODE" = deploy ]; then
+  # Read again after the wait: each creation sits at or below the finalized block, where the record will pin it.
+  for b in "$ESCROW_BLOCK" "$C3009_BLOCK" "$BEACON_BLOCK" "$RULES_BLOCK"; do
+    [ "$b" -le "$FINAL_BLOCK" ] || fail "a creation now sits in block $b, past the $FINALITY block $FINAL_BLOCK: the chain moved under the run; nothing was written"
+  done
+fi
 creation_matches "$ESCROW_ID" "$ESCROW_TX"
 creation_matches "$C3009_ID" "$C3009_TX" 'constructor(address,address)' "$ESCROW" "$MULTICALL3"
 creation_matches "$BEACON_ID" "$BEACON_TX"
@@ -292,6 +469,9 @@ refuses "another round's signature" "$BEACON" 'beaconValue(uint64,bytes)(bytes32
 TOKEN_JSON=null
 if [ -n "$TOKEN" ]; then
   TOKEN_BLOCK="$(mined "$TOKEN_TX" "$TOKEN")"
+  if [ "$MODE" = deploy ] && [ "$TOKEN_BLOCK" -gt "$FINAL_BLOCK" ]; then
+    fail "the token's creation now sits in block $TOKEN_BLOCK, past the $FINALITY block $FINAL_BLOCK: the chain moved under the run; nothing was written"
+  fi
   creation_matches "$TOKEN_ID" "$TOKEN_TX"
   TOKEN_NAME="$(call "$TOKEN" 'name()(string)')"
   TOKEN_SYMBOL="$(call "$TOKEN" 'symbol()(string)')"
@@ -369,72 +549,24 @@ RECORD="$(jq -n \
     }
   }')"
 
-# run_verify <explorer> <command...>: runs one verification, or prints it under VERIFY_DRY_RUN=1. No key is ever on
-# the command line: forge reads ETHERSCAN_API_KEY from the environment itself. forge's own output can still carry the
-# key (a failed request prints its URL, `?apikey=…`; review of PR 424), so it is captured and the key's value replaced
-# before anything is printed.
-run_verify() {
-  local who="$1" out status
-  shift
+# verify_all: the five contracts on Sourcify, through its API v2, by the committed tool (T-410). It checks each
+# contract against the chain first and sends nothing unless all five are exact; VERIFY_DRY_RUN=1 stops it there. A
+# rehearsal may name a stand-in Sourcify server on this machine in SOURCIFY_URL; Sepolia goes to Sourcify itself.
+verify_all() {
+  local tool="$ROOT/../scripts/sourcify-verify.mjs" args
+  [ -f "$tool" ] || fail "scripts/sourcify-verify.mjs is missing"
+  args=(--record "$OUT" --rpc "$RPC" --root "$ROOT/..")
+  if [ -n "${SOURCIFY_URL:-}" ]; then args+=(--sourcify "$SOURCIFY_URL"); fi
   if [ "${VERIFY_DRY_RUN:-}" = 1 ]; then
-    echo "deploy-sepolia: would run: $*"
+    node "$tool" "${args[@]}" || fail "the source check failed: nothing was sent to Sourcify"
+    echo "deploy-sepolia: dry run: nothing was sent to Sourcify"
     return 0
   fi
-  status=0
-  out="$("$@" 2>&1)" || status=$?
-  if [ -n "${ETHERSCAN_API_KEY:-}" ]; then out="${out//"$ETHERSCAN_API_KEY"/<ETHERSCAN_API_KEY>}"; fi
-  printf '%s\n' "$out"
-  [ "$status" -eq 0 ] || fail "$who verification failed (exit $status): $*"
-}
-
-# verify_one <Sourcify|Etherscan> <path:Contract> <address> [constructor-signature args...]. Neither run takes a
-# verifier URL or key from the environment (forge reads VERIFIER_URL and VERIFIER_API_KEY), so a submission goes to the
-# named explorer only; Sourcify also runs without ETHERSCAN_API_KEY, so no key goes to it.
-verify_one() {
-  local who="$1" id="$2" address="$3" encoded=""
-  shift 3
-  if [ "$#" -gt 0 ]; then
-    encoded="$(cast abi-encode "$@")" || fail "encoding the constructor arguments of $id failed"
+  if [ "$CHAIN" = "$LOCAL" ] && [ -z "${SOURCIFY_URL:-}" ]; then
+    fail "no explorer serves the local chain; a rehearsal runs --verify with VERIFY_DRY_RUN=1, or SOURCIFY_URL names a stand-in"
   fi
-  local base=("$VERIFY_FORGE" verify-contract "$address" "$id" --root "$ROOT" --chain "$CHAIN" --watch)
-  if [ -n "$encoded" ]; then base+=(--constructor-args "$encoded"); fi
-  if [ "$who" = Sourcify ]; then
-    run_verify Sourcify env -u ETHERSCAN_API_KEY -u VERIFIER_URL -u VERIFIER_API_KEY "${base[@]}" --verifier sourcify
-  else
-    run_verify Etherscan env -u VERIFIER_URL -u VERIFIER_API_KEY "${base[@]}" --verifier etherscan
-  fi
-}
-
-# verify_all: the five contracts on Sourcify, then, with a key, the five on Etherscan: a failure on Etherscan leaves
-# Sourcify complete. Each takes the constructor arguments of the record --check has just derived and matched.
-verify_all() {
-  # A rehearsal may name a stand-in for forge's verify-contract (a test's), which sends nothing; Sepolia may not.
-  if [ "$CHAIN" = "$SEPOLIA" ] && [ "$VERIFY_FORGE" != forge ]; then fail "on Sepolia --verify runs forge itself; unset VERIFY_FORGE"; fi
-  if [ "$CHAIN" = "$LOCAL" ] && [ "${VERIFY_DRY_RUN:-}" != 1 ] && [ "$VERIFY_FORGE" = forge ]; then
-    fail "no explorer serves the local chain; a rehearsal runs --verify with VERIFY_DRY_RUN=1"
-  fi
-  local c3009_text rules_text c3009_args rules_args who explorers=(Sourcify)
-  c3009_text="$(jq -er '.contracts.ERC3009PaymentCollector.args | join(" ")' <<<"$RECORD")" || fail "the record has no collector arguments"
-  rules_text="$(jq -er '.contracts.HoldbackRules.args | join(" ")' <<<"$RECORD")" || fail "the record has no rules arguments"
-  read -r -a c3009_args <<<"$c3009_text"
-  read -r -a rules_args <<<"$rules_text"
-  [ "${#c3009_args[@]}" -eq 2 ] || fail "the record's collector has ${#c3009_args[@]} arguments, not 2"
-  [ "${#rules_args[@]}" -eq 6 ] || fail "the record's rules contract has ${#rules_args[@]} arguments, not 6"
-  if [ -n "${ETHERSCAN_API_KEY:-}" ]; then explorers+=(Etherscan); fi
-  for who in "${explorers[@]}"; do
-    verify_one "$who" "$ESCROW_ID" "$ESCROW"
-    verify_one "$who" "$C3009_ID" "$C3009" 'constructor(address,address)' "${c3009_args[@]}"
-    verify_one "$who" "$BEACON_ID" "$BEACON"
-    verify_one "$who" "$TOKEN_ID" "$TOKEN"
-    verify_one "$who" "$RULES_ID" "$RULES" 'constructor(address,address,uint64,address,address,uint64)' "${rules_args[@]}"
-  done
-  if [ "${VERIFY_DRY_RUN:-}" = 1 ]; then
-    echo "deploy-sepolia: dry run: nothing was sent to an explorer"
-  elif [ -n "${ETHERSCAN_API_KEY:-}" ]; then
-    echo "deploy-sepolia: the five contracts are verified on Sourcify and Etherscan"
-  else
-    echo "deploy-sepolia: the five contracts are verified on Sourcify (Etherscan needs a key and a newer forge; not run)"
-  fi
+  node "$tool" "${args[@]}" --submit || fail "Sourcify verification did not end in five exact matches: read the lines above"
+  echo "deploy-sepolia: the five contracts are an exact match on Sourcify"
 }
 
 if [ "$MODE" = check ]; then
@@ -444,7 +576,11 @@ if [ "$MODE" = check ]; then
   echo "deploy-sepolia: $OUT matches the chain and the build at $COMMIT"
   if [ "$VERIFY" = yes ]; then verify_all; fi
 else
+  # Written whole or not at all: a temporary file beside the record, moved into place.
   mkdir -p "$(dirname "$OUT")"
-  printf '%s\n' "$RECORD" >"$OUT"
+  TMP_RECORD="$(mktemp "$(dirname "$OUT")/.record.XXXXXX")" || fail "making a temporary file beside $OUT failed"
+  printf '%s\n' "$RECORD" >"$TMP_RECORD" || fail "writing $TMP_RECORD failed"
+  mv -f "$TMP_RECORD" "$OUT" || fail "moving the record into $OUT failed"
+  RECORD_WRITTEN=yes
   echo "wrote $OUT"
 fi
