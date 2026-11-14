@@ -11,6 +11,7 @@ import { knownPins, type Pin } from '../../../examples/verify.ts';
 import { prefixed, TestBuyer } from './buyer.ts';
 import { SEED_VAR } from './keys.ts';
 import { TestSeller, type Storage } from './seller.ts';
+import { secured, toHttps } from './headers.ts';
 
 // The few Workers runtime types used here, declared locally so the package needs no Workers type package.
 interface DurableObjectStorage extends Storage {
@@ -131,13 +132,21 @@ const FORWARDED = 'escrow.stream';
 const CANONICAL = 'https://crow.direct';
 
 export default {
+  // T-462: every answer leaves through secured() (headers.ts), the one place the security headers are set.
   async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    if (url.hostname === FORWARDED) return Response.redirect(`${CANONICAL}${url.pathname}${url.search}`, 308);
-    if (BUILD_PATHS.some((p) => isBuildRead(request, p))) return buildResponse(buildInfo({ worker: 'crow-test-agents', commit: env.BUILD_COMMIT, metadata: env.CF_VERSION_METADATA }), request.method);
-    const headers = new Headers(request.headers);
-    // Set by this Worker only: whatever a caller sent under this name is replaced.
-    headers.set(CLIENT, request.headers.get('cf-connecting-ip') ?? 'unknown');
-    return env.AGENTS.get(env.AGENTS.idFromName(OBJECT_NAME)).fetch(new Request(request, { headers }));
+    return secured(await route(request, env));
   },
 };
+
+async function route(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  if (url.hostname === FORWARDED) return Response.redirect(`${CANONICAL}${url.pathname}${url.search}`, 308);
+  // T-462: plain HTTP on crow.direct gets a redirect to HTTPS before it reaches the agents (headers.ts).
+  const insecure = toHttps(request);
+  if (insecure) return insecure;
+  if (BUILD_PATHS.some((p) => isBuildRead(request, p))) return buildResponse(buildInfo({ worker: 'crow-test-agents', commit: env.BUILD_COMMIT, metadata: env.CF_VERSION_METADATA }), request.method);
+  const headers = new Headers(request.headers);
+  // Set by this Worker only: whatever a caller sent under this name is replaced.
+  headers.set(CLIENT, request.headers.get('cf-connecting-ip') ?? 'unknown');
+  return env.AGENTS.get(env.AGENTS.idFromName(OBJECT_NAME)).fetch(new Request(request, { headers }));
+}

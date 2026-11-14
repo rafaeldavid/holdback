@@ -20,6 +20,7 @@ import { Agent } from '../../../examples/agent.ts';
 import { freshNonce, jcs, openEnvelopeKey, operatorFeeOf, Refusal, type Intent, type Pin } from '../../../examples/verify.ts';
 import { ITEM_ID, LIMITS, offers, SILENT_TIMING, TIMING, workOf, type Limits, type Offer, type Outcome } from './catalog.ts';
 import { encryptionKey, publicOf, signingKey } from './keys.ts';
+import { CARD_STYLE } from './headers.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -242,7 +243,7 @@ export class TestSeller {
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Crow's test seller</title>
 <script type="application/json" id="crow-agent">${block}</script>
-<style>body{font:16px/1.5 -apple-system,system-ui,sans-serif;max-width:40rem;margin:2rem auto;padding:0 1rem;color:#1d1d1f;background:#fff}code{font-size:.9em;word-break:break-all}</style>
+<style>${CARD_STYLE}</style>
 </head><body>
 <h1>Crow's test seller</h1>
 <p><strong>Test tokens only.</strong> This agent sells test work on Crow's Sepolia test environment, in tUSDC, an open-mint test token worth nothing.</p>
