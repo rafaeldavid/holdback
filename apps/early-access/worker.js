@@ -5,6 +5,9 @@
 // method, which keeps a POST's method and body. A browser sign-up from a page still open on escrow.stream is served in
 // place instead, into the same KV namespace: a browser sends a redirected cross-origin POST with Origin null, which
 // this Worker would refuse, and a preflight cannot follow a redirect at all.
+// GET /version.json names the commit (BUILD_COMMIT, from deploy.mjs) and the live version, for Crow Control (T-413).
+import { buildInfo, buildResponse, isBuildRead } from '../site/build-info.js';
+
 const ALLOWED = ['https://crow.direct', 'https://www.crow.direct', 'https://escrow.stream', 'https://www.escrow.stream', 'https://npc.here.now', 'https://mighty-canvas-c3tc.here.now'];
 const CANONICAL = 'https://join.crow.direct';
 const FORWARDED = 'join.escrow.stream';
@@ -26,6 +29,7 @@ export default {
     if (url.hostname === FORWARDED && !(request.method === 'POST' && ALLOWED.includes(origin))) {
       return Response.redirect(`${CANONICAL}${url.pathname}${url.search}`, request.method === 'GET' || request.method === 'HEAD' ? 301 : 308);
     }
+    if (isBuildRead(request, '/version.json')) return buildResponse(buildInfo({ worker: 'crow-early-access', commit: env.BUILD_COMMIT, metadata: env.CF_VERSION_METADATA }), request.method);
     if (url.pathname !== '/early-access' || request.method !== 'POST') return json(404, { error: 'not found' }, origin);
     if (!ALLOWED.includes(origin)) return json(403, { error: 'sign up from the ’crow site' }, origin);
     let body;

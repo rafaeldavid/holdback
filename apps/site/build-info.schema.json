@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crow.direct/schemas/crow.build-1.json",
+  "title": "The build a Worker runs (T-413)",
+  "description": "GET https://crow.direct/version.json (crow-site), https://crow.direct/agents/test-seller/version.json and https://crow.direct/agents/test-buyer/version.json (crow-test-agents), https://join.crow.direct/version.json (crow-early-access). commit: the commit the Worker was built from, filled by its deploy. deployedAt and versionId: from Cloudflare's version-metadata binding, the time the live version was created at its upload and its ID. null means unknown.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "worker", "commit", "deployedAt", "versionId"],
+  "properties": {
+    "schema": { "const": "crow.build/1" },
+    "worker": { "enum": ["crow-site", "crow-test-agents", "crow-early-access"] },
+    "commit": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" },
+    "deployedAt": { "type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$" },
+    "versionId": { "type": ["string", "null"], "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }
+  }
+}
