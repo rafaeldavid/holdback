@@ -1,6 +1,6 @@
 {
   "schemaVersion": "0.8",
-  "id": "0x82b39953829c639edad276bc3edd442a85b0a0a1b3380c95c8cf37736456b15b",
+  "id": "0xd62078e43c13b6cd3e7b8d3e0ca4e65af948948c2abf396d7db54f33edea2313",
   "clubId": "data-services-v1",
   "rulebookHash": "0xd9bc9c4961c67a80c4a1100bc5cb3345a70881b42725f7f84611d6a240f5492d",
   "buyer": "0x04d6c65223896ba94e731bc9eb765c19bd289b0d",
@@ -9,7 +9,7 @@
   "sellerPayoutAddress": "0x9ff412388f11e58327e71f841705dbc739c8cc46",
   "deliverable": {
     "kind": "document",
-    "description": "Security review of the lending-vault code at commit 7c1e4b9a2d3f5068a1b2c3d4e5f60718293a4b5c. Scope: contracts/Vault.sol, contracts/InterestModel.sol and contracts/PriceFeed.sol. Deliver one JSON report with the commit reviewed, the files reviewed and the findings; it may add a summary and the report's date. Each finding has an id, a severity, a title, one or more locations, the root cause and a recommended fix; it may add its impact and a status (open, fixed or acknowledged). Each location names a file in scope and may add a line range and the code excerpt it is about. A finding rated Medium or higher also carries the proof-of-concept files that show it. Severity scale: Critical, anyone can take or lock funds with no special access; High, funds can be taken or locked only with a precondition such as a privileged role or an unusual market state; Medium, the code breaks a stated rule or loses a bounded amount; Low, a defect that puts no funds at risk; Info, a note on clarity, style or cost. A report with no findings is a complete report.",
+    "description": "Security review of the lending-vault code at commit 7c1e4b9a2d3f5068a1b2c3d4e5f60718293a4b5c. Scope: contracts/Vault.sol, contracts/InterestModel.sol and contracts/PriceFeed.sol. Deliver one JSON report with the commit reviewed, the files reviewed and the findings; it may add a summary, the report's date and a salt of 32 random bytes that keeps its fingerprint from being guessed. Each finding has an id, a severity, a title, one or more locations, the root cause and a recommended fix; it may add its impact and a status (open, fixed or acknowledged). Each location names a file in scope and may add a line range and the code excerpt it is about. A finding rated Medium or higher also carries the proof-of-concept files that show it. Severity scale: Critical, anyone can take or lock funds with no special access; High, funds can be taken or locked only with a precondition such as a privileged role or an unusual market state; Medium, the code breaks a stated rule or loses a bounded amount; Low, a defect that puts no funds at risk; Info, a note on clarity, style or cost. A report with no findings is a complete report.",
     "format": "application/json"
   },
   "acceptance": {
@@ -39,6 +39,10 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 5000
+            },
+            "salt": {
+              "type": "string",
+              "pattern": "^0x[0-9a-f]{64}$"
             },
             "filesReviewed": {
               "type": "array",

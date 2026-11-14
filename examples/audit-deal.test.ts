@@ -262,7 +262,10 @@ describe('examples/audit-deal.ts with a seller\'s own report and terms (T-326)',
     const { result } = await run('released', { reportFile: fixture('data/audit-report/report.json') });
     const r = await result;
     expect(r.outcome).toBe('Released');
-    expect(r.delivery!.work).toBe(readFileSync(fixture('data/audit-report/report.json'), 'utf8'));
+    // The built-in terms carry the salt (T-431): the report file's own bytes, with one salt field put first.
+    const work = r.delivery!.work!;
+    expect(work).toMatch(/^\{\s*"salt": "0x[0-9a-f]{64}",/);
+    expect(work.replace(/^\{\s*"salt": "0x[0-9a-f]{64}",/, '{')).toBe(readFileSync(fixture('data/audit-report/report.json'), 'utf8'));
     expect(r.sellerReceived).toEqual({ token: 'tUSD', amount: PRICE_UNITS });
   }, 60_000);
 

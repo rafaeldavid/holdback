@@ -87,7 +87,7 @@ Four recipes for an audit report with a `commit`, a `filesReviewed` list and a `
 ```
 
 - A report with no findings passes all four. Add `"minItems": 1` to `findings` only if an empty report is not acceptable work.
-- Require only what every report of this kind has. In the worked example a location's `lines` and `excerpt`, a finding's `impact` and `status`, and the report's `summary` and `reportDate` are optional: the schema names them in `properties` and leaves them out of `required`. A buyer who needs one of them adds it to `required` before agreeing.
+- Require only what every report of this kind has. In the worked example a location's `lines` and `excerpt`, a finding's `impact` and `status`, and the report's `summary`, `reportDate` and `salt` are optional: the schema names them in `properties` and leaves them out of `required`. A buyer who needs one of them adds it to `required` before agreeing.
 - The subset cannot compare two fields (a line range that ends before it starts), cannot require one property to be unique across a list (two findings with the same id), and cannot say that a finding is true.
 - For what the checks cannot say, add a rubric. Judges read a report of up to 100,000 characters whole. They read a longer report as a sample of its lines, and a sampled read escalates the deal to the appeal adjudicator. The checks always run on the whole report.
 

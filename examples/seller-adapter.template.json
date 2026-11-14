@@ -1,7 +1,7 @@
 {
   "deliverable": {
     "kind": "document",
-    "description": "Security review of the code at commit {{commit}}. Scope: {{files}}. Deliver one JSON report with the commit reviewed, the files reviewed and the findings; it may add a summary and the report's date. Each finding has an id, a severity, a title, one or more locations, the root cause and a recommended fix; it may add its impact and a status (open, fixed or acknowledged). Each location names a file in scope and may add a line range and the code excerpt it is about. A finding rated Medium or higher also carries the proof-of-concept files that show it. Severity scale: Critical, anyone can take or lock funds with no special access; High, funds can be taken or locked only with a precondition such as a privileged role or an unusual market state; Medium, the code breaks a stated rule or loses a bounded amount; Low, a defect that puts no funds at risk; Info, a note on clarity, style or cost. A report with no findings is a complete report.",
+    "description": "Security review of the code at commit {{commit}}. Scope: {{files}}. Deliver one JSON report with the commit reviewed, the files reviewed and the findings; it may add a summary, the report's date and a salt of 32 random bytes that keeps its fingerprint from being guessed. Each finding has an id, a severity, a title, one or more locations, the root cause and a recommended fix; it may add its impact and a status (open, fixed or acknowledged). Each location names a file in scope and may add a line range and the code excerpt it is about. A finding rated Medium or higher also carries the proof-of-concept files that show it. Severity scale: Critical, anyone can take or lock funds with no special access; High, funds can be taken or locked only with a precondition such as a privileged role or an unusual market state; Medium, the code breaks a stated rule or loses a bounded amount; Low, a defect that puts no funds at risk; Info, a note on clarity, style or cost. A report with no findings is a complete report.",
     "format": "application/json"
   },
   "checks": [
@@ -30,6 +30,10 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 5000
+          },
+          "salt": {
+            "type": "string",
+            "pattern": "^0x[0-9a-f]{64}$"
           },
           "filesReviewed": {
             "type": "array",
