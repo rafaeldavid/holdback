@@ -38,6 +38,12 @@ export interface StartMapping extends CallMapping {
   read?: { jobId?: string };
   /** The header that carries the deal's ID as the idempotency key. Left out: `Idempotency-Key`. */
   idempotencyHeader?: string;
+  /**
+   * Whether the API returns the same job when the start is sent again with the same key (T-408). Left out: true
+   * when the mapping names an `idempotencyHeader`, false when it names none. A start that is not repeatable is sent at
+   * most once a deal.
+   */
+  repeatable?: boolean;
 }
 /** How the result call says the job runs, is done or failed. Left out: HTTP 202 runs, 200 is done. */
 export type JobStatus =
@@ -95,6 +101,10 @@ export interface SellerApi {
   describe: string;
   /** false: the quote's answer names no token, so the price is in the settlement layer's token. */
   readsToken: boolean;
+  /** false: a start sent again could start a second job, so the adapter sends it at most once a deal (T-408). */
+  startRepeatable: boolean;
+  /** Why a start is not repeatable, for the start-up line; absent when it is. */
+  startOneShotBecause?: string;
   quote(v: Values): Promise<J>;
   start(v: Values): Promise<string>;
   result(v: Values): Promise<JobAnswer>;
@@ -352,7 +362,12 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
   const s = api.start;
   const idem = isRecord(s) && s.idempotencyHeader !== undefined ? s.idempotencyHeader : 'Idempotency-Key';
   if (typeof idem !== 'string' || !TOKEN.test(idem) || RESERVED_HEADERS.includes(idem.toLowerCase()) || idem.toLowerCase() === auth?.header) throw new Error('sellerApi.start.idempotencyHeader must be a header name other than the credential\'s');
-  const start = prepare('sellerApi.start', s, 'start', { method: 'POST', body: { commitmentId: '{{commitmentId}}', quoteId: '{{quoteId}}', scope: '{{scope}}', options: '{{options}}' } }, ['read', 'idempotencyHeader'], [idem.toLowerCase()]);
+  const start = prepare('sellerApi.start', s, 'start', { method: 'POST', body: { commitmentId: '{{commitmentId}}', quoteId: '{{quoteId}}', scope: '{{scope}}', options: '{{options}}' } }, ['read', 'idempotencyHeader', 'repeatable'], [idem.toLowerCase()]);
+  // T-408: today's three addresses take the deal's ID as their key, so they repeat safely; a mapping repeats safely
+  // only when it names the header its API keys a start by, or says so.
+  if (isRecord(s) && s.repeatable !== undefined && typeof s.repeatable !== 'boolean') throw new Error('sellerApi.start.repeatable must be true or false');
+  const startRepeatable = !isRecord(s) ? true : s.repeatable ?? s.idempotencyHeader !== undefined;
+  const startOneShotBecause = startRepeatable ? undefined : isRecord(s) && s.repeatable === false ? 'the mapping says "repeatable": false' : 'the mapping names no idempotencyHeader';
   const startRead = pointers('sellerApi.start.read', isRecord(s) ? s.read : undefined, { jobId: '/jobId' });
 
   // ---- The result ----
@@ -437,6 +452,8 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
 
   return {
     readsToken,
+    startRepeatable,
+    ...(startOneShotBecause ? { startOneShotBecause } : {}),
     describe: `The seller API is ${base ? `under ${base.href}` : 'at the three configured addresses'}, with ${auth ? `a credential from ${auth.env} in header ${auth.header}` : 'no credential'}${unitsAt !== undefined ? `; a quote prices ${plain(unitsAt)} units at ${unitPrice} base units each` : ''}; its job state is read by ${status.by === 'http' ? 'HTTP status' : 'a status field'}${files ? `, and a result's further files are added at ${plain(rm.files.into)}` : ''}.`,
 
     async quote(v) {
