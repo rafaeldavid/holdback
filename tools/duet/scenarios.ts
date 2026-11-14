@@ -90,7 +90,7 @@ export const scenario = (name: ScenarioName): Scenario => {
       sellerRule: 'Every report our job API returns is final, as it is: we do not edit reports. If your adapter holds a report back, deliver that same report anyway, by hand, before the delivery deadline; the agreed checks decide whether we are paid.',
       sellerRulePlain: 'Send every report exactly as the order system produces it, even one the selling tool holds back.',
       sellerRuleDirect: 'Every report our job API returns is final, as it is: we do not edit reports. If your selling service holds a report back, deliver that same report anyway, before the delivery deadline; the agreed checks decide whether we are paid.',
-      note: "The seller told its agent to send whatever its order system produced. Crow's selling tool runs the agreed checks before it sends a report, and would have held this one back. The agent sent it by hand instead, and the independent reviewer's checks turned it down.",
+      note: "The seller told its agent to send whatever its order system produced. Crow's selling tool runs the agreed checks before it sends a report, and would have held this one back. The agent sent it by hand instead, and the checks run by the reviewer both sides chose turned it down.",
     };
   if (name === 'late-offer')
     return {

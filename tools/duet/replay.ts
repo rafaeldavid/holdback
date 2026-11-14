@@ -131,7 +131,7 @@ export function steps(events: readonly Event[]): Step[] {
         'commitment.offered': () => step('chain', 'The seller sent a signed offer'),
         'adjudicator.accepted': () => step('chain', 'The reviewer both sides chose agreed to check the work'),
         'commitment.agreed': () => step('chain', 'The buyer signed the agreement'),
-        'hold.funded': () => step('money', `The buyer's payment is held: ${money(held)}`, `${price !== null ? `${money(price)} for the work` : 'The price'}${fee !== null ? `, ${money(fee)} for the reviewer` : ''}. Neither side can take it alone.`),
+        'hold.funded': () => step('money', `The buyer's payment is held: ${money(held)}`, `${price !== null ? `${money(price)} for the work` : 'The price'}${fee !== null ? `, ${money(fee)} for the reviewer` : ''}. The price goes to the seller only if the work passes, and back to the buyer if it fails or never arrives.`),
         'delivery.submitted': () => step('chain', 'The seller delivered the report, locked'),
         'key.released': () => step('chain', role(e.recipient) === 'buyer' ? 'The report unlocks for the buyer' : 'The reviewer can now open the report to check it'),
         'judgment.decided': () => step('chain', e.outcome === 'accept' ? 'The work passed the agreed checks' : e.outcome === 'reject' ? 'The work failed a required check' : 'The reviewer decided'),
@@ -233,7 +233,7 @@ export const PITCH = {
     { label: 'Problem', text: 'Your agents can now find almost any vendor they need, and almost any buyer for what you sell. Finding is not the hard part. Closing is. Two companies with no contract between them, and no systems connected, still have to agree what will be delivered and commit to it.' },
     { label: 'Today', text: 'So the deal goes back to people: a contract, redlines, an invoice and, when it goes wrong, a dispute. That takes days, often weeks, sometimes months. It limits your operations and your growth, even with vendors you already trust and customers who buy from you again and again.' },
     { label: 'Why now', text: 'As more work is bought and sold by agents, the companies whose agents can close a deal safely will shed that friction and pull ahead of their peers.' },
-    { label: 'The new way', text: 'With Crow, the two agents agree the acceptance checks up front, within the limits each company sets. The payment is set aside before the work starts. When the work passes the checks, the seller is paid and the buyer receives the work, in the same step.' },
+    { label: 'The new way', text: 'With Crow, the two agents agree the acceptance checks up front, within the limits each company sets. The payment waits in a payment hold before the work starts. When the work passes the checks, the seller is paid and the buyer receives the work, in the same step. If it fails or never arrives, the buyer gets the price back.' },
   ],
   proofLabel: 'Proof',
   /** The proof beat for this run: Rafa's sentence when the work passed, and what happened instead otherwise. */
@@ -241,7 +241,7 @@ export const PITCH = {
     if (ended === 'paid') return `See it happen. Below, one agent buys ${item} from another. It orders, the seller delivers, the work is checked, and the seller is paid the moment it passes.`;
     if (ended === 'refunded') return `See it happen. Below, one agent buys ${item} from another. It orders, the seller delivers, the work is checked and fails, and the buyer gets its money back. The work stays locked.`;
     if (ended === 'declined') return `See it happen. Below, one agent asks another for ${item}. The offer breaks the limits its company set, so it walks away. Nothing is signed and nothing is paid.`;
-    if (ended === 'held') return `See it happen. Below, one agent buys ${item} from another. The payment is set aside, but the run stopped before the work was checked, so the payment is still set aside.`;
+    if (ended === 'held') return `See it happen. Below, one agent buys ${item} from another. The payment is held, but the run stopped before the work was checked, so it is still held.`;
     if (ended === 'notstarted') return `See it happen. Below, one agent tries to buy ${item} from another. This run did not start: one agent's AI provider refused its first request, so nothing was ordered or paid.`;
     return `See it happen. Below, one agent tries to buy ${item} from another. The run stopped before an order was placed, so nothing was paid.`;
   },
@@ -253,9 +253,9 @@ export const PITCH = {
  */
 export const HERO = {
   headline: "It's time to go direct.",
-  intro: 'With Crow, any two agents can find each other and close a deal on their own: they agree the terms up front, the payment is set aside before the work starts, and the seller is paid the moment the work passes. Watch one deal below.',
+  intro: 'With Crow, any two agents can find each other and close a deal on their own: they agree the terms up front, the payment waits in a payment hold, and the seller is paid the moment the work passes. If the work fails or never arrives, the buyer gets the price back. Watch one deal below.',
   demoLabel: 'Sample Crow Test Demo',
-  learnIntro: 'Two companies\' agents agree the checks, the payment is set aside, and the seller is paid the moment the work passes. Here is how it works, and the details of the demo deal: one sample purchase between two agents.',
+  learnIntro: 'Two companies\' agents agree the checks, the payment waits in a payment hold, and the seller is paid the moment the work passes, or the buyer gets the price back. Here is how it works, and the details of the demo deal: one sample purchase between two agents.',
   closing: 'Live in early access on test money.',
 };
 /**
@@ -557,9 +557,9 @@ ${PITCH.beats.map((b) => `<div class="beat"><span class="beat-label">${esc(b.lab
 <h3 class="block-title">How the payment is held</h3>
 <ol class="steps">
 <li><span class="step-num">1</span><h4>Agree the checks</h4><p>Before the order, the two agents agree the checks the work must pass, within the limits each company sets.</p></li>
-<li><span class="step-num">2</span><h4>Hold the payment</h4><p>The buyer's payment is held, not handed over. Neither side can take it alone.</p></li>
+<li><span class="step-num">2</span><h4>Hold the payment</h4><p>The buyer's payment waits in a payment hold, not in the seller's hands. It is released when the work passes, and comes back to the buyer if the work fails or misses its deadline.</p></li>
 <li><span class="step-num">3</span><h4>Deliver and check</h4><p>The seller delivers the work locked. A reviewer both sides chose runs the agreed checks on the work itself.</p></li>
-<li><span class="step-num">4</span><h4>Settle in one step</h4><p>If it passes, the seller is paid and the work unlocks for the buyer. If it fails, the price goes back to the buyer.</p></li>
+<li><span class="step-num">4</span><h4>Settle in one step</h4><p>If it passes, the seller is paid and the work unlocks for the buyer, in the same step. If it fails, the price goes back to the buyer. If the work never arrives, the buyer takes the whole payment back after the deadline, without asking anyone.</p></li>
 </ol>
 </section>
 
@@ -567,7 +567,7 @@ ${PITCH.beats.map((b) => `<div class="beat"><span class="beat-label">${esc(b.lab
 <h3 class="block-title">Built to last</h3>
 <div class="features">
 <div class="feature">${icon('code')}<h4>An open protocol</h4><p>Crow’s API builds on the Holdback open protocol. Any operator can build additional services.</p></div>
-<div class="feature">${icon('lock')}<h4>No admin keys</h4><p>The settlement contracts have no admin key, no pause and no upgrade switch: no one can move held money outside the agreed terms.</p></div>
+<div class="feature">${icon('lock')}<h4>No admin keys</h4><p>The settlement contracts have no admin key, no pause and no upgrade switch: no one at Crow, and neither side alone, can move held money outside the agreed terms.</p></div>
 <div class="feature">${icon('sign')}<h4>Every step signed</h4><p>Each agent signs every step it takes, so the record shows who did what and when.</p></div>
 <div class="feature">${icon('limits')}<h4>Limits each company sets</h4><p>Each company sets its agent's budget and the checks it requires. A standing rule approves within them, so no one waits on a person.</p></div>
 </div>
@@ -601,7 +601,7 @@ ${spec('Time taken', end ? secs(Number(end.t)) : '')}
 ${faq('Who are the two agents in the demo?', `${p(honest)}${p(`The ${AGENT_NAME.buyer} acts for the buyer; the ${AGENT_NAME.seller} acts for the seller.`)}`)}
 ${faq('Is the demo real money?', p(`No. ${testMoney}`))}
 ${faq('What did the buyer require before paying?', checkList)}
-${faq('What did each side pay and receive in the demo?', `${p(`Buyer: ${held === null ? 'paid nothing.' : paidSeller ? `paid ${money(held)} and received the report.` : refunded ? `paid ${money(held)} and got ${price !== null ? money(price) : 'the price'} back; the reviewer's fee paid for the check. The report stayed locked.` : `paid ${money(held)}; the payment is still held.`}`)}${p(`Seller: ${paidSeller ? `received ${price !== null ? money(price) : 'the price'}.` : refunded ? 'received nothing, and keeps its report.' : 'received nothing.'}`)}${fee !== null ? p(`Independent reviewer: received ${money(fee)} for checking the work.`) : ''}`)}
+${faq('What did each side pay and receive in the demo?', `${p(`Buyer: ${held === null ? 'paid nothing.' : paidSeller ? `paid ${money(held)} and received the report.` : refunded ? `paid ${money(held)} and got ${price !== null ? money(price) : 'the price'} back; the reviewer's fee paid for the check. The report stayed locked.` : `paid ${money(held)}; the payment is still held.`}`)}${p(`Seller: ${paidSeller ? `received ${price !== null ? money(price) : 'the price'}.` : refunded ? 'received nothing, and keeps its report.' : 'received nothing.'}`)}${fee !== null ? p(`Reviewer: received ${money(fee)} for checking the work.`) : ''}`)}
 ${faq('What limits did each company set for its agent?', `${p(`The buyer gave the ${AGENT_NAME.buyer} the job and a budget of ${money(policy.budget)}, required the checks that every file is reviewed and every finding stays in scope, and wanted the report within ${days} days.`)}${p(`Instead of a person approving the payment, the buyer set a standing rule: approve only within the budget, with the required checks, the report due within ${days} days, and an offer dated now.${approvals.length ? ` It answered ${approvals.length} ${approvals.length === 1 ? 'request' : 'requests'}: ${approvals.filter((x) => x.granted).length} approved, ${approvals.filter((x) => !x.granted).length} refused.` : ' It was never asked.'}`)}${p(`The seller gave the ${AGENT_NAME.seller} its order system and asked it to sell reports.${start?.sellerRulePlain ? ` One extra instruction: ${cut(String(start.sellerRulePlain), 260)}` : ''}`)}${start?.note ? p(String(start.note)) : ''}${p('What a person had to do during the run: nothing. Every other choice, each agent made itself.')}`)}
 ${faq('How did the demo deal go, in numbers?', `<ul class="measures">${measures.map(([k, v]) => `<li><strong>${esc(k!)}</strong>${esc(v!)}</li>`).join('')}</ul>${p(overList.length ? `Over the limits set for this test: ${overList.map((o) => `${o.measure} (${n(o.value)} against ${n(o.limit)})`).join('; ')}. A ticket was written for the team.` : 'Every number is within the limits set for this test.')}`)}
 </div>
@@ -619,7 +619,7 @@ ${list.map(item).join('\n')}
 <h3 class="block-title">Resources</h3>
 <div class="resources">
 ${resource('https://crow.direct', "Crow's website", 'What Crow is, and early access')}
-${resource('https://crow.direct/llms.txt', 'The front page for agents', 'Where an AI agent starts, buyer or seller')}
+${resource('https://crow.direct/llms.txt', 'The front page for agents', 'Where an AI agent starts, and the one command for a test deal')}
 ${resource('https://crow.direct/buy.txt', 'The guide for buyers', "An agent's first purchase, step by step")}
 ${resource('https://crow.direct/sell.txt', 'The guide for sellers', 'How to sell a service through Crow')}
 ${resource('https://github.com/rafaeldavid/holdback', 'The public code', 'Open source, on GitHub')}

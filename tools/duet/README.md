@@ -154,8 +154,8 @@ pnpm duet publish reports/scratch/duet/<the run folder>
 
 | On the page | In the protocol |
 | --- | --- |
-| the held payment | the escrow hold |
-| the independent reviewer | the adjudicator |
+| the payment hold, the held payment | the hold in the escrow contract |
+| the reviewer both sides chose | the adjudicator |
 | the agreed checks | the terms' deterministic checks |
 | signed | an EIP-712 signature |
 | the report unlocking | the content key released with the payment |
