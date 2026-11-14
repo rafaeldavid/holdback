@@ -56,12 +56,15 @@ describe('the checks before and after an upload (T-436)', () => {
     expect(workspaceRefusal(seller, 'another')).toMatch(/pins another account/);
     expect(workspaceRefusal(seller, 'none')).toMatch(/pins an account/);
   });
-  it('the deal guard waits for a deal at starting, and only for that', () => {
-    const h = (o: J, status = 200) => ({ status, body: JSON.stringify(o) });
-    expect(dealGuard(h({ status: 'operational', open: 2, stages: { starting: 1, started: 1 } }))).toEqual({ go: false, why: expect.stringMatching(/^1 deal is at starting/) });
-    expect(dealGuard(h({ status: 'operational', open: 1, stages: { 'start-unknown': 1 } })).go).toBe(true); // it sends no start
-    expect(dealGuard(h({ status: 'degraded', reason: 'set HOLDBACK_KEY' }, 503))).toEqual({ go: true, note: 'the live seller answers 503 (set HOLDBACK_KEY): it runs no start now' });
-    expect(dealGuard({ status: 0, body: '' }).go).toBe(true);
+  it('the deal guard waits for a deal at starting, and goes on only on an answer from this seller', () => {
+    const h = (o: J, status = 200) => ({ status, body: JSON.stringify({ seller: 'example-audits', ...o }) });
+    const g = (a: { status: number; body: string }) => dealGuard(a, 'example-audits');
+    expect(g(h({ status: 'operational', open: 2, stages: { starting: 1, started: 1 } }))).toEqual({ go: false, why: expect.stringMatching(/^1 deal is at starting/) });
+    expect(g(h({ status: 'operational', open: 1, stages: { 'start-unknown': 1 } })).go).toBe(true); // it sends no start
+    expect(g(h({ status: 'degraded', reason: 'the seller could not start' }, 503))).toEqual({ go: true, note: 'the live seller reads degraded: it runs no start now' });
+    expect(g({ status: 0, body: '' }).go).toBe(false); // no answer says nothing about the deals
+    expect(g({ status: 200, body: JSON.stringify({ status: 'operational', seller: 'someone-else' }) }).go).toBe(false);
+    expect(g({ status: 502, body: '<html>' }).go).toBe(false);
   });
   it('after an upload, the seller must serve this bundle, operational unless it is the first deploy', () => {
     const o = { sha256: seller.configSha256, slug: seller.slug };
@@ -126,20 +129,34 @@ describe('deploySeller (T-436), with stand-ins', () => {
     expect(calls).toEqual(['GET /health']);
     expect(lines.join('\n')).toMatch(/Refused: 1 deal is at starting/);
   });
-  it('--first refuses a Worker that is already live, and the plain deploy one that is not', async () => {
+  it('--first refuses a Worker that is already live or a seller that already answers, and the plain deploy one that is not', async () => {
     expect(await deploySeller(deployFx({ args: [...ARGS, '--first'] }).fx)).toBe(2);
+    const answering = deployFx({ args: [...ARGS, '--first'], live: [null], health: [ok()] }); // wrangler read no version, but it answers
+    expect(await deploySeller(answering.fx)).toBe(2);
+    expect(answering.calls.filter((c) => c.startsWith('npx'))).toEqual([]);
     expect(await deploySeller(deployFx({ args: ARGS, live: [null] }).fx)).toBe(2);
   });
-  it('a first deploy passes once the seller answers for this bundle, with no secrets yet', async () => {
-    const degraded = { status: 503, body: JSON.stringify({ status: 'degraded', seller: 'example-audits', configSha256: seller.configSha256, reason: 'set HOLDBACK_KEY' }) };
-    const { fx, calls, lines } = deployFx({ args: [...ARGS, '--first'], live: [null], health: [degraded] });
+  it('a seller that does not answer three reads refuses the deploy before any upload', async () => {
+    const { fx, calls, lines } = deployFx({ args: ARGS, health: [{ status: 0, body: '' }, { status: 0, body: '' }, { status: 0, body: '' }] });
+    expect(await deploySeller(fx)).toBe(2);
+    expect(calls).toEqual(['GET /health', 'GET /health', 'GET /health']);
+    expect(lines.join('\n')).toMatch(/does not answer, so the deal guard cannot read its deals\. Nothing was uploaded/);
+  });
+  it('waits out the deferred code update: a seller on its old bundle for 300 s still passes', async () => {
+    const stale = { status: 200, body: JSON.stringify({ status: 'operational', seller: 'example-audits', configSha256: 'f'.repeat(64) }) };
+    const { fx } = deployFx({ args: ARGS, live: [BEFORE], health: [ok(), ...Array(61).fill(stale), ok()] }); // 61 reads 5 s apart: 305 s
     expect(await deploySeller(fx)).toBe(0);
-    expect(calls.filter((c) => c.startsWith('GET'))).toEqual(['GET /health']); // no guard read before the first upload, no card after it
+  });
+  it('a first deploy passes once the seller answers for this bundle, with no secrets yet', async () => {
+    const degraded = { status: 503, body: JSON.stringify({ status: 'degraded', seller: 'example-audits', configSha256: seller.configSha256, reason: 'the seller could not start' }) };
+    const { fx, calls, lines } = deployFx({ args: [...ARGS, '--first'], live: [null], health: [{ status: 0, body: '' }, degraded] });
+    expect(await deploySeller(fx)).toBe(0);
+    expect(calls.filter((c) => c.startsWith('GET'))).toEqual(['GET /health', 'GET /health']); // nothing answers before the upload; no card after it
     expect(lines.join('\n')).toContain('run apps/hosted-sellers/scripts/secrets.ts next');
   });
   it('a seller that never serves the new bundle fails the deploy and rolls back to the version before', async () => {
     const stale = { status: 200, body: JSON.stringify({ status: 'operational', seller: 'example-audits', configSha256: 'f'.repeat(64) }) };
-    const { fx, calls, lines } = deployFx({ args: ARGS, live: [BEFORE, AFTER], health: [ok(), ...Array(40).fill(stale)] });
+    const { fx, calls, lines } = deployFx({ args: ARGS, live: [BEFORE, AFTER], health: [ok(), ...Array(100).fill(stale)] });
     expect(await deploySeller(fx)).toBe(1);
     expect(calls).toContain(`rollback crow-seller-example-audits ${BEFORE}`);
     expect(lines.join('\n')).toContain('record');
@@ -147,7 +164,7 @@ describe('deploySeller (T-436), with stand-ins', () => {
 });
 
 /** Stand-ins for every effect of setting the secrets. */
-function secretsFx(o: { args?: string[]; existing?: string[]; stdin?: string; dir?: { ok: true } | { ok: false; why: string }; bulk?: number } = {}) {
+function secretsFx(o: { args?: string[]; existing?: string[]; stdin?: string; dir?: { ok: true } | { ok: false; why: string }; bulk?: number; health?: J; there?: string[] } = {}) {
   const files: Record<string, string> = {};
   const lines: string[] = [];
   const sent: Array<{ args: string[]; input?: string }> = [];
@@ -155,6 +172,8 @@ function secretsFx(o: { args?: string[]; existing?: string[]; stdin?: string; di
   const fx: SecretsEffects = {
     args: o.args ?? ['--seller', '/private/folder', '--credentials-out', '/private/out'],
     readSeller: (_f, name) => fileOf(name),
+    probe: async () => (o.health === undefined ? { status: 0, body: '' } : { status: 200, body: JSON.stringify(o.health) }),
+    fileExists: (_d, name) => (o.there ?? []).includes(name) || Object.hasOwn(files, name),
     stdin: async () => o.stdin ?? 'the-company-api-key\n',
     privateDir: () => o.dir ?? { ok: true },
     writeSecretFile: (_d, name, text) => void (files[name] = text),
@@ -194,9 +213,27 @@ describe('setSecrets (T-436), with stand-ins', () => {
     expect(await setSecrets(empty.fx)).toBe(2);
     expect(Object.keys(empty.files)).toEqual([]);
   });
+  it('--replace waits for a seller with no open deal, and a credential file already there refuses before any is written', async () => {
+    const busy = secretsFx({ existing: ['HOLDBACK_KEY'], args: ['--seller', '/f', '--credentials-out', '/o', '--replace'], health: { status: 'operational', seller: 'example-audits', open: 2 } });
+    expect(await setSecrets(busy.fx)).toBe(2);
+    expect(busy.lines.join('\n')).toMatch(/has 2 open deals/);
+    expect(await setSecrets(secretsFx({ existing: ['HOLDBACK_KEY'], args: ['--seller', '/f', '--credentials-out', '/o', '--replace'], health: { status: 'operational', seller: 'example-audits', open: 0 } }).fx)).toBe(0);
+    const clash = secretsFx({ there: ['example-audits.ready.credential'] });
+    expect(await setSecrets(clash.fx)).toBe(2);
+    expect(Object.keys(clash.files)).toEqual([]); // the quote credential, first in line, was not written either
+    expect(clash.sent.some((s) => s.args.includes('bulk'))).toBe(false);
+  });
+
   it('a refused bulk call sets nothing and says the credential files are not in use', async () => {
     const { fx, lines } = secretsFx({ bulk: 1 });
     expect(await setSecrets(fx)).toBe(1);
     expect(lines.join('\n')).toMatch(/nothing was set/);
+  });
+});
+
+describe('the bundle (T-436 red team)', () => {
+  it('refuses one variable for two credentials, so a generated one never overwrites the API key', () => {
+    const c = { ...JSON.parse(fileOf('adapter.json')!), quoteAuth: { kind: 'bearer', env: 'JOBS_API_KEY' } };
+    expect(() => checkBundle({ ...bundle, config: c })).toThrow('names one variable for two credentials');
   });
 });

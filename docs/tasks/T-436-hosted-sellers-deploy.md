@@ -42,9 +42,20 @@ Non-goals: deploying, setting a secret, or reading the pilot's private folder.
 
 Measured on 2026-11-14 on branch `t-436-hosted-sellers-deploy`, stacked on T-435.
 
-- `pnpm exec vitest run apps/hosted-sellers`: 27 tests passed, the 16 of `deploy.test.ts` among them. The example folder reads to the example bundle; the decisions are tested with plain facts, and both runs with stand-ins for wrangler, git, the network, the files and the clock.
+- After the red team: `pnpm exec vitest run apps/hosted-sellers`: 31 tests passed. Before it: 27. The example folder reads to the example bundle; the decisions are tested with plain facts, and both runs with stand-ins for wrangler, git, the network, the files and the clock.
 - `node apps/hosted-sellers/scripts/deploy.ts --seller apps/hosted-sellers/example/seller --workspace example-workspace --dry-run`: printed the Worker, its address and the bundle's SHA-256; Wrangler bundled "Total Upload: 3879.87 KiB / gzip: 591.14 KiB"; exit 0. With `--workspace other`: "Refused: the configuration pins another account than --workspace names: nothing was deployed", exit 2.
 - Nothing was deployed, no secret was set, and no Cloudflare account was called.
+- **Review and red team** (one `red-teamer` pass that also reviewed; 11 probes in its own worktree, and a reading of Wrangler 4.151.3's `secret bulk` source; not committed): ISSUES, one Medium and seven Low, no High. All fixed, with tests:
+  - Medium: the 120 s check after an upload was shorter than the 300 s deferred code update, so a good deploy could fail and roll back. The check now waits 300 s plus 120 s, and the runbook says step 5 can take up to 7 minutes.
+  - Low: the deal guard went on when `/health` did not answer. It now reads three times, 5 s apart, and goes on only on this seller's JSON.
+  - Low: `--first` trusted a missing live version, which can also mean a failed read. It now refuses when the seller already answers.
+  - Low: a failed first deploy stays live. Bounded: it has no secrets and no deals. The runbook says what to do.
+  - Low: `--replace` now waits for a seller with no open deal, and every credential file is checked before any is written.
+  - Low: one variable for two credentials is refused with the bundle.
+  - Low: a symbolic link in the seller's folder is refused.
+  - Low: the runbook now shows the prompt, says who gets the ready credential and the alert secret, says where the record line goes, and says what to do when step 3 fails.
+  - Info, not changed: the generated folder under the system's temporary directory is not deleted. It is mode 0700 and holds no secret. No account ID is pinned: Wrangler takes the logged-in account, as the test seller's deploy does.
+  - Attacks that failed: the option parser, the secrets' transport (standard input, never a command line), the shell line in the runbook, the API key's checks, the credentials directory, and the generated configuration.
 
 ## Decisions
 

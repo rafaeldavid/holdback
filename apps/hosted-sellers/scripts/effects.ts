@@ -2,7 +2,7 @@
 // the clock. The decisions are in src/deploy-plan.ts, tested with stand-ins for all of these.
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,11 +26,15 @@ export const shell: Shell = (cmd, args, { show = true, env = {}, timeoutMs = 600
     if (input !== undefined) child.stdin!.end(input);
   });
 
-/** A file of the seller's folder, or undefined. */
+/** A file of the seller's folder, or undefined. A symbolic link is refused: it could pull in a file from elsewhere. */
 export const readSeller = (folder: string, name: string): string | undefined => {
   const p = join(resolve(folder), name);
-  return existsSync(p) ? readFileSync(p, 'utf8') : undefined;
+  if (!existsSync(p)) return undefined;
+  if (lstatSync(p).isSymbolicLink() || !lstatSync(p).isFile()) throw new Error(`${name} in the seller's folder is a link or not a plain file`);
+  return readFileSync(p, 'utf8');
 };
+
+export const fileExists = (dir: string, name: string) => existsSync(join(dir, name));
 
 /** The generated bundle and Wrangler configuration, in a new directory only this user can read, outside the repository. */
 export function writeGenerated(bundle: HostedBundle, config: (bundlePath: string) => Record<string, unknown>) {

@@ -18,8 +18,15 @@ export const ZONE = 'crow.direct';
 export const OPERATORS = 'https://api.crow.direct,https://api2.crow.direct';
 /** Wrangler's version for every hosted-seller command: pinned, as the console's deploy pins it. */
 export const WRANGLER = ['--yes', 'wrangler@4.151.3'];
-/** The seller has this long after an upload to answer its health and card. */
-export const CHECK_TIMEOUT_MS = 120_000;
+/** How long an active object may keep its old code after a deploy (the configuration's `max_delay`), in seconds. */
+export const MAX_DELAY_SEC = 300;
+/**
+ * The seller has this long after an upload to answer its health and card: the deferred update's 300 s, since the
+ * deploy's own reads keep the object awake on its old code, and 120 s more (T-436 red team).
+ */
+export const CHECK_TIMEOUT_MS = (MAX_DELAY_SEC + 120) * 1000;
+/** Reads of the live seller before an upload, 5 s apart: a deploy goes ahead only on an answer. */
+const GUARD_TRIES = 3;
 export const POLL_MS = 5_000;
 
 export const workerName = (slug: string) => `crow-seller-${slug}`;
@@ -75,7 +82,7 @@ export function wranglerConfig(s: HostedSeller, o: { main: string; bundlePath: s
     durable_objects: {
       bindings: [{ name: 'SELLER', class_name: 'HostedSeller' }],
       // An active object keeps its code for up to 300 s after a deploy, so a step in progress can finish (ADR-0037 §6).
-      code_update_strategy: { mode: 'deferred', max_delay: 300 },
+      code_update_strategy: { mode: 'deferred', max_delay: MAX_DELAY_SEC },
     },
     migrations: [{ tag: 'v1', new_sqlite_classes: ['HostedSeller'] }],
     // The adapter's own lines only: invocation logs would record each caller's IP address.
@@ -107,17 +114,19 @@ function parsed(answer: { status: number; body: string }): J | undefined {
 
 /**
  * The deal guard (ADR-0037 §6): a deploy waits while a deal is at `starting`, between "the hold is funded" and "the
- * job has an ID", when a reset could lose the start's answer. A seller that cannot start runs no start, so a
- * degraded or silent one does not hold the deploy up: the deploy may be its fix.
+ * job has an ID", when a reset could lose the start's answer. A degraded seller runs no start, so it does not hold the
+ * deploy up: the deploy may be its fix. No answer at all, or one that is not this seller's, refuses: a network blip
+ * on this side says nothing about the deals (T-436 red team).
  */
-export function dealGuard(answer: { status: number; body: string }): { go: true; note: string } | { go: false; why: string } {
+export function dealGuard(answer: { status: number; body: string }, slug: string): { go: true; note: string } | { go: false; why: string } {
   const h = parsed(answer);
-  if (answer.status === 200 && h?.status === 'operational') {
+  if (!h || h.seller !== slug) return { go: false, why: answer.status === 0 ? 'the live seller does not answer, so the deal guard cannot read its deals' : `the live seller's /health answered ${answer.status} without this seller's JSON, so the deal guard cannot read its deals` };
+  if (answer.status === 200 && h.status === 'operational') {
     const starting = Number(h.stages?.starting ?? 0);
     if (starting > 0) return { go: false, why: `${starting} deal${starting === 1 ? ' is' : 's are'} at starting: a deploy now could lose a start's answer. Wait a minute and run the deploy again.` };
     return { go: true, note: `the live seller reads operational with ${Number(h.open ?? 0)} open deals, none at starting` };
   }
-  return { go: true, note: answer.status === 0 ? 'the live seller does not answer: it runs no start now' : `the live seller answers ${answer.status}${h?.reason ? ` (${plainLine(h.reason)})` : ''}: it runs no start now` };
+  return { go: true, note: `the live seller reads ${plainLine(h.status)}: it runs no start now` };
 }
 
 /**
@@ -243,9 +252,18 @@ export async function deploySeller(fx: DeployEffects): Promise<number> {
       before = await fx.liveVersion(name);
       if (first && before !== null) return fx.error(`Refused: ${name} already serves \`${before}\`; run the deploy without --first`), 2;
       if (!first && before === null) return fx.error(`Refused: wrangler reads no live version of ${name}. If it was never deployed, run the deploy with --first; otherwise log wrangler in and try again`), 2;
-      if (!first) {
-        const guard = dealGuard(await fx.probe(`${base}/health`, 10_000));
-        if (!guard.go) return fx.error(`Refused: ${guard.why}`), 2;
+      if (first) {
+        // A missing live version can also mean a failed read or split traffic: refuse a "first" deploy of a seller that answers.
+        const h = parsed(await fx.probe(`${base}/health`, 10_000));
+        if (h?.seller === s.slug) return fx.error(`Refused: ${base} already answers for this seller; run the deploy without --first`), 2;
+      } else {
+        let guard = dealGuard({ status: 0, body: '' }, s.slug);
+        for (let i = 0; i < GUARD_TRIES; i++) {
+          if (i > 0) await fx.sleep(POLL_MS);
+          guard = dealGuard(await fx.probe(`${base}/health`, 10_000), s.slug);
+          if (guard.go || !/cannot read its deals/.test(guard.why)) break;
+        }
+        if (!guard.go) return fx.error(`Refused: ${guard.why}. Nothing was uploaded`), 2;
         fx.log(`The deal guard: ${guard.note}.`);
       }
       const gen = fx.writeGenerated(bundle, (bundlePath) => wranglerConfig(s, { main: fx.main, bundlePath, commit }));
@@ -291,6 +309,10 @@ export async function deploySeller(fx: DeployEffects): Promise<number> {
 
 export interface SecretsEffects {
   args: string[];
+  /** One GET of the live seller, as the deploy's probe. */
+  probe(url: string, timeoutMs: number): Promise<{ status: number; body: string }>;
+  /** Whether a file is already in the credentials directory. */
+  fileExists(dir: string, name: string): boolean;
   readSeller(folder: string, name: string): string | undefined;
   /** Standard input, whole: the company's API key, typed at a hidden prompt and piped in. */
   stdin(): Promise<string>;
@@ -340,6 +362,16 @@ export async function setSecrets(fx: SecretsEffects): Promise<number> {
   }
   const present = wanted.filter((w) => have.includes(w));
   if (present.length && !flags.has('--replace')) return fx.error(`Refused: ${name} already has ${present.join(', ')}. A new signing key gives the seller a new address, and open deals keep the old one: pass --replace only when no deal is open`), 2;
+  if (present.length) {
+    // --replace: a new signing key strands every open deal's delivery, so it waits for a seller with none (T-436 red team).
+    const h = parsed(await fx.probe(`${sellerUrl(s.slug)}/health`, 10_000));
+    const open = h?.status === 'operational' ? Number(h.open ?? 0) : undefined;
+    if (open !== undefined && open > 0) return fx.error(`Refused: the live seller has ${open} open deal${open === 1 ? '' : 's'}; a new signing key would leave ${open === 1 ? 'it' : 'them'} unable to deliver. Replace the secrets once none is open`), 2;
+    if (open === undefined) fx.log('The live seller does not read operational, so its open deals cannot be counted: replacing the secrets anyway, as --replace asks.');
+  }
+  // Every credential file is new: check them all before writing any, so a refusal leaves nothing behind.
+  const clash = plan.generated.find((g) => fx.fileExists(out, g.file));
+  if (clash) return fx.error(`Refused: ${out}/${clash.file} already exists; move the old credential files away first. Nothing was set`), 2;
   let apiKey: string | undefined;
   if (plan.apiVar) {
     apiKey = (await fx.stdin()).replace(/\r?\n$/, '');

@@ -3,12 +3,14 @@
 // on standard input; the signing key and the credentials are generated here. Only the signing address and the paths
 // of the credential files are printed. Secrets wait for Rafa. The steps are in src/deploy-plan.ts (setSecrets).
 import { setSecrets } from '../src/deploy-plan.ts';
-import { newCredential, newSigningKey, privateDir, readSeller, shell, stdin, writeSecretFile } from './effects.ts';
+import { fileExists, newCredential, newSigningKey, privateDir, probe, readSeller, shell, stdin, writeSecretFile } from './effects.ts';
 
 process.exit(
   await setSecrets({
     args: process.argv.slice(2),
     readSeller,
+    probe,
+    fileExists,
     stdin,
     privateDir,
     writeSecretFile,
