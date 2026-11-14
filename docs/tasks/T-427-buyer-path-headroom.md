@@ -7,6 +7,7 @@
 - **Human gate:** no for the merge; the site deploy waits for Rafa.
 - **Status:** done (on merge of this PR)
 - **Agent/session:** T-427's session, kind 1 (copy and agent docs)
+- **Roadmap row:** T-252 (the agent guides)
 
 ## Intent
 

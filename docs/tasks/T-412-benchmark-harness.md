@@ -7,6 +7,7 @@
 - **Human gate:** yes for the live runs only. They spend Rafa's model key and Sepolia test funds, so Rafa starts them (Handoff). Scripted runs need no key and no network.
 - **Status:** done (PR 506, merged 2026-11-14; the six live runs recorded on 2026-11-14, crow-private PR 68)
 - **Agent/session:** T-412 side session of the 2026-11-14 wave, worktree `.worktrees/holdback-T-412`, branch `t-412-benchmark-harness`
+- **Roadmap row:** B1
 - **Change kind:** 4 (tool code with its tests): the metrics tests, `pnpm typecheck`, `pnpm lint`; one `reviewer` pass (the wave's rule 8)
 
 ## Intent

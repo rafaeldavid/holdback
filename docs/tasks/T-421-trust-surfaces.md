@@ -8,6 +8,7 @@
 - **Human gate:** the site deploy. Rafa's word for this wave, "merge and deploy when ready", covers it inside the wave brief's six limits.
 - **Status:** done (holdback pull request 521, merge commit `9415caa9`; crow-private pull request 61, merge commit `60183d07`; site deployed 2026-11-14 12:03 UTC)
 - **Agent/session:** the T-421 session, 2026-11-14, branch `t-421-trust-surfaces`
+- **Roadmap row:** N109, N119
 
 ## Intent
 

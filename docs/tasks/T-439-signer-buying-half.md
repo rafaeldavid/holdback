@@ -1,6 +1,5 @@
 # T-439: Crow's signer, the buying half
 
-- **Roadmap row:** N131
 - **Lane:** demo (Crow's own agents, roadmap row N131, build row 3)
 - **Phase:** 2
 - **Depends on:** T-438 (the mandate tool: the signer verifies its mandate and revocations with it); the own-agents design and its constraints, version 1, in crow-private (`company-ops/own-agents/design.md`, `constraints.md`; Rafa's decisions 1 to 6 of 2026-11-14)
@@ -8,6 +7,7 @@
 - **Human gate:** no. Nothing is deployed and no real key exists; Rafa makes the keys and the machines (design, "Actions only you can take")
 - **Status:** review
 - **Agent/session:** own-agents build session, started by the coordinator on 2026-11-14 ("Yes, start both")
+- **Roadmap row:** N131
 
 ## Intent
 
@@ -77,15 +77,18 @@ A review by a model of another family of the unattended payment path, the operat
 
 All measured on 2026-11-14 in `.worktrees/holdback-own-agents-signer`, branch `t-434-signer-buying`, unless labelled.
 
-- `npx vitest run examples/signer.test.ts`: 22 passed. The signer runs as its own process in each test; a stand-in plays its read endpoint.
+- `npx vitest run examples/signer.test.ts`: 31 passed, after the review's fixes. The signer runs as its own process in each test but one (the ledger's timing, which moves the signer's clock in this process); a stand-in plays its read endpoint.
+- `npx vitest run examples/signer-redteam.test.ts`: 7 passed: the red team's RT-1 to RT-4, each of which failed before its fix, and one that records a limit that stays.
 - `npx vitest run examples/signer-attacks.test.ts`: 6 passed, against the public demo world on SimChain:
   - the control deal funds from the float (10.00 tUSDC out, measured by balance) and releases 9.00 to the listed payout address;
-  - A1 and A2 straight at the operator, past the buyer's tool: `401 invalid_signature`, "FundingAuthorization signature does not recover to" the float;
+  - A1 and A2 straight at the operator, past the buyer's tool: `401 invalid_signature`, "FundingAuthorization signature does not recover to" the float; by the same raw path, the deal's own signature funds it (the control);
   - A8: a payment collected before the stop funded after it, inside its offer window (300 s at most);
   - A9: a float filled with 100.00 more still gets B3 at 10.000001;
   - A14: where the operators charge a fee, the float pays nothing.
 - `npx vitest run examples/signer-anvil.test.ts`: 1 passed, on anvil 31337 with the phase-one contracts and TestUSDC, in about 30 s. TestUSDC itself takes the signer's authorization for its deal and refuses it for another deal's nonce, for 1 base unit more and for a second use ("authorization is used"); it refuses a funding the deal key signed. The deal then funds from the float and releases 9.00 tUSDC to the listed payout address. `contracts/out` was copied from a build of `origin/main`'s contracts (the build in `.worktrees/holdback-T-425`, 2026-11-14 12:38 local; `contracts/src` last changed 2026-11-12).
-- **Each attack test fails without its constraint.** The script `reports/scratch/own-agents/mutate.sh` turned each rule's refusals into a no-op in a copy of `signer.ts` (commit `830cb9e7`), one rule at a time, and ran `signer.test.ts`:
+- **Each attack test fails without its constraint.** Two sweeps in a copy of the worktree (`.worktrees/own-agents-mutation`), each disabling one thing at a time and running `signer.test.ts`.
+- **Per check, after the review** (`reports/scratch/own-agents/mutate-checks.sh`, adapted from the reviewer's): 31 checks disabled one at a time. 30 make at least one test fail: every window and the order of the deadlines, each B6 field, the token match and the type checks, the open total, the mandate's daily cap, agent, club and role, and token, a revocation that ends the mandate and one that is not a revocation, two reads that disagree, the read lag, the rubric check, both keys' match at start, the ledger's version and its absence, the lock, the exact flag, one deal key per deal, and the keys' removal from the environment. The one that does not: skipping the early `continue` for a read that does not answer. The two `every` checks after it already keep such a deal open, so that mutant behaves the same (inferred from the code). Unmutated: 31 passed.
+- **Per rule, before the review** (`reports/scratch/own-agents/mutate.sh`, commit `830cb9e7`), each rule's refusals turned into a no-op:
 
   | Rule disabled | Tests that failed (of 22) |
   | --- | --- |

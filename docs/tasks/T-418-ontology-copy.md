@@ -8,6 +8,7 @@
 - **Human gate:** no for the merge. Rafa, 2026-11-14, on the before/after table: "This is great, implement". The site deploy that makes it live waits for Rafa.
 - **Status:** done (pull request 513, merged 2026-11-14; the site deployed 10:45 UTC)
 - **Agent/session:** the Crow ontology session, 2026-11-14, branch `t-418-ontology-copy`
+- **Roadmap row:** none
 
 ## Intent
 
