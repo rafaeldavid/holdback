@@ -27,7 +27,7 @@ const readerText = (html: string) => html.replace(/<style[\s\S]*?<\/style>|<scri
 const BANNED: Array<[string, RegExp]> = [['commitment', /\bcommitments?\b/i], ['escrowState', /escrowstate/i], ['adjudicator', /adjudicat/i], ['EIP-712', /eip-?712/i], ['Released', /\bReleased\b/], ['Refunded', /\bRefunded\b/], ['hold as a noun', /\b(the|a|an|its|this|that|your) hold\b/i], ['settlement layer', /settlement layer/i], ['escrow', /\bescrow\b/i]];
 // The ontology's calming claims refused until a fact backs them (crow-private strategy note of 2026-11-14), and the
 // phrase that names the buyer's worry instead of its answer.
-const REFUSED = /\bindependent\b|\bsecure\b|\baudited\b|\bguarantee|\bprivate deals?\b|no one can freeze|Neither side can take it/i;
+const REFUSED = /\bindependent\b|\bsecure\b|\baudited\b|\bguarantee|\bprivate deals?\b|\bno one can\b|Neither side can take it/i;
 const banned = (text: string) => BANNED.filter(([, re]) => re.test(text)).map(([w]) => `${w}: …${text.slice(Math.max(0, text.search(BANNED.find(([x]) => x === w)![1]) - 60), text.search(BANNED.find(([x]) => x === w)![1]) + 60)}…`);
 const lines = (file: string) => readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
 
@@ -204,6 +204,7 @@ describe('the published demo page (site/demo/index.html, edited beside replay.ts
     expect(text).not.toMatch(REFUSED);
     expect(text).toContain(HERO.intro);
     expect(text).toMatch(/If the work never arrives, the buyer takes the whole payment back after the deadline/);
+    expect(text).toContain('The price is released to the seller when the work passes, and comes back to the buyer if the work fails or misses its deadline.');
     expect(banned(text)).toEqual([]);
   });
 });

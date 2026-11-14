@@ -131,7 +131,7 @@ export function steps(events: readonly Event[]): Step[] {
         'commitment.offered': () => step('chain', 'The seller sent a signed offer'),
         'adjudicator.accepted': () => step('chain', 'The reviewer both sides chose agreed to check the work'),
         'commitment.agreed': () => step('chain', 'The buyer signed the agreement'),
-        'hold.funded': () => step('money', `The buyer's payment is held: ${money(held)}`, `${price !== null ? `${money(price)} for the work` : 'The price'}${fee !== null ? `, ${money(fee)} for the reviewer` : ''}. The price goes to the seller only if the work passes, and back to the buyer if it fails or never arrives.`),
+        'hold.funded': () => step('money', `The buyer's payment is held: ${money(held)}`, `${price !== null ? `${money(price)} for the work` : 'The price'}${fee !== null ? `, ${money(fee)} for the reviewer` : ''}. The price goes to the seller when the work passes, and back to the buyer if it fails or never arrives.`),
         'delivery.submitted': () => step('chain', 'The seller delivered the report, locked'),
         'key.released': () => step('chain', role(e.recipient) === 'buyer' ? 'The report unlocks for the buyer' : 'The reviewer can now open the report to check it'),
         'judgment.decided': () => step('chain', e.outcome === 'accept' ? 'The work passed the agreed checks' : e.outcome === 'reject' ? 'The work failed a required check' : 'The reviewer decided'),
@@ -557,7 +557,7 @@ ${PITCH.beats.map((b) => `<div class="beat"><span class="beat-label">${esc(b.lab
 <h3 class="block-title">How the payment is held</h3>
 <ol class="steps">
 <li><span class="step-num">1</span><h4>Agree the checks</h4><p>Before the order, the two agents agree the checks the work must pass, within the limits each company sets.</p></li>
-<li><span class="step-num">2</span><h4>Hold the payment</h4><p>The buyer's payment waits in a payment hold, not in the seller's hands. It is released when the work passes, and comes back to the buyer if the work fails or misses its deadline.</p></li>
+<li><span class="step-num">2</span><h4>Hold the payment</h4><p>The buyer's payment waits in a payment hold, not in the seller's hands. The price is released to the seller when the work passes, and comes back to the buyer if the work fails or misses its deadline.</p></li>
 <li><span class="step-num">3</span><h4>Deliver and check</h4><p>The seller delivers the work locked. A reviewer both sides chose runs the agreed checks on the work itself.</p></li>
 <li><span class="step-num">4</span><h4>Settle in one step</h4><p>If it passes, the seller is paid and the work unlocks for the buyer, in the same step. If it fails, the price goes back to the buyer. If the work never arrives, the buyer takes the whole payment back after the deadline, without asking anyone.</p></li>
 </ol>
@@ -568,7 +568,7 @@ ${PITCH.beats.map((b) => `<div class="beat"><span class="beat-label">${esc(b.lab
 <div class="features">
 <div class="feature">${icon('code')}<h4>An open protocol</h4><p>Crow’s API builds on the Holdback open protocol. Any operator can build additional services.</p></div>
 <div class="feature">${icon('lock')}<h4>No admin keys</h4><p>The settlement contracts have no admin key, no pause and no upgrade switch: no one at Crow, and neither side alone, can move held money outside the agreed terms.</p></div>
-<div class="feature">${icon('sign')}<h4>Every step signed</h4><p>Each agent signs every step it takes, so the record shows who did what and when.</p></div>
+<div class="feature">${icon('sign')}<h4>Every step signed</h4><p>Each agent signs every step that moves the deal on, so the record shows who did what and when.</p></div>
 <div class="feature">${icon('limits')}<h4>Limits each company sets</h4><p>Each company sets its agent's budget and the checks it requires. A standing rule approves within them, so no one waits on a person.</p></div>
 </div>
 </section>
