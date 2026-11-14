@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // ops-cost.json (T-066, headline metric 5): an estimate of what Crow pays to process one deal, by component, beside
-// the operator fee the deal charged. Deterministic: gas comes from the operators' public event log (payload.gasUsed
-// of each transaction a Crow account sent), receipts and logs from a public Sepolia RPC, prices from the pinned
-// tables in config/. Every amount is integer arithmetic on bigint, written as a decimal string of micro-USD.
+// the operator fee the deal charged. Deterministic: gas comes from each Crow-sent transaction's Sepolia receipt, and
+// from the operators' public event log (payload.gasUsed) where no receipt was read (perDeal.gas.source says which,
+// T-413); receipts and logs come from a public Sepolia RPC, prices from the pinned tables in config/. Every amount
+// is integer arithmetic on bigint, written as a decimal string of micro-USD.
 // A component with no source reads null ("unknown") and is named in the total's `excludes`, never counted as 0.
 //
 //   node scripts/metrics/ops-cost.mjs --deal-timing reports/scratch/deal-timing.json --out reports/scratch/ops-cost.json
@@ -37,28 +38,42 @@ export function tokensToUsdMicros(pairs) {
   return divRound(n, MILLION);
 }
 
-/** The gas of one deal's Crow-sent transactions, by step, as bigint. */
-export function dealGas(deal) {
+/**
+ * The gas of one deal's Crow-sent transactions, by step, as bigint. A transaction's gas is its Sepolia receipt's
+ * (`receiptGas`: lowercase hash → decimal string, the primary source) where the build read it, and the event log's
+ * `payload.gasUsed` otherwise (T-413). `fromReceipts`, `fromEventLog` and `mismatches` count the transactions.
+ */
+export function dealGas(deal, receiptGas = null) {
   const bySteps = new Map();
   let total = 0n;
   let txs = 0;
+  let fromReceipts = 0;
+  let fromEventLog = 0;
+  let mismatches = 0;
   for (const t of deal.txs ?? []) {
-    if (!t.crowSent || big(t.gasUsed) === null) continue;
-    const g = BigInt(t.gasUsed);
+    if (!t.crowSent) continue;
+    const receipt = typeof t.tx === 'string' ? big(receiptGas?.get(t.tx.toLowerCase())) : null;
+    const logged = big(t.gasUsed);
+    const g = receipt ?? logged;
+    if (g === null) continue;
+    if (receipt !== null) fromReceipts += 1;
+    else fromEventLog += 1;
+    if (receipt !== null && logged !== null && receipt !== logged) mismatches += 1;
     bySteps.set(t.step, (bySteps.get(t.step) ?? 0n) + g);
     total += g;
     txs += 1;
   }
-  return { bySteps, total, txs };
+  return { bySteps, total, txs, fromReceipts, fromEventLog, mismatches };
 }
 
 /**
  * Builds ops-cost.json's body. Pure.
  * @param {{ dealTiming: object|null, prices: object|null, modelPrices: object|null, discovery: object|null,
  *           oneClick: object|null, faucetMintGas: string[], effectiveGasPrices: string[],
- *           balances: {address: string, role: string, wei: string|null}[] }} input
+ *           balances: {address: string, role: string, wei: string|null}[],
+ *           receiptGas: Map<string, string>|null }} input `receiptGas`: each read receipt's gasUsed, by lowercase hash
  */
-export function buildOpsCost({ dealTiming, prices, modelPrices, discovery, oneClick = null, faucetMintGas = [], effectiveGasPrices = [], balances = [] }) {
+export function buildOpsCost({ dealTiming, prices, modelPrices, discovery, oneClick = null, faucetMintGas = [], effectiveGasPrices = [], balances = [], receiptGas = null }) {
   const gaps = [];
   const released = (dealTiming?.deals ?? []).filter((d) => d.outcome === 'Released');
   // deal-timing.json with no event log behind it writes null counts: its deals are unknown, not none.
@@ -68,7 +83,7 @@ export function buildOpsCost({ dealTiming, prices, modelPrices, discovery, oneCl
   else if (!released.length) gaps.push('No Released deal is in the window, so the gas per deal reads unknown.');
 
   // Gas, by step: the median over Released deals of each step's gas, and the median of each deal's total.
-  const perDeal = released.map(dealGas);
+  const perDeal = released.map((d) => dealGas(d, receiptGas));
   const steps = [...new Set(perDeal.flatMap((d) => [...d.bySteps.keys()]))].sort((a, b) => {
     const ia = STEP_ORDER.indexOf(a);
     const ib = STEP_ORDER.indexOf(b);
@@ -79,8 +94,29 @@ export function buildOpsCost({ dealTiming, prices, modelPrices, discovery, oneCl
     deals: perDeal.filter((d) => d.bySteps.has(step)).length,
     gasUsed: { median: bigQuantile(perDeal.filter((d) => d.bySteps.has(step)).map((d) => d.bySteps.get(step).toString()), 50) },
   }));
-  const dealTotal = big(bigQuantile(perDeal.map((d) => d.total.toString()), 50));
-  const txPerDeal = big(bigQuantile(perDeal.map((d) => String(d.txs)), 50));
+  // A deal with no gas figure on any transaction (no receipt read, no payload.gasUsed) is unknown, not 0: it stays out
+  // of the medians and of the count beside them (T-413).
+  const measured = perDeal.filter((d) => d.txs > 0);
+  const unmeasured = perDeal.length - measured.length;
+  if (unmeasured) gaps.push(`${unmeasured} Released deal${unmeasured === 1 ? ' has' : 's have'} no gas figure (no receipt read, no gasUsed in the event log), so the gas per deal leaves ${unmeasured === 1 ? 'it' : 'them'} out.`);
+  const dealTotal = big(bigQuantile(measured.map((d) => d.total.toString()), 50));
+  // Where the number comes from, and when (T-413): receipts, the event log or both; the deals behind the median; the
+  // window deal-timing read and the newest measured deal's settlement.
+  const sum = (k) => measured.reduce((n, d) => n + d[k], 0);
+  const [receiptTxs, eventLogTxs, mismatches] = [sum('fromReceipts'), sum('fromEventLog'), sum('mismatches')];
+  const settledAt = released.filter((_, i) => perDeal[i].txs > 0).map((d) => d.times?.settled).filter((t) => typeof t === 'string').sort();
+  const gasSource = dealTotal === null ? null : {
+    basis: 'measured',
+    from: receiptTxs && eventLogTxs ? 'receipts and event log' : receiptTxs ? 'receipts' : 'event log',
+    deals: measured.length,
+    receiptTxs,
+    eventLogTxs,
+    mismatches,
+    window: dealTiming?.window ? { from: dealTiming.window.from ?? null, to: dealTiming.window.to ?? null } : null,
+    newestDealAt: settledAt.at(-1) ?? null,
+  };
+  if (mismatches) gaps.push(`${mismatches} transaction${mismatches === 1 ? "'s" : "s'"} gas in the event log differs from its Sepolia receipt; the receipt counts.`);
+  const txPerDeal = big(bigQuantile(measured.map((d) => String(d.txs)), 50));
   const faucet = big(bigQuantile(faucetMintGas, 50));
   if (faucet === null) gaps.push("No faucet mint was found for the window's buyers, so a new visitor's mint is left out of the gas.");
 
@@ -257,6 +293,7 @@ export function buildOpsCost({ dealTiming, prices, modelPrices, discovery, oneCl
         totalGas: { median: s(totalGas) },
         usdMicros: Object.fromEntries(NETWORKS.map((n) => [n, s(gasUsd[n])])),
         usdBasis: 'inferred',
+        source: gasSource,
       },
       cloudflare,
       judges: { checksOnly: { usdMicros: '0' }, rubric: judges },
@@ -297,6 +334,26 @@ export async function readFaucetMints(sources, rpc, { deals, token, fundingLane,
   return receipts
     .filter((r) => r && typeof r.from === 'string' && r.from.toLowerCase() === fundingLane && hexToDec(r.gasUsed) !== null)
     .map((r) => hexToDec(r.gasUsed));
+}
+
+/**
+ * The gas used by the Crow-sent transactions of the newest Released deals, from their Sepolia receipts (T-413): a
+ * Map of lowercase hash → decimal string. A receipt that does not name its own hash is left out.
+ */
+export async function readReceiptGas(sources, rpc, deals, max = 100) {
+  const hashes = [];
+  for (const d of deals) {
+    if (d.outcome !== 'Released') continue;
+    for (const t of d.txs ?? []) if (t.crowSent && typeof t.tx === 'string' && HEX32.test(t.tx) && hashes.length < max && !hashes.includes(t.tx.toLowerCase())) hashes.push(t.tx.toLowerCase());
+  }
+  const out = new Map();
+  if (!hashes.length) return out;
+  const receipts = await sources.rpc('sepolia-deal-receipts', rpc, hashes.map((h) => ({ method: 'eth_getTransactionReceipt', params: [h] })));
+  receipts.forEach((r, i) => {
+    const g = hexToDec(r?.gasUsed);
+    if (g !== null && typeof r.transactionHash === 'string' && r.transactionHash.toLowerCase() === hashes[i]) out.set(hashes[i], g);
+  });
+  return out;
 }
 
 /** The effective gas price of the newest Crow-sent transactions. */
@@ -380,16 +437,17 @@ export async function run({ dealTimingFile, runsDir, op1 = DEFAULTS.op1, op2 = D
   const modelPrices = readJsonFile(join(ROOT, 'config/model-prices.json'));
   const deals = dealTiming?.deals ?? [];
   const token = typeof discovery?.demo?.token?.id === 'string' && ADDRESS.test(discovery.demo.token.id) ? discovery.demo.token.id.toLowerCase() : null;
-  const [faucetMintGas, effectiveGasPrices, balances] = await Promise.all([
+  const [faucetMintGas, effectiveGasPrices, balances, receiptGas] = await Promise.all([
     readFaucetMints(sources, rpc, { deals, token, fundingLane: accounts.fundingLane }),
     readEffectiveGasPrices(sources, rpc, deals),
     readBalances(sources, rpc, accounts),
+    readReceiptGas(sources, rpc, deals),
   ]);
   // Only a run file that passes the one-click schema is priced: one with a worker missing its request count would
   // otherwise read as 0 requests and USD 0.
   const isValid = runsDir ? await loadRunCheck() : null;
   const tail = isValid ? newestTailRun(runsDir, isValid) : { run: null, skipped: 0 };
-  const body = buildOpsCost({ dealTiming, prices, modelPrices, discovery, oneClick: tail.run, faucetMintGas, effectiveGasPrices, balances });
+  const body = buildOpsCost({ dealTiming, prices, modelPrices, discovery, oneClick: tail.run, faucetMintGas, effectiveGasPrices, balances, receiptGas });
   const { gaps, ...rest } = body;
   if (runsDir && !isValid) gaps.push('Ajv could not be loaded, so no run file can be checked against its schema and Cloudflare reads unknown.');
   if (tail.skipped) gaps.push(`${tail.skipped} run files failed the one-click schema check and are left out.`);

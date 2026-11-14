@@ -5,7 +5,8 @@
 //   1. pre-flight: refuse, with exit code 2, a checkout whose tracked files differ from its commit, or one that lacks
 //      origin/main's commits after a fresh fetch;
 //   2. read the Worker's live version: its rollback target. When wrangler cannot say, nothing is uploaded;
-//   3. upload the Worker and its routes on crow.direct/agents/test-seller* and escrow.stream/agents/test-seller*;
+//   3. upload the Worker and its routes on crow.direct/agents/test-seller* and escrow.stream/agents/test-seller*, with the
+//      commit as BUILD_COMMIT, which its /version.json names (T-413);
 //   4. every 5 s for at most 120 s, read https://crow.direct/agents/test-seller/health until it says operational
 //      (degraded fails at once), then /agent.json until it answers 200 with JSON;
 //   5. when the upload is refused or a check fails, roll back if the live version changed, and exit 1;

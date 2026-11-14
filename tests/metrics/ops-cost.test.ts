@@ -191,3 +191,56 @@ describe('integer money', () => {
     expect(tokenToUsdMicros('4710000', 6, 1n, 2n)).toBe(2_355_000n);
   });
 });
+
+// T-413: the gas a deal uses comes from each transaction's Sepolia receipt, the primary source, where the build read
+// it, and from the operators' event log otherwise; perDeal.gas.source says which, for how many, and when.
+describe('where the gas per deal comes from', () => {
+  const txs = dealTiming.deals[0]!.txs.filter((t: { crowSent: boolean }) => t.crowSent).map((t: { tx: string; gasUsed: string }) => [t.tx, t.gasUsed] as const);
+
+  it('reads the event log alone when no receipt was read, with the window and the newest deal beside the number', () => {
+    const out = buildOpsCost({ dealTiming, prices, modelPrices, discovery });
+    expect(out.perDeal.gas.dealGas.median).toBe('1261428');
+    expect(out.perDeal.gas.source).toEqual({
+      basis: 'measured', from: 'event log', deals: 1, receiptTxs: 0, eventLogTxs: 4, mismatches: 0,
+      window: { from: dealTiming.window.from, to: dealTiming.window.to }, newestDealAt: dealTiming.deals[0]!.times.settled,
+    });
+  });
+
+  it('takes the receipt where it differs from the event log, and names the mismatch in a gap', () => {
+    const receiptGas = new Map(txs.map(([tx, g], i) => [tx.toLowerCase(), i === 0 ? String(BigInt(g) + 100n) : g]));
+    const out = buildOpsCost({ dealTiming, prices, modelPrices, discovery, receiptGas });
+    expect(out.perDeal.gas.dealGas.median).toBe('1261528');
+    expect(out.perDeal.gas.source).toMatchObject({ from: 'receipts', receiptTxs: 4, eventLogTxs: 0, mismatches: 1 });
+    expect(out.gaps.some((g: string) => /1 transaction's gas in the event log differs from its Sepolia receipt/.test(g))).toBe(true);
+  });
+
+  it('mixes the two when only some receipts were read', () => {
+    const receiptGas = new Map([[txs[0]![0].toLowerCase(), txs[0]![1]]]);
+    expect(buildOpsCost({ dealTiming, prices, modelPrices, discovery, receiptGas }).perDeal.gas.source).toMatchObject({ from: 'receipts and event log', receiptTxs: 1, eventLogTxs: 3, mismatches: 0 });
+  });
+
+  it('has no source when no deal was measured', () => {
+    expect(buildOpsCost({ dealTiming: null, prices, modelPrices, discovery }).perDeal.gas.source).toBeNull();
+  });
+});
+
+// T-413 review: a deal whose transactions carry no gas (no receipt read, no payload.gasUsed) is unknown, never a
+// measured 0, and it stays out of the median and the count beside it.
+describe('a deal with no gas figure', () => {
+  const blank = { ...dealTiming, deals: dealTiming.deals.map((d: { txs: { gasUsed: string | null }[] }) => ({ ...d, txs: d.txs.map((t) => ({ ...t, gasUsed: null })) })) };
+
+  it('reads unknown with no source, and says why', () => {
+    const out = buildOpsCost({ dealTiming: blank, prices, modelPrices, discovery });
+    expect(out.perDeal.gas.dealGas.median).toBeNull();
+    expect(out.perDeal.gas.totalGas.median).toBeNull();
+    expect(out.perDeal.gas.source).toBeNull();
+    expect(out.gaps.some((g: string) => /1 Released deal has no gas figure/.test(g))).toBe(true);
+  });
+
+  it('leaves such a deal out of the median beside the measured ones', () => {
+    const both = { ...dealTiming, deals: [...dealTiming.deals, ...blank.deals] };
+    const out = buildOpsCost({ dealTiming: both, prices, modelPrices, discovery });
+    expect(out.perDeal.gas.dealGas.median).toBe('1261428');
+    expect(out.perDeal.gas.source).toMatchObject({ deals: 1 });
+  });
+});

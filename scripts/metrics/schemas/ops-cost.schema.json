@@ -76,7 +76,33 @@
             "dealGas": { "$ref": "#/$defs/Median" },
             "totalGas": { "$ref": "#/$defs/Median" },
             "usdMicros": { "$ref": "#/$defs/ByNetwork" },
-            "usdBasis": { "$ref": "common.schema.json#/$defs/Basis" }
+            "usdBasis": { "$ref": "common.schema.json#/$defs/Basis" },
+            "source": {
+              "description": "Where dealGas and bySteps come from, and when (T-413): each Crow-sent transaction's Sepolia receipt, or the operators' event log where no receipt was read. null when no deal was measured. Optional, so a file written before T-413 still validates.",
+              "oneOf": [
+                { "type": "null" },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["basis", "from", "deals", "receiptTxs", "eventLogTxs", "mismatches", "window", "newestDealAt"],
+                  "properties": {
+                    "basis": { "const": "measured" },
+                    "from": { "enum": ["receipts", "event log", "receipts and event log"] },
+                    "deals": { "$ref": "common.schema.json#/$defs/Count" },
+                    "receiptTxs": { "$ref": "common.schema.json#/$defs/Count" },
+                    "eventLogTxs": { "$ref": "common.schema.json#/$defs/Count" },
+                    "mismatches": { "$ref": "common.schema.json#/$defs/Count" },
+                    "window": {
+                      "oneOf": [
+                        { "type": "null" },
+                        { "type": "object", "additionalProperties": false, "required": ["from", "to"], "properties": { "from": { "$ref": "common.schema.json#/$defs/IsoOrNull" }, "to": { "$ref": "common.schema.json#/$defs/IsoOrNull" } } }
+                      ]
+                    },
+                    "newestDealAt": { "$ref": "common.schema.json#/$defs/IsoOrNull" }
+                  }
+                }
+              ]
+            }
           }
         },
         "cloudflare": {

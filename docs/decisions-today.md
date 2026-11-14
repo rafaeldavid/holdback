@@ -4,9 +4,13 @@ Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (
 
 Still open (2026-11-06): ADR-0025, Proposed, to be decided with T-033's schema bump, in Phase 6 since D53 (schemas 0.9 and 0.10 shipped without it); ADR-0027, Proposed (T-308: judgment report, verifiable inference, tuning releases; four open questions, none needed before Phase 3); the ADR-0023 amendment on fee bundling, Proposed (D37); and dispute clauses as selectable terms, deferred until after the demo (D29).
 
+Each entry opens with one status line, `**Status:** <state>, <YYYY-MM-DD>.`, which Crow Control reads (T-413). The state is one of: `needs Rafa` (it waits for him), `adopted` (an agent adopted it under the autonomy rule, or its last point for Rafa is answered; Rafa may overrule it), `decided` (its "Decided" line records the decision), `deferred` or `superseded`. The date is the day the entry reached that state. A new entry adds its own line; `tests/decisions-status.test.ts` fails on an entry without one.
+
 Shortened on 2026-11-11: D40, D42, D45, D52, D53, D54 and D56, and one passage under D4, state the decision only. The maintainers keep the full text of each privately (`docs/private-materials.md`).
 
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
+
+**Status:** decided, 2026-10-30.
 
 **Decided 2026-10-30:** adopted (ADR-0001 Accepted). "Held work" means key release; adjudicator plaintext access is residual 6.
 
@@ -21,6 +25,8 @@ Shortened on 2026-11-11: D40, D42, D45, D52, D53, D54 and D56, and one passage u
 
 ## D2. Where custody lives (ADR-0002)
 
+**Status:** decided, 2026-10-30.
+
 **Decided 2026-10-30:** A (ADR-0002 Accepted).
 
 | Option | Passes the litmus test? | Notes |
@@ -33,6 +39,8 @@ Shortened on 2026-11-11: D40, D42, D45, D52, D53, D54 and D56, and one passage u
 
 ## D3. Escrow contract base (ADR-0003)
 
+**Status:** decided, 2026-10-30.
+
 **Decided 2026-10-30:** A, `AuthCaptureEscrow` v1.1.0 with the conditions in ADR-0003, subject to T-201.
 
 | Option | For | Against |
@@ -44,6 +52,8 @@ Shortened on 2026-11-11: D40, D42, D45, D52, D53, D54 and D56, and one passage u
 **Recommendation:** A, subject to two spikes: desk research in T-002 (Phase 0) and hands-on work on a local chain in T-201 (Phase 2). Fall back to B if CPP's operator model cannot run as a rules contract. Expose ERC-8183-compatible events either way.
 
 ## D4. Public testnet (ADR-0004)
+
+**Status:** decided, 2026-11-03.
 
 **Decided 2026-11-03 by D41:** Ethereum Sepolia, where the public demo settles (ADR-0028).
 
@@ -71,6 +81,8 @@ Phase 1 runs on SimChain, an in-process simulation of the escrow rules, so this 
 
 ## D5. Liveness default when no adjudicator decides (ADR-0007)
 
+**Status:** decided, 2026-10-30.
+
 **Decided 2026-10-30:** A (ADR-0007). An escalated case that the appeal adjudicator does not decide also goes to the default outcome, paid from the appeal adjudicator's bond.
 
 If the primary adjudicator misses its deadline and the fallback adjudicator misses its own, anyone can trigger the default outcome.
@@ -85,6 +97,8 @@ If the primary adjudicator misses its deadline and the fallback adjudicator miss
 
 ## D6. Default settlement mode for the demo (ADR-0007)
 
+**Status:** decided, 2026-10-30.
+
 **Decided 2026-10-30:** A, and the only mode in Phase 1. Guaranteed commitments need bond equal to their price while open to appeal (ADR-0007).
 
 | Option | Effect |
@@ -96,11 +110,15 @@ If the primary adjudicator misses its deadline and the fallback adjudicator miss
 
 ## D7. Fiat funding in the demo (ADR-0002)
 
+**Status:** decided, 2026-10-30.
+
 **Decided 2026-10-30:** as recommended (ADR-0002).
 
 **Recommendation:** in Phase 5, a Stripe test-mode card payment acts as an on-ramp that mints test tokens into the buyer's account before the hold. The Phase 1 demo funds from a SimChain faucet and states that cards enter only as an on-ramp.
 
 ## D8. Hold both sides: money and the work (ADR-0012)
+
+**Status:** decided, 2026-10-30.
 
 **Decided 2026-10-30:** A (ADR-0012). Atomic key release holds in guaranteed mode; early acceptance carries a seller-supplied key; a missing or wrong key is an appeal ground.
 
@@ -122,6 +140,8 @@ This is the digital version of delivery versus payment. It follows the optimisti
 
 ## D9. Research track: agreements funded by the user's compute or API access (ADR-0013)
 
+**Status:** decided, 2026-10-30.
+
 **Decided 2026-10-30:** spike run (T-003). Build R1 in Phase 6, defer R2, drop R3 and R4 as builds (ADR-0013).
 
 Finding: Anthropic's API credits cannot be transferred between accounts (Supplemental Credit Terms, March 4, 2024). Compute cannot serve as transferable money on Anthropic's platform today. Four creative routes go to a research spike (T-003). None blocks the demo.
@@ -136,6 +156,8 @@ Finding: Anthropic's API credits cannot be transferred between accounts (Supplem
 **Recommendation:** run the spike in parallel with Phase 1. If the spike holds up, add R1 to the demo as an optional beat.
 
 ## D10. Incentives for adjudicators, capital and commitment design (ADR-0014)
+
+**Status:** decided, 2026-10-30.
 
 **Decided 2026-10-30:** a two-tranche bond pool per adjudicator (ADR-0014 §2a). The adjudicator's own stake is junior and takes losses first; backers are senior, pro rata. One `reserved` counter, a coverage gate of `junior + senior - reserved >= price`, and a forfeited appeal bond credited to junior. T-006 builds the accounts with senior empty and no deposit API; deposits, withdrawals and the capital charge to the pool come in Phase 4. Defaults (guessed): first-loss share at least 10%, notice period one appeal cycle. Audit sampling and checkability pricing wait for later phases.
 
@@ -154,6 +176,8 @@ Rafa's principles: reward better adjudicators; reward capital at risk; make comm
 
 ## D11. Optional optimistic release (ADR-0015)
 
+**Status:** decided, 2026-10-30.
+
 **Decided 2026-10-30:** accepted with amendments, built in Phase 4 (ADR-0015). If no adjudicator decides a dispute, the default is release to the seller, and the buyer gets its dispute bond and fee back. The adjudicator reserves 100% of price when a dispute opens, or the dispute passes to the fallback at once. Dispute windows count from dispute open. A failed dispute's bond goes to the seller. Clubs may exclude the mode and set a minimum inspection window. The schema shape lands in v0.5.
 
 The proposal below is kept as the record.
@@ -171,6 +195,8 @@ Rafa's principle: user choice. Parties may select `optimistic` mode. The work is
 
 ## D12. Phase 1 contract fixes (ADR-0016)
 
+**Status:** decided, 2026-10-30.
+
 **Decided 2026-10-30:** accepted as proposed (ADR-0016), applied with schema v0.4.
 
 The Phase 0 readiness review found gaps that would stop Phase 1 tasks partway. ADR-0016 settles them together.
@@ -186,6 +212,8 @@ The Phase 0 readiness review found gaps that would stop Phase 1 tasks partway. A
 **Recommendation:** accept ADR-0016, then apply it in one PR (schemas v0.4, state machine, API doc, task files) before T-004 starts.
 
 ## D13. Agent-ready API (ADR-0017)
+
+**Status:** decided, 2026-10-30.
 
 **Decided 2026-10-30:** a trimmed Phase 1 subset of ADR-0017, amended after an independent assessment. It adds lists with a page envelope ordered by event sequence, and reads for clubs, agents and members. It adds 429 with a capped `Retry-After`, request IDs, the schema-version header, and `/v1/status` with the signing domain. It adds an unsigned dry run through `Settlement.validate`, and a receipt schema. Party-authored text is marked untrusted in the schemas. OpenAPI and its contract test follow in T-015, after T-010. RateLimit headers, deprecation headers, operator ranking, Standard Webhooks and x402/AP2 interop wait for later phases.
 
@@ -208,6 +236,8 @@ Scoring `docs/api.md` against Rafa's 16-question agent readiness test found eigh
 
 ## D14. Panel seed for fallback and appeal decisions (ADR-0018)
 
+**Status:** decided, 2026-10-30.
+
 **Decided 2026-10-30:** the fallback and appeal adjudicators take their panel seed from a public randomness beacon, at a round fixed by `judgeBy`, the escalation or the appeal filing. The primary keeps its commit-reveal. SimChain runs a deterministic beacon in Phase 1; drand quicknet in Phase 2. If a round cannot be proven by the deadline, the fallback or default applies; there is no substitute source.
 
 Today only the primary commits to a seed, so a fallback or appeal adjudicator can read the work, call every judge once, and pick the seed whose panel gives the outcome it wants. The check cannot simply apply the primary's commitment to every role, because a silent primary would then leave only the default.
@@ -221,6 +251,8 @@ Today only the primary commits to a seed, so a fallback or appeal adjudicator ca
 | E. VRF per adjudicator | Stops grinding, but a colluding seller can vary the commitment; expensive to verify |
 
 ## D15. Mutual settlement (ADR-0019)
+
+**Status:** decided, 2026-10-30.
 
 **Decided 2026-10-30:** buyer and seller can end a funded, undecided commitment by co-signing a `MutualSettlement` at any split of the price, in every settlement mode. It is allowed in Held, Delivered, FallbackJudging and Escalated, and refused after a decision, in Defaulted, or when the rulebook disables it. One signature moves nothing. Both parties choose whether the buyer receives the content key: with it, the settlement is a discounted acceptance; without it, a paid cancellation in which the seller keeps the work. The fee returns to the buyer in Phase 1, and a later rulebook share can pay an adjudicator that already worked. The adjudicator's reserved bond is released. Adjudicator decisions stay binary: parties split, judges decide. `EarlyAccept` stays as the one-signature special case.
 
@@ -236,6 +268,8 @@ Rafa's framing: escrow as a 2-of-3. The parties agree, or the adjudicator decide
 **Recommendation:** A (research pass, Fable at max effort).
 
 ## D16. Privacy model (ADR-0020)
+
+**Status:** decided, 2026-10-30.
 
 **Decided 2026-10-30:** every commitment has a public skeleton and a private body. The skeleton holds what anyone needs to trigger timeouts and check coverage: addresses, token and amounts, deadlines, adjudicators, mode, hashes, outcomes and money movements. The body (description, criteria, rubric, judgment reasons) is encrypted to the parties and to each adjudicator only when it becomes involved; whoever wants judgment carries the key, and the seller is never the gate. Disclosure is a signed term, `private`, `judgment` or `public`, with a rulebook minimum; a co-signed `Publish` can only raise it. Bond backers get aggregate signals, not cases. Compliance follows the banking pattern without a freeze: screen at admission and on-ramps, report after the fact, disclose by view key, unmask through the parties and the club's admission records. A pseudonymous per-commitment identity mode comes in Phase 2. Phase 1 admits `public` only, carries hashes on every event, makes escalations and disputes carry keys, and has SimChain release fallback and appeal keys on takeover.
 
@@ -253,6 +287,8 @@ Rafa's framing: end to end by default, the adjudicator and bond capital involved
 
 ## D17. Screen report and hidden-character check (ADR-0021)
 
+**Status:** decided, 2026-10-30.
+
 **Decided 2026-10-30:** with an empty rubric, a delivery the screen flags is still accepted and delivered unchanged, but the screen report is part of the signed record and the SDK must surface it, handing the buyer's agent a normalized view by default with the raw bytes on request. Parties who want hidden characters to block payment can require a new declarative check, `hidden_characters_max`, which rejects without a panel; clubs may turn it on by default. Escalation on high-risk signals waits for a Phase 3 `screenPolicy` option, because without a classifier an escalation only drifts to the default outcome. The panel-threshold question from the same research is still open.
 
 | Option | Effect |
@@ -264,6 +300,8 @@ Rafa's framing: end to end by default, the adjudicator and bond capital involved
 | E. Annotate and surface, plus an opt-in check (chosen) | No unchosen rule moves money; the buyer's agent sees a cleaned view |
 
 ## D18. Integer rates and fraction thresholds (ADR-0022)
+
+**Status:** decided, 2026-10-30.
 
 **Decided 2026-10-30:** money and statistical rates become integer basis points with a `Bps` suffix, and the accept and reject supermajorities become exact fractions such as `{ numerator: 2, denominator: 3 }`. Thresholds compare by cross-multiplication, inclusively; a policy must sit strictly above one half; ties escalate. Weights, the pass threshold and the weighted score become integers, and the judgment record carries counts. Requirements round up, splits round the rate side down with a named remainder claimant, and bond payouts round down with the dust kept, so no posting creates or destroys a unit. Lands in schema v0.5, core money helpers (`mulBps`, `splitBps`), T-006 and T-008.
 
@@ -279,6 +317,8 @@ The schema v0.5 review and the T-008 red team found that 18 rates are JSON float
 **Recommendation:** C (two research passes, Fable at max effort).
 
 ## D19. Who can call the adjudicator (ADR-0015, ADR-0019, ADR-0014)
+
+**Status:** decided, 2026-10-30.
 
 **Decided 2026-10-30:** keep the modes as they are and write the rule down: the party the silence default disfavors holds the call. In judged modes judgment is automatic, so no one needs to call it. In optimistic mode the buyer disputes, and the seller relies on the anyone-callable release at `disputeBy` and on mutual settlement. Either party can appeal. The refundable bond, not loser-pays, deters low-merit calls. Nothing changes in Phase 1 or schema v0.5. An optional consent window for judged modes (`consentWindowSec`, default 0, during which either party may call early or settle) is a candidate ADR after Phase 1.
 
@@ -296,6 +336,8 @@ Rafa asked whether either buyer or seller should be able to trigger review. A re
 
 ## D20. Settlement finality per mode (ADR-0007, ADR-0015)
 
+**Status:** decided, 2026-10-30.
+
 **Decided 2026-10-30:** define two moments and expose them. Payee finality (`settledAt`) is at the posting that pays a party. Commitment finality (`finalAt`) is when no appeal, dispute or settlement path remains. Both are derived read-model fields, never signed. Guaranteed mode is finality with indemnity: an overturn pays from the bond, never from escrow. A Finality section in `docs/architecture.md` holds the per-mode table. A finality object, a `commitment.final` event and chain finality stages are in `docs/backlog.md`.
 
 The escrow-theory review (F1) found that "final" differs by mode and is not stated anywhere, as PFMI Principle 8 requires. A research pass (Fable, max effort) compared the options.
@@ -310,6 +352,8 @@ The escrow-theory review (F1) found that "final" differs by mode and is not stat
 **Recommendation:** B.
 
 ## D21. Fees and the appeal fee (ADR-0007, ADR-0014)
+
+**Status:** decided, 2026-10-30.
 
 **Decided 2026-10-30:** keep today's fee postings for the demo, with one change: the appeal fee is held at filing, paid to the appeal adjudicator only when it decides, and returned to the appellant if `appealDecideBy` passes undecided. Full "fees follow the event" (refunding an overturned adjudicator's fee and a winning appellant's appeal fee from the bond) is in `docs/backlog.md`. ADR-0014's citation for deposits is corrected.
 
@@ -326,6 +370,8 @@ The escrow-theory review (F3) found that fees do not follow the outcome. The res
 
 ## D22. Principal recourse after the agent signs (residual 12)
 
+**Status:** decided, 2026-10-30.
+
 **Decided 2026-10-30:** nothing in the protocol for the demo. The mandate is the principal's standing approval; caps bound the loss on a live commitment; revocation blocks new commitments. Recourse for an agent's in-mandate action lies between the principal and its agent provider, as on card rails, Reg E, AP2 and under agency law. Residual 12 in `docs/neutrality.md` records it. Principal standing to sign party messages is the first item for this area in `docs/backlog.md`.
 
 The escrow-theory review (F8) found no chargeback analog for the agent's principal.
@@ -341,6 +387,8 @@ The escrow-theory review (F8) found no chargeback analog for the agent's princip
 **Recommendation:** E now, A first in the backlog.
 
 ## D23. Mutual settlement to any addresses (ADR-0019 amendment)
+
+**Status:** decided, 2026-10-31.
 
 **Decided 2026-10-31:** a co-signed mutual settlement may pay the held price to any addresses, in any split that sums to the price, up to eight payouts. The fee, bond, key and race rules are unchanged, and only money leaves: the content key cannot follow the funds. The rulebook's `mutualSettlement.payoutsTo` is `parties` or `any`; the demo club uses `any` and a regulated club sets `parties`. Schema v0.6 replaces `sellerAmount` with `payouts`.
 
@@ -371,6 +419,8 @@ Rafa: if buyer and seller agree, they should be able to pull their funds to any 
 
 ## D24. Changing terms by mutual agreement (ADR-0019)
 
+**Status:** decided, 2026-10-31.
+
 **Decided 2026-10-31:** no protocol change. Commitments are ephemeral and machine speed, so changing terms means closing the active commitment with a co-signed mutual settlement (D23) and opening a new one, distributing the held funds as needed. The sequence is recorded in ADR-0019 under "Changing terms". Settlement is refused after a decision, so reopening can never re-roll an adverse verdict. The gaps (an atomic close-and-reopen, a `supersedes` link, the daily cap, double bond during the overlap, offer withdrawal) are in `docs/backlog.md`.
 
 Rafa first asked that both parties be able to change any term, as in a regular contract, then proposed close-and-reopen instead. A research pass (Fable, max effort) confirmed today's spec supports it end to end.
@@ -384,6 +434,8 @@ Rafa first asked that both parties be able to change any term, as in a regular c
 **Recommendation:** B.
 
 ## D25. Build review: what to do before the dry run (docs/reviews/2026-10-31-build-and-simplification-review.md)
+
+**Status:** adopted, 2026-10-31.
 
 **Decided 2026-10-31 under the autonomy rule, for Rafa to overrule.** An independent review (Fable, max effort, PR 49) measured the build (`pnpm verify` green, `pnpm demo` in 1.9 s) and found the demo does not yet show its two strongest claims: beat 7 (neutrality) and the injection half of beat 6 are stand-in. It also found one defense gap (L3-1): the appeal adjudicator cannot decide a screen-flagged case, so the default outcome would pay an injecting seller from the appeal bond.
 
@@ -410,6 +462,8 @@ Rafa first asked that both parties be able to change any term, as in a regular c
 
 ## D26. Widen collaboration; the law stays the backstop
 
+**Status:** decided, 2026-10-31.
+
 **Decided 2026-10-31 by Rafa.** Agent owners and controllers will seek legal recourse if something goes wrong. The product's job is to extend the set of deals agents can make with each other, not to resolve every dispute inside the protocol.
 
 What follows from it:
@@ -423,6 +477,8 @@ What follows from it:
 Recorded in `CLAUDE.md` and `docs/PRD.md` (Design principle). D22 (no principal recourse in the protocol) already follows this rule.
 
 ## D27. The default clause set for appeals: a flagged appeal accepts only unanimously, else rejects (red-team review of PR 52)
+
+**Status:** adopted, 2026-10-31.
 
 **Decided 2026-10-31 under the autonomy rule, for Rafa to overrule.**
 
@@ -453,6 +509,8 @@ D27b and D27c were added after a red-team re-check of PR 52 (`42fa67a`), **decid
 
 ## D28. Agreed terms bind; the buyer carries the burden of acceptance
 
+**Status:** decided, 2026-10-31.
+
 **Decided 2026-10-31 by Rafa.**
 
 - **Judges.** They assess conformance to the agreed terms, never their fairness.
@@ -463,6 +521,8 @@ D27b and D27c were added after a red-team re-check of PR 52 (`42fa67a`), **decid
 Recorded in `CLAUDE.md` and `docs/PRD.md`.
 
 ## D29. Dispute clauses are negotiated terms (after the demo)
+
+**Status:** decided, 2026-10-31.
 
 **Decided 2026-10-31 by Rafa.**
 
@@ -476,6 +536,8 @@ Recorded in `CLAUDE.md` and `docs/PRD.md`.
 
 ## D30. API first: agents call the HTTP API directly
 
+**Status:** decided, 2026-10-31.
+
 **Decided 2026-10-31 by Rafa.** For simplicity, the product surface is the open HTTP API that any operator serves. We do not build and maintain a high-level SDK or an MCP server now; an agent calls the API, as it would any web service. Operators may charge per call with micropayments (for example HTTP 402 schemes such as x402), which fits "any operator node serves the API" and the operator business (backlog, after the demo).
 
 What it means:
@@ -487,9 +549,13 @@ What it means:
 
 ## D31. Parametrize, don't restrict
 
+**Status:** decided, 2026-10-31.
+
 **Decided 2026-10-31 by Rafa.** The protocol and API should not specify anything the negotiating agents can manage themselves. Values such as deadlines, windows, the auto-release time, amounts and rates are parameters: any value the encoding can represent is allowed, including a date far in the future. The API refuses only what is malformed, unrepresentable, or self-contradictory in a way settlement cannot process (for example a deadline before the commitment was created). Spotting a value that looks wrong, such as the year 20270, is an advisory warning an operator may offer as a service, not a refusal (backlog). Mandatory rules (hard rules, litmus tests) are unaffected, and clubs may still narrow options in their rulebook, since members chose the club (ADR-0015). Applied first in T-020: the operator's timing bounds were relaxed to the encodable range.
 
 ## D32. The parties carry the responsibility; prefer the simpler fix
+
+**Status:** decided, 2026-11-01.
 
 **Decided 2026-11-01 by Rafa** ("generally there's probably simpler solutions, the burden of responsibility should be primarily on buyer and seller"), applied first to sim batch 1 finding F2.
 
@@ -499,6 +565,8 @@ What it means:
 - Research pass for F2 stopped once Rafa decided; options compared in the batch 1 review were adjudicator re-seal on early accept, a wrong-key-only appeal, and this one.
 
 ## D33. Operator fee: 1 bp of the price, minimum 0.01 tUSD, paid by the buyer with the funded agreement, outside the contracts
+
+**Status:** decided, 2026-11-01.
 
 **Amended 2026-11-03 by Rafa: "Gas should be part of the cost of using the API etc."** Agents never need ETH: the relaying operator pays the gas and recovers it through its fee, quoted in the deal's token (USDC, D42). On a chain, the published minimum is the relay minimum plus a per-deal gas quote, so the fee, `max(min, ceil(price × bps / 10000))`, never falls below the gas the operator pays, and agents compute it exactly as before. On the Sepolia demo the gas quote is 1.50 tUSDC: about 500,000 gas for a deal's three transactions (funding with the fee, delivery, decision; T-209's measured figures) at 1 gwei, at a fixed and fictional rate of 3,000 tUSDC per test ETH, stated as such wherever the fee is shown. So the demo publishes 1 bp with a minimum of 1.51 tUSDC. The quote is fixed per deal and not refunded: a deal that needs fewer transactions (a reclaim) leaves the operator the difference; one that needs more (a fallback, an appeal) costs it the difference. A party that submits directly to the contract pays its own gas and no fee to this operator, and another operator charges its own schedule (ADR-0005, unchanged). The quote is a parameter (`OPERATOR_FEE_GAS`, D31), never a cap. Schema v0.9 (T-033) may show the gas part as its own member of `fees.operator`; until then discovery's notes and `llms.txt` state the split. The fee still never enters the hold. ADR-0023 has the amendment.
 
@@ -522,6 +590,8 @@ Full report with sources: the research pass of 2026-11-01 (comparable take rates
 
 ## D34. Private deals and the end-to-end encrypted API (ADR-0024)
 
+**Status:** decided, 2026-11-01.
+
 **Decided 2026-11-01: accepted by Rafa ("Accept both"), as amended after the research pass the same day.** Agents encrypt the `deliverable` and `acceptance` bodies under two keys (so `judgment` can publish the acceptance alone), sealed to the buyer and the primary adjudicator at offer; either party may seal them to the fallback and appeal adjudicators, time-locked to `judgeBy` and `appealBy`, and any envelope that opens suffices, so neither party can block judgment. Operators store and relay ciphertext and see only the settlement view, verified signers and relay metadata. Private reads need an EIP-712 `ReadToken` (optional `audience`) from a party or an involved adjudicator; everyone else gets 401. Judgment records are sealed to both parties (D26). Prepare becomes a published, deterministic recipe, plus a hash-only operator prepare. Publication discloses keys in a `disclosure` body; `Publish` is unchanged.
 
 Research pass 2026-11-01: keep the domain at 0.6; bind the seller's per-deal encryption key in the hashed `deliverable` body and the buyer's in the struct as today; adjudicator keys by self-signed registration, two operators now, an on-chain registry later (ERC-6538 is a deployed candidate). The L1 contract takes a settlement view in calldata, stores one word per deal and emits ERC-8183 events; happy path about 0.5–0.65M gas (inferred; T-202 measures). Amounts stay public in Phase 2; confidential tokens are not adopted (admin surface; public wrap/unwrap). Default level `private`. The mailbox leaves the protocol (identity, discovery and negotiation are outside it, D35); an operator may offer one free with delivery-token gating. Per-deal keys with a `Delegation` certificate shown to the counterparty and the adjudicator become the default for private deals; L1 funding linkage stays residual 11. Private inference (D35) is `providerPrivacy: zdr` with a named provider; the registry needs two providers or one `local` seat. Build B now; T-208 after T-206.
@@ -540,6 +610,8 @@ Wording owed elsewhere if accepted: the scope hard rule in `CLAUDE.md` and the n
 
 ## D35. Rails, not a record-keeper: disclosure is each party's choice
 
+**Status:** decided, 2026-11-01.
+
 **Decided 2026-11-01 by Rafa** ("the protocol and API as rails, and maximal information then becomes something each party chooses to disclose, and can privately arbitrate ideally based on model usage, maybe use something like Venice for private inference").
 
 - **The protocol and API are rails.** They hold funds, check signatures, enforce deadlines and settle. They need keys, hashes and amounts, not identities or content. Buyer and seller find each other and agree however they like; the protocol assumes they know each other (Rafa, same day). Per-deal keys that do not link to a party's long-term identity follow naturally, and are the default for private deals (D34, ADR-0024).
@@ -549,6 +621,8 @@ Wording owed elsewhere if accepted: the scope hard rule in `CLAUDE.md` and the n
 
 ## D36. Parties may choose their judge panel; Crow offers a default; OpenRouter as a provider
 
+**Status:** decided, 2026-11-01.
+
 **Decided 2026-11-01: proposed by Rafa and accepted by him ("Accept both").** Buyer and seller may name their own judge structure in the terms: models and families, seat count, pass threshold, private inference or not. The adjudicator runs it or declines (D29), and the terms bind it by hash as they already bind the policy and registry. Crow's adjudicator offers its live panel (Anthropic and DeepSeek, two families) as the default for parties who do not choose. OpenRouter joins as an `openai-compatible` provider, so any model is reachable without a per-lab integration.
 
 - **Mandatory rules still hold:** pinned exact model versions (pin OpenRouter's model slug and its upstream provider routing; no aliases), at least two families, judges with no tools, the injection screen, the verdict schema, and no re-roll after a verdict.
@@ -556,6 +630,8 @@ Wording owed elsewhere if accepted: the scope hard rule in `CLAUDE.md` and the n
 - **When:** with the policy and registry work after T-207. Backlog row under Judgment defenses.
 
 ## D37. Rules contract design (T-202)
+
+**Status:** adopted, 2026-11-01.
 
 **Decided 2026-11-01 in T-202 under "autonomy inside the repo"; Rafa may overrule.** The four design questions of `docs/tasks/T-202-escrow-rules-contract.md`, answered from the built contract and its measured tests. Details, measurements and the SimChain differences for T-205 are in the task file.
 
@@ -586,6 +662,8 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 
 ## D38. Funding paths: any ERC-20, WETH or ETH; ramps as a deferred separate service (ADR-0026)
 
+**Status:** decided, 2026-11-02.
+
 *Note (2026-11-03): first wave narrowed to USDC by D42; other assets later.*
 
 **Decided 2026-11-02 from Rafa's direction** ("simply accept any ERC20 or wETH or ETH"; "a separate service we call via our unified API"; "for later", a stub only), after a research pass (repository facts measured; provider facts from memory, to be checked before the service is built).
@@ -599,6 +677,8 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 - Public demo (Rafa, 2026-11-02): a Stripe test-mode ramp is enough; who runs the service (Crow or operator-chosen third parties) is open either way.
 
 ## D39. The API for agents: conventions from the 2026-11-02 review
+
+**Status:** decided, 2026-11-02.
 
 **Decided 2026-11-02 under Rafa's principles** ("an elegant, simple, unified API over a hard protocol"; "no SDK or MCP for now, agents integrate on their side"; feedback calls; minimal telemetry; the operator sees as little as possible), after the research and review pass in `docs/reviews/2026-11-02-api-agent-review.md`. Rafa can overrule any line.
 
@@ -617,6 +697,8 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 
 ## D40. Privacy is each deal's choice; the tagline is "Programmatic Escrow and Arbitration"
 
+**Status:** decided, 2026-11-02.
+
 **Decided 2026-11-02 by Rafa.** Each deal chooses private or public through the signed `disclosure.level` (`private`, `judgment` or `public`; ADR-0020, ADR-0024), and no operator imposes a level. This refines D34 and D39.
 
 - **Privacy is an option the parties choose.** More parts become privacy-capable over time: sealed judgment records, private amounts and private settlement venues. The site promises no more privacy than the current build delivers.
@@ -626,6 +708,8 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 The full text is kept privately (`docs/private-materials.md`).
 
 ## D41. The public demo settles on Sepolia (ADR-0028)
+
+**Status:** decided, 2026-11-03.
 
 **Decided 2026-11-03 by Rafa** ("the public demo to settle on Sepolia"); the design is ADR-0028 (Proposed), after a research pass the same day (`docs/research/2026-11-03-sepolia-demo-settlement.md`). Rafa may overrule any line of the design.
 
@@ -643,6 +727,8 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D42. The first wave is USDC only, funded through a USD to USDC on-ramp
 
+**Status:** decided, 2026-11-03.
+
 **Decided 2026-11-03 by Rafa.** The first funding wave accepts USDC only: the operators' token allowlist and the demo club's rulebook narrow to USDC (ADR-0015). The protocol and the contracts stay token-agnostic (D31), because the signed terms already name the token.
 
 - **One asset end to end** means no swaps, quotes or price risk at funding or at settlement, and fees and gas are quoted in the unit the deal uses. Funding from USD is the funding service of ADR-0026 narrowed to one path, in test mode only.
@@ -652,6 +738,8 @@ The full text is kept privately (`docs/private-materials.md`).
 The full text is kept privately (`docs/private-materials.md`).
 
 ## D43. An overturn pays from the bond on chain now, and only the losing party appeals
+
+**Status:** decided, 2026-11-03.
 
 **Decided 2026-11-03 by Rafa,** who asked to "fix the contracts to address" the contract review's two high findings (`docs/reviews/2026-11-03-contract-review.md` §8). This entry covers the first: I-8, no overturn payout. It moves from Phase 4 into T-212 (item 9), together with the appeal-slot fix it depends on (L-7, item 7). The second high, binding decisions to the delivery, is T-212 item 3 and gets its own entry. Rafa may overrule any line.
 
@@ -668,6 +756,8 @@ The full text is kept privately (`docs/private-materials.md`).
 | Pay now, one appeal slot per party | Same payout, more state and code; a favoured party's appeal has nothing to win |
 
 ## D44. Decisions, early accepts and judgment records name the delivery they settle (ADR-0029)
+
+**Status:** adopted, 2026-11-03.
 
 **Decided 2026-11-03 under "autonomy inside the repo", after a Fable max-effort research pass (ADR-0029's draft); Rafa may overrule any line.** This is the second high finding of the contract review (§8) that D43 left to its own entry, and T-212 item 3. A seller who signed two deliveries for one attempt could settle a decision or an early accept about one body with the other, so the chain named a delivery nobody judged or opened. Rafa asked for the fix in the contracts.
 
@@ -686,11 +776,15 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D45. The founder console signs in with passkeys and refreshes every hour
 
+**Status:** decided, 2026-11-04.
+
 **Decided 2026-11-04 by Rafa.** The founders' console sits on its own host behind an access proxy, and scheduled pushes reach it with service tokens that can only push.
 
 The full text is kept privately (`docs/private-materials.md`).
 
 ## D46. Agents register their own adjudicators through the API; round 1 includes mutual settlement and overturns through the API
+
+**Status:** decided, 2026-11-04.
 
 **Decided 2026-11-04 by Rafa**, answering round 1's scope questions (T-216): "mutual settlement is important in the basic build, API should facilitate overturned appeals". Asked whether to plan adjudicator registration through the API, he answered "Yes, plan it". On funding the round's keys: "feels like we need a master address that funds all the rest". The design below follows a Fable max-effort research pass the same day (`docs/research/2026-11-04-adjudicator-registration.md`); Rafa may overrule any line.
 
@@ -727,6 +821,8 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D47. Crow runs a standing test seller on the Sepolia test environment (T-222)
 
+**Status:** adopted, 2026-11-04.
+
 **Decided 2026-11-04 under "autonomy inside the repo", after a Fable max-effort research pass (`docs/research/2026-11-04-test-counterparties.md`); Rafa may overrule any line.** Rafa asked: "For the test environment, feels like we should have a standing buyer / seller test identity that people can do test escrow with no?" Today `try.mjs` plays both sides of a deal with fresh keys, so a visitor never deals with another party.
 
 - **Seller first.** Crow's test seller is a party, not a feature of the operators. It runs as its own Worker, `crow-test-agents`, uses the operators' public API like any agent, and signs only what it prepared and checked itself (`examples/agent.ts`, `examples/verify.ts`). The operators grant it nothing they would not grant any agent. The test buyer is a later slice (backlog).
@@ -748,6 +844,8 @@ The full text is kept privately (`docs/private-materials.md`).
 | Keep self-play only | Nothing to run; a visitor never sees two parties |
 
 ## D48. Appeal bonds move by a relayed token permit; agents never need Sepolia ETH to appeal (T-224)
+
+**Status:** adopted, 2026-11-04.
 
 **Decided 2026-11-04 under "autonomy inside the repo", after a Fable max-effort research pass (`docs/research/2026-11-04-visitor-gas.md`); Rafa may overrule any line.** Rafa asked for the plan: "Yes, plan it", to my proposal of a way for new visitors to appeal without their own Sepolia ETH. Today `llms.txt` says an appeal on Sepolia needs the appellant's own test ETH. The reason: `HoldbackBonds.takeAppealBond` pulls the bond with `transferFrom`, so the appellant must first send its own `approve` transaction. Every other step a visitor takes is relayed and free (measured).
 
@@ -789,6 +887,8 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D49. One long-lived demo world; a new world only for a new rules contract
 
+**Status:** decided, 2026-11-04.
+
 **Decided 2026-11-04 by Rafa** ("Yes, keep the world"), when asked whether T-220 should keep today's Sepolia world or start a fresh one. His reason: "ideally we build the way to monitor the API so doubtful we want fresh worlds consistently". The findings come from a Fable max-effort research pass the same day (`docs/research/2026-11-04-one-world.md`); Rafa may overrule any line.
 
 - **T-220 keeps `holdback-public-demo-sepolia-2026-11-04`.** The demo club's rulebook changes in place to name drand quicknet, and the demo adjudicators keep their keys and their 25,000 tUSDC bonds.
@@ -817,6 +917,8 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D50. A deal left behind the chain is security hardening; it does not block T-220's deploy (T-227)
 
+**Status:** decided, 2026-11-05.
+
 **Decided 2026-11-05 by Rafa**, when asked whether residual 13 in `docs/neutrality.md` (a direct step the operators cannot read) must be fixed before T-220's deploy, as T-218's red-teamer recommended. He asked: "is this only a demo and not a mainnet problem? Or is this a mainnet security issue? If so, let's add to security hardening, since we're assuming honest actors at the moment." The findings come from T-218's review and red team (PR 185, 2026-11-04); no new research pass ran. Rafa may overrule any line.
 
 - **It is a mainnet issue (inferred).** The gap is in the operator node's code, the chain sync and the adjudicators' schedule, not in the Sepolia setup. Mainnet operators would run the same code.
@@ -838,6 +940,8 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D51. One-Click Escrow: one approval per honest deal at published terms (T-229)
 
+**Status:** decided, 2026-11-05.
+
 **Decided 2026-11-05 by Rafa:** "One-Click Escrow is what we're looking for. Buyer puts up contract or Seller and, assuming an honest good contract with no price negotiation, it should go through seamlessly if agent has access to funds." Then, the same day: "ship the two One-Click changes (trim llms.txt, and copy the command with the prompt)." Rafa may overrule any line.
 
 - **The goal.** An honest deal at published terms, with no price negotiation, goes through with one approval from the user. Either side can start it, the buyer or the seller, as long as the agent has access to funds.
@@ -856,11 +960,15 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D52. Crow Control builds twice a day in Berlin time and skips a run with nothing new
 
+**Status:** decided, 2026-11-05.
+
 **Decided 2026-11-05 by Rafa.** The founders' console builds on a schedule, twice a day, and a scheduled run with nothing new ends early. This replaces D45's hourly refresh. The console is a founders' tool outside the protocol, so the litmus tests are untouched.
 
 The full text is kept privately (`docs/private-materials.md`).
 
 ## D53. Finish stable EVM operations first; other Phase 2 work moves to later phases
+
+**Status:** decided, 2026-11-06.
 
 **Decided 2026-11-06 by Rafa.** Phase 2 finishes stable EVM operations on Sepolia first, and every other open Phase 2 task moves to a later phase. The decision orders work and changes no contract, schema, defense or API.
 
@@ -885,6 +993,8 @@ The full text is kept privately (`docs/private-materials.md`).
 The full text is kept privately (`docs/private-materials.md`).
 
 ## D54. Phase 2 walkthrough (Rafa, 2026-11-06)
+
+**Status:** decided, 2026-11-06.
 
 **Decided 2026-11-06 by Rafa:** scenario 11 counts as covered, T-212 moves to Phase 11 and T-221 to Phase 4, the read-after-write audit is queued as T-232, a low-balance warning for the relayer's funding lane comes now, and Phase 2 has seven exit criteria. The items accept evidence already recorded, order work and set Phase 2's exit. They change no contract, schema, defense or API.
 
@@ -917,6 +1027,8 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D55. Round 1's live passes count across operator builds
 
+**Status:** decided, 2026-11-06.
+
 **Decided 2026-11-06 by Rafa:** "Accept passes as is". The coordinator session asked whether Phase 2 should close with one full rerun of round 1 on the final operator build. Rafa declined the rerun. Each scenario's live pass counts on whichever build it ran, and Phase 2 needs no rerun. No research pass ran: the decision accepts evidence already recorded and changes no design. Rafa may overrule it.
 
 - **The rule it settles.** T-216's own pass rule asks for every scenario to pass against one deployment and one set of Worker versions, with a rerun of whatever a later fix touches (T-216, How the round runs). Every pass ran on one deployment, HoldbackRules `0xF38287e5…7cFA` [measured: each run's `summary.md`]. The operator builds differed.
@@ -937,6 +1049,8 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D56. The tagline is "Verifiable settlement for AI commerce", on a landing page from Rafa's mock (T-312)
 
+**Status:** decided, 2026-11-10.
+
 **Decided 2026-11-10 by Rafa.** The tagline is "Verifiable settlement for AI commerce". It replaces D40's "Programmatic Escrow and Arbitration" on the site, in `site/llms.txt` and in the README's first line.
 
 - **The page keeps what agents need:** the One-Click Escrow Try line (D51) and a link to `/llms.txt`. The rest of the agent guide in `llms.txt` is unchanged.
@@ -946,6 +1060,8 @@ The full text is kept privately (`docs/private-materials.md`).
 The full text is kept privately (`docs/private-materials.md`).
 
 ## D57. Phase one ships without party appeals and bonds (ADR-0031)
+
+**Status:** decided, 2026-11-11.
 
 **Decided 2026-11-11 by Rafa.** Asked "Should phase one ship without party appeals and bonds (cut SC-7)?", he answered: "Yes, cut them". Phase one is the next deployment of the contracts: the one an external audit reads and a first pilot uses, on a testnet. The design is ADR-0031 (Proposed), which records this cut beside the others of the phase-one scope. Rafa may overrule any line of it.
 
@@ -968,6 +1084,8 @@ The full text is kept privately (`docs/private-materials.md`).
 | Cut appeals, keep bonds | A bond with nothing to pay: on chain a bond moves only when an appeal overturns a decision |
 
 ## D58. Rafa's answers to ADR-0031's open points: the offer's expiry off chain, a zero price allowed, the strict rules, third-party payouts cut with a planned return, a payout address for the seller and a refund address for the buyer
+
+**Status:** decided, 2026-11-11.
 
 **Decided 2026-11-11 by Rafa,** in the coordinating session, after ADR-0031 first merged with its open points. ADR-0031 stays Proposed and now records each answer; Rafa may overrule any line. Items 1 to 4 change no signed type and no file in `spec/schemas/`. Item 5 does, and gets its own ADR and schema version.
 
@@ -1008,6 +1126,8 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D59. The beacon rounds for escalation and fallback leave a margin of 29 s (ADR-0032)
 
+**Status:** adopted, 2026-11-12.
+
 **Proposed 2026-11-11 by T-348,** after a research pass and a red-team pass. ADR-0032 is Proposed; Rafa may overrule any line. It answers finding X-1 of the drand verifier's review (Medium), the fallback's round of the private hardening task T-225, and finding F-2 of the state model. The contract refinement plan's package R8 builds it.
 
 - **One rule for both panels.** The seed comes from `roundAt(lastChoice + BEACON_MARGIN) + 1`: the first drand round after the last moment a choice can still be made, plus a margin fixed at deploy. For an escalation, `lastChoice` is the escalation's block time. For the fallback it is `judgeBy − 1`, the last second a primary's decision can carry.
@@ -1021,6 +1141,8 @@ The full text is kept privately (`docs/private-materials.md`).
 - **Research pass:** drand's chain info, the consensus specifications' timing constants and fork-choice rule for late blocks, measured block headers, and one `red-teamer` pass (ADR-0032, section 12).
 
 ## D60. The signed terms name a payment address for the buyer and a payout address for the seller (ADR-0033)
+
+**Status:** adopted, 2026-11-12.
 
 **Proposed 2026-11-11 by T-350,** after a research pass and a red-team pass. It designs what Rafa decided the same day (D58 item 5 and its amendment). ADR-0033 is Proposed; Rafa may overrule any line. Nothing is built: the contract package and the two tooling packages build from the ADR.
 
@@ -1038,6 +1160,8 @@ The full text is kept privately (`docs/private-materials.md`).
 - **Research pass:** T-350's read of the contracts at `5a90dc5`, the vendored escrow at `6b0a5ef` and the test token, and one `red-teamer` pass (ADR-0033, section 12).
 
 ## D61. What the mainnet test on Ethereum mainnet requires and costs, the gate of 39 conditions before it, and Base as the recommended L2 for later (ADR-0034)
+
+**Status:** deferred, 2026-11-11.
 
 **Proposed 2026-11-11 by T-351,** after a research pass (`docs/research/2026-11-11-settlement-chain.md`), a reviewer's check of ten facts and a red-team pass. ADR-0034 is Proposed; Rafa may overrule any line. It does not decide which chain comes first: Rafa did. It brings D4 back with numbers, as D4 asked. **Hard rule 1 stands: nothing here deploys anything, and only Rafa changes the rule.**
 
@@ -1071,6 +1195,8 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D62. Rafa's answers to ADR-0033's open points: the field names are final, the new event stays, and schema v0.11 allows an appeal window of 0 that phase one requires
 
+**Status:** decided, 2026-11-12.
+
 **Decided 2026-11-11 and 2026-11-12 by Rafa,** in the coordinating session. After a walk-through of the first three open points of ADR-0033 (D60) he said: "Accept all three". Two of the three were put to him as the ADR states them, and they are decided by those words. The third was put to him the wrong way round, so it was asked again, and he decided it on 2026-11-12: "Yes, contract too". ADR-0033 stays Proposed and records each; Rafa may overrule any line.
 
 1. **The field names are final:** `buyerPaymentAddress` and `sellerPayoutAddress`. He was told that a rename after the contract package merges would be another change to the signed terms.
@@ -1087,6 +1213,8 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D63. The beacon margin of 29 s stands on Ethereum mainnet and on Sepolia (ADR-0032)
 
+**Status:** decided, 2026-11-12.
+
 **Decided 2026-11-12 by Rafa,** in the coordinating session, relayed to T-348. It answers the one point D59 left to him: how many slots the margin covers. The coordinating session recommended keeping 29 s, two and a half slots, and he answered: "that is OK as long as there's a valid reason". ADR-0032 stays Proposed and records the answer in its section 4; Rafa may overrule any line.
 
 - **The margin:** `BEACON_MARGIN` is 29 s on Ethereum mainnet and on Sepolia, for the escalation's round and the fallback's. The smallest escalation window that can be decided stays 37 s.
@@ -1096,6 +1224,8 @@ The full text is kept privately (`docs/private-materials.md`).
 - **Litmus tests.** Unchanged from D59.
 
 ## D64. The screen flags what text asks of the judges, and passes honest audit reports (ADR-0035)
+
+**Status:** adopted, 2026-11-12.
 
 **Adopted 2026-11-12 by T-367** (roadmap row N87), after T-361 measured nine honest audit lines each flagging a whole report, and one red-team pass. Rafa may overrule any line.
 
@@ -1107,6 +1237,8 @@ The full text is kept privately (`docs/private-materials.md`).
 - **What it changes:** `packages/judgment` (`screen-1`, a new policy hash), the scenario recordings (re-seated, no outcome changed), `docs/judgment-and-defenses.md`. The adjudicator's redeploy carries the new policy hash and is Rafa's.
 
 ## D65. A deal is judged under the policy it bound, on every later build (ADR-0036)
+
+**Status:** adopted, 2026-11-12.
 
 **Proposed 2026-11-12 by T-373,** after T-367 (PR 386) found that an operator deploy that changes the screen leaves a deal accepted before it without a judge. ADR-0036 is Proposed; Rafa may overrule any line. Nothing is built.
 
@@ -1124,6 +1256,8 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D66. How the beacon margin reaches core, the EVM adapter and the adjudicator service (T-380, building ADR-0032)
 
+**Status:** adopted, 2026-11-12.
+
 **Adopted 2026-11-12 by T-380** (package R8, fix 2), for the choices ADR-0032 left open. Rafa may overrule any line.
 
 - **One source, the contract's immutable.** `HoldbackRules` takes `beaconMargin` as its last constructor argument, apart from `expiryMargin`, so the two cannot be swapped by position (ADR-0032's red team). The constructor refuses 0 on any chain but 31337 (`NoBeaconMargin`), as ADR-0032 §3.4 states.
@@ -1134,6 +1268,8 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D67. The rules contract's declarations move into an interface file, and `decide` checks the outcome by value (T-384, holdback PR 433)
 
+**Status:** adopted, 2026-11-12.
+
 **Adopted 2026-11-12 by the coordinator,** within Rafa's condition of 2026-11-12 that the move leave the compiled runtime code identical. Rafa may overrule any line.
 
 - **The interface.** The phase-one contracts gain `contracts/src/IHoldbackRules.sol`. It declares every function, event, error and type of `HoldbackRules`, and holds no logic: the enums `Stage`, `Reason` and `Decider`, the struct `Deal`, every event and error, and every external function and getter. `HoldbackRules` implements it, and the auditor's descriptions go there with `@inheritdoc` in the contract. The calldata structs stay in `HoldbackTypes`.
@@ -1142,6 +1278,8 @@ The full text is kept privately (`docs/private-materials.md`).
 - **Litmus tests.** Neutrality, the hold and defended judgment: unchanged; no rule, deadline or payment moves.
 
 ## D68. Crow hosts a seller adapter for a design partner on its own Cloudflare account (ADR-0037, T-407)
+
+**Status:** needs Rafa, 2026-11-14.
 
 **Proposed 2026-11-14 by T-407; Rafa picks before the build.** Today the seller side of a design partner's deal runs on one Mac, and a 7-day delivery window depends on that machine. ADR-0037 is Proposed; nothing is built.
 
