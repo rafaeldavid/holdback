@@ -17,6 +17,7 @@ import { PublicWorld, type LiveSettlement, type Via } from './world.js';
 import { KvFeedbackStore, type KvNamespace } from './feedback-store.js';
 import { admitted, clientKey, emptySegment, flooded, oversized } from './limits.js';
 import type { WorldStorage } from './storage.js';
+import { secured } from './headers.js';
 
 // The few Workers runtime types used here, declared locally so the package needs no Workers type package.
 interface DurableObjectStorage extends WorldStorage {
@@ -235,26 +236,31 @@ export class World {
 }
 
 export default {
+  // T-451: every answer leaves through secured() (headers.ts), the one place the security headers are set.
   async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    const headers = new Headers(request.headers);
-    const settlement = settlementOf(env.SETTLEMENT);
-    if (!settlement) return unconfigured(env.SETTLEMENT !== undefined);
-    // T-422: limits the World object never sees, so a flood or a large body costs it nothing (docs/operator-threat-model.md).
-    // The binding fails open: a rate-limit outage must not stop the API.
-    const client = clientKey(request.headers.get('cf-connecting-ip') ?? 'unknown');
-    if (env.FLOOD && !(await admitted(env.FLOOD, client))) return flooded();
-    const refused = emptySegment(url) ?? oversized(request, url.pathname);
-    if (refused) return refused;
-    // Set by this Worker only: whatever a caller sent under these names is replaced.
-    headers.set(NODE, env.NODE_INDEX === '1' ? '1' : '0');
-    headers.set(ORIGIN, url.origin);
-    headers.set(CLIENT, client);
-    headers.set(SETTLEMENT, settlement);
-    const deployed = deployTime(env);
-    if (deployed) headers.set(DEPLOYED, deployed);
-    else headers.delete(DEPLOYED);
-    const stub = env.WORLD.get(env.WORLD.idFromName(WORLD_NAMES[settlement]));
-    return stub.fetch(new Request(request, { headers }));
+    return secured(await forward(request, env));
   },
 };
+
+async function forward(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const headers = new Headers(request.headers);
+  const settlement = settlementOf(env.SETTLEMENT);
+  if (!settlement) return unconfigured(env.SETTLEMENT !== undefined);
+  // T-422: limits the World object never sees, so a flood or a large body costs it nothing (docs/operator-threat-model.md).
+  // The binding fails open: a rate-limit outage must not stop the API.
+  const client = clientKey(request.headers.get('cf-connecting-ip') ?? 'unknown');
+  if (env.FLOOD && !(await admitted(env.FLOOD, client))) return flooded();
+  const refused = emptySegment(url) ?? oversized(request, url.pathname);
+  if (refused) return refused;
+  // Set by this Worker only: whatever a caller sent under these names is replaced.
+  headers.set(NODE, env.NODE_INDEX === '1' ? '1' : '0');
+  headers.set(ORIGIN, url.origin);
+  headers.set(CLIENT, client);
+  headers.set(SETTLEMENT, settlement);
+  const deployed = deployTime(env);
+  if (deployed) headers.set(DEPLOYED, deployed);
+  else headers.delete(DEPLOYED);
+  const stub = env.WORLD.get(env.WORLD.idFromName(WORLD_NAMES[settlement]));
+  return stub.fetch(new Request(request, { headers }));
+}
