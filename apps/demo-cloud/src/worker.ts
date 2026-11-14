@@ -89,6 +89,8 @@ function deployTime(env: Env): string | null {
   return at && !Number.isNaN(at.getTime()) ? at.toISOString() : null;
 }
 
+const isLocal = (host: string): boolean => host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.localhost');
+
 const strings = (env: Env): Record<string, string> => Object.fromEntries(Object.entries(env).filter((e): e is [string, string] => typeof e[1] === 'string'));
 /** The settlement a value names, or null: there is no default, so a typo cannot serve the SimChain world as Sepolia's. */
 const settlementOf = (v: unknown): Settlement | null => (v === 'sim' || v === 'sepolia' ? v : null);
@@ -244,6 +246,10 @@ export default {
 
 async function forward(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  // T-451: plain HTTP is processed nowhere. A read gets a 301 to the same path over HTTPS; a write gets a 308, which a
+  // client follows with the same method and body or not at all, so nothing sent over plain HTTP reaches the World.
+  // Local runs (127.0.0.1, localhost) stay on HTTP.
+  if (url.protocol === 'http:' && !isLocal(url.hostname)) return Response.redirect(`https://${url.host}${url.pathname}${url.search}`, request.method === 'GET' || request.method === 'HEAD' ? 301 : 308);
   const headers = new Headers(request.headers);
   const settlement = settlementOf(env.SETTLEMENT);
   if (!settlement) return unconfigured(env.SETTLEMENT !== undefined);

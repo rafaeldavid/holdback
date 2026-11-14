@@ -9,8 +9,11 @@ import { join, relative, sep } from 'node:path';
 const SCRIPT = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
 const STYLE = /<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi;
 
-/** The CSP source for one inline block: `sha256-` and the base64 SHA-256 of its text, as a browser hashes it. */
-export const cspHash = (text) => `sha256-${createHash('sha256').update(text, 'utf8').digest('base64')}`;
+/**
+ * The CSP source for one inline block: `sha256-` and the base64 SHA-256 of its text, as a browser hashes it: the HTML
+ * parser turns CR LF and a lone CR into LF before the script or style text exists, so a CRLF checkout hashes the same.
+ */
+export const cspHash = (text) => `sha256-${createHash('sha256').update(text.replace(/\r\n?/g, '\n'), 'utf8').digest('base64')}`;
 
 /**
  * The inline code one page carries. A <script> with a src is not inline; one whose type is not JavaScript (a JSON data
@@ -22,7 +25,8 @@ export function inlineBlocks(html) {
   const runs = (attrs) => {
     if (/\bsrc\s*=/i.test(attrs)) return false;
     const type = /\btype\s*=\s*["']?([^"'\s>]+)/i.exec(attrs)?.[1]?.toLowerCase();
-    return type === undefined || type === 'module' || type === 'text/javascript' || type === 'application/javascript';
+    // importmap and speculationrules are not run as code, but a policy still requires their hash.
+    return type === undefined || ['module', 'text/javascript', 'application/javascript', 'importmap', 'speculationrules'].includes(type);
   };
   const scripts = [...html.matchAll(SCRIPT)].filter((m) => runs(m[1])).map((m) => m[2]);
   const styles = [...html.matchAll(STYLE)].map((m) => m[1]);

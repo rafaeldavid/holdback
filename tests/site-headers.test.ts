@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import site from '../apps/site/worker.js';
 // @ts-expect-error -- plain ESM module without type declarations
 import { COMMON, contentSecurityPolicy, forgetHashes, parseHashes } from '../apps/site/headers.js';
+import { cspHash, inlineBlocks } from '../site/csp.mjs';
 
 type Fetcher = { fetch(request: Request, env: unknown, ctx?: unknown): Promise<Response> };
 const S = `sha256-${'A'.repeat(43)}=`, T = `sha256-${'B'.repeat(43)}=`;
@@ -140,5 +141,22 @@ describe('the security headers on the site Worker (T-451)', () => {
     }
     expect(parseHashes({ scripts: [S, 'sha256-x'], styles: [] })).toBeNull();
     expect(parseHashes(HASHES)).toEqual(HASHES);
+  });
+
+  it('plain HTTP gets a 301 to HTTPS, straight to crow.direct for the old hostnames; local runs stay on HTTP', async () => {
+    const { env, asked } = assets();
+    for (const [from, to] of [['http://crow.direct/llms.txt?x=1', 'https://crow.direct/llms.txt?x=1'], ['http://www.crow.direct/', 'https://www.crow.direct/'], ['http://escrow.stream/trust', 'https://crow.direct/trust']]) {
+      const r = await get(from, env);
+      expect([r.status, r.headers.get('location')]).toEqual([301, to]);
+      common(r);
+    }
+    expect(asked).toEqual([]);
+    expect((await get('http://127.0.0.1:8799/llms.txt', env)).status).toBe(200);
+  });
+
+  it('hashes inline code as a browser does: CR LF and a lone CR count as LF; import maps are hashed, JSON data blocks not', () => {
+    expect(cspHash('a();\r\nb();\rc();')).toBe(cspHash('a();\nb();\nc();'));
+    const b = inlineBlocks('<script>x()</script><script type="importmap">{}</script><script type="application/json">{}</script><script src="/a.js"></script><style>p{}</style>');
+    expect(b).toEqual({ scripts: ['x()', '{}'], styles: ['p{}'] });
   });
 });

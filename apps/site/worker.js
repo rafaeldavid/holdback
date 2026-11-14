@@ -13,6 +13,7 @@ import { inlineHashes, isPage, secured } from './headers.js';
 const CANONICAL = 'https://crow.direct';
 const SECURITY_TXT = '/.well-known/security.txt';
 const FORWARDED = new Set(['escrow.stream', 'www.escrow.stream']);
+const isLocal = (host) => host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.localhost');
 
 export default {
   // T-451: every answer leaves through secured() (headers.js), the one place the security headers are set.
@@ -24,6 +25,9 @@ export default {
 };
 
 async function route(request, env, ctx, url) {
+  // T-451: plain HTTP gets a 301 to HTTPS (straight to crow.direct for the old hostnames), so an agent that fetched
+  // http://crow.direct/llms.txt reads the guide over TLS; HSTS then keeps a browser on HTTPS. Local runs stay on HTTP.
+  if (url.protocol === 'http:' && !isLocal(url.hostname)) return Response.redirect(`${FORWARDED.has(url.hostname) ? CANONICAL : `https://${url.host}`}${url.pathname}${url.search}`, 301);
   if (FORWARDED.has(url.hostname)) return Response.redirect(`${CANONICAL}${url.pathname}${url.search}`, 301);
   if (isBuildRead(request, '/version.json')) return buildResponse(buildInfo({ worker: 'crow-site', commit: await builtCommit(request, env), metadata: env.CF_VERSION_METADATA }), request.method);
   if (url.pathname === STATUS_PATH) return statusResponse(request, { cache: globalThis.caches?.default, waitUntil: (p) => ctx?.waitUntil(p) });

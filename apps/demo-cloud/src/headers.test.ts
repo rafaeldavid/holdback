@@ -78,4 +78,17 @@ describe('the security headers on the operator Workers (T-451)', () => {
     expect(unset.status).toBe(500);
     hasAll(unset);
   });
+
+  it('plain HTTP reaches no World: a read gets a 301 and a write a 308 to the same path over HTTPS; local runs stay on HTTP', async () => {
+    let forwarded = 0;
+    const env: Env = { WORLD: { idFromName: (n: string) => n, get: () => ({ fetch: async () => (forwarded++, new Response('{}', { headers: { 'content-type': 'application/json' } })) }) }, NODE_INDEX: '0', SETTLEMENT: 'sim' };
+    for (const [method, status] of [['GET', 301], ['HEAD', 301], ['POST', 308], ['PUT', 308]] as const) {
+      const r = await worker.fetch(new Request('http://api.crow.direct/v1/commitments?party=0x1', { method, ...(method === 'POST' || method === 'PUT' ? { body: '{}' } : {}) }), env);
+      expect([r.status, r.headers.get('location')]).toEqual([status, 'https://api.crow.direct/v1/commitments?party=0x1']);
+      hasAll(r);
+    }
+    expect(forwarded).toBe(0);
+    for (const local of ['http://127.0.0.1:8787/v1/status', 'http://localhost:8788/v1/status']) expect((await worker.fetch(new Request(local), env)).status).toBe(200);
+    expect(forwarded).toBe(2);
+  });
 });

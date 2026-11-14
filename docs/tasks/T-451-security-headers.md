@@ -77,9 +77,47 @@ None of the six security headers appears on any answer below: no `Strict-Transpo
 
 No page carries an inline event handler, a `javascript:` URL, an iframe, a worker, a `data:` URL or a `<form action>`. Scripts set styles through the CSSOM only (`el.style.height`), which a policy does not block.
 
+### The change, tested (measured)
+
+- `apps/demo-cloud/src/headers.test.ts` (4 tests) and `tests/site-headers.test.ts` (9 tests) fail on `origin/main`'s Workers and pass on the branch. The concurrency test fails on the first version of `headers.js` (the reviewer's finding 1) and passes on the fix.
+- `node site/build.mjs --op1 https://api.crow.direct --op2 https://api2.crow.direct --out reports/site-out && node site/check.mjs` passes. Group 18 fails a build with a missing `csp-hashes.json`, a page with an unhashed inline script, an inline handler, a fetch to an outside origin or an outside image (each tried by appending one to a built page).
+- A browser engine: headless Chromium (Playwright 1.65.1, Chromium headless shell 1234) against `wrangler dev` of the built site, 8 page kinds (`/`, `/demo/`, `/trust`, `/status`, `/problems/not_found`, `/problems/`, `/visualdemo/`, a 404): 0 policy violations. Under the policy:
+  - the status page's five checks ran (site, both operators and the network operational; the test seller "Down: HTTP 404" because `wrangler dev` does not serve crow-test-agents' route);
+  - the demo's player advanced (33 steps waiting at load, 30 after 4 s), its pause button worked and the frame took its height;
+  - the endings switch selected "fails" and showed its ending;
+  - the early-access drawer opened and posted to `join.crow.direct`, answered by a Playwright stand-in, so nothing was sent; the browser applies the policy before the stand-in sees the request;
+  - the home page's sign-up form posted the same way;
+  - the walkthrough loaded its Google font.
+- Control run on the same pages: an injected inline script, a script from `cdn.jsdelivr.net` and a fetch to `example.com` were refused with policy errors, and a frame of `/trust` from another origin showed Chromium's error page.
+- The pinned files in the build: `try.mjs` `04ef4434…`, `buy.mjs` `e74ff223…`, the same as live before.
+
+### Review and red team
+
+The reviewer (ISSUES, one Medium, three Low) and the red team (ISSUES, three Medium, four Low, notes) ran on the pull request. The red team found no way to frame a page crow-site serves and no way to run an injected or outside script on one.
+
+| Finding | From | What was done |
+| --- | --- | --- |
+| Requests that arrive while a failed hashes read is in flight crash with Cloudflare's 1101, with no headers (Medium) | both | Fixed: every caller shares one promise that never rejects; a test sends 3 requests at once against a 503 |
+| Plain HTTP answers 200 on crow.direct and both operators, with no redirect (Medium, measured live) | red team | Fixed: the site answers `http:` with a 301 to `https:` (to crow.direct for the old hostnames); the operators with a 301 for GET and HEAD and a 308 otherwise, so nothing sent over HTTP reaches the World; local hosts stay on HTTP; a test per Worker |
+| `crow.direct/agents/*` (crow-test-agents) and join.crow.direct carry no headers (Medium) | red team | Not in this task's paths: Handoff, for the coordinator before the partner's scan |
+| Group 18 does not read fetch, image or font origins (Low) | reviewer | Fixed for fetch and images; fonts and `setAttribute('style')` stay unchecked (Handoff) |
+| The status relay and its 405 are not tested (Low) | reviewer | Fixed: a test |
+| The page table gave `/404.html` an inline style (Low) | reviewer | Fixed: it has none |
+| The deploy's live check does not read the policy (Low) | red team | `site/deploy.mjs` is not in this task's paths: Handoff |
+| A Durable Object error gives a 1101 with no headers (Low) | red team | Not fixed: the answer is Cloudflare's, before any header could matter to a reader; Handoff |
+| A CRLF checkout would hash differently from a browser (Low) | red team | Fixed: CR LF and a lone CR count as LF before hashing; a test |
+| The operators send no Permissions-Policy (Low) | red team | Fixed: the site's value |
+| `importmap` and `speculationrules` scripts are not hashed (note) | red team | Fixed: both are hashed |
+| What a scanner may still report: no COEP, `style-src 'unsafe-inline'` on `/visualdemo/`, no report endpoint, the hosts above (note) | red team | Recorded below |
+
 ## Handoff
 
 - The test seller's and test buyer's cards at `crow.direct/agents/*` are served by crow-test-agents (T-420's lane, `apps/test-agents/`), whose route runs before crow-site, so they carry none of these headers. The same headers belong there; not in this task's paths.
 - join.crow.direct (early access, JSON only) carries none either; `apps/early-access/` is another lane's.
 - Whether the API should answer browsers (CORS) is a product question for the coordinator; today it does not.
+- **Before the partner's scan:** the same headers on crow-test-agents (`apps/test-agents/`, the pages under `crow.direct/agents/*`) and on early access (`apps/early-access/`). Both serve plain HTTP too; Cloudflare's zone setting "Always Use HTTPS" would cover every host at once, and is Rafa's.
+- `site/deploy.mjs`'s live check could read `/demo/` and require that its policy names every hash in the built `csp-hashes.json`, so a deploy whose Worker cannot read the file fails and rolls back (today the pages would load with their inline scripts blocked).
+- Group 18 does not read font origins or `setAttribute('style', …)` in scripts.
+- An error the World throws reaches the caller as Cloudflare's 1101 page; wrapping `forward()` in a secured 500 problem would carry the headers there too.
+- A scanner may still report: no `Cross-Origin-Embedder-Policy` (not set: no page needs it, and it would block the walkthrough's font); `style-src 'unsafe-inline'` on `/visualdemo/` only; no `report-to` endpoint for the policy.
 - HSTS `preload`: not added. Submitting crow.direct to the preload list is an outward action for Rafa.
