@@ -5,7 +5,7 @@
 - **Depends on:** T-404 (Crow Control's rebuild, private), T-066 (the metrics format)
 - **Paths this task may touch:** `apps/test-agents/`, `apps/early-access/`, `apps/site/`, `scripts/metrics/ops-cost*` (and its schema under `scripts/metrics/schemas/`), `site/check.mjs` (one block of its own), a new `site/guide-budget.mjs`, `docs/decisions-today.md` (a status line on each entry only), new tests under `tests/`, `tests/metrics/ops-cost*`, this file
 - **Human gate:** yes for the three deploys (site, test agents, early access). Nothing is deployed by this task.
-- **Status:** review
+- **Status:** done (merged; deploys of the site, test agents and early access follow, on Rafa's word of 2026-11-14)
 - **Agent/session:** the T-413 session, started 2026-11-14 by the coordinator's wave (sister task T-414 reads these sources into the console)
 - **Kind:** 1 (the site check), 2 (the decisions record), 4 (Worker code), with the metrics script; one `reviewer` pass
 
