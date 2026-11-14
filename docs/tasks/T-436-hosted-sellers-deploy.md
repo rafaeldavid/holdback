@@ -8,6 +8,7 @@
 - **Status:** review
 - **Agent/session:** the T-407 session, on Rafa's word of 2026-11-14 ("Yes, start both")
 
+- **Roadmap row:** N134
 ## Intent
 
 A hosted seller (T-435) needs three things before a buyer can reach it, each repeatable for the next company:
