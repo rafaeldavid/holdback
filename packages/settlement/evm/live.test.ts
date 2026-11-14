@@ -355,12 +355,18 @@ describe.skipIf(!ready)(`LiveChain's in-flight rows on anvil (T-219)${ready ? ''
       await real(a);
       throw new Error('The request took too long to respond.');
     });
+    // Mining held back: anvil answers a send before its automine block exists (1.5% of serial sends on an idle machine,
+    // measured 2026-11-14), so with automine on, a receipt read right after the send can find none (T-430).
+    await anvil.rpc('evm_setAutomine', [false]);
     await expect(chain.send({ lane: DEAL, to: TO, data: '0x', value: 9n, note: note(DEAL, 'k-9') })).rejects.toThrow(/too long/);
-    // The transaction went out and mined (automine), and its row stays for the settlement adapter to land.
+    // The transaction went out, and its row stays for the settlement adapter to land.
     const [row] = chain.inFlight();
     expect(row).toMatchObject({ lane: 1 + laneOf(DEAL), note: note(DEAL, 'k-9') });
     expect(store.rows.size).toBe(1);
     expect(store.log.map((l) => l.op)).toEqual(['write']);
+    expect(await pooled()).toEqual(row!.hashes);
+    await anvil.rpc('evm_mine', []);
+    await anvil.rpc('evm_setAutomine', [true]);
     expect((await anvil.publicClient.getTransactionReceipt({ hash: row!.hashes[0]! })).status).toBe('success');
     // The lane's next send resolves that row first and takes the next nonce; pending is never read.
     const pendingReads = vi.spyOn(chain.publicClient, 'getTransactionCount');

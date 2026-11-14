@@ -38,7 +38,9 @@ jobs:
             # the anvil suites import, with the fixtures, schemas and settings they read. A pull request that
             # touches none of them (the site, scripts, tools, brand) skips both jobs (T-313). Push to main runs
             # them always, and so does a pull request whose file list can't be read.
-            if [ -z "$(printf '%s\n' "$files" | grep -E '^(contracts/|packages/|apps/(operator|adjudicator|demo-cloud|test-agents)/|examples/|fixtures/|spec/|config/|\.github/|\.gitmodules$|\.nvmrc$|package\.json$|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|tsconfig[^/]*\.json$|vitest\.config\.ts$)')" ]; then chain=false; fi
+            # The deploy tools the anvil suite runs on a chain count too (T-410): sourcify-verify, deploy-rehearsal,
+            # record-copies.
+            if [ -z "$(printf '%s\n' "$files" | grep -E '^(contracts/|scripts/(sourcify-verify|deploy-rehearsal|record-copies)\.mjs$|packages/|apps/(operator|adjudicator|demo-cloud|test-agents)/|examples/|fixtures/|spec/|config/|\.github/|\.gitmodules$|\.nvmrc$|package\.json$|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|tsconfig[^/]*\.json$|vitest\.config\.ts$)')" ]; then chain=false; fi
             echo "$(printf '%s\n' "$files" | wc -l) changed files"
           fi
           echo "code=$code" | tee -a "$GITHUB_OUTPUT"

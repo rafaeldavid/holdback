@@ -1,0 +1,145 @@
+/* Crow's tokens (site/brand/README.md): the only place a colour or a font stack is written. Light only (Rafa,
+   2026-11-13). Named by role; site/check.mjs fails the build when a page writes
+   its own. */
+:root { color-scheme: light;
+  /* the Hasenheide palette (Rafa, 2026-11-13): crow black and grey, Berlin pavement for the rules, on a near-white
+     page with a hint of warmth (Rafa chose it over the oat paper the same day) */
+  --page: #fdfcf9; --band: #f6f3ec; --ink: #2a2a2c; --ink-2: #5d5d60; --ink-3: #85837e; --line: #d6d0c4; --hair: #e6e0d5;
+  --paid: #1d6b45; --paid-wash: #e2eee4; --warn: #b0233c; --warn-wash: #f7e1e4;
+  /* one seasonal accent at a time, by the date in Berlin (Mar 1, Jun 1, Sep 1, Dec 1); a small pill, a thin rule, a
+     labelled chart series or the season's drawing; never body text, a large area or a state */
+  --accent-spring: #6f7a14; --accent-summer: #8f6c14; --accent-autumn: #a55a17; --accent-winter: #24466e;
+  /* the accent: maple flare, a launch orange (Rafa, 2026-11-13; README.md, "The accent"), and the text drawn on it */
+  --accent: #d63d00; --accent-ink: var(--page);
+  --scrim: rgba(0, 0, 0, .28); --lift: 0 24px 64px rgba(0, 0, 0, .18); --lift-sheet: 0 -12px 40px rgba(0, 0, 0, .12);
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --size-note: 13px; --size-small: 15px; --size-body: 17px; --size-lede: 22px; --size-display: 44px;
+  --weight-strong: 600; --weight-bold: 700;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 40px; --space-7: 64px;
+  --radius-field: 12px; --radius-card: 18px; --radius-pill: 999px;
+  --width: 1040px; --gutter: 20px;
+  /* Kept for one page's current look until Rafa picks (T-402): the demo page's buyer bubble, and the problem pages,
+     which still wear the earlier paper look. */
+  --demo-bubble: #f0f0f2;
+  --problems-page: #faf7f0; --problems-ink: #2f2d2a; --problems-ink-2: #57534c; --problems-link: #8a6237;
+  --problems-serif: "EB Garamond", Garamond, "Times New Roman", serif; }
+/* part: base */
+/* Crow's twelve components (site/brand/README.md). Every value comes from tokens.css; a page places a part and never
+   reshapes it. Class names start with ck- so this file can sit inside another page's styles. A page sets
+   box-sizing: border-box on every element, as the site's pages do (README.md, "How a page reads the kit"). */
+/* the mark and the name, shared by the header bar and the footer */
+.ck-brand { display: flex; align-items: center; gap: 10px; font-weight: var(--weight-strong); font-size: var(--size-body); color: var(--ink); text-decoration: none; }
+.ck-mark { width: 30px; height: 30px; background: currentColor; -webkit-mask: url(/crow-mark.svg) center / contain no-repeat; mask: url(/crow-mark.svg) center / contain no-repeat; }
+.ck-icon { width: 22px; height: 22px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+/* part: bar */
+.ck-bar { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--page) 92%, transparent); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid var(--hair); }
+.ck-bar-in { max-width: var(--width); margin: 0 auto; padding: 10px var(--gutter); display: flex; align-items: center; gap: 22px; }
+.ck-gap { flex: 1; }
+.ck-nav { font-size: 14px; color: var(--ink-2); text-decoration: none; }
+.ck-nav:hover { color: var(--ink); }
+.ck-brand:focus-visible, .ck-nav:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 600px) { .ck-nav { display: none; } }
+/* part: button */
+.ck-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 var(--space-5); border: 0; border-radius: var(--radius-pill); background: var(--accent); color: var(--accent-ink); font: inherit; font-size: 16px; font-weight: var(--weight-strong); text-decoration: none; cursor: pointer; }
+.ck-btn-out { border: 1px solid var(--line); background: transparent; color: var(--ink); }
+.ck-btn-s { min-height: 34px; padding: 0 var(--space-4); font-size: 14px; }
+.ck-btn:disabled { opacity: .6; cursor: default; }
+.ck-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* part: pill */
+.ck-pill { display: inline-flex; align-items: center; min-height: 22px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius-pill); font-size: 12px; font-weight: var(--weight-strong); color: var(--ink); white-space: nowrap; }
+.ck-pill-paid { border-color: transparent; background: var(--paid-wash); color: var(--paid); }
+.ck-pill-warn { border-color: transparent; background: var(--warn-wash); color: var(--warn); }
+/* part: head */
+.ck-eyebrow { margin: 0; font-size: var(--size-note); font-weight: var(--weight-strong); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+.ck-title { margin: 14px 0 0; font-family: var(--display); font-size: var(--size-display); line-height: 1.04; font-weight: var(--weight-bold); letter-spacing: -.035em; }
+.ck-lede { margin: 12px 0 0; max-width: 600px; font-size: var(--size-lede); line-height: 1.4; color: var(--ink-2); text-wrap: balance; }
+@media (max-width: 600px) { .ck-lede { font-size: 19px; } }
+/* part: table */
+.ck-table { width: 100%; border-collapse: collapse; font-size: var(--size-small); }
+.ck-table th { padding: 0 var(--space-4) var(--space-2) 0; border-bottom: 1px solid var(--line); text-align: left; font-size: var(--size-note); font-weight: var(--weight-strong); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+.ck-table td { padding: var(--space-3) var(--space-4) var(--space-3) 0; border-bottom: 1px solid var(--hair); vertical-align: top; }
+/* part: notice */
+.ck-notice { padding: var(--space-4) var(--space-5); border-radius: var(--radius-field); background: var(--band); }
+.ck-notice-title { margin: 0; font-size: var(--size-small); font-weight: var(--weight-strong); color: var(--ink); }
+.ck-notice-text { margin: var(--space-1) 0 0; font-size: var(--size-small); color: var(--ink-2); }
+.ck-notice-warn { background: var(--warn-wash); }
+.ck-notice-warn .ck-notice-title { color: var(--warn); }
+/* part: footer */
+body:has(> .ck-foot) { min-height: 100vh; display: flex; flex-direction: column; }
+body > .ck-foot { margin-top: auto; }
+.ck-foot { box-sizing: border-box; width: 100%; max-width: var(--width); margin-left: auto; margin-right: auto; padding: var(--space-6) var(--gutter) var(--space-5);
+  font: var(--size-small)/1.5 var(--font); color: var(--ink-2); text-align: left; }
+.ck-foot-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3) var(--space-5); padding-top: var(--space-5); border-top: 1px solid var(--hair); }
+.ck-foot-row .ck-mark { width: 24px; height: 24px; }
+.ck-foot-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-5); }
+.ck-foot-nav > a { display: inline-flex; align-items: center; min-height: 32px; color: var(--ink-2); text-decoration: none; }
+.ck-foot-nav > a:hover { color: var(--ink); }
+.ck-foot-nav > a[aria-current] { color: var(--ink); font-weight: var(--weight-strong); }
+.ck-foot-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-4); margin-top: var(--space-3); font-size: var(--size-note); color: var(--ink-3); }
+.ck-foot a:focus-visible, .ck-foot button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 600px) { .ck-foot-nav { gap: 0 var(--space-5); } .ck-foot-nav > a { min-height: 44px; } }
+/* part: dialog */
+.ck-dialog { position: fixed; inset: 0; margin: auto; width: min(440px, calc(100% - 32px)); max-width: 100%; height: fit-content; max-height: calc(100vh - 48px); padding: 0;
+  border: 1px solid var(--hair); border-radius: var(--radius-card); background: var(--page); color: var(--ink); box-shadow: var(--lift); font-family: var(--font); }
+.ck-dialog::backdrop { background: var(--scrim); }
+.ck-dialog[open] { animation: ck-dialog-in .24s cubic-bezier(.25, .8, .25, 1); }
+@keyframes ck-dialog-in { from { transform: scale(.96); opacity: 0; } to { transform: none; opacity: 1; } }
+.ck-dialog-form { display: flex; flex-direction: column; gap: 12px; padding: 20px 24px 28px; }
+.ck-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.ck-dialog-title { margin: 0; font-size: 24px; font-weight: var(--weight-bold); letter-spacing: -.01em; }
+.ck-dialog-close { width: 32px; height: 32px; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--page); color: var(--ink); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.ck-dialog-close .ck-icon { width: 12px; height: 12px; }
+.ck-dialog-lede { margin: 0 0 8px; color: var(--ink-2); font-size: var(--size-small); line-height: 1.5; }
+.ck-dialog-label { font-size: var(--size-note); font-weight: var(--weight-strong); color: var(--ink-2); }
+.ck-dialog input[type=email] { font: inherit; font-size: 16px; color: var(--ink); background: var(--page); border: 1px solid var(--line); border-radius: var(--radius-field); padding: 0 14px; min-height: 48px; }
+.ck-dialog-form .ck-btn { margin-top: 4px; }
+.ck-dialog input:focus-visible, .ck-dialog button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ck-dialog-msg { margin: 0; font-size: var(--size-small); color: var(--ink-2); }
+.ck-dialog-msg:empty { display: none; }
+.ck-dialog .ck-hp { position: absolute; left: -10000px; width: 1px; height: 1px; opacity: 0; }
+@media (max-width: 600px) { .ck-dialog { inset: auto 0 0 0; margin: 0; width: 100%; height: auto; max-height: 90vh; border: 0; border-top: 1px solid var(--hair); border-radius: var(--radius-card) var(--radius-card) 0 0; box-shadow: var(--lift-sheet); } .ck-dialog[open] { animation-name: ck-sheet-in; } }
+@keyframes ck-sheet-in { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ck-dialog[open] { animation: none; } }
+/* the trust and status pages (site/trust.mjs, T-421): light only, one column, the kit's tokens */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { margin: 0; background: var(--page); color: var(--ink); font: var(--size-body)/1.55 var(--font); -webkit-font-smoothing: antialiased; }
+a { color: inherit; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+code { font: .9em var(--mono); overflow-wrap: anywhere; }
+.ck-bar .ck-btn { white-space: nowrap; }
+.doc { max-width: 760px; margin: 0 auto; padding: 72px var(--gutter) 88px; }
+/* the title and the lede wrap with no word alone on a line, at a reading measure (Rafa, 2026-11-14) */
+.doc .ck-title { text-wrap: balance; }
+.doc .ck-lede { max-width: 65ch; text-wrap: balance; }
+.doc .ck-notice { margin-top: 32px; }
+.doc .ck-notice + .source { margin-top: 8px; }
+.alt { margin: 20px 0 0; font-size: var(--size-small); color: var(--ink-2); }
+.toc { margin-top: 40px; padding-top: 8px; border-top: 1px solid var(--hair); }
+.toc-group { margin: 20px 0 6px; font-size: var(--size-note); font-weight: var(--weight-strong); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+.toc ul { margin: 0; padding: 0; list-style: none; }
+.toc li { margin: 4px 0; }
+.toc a { text-decoration: none; }
+.toc a:hover { text-decoration: underline; }
+.doc h2 { margin: 64px 0 0; padding-bottom: 8px; border-bottom: 1px solid var(--hair); font-size: var(--size-note); font-weight: var(--weight-strong); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+.qa { padding: 24px 0 0; scroll-margin-top: 72px; }
+.qa h3 { margin: 0; font-family: var(--display); font-size: var(--size-lede); line-height: 1.3; font-weight: var(--weight-bold); letter-spacing: -.01em; text-wrap: balance; }
+.qa p, .qa ul { max-width: 68ch; margin: 8px 0 0; text-wrap: pretty; }
+.qa ul { padding-left: 1.25em; }
+.qa li { margin-top: 4px; }
+.source { margin: 8px 0 0; font-size: var(--size-note); color: var(--ink-3); overflow-wrap: anywhere; }
+.source a { color: var(--ink-2); text-underline-offset: 2px; }
+.checked { margin-top: 48px; font-size: var(--size-note); color: var(--ink-3); }
+.note { display: block; font-size: var(--size-note); color: var(--ink-3); }
+.status-table { margin-top: 32px; overflow-x: auto; }
+.status-table td:nth-child(2), .status-table td.at { white-space: nowrap; }
+.status-table td.addr { font-size: var(--size-note); color: var(--ink-2); }
+.again { margin-top: 20px; }
+@media (max-width: 600px) {
+  .doc { padding-top: 48px; }
+  .status-table thead { display: none; }
+  .status-table tr { display: block; padding: 12px 0; border-bottom: 1px solid var(--hair); }
+  .status-table td { display: block; padding: 2px 0; border: 0; }
+}

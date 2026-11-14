@@ -2,9 +2,13 @@
 
 ## Report a vulnerability
 
-Report privately through GitHub: open the **Security** tab of this repository and choose **Report a vulnerability**. Do not open a public issue or pull request for a suspected vulnerability.
+Report privately through GitHub's private vulnerability reporting: open https://github.com/rafaeldavid/holdback/security/advisories/new, or the **Security** tab of this repository and **Report a vulnerability**. You need a GitHub account. Do not open a public issue or pull request for a suspected vulnerability.
 
-Include the affected component and commit, the steps to reproduce (a proof of concept if you have one), and the impact you expect.
+1. Name the affected component and commit, or the URL you called.
+2. Give the steps to reproduce, with a proof of concept if you have one.
+3. Say the impact you expect.
+
+Write in English. The same contact is in https://crow.direct/.well-known/security.txt (RFC 9116), and https://crow.direct/trust says how Crow handles money, keys and data.
 
 ## What happens next
 
@@ -37,7 +41,7 @@ We treat security research that follows this policy as authorized. We will not p
 
 ## Status
 
-Crow runs on testnets (Sepolia) and a simulated chain, with test tokens only. There is no bug bounty yet. A bounty sized to the funds at risk starts before any mainnet deployment, after independent audits.
+Crow runs on testnets (Sepolia) and a simulated chain, with test tokens only. There is no bug bounty yet. A bounty sized to the funds at risk starts before any mainnet deployment, after outside audits.
 
 ## Supported versions
 

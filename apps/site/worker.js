@@ -3,16 +3,24 @@
 // https://crow.direct. wrangler.jsonc sets run_worker_first, so this runs before any asset is served; the assets
 // binding still applies html_handling and not_found_handling. The guides and bundles get their charset named (below).
 // GET /version.json adds the live version's creation time to the build's commit, for Crow Control (T-413, build-info.js).
+// GET /status/operators.json relays the two operators' public discovery reads for the status page (T-421, status.js),
+// and GET /.well-known/security.txt serves the security.txt asset the build writes at the site root (T-421).
 import { buildInfo, buildResponse, isBuildRead } from './build-info.js';
+import { STATUS_PATH, statusResponse } from './status.js';
 
 const CANONICAL = 'https://crow.direct';
+const SECURITY_TXT = '/.well-known/security.txt';
 const FORWARDED = new Set(['escrow.stream', 'www.escrow.stream']);
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (FORWARDED.has(url.hostname)) return Response.redirect(`${CANONICAL}${url.pathname}${url.search}`, 301);
     if (isBuildRead(request, '/version.json')) return buildResponse(buildInfo({ worker: 'crow-site', commit: await builtCommit(request, env), metadata: env.CF_VERSION_METADATA }), request.method);
+    if (url.pathname === STATUS_PATH) return statusResponse(request, { cache: globalThis.caches?.default, waitUntil: (p) => ctx?.waitUntil(p) });
+    // RFC 9116 names /.well-known/security.txt. The build writes the file at the root, where the asset upload takes it
+    // whatever it does with dot folders, and this path serves that one file.
+    if (url.pathname === SECURITY_TXT) return withCharset(await env.ASSETS.fetch(new Request(new URL('/security.txt', url).href, request)));
     return withCharset(await env.ASSETS.fetch(request));
   },
 };

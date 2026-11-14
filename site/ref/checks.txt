@@ -92,3 +92,7 @@ Four recipes for an audit report with a `commit`, a `filesReviewed` list and a `
 - For what the checks cannot say, add a rubric. Judges read a report of up to 100,000 characters whole. They read a longer report as a sample of its lines, and a sampled read escalates the deal to the appeal adjudicator. The checks always run on the whole report.
 
 A complete commitment with these checks, the full report schema and an optional five-criterion rubric is `spec/examples/commitment.audit-report.example.json` in [the repository](https://github.com/rafaeldavid/holdback/blob/main/spec/examples/commitment.audit-report.example.json).
+
+## The buyer's own check run
+
+Step 9 of https://crow.direct/buy.txt sends you here; this run is optional. In a clone of the repository after `pnpm install && pnpm build`, save the work with the agreed format's extension, such as `work.json`, save the terms as `terms.json` (`curl -s $OP1/v1/commitments/<id>/terms`) and run `node examples/check-delivery.ts terms.json work.json`. Exit 0 means the checks accept it, or on a rubric deal do not refuse it.

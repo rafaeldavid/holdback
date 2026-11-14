@@ -19,6 +19,17 @@ export class IdempotencyStore {
   private readonly done = new Map<string, { fingerprint: Hex32; response: StoredResponse }>();
   private readonly locks = new Map<string, Promise<unknown>>();
 
+  /** Whether a success is stored under `key`: a request with it may be a replay (T-422). */
+  has(key: string): boolean {
+    return this.done.has(key);
+  }
+
+  /** The stored response when `key` succeeded with this very request, before any limit is counted (T-422). */
+  replay(key: string, fp: Hex32): StoredResponse | undefined {
+    const seen = this.done.get(key);
+    return seen && seen.fingerprint === fp ? seen.response : undefined;
+  }
+
   async run(key: string, fp: Hex32, handler: () => Promise<StoredResponse>): Promise<IdempotencyOutcome> {
     const previous = this.locks.get(key) ?? Promise.resolve();
     const current = previous.then(() => this.once(key, fp, handler));

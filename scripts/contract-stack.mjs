@@ -4,11 +4,13 @@
 // console's job can import build() as it imports the design map's. The page lives at
 // https://control.escrow.stream/contracts; the console rebuilds it only when stackVersion() changes, so it follows the
 // contracts, not the clock. The page uses no storage, cookies or fetch, so it works in a sandboxed, opaque origin: one
-// inline script renders the embedded data, and the Google Fonts stylesheet is optional (system serif otherwise).
+// inline script renders the embedded data. Colours, type and the header bar come from Crow's brand kit (site/brand/),
+// inlined at build time so the page stays one file (T-424).
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { headerBar, kitCss, markDataUri } from '../site/brand/kit.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const read = (path) => readFileSync(join(root, path), 'utf8');
@@ -35,7 +37,7 @@ const DIFFERENTIAL = 'reports/differential-local.md';
 export const BUILD_INPUTS = ['contracts/src/', 'contracts/lib', 'contracts/foundry.toml', 'contracts/remappings.txt', 'contracts/script/TestUSDC.sol'];
 
 /** Every path the page reads: a commit that touches none of them cannot change the page. */
-export const INPUTS = [...BUILD_INPUTS, 'contracts/deployments/', REVIEW, HARDENING, KNOWN, OPERATIONS, DIFFERENTIAL, 'tools/contract-stack/', 'scripts/contract-stack.mjs'];
+export const INPUTS = [...BUILD_INPUTS, 'contracts/deployments/', REVIEW, HARDENING, KNOWN, OPERATIONS, DIFFERENTIAL, 'tools/contract-stack/', 'scripts/contract-stack.mjs', 'site/brand/', 'site/crow-mark.svg'];
 
 /** True in a checkout without the history (actions/checkout's default depth of one commit). */
 export function shallow() {
@@ -277,7 +279,15 @@ export function build() {
   const marker = '/*__STACK_DATA__*/null';
   if (!template.includes(marker)) throw new Error(`template is missing ${marker}`);
   const data = JSON.stringify(collect()).replace(/</g, '\\u003c');
-  return template.replace(marker, data);
+  return withKit(template).replace(marker, () => data);
+}
+
+/** The template with the brand kit's CSS (tokens, base, header bar, pill) and its header bar, Crow's mark inlined. */
+export function withKit(template) {
+  for (const m of ['/*__KIT_CSS__*/', '<!--__KIT_HEADER__-->']) if (!template.includes(m)) throw new Error(`template is missing ${m}`);
+  return template
+    .replace('/*__KIT_CSS__*/', () => kitCss({ parts: ['bar', 'pill'], mark: markDataUri() }))
+    .replace('<!--__KIT_HEADER__-->', () => headerBar({ home: 'https://crow.direct' }));
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

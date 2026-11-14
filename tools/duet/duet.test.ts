@@ -25,6 +25,9 @@ afterAll(() => { for (const d of made) rmSync(d, { recursive: true, force: true 
 /** What a reader sees: the page without its style, script, engineers' section and "Exact call" disclosures, or its tags. */
 const readerText = (html: string) => html.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>|<title>[\s\S]*?<\/title>/gi, '').replace(/<details class="engineers"[\s\S]*?<\/details>/g, '').replace(/<details>[\s\S]*?<\/details>/g, '').replace(/<[^>]+>/g, ' ').replace(/&#39;/g, "'").replace(/&#34;/g, '"').replace(/&#38;/g, '&');
 const BANNED: Array<[string, RegExp]> = [['commitment', /\bcommitments?\b/i], ['escrowState', /escrowstate/i], ['adjudicator', /adjudicat/i], ['EIP-712', /eip-?712/i], ['Released', /\bReleased\b/], ['Refunded', /\bRefunded\b/], ['hold as a noun', /\b(the|a|an|its|this|that|your) hold\b/i], ['settlement layer', /settlement layer/i], ['escrow', /\bescrow\b/i]];
+// The ontology's calming claims refused until a fact backs them (crow-private strategy note of 2026-11-14), and the
+// phrase that names the buyer's worry instead of its answer.
+const REFUSED = /\bindependent\b|\bsecure\b|\baudited\b|\bguarantee|\bprivate deals?\b|\bno one can\b|Neither side can take it/i;
 const banned = (text: string) => BANNED.filter(([, re]) => re.test(text)).map(([w]) => `${w}: …${text.slice(Math.max(0, text.search(BANNED.find(([x]) => x === w)![1]) - 60), text.search(BANNED.find(([x]) => x === w)![1]) + 60)}…`);
 const lines = (file: string) => readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
 
@@ -116,6 +119,10 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       expect(page).toContain('<dt>Enterprise Procurement Agent</dt><dd>Acting for the buyer.');
       expect(page).toContain('<dt>Enterprise Sales Agent</dt><dd>Acting for the seller.');
       expect(page).not.toMatch(/buying agent|selling agent/i);
+      // The ontology's words (T-418, T-427): no calming claim without a fact behind it, and the payment hold said
+      // with its release rule, the refund included, since the buyer's worry is getting the money back.
+      expect(readerText(page)).not.toMatch(REFUSED);
+      expect(readerText(page)).toMatch(/If the work never arrives, the buyer takes the whole payment back after the deadline/);
       expect(events.some((e) => e.role === 'buyer') && events.some((e) => e.role === 'seller')).toBe(true);
       for (const b of PITCH.beats) expect(page).toContain(`<span class="beat-label">${b.label}</span>`);
       // The proof beat tells what this run did: Rafa's sentence when the work passed, what happened instead otherwise.
@@ -189,6 +196,17 @@ describe('three scenarios, scripted, on the local phase-one world', () => {
       expect(page).not.toContain(key.slice(2));
     }, 200_000);
   }
+});
+
+describe('the published demo page (site/demo/index.html, edited beside replay.ts when no run record is at hand)', () => {
+  it('uses no refused claim and says the payment hold with its release rule, the refund included (T-427)', () => {
+    const text = readerText(readFileSync(new URL('../../site/demo/index.html', import.meta.url), 'utf8'));
+    expect(text).not.toMatch(REFUSED);
+    expect(text).toContain(HERO.intro);
+    expect(text).toMatch(/If the work never arrives, the buyer takes the whole payment back after the deadline/);
+    expect(text).toContain('The price is released to the seller when the work passes, and comes back to the buyer if the work fails or misses its deadline.');
+    expect(banned(text)).toEqual([]);
+  });
 });
 
 describe('the direct brief: intent, limits and setup only; the agents find Crow from crow.direct', () => {

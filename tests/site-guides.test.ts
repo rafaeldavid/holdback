@@ -3,9 +3,28 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 // @ts-expect-error plain JavaScript module with no declarations
-import { apiRoutes, citedSections, countTokens, duplicateSentences, estimateTokens, FIRST_DEAL_BUDGET, guideFiles, hasSection, measurePaths, namedCalls, namedReferences, nonAscii, routeKnown } from '../site/guides.mjs';
+import { apiRoutes, citedSections, countTokens, duplicateSentences, estimateTokens, FIRST_DEAL_BUDGET, guideFiles, hasSection, HTTP_BUYER_BUDGET, measureHttpBuyer, measurePaths, namedCalls, namedReferences, nonAscii, routeKnown } from '../site/guides.mjs';
+// @ts-expect-error plain JavaScript module with no declarations
+import { publishedGuides } from '../site/build.mjs';
 
 const answer = (status: number, body: unknown) => async () => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+
+describe("the plain-HTTP buyer's budget (T-426)", () => {
+  it('is the front door plus the three reference pages a first purchase over HTTP reads', () => {
+    expect(HTTP_BUYER_BUDGET).toEqual({ tokens: 9450, target: 8700, path: ['llms.txt', 'ref/http.txt', 'ref/signing.txt', 'ref/http-buyer.txt'] });
+    for (const p of HTTP_BUYER_BUDGET.path) expect(guideFiles()).toContain(p);
+  });
+
+  it('estimates the pages joined by a newline, bytes divided by four', () => {
+    const published = new Map([['llms.txt', 'a'.repeat(4)], ['ref/http.txt', 'b'.repeat(4)], ['ref/signing.txt', 'c'.repeat(4)], ['ref/http-buyer.txt', 'd'.repeat(5)]]);
+    expect(measureHttpBuyer(published)).toEqual({ files: HTTP_BUYER_BUDGET.path, bytes: 20, tokens: 5 });
+  });
+
+  it('holds the published path within the budget, so an edit that grows it fails', () => {
+    const m = measureHttpBuyer(publishedGuides({ op1: 'https://op1.example.workers.dev', op2: 'https://op2.example.workers.dev' }));
+    expect(m.tokens, `the plain-HTTP buyer's path is ${m.bytes} bytes, ${m.tokens} tokens, over ${HTTP_BUYER_BUDGET.tokens}`).toBeLessThanOrEqual(HTTP_BUYER_BUDGET.tokens);
+  });
+});
 
 describe('the first-deal budget', () => {
   it('is stated once, for the buyer and the seller, each the front door plus its page', () => {

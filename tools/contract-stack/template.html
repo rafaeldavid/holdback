@@ -3,118 +3,103 @@
 <title>Crow Contract Stack</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <meta name="color-scheme" content="light">
-<meta name="theme-color" content="#faf7f0">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500;600&display=swap">
 <style>
-/* Layout: one reading column, Apple-style grouped sections; plain sentence first, technical detail folded away. Light only, crow.direct brand. */
-:root{
-  color-scheme:light;
-  --paper:#faf7f0; --card:#fffdf9; --ink:#2f2d2a; --pencil:#57534c; --faint:#8f897e; --rule:#e7e1d5;
-  --sepia:#8a6237; --sepia-soft:#f3ece0; --stone-soft:#efece6;
-  --done:#2f6e45; --done-soft:#e3efe6; --now:#9a6412; --now-soft:#f7ecd7; --later:#6d6a64; --later-soft:#eeebe5;
-  --display:"EB Garamond",Garamond,"Times New Roman",serif;
-  --text:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Arial,sans-serif;
-  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-}
+/*__KIT_CSS__*/
+/* The page's own layout, from the kit's tokens only (site/brand/README.md): one reading column, grouped sections; plain sentence first, technical detail folded away. Light only. */
 *{box-sizing:border-box}
-body{background:var(--paper);color:var(--ink);font:17px/1.5 var(--text);-webkit-font-smoothing:antialiased;
-  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:40px 72px}
-.page{max-width:820px;margin:0 auto;display:flex;flex-direction:column;gap:64px}
-h1,h2{font-family:var(--display);font-weight:600;letter-spacing:-.01em;text-wrap:balance;margin:0;line-height:1.1}
-h1{font-size:clamp(36px,6vw,48px)}
+html,body{background:var(--page)}
+body{margin:0;color:var(--ink);font:var(--size-body)/1.5 var(--font);-webkit-font-smoothing:antialiased}
+.page{max-width:820px;margin:0 auto;padding:var(--space-6) max(var(--gutter),env(safe-area-inset-right,0px)) 72px max(var(--gutter),env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:64px}
+h1,h2{font-family:var(--display);font-weight:var(--weight-bold);letter-spacing:-.03em;text-wrap:balance;margin:0;line-height:1.1}
+h1{font-size:clamp(34px,6vw,var(--size-display))}
 h2{font-size:clamp(26px,4vw,32px)}
-h3{font:600 19px/1.3 var(--text);margin:0}
+h3{font:var(--weight-strong) 19px/1.3 var(--font);margin:0}
 p{margin:0;max-width:66ch}
 code,.mono{font-family:var(--mono);font-size:.84em}
-a{color:var(--sepia)}
-.eyebrow{font:600 12px/1 var(--text);letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
-.lede{font-size:20px;line-height:1.45;color:var(--pencil)}
-.muted{color:var(--pencil)}
-.small{font-size:14px;color:var(--pencil)}
+a{color:var(--ink);text-underline-offset:2px}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.eyebrow{font:var(--weight-strong) var(--size-note)/1 var(--font);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+.lede{font-size:var(--size-lede);text-wrap:balance;line-height:1.45;color:var(--ink-2)}
+.muted{color:var(--ink-2)}
+.small{font-size:14px;color:var(--ink-2)}
 section{display:flex;flex-direction:column;gap:20px}
 .sechead{display:flex;flex-direction:column;gap:8px}
 
-/* header */
-header{display:flex;flex-direction:column;gap:16px}
+/* the page's header, under the kit's header bar */
+.page>header{display:flex;flex-direction:column;gap:16px}
 .pills{display:flex;flex-wrap:wrap;gap:8px}
-.pill{font:600 13px/1 var(--text);padding:7px 11px;border-radius:999px;white-space:nowrap}
-.pill.done{background:var(--done-soft);color:var(--done)}
-.pill.now{background:var(--now-soft);color:var(--now)}
-.pill.later{background:var(--later-soft);color:var(--later)}
 
 /* grouped list (Apple inset grouped) */
-.group{background:var(--card);border:1px solid var(--rule);border-radius:14px;overflow:hidden}
-.row{display:grid;grid-template-columns:44px minmax(0,1fr);gap:4px 14px;padding:16px 18px;border-top:1px solid var(--rule)}
+.group{background:var(--page);border:1px solid var(--hair);border-radius:var(--radius-card);overflow:hidden}
+.row{display:grid;grid-template-columns:44px minmax(0,1fr);gap:4px 14px;padding:16px 18px;border-top:1px solid var(--hair)}
 .row:first-child{border-top:0}
-.row .ic{grid-row:span 2;width:36px;height:36px;border-radius:10px;background:var(--sepia-soft);color:var(--sepia);display:grid;place-items:center;font:600 17px/1 var(--display)}
+.row .ic{grid-row:span 2;width:36px;height:36px;border-radius:var(--radius-field);background:var(--band);color:var(--ink);display:grid;place-items:center;font:var(--weight-bold) 17px/1 var(--display)}
 .row b{font-weight:600}
-.row p{color:var(--pencil);font-size:16px}
+.row p{color:var(--ink-2);font-size:16px}
 
 /* diagram */
-.figure{background:var(--card);border:1px solid var(--rule);border-radius:14px;padding:12px;overflow-x:auto}
+.figure{background:var(--page);border:1px solid var(--hair);border-radius:var(--radius-card);padding:12px;overflow-x:auto}
 .figure svg{display:block;width:100%;min-width:640px;height:auto}
-.caption{font-size:14px;color:var(--pencil)}
+.caption{font-size:14px;color:var(--ink-2)}
 
 /* contract cards */
 .cards{display:flex;flex-direction:column;gap:14px}
-.card{background:var(--card);border:1px solid var(--rule);border-radius:14px;padding:20px 22px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.card{background:var(--page);border:1px solid var(--hair);border-radius:var(--radius-card);padding:20px 22px;display:flex;flex-direction:column;gap:10px;min-width:0}
 .card-top{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:6px 12px}
 .card-top h3{font-family:var(--mono);font-weight:600;font-size:17px;color:var(--ink)}
-.tag{font:600 12px/1 var(--text);color:var(--faint);letter-spacing:.04em;text-transform:uppercase}
-.analogy{font-family:var(--display);font-size:20px;line-height:1.3;color:var(--sepia)}
-details{border-top:1px solid var(--rule);padding-top:10px}
-summary{cursor:pointer;font:600 15px/1.4 var(--text);color:var(--sepia);list-style:none;display:flex;align-items:center;gap:6px}
+.tag{font:var(--weight-strong) 12px/1 var(--font);color:var(--ink-2);letter-spacing:.04em;text-transform:uppercase}
+.analogy{font-family:var(--display);font-size:20px;line-height:1.3;color:var(--ink-2)}
+details{border-top:1px solid var(--hair);padding-top:10px}
+summary{cursor:pointer;font:600 15px/1.4 var(--font);color:var(--ink);list-style:none;display:flex;align-items:center;gap:6px}
 summary::-webkit-details-marker{display:none}
 summary::before{content:"›";display:inline-block;transition:transform .15s;font-size:18px;line-height:1}
 details[open] summary::before{transform:rotate(90deg)}
-summary:focus-visible{outline:2px solid var(--sepia);outline-offset:3px;border-radius:4px}
+summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
 .detail{display:flex;flex-direction:column;gap:10px;padding-top:10px}
 .tbl{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-size:15px}
-th{text-align:left;font:600 12px/1.2 var(--text);letter-spacing:.05em;text-transform:uppercase;color:var(--faint);padding:8px 10px;border-bottom:1px solid var(--rule)}
-td{padding:9px 10px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{text-align:left;font:var(--weight-strong) 12px/1.2 var(--font);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);padding:8px 10px;border-bottom:1px solid var(--hair)}
+td{padding:9px 10px;border-bottom:1px solid var(--hair);vertical-align:top}
 tr:last-child td{border-bottom:0}
 td:first-child{white-space:nowrap}
 .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 
 /* steps */
 .steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:0;counter-reset:s}
-.step{display:grid;grid-template-columns:40px minmax(0,1fr);gap:4px 14px;padding:16px 0;border-top:1px solid var(--rule)}
+.step{display:grid;grid-template-columns:40px minmax(0,1fr);gap:4px 14px;padding:16px 0;border-top:1px solid var(--hair)}
 .step:first-child{border-top:0}
 .step>*{grid-column:2}
-.step::before{counter-increment:s;content:counter(s);grid-column:1;grid-row:1 / span 4;width:32px;height:32px;border-radius:50%;background:var(--ink);color:var(--paper);display:grid;place-items:center;font:600 15px/1 var(--text)}
-.step .who{font:600 13px/1.3 var(--text);color:var(--faint);letter-spacing:.03em;text-transform:uppercase}
+.step::before{counter-increment:s;content:counter(s);grid-column:1;grid-row:1 / span 4;width:32px;height:32px;border-radius:50%;background:var(--ink);color:var(--page);display:grid;place-items:center;font:600 15px/1 var(--font)}
+.step .who{font:var(--weight-strong) 13px/1.3 var(--font);color:var(--ink-2);letter-spacing:.03em;text-transform:uppercase}
 .where{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
-.where span{font:600 12px/1 var(--text);padding:5px 9px;border-radius:999px;background:var(--stone-soft);color:var(--faint)}
-.where span.on{background:var(--sepia);color:var(--paper)}
-.callout{background:var(--sepia-soft);border-radius:14px;padding:16px 20px;display:flex;flex-direction:column;gap:6px}
+.where span{font:var(--weight-strong) 12px/1 var(--font);padding:5px 9px;border-radius:var(--radius-pill);border:1px solid var(--line);color:var(--ink-2)}
+.where span.on{background:var(--ink);border-color:var(--ink);color:var(--page)}
+.callout{background:var(--band);border-radius:var(--radius-field);padding:16px 20px;display:flex;flex-direction:column;gap:6px}
 
 /* status list */
-.status-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 16px;align-items:start;padding:14px 18px;border-top:1px solid var(--rule)}
+.status-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 16px;align-items:start;padding:14px 18px;border-top:1px solid var(--hair)}
 .status-row:first-child{border-top:0}
-.status-row p{color:var(--pencil);font-size:15px}
+.status-row p{color:var(--ink-2);font-size:15px}
 
 /* cost bars */
-.bar-row{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,2fr) auto;gap:12px;align-items:center;padding:9px 18px;border-top:1px solid var(--rule);font-size:15px}
+.bar-row{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,2fr) auto;gap:12px;align-items:center;padding:9px 18px;border-top:1px solid var(--hair);font-size:15px}
 .bar-row:first-child{border-top:0}
-.track{height:8px;background:var(--stone-soft);border-radius:4px;overflow:hidden}
-.fill{height:100%;background:var(--sepia);border-radius:4px}
+.track{height:8px;background:var(--band);border-radius:4px;overflow:hidden}
+.fill{height:100%;background:var(--ink-2);border-radius:4px}
 .bar-row .num{font-family:var(--mono);font-size:14px}
 
 /* roadmap */
 .road{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
-.stage{background:var(--card);border:1px solid var(--rule);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:8px;min-width:0}
-.stage ul{margin:0;padding-left:18px;color:var(--pencil);font-size:15px;display:flex;flex-direction:column;gap:4px}
+.stage{background:var(--page);border:1px solid var(--hair);border-radius:var(--radius-card);padding:16px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.stage ul{margin:0;padding-left:18px;color:var(--ink-2);font-size:15px;display:flex;flex-direction:column;gap:4px}
 
 /* glossary */
-dl.gloss{margin:0;display:grid;grid-template-columns:minmax(0,180px) minmax(0,1fr);gap:0;background:var(--card);border:1px solid var(--rule);border-radius:14px;overflow:hidden}
-dl.gloss dt,dl.gloss dd{margin:0;padding:12px 16px;border-top:1px solid var(--rule)}
+dl.gloss{margin:0;display:grid;grid-template-columns:minmax(0,180px) minmax(0,1fr);gap:0;background:var(--page);border:1px solid var(--hair);border-radius:var(--radius-card);overflow:hidden}
+dl.gloss dt,dl.gloss dd{margin:0;padding:12px 16px;border-top:1px solid var(--hair)}
 dl.gloss dt{font-weight:600}
-dl.gloss dd{color:var(--pencil);font-size:16px}
+dl.gloss dd{color:var(--ink-2);font-size:16px}
 dl.gloss dt:first-of-type,dl.gloss dt:first-of-type + dd{border-top:0}
-footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);padding-top:16px;display:flex;flex-direction:column;gap:6px}
+.page>footer{font-size:var(--size-note);color:var(--ink-2);border-top:1px solid var(--hair);padding-top:16px;display:flex;flex-direction:column;gap:6px}
 
 @media (max-width:720px){
   .road{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -125,6 +110,7 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
 @media (prefers-reduced-motion:reduce){summary::before{transition:none}}
 </style>
 
+<!--__KIT_HEADER__-->
 <div class="page">
 
 <header>
@@ -139,7 +125,7 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
   <div class="group">
     <div class="row"><span class="ic">1</span><b>Money moves only on a signature or a deadline.</b><p>Every payment or refund needs a signed message from the right party, such as the buyer agreeing or the adjudicator deciding. If someone goes quiet, a deadline passes and anyone can trigger the fallback, so nothing gets stuck.</p></div>
     <div class="row"><span class="ic">2</span><b>Nobody owns the contracts.</b><p>There is no admin key, no pause button and no upgrade switch. A fix ships as a new version that new deals opt into; deals already open keep the rules they started with.</p></div>
-    <div class="row"><span class="ic">3</span><b>The vault is audited code we did not write.</b><p>Funds sit in Coinbase's Commerce Payments escrow. Crow's contract only tells the vault when to pay or refund, and the buyer can always take the money back after the final deadline without Crow's help.</p></div>
+    <div class="row"><span class="ic">3</span><b>The vault is audited code we did not write.</b><p>Funds sit in Coinbase's Commerce Payments escrow. Crow's contract only tells the vault when to pay or refund, and from the vault's expiry, a margin fixed at deploy after the last decision deadline, the buyer's payment address can take the money back without Crow's help.</p></div>
   </div>
 </section>
 
@@ -149,16 +135,16 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
   <div class="figure">
     <svg viewBox="0 0 960 470" role="img" aria-labelledby="fig-title">
       <title id="fig-title">Agents, the adjudicator and the API send signed messages to the HoldbackRules contract, which checks randomness and tells the escrow vault to pay or refund.</title>
-      <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8f897e"/></marker></defs>
-      <rect x="10" y="12" width="940" height="118" rx="14" fill="#fffdf9" stroke="#e7e1d5"/>
-      <rect x="10" y="160" width="940" height="134" rx="14" fill="#f3ece0" stroke="#e7d9c2"/>
-      <rect x="10" y="324" width="940" height="134" rx="14" fill="#efece6" stroke="#e1dcd2"/>
-      <g font-family="-apple-system,BlinkMacSystemFont,Helvetica Neue,Arial,sans-serif" font-size="12" font-weight="600" fill="#8f897e" letter-spacing="1">
+      <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--ink-3)"/></marker></defs>
+      <rect x="10" y="12" width="940" height="118" rx="14" style="fill:var(--page);stroke:var(--line)"/>
+      <rect x="10" y="160" width="940" height="134" rx="14" style="fill:var(--band);stroke:var(--line)"/>
+      <rect x="10" y="324" width="940" height="134" rx="14" style="fill:var(--page);stroke:var(--line)"/>
+      <g font-size="12" font-weight="600" letter-spacing="1" style="font-family:var(--font);fill:var(--ink-3)">
         <text x="28" y="34">OFF-CHAIN · REPLACEABLE SOFTWARE</text>
         <text x="28" y="182">CROW CONTRACTS · NO OWNER, NO UPGRADES</text>
         <text x="28" y="346">REUSED, AUDITED CONTRACTS</text>
       </g>
-      <g fill="none" stroke="#8f897e" stroke-width="1.6">
+      <g fill="none" stroke-width="1.6" style="stroke:var(--ink-3)">
         <line x1="135" y1="108" x2="410" y2="200" marker-end="url(#ar)"/>
         <line x1="365" y1="108" x2="455" y2="200" marker-end="url(#ar)"/>
         <line x1="595" y1="108" x2="515" y2="200" marker-end="url(#ar)"/>
@@ -167,32 +153,32 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
         <line x1="480" y1="272" x2="480" y2="368" marker-end="url(#ar)"/>
         <line x1="630" y1="402" x2="706" y2="402" marker-end="url(#ar)"/>
       </g>
-      <g font-family="-apple-system,BlinkMacSystemFont,Helvetica Neue,Arial,sans-serif" font-size="13" fill="#57534c" text-anchor="middle">
-        <rect x="388" y="138" width="124" height="22" rx="11" fill="#fffdf9" stroke="#e7e1d5"/><text x="450" y="153">signed messages</text>
+      <g font-size="13" text-anchor="middle" style="font-family:var(--font);fill:var(--ink-2)">
+        <rect x="388" y="138" width="124" height="22" rx="11" style="fill:var(--page);stroke:var(--line)"/><text x="450" y="153">signed messages</text>
         <text x="760" y="160">relays them (optional)</text>
         <text x="668" y="226">checks dice roll</text>
-        <rect x="490" y="308" width="96" height="22" rx="11" fill="#fffdf9" stroke="#e7e1d5"/><text x="538" y="323">pay · refund</text>
+        <rect x="490" y="308" width="96" height="22" rx="11" style="fill:var(--page);stroke:var(--line)"/><text x="538" y="323">pay · refund</text>
         <text x="668" y="392">holds</text>
       </g>
-      <g font-family="-apple-system,BlinkMacSystemFont,Helvetica Neue,Arial,sans-serif" text-anchor="middle">
-        <rect x="40" y="48" width="190" height="60" rx="12" fill="#fffdf9" stroke="#2f2d2a" stroke-width="1.4"/>
-        <text x="135" y="74" font-size="16" font-weight="600" fill="#2f2d2a">Buyer agent</text><text x="135" y="94" font-size="12.5" fill="#57534c">agrees, funds, accepts</text>
-        <rect x="270" y="48" width="190" height="60" rx="12" fill="#fffdf9" stroke="#2f2d2a" stroke-width="1.4"/>
-        <text x="365" y="74" font-size="16" font-weight="600" fill="#2f2d2a">Seller agent</text><text x="365" y="94" font-size="12.5" fill="#57534c">offers, delivers</text>
-        <rect x="500" y="48" width="190" height="60" rx="12" fill="#fffdf9" stroke="#2f2d2a" stroke-width="1.4"/>
-        <text x="595" y="74" font-size="16" font-weight="600" fill="#2f2d2a">Adjudicator</text><text x="595" y="94" font-size="12.5" fill="#57534c">checks the work, decides</text>
-        <rect x="730" y="48" width="190" height="60" rx="12" fill="#fffdf9" stroke="#8f897e" stroke-dasharray="5 4"/>
-        <text x="825" y="74" font-size="16" font-weight="600" fill="#2f2d2a">Crow API</text><text x="825" y="94" font-size="12.5" fill="#57534c">convenience, not authority</text>
-        <rect x="330" y="198" width="300" height="74" rx="12" fill="#8a6237"/>
-        <text x="480" y="230" font-size="17" font-weight="600" fill="#faf7f0" font-family="ui-monospace,SF Mono,Menlo,monospace">HoldbackRules</text><text x="480" y="253" font-size="13" fill="#f3ece0">the referee: checks signatures and deadlines</text>
-        <rect x="710" y="204" width="210" height="64" rx="12" fill="#fffdf9" stroke="#8a6237" stroke-width="1.4"/>
-        <text x="815" y="231" font-size="15" font-weight="600" fill="#2f2d2a" font-family="ui-monospace,SF Mono,Menlo,monospace">Beacon</text><text x="815" y="252" font-size="12.5" fill="#57534c">public randomness (drand)</text>
-        <rect x="330" y="370" width="300" height="64" rx="12" fill="#fffdf9" stroke="#2f2d2a" stroke-width="1.4"/>
-        <text x="480" y="397" font-size="15" font-weight="600" fill="#2f2d2a" font-family="ui-monospace,SF Mono,Menlo,monospace">AuthCaptureEscrow</text><text x="480" y="418" font-size="12.5" fill="#57534c">the vault (Coinbase Commerce Payments)</text>
-        <rect x="710" y="370" width="210" height="64" rx="12" fill="#fffdf9" stroke="#2f2d2a" stroke-width="1.4"/>
-        <text x="815" y="397" font-size="15" font-weight="600" fill="#2f2d2a">Token</text><text x="815" y="418" font-size="12.5" fill="#57534c">tUSDC test token; USDC later</text>
-        <rect x="40" y="370" width="210" height="64" rx="12" fill="#fffdf9" stroke="#2f2d2a" stroke-width="1.4"/>
-        <text x="145" y="397" font-size="15" font-weight="600" fill="#2f2d2a" font-family="ui-monospace,SF Mono,Menlo,monospace">Multicall3</text><text x="145" y="418" font-size="12.5" fill="#57534c">fee + funding in one step</text>
+      <g text-anchor="middle" style="font-family:var(--font)">
+        <rect x="40" y="48" width="190" height="60" rx="12" stroke-width="1.4" style="fill:var(--page);stroke:var(--ink)"/>
+        <text x="135" y="74" font-size="16" font-weight="600" style="fill:var(--ink)">Buyer agent</text><text x="135" y="94" font-size="12.5" style="fill:var(--ink-2)">agrees, funds, accepts</text>
+        <rect x="270" y="48" width="190" height="60" rx="12" stroke-width="1.4" style="fill:var(--page);stroke:var(--ink)"/>
+        <text x="365" y="74" font-size="16" font-weight="600" style="fill:var(--ink)">Seller agent</text><text x="365" y="94" font-size="12.5" style="fill:var(--ink-2)">offers, delivers</text>
+        <rect x="500" y="48" width="190" height="60" rx="12" stroke-width="1.4" style="fill:var(--page);stroke:var(--ink)"/>
+        <text x="595" y="74" font-size="16" font-weight="600" style="fill:var(--ink)">Adjudicator</text><text x="595" y="94" font-size="12.5" style="fill:var(--ink-2)">checks the work, decides</text>
+        <rect x="730" y="48" width="190" height="60" rx="12" stroke-dasharray="5 4" style="fill:var(--page);stroke:var(--ink-3)"/>
+        <text x="825" y="74" font-size="16" font-weight="600" style="fill:var(--ink)">Crow API</text><text x="825" y="94" font-size="12.5" style="fill:var(--ink-2)">convenience, not authority</text>
+        <rect x="330" y="198" width="300" height="74" rx="12" style="fill:var(--ink)"/>
+        <text x="480" y="230" font-size="17" font-weight="600" style="fill:var(--page);font-family:var(--mono)">HoldbackRules</text><text x="480" y="253" font-size="13" style="fill:var(--band)">the referee: checks signatures and deadlines</text>
+        <rect x="710" y="204" width="210" height="64" rx="12" stroke-width="1.4" style="fill:var(--page);stroke:var(--ink)"/>
+        <text x="815" y="231" font-size="15" font-weight="600" style="fill:var(--ink);font-family:var(--mono)">Beacon</text><text x="815" y="252" font-size="12.5" style="fill:var(--ink-2)">public randomness (drand)</text>
+        <rect x="330" y="370" width="300" height="64" rx="12" stroke-width="1.4" style="fill:var(--page);stroke:var(--ink)"/>
+        <text x="480" y="397" font-size="15" font-weight="600" style="fill:var(--ink);font-family:var(--mono)">AuthCaptureEscrow</text><text x="480" y="418" font-size="12.5" style="fill:var(--ink-2)">the vault (Coinbase Commerce Payments)</text>
+        <rect x="710" y="370" width="210" height="64" rx="12" stroke-width="1.4" style="fill:var(--page);stroke:var(--ink)"/>
+        <text x="815" y="397" font-size="15" font-weight="600" style="fill:var(--ink)">Token</text><text x="815" y="418" font-size="12.5" style="fill:var(--ink-2)">tUSDC test token; USDC later</text>
+        <rect x="40" y="370" width="210" height="64" rx="12" stroke-width="1.4" style="fill:var(--page);stroke:var(--ink)"/>
+        <text x="145" y="397" font-size="15" font-weight="600" style="fill:var(--ink);font-family:var(--mono)">Multicall3</text><text x="145" y="418" font-size="12.5" style="fill:var(--ink-2)">fee + funding in one step</text>
       </g>
     </svg>
   </div>
@@ -208,6 +194,7 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
       <div class="card-top"><h3>HoldbackRules</h3><span class="tag">Crow · the core</span></div>
       <p class="analogy">The referee.</p>
       <p>It checks every signed message, keeps track of where each deal stands, and is the only thing allowed to tell the vault to pay, refund or hold. It never holds money itself.</p>
+      <p>Each deal names two money addresses besides the signing keys: the buyer's payment address funds the hold (it signs only the funding) and receives every refund, and the seller's payout address receives every payment. Either may equal its party's signing address, and the tools set it so by default. One deployment serves one token: tUSDC on Sepolia.</p>
       <details><summary>Technical details</summary><div class="detail">
         <div class="tbl"><table><thead><tr><th>Function</th><th>Who can call it</th><th>What it does</th></tr></thead><tbody>
           <tr><td><code>agreeAndFund</code></td><td>anyone, carrying the seller's, adjudicator's and buyer's signatures</td><td>Checks the three signatures and pulls price + adjudication fee into the vault through the ERC-3009 collector.</td></tr>
@@ -217,18 +204,21 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
           <tr><td><code>mutualSettle</code></td><td>anyone, with both parties' signatures</td><td>Any split both sides agree, paid to the buyer's payment address and the seller's payout address only.</td></tr>
           <tr><td><code>reclaim</code> · <code>triggerFallback</code> · <code>triggerDefault</code></td><td>anyone, once the deadline has passed</td><td>The escape hatches: refund an undelivered deal, hand a silent adjudicator's case to the fallback, refund if no one decides.</td></tr>
         </tbody></table></div>
+        <p class="small">Anyone can read a deal: <code>dealOf</code> gives its stage, why it closed (decided, accepted early, settled, reclaimed or defaulted) and which role decided (primary, fallback or appeal); <code>deliveryHashOf</code> gives the fingerprint of the posted delivery, which every decision, early accept and settlement must name.</p>
         <p class="small">An offer nobody funds stores nothing on chain: the contract refuses to fund it after its deadline, and the operators mark it expired by their own clock.</p>
+        <p class="small">It refuses at funding, before any money moves: a token other than the deployment's, a reserved bond other than 0, a delivery-attempt limit other than 1, an escalation window of 0, an appeal window other than 0, and deadlines that are equal or out of order.</p>
+        <p class="small">Its events use the draft ERC-8183 names (<code>JobCreated</code>, <code>JobFunded</code>, <code>JobSubmitted</code>, <code>JobCompleted</code>, <code>JobRejected</code>, <code>JobExpired</code>, <code>PaymentReleased</code>, <code>Refunded</code>), with the deal ID as the job ID, and <code>SettlementAddresses</code> names the two money addresses. The interface and its descriptions are in <code>contracts/src/IHoldbackRules.sol</code>.</p>
         <p class="small">Not in phase one: party appeals, adjudicator bonds and Permit2 funding. The simulated chain keeps them as the full protocol's reference (ADR-0031).</p>
         <p class="small">Source: <code>contracts/src/HoldbackRules.sol</code>. Amounts must fit 120 bits and times 48 bits; there are no other caps (decision D31).</p>
       </div></details>
     </article>
 
     <article class="card">
-      <div class="card-top"><h3>Beacon</h3><span class="tag">Crow · 3 small contracts</span></div>
+      <div class="card-top"><h3>Beacon</h3><span class="tag">Crow · 2 small files</span></div>
       <p class="analogy">A public dice roll nobody can load.</p>
       <p>When the fallback adjudicator takes a case, or the appeal adjudicator decides an escalated one, the beacon supplies a random number that picks which AI models judge it, so no one can steer the panel. The number comes from drand, a public randomness network, and the contract checks drand's signature itself.</p>
       <details><summary>Technical details</summary><div class="detail">
-        <p><code>IHoldbackBeacon</code> is the interface. <code>DrandQuicknetBeacon</code> verifies a drand quicknet round on chain (a BLS signature check through Ethereum's EIP-2537 precompiles: about 136,500 gas on a local chain and about 213,000 on Sepolia, review I-13). <code>SimBeacon</code> stands in on local test chains. The primary adjudicator uses commit-reveal instead (ADR-0018, T-209).</p>
+        <p><code>IHoldbackBeacon</code> is the interface. <code>DrandQuicknetBeacon</code> verifies a drand quicknet round on chain (a BLS signature check through Ethereum's EIP-2537 precompiles: about 136,500 gas on a local chain and about 213,000 on Sepolia, review I-13). A test beacon stands in on local chains and is never deployed. The round is the first one after the last second anyone can still make a choice the seed would inform, plus a margin fixed at deploy (ADR-0032). The primary adjudicator uses commit-reveal instead (ADR-0018, T-209).</p>
       </div></details>
     </article>
 
@@ -237,14 +227,14 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
       <p class="analogy">The message dictionary.</p>
       <p>It defines the exact shape of every signed message, byte for byte the same as Crow's API, so a signature an agent makes off-chain checks out on chain.</p>
       <details><summary>Technical details</summary><div class="detail">
-        <p>EIP-712 typed data: <code>Terms</code> (signed by the seller; its hash is the deal ID), <code>Acceptance</code> (adjudicator), <code>Agree</code> and funding (buyer), <code>Delivery</code> (seller), <code>Decision</code> (adjudicator), <code>EarlyAccept</code> and <code>Mutual</code>. No decimals anywhere in a signed message (ADR-0022).</p>
+        <p>EIP-712 typed data: <code>Terms</code> (signed by the seller; its hash is the deal ID; it carries <code>buyerPaymentAddress</code> and <code>sellerPayoutAddress</code>), <code>Acceptance</code> (adjudicator), <code>Agree</code> (buyer; the funding itself is an ERC-3009 authorization signed by the buyer's payment address), <code>Delivery</code> (seller), <code>Decision</code> (adjudicator), <code>EarlyAccept</code> and <code>Mutual</code>. No decimals anywhere in a signed message (ADR-0022).</p>
       </div></details>
     </article>
 
     <article class="card">
       <div class="card-top"><h3>AuthCaptureEscrow</h3><span class="tag">Reused · Coinbase Commerce Payments v1.1.0</span></div>
       <p class="analogy">The vault.</p>
-      <p>Holds the buyer's payment for each deal. Only HoldbackRules can tell it to pay or refund, and after the final deadline the buyer can take the money back directly.</p>
+      <p>Holds the buyer's payment for each deal. Only HoldbackRules can tell it to pay or refund, and from the vault's expiry, a margin fixed at deploy after the last decision deadline, the buyer's payment address can take the money back directly.</p>
       <details><summary>Technical details</summary><div class="detail">
         <p>Third-party audited, pinned at commit <code>6b0a5ef3</code>. Funds arrive through <code>ERC3009PaymentCollector</code> (USDC's sign-to-transfer, no separate approval), the one funding path in phase one. Deployed by Coinbase on Base; on Ethereum and Sepolia Crow deploys its own copy. Chosen in ADR-0003 after spike T-201.</p>
       </div></details>
@@ -274,13 +264,13 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
   <div class="group" style="padding:0 18px">
     <ol class="steps">
       <li class="step"><span class="who">Seller, then adjudicator</span><b>Offer and acceptance, off chain</b><p class="muted">The seller signs the terms; the chosen adjudicator signs that it takes the case. Nothing is on chain yet.</p><div class="where"><span class="on">Buyer's wallet</span><span>Vault</span><span>Seller</span></div></li>
-      <li class="step"><span class="who">Buyer</span><b>Agree and fund</b><p class="muted"><code>agreeAndFund</code> checks all three signatures and moves the price plus the adjudication fee into the vault.</p><div class="where"><span>Buyer's wallet</span><span class="on">Vault</span><span>Seller</span></div></li>
+      <li class="step"><span class="who">Buyer</span><b>Agree and fund</b><p class="muted"><code>agreeAndFund</code> checks all three signatures and moves the price plus the adjudication fee from the buyer's payment address into the vault.</p><div class="where"><span>Buyer's wallet</span><span class="on">Vault</span><span>Seller</span></div></li>
       <li class="step"><span class="who">Seller</span><b>Deliver</b><p class="muted">The seller sends the encrypted work off chain. Its fingerprint can go on chain now, or ride along with the decision.</p><div class="where"><span>Buyer's wallet</span><span class="on">Vault</span><span>Seller</span></div></li>
       <li class="step"><span class="who">Adjudicator</span><b>Decide</b><p class="muted"><code>decide</code> accepts or rejects. On accept the seller is paid, the adjudicator gets its fee, and the buyer's decryption key is released, all in one transaction.</p><div class="where"><span>Buyer's wallet</span><span>Vault</span><span class="on">Seller</span></div></li>
       <li class="step"><span class="who">No one acts</span><b>Final</b><p class="muted">The decision is final at once. Phase one has no party appeal; an adjudicator that cannot decide escalates to the appeal adjudicator instead.</p><div class="where"><span>Buyer's wallet</span><span>Vault</span><span class="on">Seller</span></div></li>
     </ol>
   </div>
-  <div class="callout"><b>If someone goes quiet</b><p class="muted">Every waiting point has a deadline. After it passes, anyone can call the matching escape hatch: refund an undelivered deal, hand a silent adjudicator's case to the fallback, or refund if no one decides. The buyer can always reclaim from the vault after the last deadline.</p></div>
+  <div class="callout"><b>If someone goes quiet</b><p class="muted">Every waiting point has a deadline. After it passes, anyone can call the matching escape hatch: refund an undelivered deal, hand a silent adjudicator's case to the fallback, or refund if no one decides. From the vault's expiry, a margin fixed at deploy after the last decision deadline, the buyer's payment address can reclaim from the vault directly.</p></div>
 </section>
 
 <section>
@@ -288,9 +278,9 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
   <div class="group tbl"><table>
     <thead><tr><th>Who</th><th>Can</th><th>Cannot</th></tr></thead>
     <tbody>
-      <tr><td><b>Buyer</b></td><td>Fund, accept early, agree a split, take money back after the deadlines</td><td>Take money back after a valid acceptance</td></tr>
-      <tr><td><b>Seller</b></td><td>Deliver, agree a split</td><td>Get paid without a decision or the buyer's acceptance, or settle a decision against a delivery it did not judge</td></tr>
-      <tr><td><b>Adjudicator</b></td><td>Accept, reject or escalate, in its role and time window</td><td>Pay itself more than the agreed fee, or send money anywhere else</td></tr>
+      <tr><td><b>Buyer</b></td><td>Fund from its payment address, accept early, agree a split, take money back after the deadlines; every refund goes to the payment address</td><td>Take money back after a valid acceptance</td></tr>
+      <tr><td><b>Seller</b></td><td>Deliver, agree a split; every payment goes to its payout address</td><td>Get paid without a decision or the buyer's acceptance, or settle a decision against a delivery it did not judge</td></tr>
+      <tr><td><b>Adjudicator</b></td><td>Accept or reject, in its role and time window; the primary and the fallback may also escalate</td><td>Pay itself more than the agreed fee, or send money anywhere else</td></tr>
       <tr><td><b>Crow's API</b></td><td>Pass messages along, charge its own published fee outside the vault (none for the first pilots)</td><td>Write a message for anyone, or touch the held money</td></tr>
       <tr><td><b>Anyone</b></td><td>Trigger a deadline that has passed</td><td>Choose where the money goes</td></tr>
       <tr><td><b>Crow's maintainers</b></td><td>Publish a new version</td><td>Change, pause or upgrade a version already deployed</td></tr>
@@ -301,12 +291,12 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
 <section>
   <div class="sechead"><span class="eyebrow">Safety status</span><h2>What is proven, and what is still open</h2></div>
   <div class="group">
-    <div class="status-row"><div><b>No admin keys, no upgrades</b><p>No owner, pause, freeze or upgrade path; tests fail if one appears.</p></div><span class="pill done">Done</span></div>
-    <div class="status-row"><div><b>Money is conserved and paid out once</b><p>Fuzz and invariant tests on every path, plus a formal model of the deal states (TLA+).</p></div><span class="pill done">Done</span></div>
-    <div class="status-row"><div><b>Randomness checked on chain</b><p>The beacon verifies drand's signature itself (T-209). On Sepolia, the deploy confirmed it accepts a real drand round and refuses forged ones.</p></div><span class="pill done">Done</span></div>
+    <div class="status-row"><div><b>No admin keys, no upgrades</b><p>No owner, pause, freeze or upgrade path; tests fail if one appears.</p></div><span class="ck-pill">Done</span></div>
+    <div class="status-row"><div><b>Money is conserved and paid out once</b><p>Fuzz and invariant tests on every path, plus a formal model of the deal states (TLA+).</p></div><span class="ck-pill">Done</span></div>
+    <div class="status-row"><div><b>Randomness checked on chain</b><p>The beacon verifies drand's signature itself (T-209). On Sepolia, the deploy confirmed it accepts a real drand round and refuses forged ones.</p></div><span class="ck-pill">Done</span></div>
     <div id="safety" style="display:contents"></div>
-    <div class="status-row"><div><b>Bonds, party appeals and seller compensation</b><p>Adjudicators' bonds, outside capital behind them, party appeals, and paying a seller when every adjudicator fails to decide. Not in phase one; they return with bonds (ADR-0031).</p></div><span class="pill later">After phase one</span></div>
-    <div class="status-row"><div><b>External audit</b><p>Required, with Rafa's written approval, before any real money.</p></div><span class="pill later">Before mainnet</span></div>
+    <div class="status-row"><div><b>Bonds, party appeals and seller compensation</b><p>Adjudicators' bonds, outside capital behind them, party appeals, and paying a seller when every adjudicator fails to decide. Not in phase one; they return with bonds (ADR-0031).</p></div><span class="ck-pill">After phase one</span></div>
+    <div class="status-row"><div><b>External audit</b><p>Required, with Rafa's written approval, before any real money.</p></div><span class="ck-pill">Before mainnet</span></div>
   </div>
   <p class="small" id="findings-note"></p>
 </section>
@@ -329,10 +319,10 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
 <section>
   <div class="sechead"><span class="eyebrow">Road to real money</span><h2>Where this stands</h2></div>
   <div class="road">
-    <div class="stage"><span class="pill done" style="align-self:start">Done</span><b>Built, reviewed, on testnet</b><ul><li>Rules, beacon</li><li>Fuzz, invariants, formal model</li><li>Contract reviews (T-206, and T-388 for phase one)</li><li>Phase-one deployment on Sepolia</li></ul></div>
-    <div class="stage"><span class="pill now" style="align-self:start">Now</span><b>Pilots on Sepolia</b><ul><li>The demo settles on the contracts below</li><li>The pilots' cases rehearsed</li><li>The frozen code, tag <code>contracts-phase-one-1</code>, ready for an audit</li></ul></div>
-    <div class="stage"><span class="pill later" style="align-self:start">Next</span><b>Privacy and money</b><ul><li>Private deal terms (T-207)</li><li>Funding paths (ADR-0026)</li><li>Bonds and party appeals, after phase one</li></ul></div>
-    <div class="stage"><span class="pill later" style="align-self:start">Gate</span><b>Real money</b><ul><li>External audit, and its fixes (<code>contracts-phase-one-2</code>)</li><li>Rafa's written approval</li><li>Ethereum mainnet</li></ul></div>
+    <div class="stage"><span class="ck-pill" style="align-self:start">Done</span><b>Built, reviewed, on testnet</b><ul><li>Rules, beacon</li><li>Fuzz, invariants, formal model</li><li>Contract reviews (T-206, and T-388 for phase one)</li><li>Phase-one deployment on Sepolia</li></ul></div>
+    <div class="stage"><span class="ck-pill" style="align-self:start">Now</span><b>Pilots on Sepolia</b><ul><li>The demo settles on the contracts below</li><li>The pilots' cases rehearsed</li><li>The frozen code, tag <code>contracts-phase-one-1</code>, ready for an audit</li></ul></div>
+    <div class="stage"><span class="ck-pill" style="align-self:start">Next</span><b>Privacy and money</b><ul><li>Private deal terms (T-207)</li><li>Funding paths (ADR-0026)</li><li>Bonds and party appeals, after phase one</li></ul></div>
+    <div class="stage"><span class="ck-pill" style="align-self:start">Gate</span><b>Real money</b><ul><li>External audit, and its fixes (<code>contracts-phase-one-2</code>)</li><li>Rafa's written approval</li><li>Ethereum mainnet</li></ul></div>
   </div>
 </section>
 
@@ -340,6 +330,7 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
   <div class="sechead"><span class="eyebrow">Terms</span><h2>Glossary</h2></div>
   <dl class="gloss">
     <dt>Signed message (EIP-712)</dt><dd>A structured message an agent signs with its key. The contract checks the signature, so no one can act for an agent without its key.</dd>
+    <dt>Payment address, payout address</dt><dd>The buyer's address that funds the hold and receives refunds, and the seller's address that receives payment. Either may differ from the signing key, so the signing key need hold no money.</dd>
     <dt>Escrow, or the hold</dt><dd>The payment waiting in the vault until the deal resolves. Neither side can take it alone.</dd>
     <dt>Adjudicator</dt><dd>The party both sides chose to check the work, using fixed checks first and then a panel of AI models from at least two companies.</dd>
     <dt>Bond</dt><dd>Money an adjudicator deposits that pays out if it judges wrongly and loses on appeal. The phase-one contracts hold no bonds (ADR-0031).</dd>
@@ -367,7 +358,7 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
   const fmt = (n) => Number(n).toLocaleString('en-US');
   const short = (sha) => (sha ? sha.slice(0, 7) : 'unknown');
   const code = (s) => `<code>${esc(s)}</code>`;
-  const pill = (cls, text) => `<span class="pill ${cls}">${esc(text)}</span>`;
+  const pill = (cls, text) => `<span class="ck-pill">${esc(text)}</span>`; // the kit's neutral pill: the word says the state
   const row = (title, text, right, extra = '') =>
     `<div class="status-row"><div><b>${esc(title)}</b><p>${text}</p>${extra}</div>${right}</div>`;
   const SEVERITY = { high: 'High', medium: 'Medium', low: 'Low', info: 'Info' };

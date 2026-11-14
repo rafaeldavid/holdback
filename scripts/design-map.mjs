@@ -1,9 +1,11 @@
 // Builds the read-only design map (reports/design-map.html) from the repository's sources of truth.
-// Run at each milestone: `pnpm map`, then republish the page (see .claude/commands/map.md).
+// Run at each milestone: `pnpm map`, then republish the page (see .claude/commands/map.md). Colours, type and the
+// header bar come from Crow's brand kit (site/brand/), inlined at build time so the page stays one file (T-424).
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { headerBar, kitCss, markDataUri } from '../site/brand/kit.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const read = (path) => readFileSync(join(root, path), 'utf8');
@@ -52,22 +54,41 @@ function outcome(body, decided) {
   return { choice: option ?? `Option ${letter[1]}`, detail: rest ? capitalize(rest) : '' };
 }
 
-export function decisions() {
-  const text = read('docs/decisions-today.md');
+// The first line that is not blank under each "## Dnn." heading is "**Status:** <state>, <YYYY-MM-DD>." (T-413). The
+// state sets the status: "needs Rafa" or "open" waits on Rafa (open), "deferred" is deferred, and "adopted", "decided"
+// and "superseded" are settled (decided). An entry without a Status line in that form falls back to its bold
+// "Decided …" or "Open." lead, as entries were read before T-413. The Status line wins over the lead, so a Decided line
+// that says something stays "deferred" (D70) does not make the entry deferred.
+const STATUS_LINE = /^\*\*Status:\*\* ([a-zA-Z ]+?), (\d{4}-\d{2}-\d{2})\.$/;
+const STATE_STATUS = { 'needs rafa': 'open', open: 'open', deferred: 'deferred', adopted: 'decided', decided: 'decided', superseded: 'decided' };
+
+export function decisionsFrom(text) {
   const parts = text.split(/^## (D\d+)\. (.+)$/m);
   const result = [];
   for (let i = 1; i < parts.length; i += 3) {
     const [id, heading, body] = [parts[i], parts[i + 1], parts[i + 2]];
+    const first = body.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
+    const state = STATUS_LINE.exec(first)?.[1].toLowerCase() ?? null;
     const decided = body.match(/\*\*Decided [^*]*\*\*\s*(.+)/);
     const open = body.match(/\*\*Open\.\*\*\s*(.+)/);
     const adr = heading.match(/ADR-\d{4}/g) ?? [];
+    const title = heading.replace(/\s*\(ADR[^)]*\)\s*$/, '');
     let status = 'open';
-    if (decided) status = /deferred/i.test(decided[1]) ? 'deferred' : 'decided';
-    const { choice, detail } = decided ? outcome(body, decided[1]) : { choice: '', detail: open?.[1] ?? '' };
-    result.push({ id, title: heading.replace(/\s*\(ADR[^)]*\)\s*$/, ''), adr, status, choice, detail });
+    if (state && STATE_STATUS[state]) status = STATE_STATUS[state];
+    else if (decided) status = /deferred/i.test(decided[1]) ? 'deferred' : 'decided';
+    // the lead paragraph after the Status line ("**Proposed 2026-11-14 by T-407; …**"), for an entry with no Decided line
+    const lead = body.split('\n').map((l) => l.trim()).find((l) => /^\*\*/.test(l) && !/^\*\*Status:\*\*/.test(l))?.replace(/\*\*/g, '') ?? '';
+    let choice = '';
+    let detail = open?.[1] ?? '';
+    if (decided) ({ choice, detail } = outcome(body, decided[1]));
+    else if (status === 'decided') choice = title;
+    else detail = detail || lead;
+    result.push({ id, title, adr, state, status, choice, detail });
   }
   return result;
 }
+
+export const decisions = () => decisionsFrom(read('docs/decisions-today.md'));
 
 export function adrs() {
   return list('docs/decisions', /^ADR-\d{4}.*\.md$/).map((file) => {
@@ -223,7 +244,15 @@ export function build(options = {}) {
   const marker = '/*__MAP_DATA__*/null';
   if (!template.includes(marker)) throw new Error(`template is missing ${marker}`);
   const data = JSON.stringify(collect(options)).replace(/</g, '\\u003c');
-  return template.replace(marker, data);
+  return withKit(template).replace(marker, () => data);
+}
+
+/** The template with the brand kit's CSS (tokens, base, header bar) and its header bar, Crow's mark inlined. */
+export function withKit(template) {
+  for (const m of ['/*__KIT_CSS__*/', '<!--__KIT_HEADER__-->']) if (!template.includes(m)) throw new Error(`template is missing ${m}`);
+  return template
+    .replace('/*__KIT_CSS__*/', () => kitCss({ parts: ['bar'], mark: markDataUri() }))
+    .replace('<!--__KIT_HEADER__-->', () => headerBar({ home: 'https://crow.direct' }));
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

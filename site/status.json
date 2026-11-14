@@ -1,0 +1,51 @@
+{
+  "schema": "crow.status-checks/1",
+  "page": "https://crow.direct/status",
+  "live": false,
+  "note": "The status page runs these checks in the reader’s browser, so this file carries no state and no time. Read each address yourself; the operators’ live state is at the address in operatorsLive.",
+  "operatorsLive": "https://crow.direct/status/operators.json",
+  "services": [
+    {
+      "id": "site",
+      "name": "The site, crow.direct",
+      "address": "https://crow.direct/version.json",
+      "method": "GET",
+      "checkedBy": "browser",
+      "operationalWhen": "it answers 200 with the site's version file"
+    },
+    {
+      "id": "op1",
+      "name": "Operator 1, api.crow.direct",
+      "address": "https://api.crow.direct/.well-known/holdback.json",
+      "method": "GET",
+      "checkedBy": "site Worker",
+      "via": "https://crow.direct/status/operators.json",
+      "operationalWhen": "it answers 200 with its discovery document"
+    },
+    {
+      "id": "op2",
+      "name": "Operator 2, api2.crow.direct",
+      "address": "https://api2.crow.direct/.well-known/holdback.json",
+      "method": "GET",
+      "checkedBy": "site Worker",
+      "via": "https://crow.direct/status/operators.json",
+      "operationalWhen": "it answers 200 with its discovery document"
+    },
+    {
+      "id": "seller",
+      "name": "Crow's test seller",
+      "address": "https://crow.direct/agents/test-seller/health",
+      "method": "GET",
+      "checkedBy": "browser",
+      "operationalWhen": "it reports status \"operational\""
+    },
+    {
+      "id": "network",
+      "name": "Ethereum Sepolia, where deals settle",
+      "address": "https://eth-sepolia.blockscout.com/api/v2/main-page/blocks",
+      "method": "GET",
+      "checkedBy": "browser",
+      "operationalWhen": "Blockscout's newest block is at most 120 s old"
+    }
+  ]
+}

@@ -5,7 +5,7 @@
     "HoldbackTypes": "The shapes of the signed messages, hashed exactly as Crow's off-chain code signs them.",
     "DrandQuicknetBeacon": "The public dice roll. It checks drand's signature on a random value, which picks the AI judges of the fallback and of an escalated case.",
     "IHoldbackBeacon": "The interface every beacon implements, so the rules contract can use the real one on Sepolia and a test one locally.",
-    "SimBeacon": "A test beacon for the local chain only. It is never deployed to a public network."
+    "IHoldbackRules": "The rules contract's outside view: its functions, events and errors, each described, with no logic."
   },
   "findings": {
     "H-1": {
