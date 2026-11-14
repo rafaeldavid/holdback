@@ -206,7 +206,8 @@ FINALITY_WAIT_SEC="${DEPLOY_FINALITY_WAIT_SEC:-3600}"
 # On Sepolia the checkout holds every submodule, recursively: forge's remappings come from the folders under lib, and
 # a checkout of fewer gives another metadata hash, so Sourcify could give only a partial match (T-383, measured).
 if [ "$REHEARSAL" = no ]; then
-  SUBMODULES="$(git -C "$ROOT" submodule status --recursive)" || fail "reading the submodules failed"
+  SUBMODULES="$(git -C "$ROOT" submodule status --recursive 2>/dev/null)" ||
+    fail "not every submodule is checked out, recursively (git submodule status --recursive failed); run git submodule update --init --recursive"
   if grep -qE '^[-+U]' <<<"$SUBMODULES"; then
     fail "not every submodule is checked out at its commit, recursively; run git submodule update --init --recursive"
   fi
@@ -246,8 +247,8 @@ settle_nonce() {
   for ((i = 0; i < 100; i++)); do
     chain="$(cast chain-id --rpc-url "$RPC")" || fail "reading the chain id failed"
     [ "$chain" = "$CHAIN" ] || fail "the RPC now answers chain $chain, not $CHAIN"
-    latest="$(nonce_at latest)"
-    pending="$(nonce_at pending)"
+    latest="$(nonce_at latest)" || fail "reading the deployer's mined nonce failed"
+    pending="$(nonce_at pending)" || fail "reading the deployer's pending nonce failed"
     if [ "$latest" -gt "$want" ] || [ "$pending" -gt "$want" ]; then
       fail "the deployer's nonce is $latest mined and $pending pending, past the $want this run expects: another transaction from the deployer is in flight; a deployer key serves one run at a time"
     fi
@@ -257,15 +258,17 @@ settle_nonce() {
   fail "the deployer's nonce did not settle at $want (it reads $latest mined, $pending pending)"
 }
 
-# settle_send <name> <nonce> <from-block> <address>: after a failed send, what the chain says about <nonce>. Returns 0
-# and sets CREATED_TX when a transaction at that nonce is mined and created <address>; returns 1 when the nonce is
-# still unused and nothing is pending, so the same creation may go again at the same nonce; fails on anything else.
+# settle_send <name> <nonce> <from-block> <address>: after a failed send, what the chain says about <nonce>. Sets
+# SETTLED=mined and CREATED_TX when a transaction at that nonce is mined and created <address>; SETTLED=unused when the
+# nonce is still unused and nothing is pending, so the same creation may go again at the same nonce; fails on anything
+# else. It always returns 0 and is called as a plain command: called as an `if` condition, bash would switch `set -e`
+# off inside it (review of T-410), so each substitution also ends in `|| fail`.
 settle_send() {
-  local name="$1" nonce="$2" from="$3" want="$4" latest pending head b tx receipt i
-  local nonce_hex
-  nonce_hex="$(printf '0x%x' "$nonce")"
+  local name="$1" nonce="$2" from="$3" want="$4" latest pending head b tx receipt i status_hex created nonce_hex
+  SETTLED=""
+  nonce_hex="$(printf '0x%x' "$nonce")" || fail "bad nonce $nonce"
   for ((i = 0; i < 100; i++)); do
-    latest="$(nonce_at latest)"
+    latest="$(nonce_at latest)" || fail "reading the deployer's mined nonce failed"
     if [ "$latest" -gt "$nonce" ]; then
       # The nonce is used: find its transaction in the blocks since the first send of this creation.
       head="$(cast block-number --rpc-url "$RPC")" || fail "reading the block number failed"
@@ -277,15 +280,22 @@ settle_send() {
       done
       [ -n "$tx" ] || fail "the deployer's nonce $nonce is used, but no transaction from the deployer at that nonce is in blocks $from to $head"
       receipt="$(cast receipt "$tx" --json --rpc-url "$RPC")" || fail "no receipt for $tx"
-      [ "$(jq -r .status <<<"$receipt")" = 0x1 ] || fail "the creation of $name at nonce $nonce, transaction $tx, failed on chain"
-      [ "$(jq -r '.contractAddress // "" | ascii_downcase' <<<"$receipt")" = "$(tr '[:upper:]' '[:lower:]' <<<"$want")" ] ||
+      status_hex="$(jq -r .status <<<"$receipt")" || fail "no status for $tx"
+      [ "$status_hex" = 0x1 ] || fail "the creation of $name at nonce $nonce, transaction $tx, failed on chain"
+      created="$(jq -r '.contractAddress // "" | ascii_downcase' <<<"$receipt")" || fail "no created address for $tx"
+      [ "$created" = "$(tr '[:upper:]' '[:lower:]' <<<"$want")" ] ||
         fail "the deployer's transaction at nonce $nonce, $tx, did not create $want: it is not this run's creation of $name"
       CREATED_TX="$tx"
+      SETTLED=mined
       return 0
     fi
-    pending="$(nonce_at pending)"
+    pending="$(nonce_at pending)" || fail "reading the deployer's pending nonce failed"
     # Unused and nothing pending, from the third read on: the send did not reach the chain.
-    if [ "$pending" -le "$nonce" ] && [ "$i" -ge 2 ]; then return 1; fi
+    if [ "$pending" -le "$nonce" ] && [ "$i" -ge 2 ]; then
+      SETTLED=unused
+      return 0
+    fi
+    if [ "$pending" -gt "$nonce" ] && [ "$i" = 0 ]; then echo "deploy-sepolia: a transaction at nonce $nonce is pending; waiting until it is mined" >&2; fi
     sleep "$POLL_SEC"
   done
   fail "the deployer's transaction at nonce $nonce is still pending; nothing was sent again. Wait until it is mined, then rerun"
@@ -294,8 +304,10 @@ settle_send() {
 # create <name> <path:Contract> [constructor args...]: creates one contract at the deployer's next nonce and sets
 # CREATED_ADDRESS, CREATED_TX and CREATED_BLOCK. It runs in this shell, not in `$(...)`, so `set -e` holds in it.
 CREATED_LIST=""
+IN_FLIGHT=""
+ERRFILE=""
 create() {
-  local name="$1" id="$2" nonce want from attempt json status errfile receipt
+  local name="$1" id="$2" nonce want from attempt json status receipt
   shift 2
   local args=(--root "$ROOT" --rpc-url "$RPC" --keystore "$KEYSTORE" --password-file "$PASSWORD_FILE" --broadcast --json)
   if [ "$#" -gt 0 ]; then args+=(--constructor-args "$@"); fi
@@ -304,11 +316,13 @@ create() {
   want="$(grep -oE '0x[0-9a-fA-F]{40}' <<<"$want")" || fail "cast compute-address printed no address"
   settle_nonce "$nonce"
   from="$(cast block-number --rpc-url "$RPC")" || fail "reading the block number failed"
-  errfile="$(mktemp)"
+  ERRFILE="$(mktemp)" || fail "making a temporary file failed"
   CREATED_TX=""
+  # Until the send settles, a stopped run names this creation as possibly on chain.
+  IN_FLIGHT="$name $want (nonce $nonce)"
   for attempt in 1 2 3; do
     status=0
-    json="$("$FORGE" create "$id" --nonce "$nonce" "${args[@]}" 2>"$errfile")" || status=$?
+    json="$("$FORGE" create "$id" --nonce "$nonce" "${args[@]}" 2>"$ERRFILE")" || status=$?
     if [ "$status" -eq 0 ]; then
       CREATED_ADDRESS="$(jq -er '.deployedTo' <<<"$json")" || fail "forge create $name reported no address"
       CREATED_TX="$(jq -er '.transactionHash' <<<"$json")" || fail "forge create $name reported no transaction"
@@ -316,20 +330,24 @@ create() {
         fail "forge create $name deployed to $CREATED_ADDRESS, not $want, the address of nonce $nonce"
       break
     fi
-    echo "deploy-sepolia: forge create $name at nonce $nonce failed (exit $status): $(tail -n 3 "$errfile" | tr '\n' ' ')" >&2
-    if settle_send "$name" "$nonce" "$from" "$want"; then
+    echo "deploy-sepolia: forge create $name at nonce $nonce failed (exit $status): $(tail -n 3 "$ERRFILE" | tr '\n' ' ')" >&2
+    settle_send "$name" "$nonce" "$from" "$want"
+    if [ "$SETTLED" = mined ]; then
       echo "deploy-sepolia: the chain holds $name at $want from nonce $nonce ($CREATED_TX); nothing is sent again" >&2
       CREATED_ADDRESS="$want"
       break
     fi
-    [ "$attempt" -lt 3 ] || { rm -f "$errfile"; fail "forge create $name failed 3 times and nonce $nonce is unused: nothing was created for it"; }
+    [ "$SETTLED" = unused ] || fail "settling the send of $name at nonce $nonce gave no answer"
+    [ "$attempt" -lt 3 ] || fail "forge create $name failed 3 times and nonce $nonce is unused: nothing was created for it"
     echo "deploy-sepolia: nonce $nonce is unused and nothing is pending; sending $name again at the same nonce (attempt $((attempt + 1)) of 3)" >&2
   done
-  rm -f "$errfile"
+  rm -f "$ERRFILE"
+  ERRFILE=""
   receipt="$(cast receipt "$CREATED_TX" --json --rpc-url "$RPC")" || fail "no receipt for $CREATED_TX"
   CREATED_BLOCK="$(jq -er .blockNumber <<<"$receipt")" || fail "no block for $CREATED_TX"
   CREATED_BLOCK="$(cast to-dec "$CREATED_BLOCK")" || fail "bad block number for $CREATED_TX"
   CREATED_LIST="$CREATED_LIST $name=$CREATED_ADDRESS@$CREATED_TX"
+  IN_FLIGHT=""
   echo "deploy-sepolia: created $name at $CREATED_ADDRESS (nonce $nonce, transaction $CREATED_TX, block $CREATED_BLOCK)"
   NEXT_NONCE=$((nonce + 1))
   if [ "$CREATED_BLOCK" -gt "$LAST_BLOCK" ]; then LAST_BLOCK="$CREATED_BLOCK"; fi
@@ -339,9 +357,13 @@ create() {
 RECORD_WRITTEN=no
 orphans() {
   local status=$? item
-  if [ "$MODE" = deploy ] && [ "$RECORD_WRITTEN" = no ] && [ -n "$CREATED_LIST" ]; then
+  # forge's error text can name the RPC URL, so its file does not stay behind.
+  if [ -n "$ERRFILE" ]; then rm -f "$ERRFILE"; fi
+  if [ "$MODE" = deploy ] && [ "$RECORD_WRITTEN" = no ] && { [ -n "$CREATED_LIST" ] || [ -n "$IN_FLIGHT" ]; }; then
     echo "deploy-sepolia: the run stopped before the record was written; nothing was written to $OUT. These contracts are on chain $CHAIN and unused (orphans); a rerun deploys all five anew:" >&2
     for item in $CREATED_LIST; do echo "deploy-sepolia:   ${item%%=*} ${item#*=}" | sed 's/@/ in /' >&2; done
+    # A send that had not settled may still be mined: its address follows from the deployer and the nonce.
+    if [ -n "$IN_FLIGHT" ]; then echo "deploy-sepolia:   possibly, once mined: $IN_FLIGHT; its send had not settled" >&2; fi
   fi
   exit "$status"
 }

@@ -103,9 +103,15 @@ export function matchLine(name, address, c) {
   return { exact, line: `${name} ${address}: ${what} (runtime ${c?.runtimeMatch ?? 'none'}, creation ${c?.creationMatch ?? 'none'})` };
 }
 
+/** One JSON-RPC call. Its errors never carry the URL: fetch's own message can quote it, and a hosted URL can hold a key. */
 async function rpc(url, method, params) {
-  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
-  const body = await res.json();
+  let body;
+  try {
+    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+    body = await res.json();
+  } catch (e) {
+    throw new Error(`${method}: the RPC could not be reached or did not answer JSON (${e?.name ?? 'Error'})`);
+  }
   if (body.error) throw new Error(`${method}: ${body.error.message}`);
   return body.result;
 }

@@ -386,7 +386,7 @@ describe.skipIf(!ready)(`the deploy script on a local chain (T-383)${ready ? '' 
   // a second copy of a contract: the deployer ends exactly five nonces on, and the record checks.
   describe('a failed send', () => {
     /** A stand-in for forge that fails the first `forge create` of `target` in `mode`, and runs forge otherwise. */
-    const shim = (name: string, target: string, mode: 'after' | 'before' | 'foreign') => {
+    const shim = (name: string, target: string, mode: 'after' | 'before' | 'foreign' | 'pending') => {
       const file = join(chain.dir, `forge-${name}.sh`);
       const log = join(chain.dir, `forge-${name}.log`);
       const underpriced = 'echo "Error: server returned an error response: error code -32000: replacement transaction underpriced" >&2';
@@ -397,6 +397,16 @@ describe.skipIf(!ready)(`the deploy script on a local chain (T-383)${ready ? '' 
         mode === 'after' ? `  forge "$@" >/dev/null 2>&1; ${underpriced}; exit 1` : '',
         mode === 'before' ? `  ${underpriced}; exit 1` : '',
         mode === 'foreign' ? `  cast send '${chain.address}' --value 1 --keystore '${chain.keystore}' --password-file '${chain.passwordFile}' --rpc-url '${chain.rpc}' >/dev/null || exit 9` : '',
+        // The creation goes to the pool with mining off, forge reports a failure, and a block comes 4 s later.
+        ...(mode === 'pending'
+          ? [
+              `  n=$(sed -E 's/.*--nonce ([0-9]+).*/\\1/' <<<"$*")`,
+              `  cast rpc evm_setAutomine false --rpc-url '${chain.rpc}' >/dev/null || exit 9`,
+              `  cast send --nonce "$n" --async --keystore '${chain.keystore}' --password-file '${chain.passwordFile}' --rpc-url '${chain.rpc}' --create "$(forge inspect --root '${join(root, 'contracts')}' 'src/DrandQuicknetBeacon.sol:DrandQuicknetBeacon' bytecode)" >/dev/null || { cast rpc evm_setAutomine true --rpc-url '${chain.rpc}' >/dev/null; exit 9; }`,
+              `  ( sleep 4; cast rpc evm_setAutomine true --rpc-url '${chain.rpc}'; cast rpc evm_mine --rpc-url '${chain.rpc}' ) >/dev/null 2>&1 &`,
+              `  ${underpriced}; exit 1`,
+            ]
+          : []),
         'fi',
         'exec forge "$@"',
         '',
@@ -426,6 +436,24 @@ describe.skipIf(!ready)(`the deploy script on a local chain (T-383)${ready ? '' 
       expect(await chain.nonce()).toBe(start + 5);
       const c = await chain.check(out);
       expect(c.code, c.stderr).toBe(0);
+    }, 300_000);
+
+    it('a send still pending is waited for, then taken from the chain, not sent again', async () => {
+      const start = await chain.nonce();
+      const f = shim('pending', 'DrandQuicknetBeacon', 'pending');
+      const out = join(chain.dir, 'pending.json');
+      let d: Run;
+      try {
+        d = await chain.deploy(out, { DEPLOY_FORGE: f.file, DEPLOY_POLL_SEC: '1' });
+      } finally {
+        await chain.rpcCall('evm_setAutomine', [true]);
+      }
+      expect(d.code, d.stderr).toBe(0);
+      expect(d.stderr).toContain(`a transaction at nonce ${start + 2} is pending; waiting until it is mined`);
+      expect(d.stderr).toMatch(/the chain holds DrandQuicknetBeacon at 0x[0-9a-fA-F]{40} from nonce \d+ \(0x[0-9a-f]{64}\); nothing is sent again/);
+      expect(f.calls().filter((c) => c.includes(':DrandQuicknetBeacon '))).toHaveLength(1);
+      expect(await chain.nonce()).toBe(start + 5);
+      expect((await chain.check(out)).code).toBe(0);
     }, 300_000);
 
     it('a send that never reached the chain goes again at the same nonce, once', async () => {
