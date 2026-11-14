@@ -1,6 +1,7 @@
 # T-433: the mandate tool
 
 - **Lane:** demo (Crow's own agents, roadmap row N131, build row 2)
+- **Roadmap row:** N131
 - **Phase:** 2
 - **Depends on:** ADR-0038 and D69 (Rafa's answers of 2026-11-14); the own-agents design in crow-private (`company-ops/own-agents/design.md`, decisions 1 to 6 taken by Rafa on 2026-11-14)
 - **Paths this task may touch:** `examples/mandate.ts`, `examples/mandate.test.ts`, one paragraph in `site/ref/limits.txt`, this file

@@ -1,6 +1,7 @@
 # T-410: A contract redeploy is routine
 
 - **Lane:** settlement (kind 7, the deploy script; red team on the script)
+- **Roadmap row:** none
 - **Phase:** 2
 - **Depends on:** T-383, T-398
 - **Paths this task may touch:** `contracts/script/`, `scripts/deploy-*`, `scripts/sourcify*`, `docs/redeploy-contracts.md`, their tests (`packages/settlement/evm/deploy-script.test.ts`, `tests/sourcify-verify.test.ts`), this task file; `apps/demo-cloud/src/live-fork.test.ts` for its output, on the coordinator's brief (and the two lines it needed to run on the public node: see Decisions)

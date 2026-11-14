@@ -1,6 +1,7 @@
 # T-411: the buyer's tools and record, follow-ups from the live rehearsal
 
 - **Lane:** buyer's tools and guides, into `main`
+- **Roadmap row:** none
 - **Phase:** 2
 - **Depends on:** T-399 (Findings 2, 5 and 6), T-401 (Handoff items 2 and 10)
 - **Paths this task may touch:** `examples/buy-with-signer.ts`, `examples/deal-record.ts` and their tests, `site/buy.txt`, `site/llms.txt`, `site/buy.mjs` as the build writes it, this file. Also `examples/buyer-signer.ts` and a new test file beside it: the faucet call and the operators' reads live there, `buy.mjs` bundles it, no lane of the 2026-11-14 wave owns it, and no open pull request touches it (checked with `gh pr list`, 2026-11-14). Off limits: `examples/seller-adapter*.ts`, `examples/try.ts`, `examples/agent.ts`, `site/sell.txt`.

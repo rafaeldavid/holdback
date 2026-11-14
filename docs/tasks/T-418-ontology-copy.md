@@ -1,6 +1,7 @@
 # T-418: the copy changes from the Crow ontology
 
 - **Lane:** site and agent guides; one docs glossary line
+- **Roadmap row:** none
 - **Phase:** 2, settlement on EVM (stable EVM operations, D53)
 - **Kind:** 1 (copy and agent docs) and 2 (the glossary), from the Change recipes in `docs/team.md`: `node site/build.mjs && node site/check.mjs`, no review
 - **Depends on:** none

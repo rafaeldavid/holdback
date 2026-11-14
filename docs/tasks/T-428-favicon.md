@@ -1,6 +1,7 @@
 # T-428: The crow on a white square as the favicon, on every page Crow serves
 
 - **Lane:** infra (site and brand kit)
+- **Roadmap row:** N103
 - **Phase:** 2
 - **Depends on:** T-421's follow-up (holdback pull request 532), which owns `site/build.mjs`, `site/check.mjs` and `site/trust.mjs` until it merges
 - **Paths this task may touch:** new icon files and one README line in `site/brand/`, `site/brand/kit.mjs` and `kit.d.mts` (the icon links), one small change in `site/build.mjs`, `site/trust.mjs` and `site/check.mjs` after T-421's follow-up merges, this task file; in crow-private the console's head, its Worker's icon route and a test under `control/`

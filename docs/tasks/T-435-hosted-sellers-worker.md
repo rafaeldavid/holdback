@@ -1,6 +1,7 @@
 # T-435: `apps/hosted-sellers/`, the seller adapter as a Worker with one Durable Object per seller
 
 - **Lane:** infra
+- **Roadmap row:** N37 (the seller adapter, hosted)
 - **Phase:** 2
 - **Depends on:** T-434, ADR-0037 sections 3 to 7 and 11
 - **Paths this task may touch:** `apps/hosted-sellers/`, `pnpm-workspace.yaml`, this file

@@ -1,6 +1,7 @@
 # T-421: The site's trust surfaces: a trust page, a security contact and a status page
 
 - **Lane:** site (roadmap rows N109, "Security questionnaire answers and a trust page", and N119, "The enterprise API's written promises", in the private repository)
+- **Roadmap row:** N109, N119
 - **Phase:** 2, settlement on EVM (stable EVM operations, D53)
 - **Kind:** 1 (copy and agent docs: `site/`), with a small route in the site Worker (`apps/site/worker.js`) and its test
 - **Depends on:** the privacy baseline (T-416, `docs/privacy-baseline.md`), which holds the facts about what a deal reveals

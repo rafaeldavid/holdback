@@ -1,6 +1,7 @@
 # T-406: the seller adapter prices a quote that counts units at a fixed price per unit
 
 - **Lane:** demo (examples), the seller adapter
+- **Roadmap row:** N37 (the seller adapter)
 - **Phase:** 2, settlement on EVM (stable EVM operations, D53)
 - **Kind:** 4 (API and example code), from the Change recipes in `docs/team.md`: the examples' tests, one reviewer
 - **Depends on:** T-366 (the adapter calls a seller's job API through a mapping); found by T-399 (the pilot rehearsal on the live deployment)

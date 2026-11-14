@@ -1,6 +1,7 @@
 # T-427: the demo page, reviewed against the pilot and this week's work
 
 - **Lane:** site (the demo page's own files)
+- **Roadmap row:** N102
 - **Phase:** 2, settlement on EVM (stable EVM operations, D53)
 - **Kind:** 1 (copy), with the demo generator's tests (`tools/duet/duet.test.ts`), from the Change recipes in `docs/team.md`; one `reviewer` pass, told to check every statement on the page against the live service; no red team
 - **Depends on:** T-391 (the two-agent demo), T-418 (the ontology's words), T-420 (the test seller's live endings)

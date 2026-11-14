@@ -1,6 +1,7 @@
 # T-434: one seller-adapter core with no Node imports, and the Node shell around it
 
 - **Lane:** demo (the seller adapter)
+- **Roadmap row:** N37 (the seller adapter, hosted)
 - **Phase:** 2
 - **Depends on:** T-433, ADR-0037 section 7
 - **Paths this task may touch:** `examples/seller-adapter*.ts` and their tests, `examples/report-converter.ts`, this file

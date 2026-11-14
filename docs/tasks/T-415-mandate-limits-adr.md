@@ -1,6 +1,7 @@
 # T-415: Decision record: where a mandate's limits are enforced, and revocation
 
 - **Lane:** research
+- **Roadmap row:** N117, N115
 - **Phase:** 2
 - **Depends on:** none. It reads ADR-0001, ADR-0002, ADR-0015, ADR-0017, ADR-0024, ADR-0031 and ADR-0033.
 - **Paths this task may touch:** one new file under `docs/decisions/`, one entry in `docs/decisions-today.md`, this file

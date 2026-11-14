@@ -1,6 +1,7 @@
 # T-420: The test seller plays every outsider scenario (roadmap N70)
 
 - **Lane:** agent-access
+- **Roadmap row:** N70
 - **Phase:** 2
 - **Depends on:** T-222 (Crow's test seller), T-328 (the outsider design tests and findings F1, F2, F3, F9), T-413 (the Worker's `version.json`)
 - **Paths this task may touch:** `apps/test-agents/` (its code, tests and scripts), `site/ref/intake.txt` (the test seller's offers only), this file

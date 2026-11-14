@@ -1,6 +1,7 @@
 # T-412: The benchmark harness (roadmap B1)
 
 - **Lane:** test (agent access)
+- **Roadmap row:** B1
 - **Phase:** 2 (roadmap stage 1, "Outsiders can use it", its third bar: "each run records success, approvals, tokens, time, API calls, errors and doc gaps")
 - **Depends on:** T-066 and T-370 (the One-Click harness, `tools/one-click/run.mjs`), T-328 (the outsider runner, `tools/one-click/outsider.mjs`), T-222 and T-239 (Crow's test seller and test buyer)
 - **Paths this task may touch:** `tools/one-click/`, `scripts/metrics/one-click*`, `scripts/metrics/schemas/one-click*`, `tests/metrics/one-click*`, this file. Two shared lines outside them, named under Decisions: `scripts/metrics/schemas/common.schema.json` (the envelope's version pattern) and `tests/metrics/schemas.test.ts` (the list of schema names).

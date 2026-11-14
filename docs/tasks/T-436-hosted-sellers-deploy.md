@@ -1,6 +1,7 @@
 # T-436: the hosted seller's deploy and secret scripts, and Rafa's first-deploy runbook
 
 - **Lane:** infra
+- **Roadmap row:** N37 (the seller adapter, hosted)
 - **Phase:** 2
 - **Depends on:** T-435
 - **Paths this task may touch:** `apps/hosted-sellers/scripts/`, one section in `docs/operations.md`, this file

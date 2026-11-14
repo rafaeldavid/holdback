@@ -1,6 +1,7 @@
 # T-402: One brand kit for the site, the demo page and the pages built on it
 
 - **Lane:** demo
+- **Roadmap row:** N103
 - **Phase:** 2
 - **Depends on:** T-400 (the footer, the drawer and the cards), T-401 (merged in `origin/main` at `1516589`)
 - **Paths this task may touch:** `site/brand/` (new), `site/build.mjs`, `site/check.mjs`, `site/footer.ts`, `site/drawer.ts`, `site/home.css`, `site/index.html`, `site/404.html`, `site/demo/index.html`, `tools/duet/replay.ts`, `tools/duet/duet.test.ts`, `tests/` for assertions on the footer or the dialog, this task file

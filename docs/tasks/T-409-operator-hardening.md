@@ -1,6 +1,7 @@
 # T-409: operator hardening before the partner's first deal
 
 - **Lane:** first pilot
+- **Roadmap row:** N80, N92
 - **Phase:** 2, settlement on EVM (stable EVM operations, D53)
 - **Kind:** 5, settlement and judgment code (Change recipes): the packages' tests with anvil, one review and one red team, a target of 250k tokens. The demo world's test is kind 4.
 - **Depends on:** T-347 (PR 346) and T-372 (PR 389), both merged and live

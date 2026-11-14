@@ -1,6 +1,7 @@
 # T-424: the report pages in the brand kit
 
 - **Lane:** report pages (the design map and the contract-stack page); the roadmap page's shell in crow-private `roadmap/page/`
+- **Roadmap row:** N103
 - **Phase:** 2, settlement on EVM (stable EVM operations, D53)
 - **Kind:** 3 (display and console), from the Change recipes in `docs/team.md`; one `reviewer` pass on each pull request (the wave's rule 8)
 - **Depends on:** T-402 (the brand kit, `site/brand/`, merged)

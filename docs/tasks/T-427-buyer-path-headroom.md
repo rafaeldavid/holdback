@@ -1,6 +1,7 @@
 # T-427: headroom in the buyer's first-deal path
 
 - **Lane:** agent guides (site/docs), into `main`
+- **Roadmap row:** T-252 (the agent guides)
 - **Phase:** 2
 - **Depends on:** T-393 (the short guides and `FIRST_DEAL_BUDGET`), T-426 (the shorter HTTP path)
 - **Paths this task may touch:** `site/llms.txt`, `site/buy.txt`, `site/ref/buyer-signer.txt`, `site/ref/checks.txt`, `site/ref/limits.txt`, this file. Off limits: `FIRST_DEAL_BUDGET.tokens` and `HTTP_BUYER_BUDGET` in `site/guides.mjs`, `site/buy.mjs`, `site/try.mjs`, and the three pages of the HTTP path (`ref/http.txt`, `ref/signing.txt`, `ref/http-buyer.txt`), which have 24 tokens of slack.

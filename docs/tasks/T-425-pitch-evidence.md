@@ -1,6 +1,7 @@
 # T-425: Evidence for the machine-first pitch
 
 - **Lane:** metrics (the pitch's missing measurements)
+- **Roadmap row:** none
 - **Phase:** 2, settlement on EVM (stable EVM operations, D53)
 - **Kind:** 4 (tool code with its tests), with one kind 9 live run on Sepolia (test ETH and test tUSDC only)
 - **Depends on:** the live test service on Sepolia (`https://api.crow.direct`, `https://api2.crow.direct`), Crow's test seller (`https://crow.direct/agents/test-seller`), `examples/try.ts`, and the anvil world of `examples/e2e-world.ts`

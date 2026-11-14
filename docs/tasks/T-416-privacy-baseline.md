@@ -1,6 +1,7 @@
 # T-416: The privacy baseline before design partners
 
 - **Lane:** privacy (roadmap row N30, "Privacy baseline before design partners")
+- **Roadmap row:** N30
 - **Phase:** 2, settlement on EVM (stable EVM operations, D53)
 - **Kind:** 2 (process docs and records), with one line of kind 1 (`site/ref/limits.txt`) where a stated limit is wrong
 - **Depends on:** the live rehearsal of 2026-11-13 (T-399), whose deals are the sample

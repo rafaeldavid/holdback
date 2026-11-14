@@ -1,6 +1,7 @@
 # T-413: Sources for the console's missing signals, public side
 
 - **Lane:** infra
+- **Roadmap row:** N108
 - **Phase:** 2
 - **Depends on:** T-404 (Crow Control's rebuild, private), T-066 (the metrics format)
 - **Paths this task may touch:** `apps/test-agents/`, `apps/early-access/`, `apps/site/`, `scripts/metrics/ops-cost*` (and its schema under `scripts/metrics/schemas/`), `site/check.mjs` (one block of its own), a new `site/guide-budget.mjs`, `docs/decisions-today.md` (a status line on each entry only), new tests under `tests/`, `tests/metrics/ops-cost*`, this file

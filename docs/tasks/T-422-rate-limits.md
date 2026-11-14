@@ -1,6 +1,7 @@
 # T-422: Rate limits and abuse controls on the API, with a threat model
 
 - **Lane:** security
+- **Roadmap row:** N19
 - **Phase:** 2, stable EVM operations on Sepolia (D53)
 - **Roadmap:** N19, "Rate limits and abuse controls on the REST API, with a threat model for operator nodes"
 - **Depends on:** T-409 (operator hardening, PR 512), T-413 (the `deployedAt` field, PR 505)
