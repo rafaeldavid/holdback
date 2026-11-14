@@ -5,7 +5,7 @@
 - **Depends on:** T-421's follow-up (holdback pull request 532), which owns `site/build.mjs`, `site/check.mjs` and `site/trust.mjs` until it merges
 - **Paths this task may touch:** new icon files and one README line in `site/brand/`, `site/brand/kit.mjs` and `kit.d.mts` (the icon links), one small change in `site/build.mjs`, `site/trust.mjs` and `site/check.mjs` after T-421's follow-up merges, this task file; in crow-private the console's head, its Worker's icon route and a test under `control/`
 - **Human gate:** no for the pull requests; the deploys run on Rafa's standing word for this wave (coordinator brief 2026-11-14, "Merge and deploy when ready")
-- **Status:** in progress
+- **Status:** review
 - **Agent/session:** T-428 side session, started by the coordinator on 2026-11-14
 
 ## Intent
@@ -38,6 +38,7 @@ Labels: measured, inferred, guessed.
 - The icon set (measured): `node site/brand/icons.mjs` writes 8 files in 0.2 s; `--check` passes on the committed files. Sizes: `favicon.svg` 7,435 bytes, `favicon.ico` 1,681 bytes, `favicon-16.png` 299 bytes, `favicon-32.png` 546 bytes, `apple-touch-icon.png` 2,919 bytes, `icon-192.png` 3,068 bytes, `icon-512.png` 9,033 bytes.
 - Every page (measured, `node site/build.mjs && node site/check.mjs`, then the same with `--out reports/site-out`): the check passes. Group 17 checks that each page carries exactly the six links of `iconLinks()` and no other icon link: the home page, 404, the trust and status pages, the visual walkthrough, the published demo page and the 32 problem pages (31 types and their index), plus every `.html` file a publish build writes, and that each icon file sits at the build's root with the kit's bytes.
 - Fails before (measured): the new check with the old `site/build.mjs` and `site/trust.mjs` reports "does not carry exactly the favicon links" for index.html, 404.html, visualdemo/index.html, trust.html, status.html and every problem page.
+- Review (measured): one reviewer pass on each pull request. Holdback: four findings fixed: `--check` now compares PNG pixels, not zlib's compressed bytes (a PNG recompressed at another level passes; one changed pixel fails); one icon-link matcher (`iconTags()` in the kit) for the build and the check, which also catches `rel` written after `href`, `alternate icon` and `mask-icon`; group 15 now reads `icons.mjs`, with the white square allowed and its reason; group 17's comment says what it checks without a publish build. Crow-private: five findings fixed (the contract-stack page has no `<head>`; one icon copy for the Worker and the pages; a drift line in the hourly build's log; a test comment; the README).
 - `/favicon.ico` (inferred from the asset upload): the publish build writes `favicon.ico` at `reports/site-out/`, which the site Worker's static assets serve at `/favicon.ico`; the live GET after the deploy measures it.
 - Pinned files and guides (measured, sha256 before and after the build): `site/try.mjs`, `site/buy.mjs`, `site/llms.txt`, `site/buy.txt`, `site/sell.txt` and every `site/ref/*.txt` unchanged.
 - Lint and unit tests (measured): ESLint on the five changed scripts reports nothing; `vitest run` on the site, design-map and contract-stack tests: 86 of 86 pass.
@@ -54,7 +55,7 @@ Labels: measured, inferred, guessed.
 
 ## Handoff
 
-Done: the icon set, the kit's `iconLinks()`, the site's pages and group 17, and Crow Control (crow-private pull request 64, merged before this one so the contracts page is pushed with the icon when this merge changes `site/brand/`).
+Done: the icon set, the kit's `iconLinks()`, the site's pages and group 17, and Crow Control (crow-private pull request 64, merge commit 277b9017, merged before this one so the contracts page is pushed with the icon when this merge changes `site/brand/`).
 
 Follow-ups, not built:
 - The test agents' own pages (`apps/test-agents/src/buyer.ts` and `seller.ts`, served on their own routes) have no favicon. They are another lane's files; a link to `https://crow.direct/favicon.ico` would do.
