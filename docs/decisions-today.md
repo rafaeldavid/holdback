@@ -1279,9 +1279,11 @@ The full text is kept privately (`docs/private-materials.md`).
 
 ## D68. Crow hosts a seller adapter for a design partner on its own Cloudflare account (ADR-0037, T-407)
 
-**Status:** needs Rafa, 2026-11-14.
+**Status:** adopted, 2026-11-14.
 
-**Proposed 2026-11-14 by T-407; Rafa picks before the build.** Today the seller side of a design partner's deal runs on one Mac, and a 7-day delivery window depends on that machine. ADR-0037 is Proposed; nothing is built.
+**Decided 2026-11-14 by Rafa:** the runtime is a Cloudflare Worker with one durable store (a Durable Object) per seller, option A, not a container. ADR-0037 is Accepted; nothing is built.
+
+**Proposed 2026-11-14 by T-407.** Today the seller side of a design partner's deal runs on one Mac, and a 7-day delivery window depends on that machine. ADR-0037 is Proposed; nothing is built.
 
 - **Runtime (recommended: A).** A Worker with one Durable Object per seller, the test seller's pattern: the journal in Durable Object storage, an alarm instead of the poll loop. A container (B) needs the journal moved off its disk too, since container disk is not durable, and adds a runtime Crow does not run today.
 - **One Worker per seller,** so one seller's configuration cannot reach another seller's keys and one deploy never restarts another seller's deal.
@@ -1310,7 +1312,15 @@ On a chain, the operators that relay a deal check a mandate's roles, cap per dea
 - **Litmus tests.** Neutrality: no mandate check sits where a party cannot route around it, only a mandate's own principal can revoke it, and a revocation cannot reach a funded deal; four new `neutrality.*` fixtures show it. The hold: unchanged. Defended judgment: not affected.
 - **What it changes when built, in order:** guide text and the standing texts that say settlement checks the scope; the wallet path; the checks moved to the operator layer; the mandate route; revocation; the reference clients' and the adjudicator's checks; then one version that changes `Scope`, moves the EIP-712 domain and redeploys the contracts.
 - **Not before the pilot:** anything but the text. Not before the next contract version: any change under `contracts/src/` or to a signed struct. Not at all: a shared daily count, a registry on chain, a category check.
-- **For Rafa:** whether an operator needs a mandate at all to relay for a funded address, which decides whether the mandate route and revocation are built; whether the hard rule's words "and scope" and its naming of the adjudicator stand; whether the mandate checks may move to the operator layer; whether `maxDaily` leaves with `categories`; whether a later contract version offers an on-chain revocation as an opt-in; whether the guide may name wallet products; and, for counsel, who bears the loss when a revoked agent deals with a counterparty that did not check.
+- **Rafa's answers (Rafa, 2026-11-14),** to ADR-0038's seven questions:
+  1. **A mandate to relay.** A signed company permission is optional in an open club unless the club's rulebook requires it.
+  2. **The hard rule.** `CLAUDE.md`'s "Signed messages" rule now says what is enforced: settlement checks the signature; the operators and the counterparty check the permission; the adjudicator's check of a `Delegation` is planned.
+  3. **SimChain's checks.** They move to the relay layer only after the pilot's first deal, and the contracts partner is asked first. A deferred step; no code now.
+  4. **`maxDaily` and `categories`.** Both leave the signed permission in one schema version. That change is a later task through the ADR and version-bump rule (roadmap row N132); `spec/schemas/` does not change now.
+  5. **An on-chain switch-off.** None is scheduled. The contract-wallet path comes first; revisit on a real enterprise request.
+  6. **Wallet products in the guide.** The guide names kinds of wallet and standards only. Later it may name a product that Crow's own agents have run, with the test.
+  7. **The loss question.** The guide states facts only. Who bears the loss goes on the counsel list (roadmap row N113); later the parties may set it in their terms.
+- **Follow-up from the research's gap:** a test where the paying wallet refuses an over-limit funding (roadmap row N133).
 
 ## D70. Private deals stay deferred through the pilots (T-207; T-416)
 
@@ -1329,3 +1339,15 @@ On a chain, the operators that relay a deal check a mandate's roles, cap per dea
 **Status:** decided, 2026-11-14.
 
 **Decided 2026-11-14 by T-410, pull request 514:** Etherscan leaves `contracts/script/deploy-sepolia.sh --verify`. The step verifies the five contracts' source through Sourcify's API v2 only (`scripts/sourcify-verify.mjs`), with no key and no account. Forge 1.0.0 names only Etherscan's retired API, so the script no longer calls it. The steps are in `docs/redeploy-contracts.md`, step 3. Litmus tests: unchanged; verification publishes source and moves nothing.
+
+## D72. After the milestone: the partner test first, the benchmark runs alongside, Crow's own agents as the next lane
+
+**Status:** decided, 2026-11-14.
+
+**Decided 2026-11-14 by Rafa,** answering the direction after the milestone.
+
+- **First:** the design partner's test.
+- **Alongside:** the six benchmark runs. Rafa runs them, now.
+- **The next parallel lane:** Crow's own buying and selling agents, under limits the agents cannot override.
+- **Waiting behind the pilot:** a faster chain and the next contract phase.
+- **Litmus tests.** Neutrality, the hold and defended judgment: unchanged; this orders the work and builds nothing.

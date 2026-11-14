@@ -1,6 +1,6 @@
 # ADR-0037: Crow hosts a seller adapter for a design partner on its own Cloudflare account
 
-- **Status:** Proposed, 2026-11-14. Rafa picks the runtime (section 2) before anything is built. Nothing here is built.
+- **Status:** Accepted, 2026-11-14. Rafa chose the runtime: a Cloudflare Worker with one durable store (a Durable Object) per seller, option A, not a container (Rafa, 2026-11-14; D68). Nothing here is built.
 - **Date:** 2026-11-14
 - **Raised by:** T-407 (`docs/tasks/T-407-hosted-seller-adapter.md`), from Rafa's decision on 2026-11-14 that Crow runs the seller side for a design partner whose only interface is an HTTP job API priced in credits. Research: this note (code read at `a0a70dc`, `origin/main` on 2026-11-14; Cloudflare's documentation read the same day; nothing run) and one independent research pass (section 9).
 - **Builds on:** ADR-0001 (neutrality), ADR-0005 (access by API), ADR-0033 (payout and payment addresses); D26 (the law is the backstop), D31 (parametrize, don't restrict), D32 (parties carry responsibility), D35 (rails, not a record-keeper), D47 (Crow's test seller); the adapter's tasks T-318, T-324, T-329, T-331, T-366 and T-406.
@@ -176,7 +176,7 @@ On the in-process world (`apps/test-agents/src/test-world.ts`) with the job stub
 
 ## 12. Open questions for Rafa
 
-1. **The runtime:** A (recommended) or B.
+1. **The runtime:** A (recommended) or B. **Decided: A,** a Worker with one Durable Object per seller, not a container (Rafa, 2026-11-14).
 2. **One Worker per seller** (recommended) or one shared Worker.
 3. **Where the configuration lives:** a folder per seller in the private repository (recommended), bundled at deploy.
 4. **The card's name:** whether a hosted seller's page names its partner, decided per seller.
