@@ -308,7 +308,7 @@ describe('seller adapter, a job API of another shape (T-366): answers', () => {
   });
 
   it('prices a quote that counts units, such as credits, at a fixed price per unit (T-406)', async () => {
-    const answers: J[] = [{ quoted_price: 500, admission_charge: 0 }, { quoted_price: '7' }, { quoted_price: 1.5 }, { quoted_price: -3 }, {}];
+    const answers: J[] = [{ quoted_price: 500, admission_charge: 0 }, { quoted_price: '7' }, { quoted_price: 5e2 }, { quoted_price: 1.5 }, { quoted_price: -3 }, {}, { quoted_price: '007' }, { quoted_price: 9007199254740993 }, { quoted_price: '9'.repeat(31) }];
     const server = createServer((_req, res) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(answers.shift())));
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
     const b = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
@@ -318,7 +318,10 @@ describe('seller adapter, a job API of another shape (T-366): answers', () => {
       expect(api.describe).toContain('a quote prices /quoted_price units at 1500000 base units each');
       expect((await api.quote({ scope: SCOPE })).price).toEqual({ token: undefined, amount: '750000000' }); // 500 units: 750.00
       expect((await api.quote({ scope: SCOPE })).price.amount).toBe('10500000'); // a count written as text: 7 units
-      for (const bad of ['1.5', '-3', 'undefined']) await expect(api.quote({ scope: SCOPE }), bad).rejects.toThrow('the quote\'s /quoted_price is not a whole number of units');
+      expect((await api.quote({ scope: SCOPE })).price.amount).toBe('750000000'); // 5e2 is the number 500
+      for (const bad of ['1.5', '-3', 'undefined', '"007"', 'beyond a safe integer']) await expect(api.quote({ scope: SCOPE }), bad).rejects.toThrow('the quote\'s /quoted_price is not a whole number of units, as a JSON number or digits with no leading zero');
+      const huge = call({ read: { units: '/quoted_price' }, unitPrice: '9'.repeat(78) });
+      await expect(huge.quote({ scope: SCOPE })).rejects.toThrow('is larger than base units can hold');
     } finally {
       await new Promise<void>((r) => server.close(() => r()));
     }

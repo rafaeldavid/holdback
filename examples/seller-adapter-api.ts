@@ -449,8 +449,9 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
       if (unitsAt !== undefined) {
         const units = read('units');
         const whole = (typeof units === 'number' && Number.isSafeInteger(units) && units >= 0) || (typeof units === 'string' && /^(0|[1-9][0-9]{0,30})$/.test(units));
-        if (!whole) throw new Error(`the quote's ${plain(unitsAt)} is not a whole number of units: ${short(JSON.stringify(units ?? null))}`);
+        if (!whole) throw new Error(`the quote's ${plain(unitsAt)} is not a whole number of units, as a JSON number or digits with no leading zero: ${short(JSON.stringify(units ?? null))}`);
         amount = (BigInt(units) * BigInt(unitPrice)).toString();
+        if (amount.length > 78) throw new Error(`the quote's price, ${units} units at ${unitPrice} base units, is larger than base units can hold`);
       }
       return { price: { token: readsToken ? read('token') : undefined, amount }, quoteId: Number.isSafeInteger(quoteId) ? String(quoteId) : quoteId, deliverWithinSec: read('deliverWithinSec'), ...(validFor ? { validForSec: read('validForSec') } : {}) };
     },
