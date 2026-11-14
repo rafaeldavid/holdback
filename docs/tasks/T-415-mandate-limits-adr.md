@@ -58,7 +58,7 @@ Nothing was run except the checks below. Kind 10 has no required local checks (`
   - Fixtures and schema changes per recommendation, with the bump named and not made: the "Fixtures" and "Schema" lines of each section.
   - The build order and what must not be built before the pilot: "The build, in order".
   - Outside standards with a version or date and a link: "How others carry the same ideas", thirteen rows. A research pass opened each source on 2026-11-14 [checked by that pass; the reviewer fetched the links and matched the six EIP statuses, and did not verify the AP2 and x402 dates or the wallet services' policy claims].
-  - One reviewer pass: ISSUES, 4 High, 6 Medium, 8 Low, no Critical. All 18 are fixed in the text or answered in the record's last section.
+  - One reviewer pass: ISSUES, 4 High, 6 Medium, 8 Low, no Critical. All 18 are fixed in the text or answered in the record's last section. Its re-check of the fixes confirmed 17 fixed and one partly, and raised 2 Medium and 6 Low points, which are fixed as well.
   - No file outside the task's paths: `git diff origin/main --stat` shows three files [measured].
 - **Commands run** [measured]:
   - `node scripts/id-check.mjs --branch t-415-mandate-limits-adr`: pass.
@@ -86,4 +86,4 @@ Nothing was run except the checks below. Kind 10 has no required local checks (`
 
 **Waiting on Rafa:** the seven questions under "Not decided here" in the record. The first decides whether the mandate route and revocation are built at all.
 
-**To resume:** read the record's summary and "The build, in order". The research notes are outside the repository, in the wave's scratch folder (`reports/scratch/t-415/`): the standards check and the research pass.
+**To resume:** read the record's summary and "The build, in order". The two research notes stayed outside the repository; the record's last two sections carry their findings and sources.

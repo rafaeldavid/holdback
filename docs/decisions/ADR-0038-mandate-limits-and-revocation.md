@@ -20,7 +20,7 @@ Short forms: `S:` is `packages/core/src/state.ts`, `P:` is `packages/core/src/pr
 
 1. **Where limits are enforced.** The spending limit is the payment address: its balance, who can sign for it, and the company's own wallet policy. The mandate is a signed permission that those who rely on it check: the counterparty before it signs, and each operator before it relays, as that operator's stated policy. The contracts read no mandate.
 2. **`categories`.** Remove it. Nothing can check it, and the mandate's club already names the market. The JSON contract drops it in an additive version. The typed data drops it with the next version that changes a signed struct.
-3. **The daily cap.** Each operator counts the deals it relays, and the guide says so. No shared count is built. The hard daily limit is the balance the company keeps on the payment address.
+3. **The daily cap.** Each operator counts the deals it relays, and the guide says so. This record builds no shared count. The hard daily limit is the balance the company keeps on the payment address.
 4. **Revocation before expiry.** A revocation is a signed notice from the mandate's own principal. Any operator takes it from anyone, serves it and stops relaying new offers, agreements and fundings for that agent. It never touches a funded hold. A counterparty treats a mandate as revoked when any one operator serves a valid revocation of it. The company's hard stop is the payment address.
 5. **The richer mandate.** It changes no answer above. The protocol carries the format of a permission and its revocation, so anyone can verify them. The company's wallet and signing tools enforce amounts, co-signatures and allow-lists. Delegation to sub-agents is a chain of signed permissions that the relying party intersects.
 
@@ -49,7 +49,7 @@ These facts decide the questions. Each is measured unless it says otherwise.
 7. **No route takes a company's own mandate.** `POST /v1/agents` answers 501 (`docs/api.md:345`) [documented]. Mandates come from a node's genesis or from the test service's faucet, which signs with the demo club's own test principal (`site/ref/http.txt:81`). On the test service a mandate is an admission to the club, not a company's permission.
 8. **Revocation is typed and has no handler.** `AgentRevocation {agent, principal, nonce, expiresAt}` is in the schema ("blocks new commitments only"), the types and the signing code (`packages/core/src/eip712.ts:187`). Its `expiresAt` is the field every signed message carries (`packages/core/src/types.ts:205-209`). `POST /v1/agents/{address}/revoke` answers 501 (`docs/api.md:346`), and the testkit refuses the step (`packages/testkit/src/scenario.ts:177`).
 9. **One operator message is wrong.** The `scope_exceeded` problem tells an agent that its mandate's categories "must cover the deal" (`apps/operator/src/problems.ts:26`). Nothing checks categories.
-10. **A contract wallet cannot fund through the API.** The API's `Signature` is exactly 65 bytes (`spec/schemas/common.schema.json:15-19`), and the buyer tool refuses any other length (`examples/buyer-signer.ts:1033`). A multisig's or a smart account's signature usually has another length. Such a wallet funds only by a direct call to the contract, which the contract and the test tokens accept (fact 6). A wallet service that signs with a plain key works through the operators today [inferred].
+10. **A contract wallet usually cannot fund through the API.** The API's `Signature` is exactly 65 bytes (`spec/schemas/common.schema.json:15-19`), and the buyer tool refuses any other length (`examples/buyer-signer.ts:1033`). A multisig's or a smart account's signature usually has another length. Such a wallet funds only by a direct call to the contract, which the contract and the test tokens accept (fact 6). A wallet service that signs with a plain key works through the operators today [inferred].
 11. **A node keeps one mandate per agent and club, and a new one replaces it.** `admit` stores any mandate its principal signed, whoever that principal is (`E:561-567`). Only the faucet calls it today. An open route with this rule would let a stranger replace an agent's mandate.
 
 The two live operators share one store (`apps/demo-cloud/wrangler.op2.jsonc:22`), so the test service has one daily count today. Two independent operators would have two [inferred].
@@ -65,7 +65,7 @@ No scenario fixture exercises a scope refusal today: no file under `fixtures/sce
 **The spending limit is the payment address.**
 
 - A company's funds leave through Crow on two signatures, both by the payment address and both bound to one deal (ADR-0033). The first is an ERC-3009 authorization for the deal's price plus fee, payable only to the escrow's collector and valid until the deal's `fundBy` (`R:191`). The second pays the operator's fee to the operator's own address, where an operator charges one. No operator, adjudicator, counterparty or contract can move more.
-- So the company sets its limit where those signatures are made. It has three tools, all its own:
+- So the company sets its limit where it makes those signatures. It has three tools, all its own:
   - **The balance.** The payment address holds the budget and no more. With the two addresses of ADR-0033 the agent's signing key holds nothing.
   - **Who signs.** The agent holds the payment key. Or the company keeps the key in a wallet service that signs on request. Or the payment address is a multisig or a smart account. The first two work through the operators today. The third works only by a direct call until the API takes a contract wallet's signature (fact 10; the build's step 2).
   - **A policy at signing.** A wallet service or a co-signer sees the typed data it is asked to sign: the recipient, the value and the deadline. It can refuse above an amount, refuse any message but a deal's funding and its fee, and check the deal's terms first. Two of the three policy services read for this record state rules on EIP-712 fields ("How others carry the same ideas").
@@ -112,7 +112,7 @@ No scenario fixture exercises a scope refusal today: no file under `fixtures/sce
 - `neutrality.operator-refuses-on-scope`: op-1 wrongly answers `scope_exceeded`, the buyer calls the contract, and the deal releases. A named test on a local chain first, as `packages/settlement/evm/sync.test.ts` funds directly today.
 - A client test under `examples/`: the reference client declines a counterparty whose mandate does not cover the deal, has expired or carries a bad signature.
 
-The scenario format has no key for a party's scope today: every cast gets a wide one (`packages/testkit/src/scenario.ts:353`). The scope fixtures need that key.
+The scenario format has no key for a party's scope today: every cast gets a wide one (`packages/testkit/src/stub-settlement.ts:333`). The scope fixtures need that key.
 
 **Schema:** one additive version for the wallet path, the next free number: the payment address's two signatures may be longer than 65 bytes, so a contract wallet funds through an operator. The operator already leaves the funding signature to the token (`E:981`). The EIP-712 domain stays 0.8. Not made here.
 
@@ -132,7 +132,7 @@ The scenario format has no key for a party's scope today: every cast gets a wide
 
 **Schema, in two moves.** Neither is made here.
 
-1. **The JSON contract drops the field in an additive version that also carries this one removal,** as v0.10 carried one cap. The typed data keeps its two members as constants: the encoder already writes `hasCategories: false` and an empty list for an absent field (`packages/core/src/eip712.ts:294-295`). No signed encoding changes, so the EIP-712 domain stays 0.8 and nothing redeploys. A mandate that carries `categories` no longer passes the schema. This move goes first if a company will sign its own mandates before the next contract version; the research pass rates its timing at medium confidence.
+1. **The JSON contract drops the field in the additive version of the mandate route (the build's step 4), which also carries this one removal,** as v0.10 carried one cap. The typed data keeps its two members as constants: the encoder already writes `hasCategories: false` and an empty list for an absent field (`packages/core/src/eip712.ts:294-295`). No signed encoding changes, so the EIP-712 domain stays 0.8 and nothing redeploys. A mandate that carries `categories` no longer passes the schema. It lands before a company signs its own mandate, so none carries the field. The research pass rates this timing at medium confidence.
 2. **The typed data drops the two members in the next version that changes a signed struct,** with the EIP-712 domain and `commitment.schemaVersion` at 0.9. It should be the version that carries the richer mandate's fields (section 5), so the domain moves once.
 
 **Before both, text only:** the `scope_exceeded` problem stops naming categories, and the guide says the field is signed and not enforced.
@@ -170,28 +170,31 @@ The scenario format has no key for a party's scope today: every cast gets a wide
   - The reference client and the operator's prepare route default it to the last representable timestamp. The usual one-hour default of other messages does not apply.
   - A principal that sets a short one has suspended its agent. When the revocation lapses, an unexpired mandate applies again.
   - While a revocation is unexpired it also voids a mandate issued later for the same pair. A company that wants the agent back sooner gives a mandate to a new key.
-- So no rule is needed to order a revocation against a later mandate, and no signed struct changes. The schema's description of `AgentRevocation` gains this meaning in the additive version. `MemberRevocation` has the same shape; the task that builds it should give it the same meaning.
+- So an operator needs no rule to order a revocation against a later mandate, and no signed struct changes. The schema's description of `AgentRevocation` gains this meaning in the additive version. `MemberRevocation` has the same shape; the task that builds it should give it the same meaning.
 
-**The route for a company's own mandate comes first, with two rules.** A revocation has nothing to end until a company can give an operator its own mandate (fact 7).
+**The route for a company's own mandate comes first, with three rules.** A revocation has nothing to end until a company can give an operator its own mandate (fact 7).
 
 - **The agent consents.** The route takes a mandate only with the agent's own signature beside the principal's. Otherwise a stranger signs a mandate with a cap of 0 for someone else's agent.
 - **A node keys a mandate by principal, agent and club,** and a mandate from one principal never replaces another's (fact 11). A revocation then ends one principal's authority over a key. It does not end the key.
+- **Which mandate an operator applies.** An agent may then hold several mandates in one club, and the terms name no principal. The operator relays when any live mandate covers the deal and its principal is admitted under the club's rulebook. In an open club any key can be a principal, so a revoked agent can make itself a new one. The operator's check then binds an agent to no particular company. What binds is the counterparty's check against a principal it already knows (section 5, point 8). Rafa's question 1 follows from this.
+- **Schema:** an additive version, the next free number: a new signed type for the agent's consent to a mandate, in the agent registration. It is the version that drops `categories` from the JSON contract (section 2), so no company signs a mandate with that field. The EIP-712 domain stays 0.8. Not made here.
 
 **Where it is stored, and how it travels.**
 
 - Each operator keeps the revocations it has accepted, beside its mandates.
 - `POST /v1/agents/{address}/revoke` takes one from anyone. The signature is the authority, not the sender. The route is already in `docs/api.md` as planned.
-- **An operator stores a revocation for a pair it holds a mandate for.** For any other pair it may refuse, so a stranger cannot fill its store. When an operator later admits a mandate, it first reads the operators it knows for a revocation of that pair.
+- **An operator stores a revocation whose principal it knows:** the principal of any mandate in its book, or an admitted member of a club it serves. For an unknown principal it stores under a rate limit, or refuses and says so, so a stranger cannot fill its store. A principal that is refused knows that this operator does not hold its notice.
+- **An operator checks before it admits a mandate.** It reads its own revocations and those of the operators it knows for that pair. Without this, a revoked agent could post its old, unexpired mandate to an operator that never held the revocation: it has the principal's signature and gives its own consent. An operator with no peer, or with a peer that hides the revocation, can still be given that mandate. The deal it then relays is no more than a direct submission allows, and a counterparty that reads another operator still sees the revocation.
 - `GET /v1/agents/{address}` serves each mandate with its revocation, when there is one, so a reader can verify it and post it to another operator. The status is per mandate, not per agent. Today the route always answers `active` (`apps/operator/src/server.ts:1292`).
 - **The operator records the notice.** It appends an `agent.revoked` event, a type the schema already has, and returns its signed receipt. The principal then holds dated evidence that it gave notice (D26).
 - The principal posts the revocation to each operator it knows. No operator-to-operator protocol is required beyond the read at admission.
 
 **Who must honour it.**
 
-- **An operator that holds a valid revocation** refuses to relay, with a new problem `mandate_revoked`:
-  - an offer or an agreement by that agent;
-  - the agent's funding, where the agreement and the funding are separate steps, as on SimChain;
-  - a buyer's agreement to an open offer whose seller's mandate is revoked. The buyer has funded nothing yet, and its counterparty's company has withdrawn.
+- **An operator that holds a valid revocation** refuses to relay every step up to and including the funding, with a new problem `mandate_revoked`, when the revocation voids the buyer's or the seller's mandate. In each case nothing is held yet, and one party's company has withdrawn:
+  - an offer or an agreement by the revoked agent;
+  - a buyer's agreement to an open offer whose seller's mandate is revoked;
+  - the funding, where the agreement and the funding are separate steps, as on SimChain, whichever party's mandate is revoked.
 - **A counterparty's client** reads the agent from every operator it uses. It treats a mandate as revoked when any one of them serves a revocation that names the mandate's principal and carries that principal's signature. One honest operator is enough.
 - **A per-deal key is the counterparty's to check.** An operator reads no `Delegation`, and in a club that admits pseudonymous keys a key without a mandate passes (`E:894-895`). An operator that holds the revocation therefore still relays a deal signed by a per-deal key that the revoked agent certified. The counterparty's check of the certifying agent stops it. When operators admit a per-deal key by its certificate, they check the certifying agent's revocation too.
 - **The contracts** do not read it in phase one.
@@ -219,6 +222,7 @@ The scenario format has no key for a party's scope today: every cast gets a wide
 | `attack.forged-revocation` | A revocation with a signature that is not its named principal's is refused |
 | `attack.revocation-by-another-principal` | A key signs a valid revocation that names itself as principal. No mandate names it, so nothing is revoked and the agent keeps dealing. An operator that claims a revocation without a signature is an operator that refuses (`neutrality.operator-refuses`) |
 | `attack.revoked-agent-submits-directly` | On a local chain, a revoked agent with a funded payment address funds a deal with no operator. The deal is valid. The snapshot records the boundary and the bound |
+| `attack.revoked-agent-readmits-mandate` | A revoked agent posts its old, unexpired mandate to op-2, which refused the revocation as a stranger's. op-2 reads op-1 before it admits, finds the revocation and refuses the mandate |
 | `attack.third-party-mandate-overwrite` | A stranger posts a mandate for an agent that did not sign it, and one from another principal. The first is refused, and the second sits beside the agent's own mandate without replacing it |
 | `neutrality.operator-withholds-mandate` | op-1 stops serving an agent's mandate. The agent hands its mandate to the counterparty, which verifies it and signs. The deal settles |
 | A client test under `examples/` | The reference client refuses a `Delegation` certified by an agent whose mandate is revoked, and accepts again after a short revocation lapses |
@@ -261,7 +265,7 @@ The scenario format has no key for a party's scope today: every cast gets a wide
 
 ## Litmus tests
 
-- **Neutrality.** Unchanged on a chain, and stated more exactly. No mandate check sits where a party cannot route around it, so no operator, club or maintainer gains a way to stop a valid deal by misapplying one. Only a mandate's own principal can revoke it. A revocation stops new deals at honest operators and never reaches a funded deal. On SimChain the mandate check moves out of settlement, which removes a refusal that no party could route around. Two new `neutrality.*` fixtures show it.
+- **Neutrality.** Unchanged on a chain, and stated more exactly. No mandate check sits where a party cannot route around it, so no operator, club or maintainer gains a way to stop a valid deal by misapplying one. Only a mandate's own principal can revoke it. A revocation stops new deals at honest operators and never reaches a funded deal. On SimChain the mandate check moves out of settlement, which removes a refusal that no party could route around. Four new `neutrality.*` fixtures show it: an operator that hides a revocation, a principal that revokes mid-flight, an operator that refuses on scope, and an operator that withholds a mandate.
 - **The hold.** Unchanged. Funds still move only on the payment address's authorization and the contract's rules. A revocation cannot move, freeze or release a hold.
 - **Defended multi-model judgment.** Not affected.
 
@@ -272,8 +276,8 @@ The scenario format has no key for a party's scope today: every cast gets a wide
 | 1 | Text. The table of section 1 in the guide's limits page. The daily cap and `categories` stated as they are. The `scope_exceeded` problem text corrected, with the way out. The standing texts listed below | About eight files, tens of lines | Any time; it changes no behaviour |
 | 2 | The wallet path. An additive schema version lets the payment address's two signatures be a contract wallet's. The operator's route, the buyer tool, two guides, one test on a local chain | Small to medium | After the pilot's first deal |
 | 3 | The mandate checks move from the two settlement packages to the operator layer. The testkit gains a book per operator, a scope key and a step that calls the contract. `error.scope-exceeded`, `error.mandate-expired`, `error.daily-cap-at-one-operator`, `attack.over-cap-agent-submits-directly`, `neutrality.operator-refuses-on-scope` | Medium to large | With Rafa's word (question 3) |
-| 4 | The route for a company's own mandate, with the two rules of section 4. `attack.third-party-mandate-overwrite` | Medium | When a design partner will sign its own mandates (question 1) |
-| 5 | Revocation. The route, the store, the refusals, the agent read, the event and the receipt, the row in `docs/neutrality.md`. The additive schema version, with the JSON removal of `categories`. The other fixtures of section 4. A red-team pass and a second review by a model of another family, because it is an authorization path | Medium | After step 4 |
+| 4 | The route for a company's own mandate, with the rules of section 4. Its additive schema version: the agent's consent as a new signed type, and the JSON removal of `categories`, which also changes `spec/examples/mandate.example.json` and `agent.example.json`. `attack.third-party-mandate-overwrite` | Medium | When a design partner will sign its own mandates (question 1) |
+| 5 | Revocation. The route, the store, the refusals, the agent read, the event and the receipt, the row in `docs/neutrality.md`. Its additive schema version. The other fixtures of section 4. A red-team pass and a second review by a model of another family, because it is an authorization path | Medium | After step 4 |
 | 6 | The reference clients check a counterparty's mandate or `Delegation` in full, and its revocation, before they sign. The adjudicator service checks a `Delegation`, with the admission of per-deal keys by certificate. The two client tests | Small | After step 5 |
 | 7 | The design record for the richer mandate | A record | After step 6, or earlier if a design partner asks |
 | 8 | One version that changes `Scope`: `categories` and `hasCategories` leave the typed data, the richer mandate's fields arrive; the domain and `commitment.schemaVersion` move to 0.9; the contracts redeploy | Large: every signed vector and recording moves | With the next contract version |
@@ -350,7 +354,7 @@ It would also remove `maxDaily` and make the mandate optional at an operator. Bo
 | 6 | Medium | "Cut my agent off now: nobody" overstated; standing texts bound the loss by the scope caps | The table row is qualified; section 4 states the bound; step 1 corrects the three texts |
 | 7 | Medium | A per-deal key passes an operator that holds the revocation | Section 4, "A per-deal key is the counterparty's to check", the company table, and a client test |
 | 8 | Medium | The counterparty column overstated the reference client's check; three line numbers were off by one | The table and fact 5 state what the client compares; the lines are corrected |
-| 9 | Medium | The build order left out the route for a company's own mandate | Its own step, 4, with two rules, tied to Rafa's question 1 |
+| 9 | Medium | The build order left out the route for a company's own mandate | Its own step, 4, with its rules, tied to Rafa's question 1 |
 | 10 | Medium | Two revocation timings were unspecified | Section 4 lists the funding on SimChain and the agreement to a revoked seller's offer |
 | 11 | Low | Version naming; `hasCategories`; `commitment.schemaVersion`; where the problem list and the agent read live | Sections 2 and 4 |
 | 12 | Low | Two fixture names differed from the planned ones | `error.scope-exceeded` and `error.revoked-agent` |
@@ -361,4 +365,6 @@ It would also remove `maxDaily` and make the mandate optional at an operator. Bo
 | 17 | Low | Placeholders in this section and in the task file | Filled |
 | 18 | Low | The MCP link pointed at `latest` | Pinned to the dated revision |
 
-The reviewer did not verify the AP2 and x402 dates or the wallet services' policy claims; they rest on the research pass. It recommends a second review by a model of another family before revocation is built. Step 5 carries it.
+**The re-check.** The reviewer read the revised text at `15a7ed43`. It confirmed 17 of its 18 findings fixed and the last partly fixed, and it confirmed facts 10 and 11 and the two-move removal of `categories`. It found no path to a funded hold. It raised two Medium and six Low points, all fixed here: a revoked agent that posts its old mandate to an operator that never held the revocation (the storage rule, the check before admission, `attack.revoked-agent-readmits-mandate`); which of several mandates an operator applies (the rule in section 4, and Rafa's question 1); the schema change for the agent's consent; the step that carries the JSON removal; one citation; the count of `neutrality.*` fixtures; a seller's revocation before a buyer's funding on SimChain; and fact 10's heading.
+
+The reviewer did not verify the AP2 and x402 dates or the wallet services' policy claims; they rest on the research pass. It recommends a second review by a model of another family before revocation is built. Step 5 carries it, and it should cover the two Medium points of the re-check.
