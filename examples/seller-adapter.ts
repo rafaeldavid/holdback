@@ -50,7 +50,7 @@
 // or the deployment in HOLDBACK_DEPLOYMENT. Your API prices in that layer's token: `tUSD` on SimChain, the token's
 // address on a chain (discovery, `demo.token.id`). Test tokens only: nothing here is real money.
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { dirname, resolve } from 'node:path';
@@ -189,6 +189,12 @@ export interface SellerAdapterConfig {
   timing: { offerExpiresInSec: number; fundWithinSec: number; deliverWithinSec: number; judgeWithinSec: number; fallbackWithinSec: number; appealWindowSec: number; appealDecideSec: number };
   /** The journal file. Its directory must exist. */
   journal: string;
+  /**
+   * A file the adapter appends one JSON line to for each event (T-417): quotes, stage changes with their times, the
+   * job's states, refusals and deliveries. For the seller's own product metrics. No report content, key, credential,
+   * buyer address or scope goes into it. Left out: no events.
+   */
+  events?: string;
   /** How often the adapter polls the operators and your API, in milliseconds. */
   pollMs: number;
   log?: (line: string) => void;
@@ -236,7 +242,7 @@ export const config: SellerAdapterConfig = {
 // ---- End of the defaults. ----
 
 /** The fields a configuration file may set: every field of the configuration but `log`. */
-const FILE_KEYS = ['port', 'sellerApi', 'template', 'reportMapping', 'scope', 'options', 'termsRules', 'payoutAddress', 'clubId', 'adjudicators', 'mandate', 'timing', 'journal', 'pollMs', 'quoteAuth', 'quoteRateLimit', 'alerts', 'redelivery'];
+const FILE_KEYS = ['port', 'sellerApi', 'template', 'reportMapping', 'scope', 'options', 'termsRules', 'payoutAddress', 'clubId', 'adjudicators', 'mandate', 'events', 'timing', 'journal', 'pollMs', 'quoteAuth', 'quoteRateLimit', 'alerts', 'redelivery'];
 /** Options removed in T-331, each with what to do instead. A configuration that still sets one is refused. */
 const REMOVED: Array<[string, (c: J) => boolean, string]> = [
   ['stream', (c) => c?.stream !== undefined, 'the adapter learns of a funded hold by polling every pollMs; remove the field'],
@@ -324,6 +330,7 @@ export function loadConfig(file: string): SellerAdapterConfig {
     ...(own ? { ...pass('options'), ...pass('termsRules') } : { options: f.options ?? config.options, termsRules: f.termsRules ?? config.termsRules }),
     timing: { ...config.timing, ...(f.timing ?? {}) },
     journal: f.journal ?? config.journal,
+    ...(f.events === undefined ? {} : { events: f.events }),
     pollMs: f.pollMs ?? config.pollMs,
     redelivery: f.redelivery ?? config.redelivery,
     ...pass('payoutAddress'), ...pass('clubId'), ...pass('adjudicators'), ...pass('mandate'), ...pass('quoteAuth'), ...pass('quoteRateLimit'), ...pass('alerts'),
@@ -356,6 +363,10 @@ export interface Deal {
   ready?: boolean;
   /** Start calls sent for this deal, recorded before each call (T-408). */
   startAttempts?: number;
+  /** When the deal first reached each stage, and when the job finished, by this machine's clock (T-417). */
+  times?: Partial<Record<Stage | 'jobDone', string>>;
+  /** The job's last status value read by a status field, such as `queued` or `running` (T-417). */
+  jobStatus?: string;
 }
 interface Journal {
   deals: Record<string, Deal>;
@@ -784,10 +795,27 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     writeFileSync(`${c.journal}.tmp`, JSON.stringify(journal, null, 2));
     renameSync(`${c.journal}.tmp`, c.journal);
   };
+  // ---- Events (T-417): one JSON line each, for the seller's product metrics; never content, keys or identities ----
+  let eventsBroken = false;
+  const emit = (type: string, fields: Record<string, unknown>) => {
+    if (c.events === undefined) return;
+    try {
+      appendFileSync(c.events, `${JSON.stringify({ schema: 'crow.seller-adapter.event/1', at: new Date().toISOString(), type, ...fields })}\n`);
+    } catch (e) {
+      if (!eventsBroken) log(`Events: cannot write ${plain(c.events)} (${plain((e as Error).message)}); the adapter goes on without them.`);
+      eventsBroken = true;
+    }
+  };
+  const secBetween = (from: string | undefined, to: string) => (from === undefined ? null : Math.round((Date.parse(to) - Date.parse(from)) / 1000));
   const record = (deal: Deal, change: Partial<Deal>) => {
+    const from = deal.stage;
     Object.assign(deal, change);
+    const now = new Date().toISOString();
+    const moved = change.stage !== undefined && change.stage !== from;
+    if (moved) deal.times = { ...deal.times, [deal.stage]: deal.times?.[deal.stage] ?? now };
     save();
     log(`${deal.id} is ${deal.stage}${deal.note ? `: ${plain(deal.note)}` : ''}.`);
+    if (moved) emit('deal.stage', { commitmentId: deal.id, stage: deal.stage, from, secSinceOffered: secBetween(deal.times?.offered, now), secSincePrevious: secBetween(deal.times?.[from], now), ...(deal.stage === 'started' ? { startAttempts: deal.startAttempts ?? null } : {}), ...(deal.stage === 'refused' || deal.stage === 'delivered' || deal.stage === 'closed' ? { refusals: deal.refusals ?? 0 } : {}) });
   };
 
   // ---- The mandate: every offer needs one in the club (T-331) ----
@@ -899,9 +927,12 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
       throw new Refused(503, 'seller_unavailable', 'the seller holds no mandate to offer now');
     }
     let quoted: J;
+    let sellerApiQuoteMs: number | null = null;
     try {
       // Your API's errors name the call and the status only; its body is your API's and may be anything.
+      const asked = Date.now();
       quoted = await sellerApi.quote({ buyer, scope, options });
+      sellerApiQuoteMs = Date.now() - asked;
     } catch (e) {
       log(`Quote failed: ${plain((e as Error).message)}.`);
       throw new Refused(502, 'seller_api_failed', 'the seller could not price this scope');
@@ -951,8 +982,9 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     const { id, terms } = offer;
     // Agent.offer signed only terms it rebuilt from this request; this says so again where it matters most.
     if (String(terms.sellerPayoutAddress).toLowerCase() !== payout) throw new Error(`the signed offer ${id} names ${terms.sellerPayoutAddress} as the payout address, not the configured ${payout}`);
-    journal.deals[id] = { id, stage: 'offered', terms, scope, ...(options === undefined ? {} : { options }), ...(typeof quoted.quoteId === 'string' ? { quoteId: quoted.quoteId } : {}) };
+    journal.deals[id] = { id, stage: 'offered', terms, scope, ...(options === undefined ? {} : { options }), ...(typeof quoted.quoteId === 'string' ? { quoteId: quoted.quoteId } : {}), times: { offered: new Date().toISOString() } };
     save();
+    emit('deal.offered', { commitmentId: id, price: terms.price, ...(quoted.units === undefined ? {} : { units: quoted.units }), deliverWithinSec: Math.round((Date.parse(terms.timing.deliverBy) - Date.parse(terms.createdAt)) / 1000), sellerApiQuoteMs });
     log(`${id} is offered to ${terms.buyer} for ${terms.price.amount} base units of ${plain(terms.price.token)}; the offer expires ${terms.timing.offerExpiresAt}.`);
     // What the buyer pays on top of the price: the adjudication fee, and the operators' fee when they publish one.
     const schedule = await seller.operatorFeeSchedule();
@@ -1064,7 +1096,15 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
       // The address is the configuration's; only named values, such as the job's ID from your API, go into it.
       const values = { commitmentId: id, quoteId: deal.quoteId, jobId: deal.jobId!, buyer: deal.terms.buyer, scope: deal.scope, options: deal.options };
       const job = await sellerApi.result(values);
-      if (job.state === 'running') return; // the job still runs
+      if (job.state === 'running') {
+        // The job still runs. A new status value (`queued`, then `running`) is an event: the queue's time shows.
+        if (job.status !== undefined && job.status !== deal.jobStatus) {
+          const now = new Date().toISOString();
+          record(deal, { jobStatus: job.status });
+          emit('job.status', { commitmentId: id, status: job.status, secSinceStarted: secBetween(deal.times?.started, now) });
+        }
+        return;
+      }
       if (job.state === 'failed') {
         // A failed job is never delivered. The deal closes, so the seller hears of it once.
         const said = `the seller's job ${deal.jobId} failed (${job.status}); nothing is delivered, and the buyer may reclaim the hold after deliverBy ${deliverBy}`;
@@ -1072,6 +1112,11 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
         return alert({ type: 'job.failed', commitmentId: id, jobId: deal.jobId!, status: job.status, deliverBy }, said);
       }
       const result = job.bytes;
+      if (deal.times?.jobDone === undefined) {
+        const now = new Date().toISOString();
+        record(deal, { times: { ...deal.times, jobDone: now } });
+        emit('job.done', { commitmentId: id, secSinceStarted: secBetween(deal.times?.started, now), bytes: result.length });
+      }
       const resultSha256 = createHash('sha256').update(result).digest('hex');
       let bytes = result;
       try {
@@ -1168,6 +1213,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
       ...(typeof detail['conversion'] === 'string' ? [`NOT CONVERTED ${plain(detail['conversion'])}`] : []),
       ...(typeof detail['files'] === 'string' ? [`FILES NOT ADDED ${plain(detail['files'])}`] : []),
     ];
+    emit('delivery.refused', { commitmentId: deal.id, attempt, failedChecks: Array.isArray((detail as J).checks) ? (detail as J).checks.filter((x: J) => x.outcome !== 'pass').map((x: J) => String(x.checkId)) : [], refusedCode: (detail as J).refused?.code ?? null });
     alert({ type: 'delivery.refused', commitmentId: deal.id, deliverBy, attempt, ...detail, nextFetchAt: nextFetchAt ?? null }, `${reasons.join('; ') || plain(why)}. ${waits}.`);
   }
 
@@ -1288,9 +1334,14 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
       req.resume();
       return void send(refused.status, { type: refused.type, detail: refused.message }, refused.headers);
     }
+    const asked = Date.now();
     quote(req).then(
-      (answer) => send(200, answer),
+      (answer) => {
+        emit('quote.answered', { commitmentId: answer.commitmentId, ms: Date.now() - asked });
+        return send(200, answer);
+      },
       (e: Error) => {
+        emit('quote.refused', { status: e instanceof Refused ? e.status : 500, reason: e instanceof Refused ? e.type : 'internal', ms: Date.now() - asked });
         if (e instanceof Refused) return send(e.status, { type: e.type, detail: e.message }, e.headers);
         log(`Quote failed: ${plain(e.message)}.`);
         return send(500, { type: 'internal', detail: 'the adapter could not answer' });

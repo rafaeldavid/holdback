@@ -94,7 +94,8 @@ export interface Values {
 /** A further file could not be fetched or added: the delivery waits, and the seller is alerted. */
 export class FilesNotAdded extends Error {}
 
-export type JobAnswer = { state: 'running' } | { state: 'failed'; status: string } | { state: 'done'; bytes: Uint8Array };
+/** `status`, when the state is read by a field: the field's value, such as `queued` or `running` (T-417, for the events). */
+export type JobAnswer = { state: 'running'; status?: string } | { state: 'failed'; status: string } | { state: 'done'; bytes: Uint8Array };
 
 export interface SellerApi {
   /** One log line: where the API is and how it is reached. Names the credential's variable, never its value. */
@@ -463,14 +464,16 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
       const read = (k: string) => pick(a, quoteRead[k]!);
       const quoteId = read('quoteId');
       let amount: J = unitsAt === undefined ? read('amount') : undefined;
+      let unitsRead: string | undefined;
       if (unitsAt !== undefined) {
         const units = read('units');
         const whole = (typeof units === 'number' && Number.isSafeInteger(units) && units >= 0) || (typeof units === 'string' && /^(0|[1-9][0-9]{0,30})$/.test(units));
         if (!whole) throw new Error(`the quote's ${plain(unitsAt)} is not a whole number of units, as a JSON number or digits with no leading zero: ${short(JSON.stringify(units ?? null))}`);
         amount = (BigInt(units) * BigInt(unitPrice)).toString();
+        unitsRead = String(units);
         if (amount.length > 78) throw new Error(`the quote's price, ${units} units at ${unitPrice} base units, is larger than base units can hold`);
       }
-      return { price: { token: readsToken ? read('token') : undefined, amount }, quoteId: Number.isSafeInteger(quoteId) ? String(quoteId) : quoteId, deliverWithinSec: read('deliverWithinSec'), ...(validFor ? { validForSec: read('validForSec') } : {}) };
+      return { ...(unitsRead === undefined ? {} : { units: unitsRead }), price: { token: readsToken ? read('token') : undefined, amount }, quoteId: Number.isSafeInteger(quoteId) ? String(quoteId) : quoteId, deliverWithinSec: read('deliverWithinSec'), ...(validFor ? { validForSec: read('validForSec') } : {}) };
     },
 
     async start(v) {
@@ -493,7 +496,7 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
         ok2xx('the result', code);
         const word = pick(json(bytes, 'the result'), status.pointer);
         const w = typeof word === 'string' || typeof word === 'number' || typeof word === 'boolean' ? String(word) : undefined;
-        if (w !== undefined && status.running.includes(w)) return { state: 'running' };
+        if (w !== undefined && status.running.includes(w)) return { state: 'running', status: short(w) };
         if (w !== undefined && status.failed.includes(w)) return { state: 'failed', status: short(w) };
         if (w === undefined || !status.done.includes(w)) throw new Error(`the seller API's job status ${w === undefined ? 'is missing' : `"${short(w)}" is none of the configured values`}`);
       }

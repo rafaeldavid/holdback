@@ -117,7 +117,8 @@ describe('seller adapter, a job API of another shape (T-366): deals', () => {
 
   it('a funded deal starts one job, polls it while it runs, adds its files, and delivers once', async () => {
     stub = await startJobStub({ key: KEY, readsUntilComplete: 3 });
-    const file = configFile(stub.base);
+    const events = join(mkdtempSync(join(tmpdir(), 't417-')), 'events.jsonl');
+    const file = configFile(stub.base, { events });
     const { running, lines } = await adapter(file);
     const buyer = agent('buyer-1');
     const { body: q } = await quote(running, buyer);
@@ -145,6 +146,35 @@ describe('seller adapter, a job API of another shape (T-366): deals', () => {
     expect(log).toMatch(/preflight: accept/);
     expect(log).not.toContain(KEY);
     expect(journalText(file)).not.toContain(KEY);
+
+    // T-417: the events, one JSON line each: the quote, each stage with its times, the job's states, the delivery.
+    const text = readFileSync(events, 'utf8');
+    const ev = text.trim().split('\n').map((l) => JSON.parse(l));
+    expect(ev.every((e) => e.schema === 'crow.seller-adapter.event/1' && typeof e.at === 'string')).toBe(true);
+    const types = ev.map((e) => (e.type === 'deal.stage' ? `stage:${e.stage}` : e.type === 'job.status' ? `status:${e.status}` : e.type));
+    expect(types.slice(0, 2)).toEqual(['deal.offered', 'quote.answered']);
+    for (const t of ['stage:starting', 'stage:started', 'status:queued', 'status:running', 'job.done', 'stage:delivering', 'stage:delivered']) expect(types, t).toContain(t);
+    expect(types.indexOf('status:queued')).toBeLessThan(types.indexOf('status:running'));
+    expect(ev.find((e) => e.type === 'deal.offered')).toMatchObject({ commitmentId: id, price: { amount: '200000000' }, deliverWithinSec: 2 * 86_400 });
+    expect(ev.find((e) => e.type === 'quote.answered')).toMatchObject({ commitmentId: id, ms: expect.any(Number) });
+    const done = ev.find((e) => e.type === 'deal.stage' && e.stage === 'delivered');
+    expect(done).toMatchObject({ from: 'delivering', refusals: 0, secSinceOffered: expect.any(Number), secSincePrevious: expect.any(Number) });
+    expect(ev.find((e) => e.type === 'job.done')).toMatchObject({ secSinceStarted: expect.any(Number), bytes: expect.any(Number) });
+    // No content, credential, identity or scope.
+    for (const secret of [KEY, buyer.address.toLowerCase(), buyer.address, 'vault-core', 'Reviewed', 'overflow', DEFAULT_FILES['poc/overflow.t.sol']!]) expect(text, secret).not.toContain(secret);
+    const journaled = JSON.parse(journalText(file)).deals[id];
+    expect(Object.keys(journaled.times).sort()).toEqual(['delivered', 'delivering', 'jobDone', 'offered', 'started', 'starting'].sort());
+  }, 30_000);
+
+  it('a quote the adapter refuses is an event with its reason code and no request content (T-417)', async () => {
+    stub = await startJobStub({ key: KEY });
+    const events = join(mkdtempSync(join(tmpdir(), 't417-')), 'events.jsonl');
+    const { running } = await adapter(configFile(stub.base, { events }));
+    const res = await fetch(`${running.url}/quote`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ buyer: '0x00000000000000000000000000000000000000aa', buyerEncryptionPublicKey: 'x', scope: { target: 'secret-target', depth: 2 } }) });
+    expect(res.status).toBe(400);
+    const text = readFileSync(events, 'utf8');
+    expect(JSON.parse(text.trim())).toMatchObject({ type: 'quote.refused', status: 400, reason: 'invalid_request', ms: expect.any(Number) });
+    for (const secret of ['secret-target', '0x00000000000000000000000000000000000000aa']) expect(text).not.toContain(secret);
   }, 30_000);
 
   it('a start whose answer is lost, then a restart, starts one job under the same key and delivers once', async () => {
