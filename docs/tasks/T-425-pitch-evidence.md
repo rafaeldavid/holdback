@@ -6,7 +6,7 @@
 - **Depends on:** the live test service on Sepolia (`https://api.crow.direct`, `https://api2.crow.direct`), Crow's test seller (`https://crow.direct/agents/test-seller`), `examples/try.ts`, and the anvil world of `examples/e2e-world.ts`
 - **Paths this task may touch:** `scripts/metrics/pitch-evidence*`, `tests/metrics/pitch-evidence*`, this file. Scratch under `reports/scratch/t-425/` (not committed). The results go to the private repository, one new file `strategy/2026-11-14-machine-first-evidence.md`.
 - **Human gate:** no. The live run makes test deals on the public test service like anyone running the try command; the operators pay its gas in test ETH. The two other measurements run on a local anvil chain only. Nothing is deployed.
-- **Status:** in progress
+- **Status:** done (pull request number in the Handoff)
 - **Agent/session:** the T-425 side session of 2026-11-14, worktree `.worktrees/holdback-T-425`, branch `t-425-pitch-evidence`
 
 ## Intent
@@ -22,12 +22,12 @@ Non-goals: editing the pitch note or its page (the coordinator's); running anyth
 ## Acceptance criteria
 
 - [x] `node scripts/metrics/pitch-evidence.mjs --help` describes the three measurements; each runs with one command and writes one JSON record.
-- [ ] Measurement 1: 20 live deals run one at a time, each with its commitment ID and its four intervals; the median, minimum, maximum and count; the relayer's test ETH read first and checked against its low mark.
+- [x] Measurement 1: 20 live deals run one at a time, each with its commitment ID and its four intervals; the median, minimum, maximum and count; the relayer's test ETH read first and checked against its low mark.
 - [x] Measurement 2: on anvil, a deal funded and delivered through the operators finishes with both operators stopped, by direct calls only, timed; it names the fixture it extends.
 - [x] Measurement 3: on anvil, each attempt a leaked buyer or seller key can make at each stage, with what moved and the largest loss in tUSDC.
 - [x] Tests for the parts that need no network (`tests/metrics/pitch-evidence.test.ts`, in CI). The two anvil tests skip where anvil or `contracts/out` is missing; CI's anvil job runs a fixed list of other files, so they run only by the commands above.
-- [ ] One `reviewer` pass, its findings fixed or recorded.
-- [ ] The private results file, with a table per measurement, each claim labelled, the commands, and three sentences for the pitch.
+- [x] One `reviewer` pass, its findings fixed or recorded.
+- [x] The private results file, with a table per measurement, each claim labelled, the commands, and three sentences for the pitch.
 
 ## Evidence
 
@@ -35,7 +35,45 @@ All on 2026-11-14 in the worktree, Node 22.22.2, unless labelled otherwise.
 
 ### Measurement 1: 20 live test deals
 
-Filled when the series ends.
+`node scripts/metrics/pitch-evidence.mjs deals --count 20` from 11:29 to 13:30 UTC: 20 of 20 deals Released, each with Crow's test seller as the other party, one at a time [measured]. Each is `examples/try.ts --seller https://crow.direct/agents/test-seller` at this branch's base (`0ed11a8a`) against `https://api.crow.direct` and `https://api2.crow.direct`; both operators served identical events for every deal [measured].
+
+| Interval | Median | Minimum | Maximum | Deals |
+| --- | --- | --- | --- | --- |
+| Offer to funding | 9 s | 7 s | 20 s | 20 |
+| Funding to delivery | 12 s | 12 s | 12 s | 20 |
+| Delivery to payment | 12 s | 12 s | 12 s | 20 |
+| **Offer to payment** | **33 s** | **31 s** | **44 s** | **20** |
+| Wall time of the whole try run | 47.8 s | 44.3 s | 61.4 s | 20 |
+
+- **Before the first deal** (11:28 UTC): the funding lane held 2.7845 ETH and the deal lanes 0.0104, 0.0292 and 0.0136 ETH, at a gas price of 17 wei. 20 deals needed at most 0.0312 ETH, leaving the funding lane far above the 0.3 ETH low mark [measured].
+- **Funding, delivery and payment landed in three consecutive Sepolia blocks in all 20 deals** [measured, each deal's blocks]: funding to delivery and delivery to payment are one 12 s block each. The spread is all in offer to funding, which is 20 s when the funding missed a block (deals 4 and 6).
+- **The morning's 33 s deal is typical:** 8 deals were faster (31 to 32 s), 9 took 33 s and 3 were slower (34 s, 44 s, 44 s) [measured].
+- **Gas:** 828,392 to 926,348 gas a deal for its three transactions, paid by the operators [measured, the events' `gasUsed`].
+- **Nothing stopped the series:** no 429 other than the faucet's and no failed deal. The faucet refused deal 11's grant at 11:37 UTC and deal 20's at 12:36 UTC (10 new addresses per client an hour); the series waited 3,098 s and 3,156 s as its answers said [measured]. Rafa then raised the limit to 50 an hour (holdback pull request 534, merged; deploy pending).
+
+| Deal | Commitment | Started (UTC) | Offer to funding | Funding to delivery | Delivery to payment | Offer to payment |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `0x8de386f24e10b8f4086ad6186c5fffc6bb816962466aa3ea1bd1a85eaaff91e5` | 11:29:05 | 8 s | 12 s | 12 s | 32 s |
+| 2 | `0xac55bb9ec866ad4b19f1002152f0427027be86900ffc14ac7e9e3feab09bbff5` | 11:29:52 | 9 s | 12 s | 12 s | 33 s |
+| 3 | `0x686218679bddc53ff74b83e77a55e0a1fc217484f11c0f490d0f9eb9b3614dc8` | 11:30:39 | 10 s | 12 s | 12 s | 34 s |
+| 4 | `0xbe6f3c1fa3ffec49223a381d7a01081d9b0e03c5e5d4eecbdaac71a631c3ff2d` | 11:31:26 | 20 s | 12 s | 12 s | 44 s |
+| 5 | `0x1eb0b860c6b168ded67bec0bfe9770fdec692ca603ac7398d696e0c2ed4d69d6` | 11:32:28 | 9 s | 12 s | 12 s | 33 s |
+| 6 | `0xe87a223bb695994f7e94cda55f08802c7ab8fc88ecaa949606807ef388ce3f16` | 11:33:14 | 20 s | 12 s | 12 s | 44 s |
+| 7 | `0x0151d0596f37a6048e634209347f6c64651f195cf39accb9f1eadb9abeb3db1a` | 11:34:15 | 9 s | 12 s | 12 s | 33 s |
+| 8 | `0x366a7cd2fbd14ac9debefc3d952a95f71fcbe95319c1ac4252448ae4f08de4b1` | 11:35:02 | 7 s | 12 s | 12 s | 31 s |
+| 9 | `0x848606b4b3238c3c4e02318431f08766fef0b63ca7cf810d1ab6a2d230590be0` | 11:35:51 | 9 s | 12 s | 12 s | 33 s |
+| 10 | `0xbdf9c7d53b732752cf03a6063c1133edcc40ccdd35f06982f96b2222415503c9` | 11:36:39 | 9 s | 12 s | 12 s | 33 s |
+| 11 | `0xe0dd6be5f4a053ff496a92f01c03a4e00131b7fca78a2841a961c394c338898c` | 12:29:12 | 9 s | 12 s | 12 s | 33 s |
+| 12 | `0xee93d24e27c1cf07b1c8501d4512a513a2c0bb891d58afb351cbf57ddcaa484e` | 12:30:03 | 9 s | 12 s | 12 s | 33 s |
+| 13 | `0xef0bcab73472cd70915033f0ef4ccc8d6be79722803365c76def36baa7187aa2` | 12:30:51 | 8 s | 12 s | 12 s | 32 s |
+| 14 | `0x76e3231de13cea4d329dbb1cfaced02b67a6807f4d3f5dfe5c1a1b7a58f0509c` | 12:31:39 | 8 s | 12 s | 12 s | 32 s |
+| 15 | `0x2e8db44a09f3c41495ed6d299cbbb035c7ab8918953d02244eb5bb169eae8e27` | 12:32:28 | 8 s | 12 s | 12 s | 32 s |
+| 16 | `0x7534dca8f99fc59bac025d39a13a74dedcfda9eb095a1de66a1506dbaf442b34` | 12:33:18 | 9 s | 12 s | 12 s | 33 s |
+| 17 | `0x309883f168134f0d35222fddddd8669710729774f0472ccae54f982cc1136c4b` | 12:34:02 | 8 s | 12 s | 12 s | 32 s |
+| 18 | `0xbd623a288fdaac9c03958b7b4c1ace741e910b2df46a0feebb59a5be9006c8e3` | 12:34:51 | 9 s | 12 s | 12 s | 33 s |
+| 19 | `0x5b7899de7eb0d1f23d05e1ce4470008cb561c8a228e5b1fa95107076319a8472` | 12:35:38 | 8 s | 12 s | 12 s | 32 s |
+| 20 | `0x678f4800280e045a9cd6d97034da8b95526b1cbcadc3175edd8ff7fc3b414d7a` | 13:29:18 | 8 s | 12 s | 12 s | 32 s |
+
 
 ### Measurement 2: a deal finished with both operators stopped (local anvil only)
 
@@ -80,6 +118,10 @@ Filled when the series ends.
 - Not tried, each bounded the same way, by what the leaked address holds [inferred from reading the token and the contract]: `receiveWithAuthorization`; an EIP-2612 permit; a Permit2 transfer (`TestUSDC` gives Permit2 an unlimited allowance); `agreeAndFund` on terms the holder writes itself; `cancelAuthorization`, which can only stop a funding. `decide` needs the adjudicator's signature, which neither key is.
 - What the pitch's line leaves out is in the private results file.
 
+### Review
+
+**Reviewer pass, 2026-11-14 (the `reviewer` agent): ISSUES, nothing blocking.** Three Medium, all fixed: a faucet refusal after a busy test seller led to a wait instead of a stop (`nextStep`, now a test); the seller's key delivering work that passes the checks was not measured (now a row: 1,025 tUSDC, not 1,000); ADR-0033's per-deal key with its money apart was not measured (now four tests). Low, fixed: a circular final check (now a balance read from the chain), the relayer check counting the deal lanes, the short-ID regex, a timed-out run reported as an ordinary failure, the faucet probe's possible grant (now in Decisions), a race between the operators' own timeouts and the clock warp, and the task file's wording. Info, recorded above: the attempts not made. The reviewer suggested a second review by another model family for measurement 3; `docs/team.md` runs one only when Rafa asks, so it is in the Handoff.
+
 ## Decisions
 
 - **Measurement 1 runs `examples/try.ts` as a child process,** unchanged, with `--seller` and the two live operators, so the numbers are the published command's and not a reimplementation's. Each deal is timed by its events' `at`, the operator's record; on-chain moments also keep their block.
@@ -91,4 +133,13 @@ Filled when the series ends.
 
 ## Handoff
 
-Filled when the pull request opens.
+**Done:** the three measurements, their script and tests, and the private results file (crow-private `strategy/2026-11-14-machine-first-evidence.md`), which also says where the pitch's line on leaked keys needs correcting.
+
+**Waits for Rafa:**
+- **A live direct-submission run,** with test ETH in a wallet of his: about 181,000 gas for one early accept sent straight to HoldbackRules on Sepolia, on a deal with a long `judgeBy` so the operators' own adjudicator does not decide first.
+- **The operators' deploy** that carries the faucet's 50 an hour (pull request 534): until then a 20-deal series waits out the hour after every 10 deals.
+- **A second-family review of measurement 3,** if he wants one (the reviewer's suggestion).
+
+**For the coordinator:** the three numbers and the three pitch sentences are in the private results file; this task edits neither the pitch note nor its page.
+
+**Follow-ups not built** (for the triage note): publish the seller's payout address in its agent card and have the try command and the buyer's tools check it; the try command's closing hint should read `demo.faucet.perClientPerWindow` from discovery at the next planned `try.mjs` change; the anvil tests of this task in CI's anvil job.
