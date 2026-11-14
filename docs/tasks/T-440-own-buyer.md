@@ -1,8 +1,9 @@
-# T-435: Crow's buying agent pays through the signer
+# T-440: Crow's buying agent pays through the signer
 
+- **Roadmap row:** N131
 - **Lane:** demo (Crow's own agents, roadmap row N131, build row 4)
 - **Phase:** 2
-- **Depends on:** T-434 (the signer), T-433 (the mandate tool)
+- **Depends on:** T-439 (the signer), T-438 (the mandate tool)
 - **Paths this task may touch:** `examples/own-buyer.ts`, `examples/own-buyer.test.ts`, `examples/own-buyer-attacks.test.ts`, one section in `site/ref/buyer-signer.txt`, this file
 - **Human gate:** no (nothing deployed; the site deploy after merge follows the wave's rule)
 - **Status:** review
@@ -28,9 +29,9 @@ Non-goals: any change to the buyer's tools or their bundle; a purchase a person 
 
 | Constraint | Rung | What enforces it | The attack test |
 | --- | --- | --- | --- |
-| The agent pays only through the signer | 1, once the signer runs on its own machine (build row 7); a rehearsal on one machine until then | The command reads no float key and its process gets only `PATH` and `HOLDBACK_OPERATORS`; it asks the signer | A1 (`signer-attacks.test.ts`, `signer-anvil.test.ts`, T-434); control: `own-buyer.test.ts`, the agent as its own process buys one deal and the float pays exactly the total |
+| The agent pays only through the signer | 1, once the signer runs on its own machine (build row 7); a rehearsal on one machine until then | The command reads no float key and its process gets only `PATH` and `HOLDBACK_OPERATORS`; it asks the signer | A1 (`signer-attacks.test.ts`, `signer-anvil.test.ts`, T-439); control: `own-buyer.test.ts`, the agent as its own process buys one deal and the float pays exactly the total |
 | What the agent sends is what its tool wrote, and what comes back is for that deal | 4 | The command checks the terms' ID and the file's digest before sending, and the signer's answer's ID and digest before funding; the buyer's tool recovers the signature over its own message before submitting | `own-buyer-attacks.test.ts` RT-4, RT-5 |
-| The float takes no faucet money | 4, the agent's own command | The command asks the faucet for 1 base unit to the deal key only. An agent that is taken over can still ask the faucet to fill the float; on this network that bounds nothing (X3), and the signer's limits do not move (A9, T-434) | `own-buyer.test.ts`: the float's balance falls by the total and rises by nothing |
+| The float takes no faucet money | 4, the agent's own command | The command asks the faucet for 1 base unit to the deal key only. An agent that is taken over can still ask the faucet to fill the float; on this network that bounds nothing (X3), and the signer's limits do not move (A9, T-439) | `own-buyer.test.ts`: the float's balance falls by the total and rises by nothing |
 | A deal outside Crow's addresses is not Crow's | 5, recorded, not prevented | Nothing: on this network any key can take faucet money and deal (gaps N1) | A10, `own-buyer.test.ts` |
 | The agent's own checks: the most it pays, `--expect-terms` | 4 | The command | none: soft, a first line before the signer |
 
@@ -72,6 +73,6 @@ The `reviewer` agent and the `red-teamer` agent read `CLAUDE.md`, ADR-0038, `doc
 
 ## Handoff
 
-Done: the command, its tests and the reference section. The site needs a deploy for that section and for T-433's `limits.txt` paragraph.
+Done: the command, its tests and the reference section. The site needs a deploy for that section and for T-438's `limits.txt` paragraph.
 
 **Owed before the proof run:** a review by a model of another family of the unattended payment path (design, "The build, in order"). It needs a key of Rafa's.

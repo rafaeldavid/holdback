@@ -1,4 +1,4 @@
-// Crow's buying agent (T-435), the attacks from its red team: a signer that is down or goes away, operators that
+// Crow's buying agent (T-440), the attacks from its red team: a signer that is down or goes away, operators that
 // charge a fee, a signer answer for another deal, files swapped in the key store, operators written with a trailing
 // slash, a misspelt term in --expect-terms. Each fails on the branch before its fix and names the outcome the defense gives. Keys are made in memory for one run and guard nothing.
 import { spawn } from 'node:child_process';
@@ -79,7 +79,7 @@ afterAll(async () => {
   cleanup(dirs);
 });
 
-describe('T-435 red team: the buying agent through the signer', () => {
+describe('T-440 red team: the buying agent through the signer', () => {
   it('RT-1: a signer that is not running pays nothing and exits 3, naming the signer', async () => {
     const gone = await channel(s, () => undefined);
     const url = gone.url;

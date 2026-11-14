@@ -1,4 +1,4 @@
-// Crow's buying agent (T-435): one purchase paid from Crow's float, where the agent holds no key that can pay. It runs
+// Crow's buying agent (T-440): one purchase paid from Crow's float, where the agent holds no key that can pay. It runs
 // the buyer's tools as they are (buyer-signer.ts, verify.ts), sends the one message the float must sign to Crow's
 // signer (examples/signer.ts) and takes no money from the faucet for the float. A new file, so the buyer's pinned
 // bundle (site/buy.mjs) is unchanged: nothing here runs unless this command is run. Test tokens only.

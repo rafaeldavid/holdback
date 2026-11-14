@@ -1,4 +1,4 @@
-// Crow's buying agent (T-435) against the public demo's own world on SimChain: the agent runs as its own process
+// Crow's buying agent (T-440) against the public demo's own world on SimChain: the agent runs as its own process
 // (node examples/own-buyer.ts) and pays from the float only through the signer (its own process too); the float gets
 // nothing from the faucet. A10: a deal funded from a fresh key with faucet money funds, as on this network anyone's
 // can; it is not paid from Crow's float and the signer's ledger does not hold it.
