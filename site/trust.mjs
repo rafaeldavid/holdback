@@ -12,6 +12,7 @@
 import { readFileSync } from 'node:fs';
 import { CARDS, cardTags, CODE_URL, footerHtml } from './footer.ts';
 import { button, headerBar, kitCss, notice, sectionHead } from './brand/kit.mjs';
+import { drawerScript } from './drawer.ts';
 
 const here = (p) => new URL(p, import.meta.url);
 const read = (p) => readFileSync(here(p), 'utf8');
@@ -157,7 +158,7 @@ export function trustSections(f = trustFacts()) {
 }
 
 /** The two pages' styles, served as pages.css: the kit's parts they use, then their own layout. */
-export const PAGES_CSS = kitCss({ parts: ['bar', 'button', 'pill', 'head', 'table', 'notice', 'footer'] }) + `/* the trust and status pages (site/trust.mjs, T-421): light only, one column, the kit's tokens */
+export const PAGES_CSS = kitCss({ parts: ['bar', 'button', 'pill', 'head', 'table', 'notice', 'dialog', 'footer'] }) + `/* the trust and status pages (site/trust.mjs, T-421): light only, one column, the kit's tokens */
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body { margin: 0; background: var(--page); color: var(--ink); font: var(--size-body)/1.55 var(--font); -webkit-font-smoothing: antialiased; }
@@ -167,6 +168,7 @@ code { font: .9em var(--mono); }
 .doc { max-width: 760px; margin: 0 auto; padding: 72px var(--gutter) 88px; }
 .doc .ck-notice { margin-top: 32px; }
 .doc .ck-notice + .src { margin-top: 8px; }
+.doc .cta { margin: 20px 0 0; }
 .doc h2 { margin: 56px 0 0; font-family: var(--display); font-size: var(--size-lede); line-height: 1.3; font-weight: var(--weight-bold); letter-spacing: -.01em; }
 .claims { margin: 16px 0 0; padding: 0; list-style: none; border-top: 1px solid var(--hair); }
 .claims li { padding: 16px 0; border-bottom: 1px solid var(--hair); }
@@ -212,8 +214,9 @@ export function trustPage({ site = 'https://crow.direct/', base = '/', facts = t
   return `${head({ site, base, card: CARDS.trust })}
 <main class="doc">
 ${sectionHead({ eyebrow: 'Trust', title: 'How Crow handles money, keys and data', lede: 'Plain answers for your company’s security team, each with its source. Crow runs on the Sepolia test network, with test tokens only.' })}
-${notice({ title: 'Not there yet', text: 'No outside audit of Crow’s own contracts, no certification such as SOC 2 or ISO 27001, no penetration test and no bug bounty. Crow runs on a test network only.' })}
+${notice({ title: 'Coming soon', text: 'An outside audit of Crow’s own contracts, a penetration test, a certification such as SOC 2 or ISO 27001, a bug bounty, and deals with real money. Today Crow runs on a test network, with test tokens only.' })}
 ${sources([['The security policy: status', `${SECURITY_POLICY}#status`], ['The audit scope', src('docs/audit/scope.md')]])}
+<p class="cta">${button({ label: 'Request early access', href: `${base}#join-form`, attrs: 'data-join' })}</p>
 ${sections.map((s) => `<h2>${esc(s.title)}</h2>
 <ul class="claims">
 ${s.items.map(([text, list]) => `<li><p>${text}</p>${sources(list)}</li>`).join('\n')}
@@ -221,6 +224,9 @@ ${s.items.map(([text, list]) => `<li><p>${text}</p>${sources(list)}</li>`).join(
 <p class="checked">Each line was checked against its source on ${TRUST_CHECKED}. The addresses and the retention periods are read from the deployment record and the code each time the site is built.</p>
 </main>
 ${footerHtml({ base, current: 'trust' })}
+<script>
+${drawerScript()}
+</script>
 </body>
 </html>
 `;

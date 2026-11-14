@@ -393,7 +393,9 @@ if (existsSync(here('trust.html'))) {
   const items = [...t.matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => m[1]);
   expect(items.length > 0, 'site/trust.html states nothing');
   for (const it of items) expect(/<p class="src">Source: <a href="https:\/\//.test(it), `a statement on site/trust.html has no source link: ${shownText(it).trim().slice(0, 80)}`);
-  for (const w of ['no outside audit', 'SOC 2', 'test network']) expect(shownText(t).includes(w), `site/trust.html no longer says "${w}": it states plainly what is not there yet`);
+  for (const w of ['Coming soon', 'outside audit', 'SOC 2', 'test network']) expect(shownText(t).includes(w), `site/trust.html no longer says "${w}": it states plainly what is not there yet`);
+  // The notice's call to action (Rafa, 2026-11-14): the kit's one filled button opens the early-access drawer (site/drawer.ts).
+  expect((t.match(/class="ck-btn"/g) ?? []).length === 1 && /<a class="ck-btn" href="[^"]*#join-form" data-join>Request early access<\/a>/.test(t) && t.includes('join-drawer'), 'site/trust.html lacks its one filled button, Request early access, opening the early-access drawer');
   const repo = 'https://github.com/rafaeldavid/holdback/';
   // A submodule counts when .gitmodules names it: a copy of the tracked files (tests/record-copies.test.ts) has no submodule folder.
   const submodules = [...read('../.gitmodules').matchAll(/^\s*path = (.+)$/gm)].map((m) => m[1].trim());

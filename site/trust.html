@@ -34,8 +34,9 @@
 </div></header>
 <main class="doc">
 <div class="ck-head"><p class="ck-eyebrow">Trust</p><h1 class="ck-title">How Crow handles money, keys and data</h1><p class="ck-lede">Plain answers for your company’s security team, each with its source. Crow runs on the Sepolia test network, with test tokens only.</p></div>
-<div class="ck-notice" role="note"><p class="ck-notice-title">Not there yet</p><p class="ck-notice-text">No outside audit of Crow’s own contracts, no certification such as SOC 2 or ISO 27001, no penetration test and no bug bounty. Crow runs on a test network only.</p></div>
+<div class="ck-notice" role="note"><p class="ck-notice-title">Coming soon</p><p class="ck-notice-text">An outside audit of Crow’s own contracts, a penetration test, a certification such as SOC 2 or ISO 27001, a bug bounty, and deals with real money. Today Crow runs on a test network, with test tokens only.</p></div>
 <p class="src">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/SECURITY.md#status">The security policy: status</a><a href="https://github.com/rafaeldavid/holdback/blob/main/docs/audit/scope.md">The audit scope</a></p>
+<p class="cta"><a class="ck-btn" href="/#join-form" data-join>Request early access</a></p>
 <h2>Where the money sits</h2>
 <ul class="claims">
 <li><p>From funding on, a deal’s payment sits in an escrow contract on Ethereum Sepolia, a public test network. It is Coinbase’s Commerce Payments escrow, used unchanged. No account of Crow’s sits between the buyer’s payment and the escrow. The escrow keeps the tokens in a token store it creates for Crow’s rules contract, so Etherscan shows the balance there, not at the escrow’s own address.</p><p class="src">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/contracts/deployments/sepolia.json">The deployment record</a><a href="https://sepolia.etherscan.io/address/0x8ef2b0Bc9304Fd4D506b5410B35Cc1e2D2BB4357">The escrow on Etherscan</a><a href="https://github.com/base/commerce-payments/blob/6b0a5ef3f0df973857f558e2d6b5dd645b5e97f9/src/AuthCaptureEscrow.sol">The escrow’s code (getTokenStore)</a><a href="https://github.com/rafaeldavid/holdback/blob/main/docs/decisions/ADR-0003-escrow-contract-base.md">Why this escrow (ADR-0003)</a></p></li>
@@ -97,5 +98,33 @@
 <nav class="ck-foot-nav" aria-label="Footer"><a href="/demo/">Demo</a><a href="/llms.txt">Agent docs</a><a href="/trust" aria-current="page">Trust</a><a href="/status">Status</a><a href="https://github.com/rafaeldavid/holdback">GitHub</a></nav></div>
 <div class="ck-foot-bar"><span>© 2026 Crow · Verifiable settlement for AI commerce</span></div>
 </footer>
+<script>
+(function () {
+  var opens = document.querySelectorAll('[data-join]');
+  if (!opens.length || typeof HTMLDialogElement !== 'function') return; // the controls stay links to a visible form
+  var box = document.createElement('div');
+  box.innerHTML = "<dialog class=\"ck-dialog\" id=\"join-drawer\" aria-labelledby=\"drawer-title\"><form class=\"ck-dialog-form\" novalidate><div class=\"ck-dialog-head\"><h2 class=\"ck-dialog-title\" id=\"drawer-title\">Request early access</h2><button class=\"ck-dialog-close\" type=\"button\" aria-label=\"Close\"><svg class=\"ck-icon\" viewBox=\"0 0 14 14\" aria-hidden=\"true\"><path d=\"M3 3l8 8M11 3l-8 8\"/></svg></button></div><p class=\"ck-dialog-lede\">Crow is in early access on test money. Leave your work email and we will write when your team can start.</p><label class=\"ck-dialog-label\" for=\"drawer-email\">Work email</label><input id=\"drawer-email\" name=\"email\" type=\"email\" autocomplete=\"email\" required placeholder=\"you@company.com\"><input class=\"ck-hp\" name=\"company\" tabindex=\"-1\" autocomplete=\"off\" aria-hidden=\"true\"><button class=\"ck-btn\" type=\"submit\">Request early access</button><p class=\"ck-dialog-msg\" role=\"status\"></p></form></dialog>";
+  var d = box.firstChild;
+  document.body.appendChild(d);
+  var form = d.querySelector('form'), email = d.querySelector('#drawer-email'), msg = d.querySelector('.ck-dialog-msg'), send = d.querySelector('.ck-btn'), opener = null;
+  var open = function (e) { e.preventDefault(); e.stopPropagation(); opener = this; msg.textContent = ''; d.showModal(); email.focus(); };
+  for (var i = 0; i < opens.length; i++) opens[i].addEventListener('click', open);
+  d.querySelector('.ck-dialog-close').addEventListener('click', function () { d.close(); });
+  d.addEventListener('click', function (e) { if (e.target === d) d.close(); }); // a click outside the sheet
+  d.addEventListener('close', function () { if (opener) opener.focus(); });
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var address = email.value.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(address)) { msg.textContent = 'Please enter a full email address, like you@company.com.'; return; }
+    send.disabled = true; msg.textContent = 'Sending…';
+    fetch('https://join.crow.direct/early-access', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: address, company: form.company.value, page: location.pathname }) })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+      .then(function (x) { msg.textContent = x.ok ? 'Thank you. We’ll be in touch at ' + address + '.' : (x.b && x.b.error) || 'That didn’t go through. Please try again.'; if (x.ok) email.value = ''; })
+      .catch(function () { msg.textContent = 'That didn’t go through here. You can also sign up at crow.direct.'; })
+      .then(function () { send.disabled = false; });
+  });
+})();
+
+</script>
 </body>
 </html>
