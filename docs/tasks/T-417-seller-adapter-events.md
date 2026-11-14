@@ -6,7 +6,7 @@
 - **Depends on:** T-366 (the job API mapping), T-406 (unit pricing), T-408 (the one-shot start)
 - **Paths this task may touch:** `examples/seller-adapter.ts`, `examples/seller-adapter-api.ts`, `examples/seller-adapter.test.ts`, `examples/seller-adapter-job-api.test.ts`, `site/ref/seller-adapter.txt`, this file, and T-408's status line. Never: settlement, judgment, auth, the operators or their telemetry.
 - **Human gate:** no. Rafa, 2026-11-14: "Make sure the adapter and API have the right emissions of data to help the product development." Nothing deploys.
-- **Status:** review (this pull request)
+- **Status:** done (PR 507, merge commit `cdb4163`)
 - **Agent/session:** the T-399 session, 2026-11-14, branch `t-417-adapter-events`
 
 ## Intent
