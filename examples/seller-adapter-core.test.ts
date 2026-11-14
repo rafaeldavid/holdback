@@ -7,7 +7,13 @@ import type { Hex } from 'viem';
 import { startSimWorld, type SimWorld } from '@holdback/operator';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Agent } from './agent.ts';
-import { config as shipped, createSellerAdapter, startSellerAdapter, type AdapterIO, type Journal, type SellerAdapterConfig, type SellerAdapterCore } from './seller-adapter.ts';
+import { request as httpRequest } from 'node:http';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { plain as testkitPlain } from '@holdback/testkit';
+import { plain } from './plain.ts';
+import { config as shipped, createSellerAdapter, startSellerAdapter, type AdapterIO, type Journal, type RunningAdapter, type SellerAdapterConfig, type SellerAdapterCore } from './seller-adapter.ts';
 import { startStubSellerApi, type StubSellerApi } from './seller-adapter-stub.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -150,4 +156,71 @@ describe('seller adapter core (T-434): one variable for each credential', () => 
     ];
     for (const [over, message] of cases) await expect(start(over)).rejects.toThrow(message);
   });
+});
+
+describe('seller adapter core (T-434): the red team\'s cases', () => {
+  const env = { HOLDBACK_KEY: `0x${'11'.repeat(32)}`, HOLDBACK_OPERATORS: 'http://127.0.0.1:1,http://127.0.0.2:1', API_KEY: 'k', QUOTE_KEYS: 'q1,q2', READY_KEYS: 'r', ALERT_SECRET: 's' };
+  const api = (auth: J) => ({ baseUrl: 'http://127.0.0.1:1/api/', auth, quote: { path: 'q' }, start: { path: 's', idempotencyHeader: 'X-Key' }, result: { path: 'r/{{jobId}}' } });
+  const start = (over: Partial<SellerAdapterConfig>, e: Record<string, string> = env) => startSellerAdapter({ ...shipped, journal: '/nonexistent/journal.json', ...over } as SellerAdapterConfig, e);
+  it('refuses a credential variable named in any shape but a variable name', async () => {
+    for (const name of [['HOLDBACK_KEY'], 7, 'A-B', '', { x: 1 }]) {
+      await expect(start({ quoteAuth: { kind: 'bearer', env: name as J } }), JSON.stringify(name)).rejects.toThrow('quoteAuth.env must name an environment variable');
+      await expect(start({ redelivery: { readyAuth: { kind: 'bearer', env: name as J } } }), JSON.stringify(name)).rejects.toThrow('redelivery.readyAuth.env must name an environment variable');
+      await expect(start({ alerts: { callback: 'http://127.0.0.1:9/a', secretEnv: name as J } }), JSON.stringify(name)).rejects.toThrow('alerts.secretEnv must name an environment variable');
+    }
+  });
+  it('refuses a shell variable in any case, and names what each holds', async () => {
+    await expect(start({ quoteAuth: { kind: 'bearer', env: 'holdback_key' } })).rejects.toThrow("quoteAuth.env names holdback_key, which holds the seller's signing key");
+    await expect(start({ quoteAuth: { kind: 'bearer', env: 'HOLDBACK_DEPLOYMENT' } })).rejects.toThrow('quoteAuth.env names HOLDBACK_DEPLOYMENT, which holds the settlement deployment the adapter pins');
+  });
+  it('refuses two credentials that hold one value, the signing key included, and names no value', async () => {
+    const same = { ...env, API_KEY: env.HOLDBACK_KEY.toUpperCase().replace('0X', '0x') };
+    await expect(start({ sellerApi: api({ env: 'API_KEY', header: 'X-Api-Key' }) as J }, same)).rejects.toThrow(/^sellerApi\.auth\.env and HOLDBACK_KEY hold the same value/);
+    const shared = { ...env, READY_KEYS: 'q2' };
+    const e = await start({ quoteAuth: { kind: 'bearer', env: 'QUOTE_KEYS' }, redelivery: { readyAuth: { kind: 'bearer', env: 'READY_KEYS' } } }, shared).catch((x: Error) => x);
+    expect((e as Error).message).toMatch(/^redelivery\.readyAuth\.env and quoteAuth\.env hold the same value/);
+    expect((e as Error).message).not.toContain('q2');
+  });
+  it('plain is the testkit\'s plain', () => {
+    for (const t of ['a\r\nb', 'x\u202ey', 'tag\u{e0041}', 'esc\u001b[31m', 'ok', '\u2028line']) expect(plain(t)).toBe(testkitPlain(t));
+  });
+});
+
+describe('seller adapter, the Node shell (T-434): requests it answers itself', () => {
+  let running: RunningAdapter | undefined;
+  afterEach(async () => {
+    await running?.close();
+    running = undefined;
+  });
+  async function shell(over: Partial<SellerAdapterConfig> = {}, extraEnv: Record<string, string> = {}) {
+    stub ??= await startStubSellerApi({ port: 0 });
+    const [primary, fallback, appeal] = world.info.adjudicators.map((a) => a.address);
+    running = await startSellerAdapter(
+      { ...shipped, port: 0, sellerApi: stub.api, clubId: world.info.clubId, adjudicators: { primary: primary!, fallback: fallback!, appeal: appeal! }, journal: join(mkdtempSync(join(tmpdir(), 't434-')), 'journal.json'), pollMs: 50, log: () => {}, ...over },
+      { HOLDBACK_KEY: acct('seller-1').privateKey, HOLDBACK_OPERATORS: world.info.operators.join(','), ...extraEnv },
+    );
+    return running;
+  }
+  const raw = (url: string, method: string, body?: Buffer) =>
+    new Promise<{ status: number; ms: number; body: string }>((resolve, reject) => {
+      const t = Date.now();
+      const req = httpRequest(url, { method, headers: body ? { 'content-length': String(body.length) } : {} }, (res) => {
+        let b = '';
+        res.on('data', (c) => (b += c));
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, ms: Date.now() - t, body: b }));
+      });
+      req.on('error', (e) => ((e as NodeJS.ErrnoException).code === 'ECONNRESET' || (e as NodeJS.ErrnoException).code === 'EPIPE' ? undefined : reject(e)));
+      if (body) req.end(body);
+      else req.end();
+    });
+  it('answers 405 to a method a standard Request cannot carry', async () => {
+    const a = await shell();
+    for (const m of ['TRACE']) expect((await raw(`${a.url}/quote`, m)).status, m).toBe(405);
+  }, 30_000);
+  it('refuses an oversized body without reading it all, and a 500 names no internal detail', async () => {
+    const a = await shell({ quoteAuth: { kind: 'bearer', env: 'QUOTE_KEYS' } }, { QUOTE_KEYS: 'quote-one' });
+    const answer = await raw(`${a.url}/quote`, 'POST', Buffer.alloc(20 * 1024 * 1024, 0x61));
+    expect(answer.status).toBe(401); // the credential is checked first, on the first 65,537 bytes
+    expect(answer.ms).toBeLessThan(2000);
+  }, 30_000);
 });

@@ -85,28 +85,45 @@ export function loadConfig(file: string): SellerAdapterConfig {
   return configFrom(f, file, { beside: (p) => resolve(dirname(file), p), readText: (p) => readFileSync(p, 'utf8'), shippedTemplate: config.template });
 }
 
-/** The longest request body the server reads: a little over the core's own limit, so the core can refuse it. */
+/** The longest request body the server reads: one byte over the core's own limit, so the core can refuse it. */
 const READ_CAP_BYTES = 65_536 + 1;
+/** Methods a standard Request carries; any other is answered 405 here, as the server before T-434 did. */
+const METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
 
-/** A Node request as a standard Request, its body read up to READ_CAP_BYTES and drained past it. */
-async function asRequest(req: IncomingMessage): Promise<Request> {
+/**
+ * A Node request as a standard Request: its body read up to READ_CAP_BYTES. Past the cap it stops at once, and `cut`
+ * is true: the server answers before the rest arrives, then discards the rest, so a large body costs no memory and no
+ * wait for the answer.
+ */
+async function asRequest(req: IncomingMessage): Promise<{ request: Request; cut: boolean }> {
   const url = new URL(req.url ?? '/', 'http://adapter');
   const headers = new Headers();
   for (const [k, v] of Object.entries(req.headers)) {
     if (Array.isArray(v)) for (const one of v) headers.append(k, one);
     else if (v !== undefined) headers.set(k, v);
   }
-  if (req.method === 'GET' || req.method === 'HEAD') {
+  const method = req.method ?? 'GET';
+  if (method === 'GET' || method === 'HEAD') {
     req.resume();
-    return new Request(url, { method: req.method ?? 'GET', headers });
+    return { request: new Request(url, { method, headers }), cut: false };
   }
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const c of req) {
-    if (size <= READ_CAP_BYTES) chunks.push(c as Buffer); // past the cap the rest is drained, not kept
-    size += (c as Buffer).length;
-  }
-  return new Request(url, { method: req.method ?? 'POST', headers, body: Buffer.concat(chunks) });
+  const { body, cut } = await new Promise<{ body: Buffer; cut: boolean }>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    const onData = (c: Buffer) => {
+      chunks.push(c);
+      size += c.length;
+      if (size > READ_CAP_BYTES) {
+        req.pause();
+        req.off('data', onData);
+        resolve({ body: Buffer.concat(chunks).subarray(0, READ_CAP_BYTES), cut: true });
+      }
+    };
+    req.on('data', onData);
+    req.once('end', () => resolve({ body: Buffer.concat(chunks), cut: false }));
+    req.once('error', reject);
+  });
+  return { request: new Request(url, { method, headers, body }), cut };
 }
 
 /**
@@ -128,15 +145,23 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     journalPath: resolve(c.journal),
   });
   const server = createServer((req, res) => {
+    const answer = (status: number, body: unknown) => res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify(body));
+    if (!METHODS.includes(req.method ?? '')) {
+      req.resume();
+      return void answer(405, { type: 'method_not_allowed', detail: 'this adapter serves POST /quote and GET /defaults' });
+    }
+    let cut = false;
     void asRequest(req)
-      .then((request) => core.handle(request, new URL(request.url).pathname))
+      .then((r) => ((cut = r.cut), core.handle(r.request, new URL(r.request.url).pathname)))
       .then(async (response) => {
         res.writeHead(response.status, Object.fromEntries(response.headers));
         res.end(Buffer.from(await response.arrayBuffer()));
+        if (cut) req.resume(); // the answer is out: the rest of an oversized body is discarded as it arrives, never kept
       })
       .catch((e: Error) => {
         if (res.headersSent) return void res.destroy();
-        res.writeHead(500, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ type: 'internal', detail: `the adapter could not answer: ${plain(e.message)}` }));
+        console.error(`${new Date().toISOString()} The adapter could not answer a request: ${plain(e.message)}.`);
+        answer(500, { type: 'internal', detail: 'the adapter could not answer' });
       });
   });
   await new Promise<void>((resolve, reject) => {

@@ -8,7 +8,7 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { concat, keccak256, stringToHex, type Hex } from 'viem';
 import { preflightDelivery } from '@holdback/judgment';
-import { plain } from '@holdback/testkit';
+import { plain } from './plain.ts';
 import { Agent } from './agent.ts';
 import { convertReport, parseReportMapping, ReportNotConverted, type ReportMapping } from './report-converter.ts';
 import { FilesNotAdded, isRedirect, sellerApiClient, type SellerApiConfig } from './seller-adapter-api.ts';
@@ -829,7 +829,7 @@ function readMapping(file: string, readText: (path: string) => string): ReportMa
   try {
     value = JSON.parse(readText(file));
   } catch (e) {
-    throw new Error((e as NodeJS.ErrnoException).code ? `${file} cannot be read: ${(e as Error).message}` : `${file} is not JSON`);
+    throw new Error(e instanceof SyntaxError ? `${file} is not JSON` : `${file} cannot be read: ${(e as Error).message}`);
   }
   try {
     return parseReportMapping(value);
@@ -840,6 +840,7 @@ function readMapping(file: string, readText: (path: string) => string): ReportMa
 
 /** Variables the shell reads for itself: no configuration may name one as a credential (T-434). */
 export const SHELL_VARIABLES: readonly string[] = ['HOLDBACK_KEY', 'HOLDBACK_OPERATORS', 'HOLDBACK_DEPLOYMENT'];
+const SHELL_MEANING: Record<string, string> = { HOLDBACK_KEY: "the seller's signing key", HOLDBACK_OPERATORS: "the operators' addresses", HOLDBACK_DEPLOYMENT: 'the settlement deployment the adapter pins' };
 
 const OPEN_STAGES: readonly Stage[] = ['offered', 'starting', 'start-unknown', 'started', 'refused', 'delivering'];
 
@@ -864,26 +865,44 @@ export async function createSellerAdapter(c: SellerAdapterConfig, env: Readonly<
     if (!isRecord(block)) throw new Error(`${at} must be an object`);
     for (const k of Object.keys(block)) if (!keys.includes(k)) throw new Error(`${at} has a field the adapter does not take: ${plain(k).slice(0, 60)}`);
   }
-  // Your API: its mapping and its credential, checked before anything is sent or signed (T-366).
-  const sellerApi = sellerApiClient(c.sellerApi, env, { scope: Object.keys(c.scope ?? {}), options: Object.keys(isRecord(c.options) ? c.options! : {}) });
-  const admit = gate(c, env); // refuses a malformed limit or a missing credential before anything is signed
-  const refusal = refusalSettings(c, env);
   // Each credential has its own variable (T-434, ADR-0037 section 4). One variable named twice would send one secret to
   // two audiences: the seller's signing key to its API, its API's key to buyers, or a buyer's quote credential to the
-  // ready and job routes. The shell's own variables are not credentials a configuration may name.
-  const credentialVars: Array<[string, string | undefined]> = [
-    ['sellerApi.auth.env', isRecord(c.sellerApi) && isRecord(c.sellerApi.auth) ? (c.sellerApi.auth as { env?: string }).env : undefined],
-    ['quoteAuth.env', c.quoteAuth?.env],
-    ['alerts.secretEnv', c.alerts?.secretEnv],
-    ['redelivery.readyAuth.env', c.redelivery?.readyAuth?.env],
+  // ready and job routes. The shell's own variables are not credentials a configuration may name. Checked before any
+  // credential is read, so a name in another shape (a list, a number) cannot slip past the comparison.
+  const credentialVars: Array<[string, unknown]> = [
+    ['sellerApi.auth.env', isRecord(c.sellerApi) && isRecord(c.sellerApi.auth) ? (c.sellerApi.auth as { env?: unknown }).env : undefined],
+    ['quoteAuth.env', isRecord(c.quoteAuth) ? (c.quoteAuth as { env?: unknown }).env : undefined],
+    ['alerts.secretEnv', isRecord(c.alerts) ? (c.alerts as { secretEnv?: unknown }).secretEnv : undefined],
+    ['redelivery.readyAuth.env', isRecord(c.redelivery) && isRecord(c.redelivery!.readyAuth) ? (c.redelivery!.readyAuth as { env?: unknown }).env : undefined],
   ];
   const seenVar = new Map<string, string>();
   for (const [at, name] of credentialVars) {
     if (name === undefined) continue;
-    if (SHELL_VARIABLES.includes(name)) throw new Error(`${at} names ${name}, which holds ${name === 'HOLDBACK_KEY' ? 'the seller\'s signing key' : 'the operators\' addresses'}: name a variable of its own`);
-    const other = seenVar.get(name);
+    if (typeof name !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new Error(`${at} must name an environment variable: letters, digits and underscores`);
+    const shell = SHELL_VARIABLES.find((v) => v.toUpperCase() === name.toUpperCase()); // case-blind: Windows reads variables so
+    if (shell) throw new Error(`${at} names ${name}, which holds ${SHELL_MEANING[shell]}: name a variable of its own`);
+    const other = seenVar.get(name.toUpperCase());
     if (other) throw new Error(`${at} and ${other} both name ${name}: each credential needs a variable of its own, so one secret never reaches two audiences`);
-    seenVar.set(name, at);
+    seenVar.set(name.toUpperCase(), at);
+  }
+  // Your API: its mapping and its credential, checked before anything is sent or signed (T-366).
+  const sellerApi = sellerApiClient(c.sellerApi, env, { scope: Object.keys(c.scope ?? {}), options: Object.keys(isRecord(c.options) ? c.options! : {}) });
+  const admit = gate(c, env); // refuses a malformed limit or a missing credential before anything is signed
+  const refusal = refusalSettings(c, env);
+  // Two variables may still hold the same value: refuse that too, comparing digests, so no value is ever printed.
+  const valuesOf = (name: unknown, list: boolean): string[] => (typeof name === 'string' ? (list ? (env[name] ?? '').split(',').map((v) => v.trim()) : [env[name] ?? '']).filter(Boolean) : []);
+  const held = new Map<string, string>();
+  const holders: Array<[string, string[]]> = [
+    ['HOLDBACK_KEY', valuesOf('HOLDBACK_KEY', false).map((v) => v.toLowerCase())],
+    ...credentialVars.map(([at, name]) => [at, valuesOf(name, at === 'quoteAuth.env' || at === 'redelivery.readyAuth.env')] as [string, string[]]),
+  ];
+  for (const [at, values] of holders) {
+    for (const v of values) {
+      const digest = sha256(v).toString('hex');
+      const other = held.get(digest);
+      if (other && other !== at) throw new Error(`${at} and ${other} hold the same value: each credential needs a value of its own`);
+      held.set(digest, at);
+    }
   }
   const m = c.mandate ?? {};
   if (!isRecord(m) || (m.fromFaucet !== undefined && typeof m.fromFaucet !== 'boolean')) throw new Error('mandate.fromFaucet must be true or false');

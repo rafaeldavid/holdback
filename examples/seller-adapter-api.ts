@@ -8,7 +8,7 @@
 // no expressions, no code, no template language beyond that. Every request goes under `baseUrl` when one is set, and
 // a mapping needs one: a configuration or an answer that would send a request anywhere else is refused. The
 // credential is sent only to those requests, and never logged, journaled or put in an error message.
-import { plain } from '@holdback/testkit';
+import { plain } from './plain.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
