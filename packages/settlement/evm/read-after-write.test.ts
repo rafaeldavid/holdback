@@ -94,8 +94,8 @@ function trailing(base: LiveChain, t: Trail): LiveChain {
 }
 
 /**
- * The reads that named no block. A lane's pending nonce count has none to name: the nonce after the lane's last mined
- * transaction is its floor instead (the nonce test below).
+ * The reads that named no block. A lane's pending nonce count has none to name: the lane's mined count at the pinned
+ * block is its floor instead (the nonce test below).
  */
 const unpinned = (t: Trail) => t.reads.filter((r) => r.block === 'latest' && r.method !== 'eth_getTransactionCount');
 

@@ -277,11 +277,6 @@ export class LiveChain implements EvmChain {
   private readonly resolved = new Map<string, Mined>();
   /** T-232: the newest block this node has a receipt from or has read the chain up to; reads of the state now pin there or later. */
   private seenBlock = 0n;
-  /**
-   * T-232: per sender, the nonce after its last mined transaction. Kept when a refusal or a give-up drops the nonce
-   * cache, so a node whose pending count trails that transaction cannot hand out its nonce again.
-   */
-  private readonly minedNonce = new Map<string, number>();
 
   constructor(o: LiveChainOptions) {
     const id = o.deployment.chainId;
@@ -614,12 +609,7 @@ export class LiveChain implements EvmChain {
     // Sent with less gas than it needs, a call would run out on chain and spend the gas for nothing.
     if ((estimate * 5n) / 4n > GAS_CAP) throw new RelayRefused(`the call needs about ${estimate} gas, above this node's cap of ${GAS_CAP}`);
     const gas = (estimate * 5n) / 4n;
-    // `pending` names no block to pin to: a node that trails the lane's last mined transaction counts the nonce before
-    // it, so the nonce is never below the one after that transaction (T-232).
-    // eslint-disable-next-line no-restricted-syntax -- T-232: the pending count has no block; minedNonce is its floor.
-    const pending = this.nonces.get(lc(from)) ?? (await this.publicClient.getTransactionCount({ address: from, blockTag: 'pending' }));
-    const after = this.minedNonce.get(lc(from)) ?? 0;
-    const nonce = pending > after ? pending : after;
+    const nonce = this.nonces.get(lc(from)) ?? (await this.nextNonce(from));
     const fee = await this.feesNow();
     const f: Flight = { from, nonce, to, data, value, gas, fee, raw: '0x', hashes: [], start: 0, checkpoint: 0, deadline: 0, row: null };
     f.raw = await this.sign(account, f, fee);
@@ -653,6 +643,20 @@ export class LiveChain implements EvmChain {
     }
   }
 
+  /**
+   * A lane's next nonce when its cache is empty (its first send, or after a refusal or a give-up): the larger of the
+   * pending count and the mined count at the pinned block (T-232). `pending` names no block, so a node that trails the
+   * lane's last mined transaction counts the nonce before it; the mined count at the floor or later does not. Read from
+   * the chain each time, never kept, so after a reorg that drops the lane's transaction, or after a restart, the count
+   * follows the chain the node now serves (red team of PR 239, finding 3; T-409).
+   */
+  private async nextNonce(from: Address): Promise<number> {
+    // eslint-disable-next-line no-restricted-syntax -- T-232: the pending count has no block; the pinned mined count below is its floor.
+    const pending = await this.publicClient.getTransactionCount({ address: from, blockTag: 'pending' });
+    const mined = await this.pinned((blockNumber) => this.publicClient.getTransactionCount({ address: from, blockNumber }));
+    return pending > mined ? pending : mined;
+  }
+
   private sign(account: PrivateKeyAccount, f: Pick<Flight, 'to' | 'data' | 'value' | 'gas' | 'nonce'>, fee: { max: bigint; tip: bigint }): Promise<Hex> {
     return account.signTransaction({ chainId: this.chainId, type: 'eip1559', to: f.to, data: f.data, value: f.value, gas: f.gas, nonce: f.nonce, maxFeePerGas: fee.max, maxPriorityFeePerGas: fee.tip });
   }
@@ -671,7 +675,6 @@ export class LiveChain implements EvmChain {
         });
         if (r) {
           this.nonces.set(lc(f.from), f.nonce + 1);
-          if (f.nonce + 1 > (this.minedNonce.get(lc(f.from)) ?? 0)) this.minedNonce.set(lc(f.from), f.nonce + 1);
           const timestamp = await this.blockTime(r.blockNumber);
           // Every read of the state from now on sees this transaction (T-232), once a read of its block succeeded.
           this.saw(r.blockNumber);
