@@ -3,7 +3,7 @@
 - **Lane:** security (crow-test-agents and crow-early-access)
 - **Phase:** 2
 - **Depends on:** T-451 (its header sets in `apps/demo-cloud/src/headers.ts`, merged in pull request 564)
-- **Paths this task may touch:** the response-header code in `apps/test-agents/` and `apps/early-access/` and their tests; the test agents' two page templates (`apps/test-agents/src/seller.ts`, `buyer.ts`) only to take their one style from the shared constant; this task file
+- **Paths this task may touch:** the response-header code in `apps/test-agents/` and `apps/early-access/` and their tests (and one assertion in `tests/build-info.test.ts`, which read the Durable Object's throw that is now a 500); the test agents' two page templates (`apps/test-agents/src/seller.ts`, `buyer.ts`) only to take their one style from the shared constant; this task file
 - **Human gate:** no for the pull request; the two deploys are the coordinator's, on Rafa's word ("You can go ahead"), which the coordinator holds first hand
 - **Status:** done (the two deploys are the coordinator's, Handoff)
 - **Agent/session:** the T-451 side session, on the coordinator's brief of 2026-11-14

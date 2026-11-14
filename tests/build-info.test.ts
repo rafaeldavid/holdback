@@ -62,14 +62,18 @@ describe('GET …/version.json on each Worker', () => {
   });
 
   it('the test agents: on both agents\' paths, before the Durable Object, from BUILD_COMMIT', async () => {
-    const env = { BUILD_COMMIT: COMMIT, CF_VERSION_METADATA: META, AGENTS: { idFromName: () => { throw new Error('the Durable Object must not be reached'); } } };
+    let reached = 0;
+    const env = { BUILD_COMMIT: COMMIT, CF_VERSION_METADATA: META, AGENTS: { idFromName: () => { reached++; throw new Error('the Durable Object must not be reached'); } } };
     for (const url of ['https://crow.direct/agents/test-seller/version.json', 'https://crow.direct/agents/test-buyer/version.json']) {
       const { r, body } = await read(agents as unknown as Fetcher, url, env);
       expectUncached(r);
       expect(body).toEqual({ schema: 'crow.build/1', worker: 'crow-test-agents', commit: COMMIT, deployedAt: META.timestamp, versionId: META.id });
     }
-    // A POST to the same path is the agent's own business: it goes to the Durable Object.
-    await expect((agents as unknown as Fetcher).fetch(new Request('https://crow.direct/agents/test-seller/version.json', { method: 'POST' }), env)).rejects.toThrow(/must not be reached/);
+    expect(reached).toBe(0);
+    // A POST to the same path is the agent's own business: it goes to the Durable Object (whose throw here the Worker
+    // answers as a 500 with its headers, T-462).
+    expect((await (agents as unknown as Fetcher).fetch(new Request('https://crow.direct/agents/test-seller/version.json', { method: 'POST' }), env)).status).toBe(500);
+    expect(reached).toBe(1);
   });
 
   it('early access: on join.crow.direct, from BUILD_COMMIT; the sign-up route is unchanged', async () => {
