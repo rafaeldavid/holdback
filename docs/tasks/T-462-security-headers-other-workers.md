@@ -5,7 +5,7 @@
 - **Depends on:** T-451 (its header sets in `apps/demo-cloud/src/headers.ts`, merged in pull request 564)
 - **Paths this task may touch:** the response-header code in `apps/test-agents/` and `apps/early-access/` and their tests (and one assertion in `tests/build-info.test.ts`, which read the Durable Object's throw that is now a 500); the test agents' two page templates (`apps/test-agents/src/seller.ts`, `buyer.ts`) only to take their one style from the shared constant; this task file
 - **Human gate:** no for the pull request; the two deploys are the coordinator's, on Rafa's word ("You can go ahead"), which the coordinator holds first hand
-- **Status:** done (the two deploys are the coordinator's, Handoff)
+- **Status:** done
 - **Agent/session:** the T-451 side session, on the coordinator's brief of 2026-11-14
 - **Roadmap row:** N52
 
@@ -84,6 +84,27 @@ The reviewer passed the change (PASS, three minor issues). The red team found no
 | Firefox and WebKit not tried (note) | red team | Not run: only Chromium is installed. By the Fetch standard, a resource policy applies to no-cors requests only, so it cannot block the CORS sign-up (inferred) |
 
 **What a scanner would still flag** (inferred from the scanners' rule sets): `access-control-allow-origin: *` on the test agents' JSON (OWASP ZAP 10098; by design, agents call them from anywhere); no `Cross-Origin-Embedder-Policy`, `X-Permitted-Cross-Domain-Policies` or `Clear-Site-Data` (Nuclei, informational); no `Cache-Control` on early access's 400, 403 and 404 (ZAP, informational, unchanged); no HSTS preload; and the early-access Worker's `workers.dev` host, which serves the same Worker with the same headers.
+
+### After: both Workers deployed (2026-11-14 18:45 UTC)
+
+The coordinator deployed both on Rafa's word ("You can go ahead"), from a detached worktree at `origin/main` `0907706`:
+- crow-test-agents `47c99f76-d7dd-4398-b61b-752d8830b0b3` (rollback target `d3dce65d-ab02-4b19-a8eb-7d1031c23d0a`). It also carried T-445's seller change (pull request 562), merged after the previous live build `8c465bb7`.
+- crow-early-access `d82f2bac-214a-43f5-9f48-4590167df50f` (rollback target `b33bf8dd-1625-40ee-9a39-a84fc46acbfd`). It carried T-462 alone.
+
+Measured by this session at 18:48 UTC with `reports/scratch/t-462/measure.sh` (plain GETs and OPTIONS), and by the coordinator at 18:45 to 18:47 UTC:
+
+| Answer | Before | After |
+| --- | --- | --- |
+| The two cards (`/agents/test-seller`, `/agents/test-buyer`) | none of the security headers | the seven headers, with `Content-Security-Policy: default-src 'none'; style-src 'sha256-OvjgERBVgrsJWIEt4uCgv6KKD8v4Fb2+9xPrkH0gd8U='; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` and `Cross-Origin-Opener-Policy: same-origin` |
+| The agents' JSON (`agent.json`, `health`, `status`, `version.json`, the 404), the two preflights | none | the seven headers, with `default-src 'none'; frame-ancestors 'none'` |
+| join.crow.direct (`/`, `/early-access` 404, `version.json`, the preflights) | none | the same seven |
+| CORS and Cache-Control, every row of the Before table | as listed | unchanged, header for header |
+| `http://crow.direct/agents/test-seller/agent.json`, `http://join.crow.direct/version.json` | 200 over plain HTTP | 301 to the same path on https |
+| `escrow.stream/agents/…`, `join.escrow.stream/…` | 308 and 301 to crow.direct | unchanged |
+
+- **The live cards:** each serves one style, whose SHA-256 is the policy's hash (measured). In headless Chromium both loaded with their style applied, their JSON block read and no console message, and a frame of the seller's card from another origin was refused (measured).
+- **The agents still trade (measured by the coordinator):** the seller's health reads operational with 0 deals open. `node apps/test-agents/scripts/sell-to-test-buyer.mjs` ended released (`0x9bb277c1…90ab`), so the buyer still buys. `node examples/try.ts --seller https://crow.direct/agents/test-seller` ended Released in 46 s (`0x00a78095…e893`), so the seller still sells.
+- **The form:** not posted live. The local-run check and the red team's real-preflight run stand.
 
 ## Handoff
 
