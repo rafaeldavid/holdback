@@ -263,6 +263,22 @@ importers:
         specifier: ^2.57.13
         version: 2.57.13(typescript@6.0.3)
 
+  apps/hosted-sellers:
+    dependencies:
+      tweetnacl:
+        specifier: ^1.0.3
+        version: 1.0.3
+      viem:
+        specifier: ^2.57.13
+        version: 2.57.13(typescript@6.0.3)
+    devDependencies:
+      '@holdback/demo-cloud':
+        specifier: workspace:*
+        version: link:../demo-cloud
+      '@holdback/operator':
+        specifier: workspace:*
+        version: link:../operator
+
   apps/operator:
     dependencies:
       '@holdback/adjudicator':

@@ -11,7 +11,7 @@ import { preflightDelivery } from '@holdback/judgment';
 import { plain } from './plain.ts';
 import { Agent } from './agent.ts';
 import { convertReport, parseReportMapping, ReportNotConverted, type ReportMapping } from './report-converter.ts';
-import { FilesNotAdded, isRedirect, sellerApiClient, type SellerApiConfig } from './seller-adapter-api.ts';
+import { FilesNotAdded, isRedirect, sellerApiClient, WrongWorkspace, type SellerApiConfig } from './seller-adapter-api.ts';
 import { freshNonce, isAddressText, jcs, knownPins, moneyAddressWarnings, operatorFeeOf } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -261,7 +261,7 @@ export function configFrom(f: J, file: string, files: ConfigFiles): SellerAdapte
   if (!isRecord(api)) throw new Error(`${file}: sellerApi is required: your API's quote, start and result addresses`);
   // An address in today's shape, or a mapping (T-366), which the start checks whole, with the credential.
   for (const k of ['quote', 'start', 'result']) if (!isRecord(api[k]) && !httpAddress(api[k])) throw new Error(`${file}: sellerApi.${k} must be an http or https address, or a call mapping`);
-  for (const k of Object.keys(api)) if (!['quote', 'start', 'result', 'baseUrl', 'auth'].includes(k)) throw new Error(`${file}: sellerApi has a field the adapter does not take: ${plain(k).slice(0, 60)}`);
+  for (const k of Object.keys(api)) if (!['quote', 'start', 'result', 'baseUrl', 'auth', 'workspace'].includes(k)) throw new Error(`${file}: sellerApi has a field the adapter does not take: ${plain(k).slice(0, 60)}`);
   const beside = (p: J, at: string): string => {
     if (typeof p !== 'string' || p === '') throw new Error(`${file}: ${at} must be a file path`);
     return files.beside(p);
@@ -295,7 +295,7 @@ export function configFrom(f: J, file: string, files: ConfigFiles): SellerAdapte
   const pass = (k: string) => (f[k] === undefined ? {} : { [k]: f[k] });
   return {
     port: f.port ?? DEFAULTS.port,
-    sellerApi: { ...(api.baseUrl === undefined ? {} : { baseUrl: api.baseUrl }), ...(api.auth === undefined ? {} : { auth: api.auth }), quote: api.quote, start: api.start, result: api.result },
+    sellerApi: { ...(api.baseUrl === undefined ? {} : { baseUrl: api.baseUrl }), ...(api.auth === undefined ? {} : { auth: api.auth }), ...(api.workspace === undefined ? {} : { workspace: api.workspace }), quote: api.quote, start: api.start, result: api.result },
     template: own ? beside(f.template, 'template') : files.shippedTemplate,
     ...(f.reportMapping === undefined ? {} : { reportMapping: beside(f.reportMapping, 'reportMapping') }),
     ...pass('reportSalt'), ...pass('signingKey'),
@@ -367,6 +367,11 @@ export interface Deal {
   ready?: boolean;
   /** Start calls sent for this deal, recorded before each call (T-408). */
   startAttempts?: number;
+  /**
+   * SHA-256 of what decides where the deal's start goes, when it was priced: the base URL, the start mapping and the
+   * pinned workspace (T-435). A start under another is never sent. Absent in a journal from before T-435.
+   */
+  startConfig?: string;
   /** When the deal first reached each stage, and when the job finished, by this machine's clock (T-417). */
   times?: Partial<Record<Stage | 'jobDone', string>>;
   /** The job's last status value read by a status field, such as `queued` or `running` (T-417). */
@@ -799,7 +804,7 @@ export interface AdapterIO {
   saveJournal(journal: Journal): void;
   /** Appends one event line (T-417). Left out: no events. */
   appendEvent?(line: string): void;
-  /** The journal's path as a seller would type it, for the manual-delivery note. Left out: `<journal>`. */
+  /** The journal's path as a seller would type it, for the manual-delivery note. Left out: the note names no manual path. */
   journalPath?: string;
 }
 
@@ -821,6 +826,12 @@ export interface SellerAdapterCore {
   close(): Promise<void>;
   /** How often the shell should call `wake`, in milliseconds. */
   pollMs: number;
+  /** The seller's standing signing address: every offer names it, unless each deal signs with a fresh key. */
+  address: string;
+  /** true: each deal signs with a key of its own (`signingKey: "per-deal"`), and no standing address offers. */
+  perDealKeys: boolean;
+  /** The chain the pinned settlement layer is on, as the operators serve it: 11155111 for Sepolia, 31337 for SimChain. */
+  chainId: number;
 }
 
 /** Reads and checks a report mapping by its path, as report-converter.ts's loadReportMapping does, through `readText`. */
@@ -885,6 +896,8 @@ export async function createSellerAdapter(c: SellerAdapterConfig, env: Readonly<
     if (other) throw new Error(`${at} and ${other} both name ${name}: each credential needs a variable of its own, so one secret never reaches two audiences`);
     seenVar.set(name.toUpperCase(), at);
   }
+  // What decides where a start goes (T-435): each deal records it when priced, and a start under another is not sent.
+  const startConfig = createHash('sha256').update(jcs({ baseUrl: isRecord(c.sellerApi) ? (c.sellerApi.baseUrl ?? null) : null, start: isRecord(c.sellerApi) ? (c.sellerApi.start ?? null) : null, workspace: isRecord(c.sellerApi) ? (c.sellerApi.workspace ?? null) : null }), 'utf8').digest('hex');
   // Your API: its mapping and its credential, checked before anything is sent or signed (T-366).
   const sellerApi = sellerApiClient(c.sellerApi, env, { scope: Object.keys(c.scope ?? {}), options: Object.keys(isRecord(c.options) ? c.options! : {}) });
   const admit = gate(c, env); // refuses a malformed limit or a missing credential before anything is signed
@@ -1204,7 +1217,7 @@ export async function createSellerAdapter(c: SellerAdapterConfig, env: Readonly<
     if (perDeal) signers.set(id, signer);
     // Agent.offer signed only terms it rebuilt from this request; this says so again where it matters most.
     if (String(terms.sellerPayoutAddress).toLowerCase() !== payout) throw new Error(`the signed offer ${id} names ${terms.sellerPayoutAddress} as the payout address, not the configured ${payout}`);
-    journal.deals[id] = { id, stage: 'offered', terms, scope, ...(options === undefined ? {} : { options }), ...(typeof quoted.quoteId === 'string' ? { quoteId: quoted.quoteId } : {}), ...(salting ? { salt: `0x${randomBytes(32).toString('hex')}` } : {}), times: { offered: new Date().toISOString() } };
+    journal.deals[id] = { id, stage: 'offered', startConfig, terms, scope, ...(options === undefined ? {} : { options }), ...(typeof quoted.quoteId === 'string' ? { quoteId: quoted.quoteId } : {}), ...(salting ? { salt: `0x${randomBytes(32).toString('hex')}` } : {}), times: { offered: new Date().toISOString() } };
     save();
     emit('deal.offered', { commitmentId: id, price: terms.price, ...(quoted.units === undefined ? {} : { units: quoted.units }), deliverWithinSec: Math.round((Date.parse(terms.timing.deliverBy) - Date.parse(terms.createdAt)) / 1000), sellerApiQuoteMs, ...(perDeal ? { grantMs } : {}) });
     log(`${id} is offered${perDeal ? `, signed by its deal key ${signer.address},` : ''} to ${terms.buyer} for ${terms.price.amount} base units of ${plain(terms.price.token)}; the offer expires ${terms.timing.offerExpiresAt}.`);
@@ -1270,6 +1283,14 @@ export async function createSellerAdapter(c: SellerAdapterConfig, env: Readonly<
       // counts its attempts from 0 here, so a journal without the count (written before T-408) reads as attempted.
       record(deal, { stage: 'starting', startAttempts: 0, note: 'every operator shows the hold funded' });
     }
+    if (deal.stage === 'starting' && deal.startConfig !== undefined && deal.startConfig !== startConfig) {
+      // T-435: the configuration that decides where the start goes changed after this deal was priced, by a redeploy
+      // or an edit. A start now could run the job in another account, or look new to an API that dedups by key. The
+      // adapter sends none: a person checks and names the job, or lets deliverBy pass.
+      const deliverBy: string = deal.terms.timing.deliverBy;
+      record(deal, { stage: 'start-unknown', note: `the start's configuration changed since this deal was priced; no start was sent. Name the job with POST /deals/${id}/job before ${deliverBy}, or let the deadline pass` });
+      return alert({ type: 'job.config_changed', commitmentId: id, deliverBy }, `the base URL, the start mapping or the workspace changed since this deal was priced, so the adapter sent no start; name the job with POST /deals/${id}/job before ${deliverBy}, or let the deadline pass and the buyer reclaim`);
+    }
     if (deal.stage === 'starting') {
       // A `starting` deal with no count comes from a journal written before T-408, whose start went out at least once.
       if (!sellerApi.startRepeatable && (deal.startAttempts === undefined || deal.startAttempts > 0)) {
@@ -1318,7 +1339,14 @@ export async function createSellerAdapter(c: SellerAdapterConfig, env: Readonly<
       }
       // The address is the configuration's; only named values, such as the job's ID from your API, go into it.
       const values = { commitmentId: id, quoteId: deal.quoteId, jobId: deal.jobId!, buyer: deal.terms.buyer, scope: deal.scope, options: deal.options };
-      const job = await sellerApi.result(values);
+      let job: Awaited<ReturnType<typeof sellerApi.result>>;
+      try {
+        job = await sellerApi.result(values);
+      } catch (e) {
+        if (!(e instanceof WrongWorkspace)) throw e;
+        // A job from another account is never delivered (T-435): the deal holds, and the seller hears of it once.
+        return refuse(deal, now, createHash('sha256').update(`wrong-workspace ${e.message}`, 'utf8').digest('hex'), { result: 'wrong_workspace', workspace: e.message, checks: [] }, `the job did not run in the pinned workspace: ${e.message}`);
+      }
       if (job.state === 'running') {
         // The job still runs. A new status value (`queued`, then `running`) is an event: the queue's time shows.
         if (job.status !== undefined && job.status !== deal.jobStatus) {
@@ -1438,7 +1466,9 @@ export async function createSellerAdapter(c: SellerAdapterConfig, env: Readonly<
     const ways = [every === undefined ? null : `fetches the result again at ${nextFetchAt}`, refusal.ready ? `fetches it when you POST /deals/${deal.id}/ready` : null].filter(Boolean);
     const waits = ways.length
       ? `The adapter holds the delivery until ${deliverBy} and ${ways.join(', and ')}`
-      : `The adapter holds the delivery until ${deliverBy}; set redelivery to have it fetch a fixed report, or deliver a fixed file by hand: node examples/check-delivery.ts <terms.json> <file>, then node examples/seal.ts ${io.journalPath ?? '<journal>'} <file> ${deal.id}`;
+      : io.journalPath === undefined
+        ? `The adapter holds the delivery until ${deliverBy}; set redelivery to have it fetch a fixed report` // a hosted seller has no journal file to seal from
+        : `The adapter holds the delivery until ${deliverBy}; set redelivery to have it fetch a fixed report, or deliver a fixed file by hand: node examples/check-delivery.ts <terms.json> <file>, then node examples/seal.ts ${io.journalPath} <file> ${deal.id}`;
     if (deal.refusedSha256 === resultSha256) {
       // The same bytes as last time: the seller has been told. Wait for the next fetch.
       Object.assign(deal, { stage: 'refused', ready: false, nextFetchAt });
@@ -1593,6 +1623,9 @@ export async function createSellerAdapter(c: SellerAdapterConfig, env: Readonly<
     hasOpen: () => Object.values(journal.deals).some((d) => OPEN_STAGES.includes(d.stage)),
     deals: () => structuredClone(Object.values(journal.deals)),
     pollMs: c.pollMs,
+    address: seller.address,
+    perDealKeys: perDeal,
+    chainId: pin.domain.chainId,
     announce(where: string) {
       log(`Seller adapter for ${perDeal ? `a fresh key each deal, from HOLDBACK_KEY at ${seller.address},` : seller.address} ${where}, ${Object.keys(journal.deals).length} deals.`);
       const source = (yes: boolean) => (yes ? 'from discovery' : 'from the configuration');

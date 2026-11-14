@@ -1,0 +1,22 @@
+// An example hosted seller (T-435), for Wrangler's dry run and a local run only: a made-up seller whose API is the
+// job stub on this machine (examples/seller-adapter-job-stub.ts) and whose operators are a local `pnpm sim`. It has no
+// route and no secret. A real seller's configuration is written by apps/hosted-sellers/scripts (T-436) from its
+// private folder, never kept in this repository.
+{
+  "name": "crow-seller-example",
+  "main": "../src/entry.ts",
+  "compatibility_date": "2025-09-15",
+  // process.env stays empty: a module the Worker imports reads no variable or secret (T-435 review).
+  "compatibility_flags": ["nodejs_compat", "nodejs_compat_do_not_populate_process_env", "disallow_importable_env"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "alias": { "crow-hosted-seller-bundle": "./bundle.json" },
+  "vars": { "OPERATOR_URLS": "http://127.0.0.1:8781,http://localhost:8782", "SELLER_URL": "https://crow.direct/agents/example-audits" },
+  "durable_objects": {
+    "bindings": [{ "name": "SELLER", "class_name": "HostedSeller" }],
+    // An active object keeps its code for up to 300 s after a deploy, so a step in progress can finish (ADR-0037 §6).
+    "code_update_strategy": { "mode": "deferred", "max_delay": 300 }
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["HostedSeller"] }],
+  "observability": { "enabled": true, "logs": { "invocation_logs": false } }
+}

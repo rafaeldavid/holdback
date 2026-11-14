@@ -1,0 +1,96 @@
+{
+  "slug": "example-audits",
+  "card": {
+    "name": "Example audits",
+    "item": "audit",
+    "description": "A made-up seller of reviews, for tests and the local run: it sells nothing."
+  },
+  "config": {
+    "template": "template.json",
+    "scope": {
+      "target": {
+        "type": "string",
+        "pattern": "^[a-z0-9-]{1,40}$"
+      },
+      "depth": {
+        "type": "integer",
+        "min": 1,
+        "max": 10
+      }
+    },
+    "pollMs": 5000,
+    "sellerApi": {
+      "baseUrl": "http://127.0.0.1:8792/api/v2/",
+      "auth": {
+        "env": "JOBS_API_KEY",
+        "header": "X-Api-Key"
+      },
+      "workspace": {
+        "id": "example-workspace",
+        "resultPointer": "/run/workspace"
+      },
+      "quote": {
+        "method": "POST",
+        "path": "workspaces/{{workspace}}/estimates",
+        "body": {
+          "target": "{{scope.target}}",
+          "depth": "{{scope.depth}}",
+          "client": "{{buyer}}"
+        },
+        "read": {
+          "amount": "/estimate/cost/units",
+          "quoteId": "/estimate/id",
+          "deliverWithinSec": "/estimate/turnaroundSeconds",
+          "validForSec": "/estimate/validSeconds"
+        }
+      },
+      "start": {
+        "method": "POST",
+        "path": "workspaces/{{workspace}}/runs",
+        "idempotencyHeader": "X-Request-Key",
+        "body": {
+          "estimate": "{{quoteId}}",
+          "reference": "{{commitmentId}}",
+          "input": "{{scope}}"
+        },
+        "read": {
+          "jobId": "/run/id"
+        }
+      },
+      "result": {
+        "method": "GET",
+        "path": "runs/{{jobId}}",
+        "status": {
+          "by": "field",
+          "pointer": "/run/state",
+          "running": [
+            "queued",
+            "running"
+          ],
+          "done": [
+            "complete"
+          ],
+          "failed": [
+            "error",
+            "cancelled"
+          ]
+        },
+        "report": "/output"
+      }
+    },
+    "quoteAuth": {
+      "kind": "bearer",
+      "env": "QUOTE_CREDENTIALS"
+    },
+    "redelivery": {
+      "refetchEverySec": 600,
+      "readyAuth": {
+        "kind": "bearer",
+        "env": "READY_CREDENTIALS"
+      }
+    }
+  },
+  "files": {
+    "template.json": "{\n  \"deliverable\": {\n    \"kind\": \"document\",\n    \"description\": \"A review of {{target}} to depth {{depth}}.\",\n    \"format\": \"application/json\"\n  },\n  \"checks\": [\n    {\n      \"id\": \"report\",\n      \"type\": \"json_schema\",\n      \"required\": true,\n      \"schema\": {\n        \"type\": \"object\",\n        \"required\": [\n          \"summary\",\n          \"target\"\n        ],\n        \"properties\": {\n          \"target\": {\n            \"const\": \"{{target}}\"\n          }\n        }\n      }\n    }\n  ]\n}"
+  }
+}

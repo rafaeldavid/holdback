@@ -70,6 +70,19 @@ export interface ResultMapping extends CallMapping {
   reportCall?: CallMapping;
   files?: FilesMapping;
 }
+/**
+ * The one account at your API that the adapter's jobs run in (T-435, ADR-0037 section 5): a workspace, a project or a
+ * tenant. The quote and start paths carry it as `{{workspace}}`, filled from `id` only. `resultPointer`, when set,
+ * points into the result call's answer at the account the job ran in; a result from another account is not delivered.
+ */
+export interface WorkspacePin {
+  id: string;
+  resultPointer?: string;
+}
+
+/** A result whose job ran in another account than `sellerApi.workspace` names (T-435): never delivered. */
+export class WrongWorkspace extends Error {}
+
 export interface SellerApiConfig {
   /** Every request goes under this address. Required with a mapping or a credential. */
   baseUrl?: string;
@@ -78,6 +91,8 @@ export interface SellerApiConfig {
   quote: string | QuoteMapping;
   start: string | StartMapping;
   result: string | ResultMapping;
+  /** The account the jobs run in, pinned (T-435). Left out: the paths name none. */
+  workspace?: WorkspacePin;
 }
 
 /** The named values a placeholder may stand for. */
@@ -89,6 +104,8 @@ export interface Values {
   quoteId?: string | undefined;
   jobId?: string | undefined;
   file?: string | undefined;
+  /** Filled by the client from `sellerApi.workspace.id`, never from a caller. */
+  workspace?: string | undefined;
 }
 
 /** A further file could not be fetched or added: the delivery waits, and the seller is alerted. */
@@ -129,10 +146,10 @@ const short = (v: J) => plain(String(v)).slice(0, 80);
 
 /** The names each call may use. `scope` and `options` stand alone only, as a whole body value. */
 const NAMES = {
-  quote: ['buyer', 'scope', 'options'],
-  start: ['buyer', 'scope', 'options', 'commitmentId', 'quoteId'],
-  result: ['buyer', 'scope', 'options', 'commitmentId', 'quoteId', 'jobId'],
-  file: ['buyer', 'scope', 'options', 'commitmentId', 'quoteId', 'jobId', 'file'],
+  quote: ['buyer', 'scope', 'options', 'workspace'],
+  start: ['buyer', 'scope', 'options', 'commitmentId', 'quoteId', 'workspace'],
+  result: ['buyer', 'scope', 'options', 'commitmentId', 'quoteId', 'jobId', 'workspace'],
+  file: ['buyer', 'scope', 'options', 'commitmentId', 'quoteId', 'jobId', 'file', 'workspace'],
 } as const;
 type Use = keyof typeof NAMES;
 
@@ -272,7 +289,56 @@ const CALL_KEYS = ['method', 'path', 'headers', 'body'];
  */
 export function sellerApiClient(api: J, env: Readonly<Record<string, string | undefined>>, fields: Fields): SellerApi {
   if (!isRecord(api)) throw new Error('sellerApi must be an object: your API\'s quote, start and result calls');
-  for (const k of Object.keys(api)) if (!['baseUrl', 'auth', 'quote', 'start', 'result'].includes(k)) throw new Error(`sellerApi has a field the adapter does not take: ${short(k)}`);
+  for (const k of Object.keys(api)) if (!['baseUrl', 'auth', 'quote', 'start', 'result', 'workspace'].includes(k)) throw new Error(`sellerApi has a field the adapter does not take: ${short(k)}`);
+  // ---- The account the jobs run in (T-435): named once, carried by the quote and start paths ----
+  let workspace: { id: string; segment: string; resultAt: string[] | undefined } | undefined;
+  if (api.workspace !== undefined) {
+    const w = api.workspace;
+    if (!isRecord(w)) throw new Error('sellerApi.workspace must be an object: id and an optional resultPointer');
+    for (const k of Object.keys(w)) if (!['id', 'resultPointer'].includes(k)) throw new Error(`sellerApi.workspace has a field the adapter does not take: ${short(k)}`);
+    if (typeof w.id !== 'string' || !/^[\x21-\x7e]{1,200}$/.test(w.id) || w.id.includes('/') || w.id === '.' || w.id === '..') throw new Error('sellerApi.workspace.id must be 1 to 200 printable characters with no slash');
+    const segmentsOf = (path: string): string[] => path.split(/[?#]/)[0]!.split('/');
+    const carries = (path: unknown) => typeof path === 'string' && segmentsOf(path).includes('{{workspace}}');
+    // A whole segment of the path, not part of one or of the query: the client checks the built path for it.
+    for (const k of ['quote', 'start'] as const) {
+      const call = api[k];
+      if (!isRecord(call) || !carries(call.path)) throw new Error(`sellerApi.${k}.path must carry {{workspace}} as one whole path segment: sellerApi.workspace pins the account every quote and start runs in`);
+    }
+    // The report call and the files carry the credential too, and a file's path comes from the job's answer: with an
+    // account pinned, they name it as well, or a job's output could send the credential into another account (T-435).
+    const rmap: J = isRecord(api.result) ? api.result : {};
+    if (isRecord(rmap.reportCall) && !carries(rmap.reportCall.path)) throw new Error('sellerApi.result.reportCall.path must carry {{workspace}} as one whole path segment, as the quote and start do');
+    if (isRecord(rmap.files) && !carries(rmap.files.path)) throw new Error('sellerApi.result.files.path must carry {{workspace}} as one whole path segment, as the quote and start do');
+    // The segment before {{workspace}} (such as "workspaces") is the accounts' collection: no path may name another
+    // account in it as text, before or after the placeholder.
+    const parentIn = (path: string) => {
+      const segs = segmentsOf(path);
+      return segs[segs.indexOf('{{workspace}}') - 1];
+    };
+    const parent = parentIn((api.quote as J).path as string);
+    if (parent !== parentIn((api.start as J).path as string)) throw new Error('sellerApi.quote.path and sellerApi.start.path name the account under different segments: both write <collection>/{{workspace}}');
+    if (parent !== undefined && parent !== '' && !parent.includes('{{')) {
+      const all = [api.quote, api.start, api.result, rmap.reportCall, rmap.files].map((cl: J) => (typeof cl === 'string' ? cl : isRecord(cl) ? cl.path : undefined)).filter((x): x is string => typeof x === 'string');
+      for (const path of all) {
+        const segs = segmentsOf(path);
+        segs.forEach((seg, i) => {
+          if (seg === parent && segs[i + 1] !== '{{workspace}}') throw new Error(`sellerApi: the path ${short(path)} names an account under ${short(parent)} that is not {{workspace}}`);
+        });
+      }
+    }
+    for (const k of ['quote', 'start', 'result'] as const) {
+      const call = api[k];
+      const paths = [typeof call === 'string' ? call : isRecord(call) ? call.path : undefined, isRecord(call) && isRecord(call.reportCall) ? call.reportCall.path : undefined, isRecord(call) && isRecord(call.files) ? call.files.path : undefined];
+      for (const path of paths) {
+        if (typeof path === 'string' && path.split(/[/?#]/).some((seg: string) => seg === w.id || seg === encodeURIComponent(w.id))) {
+          throw new Error(`sellerApi.${k}: a path names the workspace as text; write {{workspace}}, so the paths and sellerApi.workspace.id can never differ`);
+        }
+      }
+    }
+    workspace = { id: w.id, segment: encodeURIComponent(w.id), resultAt: w.resultPointer === undefined ? undefined : pointerParts('sellerApi.workspace.resultPointer', w.resultPointer) };
+  } else if (JSON.stringify(api).includes('{{workspace}}')) {
+    throw new Error('sellerApi uses {{workspace}}, and sellerApi.workspace names none: add {"id": "<the account>"}');
+  }
   const mapped = ['quote', 'start', 'result'].some((k) => isRecord(api[k]));
   let base: URL | undefined;
   if (api.baseUrl !== undefined) {
@@ -430,8 +496,13 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
   }
 
   const strict = base !== undefined; // a mapping or a credential: no redirects, and answers capped
-  const send = async (p: Prepared, v: Values, extra: Record<string, string> = {}, cap: number | undefined = strict ? DELIVERY_CAP_BYTES : undefined): Promise<{ status: number; bytes: Uint8Array }> => {
+  const send = async (p: Prepared, given: Values, extra: Record<string, string> = {}, cap: number | undefined = strict ? DELIVERY_CAP_BYTES : undefined): Promise<{ status: number; bytes: Uint8Array }> => {
+    // The workspace comes from the configuration only: whatever a caller passed under that name is replaced.
+    const v: Values = { ...given, workspace: workspace?.id };
     const url = urlFor(p.what, p.url, v, base);
+    if (workspace && ['sellerApi.quote', 'sellerApi.start', 'sellerApi.result.reportCall', 'sellerApi.result.files'].includes(p.what) && !url.pathname.split('/').includes(workspace.segment)) {
+      throw new Error(`${p.label} would go to ${url.pathname}, which does not name the pinned workspace: nothing was sent`);
+    }
     const headers: Record<string, string> = Object.create(null);
     for (const [k, t] of Object.entries(p.headers)) {
       const filled = t.replace(PLACEHOLDER, (_m, name: string, field?: string) => asText(valueOf(v, name, field)));
@@ -467,7 +538,7 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
     readsToken,
     startRepeatable,
     ...(startOneShotBecause ? { startOneShotBecause } : {}),
-    describe: `The seller API is ${base ? `under ${base.href}` : 'at the three configured addresses'}, with ${auth ? `a credential from ${auth.env} in header ${auth.header}` : 'no credential'}${unitsAt !== undefined ? `; a quote prices ${plain(unitsAt)} units at ${unitPrice} base units each` : ''}; its job state is read by ${status.by === 'http' ? 'HTTP status' : 'a status field'}${files ? `, and a result's further files are added at ${plain(rm.files.into)}` : ''}.`,
+    describe: `The seller API is ${base ? `under ${base.href}` : 'at the three configured addresses'}, with ${auth ? `a credential from ${auth.env} in header ${auth.header}` : 'no credential'}${unitsAt !== undefined ? `; a quote prices ${plain(unitsAt)} units at ${unitPrice} base units each` : ''}; its job state is read by ${status.by === 'http' ? 'HTTP status' : 'a status field'}${files ? `, and a result's further files are added at ${plain(rm.files.into)}` : ''}${workspace ? `; every quote and start runs in the pinned workspace${workspace.resultAt ? ', and a result from another is not delivered' : ''}` : ''}.`,
 
     async quote(v) {
       const { status: code, bytes } = await send(quote, v);
@@ -500,6 +571,18 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
     async result(v) {
       const { status: code, bytes } = await send(result, v);
       let done: Uint8Array = bytes;
+      const pinned = () => {
+        // The job's own account, read from the result call's answer, must be the pinned one (T-435).
+        if (!workspace?.resultAt) return;
+        let doc: J;
+        try {
+          doc = JSON.parse(new TextDecoder().decode(bytes));
+        } catch {
+          throw new WrongWorkspace(`the result answer is not JSON, so the account its job ran in cannot be read at ${plain(String(api.workspace.resultPointer))}`);
+        }
+        const at = pick(doc, workspace.resultAt);
+        if (at !== workspace.id) throw new WrongWorkspace(`the job ran in account ${at === undefined ? '(none named)' : short(at)}, not the pinned one at ${plain(String(api.workspace.resultPointer))}`);
+      };
       if (status.by === 'http') {
         if (status.running.includes(code)) return { state: 'running' };
         if (status.failed.includes(code)) return { state: 'failed', status: `HTTP ${code}` };
@@ -512,6 +595,7 @@ export function sellerApiClient(api: J, env: Readonly<Record<string, string | un
         if (w !== undefined && status.failed.includes(w)) return { state: 'failed', status: short(w) };
         if (w === undefined || !status.done.includes(w)) throw new Error(`the seller API's job status ${w === undefined ? 'is missing' : `"${short(w)}" is none of the configured values`}`);
       }
+      pinned();
       if (reportCall) {
         const second = await send(reportCall, v);
         ok2xx('the report call', second.status);
