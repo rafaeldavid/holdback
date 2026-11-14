@@ -1,0 +1,8 @@
+{
+  "slug": "example-audits",
+  "card": {
+    "name": "Example audits",
+    "item": "audit",
+    "description": "A made-up seller of reviews, for tests and the local run: it sells nothing."
+  }
+}

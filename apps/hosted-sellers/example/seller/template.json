@@ -1,0 +1,26 @@
+{
+  "deliverable": {
+    "kind": "document",
+    "description": "A review of {{target}} to depth {{depth}}.",
+    "format": "application/json"
+  },
+  "checks": [
+    {
+      "id": "report",
+      "type": "json_schema",
+      "required": true,
+      "schema": {
+        "type": "object",
+        "required": [
+          "summary",
+          "target"
+        ],
+        "properties": {
+          "target": {
+            "const": "{{target}}"
+          }
+        }
+      }
+    }
+  ]
+}
