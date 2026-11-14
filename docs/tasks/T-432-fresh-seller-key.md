@@ -94,4 +94,4 @@ Open for Rafa:
 - **The default.** Turn it on with the next live rehearsal?
 - **The payout address.** Is one standing payout address acceptable?
 - **A certificate for the buyer.** Should a buyer get a signed link from the deal key to the long-term key?
-- **PR 534.** That PR raises the faucet's limit to 50 an hour; is it deployed?
+- **PR 534.** That PR raised the faucet's limit to 50 an hour and is merged; is it deployed?
