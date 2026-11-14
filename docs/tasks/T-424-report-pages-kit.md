@@ -6,7 +6,7 @@
 - **Depends on:** T-402 (the brand kit, `site/brand/`, merged)
 - **Paths this task may touch:** `scripts/design-map.mjs`, `scripts/contract-stack.mjs`, `tools/design-map/`, `tools/contract-stack/`, `tests/design-map.test.ts`, `tests/contract-stack.test.ts`, this file; in crow-private `roadmap/page/` only
 - **Human gate:** no. The pages are Rafa's private artifacts and Crow Control's `/map` and `/contracts`; republishing them to their existing addresses is in the brief. No Worker deploy.
-- **Status:** review
+- **Status:** done (holdback PR 518, merge commit 3fd5b2c8; crow-private PR 60, merge commit ff4416b8)
 - **Agent/session:** T-424 in the second wave of 2026-11-14, branch `t-424-report-pages-kit`
 
 ## Intent
@@ -28,6 +28,12 @@ Rafa chose the Hasenheide palette on 2026-11-13 and the brand kit in `site/brand
 
 - Criteria 1 to 3 and 6: `npx vitest run tests/contract-stack.test.ts tests/design-map.test.ts`: 49 tests passed (measured, 2026-11-14). The new test fails on `origin/main`'s templates, which write colours such as `#faf7f0` and the EB Garamond stack (inferred from the templates on `origin/main`).
 - Criterion 7: at 1,024 px both pages measure a document width of 1,009 px; at 375 px both measure 375 px, with no element past the right edge outside the diagram and table boxes (measured in the in-app browser, 2026-11-14).
+- Criterion 8, each page republished to its existing address on 2026-11-14 (measured, from the Artifact tool's publish results):
+  - the design map, https://claude.ai/artifact/4nAPcSGQz6nL5mb8AuDhd2: version 36 (1794655751-c73f), built from holdback 3fd5b2c8 with the daily log at crow-private 342ae38;
+  - the contract stack, https://claude.ai/artifact/74UsLdCNQERZYrDiE5F9tj: version 12 (1794655715-1f27), built from holdback 3fd5b2c8;
+  - the contract stack, phase one, https://claude.ai/artifact/WTgsSSvHRCcGiJK9ztKhQ4: version 5 (1794655099-9620), the live page's HTML restyled (it has no generator);
+  - the roadmap, https://claude.ai/artifact/8qoP6eBhJ9GTcfc9Doy26i: version 66 (1794655208-e110), built from crow-private 55c3047.
+- Crow Control's `/map` and `/contracts` change at its next build: PR 518 changed the contract stack's inputs, so the push job sends the new page (inferred from crow-private `control/README.md`; not seen yet).
 
 ## Handoff
 
