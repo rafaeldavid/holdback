@@ -6,7 +6,7 @@
 - **Depends on:** the live rehearsal of 2026-11-13 (T-399), whose deals are the sample
 - **Paths this task may touch:** this file; one new file, `docs/privacy-baseline.md`; `site/ref/limits.txt`, only a line that the measurements show is wrong; scratch under `reports/scratch/t-416/` (not committed)
 - **Human gate:** no. Plain GETs of the live operators and a public Sepolia RPC only; no deal is created and nothing on the live service changes.
-- **Status:** review
+- **Status:** done (pull request 503)
 - **Agent/session:** the T-416 session, 2026-11-14, branch `t-416-privacy-baseline`
 
 ## Intent
