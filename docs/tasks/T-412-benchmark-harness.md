@@ -29,7 +29,7 @@ Non-goals: running the live scenarios (Rafa's); fixing the scenarios that cannot
 | s2 | Buy rubric-judged written work | Released | test seller | blocked: the test seller sells no rubric-judged item (N70) |
 | s3 | A seller-started deal | Released | test buyer | runs |
 | s4 | A delivery that fails the buyer's checks | Refunded | test seller | runs |
-| s5 | The seller misses its deadline; the buyer reclaims | Reclaimed (Refunded by reclaim) | test seller | blocked: the test seller has no silent outcome that never delivers (N70) |
+| s5 | The seller misses its deadline; the buyer reclaims | Refunded (by the buyer's reclaim) | test seller | blocked: the test seller has no silent outcome that never delivers (N70) |
 | s6 | A robot's data log checked against an agreed format | Released | test buyer | runs |
 
 ## What the stage's bar still lacks after this task
@@ -37,21 +37,84 @@ Non-goals: running the live scenarios (Rafa's); fixing the scenarios that cannot
 - **Live records.** No live record exists until Rafa runs the commands in the Handoff, so the four headline numbers read "missing".
 - **s2 and s5 against the test seller** wait on N70 (a rubric item, and a silent outcome with a short delivery window).
 - **The console** reads `one-click/1` run files only. Reading the summary file is a `control/` change (T-414's lane, or the coordinator's).
-- **Doc gaps** in a live run come from the agent's own words (a "GUESS:" line the prompt asks for) plus the harness's stall signals; reading the digest is still how the findings are written.
+- **Doc gaps** in a live run come from the agent's own `GUESS:` lines, which the goal asks for. Writing each friction point up as a finding (the stage's second bar) still means reading the run's raw log (`--logs`).
 
 ## Acceptance criteria
 
-- [ ] `node tools/one-click/bench.mjs --scenario <id>` writes one record per run, `crow.metrics.one-click/2`, with success, approvals, tokens in and out by model, cost in micro-USD from `config/model-prices.json`, wall time and time without the user, API calls, errors and doc gaps; `node scripts/metrics/check.mjs one-click <file>` accepts it, and still accepts every `/1` file.
-- [ ] Scripted mode needs no key and no network beyond the in-process world. Each of the six scenarios has a scripted run that writes a valid record; s1, s3, s4 and s6 complete, s2 and s5 record the block and what is missing. A test fails when a runnable scenario stops completing.
-- [ ] Live mode reads `HOLDBACK_AGENT_ANTHROPIC_API_KEY`, refuses to start without it, never prints it, and scrubs it from everything it writes. A test shows the refusal and that the key never reaches the record.
-- [ ] `node scripts/metrics/one-click-summary.mjs` writes the headline metrics (approvals per deal, tokens per deal, time without the user, cost per deal) from the records, "missing" where no live record exists, and a scripted record never fills a number.
-- [ ] `tools/one-click/README.md` says how to add a scenario, how to rerun one, and what a record means.
-- [ ] The Handoff gives Rafa the exact live command for each scenario with a cost estimate and how it was made.
+- [x] `node tools/one-click/bench.mjs --scenario <id>` writes one record per run, `crow.metrics.one-click/2`, with success, approvals, tokens in and out by model, cost in micro-USD from `config/model-prices.json`, wall time and time without the user, API calls, errors and doc gaps; `node scripts/metrics/check.mjs one-click <file>` accepts it, and still accepts every `/1` file.
+- [x] Scripted mode needs no key and no network beyond the in-process world. Each of the six scenarios has a scripted run that writes a valid record; s1, s3, s4 and s6 complete, s2 and s5 record the block and what is missing. A test fails when a runnable scenario stops completing.
+- [x] Live mode reads `HOLDBACK_AGENT_ANTHROPIC_API_KEY`, refuses to start without it, never prints it, and scrubs it from everything it writes. A test shows the refusal and that the key never reaches the record.
+- [x] `node scripts/metrics/one-click-summary.mjs` writes the headline metrics (approvals per deal, tokens per deal, time without the user, cost per deal) from the records, "missing" where no live record exists, and a scripted record never fills a number.
+- [x] `tools/one-click/README.md` says how to add a scenario, how to rerun one, and what a record means.
+- [x] The Handoff gives Rafa the exact live command for each scenario with a cost estimate and how it was made.
 
 ## Evidence
 
-Filled in before review. Each item labelled measured, inferred or guessed.
+All measured on 2026-11-14 in the worktree, on Node 22.22.2, unless labelled otherwise.
+
+- **Scripted runs** [measured]: `node tools/one-click/bench.mjs --scenario all` wrote six valid records in 11.0 s of wall time and exited 0.
+
+  | Scenario | State | Wall time | API calls |
+  | --- | --- | --- | --- |
+  | s1 | Released | 2,344 ms | 36 |
+  | s2 | blocked (N70) | 0 ms | 0 |
+  | s3 | Released | 3,103 ms | 31 |
+  | s4 | Refunded | 2,640 ms | 31 |
+  | s5 | blocked (N70) | 0 ms | 0 |
+  | s6 | Released | 1,047 ms | 31 |
+
+- **The tests**: `pnpm exec vitest run tests/metrics`: 9 files, 135 tests passed in 9.45 s [measured]. `one-click-bench.test.ts` runs all six scenarios scripted, checks each record against the schema and each end state, tests the live mode's key refusal (no key, an empty key), checks that a sentinel key never appears in output on three refusal paths or in a scrubbed record, and checks the record's arithmetic by hand. `one-click-summary.test.ts` checks the medians, the "missing" values and that scripted and failed runs fill no number.
+- **The test bites** [measured]: with the test seller's good delivery cut to 1 row in `apps/test-agents/src/catalog.ts` (a local change, reverted at once and not committed), 3 tests failed: the exit code, s1 and s3. The other 22 passed.
+- **Version 1 unchanged** [measured]: the old schema body, read with `git show origin/main:…`, equals `$defs.V1` and `$defs.Tokens` of the new file, compared as JSON. The 107 metrics tests that existed before this task pass unchanged.
+- **The summary on scripted records** [measured]: `node scripts/metrics/one-click-summary.mjs --runs <the scripted folder> --out …` wrote a valid file with all four headline numbers `"state": "missing"`, value null, and the gap "No live record yet".
+- **Checks** [measured]: `pnpm typecheck` passes; `pnpm exec eslint tools/one-click scripts/metrics tests/metrics` exits 0. The two scripted agents type-check (`tsc` with the repository's base config: exit 0). `node --check` passes on `bench.mjs` and `bench-live.mjs`.
+- **Not run** [measured]: no live run. `bench-live.mjs` is written from `outsider.mjs`, which ran four times on 2026-11-11, but its own code has run only up to the key check. Whether Claude Code honours `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` is a guess.
 
 ## Decisions
 
+- **A version 2 beside version 1, in the same schema file.** `one-click.schema.json` now dispatches on `schema`: `/1` takes the old body unchanged (`$defs.V1`), `/2` the benchmark's record. `run.mjs` keeps writing `/1`, so the console's current card keeps working. The console reads `/1` files only, so a `/2` file in `control/metrics/one-click/` would show there as "unknown version" with a gap line.
+- **Two shared lines outside the lane.** No lane of the wave owns them, and the work needs both: `common.schema.json`'s envelope took `/1` only and now takes any version number, `/[1-9][0-9]{0,5}`. Every other schema still pins its own version with `const`, so nothing else changes. `tests/metrics/schemas.test.ts` lists the schema names and gains `one-click-summary`.
+- **Scripted runs use the real test agents' code, not a replay.** T-370's `--dry-run` replays fixed tool results, so it cannot notice a scenario that broke. The scripted world runs the code the live operators and test agents run, as `apps/test-agents/src/try.test.ts` does, so a break in the path fails CI. It imports TypeScript that Node's default type stripping refuses (a constructor parameter property in `buyer.ts`), so `bench.mjs` starts itself again with `--experimental-transform-types`.
+- **s6 is played against the test buyer.** The test buyer takes any checks-only data offer within its published rules (`buyer-rules.ts`), so a robot fleet's agent can sell a run's data log with the log's format stated as five checks (columns, rows, one reading per joint and time, no empty position, joint names). No new test agent is needed.
+- **s5 counts Refunded as success.** A reclaim ends Refunded on chain. The harness does not tell a reclaim from a rejected delivery, so a live s5 record needs its raw log read to confirm the reclaim.
+- **Cost uses each model's own price**, not Opus 5.5's for every model as `run.mjs` does, so a Haiku side call costs Haiku's price.
+- **Live runs keep the sandbox on by default** (T-328's runs needed it), and the live mode replaces `outsider.mjs` for new runs; `outsider.mjs` stays as it ran.
+
 ## Handoff
+
+**Done:** the harness, its scripted runs of all six scenarios in CI, the live mode (not run), the summary script and the README.
+
+**Waits for Rafa: the live runs.** Each spends his model key (billed as API usage, not the Claude subscription) and Sepolia test funds from the public faucet; no real money. From `/Users/rafa/Documents/escrow`, on `main` after this merges, with `HOLDBACK_AGENT_ANTHROPIC_API_KEY` set in the shell (or `node --env-file=<his env file>` in place of `node`):
+
+```
+cd /Users/rafa/Documents/escrow
+pnpm install && pnpm build
+npm ci --ignore-scripts --prefix tools/one-click
+node tools/one-click/bench.mjs --scenario s1 --live --logs reports/scratch/one-click-bench/logs
+node tools/one-click/bench.mjs --scenario s2 --live --logs reports/scratch/one-click-bench/logs
+node tools/one-click/bench.mjs --scenario s3 --live --logs reports/scratch/one-click-bench/logs
+node tools/one-click/bench.mjs --scenario s4 --live --logs reports/scratch/one-click-bench/logs
+node tools/one-click/bench.mjs --scenario s5 --live --logs reports/scratch/one-click-bench/logs
+node tools/one-click/bench.mjs --scenario s6 --live --logs reports/scratch/one-click-bench/logs
+node scripts/metrics/one-click-summary.mjs --runs reports/scratch/one-click-bench/live --out reports/scratch/one-click-summary.json
+```
+
+One at a time: the test seller takes 3 requests per client an hour (`site/llms.txt`), and s1 and s4 both use it.
+
+| Scenario | Estimate (USD, list price, Opus 5.5 at effort medium) | How |
+| --- | --- | --- |
+| s1 | about 1.41 | measured: T-328's run of the same goal, 2026-11-11, the SDK's `total_cost_usd` |
+| s2 | about 1.63 | measured: T-328's run (the agent played both sides) |
+| s3 | about 1.0 to 1.6 | guessed: no run yet; the range of T-328's four runs |
+| s4 | about 1.12 | measured: T-328's run |
+| s5 | about 1.02 | measured: T-328's run (the agent played both sides) |
+| s6 | about 1.0 to 1.6 | guessed: as s3 |
+| All six | about 7 to 8.5 | the sum |
+
+The estimates assume `llms.txt` is still about the size it was on 2026-11-11 (90 kB): the tokens were almost all cache reads of it (T-328 review, F5) [inferred]. Each run takes about 5 to 7 minutes [measured in T-328]. Expect s2 and s5 to stop or to self-play until N70 lands: the live test seller sells no rubric item and always delivers.
+
+**Waits for another lane:**
+- **The console** (T-414 or the coordinator, `control/`): run the summary in the build, `node scripts/metrics/one-click-summary.mjs --runs control/metrics/bench --out <out>/metrics/one-click-summary.json`, and read its four headline numbers. Committing `/2` records to their own folder, `control/metrics/bench/` (a suggestion), keeps them out of the `/1` reader's gap lines.
+- **N70** (the test seller): a rubric-judged item and an outcome that never delivers. Then replace `blockedBy` for s2 and s5 in `tools/one-click/scenarios.mjs` with their scripted agents.
+
+**Follow-ups not built:** Cloudflare request counts (`run.mjs --tail`) in the `/2` record; telling a reclaim from a rejection in a live s5 record; a CI run of the live mode with a capped key (T-068).
