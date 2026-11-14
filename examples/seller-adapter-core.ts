@@ -821,6 +821,12 @@ export interface SellerAdapterCore {
   close(): Promise<void>;
   /** How often the shell should call `wake`, in milliseconds. */
   pollMs: number;
+  /** The seller's standing signing address: every offer names it, unless each deal signs with a fresh key. */
+  address: string;
+  /** true: each deal signs with a key of its own (`signingKey: "per-deal"`), and no standing address offers. */
+  perDealKeys: boolean;
+  /** The chain the pinned settlement layer is on, as the operators serve it: 11155111 for Sepolia, 31337 for SimChain. */
+  chainId: number;
 }
 
 /** Reads and checks a report mapping by its path, as report-converter.ts's loadReportMapping does, through `readText`. */
@@ -1600,6 +1606,9 @@ export async function createSellerAdapter(c: SellerAdapterConfig, env: Readonly<
     hasOpen: () => Object.values(journal.deals).some((d) => OPEN_STAGES.includes(d.stage)),
     deals: () => structuredClone(Object.values(journal.deals)),
     pollMs: c.pollMs,
+    address: seller.address,
+    perDealKeys: perDeal,
+    chainId: pin.domain.chainId,
     announce(where: string) {
       log(`Seller adapter for ${perDeal ? `a fresh key each deal, from HOLDBACK_KEY at ${seller.address},` : seller.address} ${where}, ${Object.keys(journal.deals).length} deals.`);
       const source = (yes: boolean) => (yes ? 'from discovery' : 'from the configuration');

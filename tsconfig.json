@@ -13,6 +13,7 @@
     { "path": "apps/demo-cloud" },
     { "path": "examples" },
     { "path": "apps/test-agents" },
+    { "path": "apps/hosted-sellers" },
     { "path": "tools/sim" }
   ]
 }

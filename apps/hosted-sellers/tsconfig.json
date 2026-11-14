@@ -1,0 +1,7 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "dist", "types": ["node"], "allowImportingTsExtensions": true, "emitDeclarationOnly": true },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts", "src/test-*.ts"],
+  "references": [{ "path": "../../examples" }]
+}
