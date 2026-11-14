@@ -17,6 +17,30 @@ What this demo does not do, how to tell the operators about a problem, and where
 - **Public terms.** At `disclosure.level: "public"`, terms, amounts, addresses and events are public reads on every operator, so put nothing secret in the terms. The work is encrypted before it leaves the seller, and only the adjudicators and the buyer, once it has paid, can open it; with a rubric, the adjudicator also sends it to its judges' two model providers. Its exact size, its delivery time and its `plaintextSha256` are public, so anyone can confirm a guessed copy; add a random field to the work if your checks allow one. A rubric deal's judgment record is public too, and its judges' notes quote the work. A `checks-only` deal's record gives each check's result, with a short reason for a failed one. Private deals are written up above and not judged here yet; private judgment records and private amounts come after them. In this phase, the addresses, amounts, deadlines and adjudicators a deal names are public on Sepolia to anyone who reads the chain.
 - **Planned routes** answer 501 `not_implemented` with a `Link` to where they are specified; `GET /v1/openapi.json` lists what is built.
 
+## Where your agent's limits hold
+
+Your principal, the company or person behind your agent, limits it in two places (ADR-0038).
+
+**The spending limit is the payment address.** Money leaves only on the payment address's signatures for one deal: the funding of its price plus the adjudication fee, and the operator's fee where one is charged. The balance, who signs for that address, and your principal's own wallet policy set the limit.
+
+**The mandate is a permission others check.** Your principal signs it: the agent's key, the club, the roles, the cap per deal (`maxPerCommitment`), the daily cap (`maxDaily`) and the expiry (`expiresAt`).
+
+- **The contracts read no mandate.** They fund a deal on the signatures of the seller, the primary adjudicator, the buyer and the buyer's payment address.
+- **Each operator checks the mandate as its own relay policy.** It checks the role, `maxPerCommitment` and `expiresAt` at the offer, the agreement and the funding, and `maxDaily` at the agreement, and answers 403 `scope_exceeded` or `mandate_expired`. The same signed messages sent to another operator, or straight to the contracts, do not pass this operator's check.
+- **The daily cap is counted per operator.** Each operator adds the price of each agreement it relays, per buyer signing address and UTC day. It does not count a deal funded through another operator or straight at the contracts, and a per-deal key starts at 0. The two names here share one count.
+- **Nothing checks `categories`.** The field is signed and not enforced.
+- **A counterparty can check the mandate before it signs:** the principal's signature, the club, the role, the cap against the price, and the expiry. The reference clients do not run this check in their flows yet. In a private deal with per-deal keys, only the counterparty checks.
+- **On this test service the faucet signs your agent's mandate** with the demo club's own test principal: it admits your agent to the club, and it is not your principal's own permission. An operator takes no mandate from a principal yet (`POST /v1/agents` answers 501 `not_implemented`).
+- **To stop an agent today,** move the balance off the payment address, or stop signing for it: no new deal can then fund. A principal cannot revoke a mandate yet (`POST /v1/agents/<address>/revoke` answers 501); the mandate ends at its `expiresAt`. A hold already funded is not touched: the agent can still accept early or co-sign a settlement on it, so the holds already funded bound that loss.
+
+| What your principal wants | What enforces it today | Who can get around it |
+| --- | --- | --- |
+| Never more than X in total | The balance on the payment address | Nobody |
+| A person or a rule approves each payment, or each one above X | Its own wallet: the payment key held in a wallet service that applies its policy, or a multisig or a smart account as the payment address. A multisig or a smart account funds by a direct call to the contracts today, not through an operator: the API takes 65-byte signatures only | Nobody without that wallet's approval |
+| At most X per deal, in these roles, until a date | The mandate, checked by each operator that relays the deal and by a counterparty that checks | An agent that holds a signing key and a funded payment address and goes to the contracts or another operator, with a counterparty that does not check |
+| At most X a day | Each operator's own count. For a hard limit, top up the payment address by the day's budget | An agent that uses two operators, the contracts directly, or per-deal keys |
+| Cut the agent off now | Move the balance off the payment address, or stop signing for it | Nobody, for new money. On a hold already funded, the agent can still accept early or co-sign a settlement |
+
 For the curious: the source is at https://github.com/rafaeldavid/holdback, and the full API reference at https://raw.githubusercontent.com/rafaeldavid/holdback/main/docs/api.md. You do not need either to run a deal.
 
 ## Reporting a problem

@@ -48,8 +48,8 @@ pnpm demo-cloud:deploy
 # a live end-to-end deal against the deployed nodes (the deploy runs one; deal.ts runs on SimChain only)
 HOLDBACK_OPERATORS=https://api.crow.direct,https://api2.crow.direct node examples/try.ts
 
-# early-access sign-ups
-npx wrangler@4 deploy --config apps/early-access/wrangler.jsonc
+# early-access sign-ups (T-413): deploys, waits for join.crow.direct/version.json to name the commit, and rolls back on its own
+node apps/early-access/deploy.mjs
 npx wrangler@4 kv key list --binding EMAILS --config apps/early-access/wrangler.jsonc --remote
 
 # Crow's test seller (T-222): deploys, waits for /health to read operational, and rolls back on its own
