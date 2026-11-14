@@ -501,20 +501,27 @@ describe('the review and red team of PR 555: each finding, as an attack that now
 });
 
 describe('B8 at each bound, with the signer\'s clock injected: one time for the test and the signer (T-442)', () => {
-  /** A fresh signer at time t, the terms for one case, and the signer's answer: each pair runs on its own signer. */
-  const at = async (t: number, terms: (c: Cast) => J, signerAt = t) => {
-    const now = { t: signerAt };
-    const { c, post } = await inProcess(now);
-    return post(payment(terms(c)));
+  // One signer for every case, its clock set by each case. A signed deal is closed at the stand-in read (settle) and
+  // costs 2.00 tUSDC, so the open-deal and day limits never answer before B8 does.
+  const now = { t: 0 };
+  let post: (body: J) => Promise<{ status: number; body: J }>, c: Cast;
+  beforeAll(async () => void ({ post, c } = await inProcess((now.t = Date.now(), now))));
+  /** The signer's answer to one case's terms, with its clock at `signerAt`. A signed deal is closed at once. */
+  const at = async (signerAt: number, terms: J) => {
+    now.t = signerAt;
+    const r = await post(payment(terms));
+    if (r.status === 200) settle(r.body.commitmentId);
+    return r;
   };
   const T = Math.floor(Date.now() / 1000) * 1000;
   const w = V1.buying.windows;
-  /** The default deadlines from createdAt T, with `shift` moving one of them and those after it by the same amount. */
+  /** The deadlines from createdAt T, each `o` field in seconds; deliverBy and judgeBy also move the deadlines after them. */
   const timing = (o: { offer?: number; fund?: number; deliver?: number; judge?: number; fallback?: number } = {}) => {
     const offer = T + (o.offer ?? w.offerExpiresInSec) * 1000, fund = T + (o.fund ?? w.fundWithinSec) * 1000, deliver = T + (o.deliver ?? w.deliverWithinSec) * 1000;
     const judge = deliver + (o.judge ?? 60) * 1000, fallback = judge + (o.fallback ?? 60) * 1000;
     return { offerExpiresAt: iso(offer), fundBy: iso(fund), deliverBy: iso(deliver), judgeBy: iso(judge), fallbackBy: iso(fallback) };
   };
+  const terms = (o: J) => termsFor(c, { price: '1000000', ...o });
   const cases: Array<[string, J, J]> = [
     ['the offer window', { offer: w.offerExpiresInSec }, { offer: w.offerExpiresInSec + 1 }],
     ['the funding window', { fund: w.fundWithinSec }, { fund: w.fundWithinSec + 1 }],
@@ -525,20 +532,20 @@ describe('B8 at each bound, with the signer\'s clock injected: one time for the 
   ];
   for (const [name, inside, outside] of cases) {
     it(`${name}: at the bound it signs, one second past it refuses`, async () => {
-      signed(await at(T, (c) => termsFor(c, { createdAt: T, timing: timing(inside) })));
-      refused(await at(T, (c) => termsFor(c, { createdAt: T, timing: timing(outside) })), 'B8');
+      signed(await at(T, terms({ createdAt: T, timing: timing(inside) })));
+      refused(await at(T, terms({ createdAt: T, timing: timing(outside) })), 'B8');
     });
   }
 
   it(`createdAt ahead of the signer's clock: ${V1.buying.clockSkewSec} s signs, one second more refuses`, async () => {
     const ahead = V1.buying.clockSkewSec * 1000;
-    signed(await at(T + ahead, (c) => termsFor(c, { createdAt: T + ahead }), T));
-    refused(await at(T + ahead + 1000, (c) => termsFor(c, { createdAt: T + ahead + 1000 }), T), 'B8', /ahead of the signer's clock/);
+    signed(await at(T, terms({ createdAt: T + ahead })));
+    refused(await at(T, terms({ createdAt: T + ahead + 1000 })), 'B8', /ahead of the signer's clock/);
   });
 
   it('the offer\'s expiry by the signer\'s clock: 1 ms before it signs, at it refuses', async () => {
     const expires = T + w.offerExpiresInSec * 1000;
-    signed(await at(T, (c) => termsFor(c, { createdAt: T }), expires - 1));
-    refused(await at(T, (c) => termsFor(c, { createdAt: T }), expires), 'B8', /the offer expired at/);
+    signed(await at(expires - 1, terms({ createdAt: T })));
+    refused(await at(expires, terms({ createdAt: T })), 'B8', /the offer expired at/);
   });
 });
