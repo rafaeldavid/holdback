@@ -32,14 +32,14 @@ CI run 43587508963 on main (commit `12794e4`, docs only) failed one test of 293 
 ## Evidence
 
 - **Cause (measured).** The test failed at `live.test.ts:364`, its own `getTransactionReceipt` right after the send rejected. The CI log shows `TransactionReceiptNotFoundError` from viem 2.57.13 at that line. The test assumed automine had mined the transaction by the time `eth_sendRawTransaction` returned. Anvil does not promise that: it adds the transaction to its pool, answers, and mines the automine block in a separate step.
-- **Anvil's behavior (measured).** On anvil 1.0.0 (`e144b82`), a probe sent transactions with automine on and read each receipt right after its send returned. Serially, 29 of 2,000 reads found no receipt (1.5%). With 8 senders in parallel, 3,089 of 4,000 reads found none (77%). The probe script is in `reports/scratch/anvil-receipt-probe.mjs` (git-ignored).
+- **Anvil's behavior (measured).** On anvil 1.0.0 (`e144b82`), a probe sent transactions with automine on and read each receipt right after its send returned. Serially, 29 of 2,000 reads found no receipt (1.5%). With 8 senders in parallel, 3,089 of 4,000 reads found none (77%). To repeat it: start `anvil`, then per sender loop `eth_sendTransaction` from an unlocked dev account and call `eth_getTransactionReceipt` on the returned hash at once, counting `null` answers. The session's copy was the git-ignored `reports/scratch/anvil-receipt-probe.mjs`.
 - **Product code (inferred from reading, then measured by the passing test).** `LiveChain` is not affected. `fly` treats a missing receipt as "not yet", polls every `pollMs` and rebroadcasts. The lane's next send resolves the open row through `fly` too. The other product reads in `evm-settlement.ts` (1309, 1611) and `sync.ts` (258) take hashes from logs or blocks, so those transactions are already mined.
 - **Fix.** The test now holds mining back before the send. It checks that the transaction is in anvil's pool, which is the claim "the node took it", then mines one block with `evm_mine`, turns automine back on, and reads the receipt. The read no longer races the miner. No timeout or retry was added.
 - **Repeat loop (measured, 2026-11-14, on the Mac).** The test ran with vitest `repeats` on one anvil:
   - before the fix, idle machine: 200 of 200 runs passed (the window is too small to hit when idle);
   - before the fix, with the probe loading a second anvil (10 senders): 21 of 200 runs failed, all at line 364, with the CI error;
   - after the fix, under the same load: 200 of 200 runs passed, then 500 of 500 runs passed.
-- **Commands run and results (measured):** `pnpm vitest run packages/settlement/evm/live.test.ts`: 21 of 21 tests passed. `/verify`: results in the PR.
+- **Commands run and results (measured):** `pnpm vitest run packages/settlement/evm/live.test.ts`: 21 of 21 tests passed. `pnpm exec eslint packages/settlement/evm/live.test.ts`: no findings. The whole package suite with anvil took longer than 10 minutes on the Mac without a result, so CI's job "anvil tests, settlement (must not skip)" on PR 537 is the measure for it (the kind's gate). Review (kind 5, one reviewer): PASS, no blocking findings.
 - **Snapshot diffs:** none.
 
 ## Decisions
