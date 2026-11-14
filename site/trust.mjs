@@ -12,7 +12,7 @@
 // calming claims crow-private strategy/2026-11-14-crow-ontology.md refuses (site/check.mjs lists them).
 import { readFileSync } from 'node:fs';
 import { CARDS, cardTags, CODE_URL, footerHtml } from './footer.ts';
-import { button, headerBar, kitCss, notice, sectionHead } from './brand/kit.mjs';
+import { button, headerBar, iconLinks, kitCss, notice, sectionHead } from './brand/kit.mjs';
 import { drawerScript } from './drawer.ts';
 
 const here = (p) => new URL(p, import.meta.url);
@@ -279,7 +279,7 @@ const head = ({ site, base, card, alternate }) => `<!doctype html>
 <title>${esc(card.title)}</title>
 ${cardTags({ site, ...card })}
 <link rel="canonical" href="${site}${card.path}">
-<link rel="icon" type="image/svg+xml" href="${base}crow-mark.svg">
+${iconLinks({ base })}
 <link rel="alternate" type="${alternate.type}" title="${esc(alternate.title)}" href="${base}${alternate.path}">
 <link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="${base}llms.txt">
 <link rel="stylesheet" href="${base}pages.css">
