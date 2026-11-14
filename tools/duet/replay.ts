@@ -20,7 +20,7 @@ type Lane = 'buyer' | 'crow' | 'seller';
 export interface Step {
   lane: Lane;
   t: number;
-  /** say: an agent's own words. act: something it did. note: a refusal, a stall, the company's rule. chain: the order's record. money: money moves. end: it reported back. */
+  /** say: an agent's own words. act: something it did. note: a refusal, a stall, the company's rule. chain: the deal's record. money: money moves. end: it reported back. */
   kind: 'say' | 'act' | 'note' | 'chain' | 'money' | 'end';
   title: string;
   detail?: string;
@@ -62,7 +62,7 @@ function act(name: string, input: J): { title: string; key: string } {
     const c = String(input?.command ?? '');
     const first = args[0] ?? '';
     const t =
-      c === 'buy-with-signer' ? (first === 'approve' ? 'Asked its company to approve the order and pay' : first === 'resume' ? 'Followed up on its paid order' : 'Asked the seller for a price; its buying tool read the offer and paused for approval')
+      c === 'buy-with-signer' ? (first === 'approve' ? 'Asked its company to approve the deal and pay' : first === 'resume' ? 'Followed up on its paid deal' : 'Asked the seller for a price; its buying tool read the offer and paused for approval')
       : c === 'seller-adapter' ? 'Started its selling tool, which sends offers and delivers the work'
       : c === 'adapter-log' ? 'Checked its selling tool for news'
       : c === 'check-delivery' ? 'Ran the agreed checks on a file'
@@ -129,7 +129,7 @@ export function steps(events: readonly Event[]): Step[] {
       const step = (kind: Step['kind'], title: string, detail?: string): Step => ({ lane: 'crow', t, kind, title, ...(detail ? { detail } : {}), ...(link ? { link } : {}), exact: String(e.type) });
       const map: Record<string, () => Step> = {
         'commitment.offered': () => step('chain', 'The seller sent a signed offer'),
-        'adjudicator.accepted': () => step('chain', 'The independent reviewer agreed to check the work'),
+        'adjudicator.accepted': () => step('chain', 'The reviewer both sides chose agreed to check the work'),
         'commitment.agreed': () => step('chain', 'The buyer signed the agreement'),
         'hold.funded': () => step('money', `The buyer's payment is held: ${money(held)}`, `${price !== null ? `${money(price)} for the work` : 'The price'}${fee !== null ? `, ${money(fee)} for the reviewer` : ''}. Neither side can take it alone.`),
         'delivery.submitted': () => step('chain', 'The seller delivered the report, locked'),
@@ -138,7 +138,7 @@ export function steps(events: readonly Event[]): Step[] {
         'settlement.released': () => step('money', 'The seller is paid', `${price !== null ? money(price) : 'The price'} to the seller. The report unlocks for the buyer in the same step.`),
         'settlement.refunded': () => step('money', 'The buyer is refunded', `${price !== null ? money(price) : 'The price'} back to the buyer. The report stays locked.`),
       };
-      crow.push((map[e.type] ?? (() => step('chain', 'The order record changed')))());
+      crow.push((map[e.type] ?? (() => step('chain', 'The deal\'s record changed')))());
     }
   }
 
@@ -361,7 +361,7 @@ function page(events: readonly Event[], s: Summary, extras: PageExtras): string 
   const measures = [
     ['The right outcome', ok ? `Yes. ${outcome}` : `No: not what this test expected. ${s.why}.`],
     ['What each company told its agent', s.brief === 'direct' ? `Only what it wanted, its limits and its own setup, and that it pays or sells through crow.direct. Each agent found Crow's guides from the home page on its own.${local ? " In this test, crow.direct was answered from this machine's copy of the site." : ''}` : "Where Crow's guides are and how to use them, with what it wanted, its limits and its own setup."],
-    ['From the work passing to the seller being paid', s.workPassesToPaidSec === null ? (s.workPassesToPaidNote ?? 'Nobody was paid in this run.') : `${s.workPassesToPaidSec} s, counted on the order record in whole seconds.`],
+    ['From the work passing to the seller being paid', s.workPassesToPaidSec === null ? (s.workPassesToPaidNote ?? 'Nobody was paid in this run.') : `${s.workPassesToPaidSec} s, counted on the deal's record in whole seconds.`],
     ['People involved during the run', `${s.humanInterventions}. ${approvals.length ? `The buyer set one standing rule in advance; it answered ${approvals.length} approval ${approvals.length === 1 ? 'request' : 'requests'}.` : 'Nobody acted during the run.'}`],
     ['AI model tokens used', `${n(s.tokens.deal)} in all: ${n(s.tokens.split.fresh)} fresh input, ${n(s.tokens.split.cacheRead)} read again from the providers' cache (billed at a fraction of the price), ${n(s.tokens.split.cacheWrite)} written to it, and ${n(s.tokens.split.output)} written by the agents.${s.costPerDealMicroUsd !== null ? ` At list prices, about ${usd(s.costPerDealMicroUsd)} for the deal.` : ''} The ${AGENT_NAME.buyer} used ${n(tok('buyer'))}: ${n(s.tokens.buyer.guides)} to read Crow's guides and keep them in mind, ${n(s.tokens.buyer.work)} for the purchase itself. The ${AGENT_NAME.seller} used ${n(tok('seller'))}: ${n(s.tokens.seller.guides)} for the guides, ${n(s.tokens.seller.work)} for the sale. The most either carried at once: ${n(s.peakContext.buyer)} tokens (buyer), ${n(s.peakContext.seller)} (seller).${scripted ? ' Scripted stand-ins count text length divided by four.' : ''}`],
     ['Steps the agents took', `${n(s.calls.buyer.turns + s.calls.seller.turns)} steps and ${n(s.calls.buyer.toolCalls + s.calls.seller.toolCalls)} actions; ${n(s.calls.buyer.refused + s.calls.seller.refused)} were stopped by the agents' own tools.`],
@@ -558,7 +558,7 @@ ${PITCH.beats.map((b) => `<div class="beat"><span class="beat-label">${esc(b.lab
 <ol class="steps">
 <li><span class="step-num">1</span><h4>Agree the checks</h4><p>Before the order, the two agents agree the checks the work must pass, within the limits each company sets.</p></li>
 <li><span class="step-num">2</span><h4>Hold the payment</h4><p>The buyer's payment is held, not handed over. Neither side can take it alone.</p></li>
-<li><span class="step-num">3</span><h4>Deliver and check</h4><p>The seller delivers the work locked. An independent reviewer runs the agreed checks on the work itself.</p></li>
+<li><span class="step-num">3</span><h4>Deliver and check</h4><p>The seller delivers the work locked. A reviewer both sides chose runs the agreed checks on the work itself.</p></li>
 <li><span class="step-num">4</span><h4>Settle in one step</h4><p>If it passes, the seller is paid and the work unlocks for the buyer. If it fails, the price goes back to the buyer.</p></li>
 </ol>
 </section>
@@ -587,7 +587,7 @@ ${spec('What was bought', bought)}
 ${spec('How it ended', outcome)}
 ${spec(AGENT_NAME.buyer, `Acting for the buyer. ${model('buyer')}.`)}
 ${spec(AGENT_NAME.seller, `Acting for the seller. ${model('seller')}.`)}
-${held !== null ? spec('Buyer paid', `${money(held)}${fee !== null ? `: the price plus ${money(fee)} for the independent reviewer` : ''}`) : spec('Buyer paid', 'Nothing.')}
+${held !== null ? spec('Buyer paid', `${money(held)}${fee !== null ? `: the price plus ${money(fee)} for the reviewer` : ''}`) : spec('Buyer paid', 'Nothing.')}
 ${spec('Seller received', paidSeller ? (price !== null ? money(price) : 'The price') : 'Nothing')}
 ${spec('Where it ran', where.charAt(0).toUpperCase() + where.slice(1))}
 ${spec('Test money', `Test dollars: the test token ${String(world?.token ?? 'tUSD')}, with six decimals. A payment record names it that way. It is worth nothing.`)}

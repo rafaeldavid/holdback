@@ -104,7 +104,7 @@ import {
   termsView,
   transferDigest,
 } from './encode.js';
-import { problemFromRevert, revertData, revertName } from './errors.js';
+import { missingBlock, problemFromRevert, revertData, revertName } from './errors.js';
 import { assertSafeChain } from './guard.js';
 import { commitmentTxs, embeddedCalls, feeLegs, idsOf, rulesCalls, type ChainTx, type RulesCall } from './sync.js';
 import type { EvmWorld } from './world.js';
@@ -579,7 +579,8 @@ export class EvmSettlement implements Settlement {
    * each transaction before its receipt returns, reads its latest block.
    */
   private async read<T>(address: Address, abi: Abi, functionName: string, args: unknown[], blockNumber?: bigint): Promise<T> {
-    const at = async (block: bigint | undefined) => (await this.world.publicClient.readContract({ address, abi, functionName, args, ...(block !== undefined ? { blockNumber: block } : {}) })) as T;
+    // `block` undefined is anvil's latest block (viem then names none). Named in the call itself, so the read rule sees it.
+    const at = async (block: bigint | undefined) => (await this.world.publicClient.readContract({ address, abi, functionName, args, blockNumber: block })) as T;
     if (blockNumber !== undefined || !this.world.pinned) return at(blockNumber);
     return this.world.pinned(at);
   }
@@ -668,6 +669,18 @@ export class EvmSettlement implements Settlement {
   async state(id: Hex32): Promise<CommitmentStateView | null> {
     const b = this.books.get(id);
     return b ? this.view(id, b) : null;
+  }
+
+  /**
+   * Reads this deal's own transactions from the chain again, from the deployment's first block, and applies the ones
+   * this node has not (`catchUp`), inside the deal's lane. For a deal whose book disagrees with the contract: one sync
+   * pass whose eth_getLogs came from a backend more than OVERLAP blocks behind moves the cursor past a direct
+   * transaction, which no later pass reads again (T-409 red team, M1). A transaction already applied changes nothing.
+   * Nothing for an unknown deal; throws on an RPC error, having applied nothing.
+   */
+  async resync(id: Hex32): Promise<void> {
+    if (!this.books.has(id)) return;
+    await this.enqueue(id, async () => void (await this.catchUp(id)));
   }
 
   async *events(fromSeq = 0): AsyncIterable<SettlementEvent> {
@@ -837,7 +850,8 @@ export class EvmSettlement implements Settlement {
       book.updatedAt = this.now();
       this.dirty.add(id);
     }
-    const state = await this.view(id, book);
+    // The book has moved: the answer is stored and the lane row goes whatever a balance read does (T-232, T-409).
+    const state = await this.view(id, book, { bestEffort: true });
     const signatureCheck = s.kind === 'trigger' ? 'none' : 'verified';
     const result: Extract<SubmitResult, { ok: true }> = { ok: true, commitmentId: id, state, events, replayed: false, dryRun, signatureCheck };
     if (key !== undefined) {
@@ -1284,16 +1298,15 @@ export class EvmSettlement implements Settlement {
   private async feePaidEarlier(fee: TransferAuthorization, since: Timestamp): Promise<boolean | null> {
     const event = this.world.abis.token.find((x): x is AbiEvent => x.type === 'event' && x.name === 'AuthorizationUsed');
     if (!event) return null;
-    const client = this.world.publicClient;
     const { token, fromBlock } = this.world.deployment;
-    const latest = await client.getBlockNumber();
+    const latest = await this.world.publicClient.getBlockNumber();
     // On a live chain, only the blocks since the terms were made (about 12 s each), within one RPC range.
     const span = BigInt(Math.min(50_000, Math.ceil(Math.max(0, Date.parse(this.now()) - Date.parse(since)) / 12_000) + 50));
     const from = this.wall && latest - span > fromBlock ? latest - span : fromBlock;
-    const used = await client.getLogs({ address: token, event, args: { authorizer: getAddress(fee.from), nonce: fee.nonce }, fromBlock: from, toBlock: latest });
+    const used = await this.world.publicClient.getLogs({ address: token, event, args: { authorizer: getAddress(fee.from), nonce: fee.nonce }, fromBlock: from, toBlock: latest });
     const at = used[0];
     if (!at) return false;
-    const receipt = await client.getTransactionReceipt({ hash: at.transactionHash! });
+    const receipt = await this.world.publicClient.getTransactionReceipt({ hash: at.transactionHash! });
     const next = receipt.logs.find((l) => l.logIndex === at.logIndex! + 1);
     if (!next || lc(next.address) !== lc(token)) return false;
     const [paid] = this.decode([next]);
@@ -1406,6 +1419,8 @@ export class EvmSettlement implements Settlement {
     try {
       await this.world.simulate({ from, to, data }, this.wall ? undefined : time);
     } catch (e) {
+      // A node without the block is no answer from the contract, whatever shape viem gives it (T-409 red team, L2).
+      if (missingBlock(e)) throw e;
       const raw = revertData(e);
       if (raw === undefined && !/revert/i.test(String((e as Error).message))) throw e;
       throw new Refusal(problemFromRevert(this.abi, raw), revertName(this.abi, raw));
@@ -1805,7 +1820,7 @@ export class EvmSettlement implements Settlement {
   private async answer(id: Hex32, book: Book, note: RelayNote, events: SettlementEvent[]): Promise<void> {
     const key = note.idempotencyKey;
     if (key === undefined || note.body === undefined || this.idempotency.has(key)) return;
-    const result: Extract<SubmitResult, { ok: true }> = { ok: true, commitmentId: id, state: await this.view(id, book), events, replayed: false, dryRun: false, signatureCheck: note.submission.kind === 'trigger' ? 'none' : 'verified' };
+    const result: Extract<SubmitResult, { ok: true }> = { ok: true, commitmentId: id, state: await this.view(id, book, { bestEffort: true }), events, replayed: false, dryRun: false, signatureCheck: note.submission.kind === 'trigger' ? 'none' : 'verified' };
     this.idempotency.set(key, { body: note.body, result: structuredClone(result) });
     book.replays = { ...book.replays, [key]: { body: note.body, result: structuredClone(result) } };
     this.dirty.add(id);
@@ -2562,7 +2577,13 @@ export class EvmSettlement implements Settlement {
 
   // Read model (as SimChain's view)
 
-  private async view(id: Hex32, rec: Book): Promise<CommitmentStateView> {
+  /**
+   * The state read. With `bestEffort` (an answer to a write that already moved the book, T-232), the parties' balances
+   * are left out when their read fails: the answer and its replay are stored whatever a balance read does, so a retry
+   * with the same Idempotency-Key replays it and the lane row goes (red team of PR 239, finding 2; T-409). Without it,
+   * such a read throws, as any read of the state does (GET /v1/commitments/<id>).
+   */
+  private async view(id: Hex32, rec: Book, o: { bestEffort?: boolean } = {}): Promise<CommitmentStateView> {
     const s = rec.state;
     const t = s.terms.timing;
     const deadlines: Record<string, Timestamp> = { offerExpiresAt: t.offerExpiresAt, fundBy: t.fundBy, deliverBy: t.deliverBy, judgeBy: t.judgeBy, fallbackBy: t.fallbackBy };
@@ -2573,6 +2594,13 @@ export class EvmSettlement implements Settlement {
     const attempt = 'delivery' in s ? s.delivery.attempt : s.kind === 'Released' || s.kind === 'Refunded' || s.kind === 'Settled' ? 1 : 0;
     const amount = async (a: Address): Promise<TokenAmount> => ({ token: this.token, amount: (await this.tokenBalance(a)).toString() as TokenAmount['amount'] });
     const posted = postedDeliveryHash(s);
+    // ADR-0033 §4: the parties' money is at the payment and payout addresses.
+    let balances: Record<Address, TokenAmount> | undefined;
+    try {
+      balances = { [s.terms.buyerPaymentAddress]: await amount(s.terms.buyerPaymentAddress), [s.terms.sellerPayoutAddress]: await amount(s.terms.sellerPayoutAddress) };
+    } catch (e) {
+      if (!o.bestEffort) throw e;
+    }
     const view: CommitmentStateView = {
       commitmentId: id,
       escrowState: s.kind,
@@ -2581,8 +2609,7 @@ export class EvmSettlement implements Settlement {
       ...(posted ? { deliveryHash: posted } : {}),
       ...hold,
       deadlines,
-      // ADR-0033 §4: the parties' money is at the payment and payout addresses.
-      balances: { [s.terms.buyerPaymentAddress]: await amount(s.terms.buyerPaymentAddress), [s.terms.sellerPayoutAddress]: await amount(s.terms.sellerPayoutAddress) },
+      ...(balances ? { balances } : {}),
       settledAt: s.kind === 'Released' || s.kind === 'Refunded' || s.kind === 'Settled' ? s.settledAt : null,
       finalAt: this.finalAt(rec),
       lastEventSeq: rec.lastEventSeq,

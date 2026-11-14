@@ -21,7 +21,6 @@
     "packages/settlement/evm/evm-settlement.ts": "packages/settlement/evm [R6 part 2, R5, R6c-1, R8]",
     "packages/settlement/evm/live.test.ts": "packages/settlement/evm [R6 part 2, R5, R6c-1, R8]",
     "packages/settlement/evm/live.ts": "packages/settlement/evm [R6 part 2, R5, R6c-1, R8]",
-    "packages/settlement/evm/read-after-write.test.ts": "packages/settlement/evm [R6 part 2, R5, R6c-1, R8]",
     "packages/settlement/evm/sync.test.ts": "packages/settlement/evm [R6 part 2, R5, R6c-1, R8]",
     "packages/settlement/evm/sync.ts": "packages/settlement/evm [R6 part 2, R5, R6c-1, R8]",
     "packages/settlement/evm/timeouts.redteam.test.ts": "packages/settlement/evm [R6 part 2, R5, R6c-1, R8]",

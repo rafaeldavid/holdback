@@ -325,10 +325,12 @@ describe.skipIf(!ready)(`the operators send due timeouts on their own, on anvil 
     expect(r).toMatchObject({ sent: [], reads: 1 });
     expect(r.refused.map((x) => x.detail)).toEqual([expect.stringMatching(/^contract revert WrongStage at block \d+$/)]);
     expect(await lanes()).toBe(before);
-    // Backed off: the next pass reads nothing for it.
+    // On WrongStage the pass reads the deal's own transactions again (T-409, M1): the book has the stranger's reclaim.
+    expect((await s.state(d.id))!.escrowState).toBe('Refunded');
+    // The deal is over: the next pass reads nothing for it.
     expect(await pass.run()).toMatchObject({ sent: [], refused: [], reads: 0 });
-    // The sync applies the stranger's reclaim; the deal is over and the pass forgets it.
-    expect(await sync.pass()).toMatchObject({ applied: 1 });
+    // The sync finds the reclaim already applied.
+    expect(await sync.pass()).toMatchObject({ applied: 0 });
     expect((await s.state(d.id))!.escrowState).toBe('Refunded');
     expect(pass.nextAt()).toBeNull();
     expect(await lanes()).toBe(before);

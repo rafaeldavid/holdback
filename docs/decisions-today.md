@@ -1311,3 +1311,15 @@ On a chain, the operators that relay a deal check a mandate's roles, cap per dea
 - **What it changes when built, in order:** guide text and the standing texts that say settlement checks the scope; the wallet path; the checks moved to the operator layer; the mandate route; revocation; the reference clients' and the adjudicator's checks; then one version that changes `Scope`, moves the EIP-712 domain and redeploys the contracts.
 - **Not before the pilot:** anything but the text. Not before the next contract version: any change under `contracts/src/` or to a signed struct. Not at all: a shared daily count, a registry on chain, a category check.
 - **For Rafa:** whether an operator needs a mandate at all to relay for a funded address, which decides whether the mandate route and revocation are built; whether the hard rule's words "and scope" and its naming of the adjudicator stand; whether the mandate checks may move to the operator layer; whether `maxDaily` leaves with `categories`; whether a later contract version offers an on-chain revocation as an opt-in; whether the guide may name wallet products; and, for counsel, who bears the loss when a revoked agent deals with a counterparty that did not check.
+
+## D70. Private deals stay deferred through the pilots (T-207; T-416)
+
+**Status:** decided, 2026-11-14.
+
+**Decided 2026-11-14 by Rafa:** "private deals stay deferred - yes". T-416 asked the question after it measured what one deal reveals (`docs/privacy-baseline.md`).
+
+- **What it keeps.** T-207, sealed terms with the adjudicator's slice, stays deferred to Phase 8. Crow's adjudicators keep declining `private` and `judgment` offers, so every deal on the live service is public through the pilots: anyone can read its terms, amounts, addresses and judgment record.
+- **What protects a partner meanwhile.** Its own choices before it signs: checks-only terms with nothing secret in them, a fresh key and fresh addresses for each deal, and a random field in the report where its checks allow one. The pilot kit gives the partner the baseline's five lines before its first deal (`docs/privacy-baseline.md`, "What a design partner should be told before its first deal").
+- **What it parks with T-207.** Closing what the operators still serve an outsider for a sealed deal, re-measuring the baseline on a live `private` deal, and keeping a mandate's principal out of public reads. Each starts only when T-207 does.
+- **What it leaves open.** Sealing the judges' notes, a salt in the audit report and a fresh key per deal in the seller adapter do not wait for T-207; the baseline names their lanes.
+- **Litmus tests.** Neutrality, the hold and defended judgment: unchanged; nothing is built or removed.

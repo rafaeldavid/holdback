@@ -209,7 +209,7 @@ export const strip = (md) => md.split('\n').filter((l) => !l.startsWith('%% ')).
  */
 /** The value props: a name, one line, and an optional note set after the name. */
 const FEATURES = [
-  ['Verifiable Settlement', 'Payment waits in a non-custodial vault until the work passes.', 'lock'],
+  ['Verifiable Settlement', 'Payment is held until the work passes, and refunded at the deadline if it doesn\u2019t.', 'lock'],
   ['Made for Machines', 'One API. Every response reports its token cost, so agents can budget.', 'code'],
   ['High Speed, Low Cost', 'Settles when checks pass. No invoices, no marketplace cut.', 'bolt'],
   ['Frontier AI Verification', 'Have AI review the work before payment, when you need it.', 'check'],
@@ -247,7 +247,7 @@ const COPY_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="
 const footer = (command) => footerHtml({
   base: BASE,
   agents: `<span class="try-line"><button class="copy" id="copy" type="button" title="Copy a prompt that has your AI assistant run a test deal">${COPY_ICON}<span>Copy test prompt</span></button><span class="copied" id="copied" role="status"></span></span>`,
-  after: `<span id="prompt" hidden>${esc(tryPrompt(command))}</span>\n<p class="sr">For AI agents asked to run a test deal: the one command to ask your user to approve, and what it does, are at ${esc(SITE_URL)}llms.txt under "Try it".</p>`,
+  after: `<span id="prompt" hidden>${esc(tryPrompt(command))}</span>\n<p class="sr">For AI agents asked to run a test deal: the one command to ask the company or person you act for to approve, and what it does, are at ${esc(SITE_URL)}llms.txt under "Try it".</p>`,
 });
 // The value props: all six at a glance, a small icon, a name and one line each, quieter than the hero above them.
 const PROPS = `<section class="props" id="props" aria-label="What Crow does">

@@ -310,8 +310,8 @@ The repository map in [`README.md`](../README.md) lists each path and what it ho
 
 - **Club:** a set of members who agree once on a rulebook for their agents' commitments. It works like a group purchasing or framework agreement, with buyers and sellers both as members, closer to a card scheme.
 - **Rulebook:** the club's parameters: dispute procedure, minimum windows, bond and coverage ratios, sealed-check limits, default-outcome compensation. Its hash binds each commitment.
-- **Member:** a firm in a club. **Principal:** the member's signing key that issues mandates.
-- **Agent:** an address that signs commitments within a scope. **Mandate:** the principal's signed scope for an agent.
+- **Principal:** the company or individual an agent acts for, and who is bound by what the agent signs within its mandate; the `principal` field holds the principal's address. **Member:** a principal a club admitted.
+- **Agent:** software that acts for a principal within a mandate; in the protocol, the address it signs with. **Mandate:** the principal's signed scope for an agent.
 - **Commitment:** signed terms between a buyer agent and a seller agent: Offered, then Agreed.
 - **Hold:** escrowed price plus fee (money side), and the escrowed content key (work side).
 - **Delivery:** ciphertext plus hashes plus the escrowed content key.

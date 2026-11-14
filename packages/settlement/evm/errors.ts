@@ -62,6 +62,33 @@ export function revertName(abi: Abi, data: Hex | undefined): string | undefined 
   }
 }
 
+/**
+ * How nodes word an answer for a block they do not have yet ("header not found", "block not found", viem's
+ * BlockNotFoundError, `Block at number "18" could not be found.`). The quoted identifier is bounded, so a long message
+ * from a node cannot make the match slow (CodeQL js/polynomial-redos on PR 512).
+ */
+const MISSING_BLOCK = /header not found|block not found|unknown block|block at (?:number|hash) "[^"]{1,80}" could not be found/i;
+
+/**
+ * True when a node answered that it has no such block, whatever the shape (T-232; T-409 red team, L2). viem rewraps a
+ * code -32603 answer as a contract revert, and a node may put `data` on the answer, which reads as revert data, so a
+ * caller asks this before any revert test. Every message in the error's chain is read: its causes, and the `data` and
+ * `error` objects a JSON-RPC answer nests (review of PR 239, 2026-11-07: -32000, -32001, -32602 and -32603 all carry
+ * it). A limit: a revert whose reason string says "header not found" reads as a missing block, an RPC failure.
+ */
+export function missingBlock(e: unknown): boolean {
+  const seen = new Set<unknown>();
+  const walk = (x: unknown): boolean => {
+    if (typeof x === 'string') return MISSING_BLOCK.test(x);
+    if (!x || typeof x !== 'object' || seen.has(x)) return false;
+    seen.add(x);
+    const o = x as Record<string, unknown>;
+    if ([o['message'], o['details'], o['shortMessage']].some((m) => typeof m === 'string' && MISSING_BLOCK.test(m))) return true;
+    return [o['cause'], o['data'], o['error']].some((v) => v !== null && typeof v === 'object' && walk(v));
+  };
+  return walk(e);
+}
+
 /** The revert data inside a viem or JSON-RPC error, wherever the client put it. */
 export function revertData(e: unknown): Hex | undefined {
   const seen = new Set<unknown>();
