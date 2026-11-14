@@ -46,7 +46,7 @@ import { holdbackDomain, type HoldbackDomain } from '@holdback/core';
 import abisJson from './abis.json' with { type: 'json' };
 import acceptedTokensJson from './accepted-tokens.json' with { type: 'json' };
 import { RelayRefused, type Abis, type Deployment, type EvmChain, type LaneRow, type Mined, type RelayNote } from './chain.js';
-import { revertData } from './errors.js';
+import { missingBlock, revertData } from './errors.js';
 import { assertSafeChain } from './guard.js';
 
 /** contracts/deployments/<network>.json, as the testnet deployment writes it (T-206). */
@@ -208,6 +208,11 @@ interface Flight {
   checkpoint: number;
   /** Past this the loop gives up (ms). */
   deadline: number;
+  /**
+   * True once a receipt is found: the lane's nonce cache then holds the nonce after it, and an error after that (the
+   * block's time read) keeps it (T-409 red team, L3).
+   */
+  mined?: boolean;
   row: LaneRow | null;
 }
 
@@ -215,20 +220,6 @@ interface Flight {
 class GaveUp extends Error {}
 
 const rowId = (r: Pick<LaneRow, 'from' | 'nonce'>) => `${r.from.toLowerCase()}:${r.nonce}`;
-
-/** How nodes word an answer for a block they do not have yet. */
-const MISSING_BLOCK = /header not found|block not found|unknown block/i;
-
-/** True when any message in the error's chain says the node has no such block. */
-const missingBlock = (e: unknown): boolean => {
-  const seen = new Set<unknown>();
-  for (let x: unknown = e; x && typeof x === 'object' && !seen.has(x); x = (x as { cause?: unknown }).cause) {
-    seen.add(x);
-    const o = x as { message?: unknown; details?: unknown; shortMessage?: unknown };
-    if ([o.message, o.details, o.shortMessage].some((m) => typeof m === 'string' && MISSING_BLOCK.test(m))) return true;
-  }
-  return false;
-};
 
 /**
  * Whether a failed pinned read is worth asking again. A node without the block is, first: viem rewraps a code -32603
@@ -635,7 +626,9 @@ export class LiveChain implements EvmChain {
     try {
       return await this.fly(f, account);
     } catch (e) {
-      this.nonces.delete(lc(from));
+      // Mined, and an error after the receipt: the cache holds the nonce after it. A node that trails the receipt would
+      // count the mined nonce again, and the funding lane has no row to resolve first (T-409 red team, L3).
+      if (!f.mined) this.nonces.delete(lc(from));
       // Given up: the row goes with it. An RPC error: the transaction is out, so its lane waits for it (`resume`).
       if (f.row && e instanceof GaveUp) await this.drop(f.row);
       else if (f.row) this.orphans.set(rowId(f.row), f.row);
@@ -675,6 +668,7 @@ export class LiveChain implements EvmChain {
         });
         if (r) {
           this.nonces.set(lc(f.from), f.nonce + 1);
+          f.mined = true;
           const timestamp = await this.blockTime(r.blockNumber);
           // Every read of the state from now on sees this transaction (T-232), once a read of its block succeeded.
           this.saw(r.blockNumber);

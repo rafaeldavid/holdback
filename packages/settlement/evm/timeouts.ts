@@ -23,7 +23,7 @@ import type { EscrowState, Hex32, Timing } from '@holdback/core';
 import { encodeFunctionData } from 'viem';
 import type { TimeoutKind } from '../src/interface.js';
 import { termsView } from './encode.js';
-import { revertData, revertName } from './errors.js';
+import { missingBlock, revertData, revertName } from './errors.js';
 import type { EvmSettlement } from './evm-settlement.js';
 
 /** One timeout the operators send for a deal: which, when it falls due (ms since the epoch), and what waits on it. */
@@ -409,6 +409,8 @@ export class OperatorTimeouts {
       await chain.publicClient.call({ account: chain.senderFor(id), to: chain.deployment.rules, data, blockNumber: block });
       return null;
     } catch (e) {
+      // A node without the block is no answer from the contract, whatever shape viem gives it (T-409 red team, L2).
+      if (missingBlock(e)) throw e;
       const raw = revertData(e);
       if (raw === undefined && !/revert/i.test(String((e as Error).message))) throw e;
       return revertName(chain.abis.rules, raw) ?? 'an unknown error';

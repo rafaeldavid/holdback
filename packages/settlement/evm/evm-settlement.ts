@@ -104,7 +104,7 @@ import {
   termsView,
   transferDigest,
 } from './encode.js';
-import { problemFromRevert, revertData, revertName } from './errors.js';
+import { missingBlock, problemFromRevert, revertData, revertName } from './errors.js';
 import { assertSafeChain } from './guard.js';
 import { commitmentTxs, embeddedCalls, feeLegs, idsOf, rulesCalls, type ChainTx, type RulesCall } from './sync.js';
 import type { EvmWorld } from './world.js';
@@ -1407,6 +1407,8 @@ export class EvmSettlement implements Settlement {
     try {
       await this.world.simulate({ from, to, data }, this.wall ? undefined : time);
     } catch (e) {
+      // A node without the block is no answer from the contract, whatever shape viem gives it (T-409 red team, L2).
+      if (missingBlock(e)) throw e;
       const raw = revertData(e);
       if (raw === undefined && !/revert/i.test(String((e as Error).message))) throw e;
       throw new Refusal(problemFromRevert(this.abi, raw), revertName(this.abi, raw));
