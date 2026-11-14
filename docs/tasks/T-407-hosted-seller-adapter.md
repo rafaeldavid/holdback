@@ -54,10 +54,15 @@ Fill this in before review. Label each item measured, inferred or guessed.
 
 - 2026-11-14: the design record first, the build after Rafa picks (the task's brief).
 - 2026-11-14: one independent research pass (a separate agent, at maximum effort) compared the runtimes from the code and Cloudflare's documentation. It recommends the same option and found the High finding below; ADR-0037 section 9 records it.
+- 2026-11-14: the start fix (ADR-0037 section 6, open question 6) shipped on its own, before the pilot's scans, as T-408 (PR 501, merged as `f6b30a8`). This task's own version, PR 500, was closed unmerged as a duplicate.
 
 ## Handoff
 
 **State: review.** ADR-0037 is Proposed and waits for Rafa's pick (its section 12). Nothing is built.
 
-- **High, for the pilot's scans on the Mac too:** `examples/seller-adapter.ts:1013-1017` sends the partner's start again at every poll while a deal is at `starting` with no recorded job ID [inferred from reading, not run]. After a lost start answer, the first poll after the scan ends starts and charges a second scan. ADR-0037 section 6 is the fix; its open question 6 asks whether to ship it as a small change before the two scans.
-- **To resume after Rafa picks:** build in this order: the start-at-most-once rule and the `redirect: 'manual'` change in the current file with tests; the core split (section 7) with every existing adapter test unchanged; `apps/hosted-sellers/` with the Worker-shell tests of section 11; the deploy and secret scripts; then the red-team review.
+- **High, fixed by T-408 (PR 501):** the adapter sent the partner's start again at every poll while a deal was at `starting` with no recorded job ID. Measured on 2026-11-14 with PR 500's key-ignoring stub, at `a0a70dc`: a lost start answer, then the end of the first job, gave 2 runs, a second charged scan. On `main` since `f6b30a8`, a start with no `idempotencyHeader` (or with `"repeatable": false`) goes out at most once. The deal holds at `start-unknown`, and a person names the job with `POST /deals/<id>/job`.
+- **Optional follow-up, from closed PR 500 (branch `t-407-one-shot-start`):**
+  - `{"startAgain": true}` on the job route, for a start the partner's API never received; today such a deal closes at `deliverBy`.
+  - A key-ignoring mode in `examples/seller-adapter-job-stub.ts` that reproduces the double charge.
+  - Neither is needed for the pilot's scans.
+- **To resume after Rafa picks:** build in this order: the `redirect: 'manual'` change in the current file with tests; the core split (section 7) with every existing adapter test unchanged; `apps/hosted-sellers/` with the Worker-shell tests of section 11; the deploy and secret scripts; then the red-team review.
