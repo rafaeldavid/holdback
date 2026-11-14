@@ -20,7 +20,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Genesis } from '../sim/simchain.js';
 import type { Submission } from '../src/interface.js';
 import type { LaneRow } from './chain.js';
-import { termsView } from './encode.js';
+import { acceptanceView, agreeView, termsView } from './encode.js';
 import { missingBlock } from './errors.js';
 import { EvmSettlement } from './evm-settlement.js';
 import { FUNDING_LANE, LiveChain, type DeploymentFile, type LaneStore } from './live.js';
@@ -313,6 +313,7 @@ describe.skipIf(!ready)(`T-409 red team on anvil${ready ? '' : ' (SKIPPED: needs
     const d = await funded('t409-l2-refusal', s);
     await jump(3_601); // past deliverBy: the reclaim is due
     const refused: string[] = [];
+    let misses = 0;
     for (const shape of MISSING.filter((x) => x.data !== undefined)) {
       const rpc = await errorRpc(shape);
       try {
@@ -323,7 +324,8 @@ describe.skipIf(!ready)(`T-409 red team on anvil${ready ? '' : ' (SKIPPED: needs
         delete f.callTo;
         await rpc.close();
       }
-      await jump(31); // past an RPC failure's back-off (30 s), not past a refusal's (60 s)
+      // Past an RPC failure's back-off (30 s, doubling with each miss), so every shape meets the check.
+      await jump(30 * 2 ** misses++ + 1);
     }
     const sent = await pass.run();
     expect({ refused, failures: errors.length, sent: sent.sent.map((x) => x.kind), stage: await stageNow(d.id) }).toEqual({ refused: [], failures: 3, sent: ['reclaim'], stage: 'Refunded' });
@@ -397,5 +399,46 @@ describe.skipIf(!ready)(`T-409 red team on anvil${ready ? '' : ' (SKIPPED: needs
     await s.resync(d.id);
     await s.resync(`0x${'99'.repeat(32)}`);
     expect({ events: s.log().length, book: s.escrowState(matching.id) }).toEqual({ events, book: before });
+  }, 120_000);
+
+  // M1, the SC-6 path. A funding sent straight to the contract in the gap of a lagging eth_getLogs pass: the book keeps
+  // the offer unfunded, and at its deadline the pass's offer expiry is refused ("the contract holds this deal Held ...
+  // This node applies the funding at its next sync"), which no sync does. Defended: on that refusal the pass reads the
+  // deal's own transactions again, and the book holds the funding.
+  it('attack.t409-sync-log-gap-funding: a direct funding a lagging getLogs pass skipped reaches the book at the offer expiry', async () => {
+    const f: Faults = {};
+    const c = standIn(new LiveChain({ deployment, rpcUrls: [anvil.rpcUrl], relayerKey: RELAYER_M1, pollMs: 100, rebroadcastMs: 10_000, mintBatchMs: 50 }), f);
+    const s = await EvmSettlement.restore(c, genesis, undefined, wall);
+    const sync = new ChainSync(s, await head());
+    const d = new EvmDeal(s, cast, club, 't409-m1-funding-gap');
+    await ok(s, await d.offer());
+    const accept = await d.accept();
+    await ok(s, accept);
+    const af = await d.agreeAndFund();
+    if (accept.kind !== 'adjudicator_accept' || af.kind !== 'agree_and_fund') throw new Error('unreachable');
+    const sellerSignature = s.log().find((e) => e.commitmentId === d.id && e.type === 'commitment.offered')!.payload['sellerSignature'] as Hex;
+    await sync.pass();
+    // The buyer's own funding, past every operator.
+    const wallet = anvil.wallet(cast.stranger.key);
+    await anvil.rpc('anvil_setBalance', [cast.stranger.address, '0x56bc75e2d63100000']);
+    const data = encodeFunctionData({ abi: anvil.abis.rules, functionName: 'agreeAndFund', args: [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(af.agree), { signature: af.funding.signature }] });
+    const hash = await wallet.sendTransaction({ account: wallet.account!, chain: foundry, to: deployment.rules as Address, data, gas: 8_000_000n });
+    const r = await anvil.receipt(hash);
+    expect(r.status).toBe('success');
+    while ((await anvil.publicClient.getBlockNumber({ cacheTime: 0 })) < r.blockNumber + 4n) await sleep(200);
+    f.logsAt = r.blockNumber - 1n;
+    await sync.pass();
+    delete f.logsAt;
+    for (let i = 0; i < 3; i++) {
+      await sleep(1_100);
+      await sync.pass();
+    }
+    expect({ book: s.escrowState(d.id)?.kind, chain: await stageNow(d.id) }).toEqual({ book: 'AcceptedByAdjudicator', chain: 'Held' });
+    await jump(901); // past offerExpiresAt
+    const errors: string[] = [];
+    const pass = new OperatorTimeouts(s, { via: 'op-1', key: (id, kind) => `t409/${id}/${kind}`, graceMs: 0, onError: (e) => errors.push(e.message) });
+    const t1 = await pass.run(BigInt(sync.cursor!.block));
+    const refused = t1.refused.filter((x) => x.commitmentId === d.id).map((x) => /the contract holds this deal Held/.test(x.detail));
+    expect({ refused, marked: t1.marked, errors, book: s.escrowState(d.id)?.kind, view: (await s.state(d.id))?.escrowState }).toEqual({ refused: [true], marked: [], errors: [], book: 'Held', view: 'Held' });
   }, 120_000);
 });
