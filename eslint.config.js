@@ -34,7 +34,7 @@ const holdback = {
 };
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/node_modules/**', 'docs/research/**', '.worktrees/**', '.claude/worktrees/**', 'tools/sim/runs/**', 'apps/demo-cloud/.wrangler/**', 'apps/demo-cloud/reports/**', 'reports/**','apps/demo-cloud/worker/generated-files.js', 'packages/core/src/validators.generated.ts','site/try.mjs', 'site/buy.mjs', 'contracts/lib/**', 'contracts/out/**', 'contracts/cache/**'] },
+  { ignores: ['**/dist/**', '**/node_modules/**', 'docs/research/**', '.worktrees/**', '.claude/worktrees/**', 'tools/sim/runs/**', 'apps/demo-cloud/.wrangler/**', 'apps/demo-cloud/reports/**', 'reports/**','apps/demo-cloud/worker/generated-files.js', 'packages/core/src/validators.generated.ts','site/try.mjs', 'site/buy.mjs', 'site/try-sell.mjs', 'site/try-judged.mjs', 'site/try-reclaim.mjs', 'contracts/lib/**', 'contracts/out/**', 'contracts/cache/**'] },
   ...tseslint.configs.recommended,
   {
     // Hard rule: no code execution from inputs.

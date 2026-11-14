@@ -18,14 +18,17 @@
 // 7. try.mjs: site/try.mjs is the current bundle of examples/try.ts, importing only viem and tweetnacl;
 //    the one command (pinned versions, its sha256) heads "Try it" in a filled llms.txt, which asks for no fetch
 //    before it. The Try line's copied prompt carries the same command and names llms.txt; the visible page does not
-//    show the command (One-Click Escrow, D51). The clipboard fallback keeps the command's spaces (pre-wrap).
+//    show the command (One-Click Escrow, D51). The clipboard fallback keeps the command's spaces (pre-wrap). The goal
+//    commands (T-441): each site/try-<goal>.mjs is the current, self-contained bundle of its source, and "Try it"
+//    carries its one command with the current sha256.
 // 8. Crow's test seller (D47): the one command buys from it, and ref/intake.txt states its catalog, limits and windows
 //    as apps/test-agents/src/catalog.ts runs them.
 // 9. Crow's test buyer (T-239): "Sell to Crow's test buyer" (in ref/intake.txt since T-393) states its card, caps,
 //    windows and limits as apps/test-agents/src/buyer-rules.ts runs them.
 // 10. The role pages (T-359, T-393): site/buy.txt and site/sell.txt each open with a numbered first hour whose every
 //    step says what it looks like when it worked, link the front door, and keep local addresses to sell.txt's first hour.
-// 11. The guides together (T-393): the front door lists exactly the reference files in site/ref/, every reference a
+// 11. The guides together (T-393): the front door points to the one reference file, reference.txt, which holds every
+//    file in site/ref/ (T-441), and names each part; every reference a
 //    guide names exists and so does every section it cites by name, every crow.direct link resolves, no sentence is in two guides, every call a guide names is a
 //    route in docs/api.md, every file under examples/, fixtures/ or spec/ and every pnpm script a guide names exists,
 //    and the deployment's addresses are in llms.txt alone (scripts/record-copies.mjs rewrites them there). A publish build writes every guide.
@@ -52,6 +55,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { OG_IMAGE } from './footer.ts';
 import { ICON_FILES } from './brand/kit.mjs';
+import { GOALS, goalBundle, goalCommand, goalSha256, goalUrl, REFERENCE_PATH, referenceText } from './build.mjs';
 import { ASSETS, BASE, BUY_COMMANDS, HOME_CSS, HOME_JS, notFoundPage, visualdemoPage, BUY_MJS_URL, BUY_URL, buyBundle, buyInstall, buySha256, filled, page, pins, problemPages, publishedGuides, SELL_URL, SITE_URL, strip, TEST_SELLER_URL, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
 import { apiRoutes, citedSections, duplicateSentences, hasSection, FIRST_DEAL_BUDGET, guideFiles, guideSource, measurePaths, namedCalls, namedReferences, referenceFiles, nonAscii, routeKnown } from './guides.mjs';
 
@@ -96,7 +100,7 @@ expect(count(md, '{{OP1}}') === 1 && configure.includes('OP1={{OP1}}'), '{{OP1}}
 expect(count(md, '{{OP2}}') === 1 && configure.includes('OP2={{OP2}}'), '{{OP2}} must appear once in llms.txt, as OP2={{OP2}} under Configure');
 const tryIt = md.slice(md.indexOf('## Try it'), md.indexOf('\n## ', md.indexOf('## Try it') + 3));
 expect(count(md, '{{TRY_COMMAND}}') === 1 && tryIt.includes('```sh\n{{TRY_COMMAND}}\n```') && tryIt.indexOf('```') === tryIt.indexOf('```sh\n{{TRY_COMMAND}}'), '{{TRY_COMMAND}} must appear once in llms.txt, as the first code block of "Try it"');
-expect((md.match(/\{\{[^}]*\}\}/g) ?? []).every((p) => ['{{OP1}}', '{{OP2}}', '{{TRY_COMMAND}}'].includes(p)), 'llms.txt has an unknown {{placeholder}}');
+expect((md.match(/\{\{[^}]*\}\}/g) ?? []).every((p) => ['{{OP1}}', '{{OP2}}', '{{TRY_COMMAND}}', ...Object.values(GOALS).map((g) => g.placeholder)].includes(p)), 'llms.txt has an unknown {{placeholder}}');
 // A link as build.mjs renders one (https, trailing punctuation left out), parsed, so a look-alike host or a longer
 // path does not count (CodeQL js/incomplete-url-substring-sanitization).
 const mdLinks = (md.match(/https:\/\/[^\s<)]+[^\s<).,;:]/g) ?? []).filter((u) => URL.canParse(u)).map((u) => new URL(u));
@@ -231,6 +235,21 @@ expect(!visible.includes('mkdir -p crow-try') && !visible.includes(trySha256()),
 expect(/\.copied \{[^}]*white-space: pre-wrap;/.test(HOME_CSS), "the .copied fallback must use white-space: pre-wrap, or a hand copy breaks the command's hash check");
 expect(!/before you ask|fetch https:\/\/crow\.direct\/try\.mjs/.test(tryIt), '"Try it" asks the agent to fetch try.mjs before the command: each fetch is one more approval');
 expect(tryIt.includes('runs it only if its SHA-256 matches the one in the command') && tryIt.includes('`examples/try.ts`, `agent.ts` and `verify.ts` in https://github.com/rafaeldavid/holdback'), '"Try it" lost a trust anchor: the SHA-256 pin or the source on GitHub');
+// The goal commands (T-441): each site/<name>.mjs is the current, self-contained bundle of its source (no import but
+// Node's own modules, so no install step), and "Try it" carries its one command, with the file's current sha256, in
+// its own sh block, after try.mjs's. try.mjs and buy.mjs stay pinned by their own hashes (groups 7 and 13).
+for (const [name, g] of Object.entries(GOALS)) {
+  const file = read(`${name}.mjs`);
+  expect(file === (await goalBundle(name)), `site/${name}.mjs is stale against ${g.source}: run node site/build.mjs`);
+  const goalImports = [...new Set([...file.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]))];
+  expect(goalImports.every((m) => m.startsWith('node:')) && !/\bimport\(/.test(file), `site/${name}.mjs must import only Node's own modules, and nothing dynamically (it imports ${goalImports.join(', ')})`);
+  expect(file.includes(`viem@${pins().viem}`) && file.includes(`tweetnacl@${pins().tweetnacl}`) && file.includes('MIT License, Copyright (c) 2023-present weth, LLC'), `site/${name}.mjs's banner does not name the bundled viem and tweetnacl, with viem's licence`);
+  expect(existsSync(here(`../${g.source}`)) && tryIt.includes(`\`${g.source.split('/').pop()}\``), `"Try it" does not name ${g.source}, the source of ${name}.mjs`);
+  const line = goalCommand(name);
+  expect(line.includes(`curl -fsSL ${goalUrl(name)} -o ${name}.mjs.part `) && line.includes(`echo "${goalSha256(name)}  ${name}.mjs.part" | shasum -a 256 -c && mv ${name}.mjs.part ${name}.mjs && node ${name}.mjs`) && !/npm/.test(line), `the ${name} command does not fetch ${goalUrl(name)} as ${name}.mjs.part, check its current sha256 before naming it ${name}.mjs, and run it without npm`);
+  expect(count(md, g.placeholder) === 1 && tryIt.includes(`\`\`\`sh\n${g.placeholder}\n\`\`\``) && filledTry.split('\n').includes(line), `${g.placeholder} must appear once in llms.txt, in its own sh block under "Try it", filled with the current ${name} command`);
+  if (existsSync(here('../reports/site-out/llms.txt'))) expect(existsSync(here(`../reports/site-out/${name}.mjs`)) && read(`../reports/site-out/${name}.mjs`) === file, `reports/site-out/${name}.mjs is missing or differs from site/${name}.mjs: build with --out again`);
+}
 
 // 8. Crow's test seller.
 const { LIMITS, TIMING, CHECKS, PRICE_UNITS } = await import(here('../apps/test-agents/src/catalog.ts'));
@@ -281,11 +300,15 @@ const roles = sectionOf(md, 'Read one page for your role');
 expect(roles.includes(BUY_URL) && roles.includes(SELL_URL), `llms.txt has a "Read one page for your role" section that links ${BUY_URL} and ${SELL_URL}`);
 
 // 11. The guides together (T-393).
-const published = new Set(['index.html', '404.html', 'home.css', 'home.js', 'try.mjs', 'buy.mjs', 'version.json', ...ASSETS]);
+const published = new Set(['index.html', '404.html', 'home.css', 'home.js', 'try.mjs', 'buy.mjs', ...Object.keys(GOALS).map((n) => `${n}.mjs`), REFERENCE_PATH, 'version.json', ...ASSETS]);
 const scripts = JSON.parse(read('../package.json')).scripts;
 const refs = referenceFiles();
-const listed = [...sectionOf(md, 'Reference').matchAll(/^- \[([a-z0-9-]+\.txt)\]\(https:\/\/crow\.direct\/ref\/\1\):/gm)].map((m) => `ref/${m[1]}`).sort();
-expect(refs.length > 0 && JSON.stringify(listed) === JSON.stringify(refs), `the front door's "Reference" lists ${listed.join(', ') || 'nothing'}, and site/ref/ holds ${refs.join(', ')}`);
+// T-441: the front door's "Reference" points to the one reference file and names every part it holds, by the ref
+// file's name; it links no single ref/ file, so an agent fetches once, not once per file.
+const referenceSection = sectionOf(md, 'Reference');
+const unnamed = refs.filter((r) => !new RegExp(`\\b${r.slice(4, -4)}\\b`).test(referenceSection));
+expect(refs.length > 0 && referenceSection.includes(`${SITE_URL}${REFERENCE_PATH}`) && unnamed.length === 0, `the front door's "Reference" must link ${SITE_URL}${REFERENCE_PATH} and name every part it holds (it leaves out ${unnamed.join(', ') || 'none'})`);
+expect(!/crow\.direct\/ref\//.test(md), 'llms.txt links a single ref/ file: point to reference.txt, which holds them all');
 for (const [p, text] of guides) {
   for (const r of namedReferences(text)) expect(refs.includes(r), `${p} names ${r}, which is not in site/ref/`);
   for (const { file, title } of citedSections(text)) expect(guides.has(file) && hasSection(guides.get(file), title), `${p} cites "${title}" in ${file}, which has no such section`);
@@ -311,6 +334,8 @@ try {
 } catch (e) {
   expect(false, `the guides cannot be published: ${e.message}`);
 }
+const reference = filledGuides.get(REFERENCE_PATH) ?? '';
+expect(reference === referenceText(filledGuides) && refs.every((r) => reference.includes(`=== ${r} ===\n\n${filledGuides.get(r)?.trimEnd()}\n`)), `the published ${REFERENCE_PATH} does not hold every published ref/ file, each under its === ref/<name>.txt === line`);
 if (existsSync(here('../reports/site-out/llms.txt'))) {
   const outOp = { op1: /^OP1=(.+)$/m.exec(read('../reports/site-out/llms.txt'))?.[1], op2: /^OP2=(.+)$/m.exec(read('../reports/site-out/llms.txt'))?.[1] };
   let built = new Map();
