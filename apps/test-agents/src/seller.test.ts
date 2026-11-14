@@ -472,11 +472,22 @@ describe("the test seller's named offers (T-420)", () => {
     // Without "offer", a proposal for the summary is the judged offer that passes; without either, the dataset.
     const first = await propose(s, buyer, { ...judgedProposal(buyer, 'x'), offer: undefined });
     expect(await statusUntil(s, first.token, (x) => x.status === 'offered')).toMatchObject({ offer: 'summary-judged' });
-    const second = await propose(s, buyer, judgedProposal(buyer, 'summary-judged-fails'));
-    expect((await statusUntil(s, second.token, (x) => x.status === 'failed')).detail).toMatch(/1 judged offers today \(UTC\)/);
-    const plain = await propose(s, buyer, proposalFor(buyer));
-    expect(await statusUntil(s, plain.token, (x) => x.status === 'offered')).toMatchObject({ offer: 'customers-3', outcome: 'release' });
+    // A judged deal retried after a transient failure counts once: the first try's prepare fails with a 503.
     await s.stop();
+    const storage = new MemoryStorage();
+    const seed = generatePrivateKey();
+    const r = startSeller({ world: judged, storage, seed, limits: { perClientPerHour: 10, judgedPerDay: 1 } });
+    spyFetch((url, init) => url.endsWith('/v1/prepare/offer') && init?.method === 'POST', async () => new Response(JSON.stringify({ type: 'unavailable', detail: 'try again' }), { status: 503 }));
+    const retried = await propose(r, buyer, judgedProposal(buyer, 'summary-judged'));
+    expect(await statusUntil(r, retried.token, (x) => x.status === 'offered')).toMatchObject({ offer: 'summary-judged' });
+    expect((await storage.get<unknown[]>('judged'))?.length).toBe(1);
+    await r.stop();
+    const again = startSeller({ world: judged, storage, seed, limits: { perClientPerHour: 10, judgedPerDay: 1 } });
+    const second = await propose(again, buyer, judgedProposal(buyer, 'summary-judged-fails'));
+    expect((await statusUntil(again, second.token, (x) => x.status === 'failed')).detail).toMatch(/1 judged offers today \(UTC\)/);
+    const plain = await propose(again, buyer, proposalFor(buyer));
+    expect(await statusUntil(again, plain.token, (x) => x.status === 'offered')).toMatchObject({ offer: 'customers-3', outcome: 'release' });
+    await again.stop();
   });
 
   it('refuses judged work when the live panel cannot sit: no live budget left today, or a scripted panel', async () => {

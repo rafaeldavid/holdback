@@ -561,15 +561,17 @@ ${items}
       const now = this.now();
       const full = await this.capped(now);
       if (full) throw new Refused(`the test seller is busy: ${full.why}; try again in ${Math.max(1, Math.ceil((full.until - now) / 1000))} s`);
-      const judgedToday = ((await this.s.get<number[]>('judged')) ?? []).filter((t) => day(t) === day(now));
+      // Judged offers today, by deal: a deal retried after a transient failure counts once.
+      const judgedToday = ((await this.s.get<Array<{ n: number; at: number }>>('judged')) ?? []).filter((x) => day(x.at) === day(now));
+      const counted = judgedToday.some((x) => x.n === d.n);
       if (o.judged) {
         // Within the seller's own daily budget, and only while a live panel can read the work: a scripted panel passes
         // everything, so summary-judged-fails would release and show the wrong ending.
-        if (judgedToday.length >= this.limits.judgedPerDay) throw new Refused(`the test seller has made its ${this.limits.judgedPerDay} judged offers today (UTC); try again after midnight UTC, or buy ${ITEM_ID}`);
+        if (!counted && judgedToday.length >= this.limits.judgedPerDay) throw new Refused(`the test seller has made its ${this.limits.judgedPerDay} judged offers today (UTC); try again after midnight UTC, or buy ${ITEM_ID}`);
         const why = await this.panelCanSit(adjudicators.primary);
         if (why) throw new Refused(`the live judge panel cannot sit: ${why}; buy ${ITEM_ID}, which the checks decide`);
       }
-      await this.s.put({ recent: [...((await this.s.get<number[]>('recent')) ?? []).filter((t) => now - t < DAY), now], ...(o.judged ? { judged: [...judgedToday, now] } : {}) });
+      await this.s.put({ recent: [...((await this.s.get<number[]>('recent')) ?? []).filter((t) => now - t < DAY), now], ...(o.judged && !counted ? { judged: [...judgedToday, { n: d.n, at: now }] } : {}) });
       await this.ensureMandate(found.clubId, settlement);
       const request = {
         // ADR-0033 §7: the test seller is paid at its signing address, named so the terms say it and no notice is needed.
