@@ -6,7 +6,7 @@
 - **Depends on:** T-409 (operator hardening, PR 512), T-413 (the `deployedAt` field, PR 505)
 - **Paths this task may touch:** `apps/demo-cloud/` (both operator Workers, the World Durable Object, their Wrangler files and tests); the write path and the idempotency store of `apps/operator/src/` (`server.ts`, `idempotency.ts`) and their tests, which the brief calls operator code (kind 4 covers both packages; the coordinator was told); one new document, `docs/operator-threat-model.md`; this file. Never: `contracts/`, `spec/schemas/`, `docs/api.md`, `site/ref/limits.txt`, the guides' first-deal text, `site/try.mjs`, `site/buy.mjs`.
 - **Human gate:** none for the code. The deploy runs on Rafa's standing word for this wave ("merge and deploy when ready").
-- **Status:** review
+- **Status:** done (merged in PR 524, `f432892`; both operators deployed on 2026-11-14 at 11:55 UTC, on Rafa's word for this wave)
 - **Agent/session:** the T-422 session, 2026-11-14, branch `t-422-rate-limits`, worktree `.worktrees/holdback-T-422`
 - **Kind:** 4, API and operator code; one `reviewer` pass and one `red-teamer` pass
 
@@ -111,4 +111,30 @@ All runs on 2026-11-14, in this worktree, on the Mac. Logs in `reports/scratch/t
 
 ## Handoff
 
-To be filled in after the merge and the deploy.
+**Done.** PR 524 merged at 2026-11-14T11:55:11Z as `f4328920`, with all 17 CI checks passed on head `d0e0de5`, `check` and `gitleaks` among them.
+
+**Deploy (measured).** `pnpm demo-cloud:deploy` from a detached worktree at `origin/main` `a182f81`, after `pnpm install --frozen-lockfile`:
+
+| Worker | New version | Replaced | `deployedAt` in discovery |
+| --- | --- | --- | --- |
+| holdback-op1 | `e9c809a9-eb68-4e5d-afa7-d7bc836ced4f` | `33fe56ea-48b0-40ce-b9eb-10846f25d3fc` | 2026-11-14T11:56:15.806Z |
+| holdback-op2 | `f65054dc-19ba-4914-bc16-ff77d1267cd2` | `ccb986ec-be19-4e55-9fd7-a4eb3061a4c4` | 2026-11-14T11:56:30.063Z |
+
+- The deal guard checked 4 open deals; none would lose its judge. Wrangler listed both new bindings (`env.FLOOD`, 500 requests per 10 s, and `env.CF_VERSION_METADATA`) on both Workers.
+- The script's smoke deal `0x56479cb9…6aba46` was Released in 52 s.
+- The deploy also carried, from `main`: T-423's problem text in `apps/operator/src/problems.ts`, and test-only changes (`live-fork.test.ts`, `deploy-script.test.ts`). `contracts/deployments/sepolia.json` is unchanged, so the world is the same. No pinned file changed: the site was not deployed.
+
+**Live checks after the deploy (measured, plain requests from this Mac):**
+1. Discovery on both nodes names `a182f81`, its own `deployedAt` (above), `limits.reads` 1,200 and `limits.writes` 120 per 60 s, and `demo.limits` with the defaults.
+2. A burst of 650 GETs of `/v1/status` to `api.crow.direct` in 1.66 s: 541 answered 200 and 109 answered 429. The ceiling is approximate, as Cloudflare documents, so a burst can pass it by a little before the count catches up. The first 429 had `Retry-After: 10`, `application/problem+json`, the `rate_limited` type link and `retryAfterSec` 10. `api2.crow.direct` answered 200 right after.
+3. A POST declaring 1,048,600 bytes got 413 `payload_too_large` with `maxBytes` 1,048,576. `GET //x/v1/status` got 404 `not_found`.
+4. One try deal, `site/try.mjs --seller https://crow.direct/agents/test-seller`, was Released in 53 s with Crow's test seller as the other party (`0x53ad3943…0e84492`). It made 153 requests: 152 answered 200 and 1 answered 201; none was refused.
+
+**For T-423's files (exact text in the coordinator's notes folder, `T-422-for-T-423.md`):** a bullet for `site/ref/limits.txt` under "Honest limits"; the end of the "Limits (F8)" paragraph in `docs/api.md`, which still says replays stay on the client; and `neutrality.operator-daily-cap` in the operator row of `docs/neutrality.md`. None has landed yet (measured with grep on `main` at `a182f81`).
+
+**Follow-ups, not built:**
+- Measure the address and `CF-Worker` header that a Worker's request carries. Then route Crow's own agents to the operators by a service binding, so other Workers cannot use up their daily cap (threat model, residual 8).
+- A daily cap per client on offers and adjudicator registrations, which grow storage (residual 6).
+- Gas caps in gas units, or a relayer balance alert, for tips above 1 gwei (residual 7).
+
+**How to resume.** The limits are Worker variables in `apps/demo-cloud/wrangler.op1.jsonc` and the flood ceiling is the `ratelimits` binding in both Wrangler files (keep `limits.ts` `FLOOD_CEILING` equal; a test checks). Run `pnpm exec vitest run apps/demo-cloud/src/limits.test.ts apps/demo-cloud/src/limits.attack.test.ts`.
