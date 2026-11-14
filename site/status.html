@@ -1,0 +1,117 @@
+<!doctype html>
+<!-- For AI agents: Crow's guide for agents is https://crow.direct/llms.txt (plain text). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crow · Status</title>
+<meta name="description" content="Whether each part of Crow answers right now: the two operators, the site, the test seller and the Sepolia network, checked when you open the page.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Crow">
+<meta property="og:title" content="Crow · Status">
+<meta property="og:description" content="Whether each part of Crow answers right now: the two operators, the site, the test seller and the Sepolia network, checked when you open the page.">
+<meta property="og:url" content="https://crow.direct/status">
+<meta property="og:image" content="https://crow.direct/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Crow's mark, a crow in flight, beside the name Crow, over the lines: Verifiable settlement for AI commerce. Buy from any agent. Sell to any agent.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Crow · Status">
+<meta name="twitter:description" content="Whether each part of Crow answers right now: the two operators, the site, the test seller and the Sepolia network, checked when you open the page.">
+<meta name="twitter:image" content="https://crow.direct/og.png">
+<meta name="twitter:image:alt" content="Crow's mark, a crow in flight, beside the name Crow, over the lines: Verifiable settlement for AI commerce. Buy from any agent. Sell to any agent.">
+<link rel="canonical" href="https://crow.direct/status">
+<link rel="icon" type="image/svg+xml" href="/crow-mark.svg">
+<link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="/llms.txt">
+<link rel="stylesheet" href="/pages.css">
+</head>
+<body>
+<header class="ck-bar"><div class="ck-bar-in">
+<a class="ck-brand" href="/"><span class="ck-mark" aria-hidden="true"></span>Crow</a>
+<span class="ck-gap"></span>
+<a class="ck-nav" href="/demo/">Demo</a>
+<a class="ck-nav" href="/llms.txt">Agent docs</a>
+</div></header>
+<main class="doc">
+<div class="ck-head"><p class="ck-eyebrow">Status</p><h1 class="ck-title">Is Crow answering?</h1><p class="ck-lede">This page checks each part of Crow when you open it, with one plain GET, and shows the time of each check. It keeps no history.</p></div>
+<div class="status-table">
+<table class="ck-table" aria-label="Status of each part of Crow">
+<thead><tr><th scope="col">Part</th><th scope="col">State</th><th scope="col">Checked</th><th scope="col">How</th></tr></thead>
+<tbody>
+<tr data-check="site"><td>The site, crow.direct<br><span class="note src"></span></td><td><span class="ck-pill">Not checked</span></td><td class="at"></td><td class="how">Your browser reads <code>/version.json</code>.</td></tr>
+<tr data-check="op1"><td>Operator 1, api.crow.direct<br><span class="note src"></span></td><td><span class="ck-pill">Not checked</span></td><td class="at"></td><td class="how">The site’s Worker reads <code>/.well-known/holdback.json</code> and passes the answer on.</td></tr>
+<tr data-check="op2"><td>Operator 2, api2.crow.direct<br><span class="note src"></span></td><td><span class="ck-pill">Not checked</span></td><td class="at"></td><td class="how">The same, on operator 2.</td></tr>
+<tr data-check="seller"><td>Crow’s test seller<br><span class="note src"></span></td><td><span class="ck-pill">Not checked</span></td><td class="at"></td><td class="how">Your browser reads <code>/agents/test-seller/health</code>.</td></tr>
+<tr data-check="network"><td>Ethereum Sepolia, where deals settle<br><span class="note src"></span></td><td><span class="ck-pill">Not checked</span></td><td class="at"></td><td class="how">Your browser reads the newest blocks from Blockscout, a public explorer.</td></tr>
+</tbody>
+</table>
+</div>
+<p class="again"><button class="ck-btn ck-btn-out ck-btn-s" type="button" id="again">Check again</button></p>
+<noscript><p>This page checks with a script in your browser. Without it, read each source yourself: <a href="/version.json">the site</a>, <a href="https://api.crow.direct/.well-known/holdback.json">operator 1</a>, <a href="https://api2.crow.direct/.well-known/holdback.json">operator 2</a>, <a href="/agents/test-seller/health">the test seller</a>.</p></noscript>
+<h2>What this page can tell you, and what it cannot</h2>
+<ul class="claims">
+<li><p>It tells you whether each part answers a plain GET right now: from your browser, or for the two operators from Cloudflare’s network, through the site’s Worker.</p><p class="src">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/apps/site/status.js">The relay’s code</a><a href="https://github.com/rafaeldavid/holdback/blob/main/site/trust.mjs">This page’s code</a></p></li>
+<li><p>It cannot tell you whether a deal will go through. A part can answer a GET and still fail a step of a deal. The test deal in the agent docs checks the whole path.</p><p class="src">Source: <a href="https://crow.direct/llms.txt">The agent docs</a></p></li>
+<li><p>The two operators are two Workers that share one process today, so most failures hit both.</p><p class="src">Source: <a href="https://crow.direct/ref/limits.txt">The agent docs: limits</a></p></li>
+<li><p>The Sepolia row reads Blockscout, a public explorer. When Blockscout does not answer, the row says Unknown, not Down. A newest block older than 120 s reads Degraded: Sepolia makes a block about every 12 s.</p><p class="src">Source: <a href="https://eth-sepolia.blockscout.com/">Blockscout for Sepolia</a></p></li>
+<li><p>It reads only public endpoints, the same ones any agent can read. It keeps nothing but the site Worker’s 15 s cache of the operators’ answer, and it sends no alerts.</p><p class="src">Source: <a href="https://github.com/rafaeldavid/holdback/blob/main/site/trust.mjs">This page’s code</a></p></li>
+</ul>
+</main>
+<footer class="ck-foot">
+<div class="ck-foot-row"><a class="ck-brand" href="/"><span class="ck-mark" aria-hidden="true"></span>Crow</a>
+<nav class="ck-foot-nav" aria-label="Footer"><a href="/demo/">Demo</a><a href="/llms.txt">Agent docs</a><a href="/trust">Trust</a><a href="/status" aria-current="page">Status</a><a href="https://github.com/rafaeldavid/holdback">GitHub</a></nav></div>
+<div class="ck-foot-bar"><span>© 2026 Crow · Verifiable settlement for AI commerce</span></div>
+</footer>
+<script>
+(function () {
+  var rows = {};
+  document.querySelectorAll('[data-check]').forEach(function (tr) { rows[tr.getAttribute('data-check')] = tr; });
+  var hhmmss = function (d) { return d.toISOString().slice(11, 19) + ' UTC'; };
+  var show = function (id, state, note, at) {
+    var tr = rows[id]; if (!tr) return;
+    var pill = tr.querySelector('.ck-pill');
+    pill.textContent = state;
+    pill.className = 'ck-pill' + (state === 'Down' || state === 'Degraded' ? ' ck-pill-warn' : '');
+    tr.querySelector('.note').textContent = note;
+    tr.querySelector('.at').textContent = at ? hhmmss(at) : '';
+  };
+  var timed = function (url) {
+    var t0 = Date.now(), ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    var stop = setTimeout(function () { if (ctl) ctl.abort(); }, 8000);
+    return fetch(url, { cache: 'no-store', signal: ctl ? ctl.signal : undefined }).then(function (r) {
+      clearTimeout(stop);
+      return r.json().then(function (b) { return { ok: r.ok, status: r.status, body: b, ms: Date.now() - t0 }; }, function () { return { ok: false, status: r.status, body: null, ms: Date.now() - t0 }; });
+    }, function () { clearTimeout(stop); return { ok: false, status: 0, body: null, ms: Date.now() - t0 }; });
+  };
+  var answered = function (a) { return a.status === 0 ? 'no answer' : 'HTTP ' + a.status; };
+  function run() {
+    Object.keys(rows).forEach(function (id) { show(id, 'Checking', '', null); });
+    timed('/version.json').then(function (a) {
+      var up = a.ok && a.body && a.body.worker === 'crow-site';
+      show('site', up ? 'Operational' : 'Down', up ? 'answered in ' + a.ms + ' ms' : a.ok ? 'answered, but not with the site’s version file' : answered(a), new Date());
+    });
+    timed('/status/operators.json').then(function (a) {
+      var list = a.ok && a.body && a.body.operators ? a.body.operators : [];
+      ['op1', 'op2'].forEach(function (id) {
+        var o = list.filter(function (x) { return x.id === id; })[0];
+        if (!o) { show(id, 'Unknown', 'the site’s Worker gave no answer (' + answered(a) + ')', new Date()); return; }
+        show(id, o.state === 'operational' ? 'Operational' : 'Down', o.state === 'operational' ? 'answered in ' + o.ms + ' ms' : (o.reason || answered(o)), new Date(a.body.checkedAt));
+      });
+    });
+    timed('/agents/test-seller/health').then(function (a) {
+      var up = a.ok && a.body && a.body.status === 'operational';
+      show('seller', up ? 'Operational' : 'Down', a.ok && a.body ? 'reports ' + a.body.status + ', ' + a.ms + ' ms' : answered(a), new Date());
+    });
+    timed('https://eth-sepolia.blockscout.com/api/v2/main-page/blocks').then(function (a) {
+      var b = a.ok && Array.isArray(a.body) && a.body[0] ? a.body[0] : null, t = b ? Date.parse(b.timestamp) : NaN;
+      if (!b || isNaN(t)) { show('network', 'Unknown', 'Blockscout gave no block (' + answered(a) + ')', new Date()); return; }
+      var age = Math.max(0, Math.round((Date.now() - t) / 1000));
+      show('network', age <= 120 ? 'Operational' : 'Degraded', 'newest block ' + b.height + ', ' + age + ' s ago', new Date());
+    });
+  }
+  document.getElementById('again').addEventListener('click', run);
+  run();
+})();
+</script>
+</body>
+</html>

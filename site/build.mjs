@@ -21,6 +21,7 @@ import { JOIN_URL } from './drawer.ts';
 import { CARDS, cardTags, FOOTER_CSS, footerHtml } from './footer.ts';
 import { headerBar, kitCss, listRows, sectionHead, TOKENS } from './brand/kit.mjs';
 import { guideFiles, guideSource } from './guides.mjs';
+import { PAGES_CSS, securityTxt, statusPage, trustPage } from './trust.mjs';
 
 export const SITE_URL = 'https://crow.direct/';
 /** The path the site is served under ('/' on crow.direct); every link is absolute from it. */
@@ -685,6 +686,17 @@ export function visualdemoPage(html) {
 }
 
 /**
+ * The demo page (site/demo/index.html, written by `pnpm duet publish`) as a publish build writes it: the site's current
+ * footer in place of the one the replay was published with, so a footer link added later (T-421: trust, status)
+ * reaches it without a new replay.
+ */
+export function demoPage(html) {
+  const at = html.indexOf('<footer class="ck-foot">'), end = html.indexOf('</footer>', at);
+  if (at < 0 || end < 0 || html.indexOf('<footer class="ck-foot">', at + 1) >= 0) throw new Error('site/demo/index.html changed shape: it no longer holds exactly one site footer');
+  return `${html.slice(0, at)}${footerHtml({ base: BASE, current: 'demo' }).trimEnd()}${html.slice(end + '</footer>'.length)}`;
+}
+
+/**
  * Every agent guide as a publish build writes it, by published path: llms.txt filled with the two operators and
  * the one command, the others as written. The two-agent run's local docs server serves exactly these.
  */
@@ -735,7 +747,11 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     writeFileSync(here('home.css'), HOME_CSS);
     writeFileSync(here('home.js'), HOME_JS);
     writeFileSync(here('404.html'), notFoundPage());
-    console.log(`wrote site/try.mjs (sha256 ${trySha256()}), site/buy.mjs (sha256 ${buySha256()}), site/index.html, site/home.css, site/home.js and site/404.html`);
+    // T-421: the trust page, the status page and their stylesheet.
+    writeFileSync(here('trust.html'), trustPage({ site: SITE_URL, base: BASE }));
+    writeFileSync(here('status.html'), statusPage({ site: SITE_URL, base: BASE }));
+    writeFileSync(here('pages.css'), PAGES_CSS);
+    console.log(`wrote site/try.mjs (sha256 ${trySha256()}), site/buy.mjs (sha256 ${buySha256()}), site/index.html, site/home.css, site/home.js, site/404.html, site/trust.html, site/status.html and site/pages.css`);
   } else {
     // Publish exactly the committed bundle, and only while it is current: the sha256 below is of that file.
     if (readFileSync(here('try.mjs'), 'utf8') !== bundle) throw new Error('site/try.mjs is stale against examples/: run node site/build.mjs, commit, then publish');
@@ -748,6 +764,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     writeFileSync(join(out, 'home.css'), HOME_CSS);
     writeFileSync(join(out, 'home.js'), HOME_JS);
     writeFileSync(join(out, '404.html'), notFoundPage());
+    // T-421: the trust page (/trust), the status page (/status), their stylesheet, and security.txt (RFC 9116), which the
+    // site Worker serves at /.well-known/security.txt (apps/site/worker.js) with an Expires set from this build's date.
+    writeFileSync(join(out, 'trust.html'), trustPage({ site: SITE_URL, base: BASE }));
+    writeFileSync(join(out, 'status.html'), statusPage({ site: SITE_URL, base: BASE }));
+    writeFileSync(join(out, 'pages.css'), PAGES_CSS);
+    writeFileSync(join(out, 'security.txt'), securityTxt(new Date(), SITE_URL));
     writeFileSync(join(out, 'try.mjs'), readFileSync(here('try.mjs')));
     writeFileSync(join(out, 'buy.mjs'), readFileSync(here('buy.mjs')));
     // T-066: the commit this site was built from, so Crow Control can tell what is merged but not live. null when the
@@ -759,7 +781,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     writeFileSync(join(out, 'visualdemo', 'index.html'), visualdemoPage(readFileSync(here('visualdemo/index.html'), 'utf8')));
     // The two-agent demo (T-391), served at /demo: one run's replay, written by \`pnpm duet publish <run folder>\`.
     mkdirSync(join(out, 'demo'), { recursive: true });
-    writeFileSync(join(out, 'demo', 'index.html'), readFileSync(here('demo/index.html')));
+    writeFileSync(join(out, 'demo', 'index.html'), demoPage(readFileSync(here('demo/index.html'), 'utf8')));
     const problems = await problemPages();
     mkdirSync(join(out, 'problems'), { recursive: true });
     for (const [path, html] of problems) writeFileSync(join(out, path), html);

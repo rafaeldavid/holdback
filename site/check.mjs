@@ -35,10 +35,16 @@
 // 14. ASCII only (T-401): llms.txt, buy.txt, sell.txt and every ref/*.txt hold no byte above 127.
 // 15. One brand kit (T-402): a colour or a font stack is written only in site/brand/tokens.css. The pages' sources
 //    write none of their own, the kit's components read the tokens, and nothing in the kit is !important or dark.
+// 16. The trust surfaces (T-421): the trust page, the status page and their stylesheet are what site/build.mjs
+//    renders, every statement on the trust page links its source and every repository link names a file that exists,
+//    the site's one footer links both pages, the status page reads public endpoints only, security.txt (RFC 9116)
+//    carries its five fields with an Expires less than a year away, and the new pages use none of the refused words.
 // 12. The budget (T-393): each role's first-deal path, the front door plus its page, is within FIRST_DEAL_BUDGET
 //    (site/guides.mjs). With HOLDBACK_AGENT_ANTHROPIC_API_KEY set it counts with Anthropic's count_tokens for the
 //    pinned model; without it, bytes divided by four. It says which.
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { OG_IMAGE } from './footer.ts';
 import { ASSETS, BASE, BUY_COMMANDS, HOME_CSS, HOME_JS, notFoundPage, visualdemoPage, BUY_MJS_URL, BUY_URL, buyBundle, buyInstall, buySha256, filled, page, pins, problemPages, publishedGuides, SELL_URL, SITE_URL, strip, TEST_SELLER_URL, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
 import { apiRoutes, citedSections, duplicateSentences, hasSection, FIRST_DEAL_BUDGET, guideFiles, guideSource, measurePaths, namedCalls, namedReferences, referenceFiles, nonAscii, routeKnown } from './guides.mjs';
@@ -127,7 +133,9 @@ for (const [, url] of html.matchAll(/(?:href|src|srcset)="([^"]*)"/g)) {
     continue;
   }
   const resolved = new URL(url, `${SITE_URL}index.html`);
-  const ok = resolved.origin === new URL(SITE_URL).origin && resolved.pathname.startsWith(BASE) && existsSync(here(resolved.pathname.slice(BASE.length) || 'index.html'));
+  // A path without an extension may name a page: the assets serve trust.html at /trust (html_handling, T-421).
+  const file = resolved.pathname.slice(BASE.length) || 'index.html';
+  const ok = resolved.origin === new URL(SITE_URL).origin && resolved.pathname.startsWith(BASE) && (existsSync(here(file)) || (!/\.[a-z0-9]+$/.test(file) && existsSync(here(`${file}.html`))));
   expect(ok, `link ${url} does not resolve to a site file under ${BASE}`);
   expect(!/^[a-z]/i.test(url) || url.startsWith('https://'), `link ${url} is page-relative; use ${BASE}… so it works without a trailing slash`);
 }
@@ -165,7 +173,7 @@ const { PROBLEMS, PROBLEM_BASE } = await import(here('../apps/operator/src/probl
 const problems = await problemPages();
 // T-400: every page the build writes carries a title, a description and a link-preview card, and the site's one
 // footer (site/footer.ts); the share image is 1200 by 630 px; no page follows the system's dark mode (light only).
-const built = new Map([['index.html', html], ['404.html', read('404.html')], ['demo/index.html', read('demo/index.html')], ['visualdemo/index.html', visualdemoPage(read('visualdemo/index.html'))], ...problems]);
+const built = new Map([['index.html', html], ['404.html', read('404.html')], ['demo/index.html', read('demo/index.html')], ['visualdemo/index.html', visualdemoPage(read('visualdemo/index.html'))], ...['trust.html', 'status.html'].filter((f) => existsSync(here(f))).map((f) => [f, read(f)]), ...problems]);
 for (const [path, h] of built) {
   expect(/<title>[^<]+<\/title>/.test(h) && ['name="description"', 'property="og:title"', 'property="og:description"', 'property="og:url"', 'property="og:image"', 'name="twitter:card" content="summary_large_image"'].every((t) => h.includes(t)), `${path} lacks its title, description or link-preview card (site/footer.ts)`);
   expect(h.includes('<footer class="ck-foot">') && h.includes('© 2026 Crow · Verifiable settlement for AI commerce'), `${path} lacks the site's footer (site/footer.ts)`);
@@ -334,7 +342,7 @@ for (const [p, text] of filledGuides) if (!nonAscii(guides.get(p) ?? '').length)
 // The sources of the home page, the 404 and problem pages, the footer, the early-access dialog and the demo page, and
 // the kit's own components.css, write none: they read the tokens. Nothing is allow-listed today; an entry needs its
 // reason beside it. site/visualdemo/ and site/og.html (the share image's source, drawn once by hand) are not read here.
-const KIT_READERS = ['build.mjs', 'footer.ts', 'drawer.ts', 'home.js', '../tools/duet/replay.ts', 'brand/components.css', 'brand/kit.mjs'];
+const KIT_READERS = ['build.mjs', 'footer.ts', 'drawer.ts', 'home.js', 'trust.mjs', '../tools/duet/replay.ts', 'brand/components.css', 'brand/kit.mjs'];
 const KIT_ALLOWED = new Map(); // 'path' -> the reason it may write a colour or a font stack
 const COLOUR = /(?<![\w&/-])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])|\b(?:rgba?|hsla?)\(/g;
 const FONT_STACK = /-apple-system|BlinkMacSystemFont|Helvetica|Arial|Garamond|Menlo|\bsans-serif\b|\bmonospace\b|"SF (?:Pro|Mono)/g;
@@ -348,6 +356,86 @@ const kitFiles = ['brand/tokens.css', 'brand/components.css'].map(read).join('\n
 expect(!/!important/.test(kitFiles), 'site/brand/ uses !important: a part is never reshaped from outside, so it needs none');
 expect(!/prefers-color-scheme/.test(kitFiles + HOME_CSS), 'site/brand/ or home.css follows the system dark mode: the kit is light only');
 expect((read('brand/tokens.css').match(/:root \{/g) ?? []).length === 1, 'site/brand/tokens.css holds one :root block and nothing else');
+
+// 16. The trust surfaces (T-421).
+const trust = existsSync(here('trust.mjs')) ? await import('./trust.mjs') : {};
+const siteBuild = await import('./build.mjs');
+for (const [file, fn] of [['trust.html', 'trustPage'], ['status.html', 'statusPage']]) {
+  expect(typeof trust[fn] === 'function', `site/trust.mjs exports no ${fn}()`);
+  expect(existsSync(here(file)) && typeof trust[fn] === 'function' && read(file) === trust[fn]({ site: SITE_URL, base: BASE }), `site/${file} is not what site/build.mjs renders: run node site/build.mjs`);
+}
+expect(typeof trust.PAGES_CSS === 'string' && existsSync(here('pages.css')) && read('pages.css') === trust.PAGES_CSS, 'site/pages.css is not what site/build.mjs renders: run node site/build.mjs');
+expect(typeof siteBuild.demoPage === 'function', 'site/build.mjs exports no demoPage(): the demo page keeps an old footer');
+const footed = new Map([...built, ...(typeof siteBuild.demoPage === 'function' ? [['demo/index.html (published)', siteBuild.demoPage(read('demo/index.html'))]] : [])]);
+for (const [path, h] of footed) {
+  if (path === 'demo/index.html') continue; // the committed replay; the publish build swaps in the site's footer (demoPage)
+  for (const p of ['trust', 'status']) expect(h.includes(`href="${BASE}${p}"`), `${path}'s footer does not link ${BASE}${p} (site/footer.ts)`);
+}
+for (const file of ['trust.html', 'status.html']) expect(built.has(file), `${file} is not among the pages whose card and footer group 5 checks`);
+const shownText = (h) => {
+  let t = h.replace(/<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>|<style\b[^>]*>[\s\S]*?<\/style\b[^>]*>|<!--[\s\S]*?-->/gi, ' '), before;
+  do {
+    before = t;
+    t = t.replace(/<[^>]*>/g, ' ');
+  } while (t !== before);
+  return t.replace(/&[a-z]+;|&#\d+;/g, ' ');
+};
+// Calming claims with no fact behind them yet, and words the pages replace (crow-private strategy/2026-11-14-crow-ontology.md):
+// "reviewer" on pages, not "adjudicator"; "your company", not "owner".
+const REFUSED = [/\bsecure(?:d|ly)?\b/i, /\baudited\b/i, /\bindependent(?:ly)?\b/i, /\bprivate deals?\b/i, /\bconfidential deals?\b/i, /no one can freeze/i, /\binsur(?:ance|ed|er)\b/i, /\barbitrat/i, /\bguarantee/i, /\bcompliant\b/i, /single point of failure/i, /\bpay by card\b/i, /\badjudicat/i, /\bowners?\b/i];
+for (const file of ['trust.html', 'status.html']) {
+  if (!existsSync(here(file))) continue;
+  const text = shownText(read(file));
+  for (const w of REFUSED) for (const m of text.matchAll(new RegExp(w.source, 'gi'))) expect(false, `site/${file} says "${m[0]}": a refused word (crow-private strategy/2026-11-14-crow-ontology.md)`);
+}
+if (existsSync(here('trust.html'))) {
+  const t = read('trust.html');
+  const items = [...t.matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => m[1]);
+  expect(items.length > 0, 'site/trust.html states nothing');
+  for (const it of items) expect(/<p class="src">Source: <a href="https:\/\//.test(it), `a statement on site/trust.html has no source link: ${shownText(it).trim().slice(0, 80)}`);
+  for (const w of ['no outside audit', 'SOC 2', 'test network']) expect(shownText(t).includes(w), `site/trust.html no longer says "${w}": it states plainly what is not there yet`);
+  const repo = 'https://github.com/rafaeldavid/holdback/';
+  // A submodule counts when .gitmodules names it: a copy of the tracked files (tests/record-copies.test.ts) has no submodule folder.
+  const submodules = [...read('../.gitmodules').matchAll(/^\s*path = (.+)$/gm)].map((m) => m[1].trim());
+  for (const m of t.matchAll(/href="https:\/\/github\.com\/rafaeldavid\/holdback\/(blob|tree)\/main\/([^"#]+)/g)) expect(existsSync(here(`../${m[2]}`)) || submodules.includes(m[2]), `site/trust.html links ${repo}${m[1]}/main/${m[2]}, which is not in this checkout`);
+  // The page names Coinbase's escrow at the commit contracts/lib/commerce-payments pins.
+  // Where git cannot answer (a copy of the tracked files), this one check is skipped; CI and the deploy run in a checkout.
+  const tree = spawnSync('git', ['-C', fileURLToPath(here('..')), 'ls-tree', 'HEAD', 'contracts/lib/commerce-payments'], { encoding: 'utf8' });
+  const pin = tree.status === 0 ? (tree.stdout.split(/\s+/)[2] ?? '') : null;
+  if (pin !== null) expect(/^[0-9a-f]{40}$/.test(pin) && t.includes(`commerce-payments/blob/${pin}/`), `site/trust.html does not link Coinbase's escrow at the pinned commit ${pin || '(unread)'}`);
+  const record = JSON.parse(read('../contracts/deployments/sepolia.json'));
+  for (const a of [record.escrow, record.rules, record.token.address]) expect(t.includes(`https://sepolia.etherscan.io/address/${a}`), `site/trust.html does not link ${a} from contracts/deployments/sepolia.json`);
+}
+if (existsSync(here('status.html'))) {
+  const st = read('status.html'), script = /<script\b[^>]*>([\s\S]*?)<\/script\b[^>]*>/i.exec(st)?.[1] ?? '';
+  for (const id of ['site', 'op1', 'op2', 'seller', 'network']) expect(st.includes(`data-check="${id}"`), `site/status.html has no row for ${id}`);
+  const read_ = [...script.matchAll(/timed\('([^']+)'\)/g)].map((m) => m[1]);
+  expect(read_.length === 4 && read_.every((u) => (trust.STATUS_SOURCES ?? []).includes(u)), `site/status.html's script reads ${read_.join(', ') || 'nothing'}, not its listed public sources`);
+  expect(!/(?:https?:)?\/\/(?!eth-sepolia\.blockscout\.com\/)/.test(script) && (script.match(/\bfetch\(/g) ?? []).length === 1, 'site/status.html\'s script names a host other than the site and Blockscout, or fetches outside timed()');
+  expect(!/control\.crow\.direct|localStorage|sessionStorage|indexedDB/.test(st), 'site/status.html reads the private console or keeps state');
+}
+const secOk = (text, where) => {
+  let fields;
+  try {
+    fields = trust.parseSecurityTxt(text);
+  } catch (e) {
+    expect(false, `${where}: ${e.message}`);
+    return;
+  }
+  for (const f of ['Contact', 'Expires', 'Preferred-Languages', 'Canonical', 'Policy']) expect(fields.has(f), `${where} has no ${f} field (RFC 9116)`);
+  expect((fields.get('Expires') ?? []).length === 1, `${where} must carry Expires exactly once`);
+  const exp = Date.parse(fields.get('Expires')?.[0] ?? '');
+  expect(exp > Date.now() && exp < Date.now() + 365 * 86_400_000, `${where}'s Expires (${fields.get('Expires')?.[0]}) is not in the future and less than a year away`);
+  for (const c of fields.get('Contact') ?? []) expect(/^(https:|mailto:|tel:)/.test(c), `${where}'s Contact ${c} is not an https, mailto or tel URI`);
+  expect((fields.get('Canonical') ?? []).includes(`${SITE_URL}.well-known/security.txt`), `${where}'s Canonical is not ${SITE_URL}.well-known/security.txt`);
+};
+expect(typeof trust.securityTxt === 'function', 'site/trust.mjs exports no securityTxt()');
+if (typeof trust.securityTxt === 'function') secOk(trust.securityTxt(new Date()), 'security.txt as built today');
+if (existsSync(here('../reports/site-out/llms.txt'))) {
+  for (const f of ['trust.html', 'status.html', 'pages.css', 'security.txt']) expect(existsSync(here(`../reports/site-out/${f}`)), `reports/site-out/${f} is missing: build with --out again`);
+  if (existsSync(here('../reports/site-out/security.txt'))) secOk(read('../reports/site-out/security.txt'), 'reports/site-out/security.txt');
+}
+expect(typeof trust.SECURITY_CONTACT === 'string' && read('../SECURITY.md').includes(trust.SECURITY_CONTACT) && read('../SECURITY.md').includes(`${SITE_URL}.well-known/security.txt`), 'SECURITY.md does not name the contact that security.txt names, or does not point to security.txt');
 
 // 12. The budget (T-393).
 let measured = [];
@@ -385,4 +473,4 @@ if (existsSync(here('../reports/site-out/llms.txt'))) {
   console.log(`wrote reports/site-out/${GUIDE_BUDGET_FILE}: ${body.paths.map((p) => `${p.role} ${p.tokens} of ${body.budget.tokens} tokens (${p.method})`).join(', ')}`);
 }
 for (const m of measured) console.log(`first-deal path, ${m.role}: ${m.files.join(' + ')}, ${m.bytes} bytes, ${m.tokens} of ${FIRST_DEAL_BUDGET.tokens} tokens (${m.method})${m.counted === null ? '' : `; the estimate, bytes divided by four, is ${m.estimate}`}`);
-console.log(`site check PASS: one source, placeholders in place, links resolve under ${BASE}, content agrees with docs/api.md and examples/verify.ts, try.mjs current and its command in llms.txt, the test seller and the test buyer as apps/test-agents runs them, the role pages, the guides together, and each role's first-deal path within its budget`);
+console.log(`site check PASS: one source, placeholders in place, links resolve under ${BASE}, content agrees with docs/api.md and examples/verify.ts, try.mjs current and its command in llms.txt, the test seller and the test buyer as apps/test-agents runs them, the role pages, the guides together, the trust surfaces (trust and status pages, footer links, security.txt), and each role's first-deal path within its budget`);
