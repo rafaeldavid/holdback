@@ -1140,3 +1140,15 @@ The full text is kept privately (`docs/private-materials.md`).
 - **What the move changed.** The runtime code stayed identical byte for byte [measured in PR 433: the same sha256 before and after the layout commit]. Three ABI entries change only their `internalType` string: `dealOf`, the event `Defaulted` and the error `WrongStage` now name `IHoldbackRules.Stage` and `IHoldbackRules.Deal`. No selector, topic or encoding changes, and nothing in the repository reads `internalType`.
 - **The outcome check by value.** The same pull request makes the outcome check in `decide` explicit (`H.isValidOutcome`): accept or reject for every role, and escalate for the primary and the fallback only. It removes the reliance on the outcome constants' numeric order. It changes the compiled code by 33 bytes and no behaviour [measured in PR 433: `ValidOutcome.t.sol` compares it with the old bound over every role and outcome byte].
 - **Litmus tests.** Neutrality, the hold and defended judgment: unchanged; no rule, deadline or payment moves.
+
+## D68. Crow hosts a seller adapter for a design partner on its own Cloudflare account (ADR-0037, T-407)
+
+**Proposed 2026-11-14 by T-407; Rafa picks before the build.** Today the seller side of a design partner's deal runs on one Mac, and a 7-day delivery window depends on that machine. ADR-0037 is Proposed; nothing is built.
+
+- **Runtime (recommended: A).** A Worker with one Durable Object per seller, the test seller's pattern: the journal in Durable Object storage, an alarm instead of the poll loop. A container (B) needs the journal moved off its disk too, since container disk is not durable, and adds a runtime Crow does not run today.
+- **One Worker per seller,** so one seller's configuration cannot reach another seller's keys and one deploy never restarts another seller's deal.
+- **Secrets** are Worker secrets only. A new refusal in the adapter's core: every credential variable a configuration names is distinct, and none is `HOLDBACK_KEY`.
+- **The configuration** stays outside the public repository, bundled at deploy; the card shows its SHA-256.
+- **The workspace guard:** the configuration names the workspace once, the quote and start addresses must carry it, and a result that names another workspace is not delivered.
+- **Deploys:** deferred code updates, and the deploy script refuses while a deal is between a funded hold and a recorded job ID.
+- **Litmus tests.** Neutrality, the hold and defended judgment: unchanged. The hosted adapter is a party that reaches the operators over the public API, like the test seller (D47).
