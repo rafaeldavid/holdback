@@ -6,7 +6,7 @@
 - **Depends on:** T-391 (the two-agent demo), T-418 (the ontology's words), T-420 (the test seller's live endings)
 - **Paths this task may touch:** `site/demo/index.html`, `tools/duet/replay.ts`, `tools/duet/scenarios.ts` (one note), `tools/duet/duet.test.ts`, `tools/duet/README.md`, this file. Never: `site/build.mjs`, `site/check.mjs`, `site/footer.ts`, the header, the trust and status pages (T-421), the guides, `site/brand/`, `site/try.mjs`, `site/buy.mjs`.
 - **Human gate:** no for the merge and the site deploy (Rafa's word for the wave of 2026-11-14: merge and deploy when ready). The proposal below waits for Rafa.
-- **Status:** review
+- **Status:** done (PR 536, merged as `d3ce4cf3`; site deployed 2026-11-14 13:14 UTC)
 - **Agent/session:** the T-427 session, 2026-11-14, branch `t-427-demo-refresh`
 
 ## Intent
@@ -20,7 +20,7 @@ Rafa asked on 2026-11-14 whether the demo at crow.direct/demo still fits what th
 - [x] The page uses none of the ontology's refused claims, and says the payment hold with its release rule, the refund included; a test fails the page if it does not.
 - [x] `node site/build.mjs && node site/check.mjs` and `pnpm exec vitest run tools/duet` pass.
 - [x] One `reviewer` pass; its findings fixed or recorded (Review, below).
-- [ ] Merged by hand when `check` and `gitleaks` pass; the site deployed, with its version recorded.
+- [x] Merged by hand when `check` and `gitleaks` pass; the site deployed, with its version recorded.
 - [x] One proposal with a mock under `reports/scratch/t427/`, and the one decision it needs from Rafa.
 
 ## The verdict
@@ -83,4 +83,10 @@ After the fixes: `pnpm exec vitest run tools/duet` 32 of 32, `node site/check.mj
 
 ## Handoff
 
-(filled in at the merge)
+**Done; the proposal waits for Rafa.**
+
+- **Merged:** PR 536 as `d3ce4cf3`, by hand, after all 14 checks that ran passed, `check` and `gitleaks` among them (2 contract suites skipped: no contract change).
+- **Site deploy 2026-11-14 13:14 UTC, commit `d3ce4cf` on a detached HEAD: pass.** crow-site `610258b8-a9a7-4761-927a-c44d9f228c6d` (rollback target `b0c3a3d3-448d-40dd-a112-38e0cce332de`). It also carried PR 531 (the buyer guide's shorter wording, `site/buy.txt`, `site/llms.txt`, two `site/ref/` files), merged by another session and not deployed before.
+- **Live checks (plain GETs, 13:15 UTC, measured):** `version.json` reads commit `d3ce4cf3` and version `610258b8…`; `https://crow.direct/demo/` holds each of the six new sentences and no "independent" or "Neither side can take"; `try.mjs` SHA-256 `04ef4434…` and `buy.mjs` `e74ff223…`, both unchanged, so no copy of the try command or the install line handed out stops working.
+- **For Rafa:** the proposal above (three ways a deal ends) and its one question. Mock: `reports/scratch/t427/mock-three-endings.html` in the main checkout.
+- **Follow-ups, not built:** the share description in `site/footer.ts` could add the refund rule (the footer's lane); review finding 3 (what the page says of who the reviewers are) goes with the proposal.
