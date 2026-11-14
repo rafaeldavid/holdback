@@ -5,7 +5,7 @@
 - **Depends on:** none (the `security.txt` half of the row went live with T-421)
 - **Paths this task may touch:** the response-header code in `apps/site/` and `apps/demo-cloud/` and their tests; `site/build.mjs` and `site/check.mjs` only for the script hashes and the new check; the new `site/csp.mjs`; one line in `tests/site-status.test.ts` (it counts the site Worker's asset reads); this task file; one paragraph in `docs/operations.md`
 - **Human gate:** no for the pull request; the site deploy runs on Rafa's standing word for this wave (coordinator brief 2026-11-14, "Merge and deploy when ready"); the operator deploy waits for the coordinator's go
-- **Status:** done (the operator deploy waits for Rafa, through the coordinator, below)
+- **Status:** done
 - **Agent/session:** T-451 side session, started by the coordinator on 2026-11-14
 - **Roadmap row:** N52
 
@@ -21,15 +21,15 @@ Non-goals: CORS changes (none; the operators send no CORS header today, below), 
 
 From roadmap row N52's done-when, less `security.txt`, which is live:
 
-- [ ] Every answer of crow-site carries `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `X-Frame-Options: DENY` and a `Content-Security-Policy` with `frame-ancestors 'none'`; HTML pages also `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy`.
-- [ ] The site's policy allows no inline script but the ones the build wrote (hashes), and no outside origin but the two the pages call; only the visual walkthrough is looser, and for styles only.
-- [ ] Every answer of holdback-op1 and holdback-op2 carries HSTS, nosniff, no framing (`X-Frame-Options` and `frame-ancestors`) and a referrer policy, the refusals the Worker answers itself included.
-- [ ] CORS on both Workers is unchanged; `Cache-Control` is unchanged.
-- [ ] `try.mjs`, `buy.mjs` and the guides are served with the same bytes: SHA-256 before and after.
-- [ ] A test per Worker fails before the change and asserts each header on each kind of answer.
-- [ ] `node site/build.mjs && node site/check.mjs` passes with a new check (group 18) that every built page's inline scripts and styles are covered by the policy.
-- [ ] Every page kind loads in a real browser engine with no policy violation; the status page's live checks, the demo's player and switch, and the early-access drawer work.
-- [ ] The site is deployed and the live headers measured again; the operator deploy is done or handed to the coordinator.
+- [x] Every answer of crow-site carries `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `X-Frame-Options: DENY` and a `Content-Security-Policy` with `frame-ancestors 'none'`; HTML pages also `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy`.
+- [x] The site's policy allows no inline script but the ones the build wrote (hashes), and no outside origin but the two the pages call; only the visual walkthrough is looser, and for styles only.
+- [x] Every answer of holdback-op1 and holdback-op2 carries HSTS, nosniff, no framing (`X-Frame-Options` and `frame-ancestors`) and a referrer policy, the refusals the Worker answers itself included.
+- [x] CORS on both Workers is unchanged; `Cache-Control` is unchanged.
+- [x] `try.mjs`, `buy.mjs` and the guides are served with the same bytes: SHA-256 before and after.
+- [x] A test per Worker fails before the change and asserts each header on each kind of answer.
+- [x] `node site/build.mjs && node site/check.mjs` passes with a new check (group 18) that every built page's inline scripts and styles are covered by the policy.
+- [x] Every page kind loads in a real browser engine with no policy violation; the status page's live checks, the demo's player and switch, and the early-access drawer work.
+- [x] The site is deployed and the live headers measured again; the operator deploy is done or handed to the coordinator.
 
 ## Evidence
 
@@ -137,9 +137,27 @@ On `/visualdemo/` it differs in two directives: `style-src 'self' 'unsafe-inline
 - Live in a browser engine (measured, headless Chromium against https://crow.direct, sign-ups answered by a Playwright stand-in so nothing was sent): 8 page kinds, 0 policy violations. The status page's five checks read operational, the test seller included (161 ms). The demo's player advanced, its endings switch showed an ending, the drawer and the home form posted, and the walkthrough loaded its font. An injected inline script, an outside script and an outside fetch were refused, and a frame from another origin was refused.
 - One Cache-Control value differs by path, not by this change (measured): `/status/operators.json` answers `public, max-age=15` when the Worker builds it, and `public, max-age=14400` on a hit in Cloudflare's cache (`cf-cache-status: HIT`). The relay returns the cached copy as the cache hands it back, before and after this change, and this task's code copies headers untouched. Inferred: the Before row caught a fresh answer. The status page reads it with `cache: 'no-store'`, so the page is not affected; a browser that opens the JSON directly may keep it for 4 h. Handoff.
 
-### The operators: handed to the coordinator (2026-11-14 17:40 UTC)
+### After: the operators deployed (2026-11-14 17:32 UTC)
 
-The coordinator gave the go at about 17:35 UTC. This session's permission check refused `pnpm demo-cloud:deploy` on a relayed word, so the coordinator put the deploy to Rafa and deploys on his answer. What that deploy carries, measured with `git diff 011ce6ac..1225046b`: live holdback-op1 is version `ceb012e0-20d1-43fa-b872-e7291cdb5b52` (14:55 UTC), and both nodes report build `011ce6ac`. Since then `apps/demo-cloud/` changed only in T-451's `src/headers.ts`, `src/headers.test.ts` and `src/worker.ts`, and `packages/` is unchanged, so the deploy carries T-451 alone. The API's after table and the try deal go in the coordinator's deploy record.
+The coordinator deployed them on Rafa's word ("Do you want me to deploy the security headers to the two operators now -- yes"), because this session's permission check refused the deploy on a relayed word. `pnpm demo-cloud:deploy` ran from a detached worktree at `origin/main` `5b8e9d3`:
+- holdback-op1 `c153aaad-b36f-4e37-ad57-7220cfc56ccf` (rollback target `ceb012e0-20d1-43fa-b872-e7291cdb5b52`);
+- holdback-op2 `19869e39-396f-4a3c-a0f2-14901b125e26` (rollback target `ee98fcab-27e5-42ba-90f4-237be7776319`);
+- the smoke deal `0xbf876352…80c4` was Released in 43 s.
+
+Since the live build `011ce6ac`, `apps/demo-cloud/`, `apps/operator/` and `packages/` changed only in T-451's three files (measured by the coordinator and by this session). Both nodes now report build `5b8e9d33`.
+
+Measured by this session at 17:40 UTC with plain GETs, an OPTIONS preflight and a plain-HTTP GET and POST (and by the coordinator at 17:39 UTC):
+
+| Answer, on api and api2 | Before | After |
+| --- | --- | --- |
+| `/.well-known/holdback.json` (200), `GET /v1/agreements/0x00…00` (404 problem), `GET /v1/nope` (404), `OPTIONS /v1/messages` (404) | none of the security headers | `Strict-Transport-Security: max-age=31536000; includeSubDomains`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, `Referrer-Policy: no-referrer`, `Cross-Origin-Resource-Policy: same-origin`, Permissions-Policy |
+| CORS, with and without `Origin: https://crow.direct` | no `Access-Control-*` header; preflight 404 | the same: none, and the preflight 404 |
+| Cache-Control | none | none |
+| `http://api.crow.direct/v1/status` | 200 over plain HTTP | GET 301, POST 308, to the same path on https |
+
+- The status page: `https://crow.direct/status/operators.json` reads both operators operational (op1 44 ms, op2 41 ms), so the API's same-origin resource policy does not affect the site's relay, which reads the operators from the server.
+- The demo page's three public record links answer 200 as JSON (measured by the coordinator); a top-level navigation is not subject to the resource policy.
+- An agent's plain client: the deploy's own `examples/try.ts` deal completed, and a read from api2 answered 200.
 
 ## Handoff
 
