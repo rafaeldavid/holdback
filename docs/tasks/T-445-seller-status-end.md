@@ -5,7 +5,7 @@
 - **Depends on:** T-222 (the test seller), T-420 (its named offers)
 - **Paths this task may touch:** `apps/test-agents/src/seller.ts`, `apps/test-agents/src/seller.test.ts`, this file. Not `site/` or `tools/one-click/`: other sessions work there.
 - **Human gate:** no for this pull request. The test seller's deploy waits for Rafa.
-- **Status:** review (2026-11-14)
+- **Status:** done (2026-11-14, PR 562)
 - **Agent/session:** a side session of the benchmark coordinator (triage task 4), branch `t-445-seller-status-end`
 - **Roadmap row:** N70
 
