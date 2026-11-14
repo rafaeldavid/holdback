@@ -371,7 +371,16 @@ if (existsSync(here('../reports/site-out/llms.txt'))) {
   const { buildCommit } = await import('./build.mjs');
   const { writeFileSync } = await import('node:fs');
   const builtPaths = new Map([...new Set(Object.values(FIRST_DEAL_BUDGET.paths).flat())].map((p) => [p, read(`../reports/site-out/${p}`)]));
-  const body = guideBudget(await measurePaths(builtPaths), { generatedAt: new Date(), commit: buildCommit() });
+  // A provider count that fails here (a 429, the network) falls back to the estimate, which the file names: the
+  // budget check above already passed, so the file never stops a build.
+  let paths;
+  try {
+    paths = await measurePaths(builtPaths);
+  } catch (e) {
+    console.log(`guide-budget.json counts by the estimate: the provider's count failed (${String(e.message).slice(0, 120)})`);
+    paths = await measurePaths(builtPaths, { key: '' });
+  }
+  const body = guideBudget(paths, { generatedAt: new Date(), commit: buildCommit() });
   writeFileSync(here(`../reports/site-out/${GUIDE_BUDGET_FILE}`), `${JSON.stringify(body, null, 2)}\n`);
   console.log(`wrote reports/site-out/${GUIDE_BUDGET_FILE}: ${body.paths.map((p) => `${p.role} ${p.tokens} of ${body.budget.tokens} tokens (${p.method})`).join(', ')}`);
 }

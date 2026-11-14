@@ -94,13 +94,17 @@ export function buildOpsCost({ dealTiming, prices, modelPrices, discovery, oneCl
     deals: perDeal.filter((d) => d.bySteps.has(step)).length,
     gasUsed: { median: bigQuantile(perDeal.filter((d) => d.bySteps.has(step)).map((d) => d.bySteps.get(step).toString()), 50) },
   }));
-  const dealTotal = big(bigQuantile(perDeal.map((d) => d.total.toString()), 50));
+  // A deal with no gas figure on any transaction (no receipt read, no payload.gasUsed) is unknown, not 0: it stays out
+  // of the medians and of the count beside them (T-413).
+  const measured = perDeal.filter((d) => d.txs > 0);
+  const unmeasured = perDeal.length - measured.length;
+  if (unmeasured) gaps.push(`${unmeasured} Released deal${unmeasured === 1 ? ' has' : 's have'} no gas figure (no receipt read, no gasUsed in the event log), so the gas per deal leaves ${unmeasured === 1 ? 'it' : 'them'} out.`);
+  const dealTotal = big(bigQuantile(measured.map((d) => d.total.toString()), 50));
   // Where the number comes from, and when (T-413): receipts, the event log or both; the deals behind the median; the
   // window deal-timing read and the newest measured deal's settlement.
-  const measured = perDeal.filter((d) => d.txs > 0);
   const sum = (k) => measured.reduce((n, d) => n + d[k], 0);
   const [receiptTxs, eventLogTxs, mismatches] = [sum('fromReceipts'), sum('fromEventLog'), sum('mismatches')];
-  const settledAt = released.map((d) => d.times?.settled).filter((t) => typeof t === 'string').sort();
+  const settledAt = released.filter((_, i) => perDeal[i].txs > 0).map((d) => d.times?.settled).filter((t) => typeof t === 'string').sort();
   const gasSource = dealTotal === null ? null : {
     basis: 'measured',
     from: receiptTxs && eventLogTxs ? 'receipts and event log' : receiptTxs ? 'receipts' : 'event log',
@@ -112,7 +116,7 @@ export function buildOpsCost({ dealTiming, prices, modelPrices, discovery, oneCl
     newestDealAt: settledAt.at(-1) ?? null,
   };
   if (mismatches) gaps.push(`${mismatches} transaction${mismatches === 1 ? "'s" : "s'"} gas in the event log differs from its Sepolia receipt; the receipt counts.`);
-  const txPerDeal = big(bigQuantile(perDeal.map((d) => String(d.txs)), 50));
+  const txPerDeal = big(bigQuantile(measured.map((d) => String(d.txs)), 50));
   const faucet = big(bigQuantile(faucetMintGas, 50));
   if (faucet === null) gaps.push("No faucet mint was found for the window's buyers, so a new visitor's mint is left out of the gas.");
 

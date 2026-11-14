@@ -83,6 +83,17 @@ describe('GET …/version.json on each Worker', () => {
   });
 });
 
+describe('HEAD …/version.json', () => {
+  it('answers 200 with the same headers and no body on each Worker', async () => {
+    const env = { BUILD_COMMIT: COMMIT, CF_VERSION_METADATA: META, ASSETS: { fetch: async () => new Response(`{"commit":"${COMMIT}"}`, { status: 200 }) } };
+    for (const [worker, url] of [[site, 'https://crow.direct/version.json'], [agents, 'https://crow.direct/agents/test-seller/version.json'], [join, 'https://join.crow.direct/version.json']] as const) {
+      const r = await (worker as unknown as Fetcher).fetch(new Request(url, { method: 'HEAD' }), env);
+      expectUncached(r);
+      expect(await r.text()).toBe('');
+    }
+  });
+});
+
 describe('each Worker binds its version metadata', () => {
   it.each(['apps/site/wrangler.jsonc', 'apps/test-agents/wrangler.jsonc', 'apps/early-access/wrangler.jsonc'])('%s', (file) => {
     const text = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');

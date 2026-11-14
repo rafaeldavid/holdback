@@ -223,3 +223,24 @@ describe('where the gas per deal comes from', () => {
     expect(buildOpsCost({ dealTiming: null, prices, modelPrices, discovery }).perDeal.gas.source).toBeNull();
   });
 });
+
+// T-413 review: a deal whose transactions carry no gas (no receipt read, no payload.gasUsed) is unknown, never a
+// measured 0, and it stays out of the median and the count beside it.
+describe('a deal with no gas figure', () => {
+  const blank = { ...dealTiming, deals: dealTiming.deals.map((d: { txs: { gasUsed: string | null }[] }) => ({ ...d, txs: d.txs.map((t) => ({ ...t, gasUsed: null })) })) };
+
+  it('reads unknown with no source, and says why', () => {
+    const out = buildOpsCost({ dealTiming: blank, prices, modelPrices, discovery });
+    expect(out.perDeal.gas.dealGas.median).toBeNull();
+    expect(out.perDeal.gas.totalGas.median).toBeNull();
+    expect(out.perDeal.gas.source).toBeNull();
+    expect(out.gaps.some((g: string) => /1 Released deal has no gas figure/.test(g))).toBe(true);
+  });
+
+  it('leaves such a deal out of the median beside the measured ones', () => {
+    const both = { ...dealTiming, deals: [...dealTiming.deals, ...blank.deals] };
+    const out = buildOpsCost({ dealTiming: both, prices, modelPrices, discovery });
+    expect(out.perDeal.gas.dealGas.median).toBe('1261428');
+    expect(out.perDeal.gas.source).toMatchObject({ deals: 1 });
+  });
+});
