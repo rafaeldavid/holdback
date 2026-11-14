@@ -9,6 +9,8 @@
 // - A headline number comes only from live records whose run reached its scenario's end state (an honest, completed
 //   deal). A scripted record, a failed run and a blocked scenario never fill one.
 // - Each number is the nearest-rank median of the newest 10 such records (lib.mjs quantile, as the console's medians).
+// - The headline counts records in the prompt permission mode only (a record without agent.permissions is one);
+//   sandboxAuto holds the same four numbers from sandbox-auto records (T-441). The two never share a median.
 // - With no such record a number reads state "missing" and value null, never 0.
 // - Every file is checked against scripts/metrics/schemas/one-click.schema.json; a file that fails is counted and named
 //   in a gap line, and left out. Version 1 files (run.mjs, the homepage run) are counted and left out: they are not
@@ -39,12 +41,19 @@ export function buildSummary({ records, invalid = [], v1 = 0, generatedAtMs, com
   if (v1) gaps.push(`${v1} version 1 run file(s) (the homepage run, run.mjs) are left out: they are not one of the six scenarios.`);
   const newestFirst = [...records].sort((a, b) => (a.runId < b.runId ? 1 : a.runId > b.runId ? -1 : 0));
   const live = newestFirst.filter((r) => r.mode === 'live' && r.agent.kind === 'claude-code' && r.world.engine === 'sepolia');
-  const deals = live.filter((r) => r.outcome.success).slice(0, MEDIAN_OF);
+  // T-441: the headline is Claude Code's default permission mode only; sandbox-auto records fill their own block
+  const prompt = live.filter((r) => permissionsOf(r) === 'prompt');
+  const auto = live.filter((r) => permissionsOf(r) === 'sandbox-auto');
+  const deals = prompt.filter((r) => r.outcome.success).slice(0, MEDIAN_OF);
   if (!live.length) gaps.push('No live record yet, so every headline number reads missing. Scripted records prove the harness and never fill one.');
-  else if (!deals.length) gaps.push(`${live.length} live record(s), none of which reached its end state, so every headline number reads missing.`);
-  const state = (n) => (n ? 'measured' : 'missing');
-  const costs = deals.map((r) => r.cost.usdMicros).filter((v) => v !== null);
-  if (deals.length && costs.length < deals.length) gaps.push(`${deals.length - costs.length} of ${deals.length} deal(s) have no cost: a model the price table does not price.`);
+  else if (!prompt.length) gaps.push(`${live.length} live record(s), none in the prompt permission mode, so every headline number reads missing.`);
+  else if (!deals.length) gaps.push(`${prompt.length} live prompt-mode record(s), none of which reached its end state, so every headline number reads missing.`);
+  if (auto.length) gaps.push(`${auto.length} live sandbox-auto record(s) fill sandboxAuto, not the headline.`);
+  const autoDeals = auto.filter((r) => r.outcome.success).slice(0, MEDIAN_OF);
+  for (const [ds, what] of [[deals, 'deal(s)'], [autoDeals, 'sandbox-auto deal(s)']]) {
+    const priced = ds.filter((r) => r.cost.usdMicros !== null).length;
+    if (ds.length && priced < ds.length) gaps.push(`${ds.length - priced} of ${ds.length} ${what} have no cost: a model the price table does not price.`);
+  }
 
   const byScenario = {};
   for (const id of SCENARIO_IDS) {
@@ -54,7 +63,7 @@ export function buildSummary({ records, invalid = [], v1 = 0, generatedAtMs, com
     byScenario[id] = {
       live: ownLive.length,
       liveCompleted: ownLive.filter((r) => r.outcome.success).length,
-      latestLive: ownLive[0] ? { runId: ownLive[0].runId, state: ownLive[0].outcome.state, success: ownLive[0].outcome.success } : null,
+      latestLive: ownLive[0] ? { runId: ownLive[0].runId, state: ownLive[0].outcome.state, success: ownLive[0].outcome.success, permissions: permissionsOf(ownLive[0]) } : null,
       latestScripted: lastScripted ? { runId: lastScripted.runId, state: lastScripted.outcome.state, success: lastScripted.outcome.success, blockedBy: lastScripted.outcome.blockedBy } : null,
     };
   }
@@ -63,13 +72,24 @@ export function buildSummary({ records, invalid = [], v1 = 0, generatedAtMs, com
     ...envelope('one-click-summary', { script: 'scripts/metrics/one-click-summary.mjs', commit, generatedAt: generatedAtMs, sources: [], gaps }),
     medianOf: MEDIAN_OF,
     runs: { records: records.length, live: live.length, scripted: records.length - live.length, liveCompleted: live.filter((r) => r.outcome.success).length, invalid: invalid.length, versionOne: v1 },
-    headline: {
-      approvalsPerDeal: { state: state(deals.length), value: median(deals.map((r) => r.approvals.total)), deals: deals.length },
-      tokensPerDeal: { state: state(deals.length), in: median(deals.map((r) => r.tokens.in)), uncachedIn: median(deals.map((r) => Object.values(r.tokens.byModel).reduce((n, t) => n + t.input, 0))), out: median(deals.map((r) => r.tokens.out)), total: median(deals.map((r) => r.tokens.in + r.tokens.out)), deals: deals.length },
-      timeWithoutUserMs: { state: state(deals.length), value: median(deals.map((r) => r.time.withoutUserMs)), deals: deals.length },
-      costPerDealUsdMicros: { state: state(costs.length), value: bigMedian(costs), deals: costs.length },
-    },
+    headline: headlineOf(deals),
+    sandboxAuto: { live: auto.length, liveCompleted: auto.filter((r) => r.outcome.success).length, headline: headlineOf(autoDeals) },
     byScenario,
+  };
+}
+
+/** A live record's permission mode: a record from before T-441 has none and is a prompt record. */
+export const permissionsOf = (r) => r.agent?.permissions ?? 'prompt';
+
+/** The four numbers over completed deals, newest first, at most MEDIAN_OF. Pure. */
+function headlineOf(deals) {
+  const state = (n) => (n ? 'measured' : 'missing');
+  const costs = deals.map((r) => r.cost.usdMicros).filter((v) => v !== null);
+  return {
+    approvalsPerDeal: { state: state(deals.length), value: median(deals.map((r) => r.approvals.total)), deals: deals.length },
+    tokensPerDeal: { state: state(deals.length), in: median(deals.map((r) => r.tokens.in)), uncachedIn: median(deals.map((r) => Object.values(r.tokens.byModel).reduce((n, t) => n + t.input, 0))), out: median(deals.map((r) => r.tokens.out)), total: median(deals.map((r) => r.tokens.in + r.tokens.out)), deals: deals.length },
+    timeWithoutUserMs: { state: state(deals.length), value: median(deals.map((r) => r.time.withoutUserMs)), deals: deals.length },
+    costPerDealUsdMicros: { state: state(costs.length), value: bigMedian(costs), deals: costs.length },
   };
 }
 

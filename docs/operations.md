@@ -258,6 +258,33 @@ The maintainers keep the notes on agent sessions and permission prompts privatel
 
 Each entry records one deploy as it ran: the date and time in UTC, the commit, each Worker's new version and its rollback target, and what was measured after it. The deploy scripts print the entry's first line (`pnpm demo-cloud:deploy`, `pnpm site:deploy`, `node apps/test-agents/scripts/deploy.mjs`). The values are true for their date: for what runs now, read "What is live" above and each node's discovery.
 
+### Deploys owed on 2026-11-14: the faucet allowance, the test seller and the site (operators 14:54 UTC, test seller and site 16:06 UTC)
+
+**Site deploy 2026-11-14 16:06 UTC, commit `8c465bb` on a detached HEAD: pass.** crow-site `a8ca3320-b0a9-42ce-a6a1-a2ce2fdfd1ee` (rollback target `2282f633-7bc9-4794-9a67-c61406685562`).
+
+**Test seller deploy 2026-11-14 16:06 UTC, commit `8c465bb`: pass.** crow-test-agents `d3dce65d-ab02-4b19-a8eb-7d1031c23d0a` (rollback target `0efca4f1-12ce-4249-bcaf-c3c716825ff8`).
+
+**Deploy 2026-11-14 14:54 UTC, commit `011ce6a` on a detached HEAD: pass.** holdback-op1 `ceb012e0-20d1-43fa-b872-e7291cdb5b52` (rollback target `0a1a18b4-72a7-491d-9a94-cbf2d683fc56`), holdback-op2 `ee98fcab-27e5-42ba-90f4-237be7776319` (rollback target `ee971afd-efb1-4648-b0aa-3f768fa009ee`). Smoke deal `0xf17e06270220ca429e0f42175e2ae758d7d38eb027bbdcd5eaabca14dd7638c0` Released in 44 s, against commit `011ce6a` (both nodes' discovery named it 286 s after /v1/status answered).
+
+A deploy session ran all three on Rafa's word ("Go ahead and deploy anything hanging", 2026-11-14), after Crow Control's "Deploys owed" signal. The operators waited for the benchmark batch (s2 to s6), whose last deal settled at 14:39:54 UTC.
+- The operators carry PR 534: the faucet grants 50 new addresses per client an hour, up from 10. No world, contract or schema changed. The deal guard checked 4 open deals and found that none would lose its judge.
+- The test seller carries the operator change and `apps/test-agents/scripts/play-offers.ts`.
+- The site carries PR 552 (T-433): `ref/limits.txt` changed, the only site file since `0250676`. The build uploaded `/version.json`, `/guide-budget.json` and `/ref/limits.txt`, with 72 files already uploaded.
+- CI's `ci` run passed on `011ce6a` for the operators and on `b9df8c8` for the test seller and the site. The commits from `b9df8c8` to `8c465bb` change only `docs/`, `scripts/id-check.mjs` and `tests/`, outside every Worker's paths, so the deploy went ahead at main's tip without a further CI wait.
+- Earlier tries stopped before any upload: the test seller's pre-flight refused `011ce6a` because `origin/main` had moved.
+
+Measured after the deploys, at 16:07 UTC:
+- `https://crow.direct/version.json` and `https://crow.direct/agents/test-seller/version.json` name `8c465bb`;
+- both nodes' discovery (`demo.build.commit`) names `011ce6a`;
+- `https://crow.direct/guide-budget.json` names `8c465bb` and puts the buyer's first-deal path at 4,544 of 5,000 tokens and the seller's at 4,156 (estimates);
+- the test seller and the test buyer read operational 2 s after the upload.
+
+**Earlier site deploys the same day.** Two deploys carried no record line here; their versions come from `npx wrangler@4 deployments list --name crow-site`:
+- 12:17 UTC, commit `a6b9472` (PR 529, T-421's Coming soon notice): crow-site `b0c3a3d3-448d-40dd-a112-38e0cce332de` (rollback target `68d33780-5033-4053-a46e-fe3fdfff1e83`).
+- 14:18 UTC, commit `0250676` (PR 548): crow-site `2282f633-7bc9-4794-9a67-c61406685562` (rollback target `3f6b27aa-be9e-472e-9771-aef718c855a8`).
+
+The deployment list also shows site versions at 13:14, 13:30, 13:46 and 14:06 UTC with no entry here; the sessions that ran them hold their record lines.
+
 ### The seller guide's fresh-key line (site deployed 2026-11-14, 14:14 UTC)
 
 **Site deploy 2026-11-14 14:14 UTC, commit `0250676` on a detached HEAD: pass.** crow-site `3f6b27aa-be9e-472e-9771-aef718c855a8` (rollback target `49d9faa2-af62-4f80-ba18-eced852bb792`).

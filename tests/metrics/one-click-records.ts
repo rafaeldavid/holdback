@@ -8,14 +8,14 @@ const STARTED = Date.parse('2026-11-14T10:00:00Z');
 
 // A live record built from fixed bookkeeping, as bench.mjs builds one after a live run.
 const USAGE = { inputTokens: 1_000, outputTokens: 2_000, cacheReadInputTokens: 100_000, cacheCreationInputTokens: 10_000, cacheCreationEphemeral1hInputTokens: 10_000, costUSD: 0.1 };
-export function liveRecord(o: { texts?: string[]; errors?: string[]; success?: boolean; approvals?: number; wallMs?: number; usage?: object; id?: string; startedAtMs?: number; results?: object[] } = {}) {
+export function liveRecord(o: { texts?: string[]; errors?: string[]; success?: boolean; approvals?: number; wallMs?: number; usage?: object; id?: string; startedAtMs?: number; results?: object[]; permissions?: string } = {}) {
   const id = o.id ?? 's1';
   const s = { id, ...SCENARIOS[id as keyof typeof SCENARIOS] };
   return buildBenchRecord({
     mode: 'live',
     scenario: s,
     world: { engine: 'sepolia', docs: 'https://crow.direct/llms.txt' },
-    agent: { requested: 'claude-opus-5-5', reported: 'claude-opus-5-5', effortRequested: 'medium', effortApplied: 'medium', claudeCodeVersion: '2.1.318', sdkVersion: '0.3.318' },
+    agent: { permissions: o.permissions, requested: 'claude-opus-5-5', reported: 'claude-opus-5-5', effortRequested: 'medium', effortApplied: 'medium', claudeCodeVersion: '2.1.318', sdkVersion: '0.3.318' },
     outcome: o.success === false ? { state: 'stopped', commitmentId: null, stoppedAt: 'no commitment reached its end state' } : { state: s.endState, commitmentId: `0x${'ab'.repeat(32)}` },
     book: { permissionRequests: Array.from({ length: o.approvals ?? 3 }, (_, i) => ({ atMs: i * 1000, tool: 'Bash' })), wallMs: o.wallMs ?? 300_000, approvalWaitMs: 2_000, errors: o.errors ?? [] },
     results: o.results ?? [{ modelUsage: { 'claude-opus-5-5': o.usage ?? USAGE }, duration_api_ms: 60_000, total_cost_usd: 0.144 }],

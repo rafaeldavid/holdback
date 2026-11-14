@@ -1,0 +1,402 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://holdback.dev/examples/signer-rules.schema.json",
+  "title": "The signer's rules: the limits within which Crow's signer signs a payment for its buying agent (T-439)",
+  "description": "Only the signer's administrator writes this file, on the signer's machine. The signer validates it against this schema at start, refuses every request once its bytes change, and never takes a value from a request. Amounts are base units as decimal strings; times are whole seconds.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "constraintsVersion",
+    "chain",
+    "floatAddress",
+    "buying",
+    "reads"
+  ],
+  "properties": {
+    "version": {
+      "const": 1,
+      "description": "The format of this file"
+    },
+    "constraintsVersion": {
+      "type": "string",
+      "pattern": "^[0-9]{1,6}$",
+      "description": "The version of the constraints these values come from (company-ops/own-agents/constraints.md in crow-private)"
+    },
+    "chain": {
+      "description": "The settlement layer the signer signs for, pinned here and never taken from a request or an operator",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "network"
+          ],
+          "properties": {
+            "network": {
+              "const": "sepolia",
+              "description": "Ethereum Sepolia, as examples/deployments.ts pins it"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "network"
+          ],
+          "properties": {
+            "network": {
+              "const": "simchain",
+              "description": "The in-process SimChain: tests and rehearsals only"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "network",
+            "deployment"
+          ],
+          "properties": {
+            "network": {
+              "const": "local"
+            },
+            "deployment": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "chainId",
+                "rules",
+                "escrow",
+                "erc3009Collector",
+                "token",
+                "expiryMarginSec"
+              ],
+              "properties": {
+                "chainId": {
+                  "const": 31337,
+                  "description": "A local chain only"
+                },
+                "rules": {
+                  "$ref": "#/$defs/address"
+                },
+                "escrow": {
+                  "$ref": "#/$defs/address"
+                },
+                "erc3009Collector": {
+                  "$ref": "#/$defs/address"
+                },
+                "expiryMarginSec": {
+                  "$ref": "#/$defs/seconds"
+                },
+                "token": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "address",
+                    "name",
+                    "version",
+                    "symbol",
+                    "decimals"
+                  ],
+                  "properties": {
+                    "address": {
+                      "$ref": "#/$defs/address"
+                    },
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[ -~]{1,64}$"
+                    },
+                    "version": {
+                      "type": "string",
+                      "pattern": "^[ -~]{1,16}$"
+                    },
+                    "symbol": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9]{1,16}$"
+                    },
+                    "decimals": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 36
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "floatAddress": {
+      "$ref": "#/$defs/address",
+      "description": "The payment address the signer holds the key of (CROW_SIGNER_FLOAT_KEY). It must be that key's address, or the signer does not start"
+    },
+    "buying": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "principal",
+        "standingKey",
+        "mandatePath",
+        "revocationsPath",
+        "maxPerDeal",
+        "maxPerDay",
+        "maxOpenDeals",
+        "maxOpenTotal",
+        "clubId",
+        "rulebookHash",
+        "reviewers",
+        "terms",
+        "windows",
+        "clockSkewSec",
+        "sellers"
+      ],
+      "properties": {
+        "principal": {
+          "$ref": "#/$defs/address",
+          "description": "The principal whose signed mandate the standing key needs: Crow's address on Rafa's hardware wallet. A mandate or a revocation that names another principal does not count"
+        },
+        "standingKey": {
+          "$ref": "#/$defs/address",
+          "description": "The buying agent's standing key (CROW_SIGNER_BUYING_KEY), named as agent in the principal's mandate. It signs a Delegation beside each payment"
+        },
+        "mandatePath": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._/-]{1,200}$",
+          "description": "The principal's signed mandate for the standing key, as examples/mandate.ts verify prints its document; relative to this file"
+        },
+        "revocationsPath": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._/-]{1,200}$",
+          "description": "The folder where the administrator puts the principal's signed revocations, relative to this file. It must exist; every .json file in it must be a revocation this signer can read, or the signer refuses"
+        },
+        "maxPerDeal": {
+          "$ref": "#/$defs/amount",
+          "description": "B3: the most one deal's total (price plus the adjudication fee) may be"
+        },
+        "maxPerDay": {
+          "$ref": "#/$defs/amount",
+          "description": "B4: the most the totals signed in one UTC day may add up to"
+        },
+        "maxOpenDeals": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "description": "B9: deals signed and not yet ended, counted together"
+        },
+        "maxOpenTotal": {
+          "$ref": "#/$defs/amount",
+          "description": "B9: the totals of those deals added up"
+        },
+        "clubId": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]{3,64}$"
+        },
+        "rulebookHash": {
+          "$ref": "#/$defs/hex32"
+        },
+        "reviewers": {
+          "description": "B7: the three adjudicators every deal must name, with the policy, the registry and the fee",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "adjudicator",
+            "fallbackAdjudicator",
+            "appealAdjudicator",
+            "policyId",
+            "policyHash",
+            "registryHash",
+            "fee"
+          ],
+          "properties": {
+            "adjudicator": {
+              "$ref": "#/$defs/address"
+            },
+            "fallbackAdjudicator": {
+              "$ref": "#/$defs/address"
+            },
+            "appealAdjudicator": {
+              "$ref": "#/$defs/address"
+            },
+            "policyId": {
+              "type": "string",
+              "pattern": "^[ -~]{1,128}$"
+            },
+            "policyHash": {
+              "$ref": "#/$defs/hex32"
+            },
+            "registryHash": {
+              "$ref": "#/$defs/hex32"
+            },
+            "fee": {
+              "$ref": "#/$defs/amount"
+            }
+          }
+        },
+        "terms": {
+          "description": "B6: the fields every deal's terms must hold exactly",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion",
+            "settlementMode",
+            "onReject",
+            "disclosure",
+            "maxSubmissions",
+            "appealWindowSec",
+            "appealDecideSec"
+          ],
+          "properties": {
+            "schemaVersion": {
+              "type": "string",
+              "pattern": "^[0-9]+\\.[0-9]+$"
+            },
+            "settlementMode": {
+              "const": "guaranteed_on_decision"
+            },
+            "onReject": {
+              "const": "full_refund"
+            },
+            "disclosure": {
+              "const": "public",
+              "description": "Public terms only: the signer reads every field it checks"
+            },
+            "maxSubmissions": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 255
+            },
+            "appealWindowSec": {
+              "$ref": "#/$defs/seconds"
+            },
+            "appealDecideSec": {
+              "$ref": "#/$defs/seconds"
+            }
+          }
+        },
+        "windows": {
+          "description": "B8: the most each deadline may lie after the one before, in seconds: offerExpiresAt and fundBy and deliverBy after createdAt, judgeBy after deliverBy, fallbackBy after judgeBy",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "offerExpiresInSec",
+            "fundWithinSec",
+            "deliverWithinSec",
+            "judgeWithinSec",
+            "fallbackWithinSec"
+          ],
+          "properties": {
+            "offerExpiresInSec": {
+              "$ref": "#/$defs/seconds"
+            },
+            "fundWithinSec": {
+              "$ref": "#/$defs/seconds"
+            },
+            "deliverWithinSec": {
+              "$ref": "#/$defs/seconds"
+            },
+            "judgeWithinSec": {
+              "$ref": "#/$defs/seconds"
+            },
+            "fallbackWithinSec": {
+              "$ref": "#/$defs/seconds"
+            }
+          }
+        },
+        "clockSkewSec": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 600,
+          "description": "How far a deal's createdAt may lie ahead of the signer's own clock"
+        },
+        "sellers": {
+          "description": "B5 and B6: the sellers it may pay with no person, each with its payout address and the product and checks it sells",
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "seller",
+              "payoutAddress",
+              "deliverableHashes",
+              "acceptanceHash"
+            ],
+            "properties": {
+              "seller": {
+                "$ref": "#/$defs/address"
+              },
+              "payoutAddress": {
+                "$ref": "#/$defs/address"
+              },
+              "deliverableHashes": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 100,
+                "items": {
+                  "$ref": "#/$defs/hex32"
+                },
+                "description": "keccak256 of the RFC 8785 JSON of each deliverable it may buy"
+              },
+              "acceptanceHash": {
+                "$ref": "#/$defs/hex32",
+                "description": "keccak256 of the RFC 8785 JSON of the acceptance: the checks, with no rubric"
+              }
+            }
+          }
+        }
+      }
+    },
+    "reads": {
+      "description": "Where the signer reads a deal's state, with no part played by the agent. A deal ends only when every one of these agrees",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operators",
+        "lagSec"
+      ],
+      "properties": {
+        "operators": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "pattern": "^https?://[A-Za-z0-9.:\\[\\]-]{1,253}(/[A-Za-z0-9._~/-]*)?$"
+          }
+        },
+        "lagSec": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400,
+          "description": "How long after a deal's fundBy, beyond clockSkewSec, the signer waits before it believes reads that say the deal was never funded: the time the read endpoints may lag the chain"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "address": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]{40}$",
+      "description": "lowercase, so each address has one spelling"
+    },
+    "hex32": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]{64}$"
+    },
+    "amount": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,30})$",
+      "description": "Base units as a decimal string"
+    },
+    "seconds": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 31536000
+    }
+  }
+}

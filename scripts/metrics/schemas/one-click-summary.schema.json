@@ -23,7 +23,34 @@
         "versionOne": { "$ref": "common.schema.json#/$defs/Count" }
       }
     },
-    "headline": {
+    "headline": { "$ref": "#/$defs/Headline", "description": "Records in the prompt permission mode only (a record without agent.permissions is one)." },
+    "sandboxAuto": {
+      "description": "The same four numbers from live records in the sandbox-auto permission mode (T-441). Absent from summaries written before T-441.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["live", "liveCompleted", "headline"],
+      "properties": {
+        "live": { "$ref": "common.schema.json#/$defs/Count" },
+        "liveCompleted": { "$ref": "common.schema.json#/$defs/Count" },
+        "headline": { "$ref": "#/$defs/Headline" }
+      }
+    },
+    "byScenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["s1", "s2", "s3", "s4", "s5", "s6"],
+      "properties": {
+        "s1": { "$ref": "#/$defs/Scenario" },
+        "s2": { "$ref": "#/$defs/Scenario" },
+        "s3": { "$ref": "#/$defs/Scenario" },
+        "s4": { "$ref": "#/$defs/Scenario" },
+        "s5": { "$ref": "#/$defs/Scenario" },
+        "s6": { "$ref": "#/$defs/Scenario" }
+      }
+    }
+  },
+  "$defs": {
+    "Headline": {
       "type": "object",
       "additionalProperties": false,
       "required": ["approvalsPerDeal", "tokensPerDeal", "timeWithoutUserMs", "costPerDealUsdMicros"],
@@ -55,21 +82,6 @@
         }
       }
     },
-    "byScenario": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["s1", "s2", "s3", "s4", "s5", "s6"],
-      "properties": {
-        "s1": { "$ref": "#/$defs/Scenario" },
-        "s2": { "$ref": "#/$defs/Scenario" },
-        "s3": { "$ref": "#/$defs/Scenario" },
-        "s4": { "$ref": "#/$defs/Scenario" },
-        "s5": { "$ref": "#/$defs/Scenario" },
-        "s6": { "$ref": "#/$defs/Scenario" }
-      }
-    }
-  },
-  "$defs": {
     "IntMetric": {
       "type": "object",
       "additionalProperties": false,
@@ -88,7 +100,8 @@
         "runId": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}Z-s[1-6]$" },
         "state": { "enum": ["Released", "Refunded", "stopped", "timedOut", "blocked"] },
         "success": { "type": "boolean" },
-        "blockedBy": { "type": ["string", "null"], "maxLength": 300 }
+        "blockedBy": { "type": ["string", "null"], "maxLength": 300 },
+        "permissions": { "enum": ["prompt", "sandbox-auto"], "description": "latestLive only: the run's permission mode (T-441)" }
       }
     },
     "Scenario": {

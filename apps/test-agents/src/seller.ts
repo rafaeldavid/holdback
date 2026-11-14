@@ -339,9 +339,10 @@ ${items}
     const explorer = this.o.pin.chain?.explorer;
     return json({
       id: d.n,
-      // The convention's three states, received, offered and failed; after the offer, the deal is followed on Crow.
-      // A seller that gave up before delivering reports failed, so nobody funds an offer it will not serve.
-      status: d.status === 'received' || (d.status === 'failed' && !d.deliveredAt) ? d.status : 'offered',
+      // The convention's states, received, offered and failed, then the deal's end: offered while it is open on Crow
+      // (delivered included), then released, refunded, expired or failed, so a buyer that keeps reading sees how it
+      // ended (T-445). A seller that gave up before delivering reports failed, so nobody funds an offer it will not serve.
+      status: d.status === 'delivered' ? 'offered' : d.status,
       deal: d.status,
       ...(d.commitmentId ? { commitmentId: d.commitmentId, seller: this.agent.address } : {}),
       ...(d.commitmentId ? { offer: d.offer ?? ITEM_ID } : {}),
@@ -636,21 +637,19 @@ ${items}
         return;
       }
       const work = workOf(this.offerOf(d), d.outcome ?? 'release');
-      if (work === null) {
-        // The silent offer never delivers. It follows the deal until the reclaim refunds it (the operators send the
-        // reclaim a minute or two after deliverBy), and closes it 10 minutes after deliverBy if no one has, as its
-        // retries would (advance()).
-        if (settlement >= Date.parse(d.terms.timing.deliverBy) + 10 * MIN) {
-          await this.save(d, { status: 'failed', detail: `the silent offer did not deliver, as offered; the buyer can reclaim its hold (POST /v1/commitments/${d.commitmentId}/triggers/reclaim)`, retry: undefined });
+      const deliverBy = Date.parse(d.terms.timing.deliverBy);
+      if (work === null || settlement >= deliverBy) {
+        // No delivery: the silent offer never delivers, and after deliverBy the contract refuses one. The seller follows
+        // the deal until the reclaim refunds it (the operators send the reclaim a minute or two after deliverBy, and the
+        // buyer may send it first), so its status ends refunded, as on Crow. It closes the deal 10 minutes after
+        // deliverBy if no one has, as its retries would (advance()).
+        if (settlement >= deliverBy + 10 * MIN) {
+          const why = work === null ? 'the silent offer did not deliver, as offered' : 'the seller did not deliver before deliverBy';
+          await this.save(d, { status: 'failed', detail: `${why}; the buyer can reclaim its hold (POST /v1/commitments/${d.commitmentId}/triggers/reclaim)`, retry: undefined });
+          this.log(`test-seller: deal ${d.n} missed deliverBy and no one reclaimed`);
           return;
         }
         if (d.retry) await this.save(d, { retry: undefined });
-        return;
-      }
-      if (settlement >= Date.parse(d.terms.timing.deliverBy)) {
-        // Too late to deliver: the contract refuses it, and the buyer can reclaim its hold.
-        await this.save(d, { status: 'failed', detail: `the seller did not deliver before deliverBy; the buyer can reclaim its hold (POST /v1/commitments/${d.commitmentId}/triggers/reclaim)`, retry: undefined });
-        this.log(`test-seller: deal ${d.n} missed deliverBy`);
         return;
       }
       // Every operator must show Held before the work leaves the seller.

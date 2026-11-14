@@ -2,21 +2,26 @@
 // drives it, from one sentence of goal and https://crow.direct/llms.txt to a deal with Crow's live test agents on
 // Sepolia. Rafa starts these runs: they spend his model key and Sepolia test funds.
 //
-// The fresh agent gets an empty folder, default permissions, no settings files, no MCP servers, a filtered environment
-// and, by default, Claude Code's OS sandbox (writes only in its folders, no reads of this user's folders, network only
-// to Crow's, npm's and Sepolia's hosts). The harness answers each permission request "allow" and counts it, except a
-// request that names this machine's user's files or logins, or reads the environment, which it denies and records. It
-// answers a question card with its "yes" option and, when the agent ends a turn with a question, replies "Yes, go ahead."
-// up to --max-replies times. Each of these counts as an approval.
+// The fresh agent gets an empty folder, no settings files, no MCP servers, a filtered environment and, by default,
+// Claude Code's OS sandbox (writes only in its folders, no reads of this user's folders, network only to Crow's, npm's
+// and Sepolia's hosts, and the agent key unset for every sandboxed command). The harness answers each permission request
+// "allow" and counts it. It answers a question card with its "yes" option and, when the agent ends a turn with a
+// question, replies "Yes, go ahead." up to --max-replies times. Each of these counts as an approval.
+//
+// Two permission modes (T-441). `prompt`, the default: Claude Code's default mode, every Bash command and file edit
+// asks. `sandbox-auto`: Bash runs without asking inside the OS sandbox and file edits are accepted, as an operator who
+// runs an unattended agent sets it up; only what still asks is counted. In both, a PreToolUse hook denies, on every
+// call, a request that names this machine's user's files or logins, reads the environment, or uses a file tool outside
+// the run's folders, and records it: a call that never prompts never reaches canUseTool.
 //
 // The model key: HOLDBACK_AGENT_ANTHROPIC_API_KEY, the agents' own key (tools/duet/README.md), never the judges'. It
 // reaches only the SDK's Claude Code process, as ANTHROPIC_API_KEY; it is never printed, and every string the harness
 // writes passes through scrubSecrets() first.
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { scrubSecrets } from './bench-record.mjs';
+import { PERMISSION_MODES, scrubSecrets } from './bench-record.mjs';
 import { ENV_KEEP, deniedRequest, summaryOf } from './metrics.mjs';
 import { readCalls, writeFetchProbe, writeShellProbes } from './probes.mjs';
 import { GUESS_RULE } from './scenarios.mjs';
@@ -43,10 +48,103 @@ const FILE_TOOLS = ['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Glob'
 /** True when a file tool names a path outside `roots` (absolute, real paths), or names none it can be checked by. */
 export function outsideRoots(tool, input, roots, cwd) {
   if (!FILE_TOOLS.includes(tool)) return false;
-  const p = input?.file_path ?? input?.notebook_path ?? input?.path ?? cwd;
-  if (typeof p !== 'string' || !p) return true;
-  const abs = resolve(cwd, p.replace(/^~(?=\/|$)/, process.env.HOME ?? '/nonexistent'));
-  return !roots.some((r) => abs === r || abs.startsWith(`${r}/`));
+  const paths = [input?.file_path ?? input?.notebook_path ?? input?.path ?? cwd];
+  // a Glob pattern that is itself a path (absolute or ~) names where it looks (T-441 review, finding 1)
+  if (tool === 'Glob' && typeof input?.pattern === 'string' && /^[~/]/.test(input.pattern)) paths.push(input.pattern.replace(/[*?[{].*$/, '') || '/');
+  const real = roots.map(realOf);
+  return paths.some((p) => {
+    if (typeof p !== 'string' || !p) return true;
+    const abs = realOf(resolve(cwd, p.replace(/^~(?=\/|$)/, process.env.HOME ?? '/nonexistent')));
+    return !real.some((r) => abs === r || abs.startsWith(`${r}/`));
+  });
+}
+// The real path, following symlinks through the nearest part that exists, so a link the agent made inside its folder
+// cannot point a file tool outside it (T-441 review, finding 1). Applied to the roots too.
+function realOf(abs) {
+  let head = abs;
+  const tail = [];
+  for (;;) {
+    try {
+      return join(realpathSync(head), ...tail.reverse());
+    } catch {
+      const up = dirname(head);
+      if (up === head) return abs;
+      tail.push(basename(head));
+      head = up;
+    }
+  }
+}
+
+/** True when the harness denies this request in any mode: this user's files or logins, the environment, or a file tool outside `roots`. */
+export const fenced = (tool, input, roots, cwd) => deniedRequest(tool, input) || readsEnv(tool, input) || outsideRoots(tool, input, roots, cwd);
+
+const DENIED = 'Not allowed: that names files or settings outside this task.';
+
+/**
+ * The PreToolUse hook that applies fenced() to every tool call. Claude Code runs it before its own permission check,
+ * so it holds for a call that would never prompt (T-441). Returns the SDK's hook output.
+ * @param {{ roots: string[], cwd: string, onDeny: (tool: string) => void }} o
+ */
+export function fenceHook({ roots, cwd, onDeny }) {
+  return async (h) => {
+    if (h?.hook_event_name !== 'PreToolUse') return {};
+    const tool = String(h.tool_name ?? '');
+    if (!fenced(tool, h.tool_input, roots, cwd)) return {};
+    onDeny(tool);
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: DENIED } };
+  };
+}
+
+export const PERMISSIONS = PERMISSION_MODES;
+const ALLOWED_DOMAINS = ['crow.direct', '*.crow.direct', 'registry.npmjs.org', 'rpc.sepolia.org', 'ethereum-sepolia-rpc.publicnode.com', 'sepolia.drpc.org', '*.sepolia.org', 'sepolia.etherscan.io', 'api-sepolia.etherscan.io', 'api.drand.sh', 'drand.cloudflare.com'];
+const HOME_DENY = ['Documents', 'Desktop', 'Downloads', 'Projects', '.zsh_history', '.bash_history', '.zshrc', '.zshenv', '.zprofile', '.bashrc', '.bash_profile', '.profile', '.node_repl_history', '.python_history', '.lesshst', '.local', '.cache', '.ssh', '.aws', '.config', '.claude', '.npmrc', '.netrc', '.gitconfig', '.git-credentials', '.wrangler', '.docker', '.kube', '.gnupg', 'Library/Keychains', 'Library/Preferences', 'Library/Application Support', 'crow-costs-private', 'crow-costs', 'crow-data'];
+
+/**
+ * The permission mode and the sandbox a run's Claude Code gets. Pure.
+ * @param {{ permissions: 'prompt'|'sandbox-auto', sandboxed: boolean, writable: string[], home: string }} o
+ */
+export function sessionOptions({ permissions, sandboxed, writable, home }) {
+  if (!PERMISSIONS.includes(permissions)) throw new Error(`permissions is one of ${PERMISSIONS.join(', ')}`);
+  if (permissions === 'sandbox-auto' && !sandboxed) throw new Error('sandbox-auto needs the OS sandbox: it is what makes running without a prompt safe');
+  const auto = permissions === 'sandbox-auto';
+  return {
+    permissionMode: auto ? 'acceptEdits' : 'default',
+    sandbox: sandboxed
+      ? {
+          enabled: true,
+          failIfUnavailable: true,
+          autoAllowBashIfSandboxed: auto,
+          allowUnsandboxedCommands: false,
+          filesystem: { allowWrite: writable, denyRead: HOME_DENY.map((d) => join(home, d)) },
+          network: { strictAllowlist: true, allowedDomains: ALLOWED_DOMAINS },
+          // the agent key, unset for every sandboxed command, whatever the command's text (T-441)
+          credentials: { envVars: [{ name: 'ANTHROPIC_API_KEY', mode: 'deny' }, { name: KEY_VAR, mode: 'deny' }] },
+        }
+      : undefined,
+  };
+}
+
+/**
+ * The options a live run passes to the SDK's query(). Pure, so a test can see the wiring (T-441 review, finding 2):
+ * the fence on every tool call (a PreToolUse entry with no matcher), the mode's permission mode and the sandbox.
+ */
+export function queryOptions({ cwd, permissions, sandboxed, writable, home, canUseTool, env, model, effort, fence, recordEffort, stderr }) {
+  const { permissionMode, sandbox } = sessionOptions({ permissions, sandboxed, writable, home });
+  return {
+    cwd,
+    permissionMode,
+    settingSources: [],
+    strictMcpConfig: true,
+    mcpServers: {},
+    systemPrompt: { type: 'preset', preset: 'claude_code' },
+    canUseTool,
+    env,
+    ...(sandbox ? { sandbox } : {}),
+    model,
+    effort,
+    hooks: { PreToolUse: [{ hooks: [fence, recordEffort] }], Stop: [{ hooks: [recordEffort] }] },
+    stderr,
+  };
 }
 
 function inputQueue() {
@@ -83,7 +181,7 @@ const asks = (s) => /\?\s*$/.test(s.trim()) || /\b(would you like|shall i|should
 
 /**
  * One live run. Returns the bookkeeping buildBenchRecord takes; the caller scrubs and writes the record.
- * @param {{ scenario: object, key: string, model: string, effort: string, maxReplies: number, timeoutMs: number, idleMs: number, sandboxed: boolean, logsDir: string|null, runId: string, note: (s: string) => void }} o
+ * @param {{ scenario: object, key: string, model: string, effort: string, permissions: 'prompt'|'sandbox-auto', maxReplies: number, timeoutMs: number, idleMs: number, sandboxed: boolean, logsDir: string|null, runId: string, note: (s: string) => void }} o
  */
 export async function runLive(o) {
   const { query } = await import('@anthropic-ai/claude-agent-sdk');
@@ -114,24 +212,13 @@ export async function runLive(o) {
   if (o.sandboxed) env.NODE_USE_ENV_PROXY = '1';
   const HOME = process.env.HOME ?? '/Users/unknown';
   const writable = [...new Set([workdir, realpathSync(workdir), probeDir, realpathSync(probeDir)])];
-  const sandbox = o.sandboxed
-    ? {
-        enabled: true,
-        failIfUnavailable: true,
-        autoAllowBashIfSandboxed: false,
-        allowUnsandboxedCommands: false,
-        filesystem: {
-          allowWrite: writable,
-          denyRead: ['Documents', 'Desktop', 'Downloads', 'Projects', '.zsh_history', '.bash_history', '.zshrc', '.zshenv', '.zprofile', '.bashrc', '.bash_profile', '.profile', '.node_repl_history', '.python_history', '.lesshst', '.local', '.cache', '.ssh', '.aws', '.config', '.claude', '.npmrc', '.netrc', '.gitconfig', '.git-credentials', '.wrangler', '.docker', '.kube', '.gnupg', 'Library/Keychains', 'Library/Preferences', 'Library/Application Support', 'crow-costs-private', 'crow-costs', 'crow-data'].map((d) => join(HOME, d)),
-        },
-        network: {
-          strictAllowlist: true,
-          allowedDomains: ['crow.direct', '*.crow.direct', 'registry.npmjs.org', 'rpc.sepolia.org', 'ethereum-sepolia-rpc.publicnode.com', 'sepolia.drpc.org', '*.sepolia.org', 'sepolia.etherscan.io', 'api-sepolia.etherscan.io', 'api.drand.sh', 'drand.cloudflare.com'],
-        },
-      }
-    : undefined;
 
   const book = { permissionRequests: [], questions: [], chatReplies: [], errors: [], timedOut: false, approvalWaitMs: 0 };
+  const deny = (toolName, by) => {
+    raw('denied', { tool: toolName, by });
+    book.errors.push(`denied a ${toolName} request that named a local path or read the environment`);
+    o.note(`denied: ${toolName}`);
+  };
   const said = []; // the assistant's own words only: the doc gaps come from these, never from a tool result
   const results = [];
   const effortSeen = new Set();
@@ -141,8 +228,8 @@ export async function runLive(o) {
 
   const canUseTool = async (toolName, toolInput, opts) => {
     const start = at();
-    raw('permission_request', { tool: toolName });
     if (toolName === 'AskUserQuestion') {
+      raw('question_card', { tool: toolName });
       const answers = {};
       for (const qq of toolInput.questions ?? []) {
         const opt = (qq.options ?? []).find((x) => /yes|run|approve|go|proceed|allow|continue/i.test(x.label)) ?? (qq.options ?? [])[0];
@@ -153,11 +240,12 @@ export async function runLive(o) {
       o.note('question card answered');
       return { behavior: 'allow', updatedInput: { ...toolInput, answers }, toolUseID: opts.toolUseID };
     }
-    if (deniedRequest(toolName, toolInput) || readsEnv(toolName, toolInput) || outsideRoots(toolName, toolInput, writable, workdir)) {
-      book.errors.push(`denied a ${toolName} request that named a local path or read the environment`);
-      o.note(`denied: ${toolName}`);
-      return { behavior: 'deny', message: 'Not allowed: that names files or settings outside this task.', toolUseID: opts.toolUseID };
+    // the hook below denies these first; this is the second line
+    if (fenced(toolName, toolInput, writable, workdir)) {
+      deny(toolName, 'canUseTool');
+      return { behavior: 'deny', message: DENIED, toolUseID: opts.toolUseID };
     }
+    raw('permission_request', { tool: toolName });
     book.permissionRequests.push({ atMs: start, tool: toolName, summary: summaryOf(toolName, toolInput) });
     book.approvalWaitMs += at() - start;
     o.note(`approval ${book.permissionRequests.length}: ${toolName}`);
@@ -167,25 +255,13 @@ export async function runLive(o) {
     if (typeof h?.effort?.level === 'string') effortSeen.add(h.effort.level);
     return {};
   };
+  // Runs on every tool call, whether or not Claude Code would ask: the fences hold in sandbox-auto too.
+  const fence = fenceHook({ roots: writable, cwd: workdir, onDeny: (tool) => deny(tool, 'hook') });
 
   const input = inputQueue();
   const q = query({
     prompt: input,
-    options: {
-      cwd: workdir,
-      permissionMode: 'default',
-      settingSources: [],
-      strictMcpConfig: true,
-      mcpServers: {},
-      systemPrompt: { type: 'preset', preset: 'claude_code' },
-      canUseTool,
-      env,
-      ...(sandbox ? { sandbox } : {}),
-      model: o.model,
-      effort: o.effort,
-      hooks: { PreToolUse: [{ hooks: [recordEffort] }], Stop: [{ hooks: [recordEffort] }] },
-      stderr: (d) => raw('stderr', { bytes: String(d).length }),
-    },
+    options: queryOptions({ cwd: workdir, permissions: o.permissions, sandboxed: o.sandboxed, writable, home: HOME, canUseTool, env, model: o.model, effort: o.effort, fence, recordEffort, stderr: (d) => raw('stderr', { bytes: String(d).length }) }),
   });
 
   let finished = false;
@@ -315,7 +391,7 @@ export async function runLive(o) {
     outcome,
     sources: sources.slice(0, 20),
     secrets,
-    agent: { requested: o.model, reported: init?.model ?? null, effortRequested: o.effort, effortApplied: levels.length === 1 ? levels[0] : null, claudeCodeVersion: init?.claude_code_version ?? null, sdkVersion },
+    agent: { permissions: o.permissions, requested: o.model, reported: init?.model ?? null, effortRequested: o.effort, effortApplied: levels.length === 1 ? levels[0] : null, claudeCodeVersion: init?.claude_code_version ?? null, sdkVersion },
     gaps: [
       ...(levels.length > 1 ? [`The hooks reported more than one effort: ${levels.join(', ')}.`] : levels.length ? [] : ['No hook reported the applied effort.']),
       `Claude Code reported its key source as ${String(init?.apiKeySource ?? 'unreported').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 20) || 'unreported'}; the run passes only ${KEY_VAR}, as ANTHROPIC_API_KEY.`,

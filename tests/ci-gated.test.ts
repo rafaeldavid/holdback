@@ -30,6 +30,9 @@ const EXEMPT: Record<string, string> = {
   // They measure; the contract and demo-world behaviour they rely on is gated by the anvil job's own suites.
   'tests/metrics/pitch-evidence-direct.test.ts': 'a measurement run by scripts/metrics/pitch-evidence.mjs direct, not a regression gate (T-425)',
   'tests/metrics/pitch-evidence-leak.test.ts': 'a measurement run by scripts/metrics/pitch-evidence.mjs leak, not a regression gate (T-425)',
+  // T-439's token-level attacks on the signer: TestUSDC refuses a reused or forged funding. Naming it in the anvil job is
+  // a change to .github/ (tier 3), which waits for Rafa's word; until then it runs locally, with Foundry, in `pnpm test`.
+  'examples/signer-anvil.test.ts': "the signer's token-level attack test (T-439); the anvil job's file list is tier 3, so it runs locally until Rafa adds it",
   // Gated on the platform, not on a tool: the cases run in the test shards, on Linux as a user who is not root.
   'packages/core/src/store/store.test.ts': 'gated on mkfifo and on not being root: both hold on the CI runners',
   // A wall-clock run at 10 MB, off unless HOLDBACK_PERF=1: tests do not assert on wall-clock time (docs/team.md).
