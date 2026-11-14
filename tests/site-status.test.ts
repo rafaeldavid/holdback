@@ -7,7 +7,7 @@ import site from '../apps/site/worker.js';
 // @ts-expect-error -- plain ESM module without type declarations
 import { checkOperator, OPERATORS, STATUS_PATH, statusResponse } from '../apps/site/status.js';
 // @ts-expect-error -- plain ESM module without type declarations
-import { parseSecurityTxt, securityTxt, SECURITY_CONTACT, STATUS_SOURCES, statusPage, trustPage } from '../site/trust.mjs';
+import { parseSecurityTxt, securityTxt, SECURITY_CONTACT, STATUS_SOURCES, statusJson, statusPage, trustPage, trustText } from '../site/trust.mjs';
 
 type Fetcher = { fetch(request: Request, env: unknown, ctx?: unknown): Promise<Response> };
 const discovery = (operatorId: string) => new Response(JSON.stringify({ operatorId, apiVersion: 'v1', domain: { chainId: 11155111 } }), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -72,15 +72,22 @@ describe('the trust surfaces (site/trust.mjs)', () => {
     expect(fields.get('Policy')).toEqual(['https://github.com/rafaeldavid/holdback/blob/main/SECURITY.md']);
     expect(() => parseSecurityTxt('Contact https://x\n')).toThrow(/not "Field: value"/);
   });
-  it('gives every claim on the trust page a footnote that resolves to a numbered source, and cites every source', () => {
+  it('makes the trust page an FAQ: every heading a question, every answer with a Source line of full links, the same questions in trust.txt', () => {
     const page = String(trustPage());
-    const claims = [...page.matchAll(/<p class="claim">([\s\S]*?)<\/p>/g)].map((m) => m[1]);
-    expect(claims.length).toBeGreaterThan(20);
-    for (const c of claims) expect(c).toMatch(/<sup class="fn"><a href="#src-\d+" id="ref-\d+-\d+">/);
-    const entries = [...page.matchAll(/<li id="(src-\d+)"><a href="https:\/\//g)].map((m) => m[1]);
-    const cited = new Set([...page.matchAll(/<a href="#(src-\d+)" id="ref-/g)].map((m) => m[1]));
-    expect(entries.length).toBeGreaterThan(20);
-    expect(new Set(entries)).toEqual(cited);
+    const qas = [...page.matchAll(/<section class="qa" id="[a-z0-9-]+">([\s\S]*?)<\/section>/g)].map((m) => m[1]!);
+    expect(qas.length).toBeGreaterThan(25);
+    for (const qa of qas) {
+      expect(qa).toMatch(/<h3>[^<]+\?<\/h3>/);
+      expect(qa).toMatch(/<p class="source">Source: <a href="https:\/\//);
+    }
+    const txt = String(trustText());
+    expect([...txt.matchAll(/^### /gm)].length).toBe(qas.length);
+  });
+  it('lists the status page\'s services in status.json, with their addresses and no live state', () => {
+    const json = JSON.parse(String(statusJson()));
+    expect(json.live).toBe(false);
+    expect(json.services.map((x: { id: string }) => x.id)).toEqual(['site', 'op1', 'op2', 'seller', 'network']);
+    for (const x of json.services) expect(x.address).toMatch(/^https:\/\//);
   });
   it('has the status page read its listed public sources only', () => {
     const script = /<script\b[^>]*>([\s\S]*?)<\/script\b[^>]*>/i.exec(statusPage())![1]!;

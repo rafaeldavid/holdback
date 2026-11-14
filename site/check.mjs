@@ -381,38 +381,56 @@ const shownText = (h) => {
   return t.replace(/&[a-z]+;|&#\d+;/g, ' ');
 };
 // Calming claims with no fact behind them yet, and words the pages replace (crow-private strategy/2026-11-14-crow-ontology.md):
-// "reviewer" on pages, not "adjudicator"; "your company", not "owner".
-const REFUSED = [/\bsecure(?:d|ly)?\b/i, /\baudited\b/i, /\bindependent(?:ly)?\b/i, /\bprivate deals?\b/i, /\bconfidential deals?\b/i, /no one can freeze/i, /\binsur(?:ance|ed|er)\b/i, /\barbitrat/i, /\bguarantee/i, /\bcompliant\b/i, /single point of failure/i, /\bpay by card\b/i, /\badjudicat/i, /\bowners?\b/i];
+// The pages are written for an agent reader and use the guides' words ("adjudicator", "principal", "hold"), glossed once;
+// "owner" stays for addresses and keys only, so the pages do not use it.
+const REFUSED = [/\bsecure(?:d|ly)?\b/i, /\baudited\b/i, /\bindependent(?:ly)?\b/i, /\bprivate deals?\b/i, /\bconfidential deals?\b/i, /no one can freeze/i, /\binsur(?:ance|ed|er)\b/i, /\barbitrat/i, /\bguarantee/i, /\bcompliant\b/i, /single point of failure/i, /\bpay by card\b/i, /\bowners?\b/i];
 for (const file of ['trust.html', 'status.html']) {
   if (!existsSync(here(file))) continue;
   const text = shownText(read(file));
   for (const w of REFUSED) for (const m of text.matchAll(new RegExp(w.source, 'gi'))) expect(false, `site/${file} says "${m[0]}": a refused word (crow-private strategy/2026-11-14-crow-ontology.md)`);
 }
-// Sources are footnotes (Rafa, 2026-11-14): every claim paragraph carries a superscript that links a numbered entry in
-// the Sources list at the foot of the page; every entry is cited and links back to each place that cites it.
-const footnoted = (file, h) => {
-  const claims = [...h.matchAll(/<p class="claim">([\s\S]*?)<\/p>/g)].map((m) => m[1]);
-  expect(claims.length > 0, `site/${file} states nothing as a claim paragraph`);
-  for (const c of claims) expect(/<sup class="fn"><a href="#src-\d+"/.test(c), `a claim on site/${file} cites no source: ${shownText(c).trim().slice(0, 80)}`);
-  expect(!/class="src"|Source: <a/.test(h), `site/${file} still puts source links inside the text: they belong in the Sources list`);
-  const entries = new Set([...h.matchAll(/<li id="(src-\d+)">/g)].map((m) => m[1]));
-  const cited = [...h.matchAll(/<a href="#(src-\d+)" id="(ref-[\d-]+)"/g)];
-  expect(entries.size > 0 && /<h2 id="sources">Sources<\/h2>/.test(h), `site/${file} has no Sources list`);
-  for (const [, target] of cited) expect(entries.has(target), `site/${file} cites #${target}, which no Sources entry has`);
-  for (const e of entries) expect(cited.some(([, t]) => t === e), `site/${file}'s Sources entry ${e} is cited nowhere`);
-  const refIds = new Set(cited.map(([, , id]) => id));
-  const backs = [...h.matchAll(/<a class="back" href="#(ref-[\d-]+)"/g)].map((m) => m[1]);
-  expect(backs.length === refIds.size && backs.every((b) => refIds.has(b)), `site/${file}'s back links do not match its citations one for one`);
+// The two pages are FAQs for an agent reader (Rafa, 2026-11-14): each heading is one question, each answer stands alone
+// and ends with a "Source:" line holding full links, and a list of the questions at the top links to each answer.
+const faq = (file, h) => {
+  const qas = [...h.matchAll(/<section class="qa" id="([a-z0-9-]+)">([\s\S]*?)<\/section>/g)].map((m) => ({ id: m[1], body: m[2] }));
+  expect(qas.length > 0, `site/${file} has no questions`);
+  for (const { id, body } of qas) {
+    const q = /<h3>([\s\S]*?)<\/h3>/.exec(body)?.[1] ?? '';
+    expect(/\?$/.test(shownText(q).trim()), `site/${file} #${id}: the heading is not a question: ${shownText(q).trim()}`);
+    expect(/<p class="source">Source: <a href="https:\/\//.test(body), `site/${file} #${id} has no Source line with a full link`);
+  }
+  const toc = /<nav class="toc"[^>]*>([\s\S]*?)<\/nav>/.exec(h)?.[1] ?? '';
+  const listed = [...toc.matchAll(/href="#([a-z0-9-]+)"/g)].map((m) => m[1]);
+  expect(listed.length === qas.length && qas.every((q) => listed.includes(q.id)), `site/${file}'s list of questions does not link each answer once`);
+  for (const [, hd] of h.matchAll(/<h[23][^>]*>([\s\S]*?)<\/h[23]>/g)) expect(!/,\s*and\b|, and what|, and who|, and how/i.test(shownText(hd)), `site/${file} has a paired heading ("X, and Y"): ${shownText(hd).trim()}`);
+  // The header carries the one call to action, Request early access, opening the early-access drawer (site/drawer.ts).
+  const header = /<header class="ck-bar">([\s\S]*?)<\/header>/.exec(h)?.[1] ?? '';
+  expect(/<a class="ck-btn[^"]*" href="[^"]*#join-form" data-join>Request early access<\/a>/.test(header) && h.includes('join-drawer'), `site/${file}'s header lacks the Request early access button that opens the early-access drawer`);
+  expect(!/<main[\s\S]*class="ck-btn"[\s\S]*<\/main>/.test(h), `site/${file} has a filled button in the page body: the call to action sits in the header`);
 };
 // The title and the lede wrap with no word alone on a line (Rafa, 2026-11-14): balanced, at a reading measure.
 expect(typeof trust.PAGES_CSS === 'string' && /\.doc \.ck-title \{[^}]*text-wrap: balance/.test(trust.PAGES_CSS) && /\.doc \.ck-lede \{[^}]*max-width: 65ch[^}]*text-wrap: balance/.test(trust.PAGES_CSS), 'site/pages.css does not balance the pages\' title and lede at a 65-character measure');
-if (existsSync(here('status.html'))) footnoted('status.html', read('status.html'));
+if (existsSync(here('status.html'))) faq('status.html', read('status.html'));
+// The same answers in plain text, and the status page's services as JSON, built from the same data (no drift).
+for (const [file, fn] of [['trust.txt', 'trustText'], ['status.json', 'statusJson']]) expect(typeof trust[fn] === 'function' && existsSync(here(file)) && read(file) === trust[fn]({ site: SITE_URL, base: BASE }), `site/${file} is not what site/build.mjs renders: run node site/build.mjs`);
+if (existsSync(here('trust.html')) && existsSync(here('trust.txt'))) {
+  const qsHtml = [...read('trust.html').matchAll(/<h3>([\s\S]*?)<\/h3>/g)].map((m) => shownText(m[1]).replace(/\s+/g, ' ').trim().replace(/[\u2018\u2019]/g, "'"));
+  const qsTxt = [...read('trust.txt').matchAll(/^### (.+)$/gm)].map((m) => m[1].trim());
+  expect(qsHtml.length > 0 && JSON.stringify(qsHtml) === JSON.stringify(qsTxt), 'site/trust.html and site/trust.txt do not list the same questions in the same order');
+  expect(read('trust.html').includes(`href="${BASE}trust.txt"`), 'site/trust.html does not link its plain-text copy');
+  for (const block of read('trust.txt').split(/^### /m).slice(1)) expect(/\nSource: .*https:\/\//.test(block), `site/trust.txt: "${block.split('\n')[0]}" has no Source line with a full link`);
+}
+if (existsSync(here('status.html')) && existsSync(here('status.json'))) {
+  const ids = [...read('status.html').matchAll(/data-check="([a-z0-9]+)"/g)].map((m) => m[1]);
+  let services = [];
+  try { services = JSON.parse(read('status.json')).services ?? []; } catch { expect(false, 'site/status.json does not parse'); }
+  expect(JSON.stringify(services.map((x) => x.id)) === JSON.stringify(ids) && services.every((x) => /^https:\/\//.test(x.address ?? '')), 'site/status.json does not list the status page\'s services, each with its full address');
+  expect(read('status.html').includes(`href="${BASE}status.json"`), 'site/status.html does not link its JSON copy');
+}
 if (existsSync(here('trust.html'))) {
   const t = read('trust.html');
-  footnoted('trust.html', t);
+  faq('trust.html', t);
   for (const w of ['Coming soon', 'outside audit', 'SOC 2', 'test network']) expect(shownText(t).includes(w), `site/trust.html no longer says "${w}": it states plainly what is not there yet`);
-  // The notice's call to action (Rafa, 2026-11-14): the kit's one filled button opens the early-access drawer (site/drawer.ts).
-  expect((t.match(/class="ck-btn"/g) ?? []).length === 1 && /<a class="ck-btn" href="[^"]*#join-form" data-join>Request early access<\/a>/.test(t) && t.includes('join-drawer'), 'site/trust.html lacks its one filled button, Request early access, opening the early-access drawer');
   const repo = 'https://github.com/rafaeldavid/holdback/';
   // A submodule counts when .gitmodules names it: a copy of the tracked files (tests/record-copies.test.ts) has no submodule folder.
   const submodules = [...read('../.gitmodules').matchAll(/^\s*path = (.+)$/gm)].map((m) => m[1].trim());
@@ -451,7 +469,7 @@ const secOk = (text, where) => {
 expect(typeof trust.securityTxt === 'function', 'site/trust.mjs exports no securityTxt()');
 if (typeof trust.securityTxt === 'function') secOk(trust.securityTxt(new Date()), 'security.txt as built today');
 if (existsSync(here('../reports/site-out/llms.txt'))) {
-  for (const f of ['trust.html', 'status.html', 'pages.css', 'security.txt']) expect(existsSync(here(`../reports/site-out/${f}`)), `reports/site-out/${f} is missing: build with --out again`);
+  for (const f of ['trust.html', 'trust.txt', 'status.html', 'status.json', 'pages.css', 'security.txt']) expect(existsSync(here(`../reports/site-out/${f}`)), `reports/site-out/${f} is missing: build with --out again`);
   if (existsSync(here('../reports/site-out/security.txt'))) secOk(read('../reports/site-out/security.txt'), 'reports/site-out/security.txt');
 }
 expect(typeof trust.SECURITY_CONTACT === 'string' && read('../SECURITY.md').includes(trust.SECURITY_CONTACT) && read('../SECURITY.md').includes(`${SITE_URL}.well-known/security.txt`), 'SECURITY.md does not name the contact that security.txt names, or does not point to security.txt');
