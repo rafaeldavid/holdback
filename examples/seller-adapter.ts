@@ -49,7 +49,7 @@
 // signs under the settlement layer those operators serve, which must be one pinned in verify.ts: SimChain, Sepolia,
 // or the deployment in HOLDBACK_DEPLOYMENT. Your API prices in that layer's token: `tUSD` on SimChain, the token's
 // address on a chain (discovery, `demo.token.id`). Test tokens only: nothing here is real money.
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -144,6 +144,14 @@ export interface SellerAdapterConfig {
    */
   reportMapping?: string;
   /**
+   * Adds a top-level `salt` of 32 random bytes (`0x` and 64 hex digits) to each JSON report, after the mapping and
+   * before the checks run (T-431). A delivery's SHA-256 is public, so anyone who can guess a report could confirm the
+   * guess from it; the salt stops that, and two deliveries of the same report no longer look equal. The adapter draws
+   * one salt a deal and keeps it in the journal, so a retried delivery carries the same bytes. Your template's checks
+   * must allow the field, as the shipped template's do. On with the shipped template; with your own, off unless set.
+   */
+  reportSalt?: boolean;
+  /**
    * How the adapter tells you it refused a result (T-329). Each alert is an `ALERT` line in the log and, when
    * `callback` is set, a POST of a JSON body to that address: the deal, `deliverBy`, and each check that failed or
    * could not be decided, with why. `secretEnv` names an environment variable that holds a secret; the adapter then
@@ -209,6 +217,7 @@ export const config: SellerAdapterConfig = {
     result: 'http://127.0.0.1:8790/jobs/{jobId}/result',
   },
   template: fileURLToPath(new URL('./seller-adapter.template.json', import.meta.url)),
+  reportSalt: true, // the shipped template allows a top-level `salt`
   scope: {
     commit: { type: 'string', pattern: '^[0-9a-f]{40}$' },
     files: { type: 'strings', pattern: '^[A-Za-z0-9_./-]{1,200}$', min: 1, max: 50 },
@@ -242,7 +251,7 @@ export const config: SellerAdapterConfig = {
 // ---- End of the defaults. ----
 
 /** The fields a configuration file may set: every field of the configuration but `log`. */
-const FILE_KEYS = ['port', 'sellerApi', 'template', 'reportMapping', 'scope', 'options', 'termsRules', 'payoutAddress', 'clubId', 'adjudicators', 'mandate', 'events', 'timing', 'journal', 'pollMs', 'quoteAuth', 'quoteRateLimit', 'alerts', 'redelivery'];
+const FILE_KEYS = ['port', 'sellerApi', 'template', 'reportMapping', 'reportSalt', 'scope', 'options', 'termsRules', 'payoutAddress', 'clubId', 'adjudicators', 'mandate', 'events', 'timing', 'journal', 'pollMs', 'quoteAuth', 'quoteRateLimit', 'alerts', 'redelivery'];
 /** Options removed in T-331, each with what to do instead. A configuration that still sets one is refused. */
 const REMOVED: Array<[string, (c: J) => boolean, string]> = [
   ['stream', (c) => c?.stream !== undefined, 'the adapter learns of a funded hold by polling every pollMs; remove the field'],
@@ -310,6 +319,7 @@ export function loadConfig(file: string): SellerAdapterConfig {
   if (f.pollMs !== undefined && !wholeAtLeast(f.pollMs, 1)) throw new Error(`${file}: pollMs must be a positive whole number of milliseconds`);
   if (f.journal !== undefined && (typeof f.journal !== 'string' || f.journal === '')) throw new Error(`${file}: journal must be a file path`);
   if (f.events !== undefined && (typeof f.events !== 'string' || f.events === '')) throw new Error(`${file}: events must be a file path`);
+  if (f.reportSalt !== undefined && typeof f.reportSalt !== 'boolean') throw new Error(`${file}: reportSalt must be true or false`);
   if (own && Array.isArray(f.termsRules) && f.termsRules.some((r: J) => r?.rubric === true)) {
     // A rule that adds the optional rubric needs a template that holds one: refuse the file, not a buyer's quote.
     let t: J;
@@ -327,6 +337,8 @@ export function loadConfig(file: string): SellerAdapterConfig {
     sellerApi: { ...(api.baseUrl === undefined ? {} : { baseUrl: api.baseUrl }), ...(api.auth === undefined ? {} : { auth: api.auth }), quote: api.quote, start: api.start, result: api.result },
     template: own ? beside(f.template, 'template') : config.template,
     ...(f.reportMapping === undefined ? {} : { reportMapping: beside(f.reportMapping, 'reportMapping') }),
+    // The salt belongs to a template that allows it: the shipped one, or yours when you say so.
+    ...((f.reportSalt ?? (own ? undefined : config.reportSalt)) === undefined ? {} : { reportSalt: f.reportSalt ?? config.reportSalt }),
     scope: f.scope ?? config.scope,
     ...(own ? { ...pass('options'), ...pass('termsRules') } : { options: f.options ?? config.options, termsRules: f.termsRules ?? config.termsRules }),
     timing: { ...config.timing, ...(f.timing ?? {}) },
@@ -336,6 +348,35 @@ export function loadConfig(file: string): SellerAdapterConfig {
     redelivery: f.redelivery ?? config.redelivery,
     ...pass('payoutAddress'), ...pass('clubId'), ...pass('adjudicators'), ...pass('mandate'), ...pass('quoteAuth'), ...pass('quoteRateLimit'), ...pass('alerts'),
   } as SellerAdapterConfig;
+}
+
+/** A report the salt cannot go into: not a JSON object, or one that already has a top-level `salt`. */
+export class SaltNotAdded extends Error {}
+/**
+ * Puts `"salt": "<salt>"` first in a JSON object's text (T-431). Every other byte stays as it was, so numbers, key
+ * order and spacing are the report's own. Refuses a report that is not a JSON object in UTF-8, or already has a `salt`.
+ */
+export function addSalt(report: Uint8Array, salt: string): Uint8Array {
+  let text: string;
+  let value: J;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(report);
+  } catch {
+    throw new SaltNotAdded('the report is not UTF-8 text');
+  }
+  try {
+    value = JSON.parse(text);
+  } catch {
+    throw new SaltNotAdded('the report is not JSON');
+  }
+  if (!isRecord(value)) throw new SaltNotAdded('the report is not a JSON object');
+  if (Object.hasOwn(value, 'salt')) throw new SaltNotAdded('the report already has a top-level salt');
+  const open = text.indexOf('{') + 1;
+  const rest = text.slice(open);
+  const lead = /^\s*/.exec(rest)![0];
+  const field = `"salt": ${JSON.stringify(salt)}`;
+  const salted = rest.slice(lead.length).startsWith('}') ? `${text.slice(0, open)}${field}${rest}` : `${text.slice(0, open)}${lead}${field},${rest}`;
+  return new TextEncoder().encode(salted);
 }
 
 export type Stage = 'offered' | 'starting' | 'start-unknown' | 'started' | 'refused' | 'delivering' | 'delivered' | 'closed';
@@ -356,6 +397,8 @@ export interface Deal {
   note?: string;
   /** Distinct results refused so far (T-329). */
   refusals?: number;
+  /** The salt this deal's report carries (T-431), drawn once so a retried delivery sends the same bytes. */
+  salt?: string;
   /** SHA-256 of the last refused result's bytes, hex: the same bytes again raise no second alert. */
   refusedSha256?: string;
   /** When to fetch the result again, in settlement-layer time; absent when only the seller's "ready" fetches it. */
@@ -789,6 +832,9 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     timing: c.timing, ...(template.fee === undefined ? {} : { fee: template.fee }), scope: c.scope, options: c.options ?? {},
   });
   const reportMapping = c.reportMapping === undefined ? undefined : loadReportMapping(c.reportMapping);
+  if (c.reportSalt === true && template.deliverable?.format !== 'application/json') {
+    throw new Error(`reportSalt adds a field to a JSON report, and the template's deliverable is ${plain(String(template.deliverable?.format)).slice(0, 60)}: set reportSalt to false`);
+  }
   const log = (line: string) => (c.log ?? console.log)(`${new Date().toISOString()} ${line}`);
   const journal: Journal = existsSync(c.journal) ? JSON.parse(readFileSync(c.journal, 'utf8')) : { deals: {}, quotes: {} };
   /** Writes the journal whole, then renames it into place: a crash leaves the old file or the new one. */
@@ -1141,6 +1187,21 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
         } catch (e) {
           if (!(e instanceof ReportNotConverted)) throw e;
           return refuse(deal, now, resultSha256, { result: 'not_converted', conversion: e.message, checks: [] }, `the report mapping cannot convert it: ${e.message}`);
+        }
+      }
+      if (c.reportSalt === true) {
+        // The salt (T-431): one a deal, kept before it is used, so every retry delivers the same bytes.
+        if (deal.salt === undefined) {
+          deal.salt = `0x${randomBytes(32).toString('hex')}`;
+          save();
+        }
+        try {
+          const before = bytes.length;
+          bytes = addSalt(bytes, deal.salt);
+          log(`${id} added the report's salt: ${before} bytes to ${bytes.length} bytes.`);
+        } catch (e) {
+          if (!(e instanceof SaltNotAdded)) throw e;
+          return refuse(deal, now, resultSha256, { result: 'not_salted', salt: e.message, checks: [] }, `the salt cannot be added: ${e.message}`);
         }
       }
       // The adjudicator's intake rules and stage 1, on the exact bytes that would be delivered (T-316).

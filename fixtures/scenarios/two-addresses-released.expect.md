@@ -15,7 +15,7 @@ T-358, ADR-0033. Atlas signs with one key and pays from another address, its tre
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0xd9bc…492d |
 | Buyer | atlas-buyer 0xcF8c…1ffb |
 | Seller | tidewater-seller 0xb582…D3A3 |
-| Terms | fixtures/terms/audit-report.yaml (loaded) · commitment 0xeea0…e01f · price 1,500.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/audit-report.yaml (loaded) · commitment 0xad9d…1193 · price 1,500.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xfEcA…a5e2 · fallback bench-b 0xfe73…EAA7 · appeal bench-c 0x5c30…Ca68 |
 | Operators | op-1 · op-2 |
 
@@ -53,7 +53,7 @@ T-358, ADR-0033. Atlas signs with one key and pays from another address, its tre
 
 ## Receipts and log
 
-- Events 0–8. Chain head 0xf292…1902. Replay of 6 SimChain submissions from genesis matches the settlement state.
+- Events 0–8. Chain head 0x646e…c83d. Replay of 6 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). The runner labels them without signing; the operator API signs real receipts.
 
 ## Invariants

@@ -1,7 +1,7 @@
 // The seller adapter (T-318) against the stub seller API, on SimChain: a quote becomes a signed offer, a
 // funded hold starts one job, and a result is delivered only after the seller's own preflight passes.
 import { spawn, spawnSync } from 'node:child_process';
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer as createHttpsServer, request as httpsRequest } from 'node:https';
 import { createServer as createHttpServer, request as httpRequest } from 'node:http';
@@ -16,7 +16,7 @@ import { startSimWorld, type SimWorld } from '@holdback/operator';
 import { loadTermsFile } from '@holdback/testkit';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Agent } from './agent.ts';
-import { config as shipped, loadConfig, startSellerAdapter, type RunningAdapter, type SellerAdapterConfig } from './seller-adapter.ts';
+import { addSalt, config as shipped, loadConfig, SaltNotAdded, startSellerAdapter, type RunningAdapter, type SellerAdapterConfig } from './seller-adapter.ts';
 import { startStubSellerApi, type StubSellerApi, type StubOptions } from './seller-adapter-stub.ts';
 import { serveTwoOrigins } from './two-origins.ts';
 import { commitmentIdOf, knownPins, typedOf } from './verify.ts';
@@ -24,6 +24,8 @@ import { commitmentIdOf, knownPins, typedOf } from './verify.ts';
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 const here = (f: string) => fileURLToPath(new URL(f, import.meta.url));
 const SAMPLE = JSON.parse(readFileSync(here('../fixtures/data/audit-report/report.json'), 'utf8'));
+/** The salt the shipped template's deliveries carry (T-431): 32 random bytes, in hex. */
+const SALT = expect.stringMatching(/^0x[0-9a-f]{64}$/);
 /** The sample deal's scope. The stub prices 3,000 lines at 2,000.00 tUSD and quotes 4 days. */
 const SCOPE = { commit: SAMPLE.commit as string, files: SAMPLE.filesReviewed as string[], lines: 3000 };
 const FOUR_DAYS_SEC = 4 * 86_400;
@@ -543,8 +545,11 @@ describe('seller adapter: funded hold to delivery', () => {
     const done = await buyer.waitFor(id, ['Released', 'Refunded', 'Escalated']);
     expect(done.escrowState).toBe('Released');
     // The stub's report is the sample with a summary that counts the job's own files.
-    expect(JSON.parse(await buyer.openDelivery(id))).toEqual({ ...SAMPLE, summary: 'The review covered 3 files at the commit above and reports 3 findings.' });
+    const opened = JSON.parse(await buyer.openDelivery(id));
+    expect(opened).toEqual({ salt: SALT, ...SAMPLE, summary: 'The review covered 3 files at the commit above and reports 3 findings.' });
     await until('the journal to record the delivery', () => stageOf(running, id) === 'delivered');
+    // The salt is the one the journal keeps for this deal, so a retry would deliver the same bytes (T-431).
+    expect(running.deals().find((d) => d.id === id)!.salt).toBe(opened.salt);
     expect(stub!.calls.start).toBe(1);
     expect(await events(buyer, id, 'delivery.submitted')).toHaveLength(1);
     expect(lines.join('\n')).toMatch(/preflight: accept/);
@@ -589,7 +594,7 @@ describe('seller adapter: a report in the seller\'s own shape (T-323)', () => {
     const id = q.commitmentId as Hex;
     await fund(buyer, id);
     expect((await buyer.waitFor(id, ['Released', 'Refunded', 'Escalated'])).escrowState).toBe('Released');
-    expect(JSON.parse(await buyer.openDelivery(id))).toEqual({ ...SAMPLE, summary: STUB_SUMMARY });
+    expect(JSON.parse(await buyer.openDelivery(id))).toEqual({ salt: SALT, ...SAMPLE, summary: STUB_SUMMARY });
     await until('the journal to record the delivery', () => stageOf(running, id) === 'delivered');
     expect(lines.join('\n')).toMatch(/converted the result with the report mapping: [0-9]+ bytes to [0-9]+ bytes/);
     expect(lines.join('\n')).toMatch(/preflight: accept/);
@@ -967,7 +972,7 @@ describe('seller adapter: a refused report waits for the fixed one (T-329)', () 
     const r = await ready(running, id, 'ready-one');
     expect(r.status).toBe(202);
     expect((await buyer.waitFor(id, ['Released', 'Refunded', 'Escalated'])).escrowState).toBe('Released');
-    expect(JSON.parse(await buyer.openDelivery(id))).toEqual(GOOD_REPORT);
+    expect(JSON.parse(await buyer.openDelivery(id))).toEqual({ salt: SALT, ...GOOD_REPORT });
     await until('the journal to record the delivery', () => stageOf(running, id) === 'delivered');
     await until('the fixed-report alert', () => hook.of('delivery.fixed').length === 1);
     expect(hook.of('delivery.fixed')[0]!.body).toMatchObject({ commitmentId: id, attempt: 2 });
@@ -988,7 +993,7 @@ describe('seller adapter: a refused report waits for the fixed one (T-329)', () 
     await until('the adapter to refuse the result', () => stageOf(running, id) === 'refused');
     stub!.setReport('ok');
     expect((await buyer.waitFor(id, ['Released', 'Refunded', 'Escalated'])).escrowState).toBe('Released');
-    expect(JSON.parse(await buyer.openDelivery(id))).toEqual(GOOD_REPORT);
+    expect(JSON.parse(await buyer.openDelivery(id))).toEqual({ salt: SALT, ...GOOD_REPORT });
     expect(await events(buyer, id, 'delivery.submitted')).toHaveLength(1);
   }, 45_000);
 
@@ -1193,4 +1198,78 @@ describe('seal.ts', () => {
       await served.close();
     }
   });
+});
+
+describe('seller adapter: the report salt (T-431)', () => {
+  const SALT_HEX = `0x${'ab'.repeat(32)}`;
+  const bytes = (t: string) => new TextEncoder().encode(t);
+  const text = (b: Uint8Array) => new TextDecoder().decode(b);
+  const sha = (t: string) => createHash('sha256').update(t, 'utf8').digest('hex');
+
+  it('puts the salt first and keeps every other byte of the report as it was', () => {
+    const pretty = '{\n  "commit": "x",\n  "n": 12345678901234567890,\n  "f": 1.0\n}\n';
+    expect(text(addSalt(bytes(pretty), SALT_HEX))).toBe(`{\n  "salt": "${SALT_HEX}",\n  "commit": "x",\n  "n": 12345678901234567890,\n  "f": 1.0\n}\n`);
+    expect(text(addSalt(bytes('{"a":1}'), SALT_HEX))).toBe(`{"salt": "${SALT_HEX}","a":1}`);
+    expect(text(addSalt(bytes(' { } '), SALT_HEX))).toBe(` {"salt": "${SALT_HEX}" } `);
+    expect(JSON.parse(text(addSalt(bytes(' { } '), SALT_HEX)))).toEqual({ salt: SALT_HEX });
+  });
+
+  it('refuses a report that is not a JSON object in UTF-8, or already has a salt', () => {
+    expect(() => addSalt(bytes('[1, 2]'), SALT_HEX)).toThrow(new SaltNotAdded('the report is not a JSON object'));
+    expect(() => addSalt(bytes('commit,files'), SALT_HEX)).toThrow(new SaltNotAdded('the report is not JSON'));
+    expect(() => addSalt(new Uint8Array([0x7b, 0xff, 0x7d]), SALT_HEX)).toThrow(new SaltNotAdded('the report is not UTF-8 text'));
+    expect(() => addSalt(bytes('{"salt": "mine"}'), SALT_HEX)).toThrow(new SaltNotAdded('the report already has a top-level salt'));
+  });
+
+  it('two deliveries of the same report carry different fingerprints, and neither is the unsalted report\'s', async () => {
+    const { running } = await adapter();
+    const opened: string[] = [];
+    for (const label of ['buyer-1', 'buyer-2']) {
+      const buyer = agent(label);
+      const { body: q } = await quoteFor(running, buyer);
+      const id = q.commitmentId as Hex;
+      await fund(buyer, id);
+      expect((await buyer.waitFor(id, ['Released', 'Refunded', 'Escalated'])).escrowState).toBe('Released');
+      opened.push(await buyer.openDelivery(id)); // the buyer checks these bytes against the delivery's public SHA-256
+    }
+    const unsalted = opened.map((o) => o.replace(/^\{\s*"salt": "0x[0-9a-f]{64}",/, '{'));
+    expect(unsalted[0]).toBe(unsalted[1]); // the same report
+    expect(sha(opened[0]!)).not.toBe(sha(opened[1]!)); // two fingerprints
+    // A stranger who rebuilds the report exactly still cannot confirm it: its SHA-256 matches neither delivery.
+    expect([sha(opened[0]!), sha(opened[1]!)]).not.toContain(sha(unsalted[0]!));
+  }, 60_000);
+
+  it('adds no salt with a template of your own unless the configuration says so', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 't431-'));
+    const template = JSON.parse(readFileSync(here('./seller-adapter.template.json'), 'utf8'));
+    writeFileSync(join(dir, 'template.json'), JSON.stringify(template));
+    const file = (extra: J) => {
+      const f = join(dir, `config-${Math.random().toString(36).slice(2)}.json`);
+      writeFileSync(f, JSON.stringify({ sellerApi: stub?.api ?? { quote: 'http://127.0.0.1:1/q', start: 'http://127.0.0.1:1/s', result: 'http://127.0.0.1:1/r/{jobId}' }, ...extra }));
+      return f;
+    };
+    expect(loadConfig(file({})).reportSalt).toBe(true); // the shipped template
+    expect(loadConfig(file({ template: 'template.json', scope: shipped.scope })).reportSalt).toBeUndefined();
+    expect(loadConfig(file({ template: 'template.json', scope: shipped.scope, reportSalt: true })).reportSalt).toBe(true);
+    expect(loadConfig(file({ reportSalt: false })).reportSalt).toBe(false);
+    expect(() => loadConfig(file({ reportSalt: 'yes' }))).toThrow('reportSalt must be true or false');
+
+    const { running } = await adapter({ reportSalt: false });
+    const buyer = agent('buyer-1');
+    const { body: q } = await quoteFor(running, buyer);
+    const id = q.commitmentId as Hex;
+    await fund(buyer, id);
+    expect((await buyer.waitFor(id, ['Released', 'Refunded', 'Escalated'])).escrowState).toBe('Released');
+    expect(JSON.parse(await buyer.openDelivery(id)).salt).toBeUndefined();
+  }, 60_000);
+
+  it('refuses to start with the salt on and a deliverable that is not JSON', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 't431-'));
+    const template = JSON.parse(readFileSync(here('./seller-adapter.template.json'), 'utf8'));
+    template.deliverable.format = 'text/markdown';
+    template.checks = [];
+    delete template.optionalRubric;
+    writeFileSync(join(dir, 'template.json'), JSON.stringify(template));
+    await expect(adapter({ template: join(dir, 'template.json'), termsRules: [], options: {}, reportSalt: true })).rejects.toThrow(/reportSalt adds a field to a JSON report, and the template's deliverable is text\/markdown/);
+  }, 30_000);
 });

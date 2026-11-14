@@ -295,7 +295,8 @@ export async function startSeller(o: { operators: string[]; report: 'ok' | 'miss
       ? { offerExpiresInSec: w.offerExpiresInSec, fundWithinSec: w.fundWithinSec, deliverWithinSec: w.deliverWithinSec, judgeWithinSec: w.judgeWithinSec, fallbackWithinSec: w.fallbackWithinSec, appealWindowSec: w.appealWindowSec, appealDecideSec: w.appealDecideSec }
       : adapterConfig.timing;
     const adapter = await startSellerAdapter(
-      { ...adapterConfig, port: 0, sellerApi, template, timing, clubId, adjudicators, journal: o.journal, pollMs: o.pollMs ?? 1000, ...(o.log ? { log: o.log } : {}) },
+      // The salt goes with the shipped template, as in the adapter itself: a seller's own terms run without one (T-431).
+      { ...adapterConfig, port: 0, sellerApi, template, ...(t ? { reportSalt: false } : {}), timing, clubId, adjudicators, journal: o.journal, pollMs: o.pollMs ?? 1000, ...(o.log ? { log: o.log } : {}) },
       { HOLDBACK_KEY: sellerKey, HOLDBACK_OPERATORS: o.operators.join(',') },
     );
     closers.push(() => adapter.close());

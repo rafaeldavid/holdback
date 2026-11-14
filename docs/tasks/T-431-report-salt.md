@@ -1,0 +1,58 @@
+# T-431: a salt in the audit report
+
+- **Lane:** demo (the seller adapter and its audit template)
+- **Phase:** 2
+- **Depends on:** T-416 (the privacy baseline, PR 503), T-408 (the one-shot start)
+- **Paths this task may touch:** `examples/seller-adapter.ts`, `examples/seller-adapter.template.json`, `examples/seller-adapter.test.ts`, `examples/audit-deal.ts`, `examples/audit-deal.test.ts`, `fixtures/terms/audit-report*.yaml`, `fixtures/scenarios/audit-report-*.expect.md`, `fixtures/scenarios/two-addresses-released.expect.md`, `fixtures/recordings/audit-report-rubric-accepted/`, `spec/examples/commitment.audit-report.example.json`, `site/ref/seller-adapter.txt`, `site/ref/checks.txt`, `site/ref/limits.txt`, this file
+- **Human gate:** no
+- **Status:** review
+- **Agent/session:** T-399 session (roadmap row N128, Rafa 2026-11-14: "Yes build both")
+
+## Intent
+
+A delivery's SHA-256 (`plaintextSha256`) is public at every disclosure level, and the delivery's calldata carries its keccak256. Anyone who can guess a report can confirm the guess. The privacy baseline rebuilt 5 of 6 rehearsal reports exactly from the public sample report and each deal's public scope (measured, `docs/privacy-baseline.md`, finding 3). Equal reports also show as equal.
+
+The baseline's smallest change: the public audit template's `report` check allows an optional top-level `salt` of 32 random bytes; the seller adapter fills it; the buyer's tools accept it. Non-goals: a spec change that hashes a salt carried in the content envelope (kind 6, later), any change to the operators, the contracts or the buyer's signer.
+
+## Acceptance criteria
+
+- [x] The shipped template (`examples/seller-adapter.template.json`) and its YAML copies allow `salt`, a string `0x` plus 64 lower-case hex digits, and the description says a report may add one.
+- [x] With the shipped template the adapter adds `"salt": "0x…"` first in each JSON report, after the mapping and before the checks run; every other byte stays as it was.
+- [x] The adapter draws one salt a deal and keeps it in the journal (`Deal.salt`) before it uses it, so a retried delivery sends the same bytes.
+- [x] With a template of the seller's own the salt is off unless `reportSalt: true`; `reportSalt: false` turns it off with the shipped template; any other value is refused at load. The start refuses `reportSalt: true` with a deliverable that is not `application/json`.
+- [x] A report that is not a JSON object in UTF-8, or already has a top-level `salt`, is refused like any other result the adapter cannot deliver (`not_salted`), and the seller is told.
+- [x] Done when (N128): two deliveries of the same report have different public fingerprints, and the SHA-256 of the exactly rebuilt report matches neither.
+- [x] The buyer's tools accept a salted report with no change: the buyer's signer checks the opened bytes against the signed `plaintextSha256`, and the checks allow the field.
+
+## Out of scope
+
+- The salt inside the content envelope, hashed with the plaintext (a spec change, kind 6).
+- The kit's terms for design partner A: their `report` check sets no `additionalProperties: false` at the top, so a salt passes there too; turning it on in the kit's config is the kit's own change (crow-private).
+- A fresh seller key per deal (N127, T-432).
+
+## Evidence
+
+- Commands run and results (measured, 2026-11-14, worktree `.worktrees/t-431-report-salt` from `main` e48e694):
+  - `pnpm typecheck`: pass. `pnpm lint`: pass. `pnpm validate:spec`: 35/35 examples valid.
+  - `npx vitest run examples/seller-adapter.test.ts -t "report salt"`: 5 passed:
+    - the byte-exact insert (pretty, compact and empty objects; a 20-digit integer and `1.0` kept as written);
+    - the refusals (not an object, not JSON, not UTF-8, salt already there);
+    - two deals of the same report: the reports equal once the salt is taken out, the two SHA-256 values differ, and the rebuilt report's SHA-256 matches neither;
+    - the configuration rules;
+    - the start refused for a `text/markdown` deliverable.
+  - `npx vitest run examples/seller-adapter.test.ts examples/audit-deal.test.ts`: 73 passed. Six existing tests now expect the salt first in the delivered report and the rest unchanged; the first one also checks the salt equals the journal's.
+  - `pnpm snap`: 48 passed, 0 failed, after `--update` of five snapshots. Only each snapshot's commitment ID changed, since the terms changed. In `audit-report-rubric-accepted` the new commitment ID draws another panel (qwen-a, gpt-a, gpt-b instead of gpt-b, gpt-a, claude-b). Its scripted verdicts were re-recorded with `pnpm snap --judges fake --record --update`: all pass, scores 4/4/4/4/4 as before. The unused `claude-b.json` recording is removed.
+  - `node site/build.mjs && node site/check.mjs`: PASS; buyer's first-deal path 4,547 of 5,000 tokens, seller's 4,160 of 5,000 (estimates).
+  - `pnpm test`: see the PR.
+- Snapshot diffs: commitment IDs only, plus the rubric scenario's panel as above.
+
+## Decisions
+
+- **Put first, by text.** The adapter inserts the field after the opening `{` instead of parsing and re-serialising, so a report's numbers (a 20-digit integer, `1.0`), key order and spacing reach the buyer as the seller's API wrote them.
+- **One salt a deal, in the journal.** It is drawn and saved before the first use, so a restart or a redelivery after a refusal sends the same salt.
+- **On with the shipped template, off with a seller's own.** A seller's own template may refuse unknown fields (`additionalProperties: false`), and a salt it never allowed would refuse every report. This is the rule `options` and `termsRules` already follow. `pnpm audit-deal --terms <file>` follows it too.
+- **The salt stays out of the events file and the log.** The log says only that it was added and the sizes before and after.
+
+## Handoff
+
+Done: the template, the adapter option, the tests, the guide lines (`ref/seller-adapter.txt`, `ref/checks.txt`, `ref/limits.txt`). Not done: a site deploy (Rafa's), so crow.direct serves the guides from before this change. The live test seller (T-420) runs its own template and is unchanged. The kit for design partner A can set `reportSalt: true` (its export's top level allows extra fields); that is a crow-private change.
