@@ -169,6 +169,37 @@ describe('seller adapter, a job API of another shape (T-366): deals', () => {
     expect(await deliveries(buyer, id)).toHaveLength(1);
   }, 30_000);
 
+  it('a start the API cannot repeat safely is sent once; a lost answer holds the deal until a person names the job (T-408)', async () => {
+    stub = await startJobStub({ key: KEY, failFirstStart: true, readsUntilComplete: 0 });
+    const api = jobStubSellerApi(stub.base);
+    const ready = 'ready-credential-t408';
+    const file = configFile(stub.base, { sellerApi: { ...api, start: { ...api.start, repeatable: false } }, redelivery: { refetchEverySec: 0, readyAuth: { kind: 'bearer', env: 'HOLDBACK_READY_CREDENTIALS' } } });
+    const lines: string[] = [];
+    const running = await startSellerAdapter({ ...loadConfig(file), log: (l) => lines.push(l) }, { HOLDBACK_KEY: acct('seller-1').privateKey, HOLDBACK_OPERATORS: world.info.operators.join(','), JOBS_API_KEY: KEY, HOLDBACK_READY_CREDENTIALS: ready });
+    adapters.push(running);
+    expect(lines.join('\n')).toContain('The seller API\'s start is sent at most once a deal');
+    const buyer = agent('buyer-1');
+    const { body: q } = await quote(running, buyer);
+    const id = q.commitmentId as Hex;
+    await fund(buyer, id);
+    await until('the deal to hold at start-unknown', () => stageOf(running, id) === 'start-unknown');
+    await new Promise((r) => setTimeout(r, 400)); // eight more polls: none may start again
+    expect(stub.requests.filter((r) => r.path === '/api/v2/runs')).toHaveLength(1);
+    expect(lines.some((l) => l.includes('job.start_unknown'))).toBe(true);
+
+    const job = (jobId: J, credential = ready) => fetch(`${running.url}/deals/${id}/job`, { method: 'POST', headers: { authorization: `Bearer ${credential}`, 'content-type': 'application/json' }, body: JSON.stringify({ jobId }) });
+    expect((await job(41, 'wrong')).status).toBe(401);
+    expect((await job('')).status).toBe(400);
+    const named = await job('41');
+    expect(named.status).toBe(202);
+    expect((await buyer.waitFor(id, ['Released', 'Refunded'])).escrowState).toBe('Released');
+    await until('the delivery to be recorded', () => stageOf(running, id) === 'delivered');
+    expect(stub.requests.filter((r) => r.path === '/api/v2/runs')).toHaveLength(1);
+    expect(stub.runs()).toHaveLength(1);
+    expect(await deliveries(buyer, id)).toHaveLength(1);
+    expect((await job('41')).status).toBe(409); // the deal no longer waits for a job ID
+  }, 30_000);
+
   it('a failed job is reported once and never delivered', async () => {
     stub = await startJobStub({ key: KEY, fail: true, readsUntilComplete: 1 });
     const { running, lines } = await adapter(configFile(stub.base));
