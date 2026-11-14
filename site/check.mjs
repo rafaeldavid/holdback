@@ -535,18 +535,30 @@ expect(typeof trust.SECURITY_CONTACT === 'string' && read('../SECURITY.md').incl
     const dir = fileURLToPath(site);
     const file = new URL('csp-hashes.json', site);
     const written = existsSync(file) ? headers.parseHashes(JSON.parse(readFileSync(file, 'utf8'))) : null;
-    expect(written !== null && JSON.stringify(written) === JSON.stringify(csp.inlineHashesOf(dir)), 'reports/site-out/csp-hashes.json is missing, malformed or stale against the pages it sits beside: build with --out again');
+    // The reader refuses (throws on) a page whose scripts it cannot place exactly; a refusal fails the check.
+    const attempt = (what, f) => {
+      try {
+        return f();
+      } catch (e) {
+        expect(false, `${what}: ${e.message}`);
+        return null;
+      }
+    };
+    const current = attempt('reports/site-out', () => csp.inlineHashesOf(dir));
+    expect(written !== null && JSON.stringify(written) === JSON.stringify(current), 'reports/site-out/csp-hashes.json is missing, malformed or stale against the pages it sits beside: build with --out again');
     for (const f of csp.htmlFiles(dir)) {
       const h = readFileSync(join(dir, f), 'utf8');
       markup(`reports/site-out/${f}`, h);
+      if (attempt(`reports/site-out/${f}`, () => csp.elements(h)) === null) continue;
       const policy = headers.contentSecurityPolicy(written, served(f));
       const directive = (name) => (policy.split('; ').find((d) => d.startsWith(`${name} `)) ?? '').split(' ').slice(1);
       const { scripts, styles } = csp.inlineBlocks(h);
       for (const s of scripts) expect(directive('script-src').includes(`'${csp.cspHash(s)}'`), `reports/site-out/${f}: an inline script (${csp.cspHash(s).slice(0, 19)}…) is not in the policy's script-src`);
       for (const s of styles) expect(directive('style-src').includes(`'${csp.cspHash(s)}'`) || directive('style-src').includes("'unsafe-inline'"), `reports/site-out/${f}: an inline style (${csp.cspHash(s).slice(0, 19)}…) is not in the policy's style-src`);
-      for (const [, src] of h.matchAll(/<script\b[^>]*\ssrc="([^"]+)"/gi)) expect(!/^(https?:)?\/\//i.test(src) || directive('script-src').includes(new URL(src, SITE_URL).origin), `reports/site-out/${f} loads a script from ${src}, which the policy's script-src does not allow`);
+      expect(csp.scriptCountProblem(h) === null, `reports/site-out/${f}: ${csp.scriptCountProblem(h)}`);
+      for (const src of csp.elements(h).scripts.filter((e) => e.attrs.has('src')).map((e) => e.attrs.get('src'))) expect(!/^(https?:)?\/\//i.test(src) || directive('script-src').includes(new URL(src, SITE_URL).origin), `reports/site-out/${f} loads a script from ${src}, which the policy's script-src does not allow`);
       // Outside origins a page fetches (its inline scripts and the site's own scripts it loads) and the images it shows.
-      const own = [...h.matchAll(/<script\b[^>]*\ssrc="(\/[^"/][^"]*)"/gi)].map(([, src]) => join(dir, src)).filter((p) => existsSync(p)).map((p) => readFileSync(p, 'utf8'));
+      const own = csp.elements(h).scripts.map((e) => e.attrs.get('src') ?? '').filter((src) => /^\/[^/]/.test(src)).map((src) => join(dir, src)).filter((p) => existsSync(p)).map((p) => readFileSync(p, 'utf8'));
       for (const code of [...scripts, ...own]) for (const [, url] of code.matchAll(/fetch\(\s*['"`](https?:\/\/[^'"`/]+)/g)) expect(directive('connect-src').includes(new URL(url).origin), `reports/site-out/${f} fetches ${url}, which the policy's connect-src does not allow: add the origin in apps/site/headers.js`);
       for (const [, src] of h.matchAll(/<img\b[^>]*\ssrc="([^"]+)"/gi)) expect(!/^(https?:|data:)|^\/\//i.test(src), `reports/site-out/${f} shows an image from ${src.slice(0, 60)}, which the policy's img-src ('self') does not allow`);
       for (const [tag] of h.matchAll(/<link\b[^>]*rel="stylesheet"[^>]*>/gi)) {

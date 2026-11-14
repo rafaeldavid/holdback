@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import site from '../apps/site/worker.js';
 // @ts-expect-error -- plain ESM module without type declarations
 import { COMMON, contentSecurityPolicy, forgetHashes, parseHashes } from '../apps/site/headers.js';
-import { cspHash, inlineBlocks } from '../site/csp.mjs';
+import { cspHash, elements, inlineBlocks, scriptCountProblem } from '../site/csp.mjs';
 
 type Fetcher = { fetch(request: Request, env: unknown, ctx?: unknown): Promise<Response> };
 const S = `sha256-${'A'.repeat(43)}=`, T = `sha256-${'B'.repeat(43)}=`;
@@ -154,9 +154,46 @@ describe('the security headers on the site Worker (T-451)', () => {
     expect((await get('http://127.0.0.1:8799/llms.txt', env)).status).toBe(200);
   });
 
-  it('hashes inline code as a browser does: CR LF and a lone CR count as LF; import maps are hashed, JSON data blocks not', () => {
+  it('hashes inline code as a browser does: CR LF and a lone CR count as LF; every inline script whatever its type, none with a src', () => {
     expect(cspHash('a();\r\nb();\rc();')).toBe(cspHash('a();\nb();\nc();'));
-    const b = inlineBlocks('<script>x()</script><script type="importmap">{}</script><script type="application/json">{}</script><script src="/a.js"></script><style>p{}</style>');
-    expect(b).toEqual({ scripts: ['x()', '{}'], styles: ['p{}'] });
+    const b = inlineBlocks('<script>x()</script><script type="importmap">{}</script><script type="application/json">[]</script><script src="/a.js"></script><style>p{}</style>');
+    expect(b).toEqual({ scripts: ['x()', '{}', '[]'], styles: ['p{}'] });
+  });
+
+  it('ends a script where a browser does: any case, whitespace, a slash or attributes after the name', () => {
+    for (const end of ['</script>', '</SCRIPT>', '</Script >', '</script\n>', '</script\t\n bar>', '</script/>', '</script foo="a>b">']) {
+      const page = `<p>one</p><script>a()</script><div>two</div><script data-x="a>b">b()${end}<p>three</p>`;
+      expect(inlineBlocks(page).scripts, end).toEqual(['a()', 'b()']);
+      expect(scriptCountProblem(page), end).toBeNull();
+    }
+    // '</scripts>' is not an end tag of script; the reader refuses the text rather than guess.
+    expect(() => inlineBlocks('<script>a("</scripts>")</script>')).toThrow(/holds/);
+    // Styles end the same way.
+    expect(inlineBlocks('<style>p{}</STYLE ><style>q{}</style>').styles).toEqual(['p{}', 'q{}']);
+  });
+
+  it('refuses what it does not model, so no hash covers text a browser would not run', () => {
+    const refused = {
+      '"</script>" inside a string (the script ends there; a second end tag is left)': '<script>var s = "</script>";</script>',
+      '"<!--" inside a script (the escaped states)': '<script>a("<!--")</script>',
+      '"<script" inside a script': '<script>a("<script>")</script>',
+      'a script that never ends': '<script>a()',
+      'a script inside <svg>': '<svg><script>a()</script></svg>',
+      '<plaintext>': '<plaintext><script>a()</script>',
+    };
+    for (const [why, page] of Object.entries(refused)) {
+      let problem: string | null;
+      try {
+        problem = scriptCountProblem(page);
+      } catch (e) {
+        problem = (e as Error).message;
+      }
+      expect(problem, why).not.toBeNull();
+    }
+    // A "<script" the reader skips (a comment, an attribute, a title) makes the counts differ, and the build refuses.
+    for (const page of ['<!-- <script>a()</script> --><p>x</p>', '<a title="<script>x</script>">y</a>', '<title><script>a()</script></title>']) {
+      expect(elements(page).scripts).toEqual([]);
+      expect(scriptCountProblem(page), page).not.toBeNull();
+    }
   });
 });
