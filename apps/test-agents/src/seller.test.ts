@@ -154,6 +154,7 @@ describe("Crow's test seller", () => {
       const held = await checkAndFund(buyer, offered.commitmentId, offered.seller);
       expect(held.escrowState).toBe('Held');
       const done = await statusUntil(s, token, (x) => x.deal === 'released', 30_000);
+      expect(done.status).toBe('released');
       expect(done.outcome).toBe('release');
       expect(await buyer.openDelivery(offered.commitmentId)).toBe(GOOD_CSV);
       expect(round).toBeGreaterThan(0);
@@ -168,6 +169,7 @@ describe("Crow's test seller", () => {
     const offered = await statusUntil(s, token, (x) => x.status === 'offered');
     await checkAndFund(buyer, offered.commitmentId, offered.seller);
     const done = await statusUntil(s, token, (x) => x.deal === 'refunded', 30_000);
+    expect(done.status).toBe('refunded');
     expect(done.outcome).toBe('refund');
     const judgment = await buyer.call('GET', `/v1/commitments/${offered.commitmentId}/judgment`);
     expect(judgment.deterministic.find((c: J) => c.checkId === 'rows').passed).toBe(false);
@@ -320,6 +322,7 @@ describe("Crow's test seller", () => {
       expect(await (await s.call('/health')).json()).toEqual({ status: 'operational', open: 1 });
       skew = 2 * 3_600_000;
       const expired = await statusUntil(s, token, (x) => x.deal === 'expired');
+      expect(expired.status).toBe('expired');
       expect(expired.detail).toMatch(/did not agree and fund/);
       expect((await (await s.call('/health')).json()).open).toBe(0);
       await s.stop();
@@ -353,9 +356,61 @@ describe("Crow's test seller", () => {
       // The seller comes back and closes the deal it can no longer act on, freeing its slot.
       const back = startSeller({ world, timing, storage, seed });
       const closed = await statusUntil(back, token, (x) => x.deal === 'refunded');
+      expect(closed.status).toBe('refunded');
       expect(closed.detail).toMatch(/went back to the buyer by the reclaim/);
       expect(await (await back.call('/health')).json()).toEqual({ status: 'operational', open: 0 });
       await back.stop();
+    } finally {
+      await world.close();
+    }
+  });
+
+  it('follows a missed deadline to the buyer\'s reclaim: the status ends refunded, not offered or failed (T-445)', async () => {
+    let skew = 0;
+    const world = await serveWorld({ now: () => Date.now() + skew });
+    try {
+      const timing = { offerExpiresInSec: 600, fundWithinSec: 900, deliverWithinSec: 1200, judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 0, appealDecideSec: 60 };
+      const storage = new MemoryStorage();
+      const seed = generatePrivateKey();
+      const s = startSeller({ world, timing, storage, seed });
+      const buyer = await freshBuyer(world);
+      const { token } = await propose(s, buyer, proposalFor(buyer));
+      const offered = await statusUntil(s, token, (x) => x.status === 'offered');
+      await s.stop(); // down while the buyer funds, so the seller misses deliverBy
+      await checkAndFund(buyer, offered.commitmentId, offered.seller);
+      skew = 1230_000; // 30 s past deliverBy
+      // Back up past deliverBy with the hold still Held: too late to deliver, so it waits for the reclaim.
+      const back = startSeller({ world, timing, storage, seed });
+      await sleep(1500);
+      expect(await (await back.call(`/status?token=${token}`)).json()).toMatchObject({ status: 'offered', deal: 'offered' });
+      expect((await (await back.call('/health')).json()).open).toBe(1);
+      const reclaimed = await buyer.call('POST', `/v1/commitments/${offered.commitmentId}/triggers/reclaim`, {});
+      expect(reclaimed.escrowState).toBe('Refunded');
+      const closed = await statusUntil(back, token, (x) => x.deal !== 'offered');
+      expect(closed).toMatchObject({ status: 'refunded', deal: 'refunded' });
+      expect(closed.detail).toMatch(/did not deliver before deliverBy/);
+      expect(closed.transactions?.map((t: J) => t.step) ?? []).not.toContain('delivered');
+      expect(await (await back.call('/health')).json()).toEqual({ status: 'operational', open: 0 });
+      await back.stop();
+    } finally {
+      await world.close();
+    }
+  });
+
+  it('closes a missed deadline nobody reclaims as failed, 10 minutes after deliverBy (T-445)', async () => {
+    let skew = 0;
+    const world = await serveWorld({ now: () => Date.now() + skew });
+    try {
+      const s = startSeller({ world });
+      const buyer = await freshBuyer(world);
+      const { token } = await propose(s, buyer, named(buyer, 'customers-3-silent'));
+      const offered = await statusUntil(s, token, (x) => x.status === 'offered');
+      await checkAndFund(buyer, offered.commitmentId, offered.seller);
+      skew = 300_000 + 11 * 60_000; // 11 minutes past deliverBy, no reclaim sent
+      const closed = await statusUntil(s, token, (x) => x.deal !== 'offered');
+      expect(closed).toMatchObject({ status: 'failed', deal: 'failed' });
+      expect(closed.detail).toMatch(/silent offer did not deliver, as offered; the buyer can reclaim/);
+      await s.stop();
     } finally {
       await world.close();
     }
@@ -426,6 +481,7 @@ describe("the test seller's named offers (T-420)", () => {
     expect(offered).toMatchObject({ offer: 'summary-judged-fails', countered: false, outcome: 'refund' });
     await checkAndFund(buyer, offered.commitmentId, offered.seller, JUDGED);
     const done = await statusUntil(s, token, (x) => x.deal === 'refunded', 30_000);
+    expect(done.status).toBe('refunded');
     expect(done.outcome).toBe('refund');
     const judgment = await buyer.call('GET', `/v1/commitments/${offered.commitmentId}/judgment`);
     expect(judgment.deterministic.every((c: J) => c.passed)).toBe(true);
@@ -454,6 +510,7 @@ describe("the test seller's named offers (T-420)", () => {
       const reclaimed = await buyer.call('POST', `/v1/commitments/${offered.commitmentId}/triggers/reclaim`, {});
       expect(reclaimed.escrowState).toBe('Refunded');
       const closed = await statusUntil(s, token, (x) => x.deal === 'refunded');
+      expect(closed.status).toBe('refunded');
       expect(closed.detail).toMatch(/went back to the buyer by the reclaim/);
       expect(closed.transactions?.map((t: J) => t.step) ?? []).not.toContain('delivered');
       await s.stop();
