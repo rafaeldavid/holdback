@@ -6,7 +6,7 @@
 - **Depends on:** the privacy baseline (T-416, `docs/privacy-baseline.md`), which holds the facts about what a deal reveals
 - **Paths this task may touch:** this file; `site/build.mjs`, `site/check.mjs`, new files under `site/` for the new pages (`site/trust.html`, `site/status.html`, `site/pages.css`); `site/footer.ts`, for the two footer links only (see Decisions); `apps/site/` for the status relay; a new test under `tests/` for that relay; `SECURITY.md`. In the private repository, a new folder `enterprise/` (its own pull request).
 - **Human gate:** the site deploy. Rafa's word for this wave, "merge and deploy when ready", covers it inside the wave brief's six limits.
-- **Status:** in progress
+- **Status:** done (holdback pull request 521, merge commit `9415caa9`; crow-private pull request 61, merge commit `60183d07`; site deployed 2026-11-14 12:03 UTC)
 - **Agent/session:** the T-421 session, 2026-11-14, branch `t-421-trust-surfaces`
 
 ## Intent
@@ -24,16 +24,16 @@ Non-goals: no change to the guides' first-deal text (`site/llms.txt`, `site/buy.
 
 From the wave brief and the done-when lines of N109 and N119, as far as this task's scope reaches:
 
-- [ ] `https://crow.direct/trust` answers 200, and every statement on it carries a link to its source.
-- [ ] The trust page says what is not there yet: no outside audit of Crow's own contracts, no certification, test network only.
-- [ ] The site's one footer links the trust page and the status page, on every page the build writes.
-- [ ] `https://crow.direct/.well-known/security.txt` answers 200 with Contact, Expires, Preferred-Languages, Canonical and Policy, and Expires is in the future and less than a year away.
-- [ ] `SECURITY.md` gives the reporting steps and what a reporter can expect.
-- [ ] `https://crow.direct/status` shows the two operators, the site, the test seller and Ethereum Sepolia, each with a state and the time of its check, from public endpoints only.
-- [ ] `site/check.mjs` fails before this change and passes after it: the pages exist and are current, the footer links them, `security.txt` parses and has not expired, and no refused word appears on the new pages.
-- [ ] `site/try.mjs` and `site/buy.mjs` keep their sha256.
-- [ ] One `reviewer` pass that checks every claim on the trust page against its source; its findings fixed or recorded.
-- [ ] Questionnaire answers in crow-private `enterprise/`, each with its source, "not yet" where that is true (separate pull request).
+- [x] `https://crow.direct/trust` answers 200, and every statement on it carries a link to its source.
+- [x] The trust page says what is not there yet: no outside audit of Crow's own contracts, no certification, test network only.
+- [x] The site's one footer links the trust page and the status page, on every page the build writes.
+- [x] `https://crow.direct/.well-known/security.txt` answers 200 with Contact, Expires, Preferred-Languages, Canonical and Policy, and Expires is in the future and less than a year away.
+- [x] `SECURITY.md` gives the reporting steps and what a reporter can expect.
+- [x] `https://crow.direct/status` shows the two operators, the site, the test seller and Ethereum Sepolia, each with a state and the time of its check, from public endpoints only.
+- [x] `site/check.mjs` fails before this change and passes after it: the pages exist and are current, the footer links them, `security.txt` parses and has not expired, and no refused word appears on the new pages.
+- [x] `site/try.mjs` and `site/buy.mjs` keep their sha256.
+- [x] One `reviewer` pass that checks every claim on the trust page against its source; its findings fixed or recorded.
+- [x] Questionnaire answers in crow-private `enterprise/`, each with its source, "not yet" where that is true (separate pull request).
 
 ## Out of scope
 
@@ -66,7 +66,11 @@ Fill this in before review. Label each item measured, inferred or guessed.
 
 ## Handoff
 
-Built and reviewed; the live checks after the deploy go below.
+Done. Merged and deployed on 2026-11-14.
+
+- **Deploy (measured):** `pnpm site:deploy` from a detached worktree at `origin/main` `a182f81`, 12:03 UTC, 15 min 48 s after the previous site deploy (`9a66ab50`, 11:47:40 UTC, commit `4f28a994`). Result: pass. Live version `68d33780-5033-4053-a46e-fe3fdfff1e83`, rollback target `9a66ab50-5f94-4f5c-889c-0bbf7b28960d`. It also carried T-426's reference guides (holdback pull request 525: `site/ref/http.txt`, `http-buyer.txt`, `signing.txt`, `site/guides.mjs`); T-422's pull request 524 changes no site file.
+- **Live checks (measured, 12:04 UTC, plain GETs):** `/trust`, `/status`, `/pages.css` and `/.well-known/security.txt` answer 200; `security.txt` carries the five fields with Expires `2027-05-13T00:00:00.000Z`; `/status/operators.json` answers 200 with both operators `operational` (212 ms and 160 ms), so a same-zone fetch to the operators' Custom Domains works; `/`, `/demo/`, a 404 path and `/problems/not_found` each link `/trust` and `/status`; `/version.json` names commit `a182f81` and version `68d33780`; the live `try.mjs` and `buy.mjs` keep sha256 `04ef4434…` and `e74ff223…`.
+- **Looked at (measured, the app's browser):** the status page shows all five rows Operational with their check times; at 375 px both pages are 375 px wide; the trust page holds 33 statements.
 
 - **For T-423 (`site/ref/limits.txt` is its file in this wave):** "Reporting a problem" tells agents to `POST /v1/feedback`, kept 90 days. The live operators take no reports (measured above). The trust page no longer links that section for reporting; the line in `limits.txt` stays wrong until T-423 or a later task changes it.
 - **Row N109, what still stands between `enterprise/` and its done-when** (coordinator's scope note, 2026-11-14): the done-when asks for a completed SIG Lite or CAIQ and the CSA STAR Level 1 self-assessment. crow-private `enterprise/security-questionnaire.md` answers 47 common questions. A completed CAIQ v4 has about 260 questions across 17 domains (guessed from the public CAIQ; not downloaded, as the note asks); SIG Lite is a licensed Shared Assessments sheet, also not downloaded. A STAR Level 1 entry is a submission to the Cloud Security Alliance's public registry, which is Rafa's to make. Rows marked "Rafa answers" (entity, MFA, cover, staff checks, contract terms, providers' data terms) need his facts first.
