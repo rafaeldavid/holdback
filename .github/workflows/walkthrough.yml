@@ -1,0 +1,63 @@
+name: walkthrough
+
+# T-410: site/walkthrough.mjs builds one deal from site/llms.txt and the guides alone, with no Crow code. Until now
+# only the redeploy runbook's step 4 ran it, by hand (docs/redeploy-contracts.md). This job runs it on every change
+# that can make the guides and the API disagree, against a world on a fork of Sepolia: anvil forks the public chain
+# into this runner, and nothing is sent to Sepolia. apps/demo-cloud/src/live-fork.test.ts runs examples/try.ts, then
+# the walkthrough, and prints both outputs.
+#
+# It needs the network (the fork's RPC), so it is a job of its own, not part of the required `check`; it does not
+# gate a merge until Rafa adds it to the ruleset.
+
+on:
+  pull_request:
+    paths:
+      - site/**
+      - examples/**
+      - packages/**
+      - apps/demo-cloud/**
+      - apps/operator/**
+      - contracts/deployments/sepolia.json
+      - .github/workflows/walkthrough.yml
+  push:
+    branches: [main]
+    paths:
+      - site/**
+      - examples/**
+      - packages/**
+      - apps/demo-cloud/**
+      - apps/operator/**
+      - contracts/deployments/sepolia.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  walkthrough:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # anvil only: the fork test reads the deployed contracts from the record, not from contracts/out.
+      - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1
+        with:
+          version: v1.0.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: the walkthrough on a Sepolia fork (must not skip)
+        env:
+          # A public node, no key: the runbook's read node. anvil forks it into this runner.
+          SEPOLIA_FORK_RPC: https://ethereum-sepolia-rpc.publicnode.com
+        run: |
+          set -o pipefail
+          pnpm vitest run apps/demo-cloud/src/live-fork.test.ts --silent=false --reporter=verbose | tee fork.log
+          if grep -Eq "[0-9]+ skipped" fork.log; then echo "the fork suite skipped a test: anvil or SEPOLIA_FORK_RPC missing" >&2; exit 1; fi
+          grep -q '^walkthrough PASS' fork.log || { echo "no 'walkthrough PASS' line in the output" >&2; exit 1; }
