@@ -2534,7 +2534,8 @@ async function view(a, id, o, cache) {
 		const apart = t ? [[t.buyer, payment], [t.seller, payout]].filter(([s, m]) => lc(s) !== lc(m)).map(([s]) => lc(s)) : [];
 		if (apart.length) add("signing addresses receive nothing", postings.every((x) => !apart.includes(x.to)), `no posting out of escrow goes to ${apart.join(" or ")}, which sign and differ from their money address`);
 	}
-	const transactions = events.filter((e) => typeof e.payload?.tx === "string" && ID$1.test(e.payload.tx)).map((e) => ({
+	const seen = /* @__PURE__ */ new Set();
+	const transactions = events.filter((e) => typeof e.payload?.tx === "string" && ID$1.test(e.payload.tx) && !seen.has(lc(e.payload.tx)) && seen.add(lc(e.payload.tx))).map((e) => ({
 		step: e.type,
 		tx: e.payload.tx,
 		url: pin?.chain?.explorer ? `${pin.chain.explorer}/tx/${e.payload.tx}` : null
@@ -2760,6 +2761,15 @@ function saveWatched(store, address, w) {
 	writeFileSync(`${file}.tmp`, `${JSON.stringify(w, null, 2)}\n`, { mode: 384 });
 	renameSync(`${file}.tmp`, file);
 }
+/** `read`, and again after each pause while it throws `operators disagree on ...`; then that error. Any other error at once. */
+async function agreeing(read, pauses = AGREE_PAUSES_MS) {
+	for (let i = 0;; i++) try {
+		return await read();
+	} catch (e) {
+		if (i >= pauses.length || !/^operators disagree on /.test(String(e?.message))) throw e;
+		await sleep(pauses[i]);
+	}
+}
 /** The defaults with each placeholder replaced by the scope's value, in one pass, as the seller adapter fills its template. */
 function fillWith(node, scope) {
 	const value = (name, length) => {
@@ -2939,7 +2949,7 @@ async function loadKeys(store, commitmentIdOrAddress, options = {}) {
 	}
 	throw new Error(`no key in ${store} for ${want}`);
 }
-var WINDOWS, watchFile, DEC, ID, EMPTY_RUBRIC, isMoney, lowerHex, same, refuse, HIDDEN, printable, shown, sleep, isRecord, PLACEHOLDER, WHOLE_PLACEHOLDER, CLOCK_FIELDS, OFFER_FIELDS, SIGNED_FIELDS, sha256, defaultOperators, EXPECT_KEYS, BuyerSigner;
+var WINDOWS, watchFile, DEC, ID, EMPTY_RUBRIC, isMoney, lowerHex, same, refuse, HIDDEN, printable, shown, sleep, FaucetLimited, AGREE_PAUSES_MS, isRecord, PLACEHOLDER, WHOLE_PLACEHOLDER, CLOCK_FIELDS, OFFER_FIELDS, SIGNED_FIELDS, sha256, defaultOperators, EXPECT_KEYS, BuyerSigner;
 var init_buyer_signer = __esmMin((() => {
 	init_agent();
 	init_entry();
@@ -2971,6 +2981,21 @@ var init_buyer_signer = __esmMin((() => {
 	printable = (json) => [...json].map((c) => HIDDEN.test(c) ? [...Array(c.length).keys()].map((i) => `\\u${c.charCodeAt(i).toString(16).padStart(4, "0")}`).join("") : c).join("");
 	shown = (v) => printable([...jcs(lowerHex(v))].slice(0, 200).join(""));
 	sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+	FaucetLimited = class extends Error {
+		detail;
+		retryAfterSec;
+		constructor(detail, retryAfterSec) {
+			super(`POST /v1/faucet: rate_limited: ${detail}`);
+			this.detail = detail;
+			this.retryAfterSec = retryAfterSec;
+		}
+	};
+	AGREE_PAUSES_MS = [
+		1e3,
+		2e3,
+		4e3,
+		8e3
+	];
 	isRecord = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 	PLACEHOLDER = /(\\?)\{\{([A-Za-z][A-Za-z0-9]*)(\.length)?\}\}/g;
 	WHOLE_PLACEHOLDER = /^\{\{([A-Za-z][A-Za-z0-9]*)(\.length)?\}\}$/;
@@ -3222,7 +3247,7 @@ var init_buyer_signer = __esmMin((() => {
 			if (!DEC.test(amount) || amount === "0") throw new Error("amount is base units as a decimal string, above 0");
 			const { agent, pin } = await this.#connect();
 			if (this.paymentAddress === this.address) {
-				const grant = await agent.call("POST", "/v1/faucet", {
+				const grant = await this.#faucet(agent, {
 					address: this.address,
 					amount
 				});
@@ -3231,17 +3256,17 @@ var init_buyer_signer = __esmMin((() => {
 					amount: grant.granted.amount
 				};
 			}
-			const heldNow = async () => String(await agent.trusted(`/v1/balances/${this.paymentAddress}`, (x) => x.amount) ?? "0");
+			const heldNow = async () => String(await agreeing(() => agent.trusted(`/v1/balances/${this.paymentAddress}`, (x) => x.amount)) ?? "0");
 			let grant = null;
 			try {
-				grant = await agent.call("POST", "/v1/faucet", {
+				grant = await this.#faucet(agent, {
 					address: this.address,
 					amount,
 					paymentAddress: this.paymentAddress
 				});
 			} catch (e) {
 				const h = await heldNow();
-				if (!/: rate_limited: /.test(e.message) || !DEC.test(h) || BigInt(h) < BigInt(amount)) throw e;
+				if (!(e instanceof FaucetLimited) || !DEC.test(h) || BigInt(h) < BigInt(amount)) throw e;
 			}
 			const held = await heldNow();
 			if (!DEC.test(held) || BigInt(held) < BigInt(amount)) throw new Error(`the faucet did not fund the payment address ${this.paymentAddress} (it holds ${held} base units): these operators predate the faucet's payment address (T-378)`);
@@ -3249,6 +3274,25 @@ var init_buyer_signer = __esmMin((() => {
 				token: grant?.granted?.token ?? pin.token.id,
 				amount: grant?.granted?.amount ?? "0"
 			};
+		}
+		/** POST /v1/faucet to the relay, as Agent.call sends it; a 429 throws FaucetLimited, with the seconds Retry-After names. */
+		async #faucet(agent, body) {
+			const res = await fetch(`${agent.operators[0]}/v1/faucet`, {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					"idempotency-key": crypto.randomUUID()
+				},
+				body: JSON.stringify(body)
+			});
+			const out = await res.json().catch(() => null);
+			const detail = String(out?.detail ?? "").replace(/[^\x20-\x7e]/g, "?").slice(0, 200);
+			if (res.status === 429) {
+				const header = res.headers.get("retry-after") ?? "", sec = /^[0-9]{1,9}$/.test(header) ? Number(header) : Number.isSafeInteger(out?.retryAfterSec) && out.retryAfterSec >= 0 ? out.retryAfterSec : null;
+				throw new FaucetLimited(detail, sec);
+			}
+			if (!res.ok || out === null) throw new Error(`POST /v1/faucet: ${out?.type}: ${detail}`);
+			return out;
 		}
 		/**
 		* The offer against every configured operator's settlement time (T-390, T-388 H1): a difference when `createdAt` is
@@ -3667,7 +3711,7 @@ var init_buyer_signer = __esmMin((() => {
 			const written = this.#saved.funding?.commitmentId === id ? this.#saved.funding : void 0;
 			if (apart && !written) throw new Error(`the payment address ${this.paymentAddress} signs the funding: call fundingFiles, sign its files with that wallet, and pass the signatures here`);
 			if (!apart && signatures) throw new Error("this key is its own payment address: it signs the funding itself, and takes no signatures");
-			const state = await agent.trusted(`/v1/commitments/${id}`, (x) => x.escrowState);
+			const state = await agreeing(() => agent.trusted(`/v1/commitments/${id}`, (x) => x.escrowState));
 			if (state === "AcceptedByAdjudicator") {
 				let held;
 				if (apart) {
@@ -3682,7 +3726,7 @@ var init_buyer_signer = __esmMin((() => {
 				}
 				if (held.escrowState !== "Held" || held.hold?.amount?.amount !== paid.hold.amount) throw new Error(`expected Held with ${paid.hold.amount} base units, got ${held.escrowState} ${shown(held.hold?.amount ?? null)}`);
 				paid.receipt = held.receipt ?? null;
-			} else if (!await agent.trusted(`/v1/commitments/${id}/events?limit=200`, (x) => x.items.some((e) => e.type === "hold.funded"))) throw new Error(`${id} is ${state} and no funding is recorded: there is nothing to fund`);
+			} else if (!await agreeing(() => agent.trusted(`/v1/commitments/${id}/events?limit=200`, (x) => x.items.some((e) => e.type === "hold.funded")))) throw new Error(`${id} is ${state} and no funding is recorded: there is nothing to fund`);
 			this.#saved.paid = paid;
 			save(this.store, this.#saved);
 			return paid;
@@ -3919,7 +3963,7 @@ var init_buyer_signer = __esmMin((() => {
 			const { agent, pin } = await this.#connect();
 			const sources = agent.sources();
 			const path = `/v1/commitments/${id}/events?limit=200`;
-			const events = await this.#agreed(sources, path, (x) => x.items.map((e) => ({
+			const events = await agreeing(() => this.#agreed(sources, path, (x) => x.items.map((e) => ({
 				seq: e.seq,
 				type: e.type,
 				hash: e.hash,
@@ -3928,7 +3972,7 @@ var init_buyer_signer = __esmMin((() => {
 					uri: e.payload?.ciphertext?.uri,
 					plaintextSha256: e.payload?.plaintextSha256
 				} : null
-			})));
+			}))));
 			events.sort((a, b) => a.seq - b.seq);
 			let work = null;
 			let plaintextSha256 = null;
@@ -3997,7 +4041,7 @@ var init_buyer_signer = __esmMin((() => {
 				...typedOf("Delivery", d, agent.domain),
 				signature: d.signature
 			}).catch(() => "")).toLowerCase() !== String(terms.seller).toLowerCase()) throw new Error("the delivery you passed is not signed by the deal's seller");
-			const released = await this.#agreed(agent.sources(), `/v1/commitments/${id}/key?recipient=${this.address}`, (x) => Array.isArray(x?.items) ? x.items.map((k) => k.ciphertext) : []);
+			const released = await agreeing(() => this.#agreed(agent.sources(), `/v1/commitments/${id}/key?recipient=${this.address}`, (x) => Array.isArray(x?.items) ? x.items.map((k) => k.ciphertext) : []));
 			const mine = (Array.isArray(d.encryptedKeys) ? d.encryptedKeys : []).filter((k) => String(k?.recipient).toLowerCase() === this.address);
 			if (mine.length !== 1 || !released.includes(mine[0].ciphertext)) throw new Error("the key the settlement released is not your envelope in the delivery you passed: it is not the delivery that settled");
 			const uri = String(d.ciphertext?.uri);
@@ -4119,7 +4163,7 @@ var init_pay_from_wallet = __esmMin((async () => {
 
 // examples/buy-with-signer.ts
 var buy_with_signer_exports = /* @__PURE__ */ __exportAll({});
-var args, stop, at, termsFile, dl, deliveryFile, first, store, third, fourth, defaults, options, usage, asked, say, expect, sh, finish, pay;
+var args, stop, at, termsFile, dl, deliveryFile, first, store, third, fourth, defaults, options, usage, asked, say, expect, sh, finish, testFunds, pay;
 var init_buy_with_signer = __esmMin((async () => {
 	init_help();
 	init_buyer_signer();
@@ -4156,11 +4200,22 @@ var init_buy_with_signer = __esmMin((async () => {
 			transactions: done.transactions
 		})));
 	};
+	testFunds = async (s, amount) => {
+		try {
+			await s.testFunds(amount);
+			return true;
+		} catch (e) {
+			if (!(e instanceof FaucetLimited)) throw e;
+			console.error(printable(`Stopped: the faucet's grants for this client are used (429: ${e.detail}). It grants again ${e.retryAfterSec === null ? "within the hour" : `in ${e.retryAfterSec} s`}. Nothing is signed or paid: run the approve command again then, before offerExpiresAt.`));
+			process.exitCode = 1;
+			return false;
+		}
+	};
 	pay = async (s, offer, budget) => {
 		if (BigInt(offer.fees.total.amount) > BigInt(budget)) throw new Error(`the offer costs ${offer.fees.total.amount} base units, above ${budget}`);
 		if (!s.paid && s.paymentAddress !== s.address) {
 			await s.checkOffer(offer.commitmentId, offer);
-			await s.testFunds(offer.fees.total.amount);
+			if (!await testFunds(s, offer.fees.total.amount)) return;
 			for (const f of await s.fundingFiles(offer.commitmentId)) say({
 				sign: f.path,
 				digest: f.digest,
@@ -4173,7 +4228,7 @@ var init_buy_with_signer = __esmMin((async () => {
 		}
 		if (!s.paid) {
 			await s.checkOffer(offer.commitmentId, offer);
-			await s.testFunds(offer.fees.total.amount);
+			if (!await testFunds(s, offer.fees.total.amount)) return;
 			say({
 				funded: offer.commitmentId,
 				paid: (await s.agreeAndFund(offer.commitmentId)).total
