@@ -28,11 +28,69 @@
 
 ## Evidence
 
-(filled in as the work runs)
+All runs on 2026-11-14, on branch `t-409-operator-hardening`, from `origin/main` at `b9e33a9`, on the Mac with anvil 1.0.0 and `forge build` output. The logs are in `reports/scratch/t-409/` and `reports/scratch-t409-*.log` in this worktree (git-ignored).
+
+**N80, items 1 to 3: built by T-372 and still holding.**
+- **T-372's tests pass on today's `main` (measured).** `pnpm exec vitest run apps/adjudicator/src/hung-read.test.ts apps/operator/src/relay-store.test.ts apps/demo-cloud/src/refusals.test.ts apps/adjudicator/src/unreadable-delivery.test.ts`: 4 of 4 files and 33 of 33 tests passed.
+  - The hung read: `hung-read.test.ts`, which includes `neutrality.store-hangs`.
+  - The relay check: `relay-store.test.ts`, which includes `neutrality.operator-lacks-ciphertext`.
+  - The two state-read fixes, the adjudicator-unavailable refusal and the cleared decline: `refusals.test.ts`.
+- **The new test on the phase-one contract (measured).** `neutrality.store-hangs on the contract` is in `apps/demo-cloud/src/timeouts.anvil.test.ts`. It passed in 183 s. In one world on anvil, the store never answers reads of one deal's ciphertext:
+  - The relay's 2 s check gives up, and the delivery still lands.
+  - The demo primary judges the other deal inside its window, and it is Released.
+  - The hung deal's state read says "cannot judge this deal yet … It tries again on each pass."
+  - No `judgment.decided` is logged for the hung deal.
+  - The operators' timeout pass sends `default.triggered` at or after fallbackBy. The deal ends Refunded on the contract, and the buyer's payment address gets the held amount back.
+  - Every world error names the hung deal; none names another deal.
+- **The test catches the stall (measured, a mutation run).** With `DEFAULT_STORE_READ_TIMEOUT_MS` set to Infinity in `apps/adjudicator/src/service.ts` (local only, restored after), the same test failed at its 360 s limit: the pass never returned, and the other deal was never judged.
+- **The test runs in CI (inferred from `.github/workflows/ci.yml`).** The anvil job's world leg names `timeouts.anvil.test.ts` and fails if a test skips. So the test needs no CI change.
+
+**N92: T-232's review-round red team, ported to the phase-one adapter.**
+- **Every test on the archived branch is ported; none was dropped (measured).**
+
+  | Archive test | Where now | Before the fix | After |
+  | --- | --- | --- | --- |
+  | `neutrality.t232-rpc-bogus-head` | `packages/settlement/evm/t232-redteam.test.ts` | passed (PR 239's merge `e87672b` already raises the floor only after the contract answers) | passes |
+  | `attack.t232-answer-read-fails-after-relay` | same file | failed: the first submit threw `BlockNotFoundError`, each retry with the same key was refused `invalid_state`, the lane row stayed open and the takeover past fallbackBy was deferred, so the deal stalled | passes |
+  | `attack.t232-mined-nonce-after-rollback` | same file | failed: `transaction already imported` on every try, and the lane never freed | passes |
+  | A node's missing-block answer in every shape (-32000, -32001, -32602, -32603 and others; 7 shapes on eth_call, eth_getBalance and eth_estimateGas, plus 3 revert cases, 24 tests) | `packages/settlement/evm/read-after-write.test.ts` | passed (`e87672b`) | passes |
+  | A sync pass whose head trails this node's write says so | same file | failed: it returned null | passes |
+  | `attack.t231-behind-stale-book-direct-takeover` | `packages/settlement/evm/timeouts.redteam.test.ts` | passed | passes |
+  | 24 lint bypass and disable cases | `tests/read-after-write.lint-bypass.test.ts` | 17 failed | passes |
+
+  The adaptations to phase one: no bond deposit or bond vault approvals (T-349's `429adfb` removed them), ERC-3009 funding through `EvmDeal`, and no `Expired` stage or appeal field.
+- **Not applying: none.** Every attack in the archive works without bonds.
+- **Before the fixes (measured).** On anvil, 3 of 46 tests in the three settlement files failed. In the lint test, 17 of 24 failed. The ported tests were committed alone as `5a6843d`.
+- **After the fixes (measured).** `pnpm exec vitest run packages/settlement tests/read-after-write.lint.test.ts tests/read-after-write.lint-bypass.test.ts`, with anvil: 22 of 22 files and 346 of 346 tests passed, 0 skipped.
+- **The ported tests run in CI (inferred from `ci.yml`).**
+  - The three settlement files run in the anvil job's settlement leg, which runs `packages/settlement/evm` and fails on a skip.
+  - The lint test runs in the test shards, since `vitest.config.ts` includes `tests/**/*.test.ts`.
+- **Types and lint (measured).** `pnpm typecheck` and `pnpm lint` exit 0 on the branch, with the stricter rule, which covers `apps/*/src`.
 
 ## Decisions
 
-(filled in as the work runs)
+1. **N80's items 1 to 3 are not rebuilt.** T-372 built them, and they went live with the operator deploy of 2026-11-12 at 07:22 UTC. The roadmap row's `starts` field is out of date; the coordinator owns `roadmap/`. This task adds only what T-372 left unshown: the hung deal reaching its outcome on the phase-one contract.
+2. **The relay refuses; it does not mark (T-372 Decision 7, kept).** An operator whose own store answers a definite "not held" for a delivery's ciphertext refuses to relay it, with `relay_refused` (403) and the next step. A store that fails, or does not answer within 2 s, lets the relay go on. Against the litmus tests:
+   - **Neutrality.** The refusal is this operator's alone. Nothing reaches the settlement layer, and the same signed delivery still goes through another operator that holds the bytes, or straight to the contract (`neutrality.operator-lacks-ciphertext`). A hung store cannot stop the relay either: the check gives up after 2 s (the new test shows it). A mark would have to travel with the delivery to the chain or to other operators, and one operator's view of its own store would then shape every operator's book.
+   - **The hold.** A refused delivery changes no state. The funds stay held under the same deadlines, and the seller can upload and send again before deliverBy. Past deliverBy the buyer reclaims, as for any undelivered deal.
+   - **Judgment.** A delivery that does land without readable bytes is still never judged: the adjudicator refuses it, signs nothing, retries, and the default outcome applies at fallbackBy (T-347, T-372, and the new test). The relay check only moves the news to the seller earlier.
+   - **D32.** The seller protects itself by uploading first, and the refusal tells it how. A mark would add settlement-side machinery for a step the seller controls.
+3. **The archive's tests go to the files CI already runs.** The new demo-world test joins `timeouts.anvil.test.ts` rather than a new file, so no change to `.github/` (Rafa's) is needed.
+4. **Three fixes and the lint hardening are ported; three parts of `f33e41f` are not.**
+   - **Ported:**
+     - `view(…, { bestEffort })` in `evm-settlement.ts`: the answer to a mined write is stored and replayed, and its lane row released, even when a balance read fails.
+     - `nextNonce` in `live.ts`: the larger of the pending count and the mined count at the pinned block, read each time. It replaces the remembered `minedNonce`, which a reorg could leave too high.
+     - The sync's throw in `sync.ts`: a pass whose head trails the floor now says so instead of returning null.
+     - The lint rule from `7f15407`, with two call sites in `evm-settlement.ts` written so the rule sees them.
+   - **Not ported, because no test needs them on today's code:**
+     - `missingBlock` in the timeouts check. Measured: viem's `call` gives `CallExecutionError` with no "revert" in the message for -32603, -32000 and -32602.
+     - The move of `missingBlock` into `errors.ts`.
+     - The `pinned`/`newest` signature tidy-up.
+   No event is removed.
+
+## Review and red team
+
+(filled in after the passes)
 
 ## Handoff
 
